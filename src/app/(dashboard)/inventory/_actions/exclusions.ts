@@ -76,7 +76,11 @@ export async function setInventoryResultItemExcluded(input: {
     // правило было бы не найти — импорт применил бы его заново.
     let dismissRuleId = item.exclusion_rule_id;
     if (!input.excluded && !dismissRuleId) {
-      const matchRule = await loadActiveExclusionRuleMatcher({ admin, accountId: ctx.accountId });
+      const matchRule = await loadActiveExclusionRuleMatcher({
+        admin,
+        accountId: ctx.accountId,
+        items: [item],
+      });
       dismissRuleId = matchRule(item)?.id ?? null;
     }
     const { error } = await admin
@@ -154,17 +158,14 @@ export async function createInventoryResultExclusionRule(input: {
       throw new Error("Строка уже участвует в активном пересорте. Сначала отмените пересорт.");
     }
 
-    let existingRuleQuery = admin
-      .from<InventoryExclusionRuleLookup>("inventory_result_exclusion_rules")
-      .select("id, ingredient_id, external_product_id, reason, created_by, created_at")
-      .eq("account_id", ctx.accountId)
-      .eq("status", "active");
-    if (item.ingredient_id) {
-      existingRuleQuery = existingRuleQuery.eq("ingredient_id", item.ingredient_id);
-    } else {
-      existingRuleQuery = existingRuleQuery.eq("external_product_id", item.external_product_id);
-    }
-    const { data: existingRule } = await existingRuleQuery.maybeSingle();
+    // Уже действующее правило (на товар или на его группу) переиспользуем —
+    // второе правило на ту же позицию не заводим.
+    const matchExistingRule = await loadActiveExclusionRuleMatcher({
+      admin,
+      accountId: ctx.accountId,
+      items: [item],
+    });
+    const existingRule = matchExistingRule(item);
 
     const reason = text(input.reason);
     const { data: rule, error: ruleError } = existingRule?.id
@@ -249,20 +250,19 @@ export async function deleteInventoryResultExclusionRule(input: {
       .maybeSingle();
     if (!item?.id) throw new Error("Строка акта не найдена");
 
-    let ruleQuery = admin
-      .from<{ id: string }>("inventory_result_exclusion_rules")
-      .select("id")
-      .eq("account_id", ctx.accountId)
-      .eq("status", "active");
-    if (item.ingredient_id) {
-      ruleQuery = ruleQuery.eq("ingredient_id", item.ingredient_id);
-    } else if (item.external_product_id) {
-      ruleQuery = ruleQuery.eq("external_product_id", item.external_product_id);
-    } else {
-      throw new Error("Автоисключение не найдено");
-    }
-    const { data: rule } = await ruleQuery.maybeSingle();
+    // Правило ищем тем же сопоставлением, что и импорт: оно может быть и на
+    // товар, и на группу. Групповое отсюда не удаляем — оно действует на много
+    // позиций и живёт в списке исключений заведения.
+    const matchRule = await loadActiveExclusionRuleMatcher({
+      admin,
+      accountId: ctx.accountId,
+      items: [item],
+    });
+    const rule = matchRule(item);
     if (!rule?.id) throw new Error("Автоисключение не найдено");
+    if (rule.target_kind === "group") {
+      throw new Error("Правило группы удаляется в списке исключений заведения");
+    }
 
     const { error: ruleError } = await admin
       .from("inventory_result_exclusion_rules")
@@ -428,7 +428,11 @@ export async function bulkSetInventoryResultItemsExcluded(input: {
       // об отказе — иначе ближайший импорт применит правило заново. Смотрим не
       // только на записанное происхождение: ручное исключение его сбрасывает,
       // а правило на позицию при этом остаётся активным.
-      const matchRule = await loadActiveExclusionRuleMatcher({ admin, accountId: ctx.accountId });
+      const matchRule = await loadActiveExclusionRuleMatcher({
+        admin,
+        accountId: ctx.accountId,
+        items: eligible,
+      });
       const underRule = (item: (typeof eligible)[number]) =>
         Boolean(item.exclusion_rule_id) || Boolean(matchRule(item));
       await applyUpdate(eligible.filter(underRule).map((item) => item.id), now);
@@ -517,10 +521,14 @@ export async function bulkCreateInventoryResultExclusionRules(input: {
     // round-trip'ов, при том что правил всего единицы. Теперь: правила
     // читаются одним запросом, недостающие вставляются одной пачкой, строки
     // обновляются группами по правилу, журнал пишется батчем.
-    const matchRule = await loadActiveExclusionRuleMatcher({ admin, accountId: ctx.accountId });
     const eligible = items.filter(
       (item) => (item.ingredient_id || item.external_product_id) && !inResort.has(item.id),
     );
+    const matchRule = await loadActiveExclusionRuleMatcher({
+      admin,
+      accountId: ctx.accountId,
+      items: eligible,
+    });
 
     // Одно правило на позицию: строки одной позиции делят его.
     const ruleKey = (item: (typeof eligible)[number]) =>

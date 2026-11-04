@@ -116,3 +116,12 @@ test("null groupId matches only product rules", () => {
 test("groupDescendants includes self and all nested", () => {
   assert.deepEqual([...groupDescendants("root", groups)].sort(), ["leaf", "mid", "root"]);
 });
+
+test("rule kind is exposed so act menu can tell group rules apart", () => {
+  const m = buildExclusionMatcher(
+    [rule({ id: "g", target_kind: "group", ingredient_group_id: "root" }), rule({ id: "p", ingredient_id: "i1" })],
+    groups,
+  );
+  assert.equal(m(line({ ingredientId: "i9", groupId: "leaf" }))?.target_kind, "group");
+  assert.equal(m(line({ ingredientId: "i1", groupId: "leaf" }))?.target_kind, "product");
+});

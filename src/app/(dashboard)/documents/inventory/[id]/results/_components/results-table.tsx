@@ -139,6 +139,10 @@ export type InventoryDocumentResultItem = {
   group_id: string | null;
   group_name: string | null;
   exclusion_rule_id: string | null;
+  /** Вид действующего правила; групповое из акта не удаляется. */
+  exclusion_rule_kind?: "product" | "group" | "legacy_name" | null;
+  /** Название группы для группового правила. */
+  exclusion_rule_name?: string | null;
   /** Строка исключена именно правилом, а не вручную (миграция 231). */
   excluded_by_rule?: boolean;
   exclusion_rule_reason: string | null;
@@ -972,6 +976,11 @@ export function InventoryResultsTable({
                     >
                       <Ban className="mr-2 h-4 w-4 text-orange-600" />
                       Исключать всегда
+                    </DropdownMenuItem>
+                  ) : item.exclusion_rule_kind === "group" ? (
+                    <DropdownMenuItem disabled>
+                      <Ban className="mr-2 h-4 w-4 text-orange-600" />
+                      Исключено группой «{item.exclusion_rule_name ?? "—"}» — изменить в настройках заведения
                     </DropdownMenuItem>
                   ) : (
                     <DropdownMenuItem

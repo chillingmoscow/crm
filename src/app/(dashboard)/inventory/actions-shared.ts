@@ -15,6 +15,12 @@ import {
 } from "@/lib/supabase/server";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
 import { calculateResortAllocation } from "@/lib/inventory/results";
+import {
+  buildExclusionMatcher,
+  type ExclusionMatcher,
+  type ExclusionRuleRow,
+  type GroupNode,
+} from "@/lib/inventory/exclusion-rules";
 import { decryptSecret, encryptSecret } from "@/lib/integrations/crypto";
 import {
   isBackOfficeAuthError,
@@ -93,6 +99,57 @@ export type InventoryExclusionRuleLookup = {
   created_by: string | null;
   created_at: string;
 };
+
+const EXCLUSION_RULE_COLUMNS =
+  "id, target_kind, ingredient_id, external_product_id, ingredient_group_id, product_name, reason, created_by, created_at";
+
+/** Размер пачки для `.in(...)`: длинный список id раздувает URL запроса. */
+const IN_CHUNK_SIZE = 500;
+
+/**
+ * Группа каталога (`ingredients.group_id`) по каждому из ingredient_id.
+ * Ингредиента нет в каталоге → в карте его нет.
+ */
+export async function loadIngredientGroupIds(input: {
+  admin: LooseDb;
+  accountId: string;
+  ingredientIds: Array<string | null | undefined>;
+}): Promise<Map<string, string | null>> {
+  const ids = Array.from(new Set(input.ingredientIds.filter((id): id is string => Boolean(id))));
+  const result = new Map<string, string | null>();
+  for (let i = 0; i < ids.length; i += IN_CHUNK_SIZE) {
+    const { data } = await input.admin
+      .from<Array<{ id: string; group_id: string | null }>>("ingredients")
+      .select("id, group_id")
+      .eq("account_id", input.accountId)
+      .in("id", ids.slice(i, i + IN_CHUNK_SIZE));
+    for (const row of data ?? []) result.set(row.id, row.group_id);
+  }
+  return result;
+}
+
+/**
+ * Единое сопоставление строки акта с активными правилами аккаунта (товарные и
+ * групповые, вложенные группы включены — см. buildExclusionMatcher). Строку
+ * описывают ingredient_id, external_product_id и группа ингредиента.
+ */
+export async function loadExclusionMatcher(
+  admin: LooseDb,
+  accountId: string,
+): Promise<ExclusionMatcher> {
+  const [{ data: rules }, { data: groups }] = await Promise.all([
+    admin
+      .from<ExclusionRuleRow[]>("inventory_result_exclusion_rules")
+      .select(EXCLUSION_RULE_COLUMNS)
+      .eq("account_id", accountId)
+      .eq("status", "active"),
+    admin
+      .from<GroupNode[]>("ingredient_groups")
+      .select("id, parent_group_id")
+      .eq("account_id", accountId),
+  ]);
+  return buildExclusionMatcher(rules ?? [], groups ?? []);
+}
 
 export type InventoryResultDocumentRow = {
   id: string;
@@ -896,21 +953,17 @@ export async function syncDocumentItems(input: {
   let resultsFound = false;
   let preservedResultLines = 0;
   let skippedStaleDeletion = 0;
-  const { data: exclusionRulesRaw } = await input.admin
-    .from<InventoryExclusionRuleLookup[]>("inventory_result_exclusion_rules")
-    .select("id, ingredient_id, external_product_id, reason, created_by, created_at")
-    .eq("account_id", input.accountId)
-    .eq("status", "active");
-  const exclusionRuleByProductId = new Map(
-    (exclusionRulesRaw ?? [])
-      .filter((rule) => rule.ingredient_id)
-      .map((rule) => [rule.ingredient_id as string, rule]),
-  );
-  const exclusionRuleByExternalProductId = new Map(
-    (exclusionRulesRaw ?? [])
-      .filter((rule) => rule.external_product_id)
-      .map((rule) => [rule.external_product_id as string, rule]),
-  );
+  const matchExclusionRule = await loadExclusionMatcher(input.admin, input.accountId);
+  const groupIdByIngredientId = await loadIngredientGroupIds({
+    admin: input.admin,
+    accountId: input.accountId,
+    ingredientIds: input.items.map((item) => {
+      const itemProductId = externalProductId(item);
+      return itemProductId
+        ? input.productByExternalId.get(catalogKey(nomenclatureKind(item), itemProductId))?.id
+        : null;
+    }),
+  });
 
   // Существующее состояние строк акта. Нужно по трём причинам:
   // 1) сохранить РУЧНЫЕ исключения (excluded_from_totals без exclusion-rule),
@@ -968,9 +1021,11 @@ export async function syncDocumentItems(input: {
     const localProduct = productId
       ? input.productByExternalId.get(catalogKey(nomenclatureKind(item), productId)) ?? null
       : null;
-    const exclusionRule =
-      (localProduct?.id ? exclusionRuleByProductId.get(localProduct.id) : null) ??
-      (productId ? exclusionRuleByExternalProductId.get(productId) : null);
+    const exclusionRule = matchExclusionRule({
+      ingredientId: localProduct?.id ?? null,
+      externalProductId: productId,
+      groupId: localProduct?.id ? groupIdByIngredientId.get(localProduct.id) ?? null : null,
+    });
     const product = item.product ?? {};
     const result = extractLineResult(item);
     const itemExternalId = externalItemId(item, index);
@@ -1297,35 +1352,35 @@ export async function filterVisibleDocumentIds(input: {
 
 /**
  * Подобрать активное правило автоисключения под позицию — тем же способом,
- * каким это делает импорт: сперва по ингредиенту, затем по внешнему id позиции.
+ * каким это делает импорт (товар, затем группа с вложенными).
  *
  * Нужен там, где решение принимает человек: «Учитывать в этом акте» обязано
  * отменить ДЕЙСТВУЮЩЕЕ правило, а не только то, что записано в строке. Ручное
  * исключение сбрасывает происхождение (за строку теперь отвечает человек),
  * поэтому по одному лишь exclusion_rule_id действующее правило не найти —
  * и импорт применил бы его заново.
+ *
+ * Принимает строки заранее, чтобы одним запросом подтянуть группы их товаров.
  */
 export async function loadActiveExclusionRuleMatcher(input: {
   admin: LooseDb;
   accountId: string;
-}): Promise<(item: { ingredient_id: string | null; external_product_id: string | null }) => InventoryExclusionRuleLookup | null> {
-  const { data } = await input.admin
-    .from<InventoryExclusionRuleLookup[]>("inventory_result_exclusion_rules")
-    .select("id, ingredient_id, external_product_id, reason, created_by, created_at")
-    .eq("account_id", input.accountId)
-    .eq("status", "active");
-  const rules = data ?? [];
-  const byIngredient = new Map(
-    rules.filter((rule) => rule.ingredient_id).map((rule) => [rule.ingredient_id as string, rule]),
-  );
-  const byExternalId = new Map(
-    rules
-      .filter((rule) => !rule.ingredient_id && rule.external_product_id)
-      .map((rule) => [rule.external_product_id as string, rule]),
-  );
+  items: Array<{ ingredient_id: string | null }>;
+}): Promise<(item: { ingredient_id: string | null; external_product_id: string | null }) => ExclusionRuleRow | null> {
+  const [matcher, groupIdByIngredientId] = await Promise.all([
+    loadExclusionMatcher(input.admin, input.accountId),
+    loadIngredientGroupIds({
+      admin: input.admin,
+      accountId: input.accountId,
+      ingredientIds: input.items.map((item) => item.ingredient_id),
+    }),
+  ]);
   return (item) =>
-    (item.ingredient_id ? byIngredient.get(item.ingredient_id) ?? null : null) ??
-    (item.external_product_id ? byExternalId.get(item.external_product_id) ?? null : null);
+    matcher({
+      ingredientId: item.ingredient_id,
+      externalProductId: item.external_product_id,
+      groupId: item.ingredient_id ? groupIdByIngredientId.get(item.ingredient_id) ?? null : null,
+    });
 }
 
 export async function getResultDocumentForAction(input: {

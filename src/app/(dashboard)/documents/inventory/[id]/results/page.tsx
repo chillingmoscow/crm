@@ -8,6 +8,7 @@ import {
   getCachedUser,
 } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { buildExclusionMatcher, type ExclusionRuleRow } from "@/lib/inventory/exclusion-rules";
 import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
 import {
   buildHistorySuggestions,
@@ -56,17 +57,11 @@ type ProductGroupLookupRow = {
 type GroupLookupRow = {
   id: string;
   name: string;
+  parent_group_id: string | null;
 };
 
 type AccountSettingsRow = {
   inventory_ai_suggestions_enabled: boolean | null;
-};
-
-type ExclusionRuleRow = {
-  id: string;
-  ingredient_id: string | null;
-  external_product_id: string | null;
-  reason: string | null;
 };
 
 type HistoryResortRow = {
@@ -165,6 +160,7 @@ export default async function InventoryDocumentResultsPage({
     { data: resortsRaw },
     { data: resortItemsRaw },
     { data: exclusionRulesRaw },
+    { data: groups },
     { data: accountSettings },
     { data: eventsRaw },
   ] = await Promise.all([
@@ -210,9 +206,15 @@ export default async function InventoryDocumentResultsPage({
       .eq("document_id", document.id),
     admin
       .from<ExclusionRuleRow[]>("inventory_result_exclusion_rules")
-      .select("id, ingredient_id, external_product_id, reason")
+      .select("id, target_kind, ingredient_id, external_product_id, ingredient_group_id, product_name, reason, created_by, created_at")
       .eq("account_id", accountId)
       .eq("status", "active"),
+    // Все группы аккаунта: и названия для колонки «Группа», и иерархия для
+    // сопоставления с групповыми правилами (они действуют на вложенные группы).
+    admin
+      .from<GroupLookupRow[]>("ingredient_groups")
+      .select("id, name, parent_group_id")
+      .eq("account_id", accountId),
     admin
       .from<AccountSettingsRow>("accounts")
       .select("inventory_ai_suggestions_enabled")
@@ -257,17 +259,11 @@ export default async function InventoryDocumentResultsPage({
       : Promise.resolve({ data: [] as Array<{ id: string; document_number: string; invoice_date: string | null; status: string }> }),
   ]);
   const productGroupById = new Map((products ?? []).map((product) => [product.id, product.group_id]));
-  const groupIds = Array.from(
-    new Set((products ?? []).map((product) => product.group_id).filter((groupId): groupId is string => Boolean(groupId)))
-  );
-  const { data: groups } = groupIds.length > 0
-    ? await admin
-        .from<GroupLookupRow[]>("ingredient_groups")
-        .select("id, name")
-        .eq("account_id", accountId)
-        .in("id", groupIds)
-    : { data: [] };
   const groupById = new Map((groups ?? []).map((group) => [group.id, group.name]));
+  const matchExclusionRule = buildExclusionMatcher(
+    exclusionRulesRaw ?? [],
+    (groups ?? []).map((group) => ({ id: group.id, parent_group_id: group.parent_group_id })),
+  );
   const recountSplits = (recountChildrenRaw ?? []).map((child) => ({
     documentId: child.id,
     documentNumber: child.document_number,
@@ -290,25 +286,24 @@ export default async function InventoryDocumentResultsPage({
   // статус. Иначе управленческий итог смешивал бы замороженные строки с живым
   // зачётом, который пересчитывается при каждом импорте.
   const resorts = (resortsRaw ?? []).map((resort) => applyResortSnapshot(resort, resultsFrozen));
-  const exclusionRuleByProductId = new Map(
-    (exclusionRulesRaw ?? [])
-      .filter((rule) => rule.ingredient_id)
-      .map((rule) => [rule.ingredient_id as string, rule]),
-  );
-  const exclusionRuleByExternalProductId = new Map(
-    (exclusionRulesRaw ?? [])
-      .filter((rule) => rule.external_product_id)
-      .map((rule) => [rule.external_product_id as string, rule]),
-  );
   const itemsWithRules = items.map((item) => {
-    const rule =
-      (item.ingredient_id ? exclusionRuleByProductId.get(item.ingredient_id) : null) ??
-      (item.external_product_id ? exclusionRuleByExternalProductId.get(item.external_product_id) : null);
+    const rule = matchExclusionRule({
+      ingredientId: item.ingredient_id,
+      externalProductId: item.external_product_id,
+      groupId: item.group_id,
+    });
     return {
       ...item,
       // Правило, действующее на эту позицию: им гейтятся пункты меню
       // «Исключать всегда» / «Удалить автоисключение».
       exclusion_rule_id: rule?.id ?? null,
+      // Вид правила: групповое из акта не удаляется (оно живёт в списке
+      // исключений заведения), поэтому меню показывает другой пункт.
+      exclusion_rule_kind: rule?.target_kind ?? null,
+      exclusion_rule_name:
+        rule?.target_kind === "group"
+          ? (rule.ingredient_group_id ? groupById.get(rule.ingredient_group_id) : null) ?? rule.product_name
+          : null,
       // А это — исключена ли строка ИМЕННО правилом (миграция 231). Раньше
       // подпись «Авто» показывалась по наличию правила, поэтому висела и на
       // строке, которую проверяющий вернул в итоги вручную.

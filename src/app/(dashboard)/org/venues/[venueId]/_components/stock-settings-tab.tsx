@@ -3,14 +3,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { z } from "zod";
-import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { DatePicker } from "@/components/ui/date-picker";
-import { MultiOptionPicker } from "@/components/shared/multi-option-picker";
 import {
   loadStockRules,
   saveStockRules,
@@ -21,12 +19,92 @@ import {
   readLines,
   type DeductionRules,
 } from "@/lib/stock/deduction-rules";
+import { sharesFromRules, sharesTotal } from "@/lib/stock/department-shares";
 import { ExclusionsRow } from "./exclusions-sheet";
 import { dayLabel } from "@/lib/sales/format";
 function numeric(s: string) {
   if (!/^\d+(?:[.,]\d+)?$/.test(s.trim()))
     throw new Error("Заполните числовые поля");
   return Number(s.trim().replace(",", "."));
+}
+function ShareSummary({
+  config,
+  departments,
+}: {
+  config: DeductionRules;
+  departments: StockRuleData["departments"];
+}) {
+  const used = new Set([
+    ...config.groups.flatMap((g) => g.departmentIds ?? []),
+    ...(config.excludedDepartmentIds ?? []),
+  ]);
+  const visible = departments.filter((d) => !d.archived_at || used.has(d.id));
+  const shares = sharesFromRules(
+    config,
+    visible.map((d) => d.id),
+  );
+  const total = sharesTotal(shares);
+  const archivedInGroups = visible.filter(
+    (d) =>
+      d.archived_at &&
+      config.groups.some((g) => g.departmentIds?.includes(d.id)),
+  );
+  const warnings = [
+    ...(Math.abs(total - 100) > 0.000001
+      ? [`Сумма долей ${total.toLocaleString("ru-RU")}%, должна быть 100%.`]
+      : []),
+    ...(archivedInGroups.length
+      ? [
+          `Архивное подразделение в распределении: ${archivedInGroups.map((d) => d.name).join(", ")}.`,
+        ]
+      : []),
+  ];
+  return (
+    <section className="space-y-4 border-b pb-6">
+      <div>
+        <h3 className="font-semibold">Распределение между сотрудниками</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {visible.some((d) => !d.archived_at)
+            ? "Сначала сумма делится между подразделениями по их долям, затем доля подразделения — между его сотрудниками пропорционально количеству смен. Доли меняются на странице подразделения."
+            : "Подразделения ещё не настроены. Создайте их и укажите в настройках должностей."}
+        </p>
+      </div>
+      {visible.length > 0 && (
+        <div className="divide-y rounded-lg border">
+          {visible.map((d, i) => (
+            <div
+              key={d.id}
+              className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-4 py-2.5 text-sm"
+            >
+              <Link
+                href={`/people/departments/${d.id}`}
+                className="min-w-0 truncate text-primary underline-offset-4 hover:underline"
+              >
+                {d.name}
+                {d.archived_at ? " · в архиве" : ""}
+              </Link>
+              <span className="w-14 text-right tabular-nums">
+                {shares[i].participates
+                  ? `${shares[i].share.toLocaleString("ru-RU")}%`
+                  : "—"}
+              </span>
+              <span className="w-28 text-right text-muted-foreground">
+                {shares[i].participates ? "участвует" : "не участвует"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="text-sm text-muted-foreground">
+        Всего {total.toLocaleString("ru-RU")} из 100%
+      </p>
+      {warnings.map((w) => (
+        <p key={w} role="alert" className="text-sm text-destructive">
+          {w}
+        </p>
+      ))}
+    </section>
+  );
 }
 function RulesForm({
   initial,
@@ -44,11 +122,6 @@ function RulesForm({
       companyAllowance: String(initial.draft.companyAllowance),
       ingredientTolerance: String(initial.draft.ingredientTolerance),
     }),
-    [shares, setShares] = useState<Record<string, string>>(
-      Object.fromEntries(
-        initial.draft.groups.map((g) => [g.id, String(g.share)]),
-      ),
-    ),
     [from, setFrom] = useState(
       initial.versions[0]?.valid_from &&
         initial.versions[0].valid_from > initial.today
@@ -61,25 +134,10 @@ function RulesForm({
     key: K,
     value: DeductionRules[K],
   ) => setConfig((c) => ({ ...c, [key]: value }));
-  const groupSet = (
-    id: string,
-    patch: Partial<DeductionRules["groups"][number]>,
-  ) =>
-    set(
-      "groups",
-      config.groups.map((g) => (g.id === id ? { ...g, ...patch } : g)),
-    );
   const [lists] = useState({
     roleSpecificCategories: config.roleSpecificCategories.join("\n"),
     writeoffReasons: config.writeoffReasons.join("\n"),
   });
-  // Категории групп в интерфейсе больше не редактируются, но переносятся
-  // в новую версию как есть: расчёт их не читает, а история не теряется.
-  const [groupLists] = useState<Record<string, string>>(
-    Object.fromEntries(
-      config.groups.map((g) => [g.id, g.categories.join("\n")]),
-    ),
-  );
   async function save() {
     setBusy(true);
     try {
@@ -97,11 +155,10 @@ function RulesForm({
         ...Object.fromEntries(
           Object.entries(lists).map(([k, v]) => [k, readLines(v)]),
         ),
-        groups: config.groups.map((g) => ({
-          ...g,
-          share: numeric(shares[g.id] ?? ""),
-          categories: readLines(groupLists[g.id] ?? ""),
-        })),
+        // Доли групп и «не участвуют» правятся на странице подразделения;
+        // здесь они переносятся в новую версию как есть.
+        groups: config.groups,
+        excludedDepartmentIds: config.excludedDepartmentIds ?? [],
       });
       if (!reason.trim()) throw new Error("Укажите основание изменения");
       const d = await saveStockRules({
@@ -220,139 +277,7 @@ function RulesForm({
           </div>
           <ExclusionsRow />
         </section>
-        <section className="space-y-4 border-b pb-6">
-          <div>
-            <h3 className="font-semibold">Распределение между сотрудниками</h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {initial.departments.some((d) => !d.archived_at)
-                ? "Сначала сумма делится между группами подразделений по их долям, затем доля группы — между её сотрудниками пропорционально количеству смен."
-                : "Подразделения ещё не настроены. Создайте их и укажите в настройках должностей."}
-            </p>
-          </div>
-          <div className="divide-y rounded-lg border">
-            {config.groups.map((g) => (
-              <div key={g.id} className="space-y-3 p-4">
-                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 sm:flex">
-                  <Input
-                    aria-label="Название группы"
-                    value={g.name}
-                    onChange={(e) => groupSet(g.id, { name: e.target.value })}
-                    className="col-span-2 min-w-0 sm:flex-1"
-                  />
-                  <div className="relative w-24 shrink-0">
-                    <Input
-                      aria-label={`Доля группы ${g.name}, %`}
-                      inputMode="decimal"
-                      value={shares[g.id] ?? ""}
-                      onChange={(e) =>
-                        setShares((s) => ({ ...s, [g.id]: e.target.value }))
-                      }
-                      className="pr-7 text-right"
-                    />
-                    <span className="pointer-events-none absolute right-3 top-2.5 text-sm text-muted-foreground">
-                      %
-                    </span>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    aria-label={`Удалить группу ${g.name}`}
-                    onClick={() =>
-                      set(
-                        "groups",
-                        config.groups.filter((x) => x.id !== g.id),
-                      )
-                    }
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
-                </div>
-                <MultiOptionPicker
-                  label={`Подразделения группы ${g.name}`}
-                  placeholder="Выберите подразделения"
-                  searchPlaceholder="Найти подразделение"
-                  selectedIds={g.departmentIds ?? []}
-                  onChange={(ids) => groupSet(g.id, { departmentIds: ids })}
-                  options={initial.departments.map((r) => ({
-                    id: r.id,
-                    label: r.archived_at ? `${r.name} · в архиве` : r.name,
-                    disabled:
-                      (!!r.archived_at && !g.departmentIds?.includes(r.id)) ||
-                      !!config.excludedDepartmentIds?.includes(r.id) ||
-                      config.groups.some(
-                        (x) =>
-                          x.id !== g.id && !!x.departmentIds?.includes(r.id),
-                      ),
-                  }))}
-                />
-              </div>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                const id = crypto.randomUUID();
-                set("groups", [
-                  ...config.groups,
-                  {
-                    id,
-                    name: "Новая группа",
-                    share: 0,
-                    roleIds: [],
-                    departmentIds: [],
-                    categories: [],
-                  },
-                ]);
-                setShares((s) => ({ ...s, [id]: "0" }));
-              }}
-            >
-              <Plus className="mr-2 size-4" />
-              Добавить группу
-            </Button>
-            <p className="text-sm text-muted-foreground">
-              Всего{" "}
-              {config.groups
-                .reduce(
-                  (n, g) => n + (Number(shares[g.id]?.replace(",", ".")) || 0),
-                  0,
-                )
-                .toLocaleString("ru-RU")}{" "}
-              из 100%
-            </p>
-          </div>
-          <div className="space-y-2">
-            <Label>Не участвуют в общем распределении</Label>
-            <MultiOptionPicker
-              label="Исключённые подразделения"
-              placeholder="Выберите подразделения"
-              searchPlaceholder="Найти подразделение"
-              selectedIds={config.excludedDepartmentIds ?? []}
-              onChange={(ids) => set("excludedDepartmentIds", ids)}
-              options={initial.departments.map((r) => ({
-                id: r.id,
-                label: r.archived_at ? `${r.name} · в архиве` : r.name,
-                disabled:
-                  (!!r.archived_at &&
-                    !config.excludedDepartmentIds?.includes(r.id)) ||
-                  config.groups.some((g) => !!g.departmentIds?.includes(r.id)),
-              }))}
-            />
-            <p className="text-xs leading-5 text-muted-foreground">
-              Учитывается подразделение должности в смене, включая старших
-              сотрудников.{" "}
-              <Link
-                href="/people/departments"
-                className="text-primary underline underline-offset-4"
-              >
-                Настроить подразделения
-              </Link>
-            </p>
-          </div>
-        </section>
+        <ShareSummary config={config} departments={initial.departments} />
         <section className="space-y-4">
           <h3 className="font-semibold">Начало действия</h3>
           <div className="grid gap-4 sm:grid-cols-2">

@@ -6,6 +6,10 @@ import {
 } from "@/lib/supabase/server";
 import { listAuditEvents } from "@/lib/audit/list";
 import { getDepartment } from "../actions";
+import {
+  loadStockRules,
+  type StockRuleData,
+} from "@/app/(dashboard)/documents/writeoffs/rule-actions";
 import { DepartmentDetailPage } from "./_components/department-detail-page";
 
 export default async function DepartmentDetailServerPage({
@@ -78,6 +82,16 @@ export default async function DepartmentDetailServerPage({
     ? await listAuditEvents({ entityType: "department", entityId: id })
     : { events: [], hasMore: false, error: null };
 
+  // Нет права просмотра результатов или правила не загрузились — блок «Недостача» просто скрыт.
+  let stockRules: StockRuleData | null = null;
+  if (can("inventory.view_results")) {
+    try {
+      stockRules = await loadStockRules(department.venue_id);
+    } catch {
+      stockRules = null;
+    }
+  }
+
   return (
     <DepartmentDetailPage
       department={department}
@@ -90,6 +104,7 @@ export default async function DepartmentDetailServerPage({
       initialAuditHasMore={auditResult.hasMore}
       createdByName={formatProfile(department.created_by)}
       updatedByName={formatProfile(department.updated_by)}
+      stockRules={stockRules}
     />
   );
 }

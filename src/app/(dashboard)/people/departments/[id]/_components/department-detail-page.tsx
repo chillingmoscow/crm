@@ -42,9 +42,11 @@ import {
   PageHeaderActions,
 } from "@/components/shared/page-header-actions";
 import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
+import type { StockRuleData } from "@/app/(dashboard)/documents/writeoffs/rule-actions";
 
 import { ICON_REGISTRY, iconForRole } from "../../../roles/_components/role-icons";
 import { DepartmentIconPicker } from "../../_components/department-icon-picker";
+import { DepartmentShortageBlock } from "./department-shortage-block";
 import {
   deleteDepartment,
   setRoleDepartment,
@@ -78,6 +80,8 @@ interface Props {
   /** Display name «Имя Ф.» для created_by / updated_by (для info popover). */
   createdByName: string | null;
   updatedByName: string | null;
+  /** Правила недостачи заведения; null — нет доступа или не загрузились. */
+  stockRules: StockRuleData | null;
 }
 
 export function DepartmentDetailPage({
@@ -91,6 +95,7 @@ export function DepartmentDetailPage({
   initialAuditHasMore,
   createdByName,
   updatedByName,
+  stockRules,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -425,6 +430,11 @@ export function DepartmentDetailPage({
                     </div>
                   );
                 })()}
+
+                <DepartmentShortageBlock
+                  rules={stockRules}
+                  departmentId={department.id}
+                />
               </div>
             </div>
           </TabsContent>

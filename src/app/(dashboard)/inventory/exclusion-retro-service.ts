@@ -355,28 +355,42 @@ async function writePatches(input: {
     // Утверждённый снимок подведённой строки меняется вместе с живым полем.
     if (finalized) fields.finalized_excluded_from_totals = exclude;
     for (const part of chunks(ids)) {
-      let query = admin
-        .from<Array<{ id: string }>>("document_items")
-        .update(fields)
-        .eq("account_id", accountId)
-        .in("id", part);
+      const base = () =>
+        admin
+          .from<Array<{ id: string }>>("document_items")
+          .update(fields)
+          .eq("account_id", accountId)
+          .in("id", part);
       // Повторная проверка в самом UPDATE: человек мог отказаться от правила
       // или исключить строку вручную, пока мы читали. При снятии трогаем
       // только строки, которые всё ещё принадлежат снимаемому правилу.
-      query =
+      //
+      // Для apply условие «строка не исключена ИЛИ исключена правилом» — это
+      // два UPDATE, а не один с or(...): PostgREST 12 (прод) падает на UPDATE,
+      // где or-фильтр ссылается на обновляемую колонку («column
+      // document_items.excluded_from_totals does not exist»). Сначала строки
+      // с правилом, потом неисключённые: после первого шага у тронутых строк
+      // уже есть правило и excluded=true, второй шаг их не задевает.
+      const queries =
         mode === "apply"
-          ? query
-              .is("exclusion_rule_dismissed_at", null)
-              .or("excluded_from_totals.eq.false,exclusion_rule_id.not.is.null")
+          ? [
+              base().is("exclusion_rule_dismissed_at", null).not("exclusion_rule_id", "is", null),
+              base().is("exclusion_rule_dismissed_at", null).eq("excluded_from_totals", false),
+            ]
           : successor
-            ? query.eq("exclusion_rule_id", rule.id).is("exclusion_rule_dismissed_at", null)
-            : query.eq("exclusion_rule_id", rule.id);
-      // Считаем только реально изменённые строки: проверка выше могла часть отсеять.
-      const { data, error } = await query.select("id");
-      if (error) throw new Error(error.message);
-      for (const row of data ?? []) {
-        const patch = byId.get(row.id);
-        if (patch) written.push(patch);
+            ? [base().eq("exclusion_rule_id", rule.id).is("exclusion_rule_dismissed_at", null)]
+            : [base().eq("exclusion_rule_id", rule.id)];
+      const seen = new Set<string>();
+      for (const query of queries) {
+        // Считаем только реально изменённые строки: проверка выше могла часть отсеять.
+        const { data, error } = await query.select("id");
+        if (error) throw new Error(error.message);
+        for (const row of data ?? []) {
+          if (seen.has(row.id)) continue;
+          seen.add(row.id);
+          const patch = byId.get(row.id);
+          if (patch) written.push(patch);
+        }
       }
     }
   }

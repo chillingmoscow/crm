@@ -100,3 +100,17 @@ export function buildExclusionMatcher(
     return null;
   };
 }
+
+/** Действующее правило на ту же цель (товар по ingredient_id или группа) или null. */
+export function duplicateTarget(
+  rules: ExclusionRuleRow[],
+  target: { kind: "product" | "group"; id: string },
+): ExclusionRuleRow | null {
+  return (
+    rules.find((r) =>
+      target.kind === "product"
+        ? r.target_kind === "product" && r.ingredient_id === target.id
+        : r.target_kind === "group" && r.ingredient_group_id === target.id,
+    ) ?? null
+  );
+}

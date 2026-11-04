@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildExclusionMatcher,
+  duplicateTarget,
   groupDescendants,
   type ExclusionRuleRow,
   type GroupNode,
@@ -124,4 +125,20 @@ test("rule kind is exposed so act menu can tell group rules apart", () => {
   );
   assert.equal(m(line({ ingredientId: "i9", groupId: "leaf" }))?.target_kind, "group");
   assert.equal(m(line({ ingredientId: "i1", groupId: "leaf" }))?.target_kind, "product");
+});
+
+test("duplicateTarget finds active rule for same group", () => {
+  const rules = [rule({ id: "g1", target_kind: "group", ingredient_group_id: "grp" })];
+  assert.equal(duplicateTarget(rules, { kind: "group", id: "grp" })?.id, "g1");
+  assert.equal(duplicateTarget(rules, { kind: "group", id: "other" }), null);
+  assert.equal(duplicateTarget(rules, { kind: "product", id: "grp" }), null);
+});
+
+test("duplicateTarget finds active rule for same product", () => {
+  const rules = [
+    rule({ id: "p1", target_kind: "product", ingredient_id: "ing" }),
+    rule({ id: "l1", target_kind: "legacy_name", product_name: "ing" }),
+  ];
+  assert.equal(duplicateTarget(rules, { kind: "product", id: "ing" })?.id, "p1");
+  assert.equal(duplicateTarget(rules, { kind: "product", id: "zzz" }), null);
 });

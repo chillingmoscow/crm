@@ -22,6 +22,7 @@ import {
 import { sharesFromRules, sharesTotal } from "@/lib/stock/department-shares";
 import { ExclusionsRow } from "./exclusions-sheet";
 import { dayLabel } from "@/lib/sales/format";
+import { DeductionRecalculate } from "./deduction-recalculate";
 function numeric(s: string) {
   if (!/^\d+(?:[.,]\d+)?$/.test(s.trim()))
     throw new Error("Заполните числовые поля");
@@ -407,6 +408,7 @@ export function StockSettingsTab({ venueId }: { venueId: string }) {
         initial={data}
         onSaved={setData}
       />
+      <DeductionRecalculate venueId={data.venueId} today={data.today} />
     </div>
   );
 }

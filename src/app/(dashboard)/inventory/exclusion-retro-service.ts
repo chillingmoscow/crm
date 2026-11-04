@@ -17,8 +17,11 @@ import {
 } from "@/lib/inventory/exclusion-rules";
 import {
   isProtectedMonth,
+  partitionPendingRemovals,
   planApply,
   planRemove,
+  removalComplete,
+  RetroPartialFailure,
   runRulesIsolated,
   settledFinalizedLines,
   type RetroLine,
@@ -38,6 +41,7 @@ const DEFAULT_VENUE_TIMEZONE = "Europe/Moscow";
 
 const PAGE_SIZE = 1000;
 const IN_CHUNK_SIZE = 300;
+const STAMP_CONCURRENCY = 20;
 
 type RuleRow = ExclusionRuleRow & { status: string; metadata: Record<string, unknown> | null };
 
@@ -299,10 +303,14 @@ async function writePatches(input: {
   patches: RetroPatch[];
   mode: "apply" | "remove";
   now: string;
-}): Promise<RetroPatch[]> {
-  const { admin, accountId, rule, mode } = input;
+  /**
+   * Накопитель реально записанных строк: пополняется после каждой пачки, так
+   * что при сбое следующей пачки вызывающий знает, что уже записано.
+   */
+  written: RetroPatch[];
+}): Promise<void> {
+  const { admin, accountId, rule, mode, written } = input;
   const byId = new Map(input.patches.map((p) => [p.id, p]));
-  const written: RetroPatch[] = [];
 
   // Группы записи: (преемник или null) × подведённость.
   const groupsByKey = new Map<string, { transferTo: string | null; finalized: boolean; ids: string[] }>();
@@ -331,6 +339,9 @@ async function writePatches(input: {
           ? {
               excluded_from_totals: true,
               exclude_reason: successor.reason ?? DEFAULT_RULE_EXCLUDE_REASON,
+              // Как при импорте (resolveExclusionState): автор и время — правила.
+              excluded_by: successor.created_by,
+              excluded_at: successor.created_at,
               exclusion_rule_id: successor.id,
             }
           : {
@@ -369,7 +380,6 @@ async function writePatches(input: {
       }
     }
   }
-  return written;
 }
 
 /**
@@ -481,94 +491,136 @@ export async function applyExclusionRuleRetro(input: {
   const patches = input.mode === "apply" ? planApply(rule.id, lines, locked) : planRemove(rule.id, lines, locked);
 
   const now = new Date().toISOString();
-  const written = await writePatches({
-    admin,
-    accountId,
-    rule,
-    rulesById,
-    userId: input.userId,
-    patches,
-    mode: input.mode,
-    now,
-  });
-
-  // Журнал: одно событие на акт, по реально изменённым строкам. При снятии
-  // отдельно считаем вернувшиеся в итоги и перешедшие к другому правилу.
-  type DocumentTally = { count: number; cleared: number; transferredTo: Map<string, number> };
-  const linesByDocument = new Map<string, DocumentTally>();
-  for (const p of written) {
-    const t = linesByDocument.get(p.documentId) ?? { count: 0, cleared: 0, transferredTo: new Map() };
-    t.count += 1;
-    if (input.mode === "remove") {
-      if (p.transferTo) t.transferredTo.set(p.transferTo, (t.transferredTo.get(p.transferTo) ?? 0) + 1);
-      else t.cleared += 1;
-    }
-    linesByDocument.set(p.documentId, t);
-  }
   const ruleName = (id: string) => rulesById.get(id)?.product_name ?? "другое правило";
-  const removeMessage = (t: DocumentTally) => {
-    const parts: string[] = [];
-    if (t.cleared > 0) parts.push(`позиции вернулись в итоги (строк: ${t.cleared})`);
-    for (const [id, n] of t.transferredTo) parts.push(`исключение перешло к правилу «${ruleName(id)}» (строк: ${n})`);
-    return `Правило «${rule.product_name}» удалено: ${parts.join("; ")}`;
-  };
-  const skip = new Set(input.skipEventDocumentIds ?? []);
-  const events = [...linesByDocument]
-    .filter(([documentId]) => !skip.has(documentId))
-    .map(([documentId, t]) => ({
-      account_id: accountId,
-      document_id: documentId,
-      document_item_id: null,
-      resort_id: null,
-      event_type: input.mode === "apply" ? "persistent_exclusion_enabled" : "persistent_exclusion_disabled",
-      message:
-        input.mode === "apply"
-          ? `Правило «${rule.product_name}» исключило позиции из итогов (строк: ${t.count})`
-          : removeMessage(t),
-      payload:
-        input.mode === "apply"
-          ? { ruleId: rule.id, retro: true, lines: t.count }
-          : {
-              ruleId: rule.id,
-              retro: true,
-              lines: t.count,
-              cleared: t.cleared,
-              transferred: Object.fromEntries(t.transferredTo),
-            },
-      created_by: input.userId,
-    }));
-  for (const part of chunks(events)) {
-    const { error } = await admin.from("inventory_result_events").insert(part);
-    if (error) throw new Error(error.message);
-  }
-
-  // Метка успешного завершения: без неё правило считается не применённым
-  // (или не снятым) до конца, и повторный запуск дочищает хвосты.
-  const marker = input.mode === "apply" ? "retro_applied_at" : "retro_removed_at";
-  const { error: markerError } = await admin
-    .from("inventory_result_exclusion_rules")
-    .update({ metadata: { ...(rule.metadata ?? {}), [marker]: now } })
-    .eq("id", rule.id)
-    .eq("account_id", accountId);
-  if (markerError) throw new Error(markerError.message);
-
-  const documentIds = [...linesByDocument.keys()];
-  for (const documentId of documentIds) revalidateInventoryResultPages(documentId);
 
   // Удержание зависит только от утверждённого снимка — пересчитываем месяцы,
   // где он изменился. Если прошлое применение оборвалось (метки нет), снимок
   // части строк мог измениться без пересчёта — их месяцы тоже пересчитываем
   // (пересчёт идемпотентен, лишний ничего не портит).
-  const monthDocumentIds = written.filter((p) => p.snapshotChanged).map((p) => p.documentId);
-  if (input.mode === "apply" && !rule.metadata?.retro_applied_at) {
-    for (const line of settledFinalizedLines(rule.id, lines, locked)) monthDocumentIds.push(line.documentId);
+  const monthsOf = (written: RetroPatch[]): RetroMonth[] => {
+    const monthDocumentIds = written.filter((p) => p.snapshotChanged).map((p) => p.documentId);
+    if (input.mode === "apply" && !rule.metadata?.retro_applied_at) {
+      for (const line of settledFinalizedLines(rule.id, lines, locked)) monthDocumentIds.push(line.documentId);
+    }
+    const monthKeys = new Map<string, RetroMonth>();
+    for (const documentId of monthDocumentIds) {
+      const m = monthByDocument.get(documentId);
+      if (m) monthKeys.set(`${m.venueId}|${m.month}`, m);
+    }
+    return [...monthKeys.values()];
+  };
+
+  // Запись → журнал → метка. Записанное уже не откатить: если что-то после
+  // первой пачки упало, месяцы записанных строк всё равно пересчитываются (при
+  // снятии повторный запуск эти строки не найдёт — они больше не ссылаются на
+  // правило). Без пересчёта здесь (`recalculate: false`) месяцы уходят
+  // вызывающему в RetroPartialFailure.
+  const written: RetroPatch[] = [];
+  type DocumentTally = { count: number; cleared: number; transferredTo: Map<string, number> };
+  const linesByDocument = new Map<string, DocumentTally>();
+  try {
+    await writePatches({
+      admin,
+      accountId,
+      rule,
+      rulesById,
+      userId: input.userId,
+      patches,
+      mode: input.mode,
+      now,
+      written,
+    });
+
+    // Журнал: одно событие на акт, по реально изменённым строкам. При снятии
+    // отдельно считаем вернувшиеся в итоги и перешедшие к другому правилу.
+    for (const p of written) {
+      const t = linesByDocument.get(p.documentId) ?? { count: 0, cleared: 0, transferredTo: new Map() };
+      t.count += 1;
+      if (input.mode === "remove") {
+        if (p.transferTo) t.transferredTo.set(p.transferTo, (t.transferredTo.get(p.transferTo) ?? 0) + 1);
+        else t.cleared += 1;
+      }
+      linesByDocument.set(p.documentId, t);
+    }
+    const removeMessage = (t: DocumentTally) => {
+      const parts: string[] = [];
+      if (t.cleared > 0) parts.push(`позиции вернулись в итоги (строк: ${t.cleared})`);
+      for (const [id, n] of t.transferredTo) parts.push(`исключение перешло к правилу «${ruleName(id)}» (строк: ${n})`);
+      return `Правило «${rule.product_name}» удалено: ${parts.join("; ")}`;
+    };
+    const skip = new Set(input.skipEventDocumentIds ?? []);
+    const events = [...linesByDocument]
+      .filter(([documentId]) => !skip.has(documentId))
+      .map(([documentId, t]) => ({
+        account_id: accountId,
+        document_id: documentId,
+        document_item_id: null,
+        resort_id: null,
+        event_type: input.mode === "apply" ? "persistent_exclusion_enabled" : "persistent_exclusion_disabled",
+        message:
+          input.mode === "apply"
+            ? `Правило «${rule.product_name}» исключило позиции из итогов (строк: ${t.count})`
+            : removeMessage(t),
+        payload:
+          input.mode === "apply"
+            ? { ruleId: rule.id, retro: true, lines: t.count }
+            : {
+                ruleId: rule.id,
+                retro: true,
+                lines: t.count,
+                cleared: t.cleared,
+                transferred: Object.fromEntries(t.transferredTo),
+              },
+        created_by: input.userId,
+      }));
+    for (const part of chunks(events)) {
+      const { error } = await admin.from("inventory_result_events").insert(part);
+      if (error) throw new Error(error.message);
+    }
+
+    // Метка успешного завершения: без неё правило считается не применённым
+    // (или не снятым) до конца, и повторный запуск дочищает хвосты. Снятие не
+    // завершено, пока строки правила остались в незащищённых актах (активный
+    // пересорт, строка изменилась во время записи) — такое правило остаётся
+    // в плашке до дочистки. Строки защищённых актов остаются на правиле
+    // намеренно.
+    const marker = input.mode === "apply" ? "retro_applied_at" : "retro_removed_at";
+    const complete =
+      input.mode === "apply" || removalComplete(rule.id, lines, locked, patches.length, written.length);
+    if (complete) {
+      const { error: markerError } = await admin
+        .from("inventory_result_exclusion_rules")
+        .update({ metadata: { ...(rule.metadata ?? {}), [marker]: now } })
+        .eq("id", rule.id)
+        .eq("account_id", accountId);
+      if (markerError) throw new Error(markerError.message);
+    }
+  } catch (error) {
+    const writtenDocumentIds = [...new Set(written.map((p) => p.documentId))];
+    for (const documentId of writtenDocumentIds) revalidateInventoryResultPages(documentId);
+    const months = monthsOf(written);
+    const message = error instanceof Error ? error.message : String(error);
+    let recalcNotice: string | null = null;
+    if (input.recalculate !== false && months.length > 0) {
+      try {
+        recalcNotice = await recalculateRetroMonths(months);
+      } catch (recalcError) {
+        console.error("[exclusion-retro] пересчёт удержания после сбоя не выполнен", recalcError);
+        recalcNotice = "Пересчитайте удержание по недостаче за изменённые месяцы вручную.";
+      }
+    }
+    throw new RetroPartialFailure(
+      recalcNotice ? `${message}. ${recalcNotice}` : message,
+      // Пересчитанные здесь месяцы вызывающему не отдаём — второй пересчёт не нужен.
+      { documentIds: writtenDocumentIds, months: input.recalculate === false ? months : [] },
+      { cause: error },
+    );
   }
-  const monthKeys = new Map<string, RetroMonth>();
-  for (const documentId of monthDocumentIds) {
-    const m = monthByDocument.get(documentId);
-    if (m) monthKeys.set(`${m.venueId}|${m.month}`, m);
-  }
-  const months = [...monthKeys.values()];
+
+  const documentIds = [...linesByDocument.keys()];
+  for (const documentId of documentIds) revalidateInventoryResultPages(documentId);
+
+  const months = monthsOf(written);
   const notice = input.recalculate === false ? null : await recalculateRetroMonths(months);
   return {
     touchedDocuments: documentIds.length,
@@ -587,6 +639,77 @@ export async function applyExclusionRuleRetro(input: {
         ruleName: ruleName(p.transferTo as string),
       })),
   };
+}
+
+/**
+ * Незавершённые удаления: удалённые правила на товар/группу без отметки
+ * metadata.retro_removed_at, на которые ещё ссылаются строки незащищённых
+ * актов (снятие оборвалось или строки были в активном пересорте). Остальные
+ * удалённые правила (строк нет или все — в защищённых актах: зафиксированный
+ * месяц, раньше границы заведения, архивный акт) получают отметку сразу:
+ * снимать больше нечего, и больше они не проверяются.
+ */
+export async function loadPendingRemovalRuleIds(admin: LooseDb, accountId: string): Promise<string[]> {
+  const rules = await fetchAll(() =>
+    admin
+      .from<Array<{ id: string; metadata: Record<string, unknown> | null }>>("inventory_result_exclusion_rules")
+      .select("id, metadata")
+      .eq("account_id", accountId)
+      .eq("status", "deleted")
+      .in("target_kind", ["product", "group"])
+      .is("metadata->>retro_removed_at", null),
+  );
+  if (rules.length === 0) return [];
+
+  const lines: Array<{ ruleId: string; documentId: string }> = [];
+  for (const part of chunks(rules.map((r) => r.id))) {
+    const rows = await fetchAll(() =>
+      admin
+        .from<Array<{ id: string; document_id: string; exclusion_rule_id: string }>>("document_items")
+        .select("id, document_id, exclusion_rule_id")
+        .eq("account_id", accountId)
+        .in("exclusion_rule_id", part),
+    );
+    for (const r of rows) lines.push({ ruleId: r.exclusion_rule_id, documentId: r.document_id });
+  }
+  const documents = await loadDocuments(admin, accountId, [...new Set(lines.map((l) => l.documentId))]);
+  const { locked } = await resolveMonths(admin, accountId, documents);
+  const unprotected = new Set([...documents.keys()].filter((id) => !locked.has(id)));
+  const { pending, done } = partitionPendingRemovals(
+    rules.map((r) => r.id),
+    lines,
+    unprotected,
+  );
+
+  // Метка — в metadata, которая у каждого правила своя (источник, время
+  // применения), поэтому одним UPDATE на все правила её не поставить: правила
+  // с одинаковой metadata обновляются одним запросом, группы — параллельно.
+  const now = new Date().toISOString();
+  const doneSet = new Set(done);
+  const byMetadata = new Map<string, { metadata: Record<string, unknown>; ids: string[] }>();
+  for (const r of rules) {
+    if (!doneSet.has(r.id)) continue;
+    const metadata: Record<string, unknown> = { ...(r.metadata ?? {}), retro_removed_at: now };
+    const key = JSON.stringify(Object.entries(metadata).sort(([a], [b]) => a.localeCompare(b)));
+    const group = byMetadata.get(key) ?? { metadata, ids: [] as string[] };
+    group.ids.push(r.id);
+    byMetadata.set(key, group);
+  }
+  const stampGroups = [...byMetadata.values()].flatMap((g) => chunks(g.ids).map((ids) => ({ metadata: g.metadata, ids })));
+  for (const batch of chunks(stampGroups, STAMP_CONCURRENCY)) {
+    const results = await Promise.all(
+      batch.map((g) =>
+        admin
+          .from("inventory_result_exclusion_rules")
+          .update({ metadata: g.metadata })
+          .eq("account_id", accountId)
+          .eq("status", "deleted")
+          .in("id", g.ids),
+      ),
+    );
+    for (const { error } of results) if (error) throw new Error(error.message);
+  }
+  return pending;
 }
 
 /**

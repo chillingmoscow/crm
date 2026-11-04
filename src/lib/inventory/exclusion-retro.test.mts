@@ -4,7 +4,10 @@ import test from "node:test";
 import {
   isProtectedMonth,
   planApply,
+  partitionPendingRemovals,
   planRemove,
+  removalComplete,
+  RetroPartialFailure,
   runRulesIsolated,
   settledFinalizedLines,
   type RetroLine,
@@ -115,10 +118,19 @@ test("transfer on finalized line does not emit a month", () => {
   assert.equal(patch.snapshotChanged, false);
 });
 
-test("remove does not transfer a line dismissed from rules", () => {
+test("remove transfer of a finalized line with a stale snapshot changes the snapshot", () => {
+  // Снимок отстал (строка в итогах в снимке), преемник оставляет строку
+  // исключённой — снимок меняется, месяц нужно пересчитать.
   const lines = [
-    line({ id: "a", excluded: false, ruleId: RULE, dismissedAt: "2026-10-01T00:00:00Z", nextRuleId: "group-rule" }),
+    line({ id: "a", excluded: true, ruleId: RULE, finalized: true, finalizedExcluded: false, nextRuleId: "group-rule" }),
   ];
+  assert.deepEqual(planRemove(RULE, lines, new Set()), [
+    { id: "a", documentId: "doc-1", exclude: true, finalized: true, snapshotChanged: true, transferTo: "group-rule" },
+  ]);
+});
+
+test("remove ignores a successor equal to the removed rule", () => {
+  const lines = [line({ id: "a", excluded: true, ruleId: RULE, nextRuleId: RULE })];
   assert.deepEqual(planRemove(RULE, lines, new Set()), [
     { id: "a", documentId: "doc-1", exclude: false, finalized: false, snapshotChanged: false },
   ]);
@@ -195,4 +207,57 @@ test("isolated rules: months are de-duplicated per venue and month", async () =>
   assert.equal(result.months.length, 1);
   assert.deepEqual(result.documentIds, ["d"]);
   assert.deepEqual(result.failures, []);
+});
+
+test("isolated rules: a rule failing after a partial write still contributes its months", async () => {
+  const result = await runRulesIsolated(["r1", "r2"], async (id) => {
+    if (id === "r1") {
+      throw new RetroPartialFailure("events insert failed", {
+        documentIds: ["doc-partial"],
+        months: [{ venueId: "v", month: "2026-09-01" }],
+      });
+    }
+    return { documentIds: ["doc-r2"], months: [{ venueId: "v", month: "2026-10-01" }] };
+  });
+  assert.deepEqual(result.documentIds, ["doc-partial", "doc-r2"]);
+  assert.deepEqual(result.months, [
+    { venueId: "v", month: "2026-09-01" },
+    { venueId: "v", month: "2026-10-01" },
+  ]);
+  assert.deepEqual(result.failures, [{ ruleId: "r1", message: "events insert failed" }]);
+});
+
+test("removal complete: lines left only in locked acts do not block the marker", () => {
+  const lines = [
+    line({ id: "a", excluded: true, ruleId: RULE }),
+    line({ id: "locked", documentId: "locked-doc", excluded: true, ruleId: RULE }),
+  ];
+  assert.equal(removalComplete(RULE, lines, new Set(["locked-doc"]), 1, 1), true);
+});
+
+test("removal complete: a line in an active resort blocks the marker", () => {
+  const lines = [
+    line({ id: "a", excluded: true, ruleId: RULE }),
+    line({ id: "resort", excluded: true, ruleId: RULE, inActiveResort: true }),
+  ];
+  assert.equal(removalComplete(RULE, lines, new Set(), 1, 1), false);
+});
+
+test("removal complete: a line filtered out by the guarded update blocks the marker", () => {
+  const lines = [line({ id: "a", excluded: true, ruleId: RULE }), line({ id: "b", excluded: true, ruleId: RULE })];
+  assert.equal(removalComplete(RULE, lines, new Set(), 2, 1), false);
+});
+
+test("pending removals: a rule stays pending only while it has lines in unprotected acts", () => {
+  const { pending, done } = partitionPendingRemovals(
+    ["live", "protected-only", "no-lines"],
+    [
+      { ruleId: "live", documentId: "open-doc" },
+      { ruleId: "live", documentId: "locked-doc" },
+      { ruleId: "protected-only", documentId: "locked-doc" },
+    ],
+    new Set(["open-doc"]),
+  );
+  assert.deepEqual(pending, ["live"]);
+  assert.deepEqual(done, ["protected-only", "no-lines"]);
 });

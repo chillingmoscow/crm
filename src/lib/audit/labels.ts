@@ -15,7 +15,7 @@ const FIELD_VALUES: Record<string, Record<string, string>> = {
     not_required: "Не требуется",
   },
   kind: {
-    bonus: "Премия", deduction: "Штраф", warning: "Предупреждение",
+    bonus: "Премия", deduction: "Штраф", inventory: "Недостача", warning: "Предупреждение",
     allowance: "Надбавка за месяц", salary: "Зарплата", advance: "Аванс", tips: "Чаевые",
   },
   type: {

@@ -53,6 +53,8 @@ const kindLabels: Record<string, string> = {
   allowance: "Надбавка за месяц",
   bonus: "Премия",
   deduction: "Штраф",
+  // Удержание по недостаче, которое ставит расчёт инвентаризации (origin inventory_deduction).
+  inventory: "Недостача",
   warning: "Предупреждение",
   food: "Питание",
   correction: "Корректировка",

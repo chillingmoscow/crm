@@ -64,7 +64,8 @@ export type DeductionActionResult = {
 type Ctx = Awaited<ReturnType<typeof getActiveContext>>;
 
 const MONTH_RE = /^\d{4}-\d{2}-01$/;
-const ANOMALY_LINK = "/documents/deduction";
+// Строки удержания видны в зарплатной ведомости: туда и ведёт уведомление.
+const ANOMALY_LINK = "/people/payroll";
 
 type RawPostResult = {
   posted?: boolean;
@@ -227,7 +228,7 @@ async function runRecalculation(ctx: Ctx, venueId: string, month: string): Promi
   const out = await postMonthlyDeduction(deps);
   if (out.state === "ready" && out.posted) {
     revalidatePath("/inventory");
-    revalidatePath("/documents/deduction");
+    revalidatePath("/people/payroll");
   }
   return {
     error: null,
@@ -376,7 +377,7 @@ export async function reverseInventoryDeductionForDocument(input: {
     if (error) return { error: error.message, reversed: 0, summary: null };
     const reversed = Number((data as { reversed?: number } | null)?.reversed ?? 0);
     revalidatePath("/inventory");
-    revalidatePath("/documents/deduction");
+    revalidatePath("/people/payroll");
     return {
       error: null,
       reversed,

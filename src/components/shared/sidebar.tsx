@@ -18,7 +18,6 @@ import {
   ChevronsRight,
   ChevronsUpDown,
   ClipboardList,
-  Scale,
   Eye,
   FileBadge2,
   Keyboard,
@@ -316,14 +315,6 @@ const NAV_SECTIONS: NavSection[] = [
         icon: ClipboardList,
         permission: "inventory.view_results",
         roles: ["owner", "admin", "manager"],
-      },
-      {
-        title: "Удержание по недостаче",
-        href: "/documents/deduction",
-        icon: Scale,
-        // Суммы по сотрудникам - зарплатные данные: нужны оба права (как и в странице).
-        allPermissions: ["inventory.view_results"],
-        anyPermissions: ["payroll.view", "inventory.post_deductions"],
       },
     ],
   },

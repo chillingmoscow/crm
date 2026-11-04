@@ -1377,3 +1377,16 @@ test("без погрешности в правилах позиции учит�
   );
   assert.deepEqual(r.sources.map((s) => s.amount), [-150]);
 });
+
+test("корректировка из Glide (без должности) не блокирует месяц и смен не даёт", () => {
+  const r = assembleMonthlySnapshot(
+    raw({
+      accruals: [
+        { employee_id: EMP_A, business_date: "2026-10-05", attendance_ids: null, snapshot_kind: "adjustment", historical: "true", position_name: null },
+      ],
+      roles: [role(ROLE_BAR, "Бармен", { department_id: DEPT_BAR })],
+    }),
+  );
+  assert.deepEqual(r.weights, []);
+  assert.deepEqual(r.unresolved, []);
+});

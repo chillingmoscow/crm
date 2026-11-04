@@ -557,7 +557,14 @@ export function buildShiftWeights(input: {
   for (const acc of input.accruals) {
     // Смена, перенесённая из Glide: отметок прихода нет, должность - из строки
     // Glide. Это та же смена, за которую заплатили, поэтому она в знаменателе.
-    if (acc.historical === "true" && !Array.isArray(acc.attendance_ids)) {
+    // Только начисление за смену: корректировки и оклад из Glide (`adjustment`,
+    // `monthly`) смен не дают и идут обычным путём ниже.
+    if (
+      acc.historical === "true" &&
+      !Array.isArray(acc.attendance_ids) &&
+      acc.snapshot_kind !== "adjustment" &&
+      acc.snapshot_kind !== "monthly"
+    ) {
       const role = roleByName(acc.position_name, input.roles);
       if (!role) unresolved.push(shiftDayRef(acc.employee_id, acc.business_date));
       else addShift(acc.employee_id, role.id, role.department_id);

@@ -8,7 +8,6 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { DatePicker } from "@/components/ui/date-picker";
 import { MultiOptionPicker } from "@/components/shared/multi-option-picker";
@@ -22,6 +21,7 @@ import {
   readLines,
   type DeductionRules,
 } from "@/lib/stock/deduction-rules";
+import { ExclusionsRow } from "./exclusions-sheet";
 import { dayLabel } from "@/lib/sales/format";
 function numeric(s: string) {
   if (!/^\d+(?:[.,]\d+)?$/.test(s.trim()))
@@ -70,7 +70,6 @@ function RulesForm({
       config.groups.map((g) => (g.id === id ? { ...g, ...patch } : g)),
     );
   const [lists, setLists] = useState({
-    inventoryExclusions: config.inventoryExclusions.join("\n"),
     roleSpecificCategories: config.roleSpecificCategories.join("\n"),
     writeoffReasons: config.writeoffReasons.join("\n"),
   });
@@ -219,30 +218,7 @@ function RulesForm({
               </p>
             </div>
           </div>
-          <details className="rounded-lg border px-4 py-3">
-            <summary className="cursor-pointer text-sm font-medium">
-              Исключения · {readLines(lists.inventoryExclusions).length}
-            </summary>
-            <div className="mt-4 space-y-2">
-              <Label htmlFor="stock-exclusions">
-                Группы, подгруппы и товары
-              </Label>
-              <Textarea
-                id="stock-exclusions"
-                rows={8}
-                value={lists.inventoryExclusions}
-                onChange={(e) =>
-                  setLists((l) => ({
-                    ...l,
-                    inventoryExclusions: e.target.value,
-                  }))
-                }
-              />
-              <p className="text-xs text-muted-foreground">
-                По одному названию Quick Resto в строке.
-              </p>
-            </div>
-          </details>
+          <ExclusionsRow />
         </section>
         <section className="space-y-4 border-b pb-6">
           <div>

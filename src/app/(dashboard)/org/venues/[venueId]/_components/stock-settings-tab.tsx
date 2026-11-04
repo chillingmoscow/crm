@@ -22,7 +22,7 @@ import {
 import { sharesFromRules, sharesTotal } from "@/lib/stock/department-shares";
 import { ExclusionsRow } from "./exclusions-sheet";
 import { dayLabel } from "@/lib/sales/format";
-import { DeductionRecalculate } from "./deduction-recalculate";
+import { DeductionRecalculate } from "@/app/(dashboard)/inventory/_components/deduction-recalculate";
 function numeric(s: string) {
   if (!/^\d+(?:[.,]\d+)?$/.test(s.trim()))
     throw new Error("Заполните числовые поля");

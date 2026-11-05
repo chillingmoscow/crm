@@ -9,6 +9,12 @@ import { EditDrawer } from "@/components/ui/edit-drawer";
 import { PALETTE_COLORS, paletteBg, paletteText } from "@/lib/palette";
 import { cn } from "@/lib/utils";
 import { addDays, dateInZone, timeInZone } from "@/lib/schedule/utils";
+import {
+  MAX_TEMPLATE_VARIANTS,
+  templateTimesFor,
+  validateVariants,
+  type TemplateVariant,
+} from "@/lib/schedule/template-times";
 import type {
   Checklist,
   ChecklistItem,
@@ -57,23 +63,25 @@ function timingValue(v: typeof empty): typeof empty {
     checklist_ids: v.checklist_ids,
   };
 }
-function Timing({
-  value,
-  set,
+function TimeRange({
+  start,
+  end,
+  onChange,
 }: {
-  value: typeof empty;
-  set: (v: typeof empty) => void;
+  start: string;
+  end: string;
+  onChange: (v: { start_time: string; end_time: string }) => void;
 }) {
   return (
-    <>
+    <div className="grid gap-2">
       <div className="grid grid-cols-2 gap-4">
         <Field label="Начало">
           <Input
             aria-label="Начало"
             type="time"
             required
-            value={value.start_time.slice(0, 5)}
-            onChange={(e) => set({ ...value, start_time: e.target.value })}
+            value={start.slice(0, 5)}
+            onChange={(e) => onChange({ start_time: e.target.value, end_time: end })}
           />
         </Field>
         <Field label="Окончание">
@@ -81,41 +89,206 @@ function Timing({
             aria-label="Окончание"
             type="time"
             required
-            value={value.end_time.slice(0, 5)}
-            onChange={(e) => set({ ...value, end_time: e.target.value })}
+            value={end.slice(0, 5)}
+            onChange={(e) => onChange({ start_time: start, end_time: e.target.value })}
           />
         </Field>
       </div>
-      {value.end_time <= value.start_time && (
+      {end.slice(0, 5) <= start.slice(0, 5) && (
         <p className="text-xs text-muted-foreground">
           Окончание на следующий день
         </p>
       )}
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Перерыв, мин">
-          <Input
-            type="number"
-            min={0}
-            max={1439}
-            value={value.break_minutes}
-            onChange={(e) =>
-              set({ ...value, break_minutes: Number(e.target.value) })
-            }
-          />
-        </Field>
-        <Field label="Прийти раньше, мин">
-          <Input
-            type="number"
-            min={0}
-            max={240}
-            value={value.arrival_minutes}
-            onChange={(e) =>
-              set({ ...value, arrival_minutes: Number(e.target.value) })
-            }
-          />
-        </Field>
-      </div>
+    </div>
+  );
+}
+function Extras({
+  value,
+  set,
+}: {
+  value: typeof empty;
+  set: (v: typeof empty) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-4">
+      <Field label="Перерыв, мин">
+        <Input
+          type="number"
+          min={0}
+          max={1439}
+          value={value.break_minutes}
+          onChange={(e) =>
+            set({ ...value, break_minutes: Number(e.target.value) })
+          }
+        />
+      </Field>
+      <Field label="Прийти раньше, мин">
+        <Input
+          type="number"
+          min={0}
+          max={240}
+          value={value.arrival_minutes}
+          onChange={(e) =>
+            set({ ...value, arrival_minutes: Number(e.target.value) })
+          }
+        />
+      </Field>
+    </div>
+  );
+}
+function Timing({
+  value,
+  set,
+  onTimeEdit,
+}: {
+  value: typeof empty;
+  set: (v: typeof empty) => void;
+  onTimeEdit?: () => void;
+}) {
+  return (
+    <>
+      <TimeRange
+        start={value.start_time}
+        end={value.end_time}
+        onChange={(t) => {
+          onTimeEdit?.();
+          set({ ...value, ...t });
+        }}
+      />
+      <Extras value={value} set={set} />
     </>
+  );
+}
+const WEEKDAYS = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"];
+const ALL_DAYS = [1, 2, 3, 4, 5, 6, 7];
+/** ISO-день недели (1=ПН…7=ВС) для даты YYYY-MM-DD. */
+export function isoWeekday(date: string) {
+  return ((new Date(date + "T12:00:00Z").getUTCDay() + 6) % 7) + 1;
+}
+/** «ПН–ПТ», «ПН, СР, ПТ», «СБ–ВС» — дни подряд сворачиваются в диапазон. */
+export function formatDays(days: number[]) {
+  const sorted = [...new Set(days)].sort((a, b) => a - b);
+  const parts: string[] = [];
+  for (let i = 0; i < sorted.length; ) {
+    let j = i;
+    while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) j++;
+    const from = WEEKDAYS[sorted[i] - 1];
+    const to = WEEKDAYS[sorted[j] - 1];
+    parts.push(j - i >= 2 ? `${from}–${to}` : sorted.slice(i, j + 1).map((d) => WEEKDAYS[d - 1]).join(", "));
+    i = j + 1;
+  }
+  return parts.join(", ");
+}
+/** Время шаблона одной строкой: «09:00–17:00» или «ПН–ПТ 09:00–17:00 · СБ 10:00–18:00». */
+export function formatTemplateTimes(t: ShiftTemplate) {
+  const range = (v: { start_time: string; end_time: string }) =>
+    `${v.start_time.slice(0, 5)}–${v.end_time.slice(0, 5)}`;
+  if (!t.variants?.length) return range(t);
+  return t.variants.map((v) => `${formatDays(v.days)} ${range(v)}`).join(" · ");
+}
+function Variants({
+  variants,
+  set,
+}: {
+  variants: TemplateVariant[];
+  set: (v: TemplateVariant[]) => void;
+}) {
+  const used = new Set(variants.flatMap((v) => v.days));
+  const free = ALL_DAYS.filter((d) => !used.has(d));
+  const toggle = (index: number, day: number) =>
+    set(
+      variants.map((v, i) =>
+        i === index
+          ? {
+              ...v,
+              days: v.days.includes(day)
+                ? v.days.filter((d) => d !== day)
+                : [...v.days, day].sort((a, b) => a - b),
+            }
+          : // День может быть только в одном варианте — забираем его у соседа.
+            { ...v, days: v.days.filter((d) => d !== day) },
+      ),
+    );
+  return (
+    <fieldset className="grid gap-3">
+      <legend className="text-sm font-medium mb-2">Время по дням недели</legend>
+      {variants.map((v, index) => (
+        <div key={index} className="grid gap-3 rounded-lg border p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div
+              role="group"
+              aria-label={`Дни варианта ${index + 1}`}
+              className="flex min-w-0 flex-wrap gap-1"
+            >
+              {WEEKDAYS.map((label, i) => {
+                const day = i + 1;
+                const on = v.days.includes(day);
+                return (
+                  <button
+                    key={day}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => toggle(index, day)}
+                    className={cn(
+                      "h-8 min-w-9 rounded-md border px-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      on
+                        ? "border-brand bg-brand text-brand-foreground"
+                        : "border-input bg-background text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={`Удалить вариант ${index + 1}`}
+              disabled={variants.length === 1}
+              onClick={() => set(variants.filter((_, i) => i !== index))}
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          </div>
+          <TimeRange
+            start={v.start_time}
+            end={v.end_time}
+            onChange={(t) =>
+              set(variants.map((x, i) => (i === index ? { ...x, ...t } : x)))
+            }
+          />
+        </div>
+      ))}
+      {free.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {formatDays(free)} — шаблон не работает
+        </p>
+      )}
+      <div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={variants.length >= MAX_TEMPLATE_VARIANTS}
+          onClick={() => {
+            const last = variants[variants.length - 1];
+            set([
+              ...variants,
+              {
+                days: free,
+                start_time: last?.start_time ?? "09:00",
+                end_time: last?.end_time ?? "17:00",
+              },
+            ]);
+          }}
+        >
+          <Plus className="size-4" />
+          Добавить вариант
+        </Button>
+      </div>
+    </fieldset>
   );
 }
 function Assignments({
@@ -267,7 +440,13 @@ export function ShiftEditor({
   save: Save;
 }) {
   const canAssign = data.permissions.includes("schedule.shift_assign");
-  const seed = template ? timingValue(template) : empty;
+  // Новая смена из шаблона: время — из варианта на день недели даты начала.
+  const seed = template
+    ? {
+        ...timingValue(template),
+        ...(templateTimesFor(template, isoWeekday(day)) ?? {}),
+      }
+    : empty;
   const [value, set] = useState({
     ...seed,
     name: shift?.title ?? template?.name ?? "Смена",
@@ -309,6 +488,22 @@ export function ShiftEditor({
   const [templateId, setTemplateId] = useState(
     shift?.template_id ?? template?.id ?? null,
   );
+  const chosen = data.templates.find((t) => t.id === templateId);
+  const chosenTimes = chosen ? templateTimesFor(chosen, isoWeekday(date)) : null;
+  // Время подставляется из шаблона при выборе шаблона и при смене даты, пока
+  // его не поправили руками. Для существующей смены — только если её время
+  // совпадает со временем шаблона на эту дату.
+  const [manualTime, setManualTime] = useState(
+    !!shift &&
+      (!chosenTimes ||
+        chosenTimes.start_time.slice(0, 5) !== value.start_time.slice(0, 5) ||
+        chosenTimes.end_time.slice(0, 5) !== value.end_time.slice(0, 5)),
+  );
+  const changeDate = (next: string) => {
+    setDate(next);
+    const times = chosen ? templateTimesFor(chosen, isoWeekday(next)) : null;
+    if (times && !manualTime) set({ ...value, ...times });
+  };
   const [busy, setBusy] = useState(false);
   const started = shift && data.runs.some((r) => r.shift_id === shift.id);
   const commit = async () => {
@@ -384,18 +579,33 @@ export function ShiftEditor({
           onChange={(e) => {
             const t = data.templates.find((t) => t.id === e.target.value);
             setTemplateId(t?.id ?? null);
-            if (t) set(timingValue(t));
+            if (t) {
+              set({
+                ...timingValue(t),
+                ...(templateTimesFor(t, isoWeekday(date)) ?? {}),
+              });
+              setManualTime(false);
+            }
           }}
         >
           <option value="">Своя смена</option>
           {data.templates
-            .filter((t) => !t.archived)
+            .filter(
+              (t) =>
+                t.id === templateId ||
+                (!t.archived && templateTimesFor(t, isoWeekday(date)) !== null),
+            )
             .map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}
               </option>
             ))}
         </select>
+        {chosen && !chosenTimes && (
+          <span className="text-xs font-normal text-muted-foreground">
+            Шаблон не работает в этот день
+          </span>
+        )}
       </Field>
       <Field label="Название">
         <Input
@@ -408,12 +618,16 @@ export function ShiftEditor({
         <Input
           type="date"
           value={date}
-          onChange={(e) => setDate(e.target.value)}
+          onChange={(e) => changeDate(e.target.value)}
           disabled={!!started && !copy}
         />
       </Field>
       <fieldset disabled={!!started && !copy} className="grid gap-5">
-        <Timing value={value} set={set} />
+        <Timing
+          value={value}
+          set={set}
+          onTimeEdit={() => setManualTime(true)}
+        />
         <Assignments data={data} value={value} set={set} />
         <Field label="Сотрудник">
           <select
@@ -532,14 +746,36 @@ export function TemplateEditor({
       ? { ...template, name: template.name + (copy ? " (копия)" : "") }
       : { ...empty },
   );
+  // Шаблон без вариантов показываем одним вариантом на все дни.
+  const [variants, setVariants] = useState<TemplateVariant[]>(
+    template?.variants?.length
+      ? template.variants
+      : [
+          {
+            days: ALL_DAYS,
+            start_time: (template ?? empty).start_time,
+            end_time: (template ?? empty).end_time,
+          },
+        ],
+  );
+  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const commit = async () => {
+    const problem = validateVariants(variants, value.break_minutes);
+    setError(problem);
+    if (problem) return;
+    // Один вариант на все дни — обычный шаблон без вариантов.
+    const everyDay =
+      variants.length === 1 && ALL_DAYS.every((d) => variants[0].days.includes(d));
     setBusy(true);
     if (
       await save(
         copy ? "template.copy" : template ? "template.edit" : "template.create",
         {
           ...value,
+          start_time: variants[0].start_time,
+          end_time: variants[0].end_time,
+          variants: everyDay ? [] : variants,
           ...(template ? { id: template.id, version: template.version } : {}),
         },
       )
@@ -578,7 +814,15 @@ export function TemplateEditor({
           onChange={(e) => set({ ...value, name: e.target.value })}
         />
       </Field>
-      <Timing value={value} set={set} />
+      <Variants
+        variants={variants}
+        set={(v) => {
+          setVariants(v);
+          setError(null);
+        }}
+      />
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      <Extras value={value} set={set} />
       <Assignments data={data} value={value} set={set} />
       <Colors
         value={value.color}

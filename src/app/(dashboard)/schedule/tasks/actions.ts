@@ -71,9 +71,31 @@ export async function loadTasks(): Promise<TaskData> {
   for (const r of results)
     if (r.error)
       throw new Error("Не удалось загрузить задачи: " + r.error.message);
+  const occurrences = results[1].data ?? [];
+  const loadedIds = new Set(occurrences.map((o) => o.id));
+  const prerequisiteIds = [
+    ...new Set(
+      occurrences
+        .map((o) => o.predecessor_occurrence_id)
+        .filter((id): id is string => !!id && !loadedIds.has(id)),
+    ),
+  ];
+  if (prerequisiteIds.length) {
+    const prerequisites = await db
+      .from<TaskOccurrence[]>("schedule_task_occurrences")
+      .select("*")
+      .eq("venue_id", venueId)
+      .in("id", prerequisiteIds);
+    if (prerequisites.error)
+      throw new Error(
+        "Не удалось загрузить предыдущие отчёты: " +
+          prerequisites.error.message,
+      );
+    occurrences.push(...(prerequisites.data ?? []));
+  }
   return {
     definitions: results[0].data ?? [],
-    occurrences: results[1].data ?? [],
+    occurrences,
     settings: results[2].data,
     templates: results[3].data ?? [],
     messages: results[4].data ?? [],

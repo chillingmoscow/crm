@@ -289,7 +289,7 @@ begin
     if pred.id is null or pred.status<>'completed' then blocked_reason:='Ожидается выполнение предыдущей задачи';end if;
    end if;
    assignment_deadline:=case when s.id is not null then greatest(s.ends_at,((o.business_date+1)::timestamp+interval '11 hours 30 minutes') at time zone tz) end;
-   if blocked_reason='' and assignment_deadline<=now() and (o.status='blocked' or pred.completed_at>assignment_deadline) then
+   if blocked_reason='' and assignment_deadline<=now() and (o.status='blocked' or pred.completed_at>assignment_deadline or o.shift_id is distinct from s.id or o.employee_id is distinct from e.id or o.user_id is distinct from coalesce(s.user_id,e.local_user_id)) then
     blocked_reason:='Срок истёк до доступности задачи. Нужна сверка без автоматического штрафа';
    end if;
    group_index:=jsonb_array_length(coalesce(o.snapshot->'equipment_groups','[]'));

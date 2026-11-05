@@ -106,7 +106,7 @@ end $$;
 
 -- Regression scenarios from review: repeated carries, ambiguity after draft, late acceptance and correction deadlines.
 do $$
-declare owner_id uuid;staff_id uuid;v uuid;a uuid;d date;tpl uuid;employee uuid;def uuid;prep_def uuid;prep uuid;original uuid;carried uuid;second_carry uuid;started uuid;duplicate uuid;late uuid;returned uuid;shift uuid;future_occ uuid;future_shift uuid;dependent_def uuid;dependent uuid;late_prep uuid;correction_def uuid;expired_return uuid;new_carry uuid;late_assignment_def uuid;late_assignment uuid;ver integer;check_id uuid:=gen_random_uuid();snap jsonb;prep_snap jsonb;
+declare owner_id uuid;staff_id uuid;v uuid;a uuid;d date;tpl uuid;employee uuid;def uuid;prep_def uuid;prep uuid;original uuid;carried uuid;second_carry uuid;started uuid;duplicate uuid;late uuid;returned uuid;shift uuid;future_occ uuid;future_shift uuid;dependent_def uuid;dependent uuid;late_prep uuid;correction_def uuid;expired_return uuid;new_carry uuid;late_assignment_def uuid;late_assignment uuid;replacement_user uuid;replacement_employee uuid;reassigned_def uuid;reassigned uuid;ver integer;check_id uuid:=gen_random_uuid();snap jsonb;prep_snap jsonb;
 begin
  select id into owner_id from auth.users where email='owner@test.com';
  select id into staff_id from auth.users where email='waiter@test.com';
@@ -214,6 +214,19 @@ begin
  perform public.schedule_command('shift.publish',jsonb_build_object('id',shift,'version',ver));
  perform public.schedule_process_tasks();perform public.schedule_process_tasks();
  if not exists(select 1 from public.schedule_task_occurrences where id=late_assignment and status='blocked' and shift_id=shift and blocker like 'Срок истёк%' and settled_at is null) or exists(select 1 from public.payroll_adjustments where automation_key='task:'||late_assignment||':result') then raise exception 'Поздняя публикация смены оштрафовала недоступную ранее задачу';end if;
- raise notice 'PASS: repeated prerequisite/equipment carry, ambiguous started assignment recovery, late approval reward, correction deadline/carry without backdated fines, calendar shift deletion/replacement, late prerequisite and ordinary shift reconciliation';
+ -- Reassigning an untouched but expired task must not charge the replacement employee.
+ select id into replacement_user from auth.users where email='manager@test.com';
+ select id into replacement_employee from public.payroll_employees where venue_id=v and local_user_id=replacement_user;
+ if replacement_employee is null then insert into public.payroll_employees(account_id,venue_id,local_user_id,name,role_name) values(a,v,replacement_user,'TEST Replacement','Менеджер') returning id into replacement_employee;end if;
+ insert into public.schedule_task_definitions(account_id,venue_id,name,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount)
+ select account_id,venue_id,'TEST Expired Reassignment',template_id,review_mode,items,recurrence,starts_on,false,true,300,300 from public.schedule_task_definitions where id=def returning id into reassigned_def;
+ insert into public.schedule_shifts(venue_id,user_id,template_id,title,color,starts_at,ends_at,published)
+ values(v,staff_id,tpl,'TEST Expired Shift','blue',((d-2)::timestamp+interval '9 hours') at time zone 'Europe/Moscow',((d-2)::timestamp+interval '17 hours') at time zone 'Europe/Moscow',true) returning id,version into shift,ver;
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,shift_id,employee_id,user_id,deadline_at)
+ values(v,a,reassigned_def,d-2,snap||jsonb_build_object('id',reassigned_def),'assigned',shift,employee,staff_id,now()-interval '1 hour') returning id into reassigned;
+ perform public.schedule_command('shift.assign',jsonb_build_object('id',shift,'version',ver,'user_id',replacement_user));
+ perform public.schedule_process_tasks();perform public.schedule_process_tasks();
+ if not exists(select 1 from public.schedule_task_occurrences where id=reassigned and status='blocked' and user_id=replacement_user and blocker like 'Срок истёк%' and settled_at is null) or exists(select 1 from public.payroll_adjustments where automation_key='task:'||reassigned||':result') then raise exception 'Поздняя замена сотрудника перенесла штраф на замену';end if;
+ raise notice 'PASS: repeated prerequisite/equipment carry, ambiguous started assignment recovery, late approval reward, correction deadline/carry without backdated fines, calendar shift deletion/replacement, late prerequisite/publication/reassignment reconciliation';
 end $$;
 rollback;

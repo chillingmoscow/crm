@@ -1,0 +1,938 @@
+{
+  "schemaVersion": 1,
+  "status": "draft_not_imported",
+  "confirmedOn": "2026-11-05",
+  "decisions": {
+    "assignment": "shift_template_day_evening",
+    "completion": "required_checklist_and_photos_per_item",
+    "review": "auto_or_manager_per_task",
+    "reporter": "responsible_bartender_or_manager",
+    "candlesticks": "two_separate_tasks",
+    "behindFridgesWeekday": "Monday",
+    "candlestickFinance": "final_task_only",
+    "fridgeGroups": "continuous_four_week_cycle"
+  },
+  "notes": [
+    "Чек-листы подготовлены по исходным инструкциям; новые требования к фотографиям являются предложением для редакторской проверки.",
+    "Правила повторов сохранены из Notion. Для интервалов в 2/4 недели нельзя заменять их номером недели месяца.",
+    "Управляющий или автоприёмка выбираются у каждой задачи явно перед включением."
+  ],
+  "tasks": [
+    {
+      "key": "f32b3a58-7bc2-4d1f-a84c-1c501c7aeb3b",
+      "name": "Ежемесячное обслуживание мебели",
+      "sourceId": "f32b3a58-7bc2-4d1f-a84c-1c501c7aeb3b",
+      "sourceUrl": "https://app.notion.com/p/f32b3a587bc24d1fa84c1c501c7aeb3b",
+      "sourceRole": "Менеджер №1",
+      "shiftTemplate": "Менеджер · день",
+      "reviewMode": null,
+      "enabled": false,
+      "recurrence": {
+        "name": "Ежемесячное обслуживание мебели",
+        "unit": "week",
+        "interval": 4,
+        "weekdays": [
+          1
+        ],
+        "time": "04:15",
+        "utcOffset": "+03:00",
+        "nextOccurrence": "2026-11-23",
+        "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+        "startLabel": "18 мар. 2024 г."
+      },
+      "fine": 500,
+      "rewardForTransferred": null,
+      "items": [
+        {
+          "id": "step-1",
+          "kind": "check",
+          "title": "Убрать мусор под подушками и между сиденьями всех диванов и кресел",
+          "required": true
+        },
+        {
+          "id": "step-2",
+          "kind": "check",
+          "title": "Проверить ножки и крепления, подтянуть расшатавшиеся элементы",
+          "required": true
+        },
+        {
+          "id": "step-3",
+          "kind": "check",
+          "title": "Сообщить о повреждениях и необходимом ремонте",
+          "required": true
+        },
+        {
+          "id": "step-4",
+          "kind": "photo",
+          "title": "Общий вид очищенной мебели",
+          "required": true
+        }
+      ],
+      "status": "draft_requires_editorial_review"
+    },
+    {
+      "key": "07d76a0e-875b-47a5-afbd-7a880a100117",
+      "name": "Заточка ножей",
+      "sourceId": "07d76a0e-875b-47a5-afbd-7a880a100117",
+      "sourceUrl": "https://app.notion.com/p/07d76a0e875b47a5afbd7a880a100117",
+      "sourceRole": "Бармен №1",
+      "shiftTemplate": "Бармен · день",
+      "reviewMode": null,
+      "enabled": false,
+      "recurrence": {
+        "name": "Заточка ножей",
+        "unit": "week",
+        "interval": 1,
+        "weekdays": [
+          4
+        ],
+        "time": "03:15",
+        "utcOffset": "+03:00",
+        "nextOccurrence": "2026-11-12",
+        "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+        "startLabel": "10 апр. 2023 г."
+      },
+      "fine": 300,
+      "rewardForTransferred": 300,
+      "items": [
+        {
+          "id": "step-1",
+          "kind": "check",
+          "title": "Подготовить и увлажнить камень на устойчивой нескользящей поверхности",
+          "required": true
+        },
+        {
+          "id": "step-2",
+          "kind": "check",
+          "title": "Заточить все ножи с обеих сторон, сохраняя угол из инструкции",
+          "required": true
+        },
+        {
+          "id": "step-3",
+          "kind": "check",
+          "title": "Повторить обработку на финишной стороне камня",
+          "required": true
+        },
+        {
+          "id": "step-4",
+          "kind": "photo",
+          "title": "Все обработанные ножи",
+          "required": true
+        }
+      ],
+      "status": "draft_requires_editorial_review"
+    },
+    {
+      "key": "e44847d9-ddc5-4e44-8382-421bb77f8689",
+      "name": "Обслуживание посудомоечных машин",
+      "sourceId": "e44847d9-ddc5-4e44-8382-421bb77f8689",
+      "sourceUrl": "https://app.notion.com/p/e44847d9ddc54e448382421bb77f8689",
+      "sourceRole": "Бармен №1",
+      "shiftTemplate": "Бармен · день",
+      "reviewMode": null,
+      "enabled": false,
+      "recurrence": {
+        "name": "Обслуживание посудомоечных машин",
+        "unit": "week",
+        "interval": 1,
+        "weekdays": [
+          6
+        ],
+        "time": "04:15",
+        "utcOffset": "+03:00",
+        "nextOccurrence": "2026-11-07",
+        "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+        "startLabel": "10 апр. 2023 г."
+      },
+      "fine": 300,
+      "rewardForTransferred": null,
+      "items": [
+        {
+          "id": "step-1",
+          "kind": "check",
+          "title": "Проверить соль и при необходимости заполнить резервуар, закрыть крышку",
+          "required": true
+        },
+        {
+          "id": "step-2",
+          "kind": "check",
+          "title": "Проверить ополаскиватель, долить при необходимости и проверить индикатор",
+          "required": true
+        },
+        {
+          "id": "step-3",
+          "kind": "check",
+          "title": "Учесть фактически использованные расходные материалы по действующему порядку",
+          "required": true
+        },
+        {
+          "id": "step-4",
+          "kind": "photo",
+          "title": "Состояние обслуженных машин и индикаторов",
+          "required": true
+        }
+      ],
+      "status": "draft_requires_editorial_review"
+    },
+    {
+      "key": "263bf15b-393b-419c-8093-829ed8c677bd",
+      "name": "Уборка за холодильниками на кухне",
+      "sourceId": "263bf15b-393b-419c-8093-829ed8c677bd",
+      "sourceUrl": "https://app.notion.com/p/263bf15b393b419c8093829ed8c677bd",
+      "sourceRole": "Бармен №1",
+      "shiftTemplate": "Бармен · день",
+      "reviewMode": null,
+      "enabled": false,
+      "recurrence": {
+        "name": "Уборка за холодильниками на кухне",
+        "unit": "week",
+        "interval": 1,
+        "weekdays": [
+          1
+        ],
+        "time": "04:15",
+        "utcOffset": "+03:00",
+        "nextOccurrence": "2026-11-09",
+        "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+        "startLabel": "5 июл. 2024 г."
+      },
+      "fine": 500,
+      "rewardForTransferred": null,
+      "items": [
+        {
+          "id": "step-1",
+          "kind": "check",
+          "title": "Организовать доступ к стенам и полу за кухонными холодильниками",
+          "required": true
+        },
+        {
+          "id": "step-2",
+          "kind": "check",
+          "title": "Проконтролировать мойку труднодоступных стен и полов клиннером",
+          "required": true
+        },
+        {
+          "id": "step-3",
+          "kind": "check",
+          "title": "Вернуть холодильники на места и проконтролировать мойку центра кухни",
+          "required": true
+        },
+        {
+          "id": "step-4",
+          "kind": "photo",
+          "title": "Пол и стены за отодвинутыми холодильниками",
+          "required": true
+        },
+        {
+          "id": "step-5",
+          "kind": "photo",
+          "title": "Кухня после возвращения холодильников на места",
+          "required": true
+        }
+      ],
+      "status": "draft_requires_editorial_review"
+    },
+    {
+      "key": "ba5073bf-60a6-408b-9666-1c961add84be",
+      "name": "Уборка кассовой зоны",
+      "sourceId": "ba5073bf-60a6-408b-9666-1c961add84be",
+      "sourceUrl": "https://app.notion.com/p/ba5073bf60a6408b96661c961add84be",
+      "sourceRole": "Менеджер №1",
+      "shiftTemplate": "Менеджер · день",
+      "reviewMode": null,
+      "enabled": false,
+      "recurrence": {
+        "name": "Уборка кассовой зоны",
+        "unit": "week",
+        "interval": 2,
+        "weekdays": [
+          3
+        ],
+        "time": "04:15",
+        "utcOffset": "+03:00",
+        "nextOccurrence": "2026-11-11",
+        "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+        "startLabel": "30 апр. 2025 г."
+      },
+      "fine": 300,
+      "rewardForTransferred": 300,
+      "items": [
+        {
+          "id": "step-1",
+          "kind": "check",
+          "title": "Очистить монитор, принтер чеков и рабочие планшеты",
+          "required": true
+        },
+        {
+          "id": "step-2",
+          "kind": "check",
+          "title": "Протереть стойку, место под кассовым ящиком и системный блок",
+          "required": true
+        },
+        {
+          "id": "step-3",
+          "kind": "check",
+          "title": "Очистить нижнюю полку стойки, контейнер и полки шкафа",
+          "required": true
+        },
+        {
+          "id": "step-4",
+          "kind": "check",
+          "title": "Протереть полку с геймпадами",
+          "required": true
+        },
+        {
+          "id": "step-5",
+          "kind": "photo",
+          "title": "Очищенные поверхности кассовой зоны",
+          "required": true
+        }
+      ],
+      "status": "draft_requires_editorial_review"
+    },
+    {
+      "key": "67fb08f7-942c-428a-9e2b-1c0e920a31bb",
+      "name": "Очистка посудомоечных машин",
+      "sourceId": "67fb08f7-942c-428a-9e2b-1c0e920a31bb",
+      "sourceUrl": "https://app.notion.com/p/67fb08f7942c428a9e2b1c0e920a31bb",
+      "sourceRole": "Бармен №1",
+      "shiftTemplate": "Бармен · день",
+      "reviewMode": null,
+      "enabled": false,
+      "recurrence": {
+        "name": "Очистка посудомоечных машин",
+        "unit": "week",
+        "interval": 4,
+        "weekdays": [
+          7
+        ],
+        "time": "04:15",
+        "utcOffset": "+03:00",
+        "nextOccurrence": "2026-11-22",
+        "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+        "startLabel": "11 апр. 2023 г."
+      },
+      "fine": 300,
+      "rewardForTransferred": null,
+      "items": [
+        {
+          "id": "step-1",
+          "kind": "check",
+          "title": "Очистить моющие камеры по инструкции и учесть расход очистителя",
+          "required": true
+        },
+        {
+          "id": "step-2",
+          "kind": "check",
+          "title": "Очистить уплотнители и панели управления",
+          "required": true
+        },
+        {
+          "id": "step-3",
+          "kind": "check",
+          "title": "Разобрать, промыть и правильно установить фильтры",
+          "required": true
+        },
+        {
+          "id": "step-4",
+          "kind": "check",
+          "title": "Снять, очистить и установить распылители",
+          "required": true
+        },
+        {
+          "id": "step-5",
+          "kind": "photo",
+          "title": "Камеры после очистки",
+          "required": true
+        },
+        {
+          "id": "step-6",
+          "kind": "photo",
+          "title": "Очищенные фильтры и распылители перед установкой",
+          "required": true
+        }
+      ],
+      "status": "draft_requires_editorial_review"
+    },
+    {
+      "key": "65b5e178-f677-4337-af26-d7bb38c9a3ba",
+      "name": "Обслуживание сололифтов",
+      "sourceId": "65b5e178-f677-4337-af26-d7bb38c9a3ba",
+      "sourceUrl": "https://app.notion.com/p/65b5e178f6774337af26d7bb38c9a3ba",
+      "sourceRole": "Мастер №1",
+      "shiftTemplate": "Мастер · день",
+      "reviewMode": null,
+      "enabled": false,
+      "recurrence": {
+        "name": "Обслуживание сололифтов",
+        "unit": "month",
+        "interval": 2,
+        "weekdays": [],
+        "time": "04:15",
+        "utcOffset": "+03:00",
+        "nextOccurrence": "2026-12-23",
+        "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+        "startLabel": "23 июн. 2024 г.",
+        "monthDay": 23
+      },
+      "fine": 300,
+      "rewardForTransferred": 300,
+      "items": [
+        {
+          "id": "step-1",
+          "kind": "check",
+          "title": "В начале смены подготовить отдельный раствор для каждого насоса по инструкции",
+          "required": true
+        },
+        {
+          "id": "step-2",
+          "kind": "check",
+          "title": "Обработать сололифт левого туалета",
+          "required": true
+        },
+        {
+          "id": "step-3",
+          "kind": "check",
+          "title": "Обработать сололифт правого туалета",
+          "required": true
+        },
+        {
+          "id": "step-4",
+          "kind": "check",
+          "title": "Обработать сололифт кальянного бара",
+          "required": true
+        },
+        {
+          "id": "step-5",
+          "kind": "check",
+          "title": "Обработать сололифт кухни",
+          "required": true
+        },
+        {
+          "id": "step-6",
+          "kind": "check",
+          "title": "Учесть фактически использованный уксус по действующему порядку",
+          "required": true
+        },
+        {
+          "id": "step-7",
+          "kind": "text",
+          "title": "Отчёт о выполнении и замечания по насосам",
+          "required": true
+        }
+      ],
+      "status": "draft_requires_editorial_review"
+    },
+    {
+      "key": "ceab210f-dd12-40bb-b756-2c34b9a0275a",
+      "name": "Обслуживание холодильников",
+      "sourceId": "ceab210f-dd12-40bb-b756-2c34b9a0275a",
+      "sourceUrl": "https://app.notion.com/p/ceab210fdd1240bbb7562c34b9a0275a",
+      "sourceRole": "Бармен №1",
+      "shiftTemplate": "Бармен · день",
+      "reviewMode": null,
+      "enabled": false,
+      "recurrence": {
+        "name": "Обслуживание холодильников",
+        "unit": "week",
+        "interval": 1,
+        "weekdays": [
+          1
+        ],
+        "time": "04:15",
+        "utcOffset": "+00:00",
+        "nextOccurrence": "2026-11-09",
+        "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+        "startLabel": "24 июн."
+      },
+      "fine": 500,
+      "rewardForTransferred": null,
+      "items": [
+        {
+          "id": "step-1",
+          "kind": "check",
+          "title": "Выбрать камеры по недельной группе из инструкции",
+          "required": true
+        },
+        {
+          "id": "step-2",
+          "kind": "check",
+          "title": "Освободить камеры, проверить сроки годности и упаковку продукции",
+          "required": true
+        },
+        {
+          "id": "step-3",
+          "kind": "check",
+          "title": "Проконтролировать очистку полок, камер и внешних поверхностей",
+          "required": true
+        },
+        {
+          "id": "step-4",
+          "kind": "check",
+          "title": "При наледи выполнить разморозку с отключением от сети по инструкции",
+          "required": true
+        },
+        {
+          "id": "step-5",
+          "kind": "check",
+          "title": "Высушить поверхности, включить камеры и вернуть продукцию",
+          "required": true
+        },
+        {
+          "id": "step-6",
+          "kind": "photo",
+          "title": "Результат по каждой выбранной камере",
+          "required": true
+        }
+      ],
+      "status": "draft_requires_editorial_review",
+      "equipmentCycleGroups": [
+        [
+          1,
+          2,
+          3,
+          6
+        ],
+        [
+          4,
+          5,
+          7,
+          8
+        ],
+        [
+          9,
+          10,
+          11,
+          12,
+          13
+        ],
+        [
+          14,
+          15,
+          16,
+          17,
+          18
+        ]
+      ]
+    },
+    {
+      "key": "847dee09-fcd2-4bf5-9cd4-4706988b572a",
+      "name": "Чистка печи для пиццы",
+      "sourceId": "847dee09-fcd2-4bf5-9cd4-4706988b572a",
+      "sourceUrl": "https://app.notion.com/p/847dee09fcd24bf59cd44706988b572a",
+      "sourceRole": "Бармен №1",
+      "shiftTemplate": "Бармен · день",
+      "reviewMode": null,
+      "enabled": false,
+      "recurrence": {
+        "name": "Чистка печи для пиццы",
+        "unit": "week",
+        "interval": 2,
+        "weekdays": [
+          6
+        ],
+        "time": "04:15",
+        "utcOffset": "+00:00",
+        "nextOccurrence": "2026-11-14",
+        "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+        "startLabel": "24 июн."
+      },
+      "fine": 500,
+      "rewardForTransferred": null,
+      "items": [
+        {
+          "id": "step-1",
+          "kind": "check",
+          "title": "Подготовить резервную печь и включить кухонную вытяжку",
+          "required": true
+        },
+        {
+          "id": "step-2",
+          "kind": "check",
+          "title": "С помощью мастера снять рамки, стеклянные элементы и пекарские камни",
+          "required": true
+        },
+        {
+          "id": "step-3",
+          "kind": "check",
+          "title": "Убрать крошки и очистить разрешённые поверхности по инструкции",
+          "required": true
+        },
+        {
+          "id": "step-4",
+          "kind": "check",
+          "title": "Полностью удалить средство, высушить и проветрить печь",
+          "required": true
+        },
+        {
+          "id": "step-5",
+          "kind": "check",
+          "title": "Вернуть камни, стёкла и рамки на места, проверить крепления",
+          "required": true
+        },
+        {
+          "id": "step-6",
+          "kind": "photo",
+          "title": "Внутренние поверхности печи после очистки",
+          "required": true
+        },
+        {
+          "id": "step-7",
+          "kind": "photo",
+          "title": "Собранная печь",
+          "required": true
+        }
+      ],
+      "status": "draft_requires_editorial_review"
+    },
+    {
+      "key": "e2a60496-6cc0-41fb-ab99-f03661aac39a",
+      "name": "Чистка чайной посуды от налёта",
+      "sourceId": "e2a60496-6cc0-41fb-ab99-f03661aac39a",
+      "sourceUrl": "https://app.notion.com/p/e2a604966cc041fbab99f03661aac39a",
+      "sourceRole": "Бармен №1",
+      "shiftTemplate": "Бармен · день",
+      "reviewMode": null,
+      "enabled": false,
+      "recurrence": {
+        "name": "Чистка чайной посуды от налёта",
+        "unit": "week",
+        "interval": 1,
+        "weekdays": [
+          3
+        ],
+        "time": "04:15",
+        "utcOffset": "+03:00",
+        "nextOccurrence": "2026-11-11",
+        "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+        "startLabel": "19 апр. 2023 г."
+      },
+      "fine": 300,
+      "rewardForTransferred": null,
+      "items": [
+        {
+          "id": "step-1",
+          "kind": "check",
+          "title": "Разделить посуду на два захода, оставив запас для заказов",
+          "required": true
+        },
+        {
+          "id": "step-2",
+          "kind": "check",
+          "title": "Разобрать проливники, сохранив силиконовые детали",
+          "required": true
+        },
+        {
+          "id": "step-3",
+          "kind": "check",
+          "title": "Очистить металлические и силиконовые детали и остальную чайную посуду по инструкции",
+          "required": true
+        },
+        {
+          "id": "step-4",
+          "kind": "check",
+          "title": "Тщательно удалить моющее средство и выполнить полоскание",
+          "required": true
+        },
+        {
+          "id": "step-5",
+          "kind": "check",
+          "title": "Собрать посуду, проверить состояние и учесть расходные материалы",
+          "required": true
+        },
+        {
+          "id": "step-6",
+          "kind": "photo",
+          "title": "Вся обработанная чайная посуда",
+          "required": true
+        },
+        {
+          "id": "step-7",
+          "kind": "photo",
+          "title": "Состояние проливников после очистки",
+          "required": true
+        }
+      ],
+      "status": "draft_requires_editorial_review"
+    },
+    {
+      "key": "3ba9c11b-d56e-4596-892d-6623cffb704a",
+      "name": "Чистка термопота / чайника",
+      "sourceId": "3ba9c11b-d56e-4596-892d-6623cffb704a",
+      "sourceUrl": "https://app.notion.com/p/3ba9c11bd56e4596892d6623cffb704a",
+      "sourceRole": "Бармен №1",
+      "shiftTemplate": "Бармен · день",
+      "reviewMode": null,
+      "enabled": false,
+      "recurrence": {
+        "name": "Чистка термопота / чайника",
+        "unit": "week",
+        "interval": 1,
+        "weekdays": [
+          7
+        ],
+        "time": "04:15",
+        "utcOffset": "+00:00",
+        "nextOccurrence": "2026-11-08",
+        "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+        "startLabel": "24 июн."
+      },
+      "fine": 300,
+      "rewardForTransferred": 300,
+      "items": [
+        {
+          "id": "step-1",
+          "kind": "check",
+          "title": "Очистить термопот по отдельному разделу инструкции",
+          "required": true
+        },
+        {
+          "id": "step-2",
+          "kind": "check",
+          "title": "Очистить чайник по отдельному разделу инструкции",
+          "required": true
+        },
+        {
+          "id": "step-3",
+          "kind": "check",
+          "title": "Тщательно промыть оба прибора и вернуть их на места",
+          "required": true
+        },
+        {
+          "id": "step-4",
+          "kind": "check",
+          "title": "Заполнить приборы фильтрованной водой и учесть фактический расход кислоты",
+          "required": true
+        },
+        {
+          "id": "step-5",
+          "kind": "photo",
+          "title": "Внутренняя поверхность термопота после очистки",
+          "required": true
+        },
+        {
+          "id": "step-6",
+          "kind": "photo",
+          "title": "Внутренняя поверхность чайника после очистки",
+          "required": true
+        }
+      ],
+      "status": "draft_requires_editorial_review"
+    },
+    {
+      "key": "18889d79-8fce-426f-ba1e-300849815ee1",
+      "name": "Подготовить подсвечники к мойке",
+      "sourceId": "18889d79-8fce-426f-ba1e-300849815ee1",
+      "sourceUrl": "https://app.notion.com/p/18889d798fce426fba1e300849815ee1",
+      "sourceRole": "Менеджер №1",
+      "shiftTemplate": "Менеджер · день",
+      "reviewMode": null,
+      "enabled": false,
+      "recurrence": {
+        "name": "Чистка стеклянных подсвечников",
+        "unit": "week",
+        "interval": 2,
+        "weekdays": [
+          1
+        ],
+        "time": "04:15",
+        "utcOffset": "+00:00",
+        "nextOccurrence": "2026-11-09",
+        "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+        "startLabel": "24 июн."
+      },
+      "fine": null,
+      "rewardForTransferred": null,
+      "items": [
+        {
+          "id": "step-1",
+          "kind": "check",
+          "title": "Убрать фитили отдельно и пересыпать воск в предназначенный контейнер",
+          "required": true
+        },
+        {
+          "id": "step-2",
+          "kind": "check",
+          "title": "Собрать все подсвечники на барной стойке",
+          "required": true
+        },
+        {
+          "id": "step-3",
+          "kind": "photo",
+          "title": "Все подготовленные подсвечники",
+          "required": true
+        }
+      ],
+      "status": "draft_requires_editorial_review"
+    },
+    {
+      "key": "79297363-cb68-402f-972d-52b764d53265",
+      "name": "Чистка деревянных менажниц",
+      "sourceId": "79297363-cb68-402f-972d-52b764d53265",
+      "sourceUrl": "https://app.notion.com/p/79297363cb68402f972d52b764d53265",
+      "sourceRole": "Менеджер №1",
+      "shiftTemplate": "Менеджер · день",
+      "reviewMode": null,
+      "enabled": false,
+      "recurrence": {
+        "name": "Чистка деревянных менажниц",
+        "unit": "week",
+        "interval": 2,
+        "weekdays": [
+          1
+        ],
+        "time": "04:15",
+        "utcOffset": "+00:00",
+        "nextOccurrence": "2026-11-09",
+        "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+        "startLabel": "24 июн."
+      },
+      "fine": 300,
+      "rewardForTransferred": 300,
+      "items": [
+        {
+          "id": "step-1",
+          "kind": "check",
+          "title": "Собрать все менажницы и убрать салфетки и одноразовые мундштуки",
+          "required": true
+        },
+        {
+          "id": "step-2",
+          "kind": "check",
+          "title": "Удалить пыль и грязь внутри",
+          "required": true
+        },
+        {
+          "id": "step-3",
+          "kind": "check",
+          "title": "Протереть менажницы и кнопки слегка влажной выжатой микрофиброй",
+          "required": true
+        },
+        {
+          "id": "step-4",
+          "kind": "check",
+          "title": "Наполнить салфетками и мундштуками и вернуть на соответствующие столы",
+          "required": true
+        },
+        {
+          "id": "step-5",
+          "kind": "photo",
+          "title": "Все очищенные менажницы",
+          "required": true
+        }
+      ],
+      "status": "draft_requires_editorial_review"
+    },
+    {
+      "key": "e3d07ea2-7f0e-47f6-869c-0e29e28d807f",
+      "name": "Чистка кухонного кондиционера",
+      "sourceId": "e3d07ea2-7f0e-47f6-869c-0e29e28d807f",
+      "sourceUrl": "https://app.notion.com/p/e3d07ea27f0e47f6869c0e29e28d807f",
+      "sourceRole": "Бармен №1",
+      "shiftTemplate": "Бармен · день",
+      "reviewMode": null,
+      "enabled": false,
+      "recurrence": {
+        "name": "Чистка кухонного кондиционера",
+        "unit": "month",
+        "interval": 1,
+        "weekdays": [],
+        "time": "04:15",
+        "utcOffset": "+00:00",
+        "nextOccurrence": "2026-11-24",
+        "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+        "startLabel": "24 июн.",
+        "monthDay": 24
+      },
+      "fine": 500,
+      "rewardForTransferred": null,
+      "items": [
+        {
+          "id": "step-1",
+          "kind": "check",
+          "title": "Проверить отключение кондиционера",
+          "required": true
+        },
+        {
+          "id": "step-2",
+          "kind": "check",
+          "title": "Подготовить пылесос со специальной насадкой",
+          "required": true
+        },
+        {
+          "id": "step-3",
+          "kind": "check",
+          "title": "Снять заднюю крышку, очистить радиатор и крышку с двух сторон",
+          "required": true
+        },
+        {
+          "id": "step-4",
+          "kind": "check",
+          "title": "Установить крышку обратно",
+          "required": true
+        },
+        {
+          "id": "step-5",
+          "kind": "photo",
+          "title": "Радиатор и крышка после очистки",
+          "required": true
+        }
+      ],
+      "status": "draft_requires_editorial_review"
+    },
+    {
+      "key": "18889d79-8fce-426f-ba1e-300849815ee1:washing",
+      "name": "Вымыть и расставить подсвечники",
+      "sourceId": "18889d79-8fce-426f-ba1e-300849815ee1",
+      "sourceUrl": "https://app.notion.com/p/18889d798fce426fba1e300849815ee1",
+      "sourceRole": "Менеджер №1",
+      "shiftTemplate": "Менеджер · день",
+      "reviewMode": null,
+      "enabled": false,
+      "recurrence": {
+        "name": "Чистка стеклянных подсвечников",
+        "unit": "week",
+        "interval": 2,
+        "weekdays": [
+          1
+        ],
+        "time": "04:15",
+        "utcOffset": "+00:00",
+        "nextOccurrence": "2026-11-09",
+        "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+        "startLabel": "24 июн."
+      },
+      "fine": 300,
+      "rewardForTransferred": 300,
+      "items": [
+        {
+          "id": "step-1",
+          "kind": "check",
+          "title": "Вымыть подсвечники утром следующего дня",
+          "required": true
+        },
+        {
+          "id": "step-2",
+          "kind": "check",
+          "title": "Промыть и насухо натереть подсвечники",
+          "required": true
+        },
+        {
+          "id": "step-3",
+          "kind": "photo",
+          "title": "Все подсвечники чистые и сухие до заполнения воском",
+          "required": true
+        },
+        {
+          "id": "step-4",
+          "kind": "check",
+          "title": "Заполнить воском, установить фитили и расставить на столы",
+          "required": true
+        }
+      ],
+      "status": "draft_requires_editorial_review",
+      "dateOffsetDays": 1,
+      "dependsOnKey": "18889d79-8fce-426f-ba1e-300849815ee1"
+    }
+  ]
+}

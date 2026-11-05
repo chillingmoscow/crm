@@ -34,6 +34,8 @@ begin
  insert into public.payroll_adjustments(account_id,venue_id,employee_id,business_date,kind,amount,reason,approved)
  values(a,v,e,'2026-10-10','deduction',-200,'After start',true) returning id into after_id;
  if not exists(select 1 from public.payroll_adjustment_notifications where adjustment_id=after_id and state='pending' and venue_id=v) then raise exception 'Entry after start not queued';end if;
+ -- New rows wait two minutes so the photo can be attached first.
+ if (select available_at from public.payroll_adjustment_notifications where adjustment_id=after_id)<>now()+interval '2 minutes' then raise exception 'Queued row not delayed';end if;
  -- Unapproved entry: not queued until approved.
  insert into public.payroll_adjustments(account_id,venue_id,employee_id,business_date,kind,amount,reason,approved)
  values(a,v,e,'2026-10-10','deduction',-50,'Draft entry',false) returning id into x;
@@ -68,6 +70,8 @@ begin
  insert into public.payroll_adjustment_photos(account_id,venue_id,employee_id,adjustment_id,storage_path,name,uploaded_by,created_at)
  values(a,v,e,w2,a||'/'||v||'/'||w2||'/second.jpg','second.jpg',u,now()),(a,v,e,w2,a||'/'||v||'/'||w2||'/first.jpg','first.jpg',u,now()-interval '1 minute');
  update public.payroll_adjustment_notifications set available_at=now()+interval '1 day' where account_id=a and adjustment_id<>w2;
+ if public.payroll_claim_adjustment_notification() is not null then raise exception 'Row claimed before photo delay';end if;
+ update public.payroll_adjustment_notifications set available_at=now() where adjustment_id=w2;
  j:=public.payroll_claim_adjustment_notification();
  if j->>'adjustment_id'<>w2::text then raise exception 'Wrong row claimed: %',j;end if;
  if (j->>'warnings_in_month')::int<>2 then raise exception 'Warning count % instead of 2',j->>'warnings_in_month';end if;
@@ -97,6 +101,12 @@ begin
  j:=public.payroll_claim_adjustment_notification();
  if j->>'adjustment_id'<>w2::text or (j->>'attempts')::int<>3 then raise exception 'Stale sending not reclaimed: %',j;end if;
 
+ -- Deleted while sending: skip releases the row without sending.
+ update public.payroll_adjustment_notifications set state='sending',claimed_at=now(),message_id=null where adjustment_id=w2;
+ perform public.payroll_skip_adjustment_notification(w2,a);
+ if (select state from public.payroll_adjustment_notifications where adjustment_id=w2)<>'skipped' then raise exception 'Skip not applied';end if;
+ update public.payroll_adjustment_notifications set state='sending',claimed_at=now() where adjustment_id=w2;
+
  -- Sent: stored message id, never claimed again.
  perform public.payroll_finish_adjustment_notification(w2,a,42,null);
  select * into q from public.payroll_adjustment_notifications where adjustment_id=w2;
@@ -116,6 +126,7 @@ begin
  -- Grants: worker RPC and queue writes are service-role only.
  if has_function_privilege('authenticated','public.payroll_claim_adjustment_notification()','execute')
     or has_function_privilege('anon','public.payroll_finish_adjustment_notification(uuid,uuid,bigint,text)','execute')
+    or has_function_privilege('authenticated','public.payroll_skip_adjustment_notification(uuid,uuid)','execute')
     or has_function_privilege('authenticated','public.payroll_finish_adjustment_notification(uuid,uuid,bigint,text)','execute')
     or has_function_privilege('anon','public.payroll_save_fines_chat(text,boolean)','execute')
     or has_table_privilege('authenticated','public.payroll_adjustment_notifications','insert')

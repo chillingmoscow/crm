@@ -6,6 +6,7 @@ import {
   processAutomationComparison,
 } from "@/lib/automations/worker";
 import { processPayrollBonus } from "@/lib/payroll/bonus-worker";
+import { processAdjustmentNotification } from "@/lib/payroll/adjustment-notify-worker";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -61,7 +62,23 @@ export async function POST(request: NextRequest) {
     } catch {
       bonusErrors++;
     }
+    // A chat outage must not affect salary or bonus processing.
+    let finesSent = 0,
+      finesErrors = 0;
+    try {
+      const finesStarted = Date.now();
+      while (Date.now() - finesStarted < 5000) {
+        const r = await processAdjustmentNotification();
+        if (r.idle) break;
+        if (r.error) finesErrors++;
+        else if (r.sent) finesSent++;
+      }
+    } catch {
+      finesErrors++;
+    }
     return NextResponse.json({
+      finesSent,
+      finesErrors,
       bonusProcessed,
       bonusErrors,
       processed,

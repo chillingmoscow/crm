@@ -55,8 +55,9 @@ begin
  end if;
  select s.fines_notify_from into since from public.organization_telegram_settings s where s.account_id = new.account_id;
  if since is null or new.created_at < since then return null; end if;
- insert into public.payroll_adjustment_notifications(adjustment_id, account_id, venue_id)
- values (new.id, new.account_id, new.venue_id)
+ -- The photo is attached in a separate step right after the entry is created.
+ insert into public.payroll_adjustment_notifications(adjustment_id, account_id, venue_id, available_at)
+ values (new.id, new.account_id, new.venue_id, now() + interval '2 minutes')
  on conflict (account_id, adjustment_id) do nothing;
  return null;
 end $$;
@@ -131,7 +132,18 @@ begin
  end if;
 end $$;
 
+-- Worker: the entry was deleted while the notification was being sent.
+create function public.payroll_skip_adjustment_notification(p_adjustment uuid, p_account uuid)
+returns void language plpgsql security definer set search_path = '' as $$
+begin
+ update public.payroll_adjustment_notifications
+    set state = 'skipped', updated_at = now()
+  where account_id = p_account and adjustment_id = p_adjustment and state = 'sending';
+end $$;
+
 revoke all on function public.payroll_claim_adjustment_notification() from public, anon, authenticated;
+revoke all on function public.payroll_skip_adjustment_notification(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.payroll_skip_adjustment_notification(uuid, uuid) to service_role;
 revoke all on function public.payroll_finish_adjustment_notification(uuid, uuid, bigint, text) from public, anon, authenticated;
 grant execute on function public.payroll_claim_adjustment_notification() to service_role;
 grant execute on function public.payroll_finish_adjustment_notification(uuid, uuid, bigint, text) to service_role;

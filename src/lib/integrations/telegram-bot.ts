@@ -24,7 +24,9 @@ export type TelegramBot = {
   getOwnMembership: (chatId: string) => Promise<TelegramApiResult<{ status?: string; can_invite_users?: boolean; can_restrict_members?: boolean }>>;
   unbanChatMember: (chatId: string, userId: number) => Promise<TelegramApiResult<boolean>>;
   createChatInviteLink: (chatId: string, name: string) => Promise<TelegramApiResult<{ invite_link?: string }>>;
-  sendMessage: (chatId: string, text: string, buttons?: TelegramButton[][]) => Promise<TelegramApiResult<{ message_id?: number }>>;
+  sendMessage: (chatId: string, text: string, buttons?: TelegramButton[][], options?: { html?: boolean }) => Promise<TelegramApiResult<{ message_id?: number }>>;
+  /** Photo by URL with an HTML caption (Telegram limits the caption to 1024 characters). */
+  sendPhoto: (chatId: string, photoUrl: string, caption: string) => Promise<TelegramApiResult<{ message_id?: number }>>;
 };
 
 /** Loads the organization's bot; null when Telegram is not configured for the account. */
@@ -58,9 +60,11 @@ export async function loadTelegramBot(db: LooseDb, accountId: string): Promise<T
     unbanChatMember: (chatId, userId) => call("unbanChatMember", { chat_id: chatId, user_id: userId, only_if_banned: true }),
     // Telegram limits the link name to 32 characters.
     createChatInviteLink: (chatId, name) => call("createChatInviteLink", { chat_id: chatId, member_limit: 1, name: name.slice(0, 32) }),
-    sendMessage: (chatId, text, buttons) => call("sendMessage", {
+    sendMessage: (chatId, text, buttons, options) => call("sendMessage", {
       chat_id: chatId, text, link_preview_options: { is_disabled: true },
+      ...(options?.html ? { parse_mode: "HTML" } : {}),
       ...(buttons?.length ? { reply_markup: { inline_keyboard: buttons } } : {}),
     }),
+    sendPhoto: (chatId, photoUrl, caption) => call("sendPhoto", { chat_id: chatId, photo: photoUrl, caption, parse_mode: "HTML" }),
   };
 }

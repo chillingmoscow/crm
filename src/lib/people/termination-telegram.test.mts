@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ALL_CHATS, removeFromTelegramChats, terminationReport, unconfirmedChats, type TelegramRemovalTransport } from "./termination-telegram.ts";
+import { ALL_CHATS, NOT_UNBANNED, removeFromTelegramChats, telegramStepApplies, terminationReport, unconfirmedChats, type TelegramRemovalTransport } from "./termination-telegram.ts";
 import { removalComplete } from "../integrations/telegram-membership.ts";
 
 const chats = [{ chat_id: "-1", title: "Бар" }, { chat_id: "-2", title: "Кухня" }];
@@ -104,11 +104,11 @@ test("failed unban is not final; the retry unbans and only then records removed"
   const f = fixture({ "-1": "member" }, { unbanFails: 1 });
   const first = await removeFromTelegramChats({ configured: true, telegramId: "42", chats: [chats[0]], previous: [], transport: f.transport });
   assert.equal(first[0].result, "error");
-  assert.match(first[0].detail ?? "", /не разблокирован/);
+  assert.equal(first[0].detail, NOT_UNBANNED);
   assert.equal(removalComplete(first.map(o => o.result)), false);
   f.calls.length = 0;
   const second = await removeFromTelegramChats({ configured: true, telegramId: "42", chats: [chats[0]],
-    previous: [{ chat_id: "-1", result: first[0].result }], transport: f.transport });
+    previous: [{ chat_id: "-1", result: first[0].result, detail: first[0].detail }], transport: f.transport });
   assert.equal(second[0].result, "removed");
   assert.deepEqual(f.calls, ["get:-1:42", "unban:-1", "get:-1:42"]);
 });
@@ -118,4 +118,43 @@ test("a ban not left by this dismissal is just absent and is not lifted", async 
   const out = await removeFromTelegramChats({ configured: true, telegramId: "42", chats: [chats[0]], previous: [], transport: f.transport });
   assert.equal(out[0].result, "absent");
   assert.deepEqual(f.calls, ["get:-1:42"]);
+});
+
+test("a kicked member after a non-unban error (e.g. ban API failure) is not unbanned", async () => {
+  const f = fixture({ "-1": "kicked" });
+  const out = await removeFromTelegramChats({ configured: true, telegramId: "42", chats: [chats[0]],
+    previous: [{ chat_id: "-1", result: "error", detail: "Telegram не ответил" }], transport: f.transport });
+  assert.equal(out[0].result, "absent");
+  assert.deepEqual(f.calls, ["get:-1:42"]);
+});
+
+test("the lease heartbeat runs before each chat that is processed, not for finished ones", async () => {
+  const f = fixture({ "-2": "member" });
+  const order: string[] = [];
+  const getChatMember = f.transport.getChatMember;
+  f.transport.getChatMember = async (c, u) => { order.push("get:" + c); return getChatMember(c, u); };
+  f.transport.save = async () => { order.push("save"); };
+  await removeFromTelegramChats({ configured: true, telegramId: "42", chats,
+    previous: [{ chat_id: "-1", result: "removed" }], transport: f.transport });
+  assert.equal(order[0], "save");
+  assert.equal(order.filter(x => x === "save").length, 1);
+});
+
+test("a lost lease stops before any Telegram call", async () => {
+  const f = fixture({ "-1": "member" });
+  f.transport.save = async () => { throw new Error("lease lost"); };
+  await assert.rejects(removeFromTelegramChats({ configured: true, telegramId: "42", chats, previous: [], transport: f.transport }), /lease lost/);
+  assert.deepEqual(f.calls, []);
+});
+
+test("Telegram step: not applicable only without a bot and without chats", () => {
+  assert.equal(telegramStepApplies({ configured: false, chats: [] }), false);
+  assert.equal(telegramStepApplies({ configured: false, chats }), true);
+  assert.equal(telegramStepApplies({ configured: true, chats: [] }), true);
+  assert.equal(telegramStepApplies({ configured: true, chats }), true);
+});
+
+test("the report names the Telegram ID used for removal", () => {
+  assert.match(terminationReport("Иван", [], [], "123456"), /Telegram ID: 123456/);
+  assert.doesNotMatch(terminationReport("Иван", [], []), /Telegram ID/);
 });

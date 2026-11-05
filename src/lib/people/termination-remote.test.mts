@@ -104,3 +104,11 @@ test('a lost lease stops before the first Quick Resto removal',async()=>{
  await assert.rejects(removeStaffFromQuickResto({ids:{employeeId:180,guestId:4918,bonusId:5836},transport:f.transport,done:f.done,save:async()=>{throw new Error('lease lost');}}),/lease lost/);
  assert.deepEqual(f.writes,[]);
 });
+test('a back-office auth failure before the write-off stores no marker; the retry writes off normally',async()=>{
+ const f=fixture({balance:150});let authFails=1;
+ f.transport.prepareDebit=async()=>{if(authFails-->0)throw new Error('Не удалось подтвердить вход в Quick Resto (HTTP 401)');};
+ await assert.rejects(f.run(),/HTTP 401/);
+ assert.equal(f.done.bonus_writeoff_5836,undefined);assert.ok(!f.writes.some(x=>x.startsWith('debit:')));
+ await f.run();
+ assert.equal(f.writes.filter(x=>x.startsWith('debit:')).length,1);assert.equal(f.guests[0].deleted,true);
+});

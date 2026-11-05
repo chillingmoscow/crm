@@ -6,7 +6,7 @@ import { decryptSecret, encryptSecret } from '@/lib/integrations/crypto';
 import { getConnection, withBackOfficeSession } from '@/app/(dashboard)/inventory/actions-shared';
 import { buildQuickRestoBackOfficeOrigin, callQuickRestoBackOfficeData, quickRestoFetch } from '@/lib/integrations/quickresto/client';
 import { LeaseLostError, leasedUpdate } from './job-lease';
-import { customerClass, NOT_RECOVERABLE, recoverStaffInQuickResto, storeClass, type RemoteRow, type RestoreSteps } from './restore-remote';
+import { customerClass, NOT_RECOVERABLE, recoverStaffInQuickResto, restoreErrorMessage, storeClass, type RemoteRow, type RestoreSteps } from './restore-remote';
 
 type Job = {
   id: string; account_id: string; venue_id: string; user_id: string; role_id: string | null;
@@ -42,6 +42,7 @@ export async function processStaffRestore(id?: string) {
       else if (http) message = `Quick Resto отклонил восстановление (код ${http}). Повтор сначала проверит, что уже восстановлено`;
       else if (/timed out|fetch failed|ECONN|ENOTFOUND/i.test(message)) message = 'Quick Resto не ответил. Повтор сначала проверит, что уже восстановлено';
     }
+    message = restoreErrorMessage(message, job.steps);
     await leasedUpdate(db, 'staff_restorations', job, {
       state:'error', error:message.slice(0,1500), lease_until:null, steps:job.steps,
       // An erased record will not come back: stop automatic retries, keep the manual one.

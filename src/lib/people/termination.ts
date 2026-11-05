@@ -8,8 +8,8 @@ import { loadTelegramBot } from '@/lib/integrations/telegram-bot';
 import { removalComplete } from '@/lib/integrations/telegram-membership';
 import { LeaseLostError, leasedUpdate } from './job-lease';
 import { hasQuickRestoWork, removeStaffFromQuickResto, type RemoteRow, type TerminationSteps } from './termination-remote';
-import { ALL_CHATS, removeFromTelegramChats, terminationReport, unconfirmedChats, type ChatOutcome } from './termination-telegram';
-type Job = {id:string;account_id:string;user_id:string;employee_id:number|null;guest_id:number|null;bonus_id:number|null;steps:TerminationSteps;attempts:number};
+import { ALL_CHATS, removeFromTelegramChats, telegramStepApplies, terminationReport, unconfirmedChats, type ChatOutcome } from './termination-telegram';
+type Job = {id:string;account_id:string;user_id:string;employee_id:number|null;guest_id:number|null;bonus_id:number|null;steps:TerminationSteps;attempts:number;telegram_id:string|null};
 type LooseAdmin = ReturnType<typeof asLooseDb>;
 /** Telegram failures carry their own text; they must not be rewritten as Quick Resto errors. */
 class TelegramStepError extends Error {}
@@ -43,6 +43,7 @@ export async function processStaffTermination(id?:string) {
    throw new Error('Список Quick Resto слишком большой для безопасной проверки удаления');
   };
   const password=decryptSecret({encrypted:connection.password_encrypted,iv:connection.password_iv,tag:connection.password_tag});
+  let debitAuth:Awaited<ReturnType<typeof getBackOfficeAuth>>|null=null;
   await removeStaffFromQuickResto({ids,done:job.steps,save,transport:{rows,
    remove:async(moduleName,className,entityId)=>{
     const url=new URL('/platform/online/api/remove',buildQuickRestoBackOfficeOrigin({layerName:connection.login,baseUrl:connection.backoffice_base_url}));
@@ -53,9 +54,11 @@ export async function processStaffTermination(id?:string) {
    },
    removeChild:async(path,row,query)=>{await withBackOfficeSession({connection,admin:db,run:authorization=>callQuickRestoBackOfficeRemove({layerName:connection.login,baseUrl:connection.backoffice_base_url,authorization,path,query,body:row})});},
    closeBonus:async(row,query)=>{await withBackOfficeSession({connection,admin:db,run:authorization=>callQuickRestoBackOfficeData({layerName:connection.login,baseUrl:connection.backoffice_base_url,authorization,path:'crm.accounting.account/update',query,body:{...row,accountState:'closed'}})});},
+   // Auth is obtained before the write-off marker: a login failure must not force a manual write-off.
+   prepareDebit:async()=>{debitAuth=await getBackOfficeAuth({connection,admin:db});},
    debitBonus:async(row,amount)=>{
     // Same request as the payroll bonus worker; no auth refresh or retry may wrap this POST.
-    const authorization=await getBackOfficeAuth({connection,admin:db});
+    const authorization=debitAuth??await getBackOfficeAuth({connection,admin:db});debitAuth=null;
     const result=await callQuickRestoBackOfficeData<unknown>({layerName:connection.login,baseUrl:connection.backoffice_base_url,authorization,
      path:'crm.accounting.account/action',query:{businessDayOffsetInMs:32400000,mode:'bonuses',timeZone:-180},
      body:{actionName:'accountDebit',data:{className:'accountDebitModal',ownerContextIds:[Number(row.id)],amount,timeZone:-180},ids:[Number(row.id)],
@@ -66,9 +69,9 @@ export async function processStaffTermination(id?:string) {
    },
   }});
   }
-  // Telegram runs after Quick Resto; its failures keep their own text (see catch below).
-  const telegram=async(step:()=>Promise<void>)=>{try{await step();}catch(e){throw e instanceof TelegramStepError?e:new TelegramStepError('Шаг Telegram не выполнен: '+(e instanceof Error?e.message:'неизвестная ошибка'));}};
-  if(!job.steps.telegram){await save();await telegram(()=>removeFromTelegram(db,job));job.steps.telegram=true;await save();}
+  // Telegram runs after Quick Resto; its failures keep their own text (see catch below). A lost lease stays a lost lease.
+  const telegram=async(step:()=>Promise<void>)=>{try{await step();}catch(e){throw e instanceof TelegramStepError||e instanceof LeaseLostError?e:new TelegramStepError('Шаг Telegram не выполнен: '+(e instanceof Error?e.message:'неизвестная ошибка'));}};
+  if(!job.steps.telegram){await save();await telegram(()=>removeFromTelegram(db,job,save));job.steps.telegram=true;await save();}
   if(!job.steps.telegram_report){
    let sent=false;await telegram(async()=>{sent=await reportTermination(db,job);});
    job.steps.telegram_report=true;if(!sent)job.steps.telegram_report_skipped=true;await save();
@@ -96,21 +99,31 @@ async function chatOutcomes(db:LooseAdmin,job:Job){
   .eq('account_id',job.account_id).eq('event_key',eventKey(job)).eq('kind','remove'));
  return {chats:chats??[],journal:journal??[]};
 }
-async function removeFromTelegram(db:LooseAdmin,job:Job){
- const [bot,profile,{chats,journal}]=await Promise.all([
-  loadTelegramBot(db,job.account_id),
-  db.from<{telegram_id:string|null}>('profiles').select('telegram_id').eq('id',job.user_id).maybeSingle().then(checked),
-  chatOutcomes(db,job),
- ]);
+const validTelegramId=(id:string|null|undefined)=>/^\d{1,15}$/.test(id?.trim()??'');
+async function removeFromTelegram(db:LooseAdmin,job:Job,save:()=>Promise<void>){
+ const [bot,{chats,journal}]=await Promise.all([loadTelegramBot(db,job.account_id),chatOutcomes(db,job)]);
+ const clearAllChatsMarker=async()=>{checked(await db.from('staff_telegram_actions').delete().eq('account_id',job.account_id).eq('event_key',eventKey(job)).eq('chat_id',ALL_CHATS));};
+ // No bot and no chats: nothing to remove the person from; the step is not applicable.
+ if(!telegramStepApplies({configured:!!bot,chats})){job.steps.telegram_skipped=true;await clearAllChatsMarker();return;}
+ delete job.steps.telegram_skipped;
+ // The ID snapshotted at dismissal start is used; a later profile edit cannot redirect the removal.
+ // Only a missing/invalid snapshot may be filled from the profile (the "fix the ID and retry" path).
+ if(!validTelegramId(job.telegram_id)){
+  const profile=checked(await db.from<{telegram_id:string|null}>('profiles').select('telegram_id').eq('id',job.user_id).maybeSingle());
+  if(validTelegramId(profile?.telegram_id)){
+   job.telegram_id=profile!.telegram_id!.trim();
+   await leasedUpdate(db,'staff_terminations',job,{telegram_id:job.telegram_id});
+  }
+ }
  const record=async(o:ChatOutcome)=>{checked(await db.from('staff_telegram_actions').upsert({account_id:job.account_id,user_id:job.user_id,kind:'remove',
   event_key:eventKey(job),chat_id:o.chat_id,result:o.result,detail:o.detail,created_at:new Date().toISOString()},{onConflict:'account_id,event_key,chat_id'}));};
  const missing=async()=>{throw new Error('Telegram не настроен');};
- const outcomes=await removeFromTelegramChats({configured:!!bot,telegramId:profile?.telegram_id??null,chats,previous:journal,transport:{
-  getChatMember:bot?bot.getChatMember:missing,banChatMember:bot?bot.banChatMember:missing,unbanChatMember:bot?bot.unbanChatMember:missing,record}});
+ const outcomes=await removeFromTelegramChats({configured:!!bot,telegramId:job.telegram_id,chats,previous:journal,transport:{
+  getChatMember:bot?bot.getChatMember:missing,banChatMember:bot?bot.banChatMember:missing,unbanChatMember:bot?bot.unbanChatMember:missing,record,save}});
  if(!removalComplete(outcomes.map(o=>o.result)))
   throw new TelegramStepError('Не подтверждено исключение из чатов: '+unconfirmedChats(outcomes)+'. Повтор проверит только эти чаты');
  // A stale "all chats" marker from an earlier blocked attempt no longer describes the result.
- checked(await db.from('staff_telegram_actions').delete().eq('account_id',job.account_id).eq('event_key',eventKey(job)).eq('chat_id',ALL_CHATS));
+ await clearAllChatsMarker();
 }
 /** Returns false when there is no reports chat: the report is skipped, it never blocks the dismissal. */
 async function reportTermination(db:LooseAdmin,job:Job):Promise<boolean>{
@@ -124,7 +137,7 @@ async function reportTermination(db:LooseAdmin,job:Job):Promise<boolean>{
  const outcomes:ChatOutcome[]=chats.filter(c=>results.has(c.chat_id)).map(c=>({chat_id:c.chat_id,title:c.title,result:results.get(c.chat_id)!.result,detail:null}));
  const writtenOff=Object.entries(job.steps).filter(([k,v])=>k.startsWith('bonus_writeoff_')&&typeof v==='number').map(([,v])=>v as number);
  const name=[person?.first_name,person?.last_name].filter(Boolean).join(' ')||'Сотрудник';
- const sent=await bot.sendMessage(bot.reportsChatId,terminationReport(name,outcomes,writtenOff));
+ const sent=await bot.sendMessage(bot.reportsChatId,terminationReport(name,outcomes,writtenOff,job.telegram_id));
  if(!sent.ok)throw new TelegramStepError('Telegram не принял отчёт об увольнении. Повтор отправит только отчёт');
  return true;
 }

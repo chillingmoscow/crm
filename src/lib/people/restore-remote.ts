@@ -12,7 +12,17 @@ export type RestoreTransport = {
 };
 export type RestoreSteps = Record<string, boolean | number>;
 
+/** Permanent: the record is gone even from the showDeleted list. Only this stops automatic retries. */
 export const NOT_RECOVERABLE = 'Запись Quick Resto не восстанавливается: заведите сотрудника заново через приём';
+/** Retryable: the record exists (deleted) but recover did not bring it back this time. */
+export const RECOVER_FAILED = 'Quick Resto не восстановил запись — повторите позже или отмените возврат';
+const CANCEL_HINT = '«Отменить возврат»';
+
+/** When some restore step already landed, the error must point to cancelling (records are partially returned). */
+export function restoreErrorMessage(message: string, done: RestoreSteps) {
+  if (!Object.keys(done).length || message.includes(CANCEL_HINT)) return message;
+  return `${message}. Часть записей уже возвращена в Quick Resto: повторите позже или нажмите ${CANCEL_HINT}, чтобы снова их удалить`;
+}
 export const customerClass = 'ru.edgex.quickresto.modules.crm.customer.CrmCustomer';
 export const storeClass = 'ru.edgex.quickresto.modules.warehouse.store.Store';
 const notFound = (e: unknown) => e instanceof Error && /not\s*found|entityNotFound|не найден|doesn'?t exist|\b404\b/i.test(e.message);
@@ -43,9 +53,11 @@ export async function recoverStaffInQuickResto({ids,settings,transport,done,save
     if (row.deleted === true) {
       await save();
       try { await transport.recover(moduleName, row); }
-      catch (e) { if (notFound(e)) throw new Error(NOT_RECOVERABLE); throw e; }
+      // The pre-read saw the record in the deleted list, so a "not found" here is not proof of erasure.
+      catch (e) { if (notFound(e)) throw new Error(RECOVER_FAILED); throw e; }
       const after = await reread();
-      if (!after || after.deleted === true) throw new Error(NOT_RECOVERABLE);
+      if (!after) throw new Error(NOT_RECOVERABLE);
+      if (after.deleted === true) throw new Error(RECOVER_FAILED);
     }
     done[key] = true;
     await save();

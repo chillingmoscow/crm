@@ -12,6 +12,10 @@ drop index public.staff_terminations_pending;
 create index staff_terminations_pending on public.staff_terminations(available_at) where state not in ('complete','cancelled');
 drop index public.staff_terminations_one_pending;
 create unique index staff_terminations_one_pending on public.staff_terminations(uvr_id) where state not in ('complete','cancelled');
+-- Telegram ID as of the dismissal start: a later profile edit must not redirect the removal.
+alter table public.staff_terminations add column telegram_id text;
+update public.staff_terminations t set telegram_id=p.telegram_id from public.profiles p
+ where p.id=t.user_id and t.state not in ('complete','cancelled');
 
 create table public.staff_restorations (
  id uuid primary key default gen_random_uuid(),
@@ -88,7 +92,7 @@ begin
  return r.id;
  end if;
  if u.status<>'fired' then raise exception 'Сотрудник не уволен';end if;
- if exists(select 1 from public.staff_terminations where uvr_id=u.id and state not in ('complete','cancelled') and lease_until>now()) then
+ if exists(select 1 from public.staff_terminations where uvr_id=u.id and state not in ('complete','cancelled') and lease_until>now()-interval '1 minute') then
  raise exception 'Увольнение ещё выполняется. Повторите возврат через несколько минут';end if;
  update public.staff_terminations set state='cancelled',error='Отменено возвратом сотрудника',lease_until=null,completed_at=now()
  where uvr_id=u.id and state not in ('complete','cancelled');
@@ -205,7 +209,7 @@ end $$;
 revoke all on function public.staff_claim_termination(uuid) from public,anon,authenticated;
 grant execute on function public.staff_claim_termination(uuid) to service_role;
 
--- Same body as 314 except: an unfinished restore without a live lease is abandoned (cancelled)
+-- Same body as 314 except: the Telegram ID is snapshotted; an unfinished restore without a live lease is abandoned (cancelled)
 -- and the dismissal runs again, removing whatever the restore recovered; a cancelled job
 -- neither blocks nor is returned; an already fired person keeps the original date and reason.
 create or replace function public.staff_begin_termination(p_uvr uuid,p_reason text) returns uuid
@@ -250,10 +254,11 @@ begin
  and ((employee is not null and x.provisioning#>>'{employee,id}'=employee::text) or (guest is not null and x.provisioning#>>'{guest,id}'=guest::text))) then
  raise exception 'Внешние записи используются другим наймом. Удаление остановлено';end if;
  door:=not shared and exists(select 1 from public.staff_door_codes where account_id=a and user_id=u.user_id and revoked_at is null);
- insert into public.staff_terminations(account_id,venue_id,uvr_id,user_id,actor_id,reason,employee_id,guest_id,bonus_id,shared_access,door_revoked,state,completed_at)
+ insert into public.staff_terminations(account_id,venue_id,uvr_id,user_id,actor_id,reason,employee_id,guest_id,bonus_id,shared_access,door_revoked,state,completed_at,telegram_id)
  values(a,u.venue_id,u.id,u.user_id,auth.uid(),trim(p_reason),employee,guest,bonus,shared,door,
  case when shared then 'complete' else 'pending' end,
- case when shared then now() end) returning * into job;
+ case when shared then now() end,
+ (select nullif(trim(p.telegram_id),'') from public.profiles p where p.id=u.user_id)) returning * into job;
  if u.status='active' then update public.user_venue_roles set status='fired',fired_at=now(),fired_reason=trim(p_reason) where id=u.id;end if;
  update public.payroll_employees set active=false where account_id=a and venue_id=u.venue_id and local_user_id=u.user_id;
  delete from public.schedule_qualifications where venue_id=u.venue_id and user_id=u.user_id;

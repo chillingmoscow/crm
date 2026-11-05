@@ -6,6 +6,8 @@ export type TerminationTransport = {
   remove: (moduleName: string, className: string, id: number) => Promise<void>;
   removeChild: (path: string, row: RemoteRow, query: Record<string, string | number>) => Promise<void>;
   closeBonus: (row: RemoteRow, query: Record<string, string | number>) => Promise<void>;
+  /** Obtains back-office auth for the next debit, before the write-off marker is stored. */
+  prepareDebit?: () => Promise<void>;
   /** A single accountDebit; never retried by the transport (no idempotency key in Quick Resto). */
   debitBonus: (row: RemoteRow, amount: number, query: Record<string, string | number>) => Promise<void>;
 };
@@ -89,6 +91,8 @@ export async function removeStaffFromQuickResto({ids,transport,done,save}: {
           throw new Error('Списание остатка бонусов не подтверждено: баланс не обнулился. Проверьте бонусный счёт в Quick Resto и обнулите его вручную');
         const amount = writeOffAmount(bonus);
         if (amount === null) throw new Error('На бонусном счёте есть остаток или удержания. Завершите расчёт перед удалением гостя');
+        // An auth failure here is retryable: nothing has been sent and no marker is stored yet.
+        await transport.prepareDebit?.();
         done[key] = amount;
         await save();
         await transport.debitBonus(bonus, amount, query);

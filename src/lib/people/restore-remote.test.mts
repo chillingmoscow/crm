@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {NOT_RECOVERABLE,recoverStaffInQuickResto,type RemoteRow,type RestoreTransport} from './restore-remote.ts';
+import {NOT_RECOVERABLE,RECOVER_FAILED,recoverStaffInQuickResto,restoreErrorMessage,type RemoteRow,type RestoreTransport} from './restore-remote.ts';
 
 const settings={staffGroupId:8,bonusAccountTypeId:1,storeIds:[1,16]};
 function fixture({employee=true,guest=true,lostRecover='',silentRecover='',recoverError='',openBonus=false,links=false}:{
@@ -77,15 +77,15 @@ test('an erased guest stops the restore before the employee is recovered',async(
  assert.equal(f.employees[0].deleted,true);
 });
 
-test('a record that stays deleted after recover is not recoverable',async()=>{
+test('a record that stays deleted after an accepted recover is a retryable error, not erased',async()=>{
  const f=fixture({silentRecover:'personnel.employee'});
- await assert.rejects(recoverStaffInQuickResto({ids,settings,transport:f.transport,done:f.done,save:f.save}),{message:NOT_RECOVERABLE});
+ await assert.rejects(recoverStaffInQuickResto({ids,settings,transport:f.transport,done:f.done,save:f.save}),{message:RECOVER_FAILED});
  assert.equal(f.done.employee,undefined);
 });
 
-test('Quick Resto "not found" on recover is not recoverable',async()=>{
+test('Quick Resto "not found" on recover of a listed record is retryable, not terminal',async()=>{
  const f=fixture({recoverError:'personnel.employee'});
- await assert.rejects(recoverStaffInQuickResto({ids,settings,transport:f.transport,done:f.done,save:f.save}),{message:NOT_RECOVERABLE});
+ await assert.rejects(recoverStaffInQuickResto({ids,settings,transport:f.transport,done:f.done,save:f.save}),{message:RECOVER_FAILED});
 });
 
 test('an open bonus account of the staff type is reused, existing store links are kept',async()=>{
@@ -107,19 +107,42 @@ test('rejects malformed ids',async()=>{
 
 test('a failed guest recover leaves the employee deleted in Quick Resto',async()=>{
  const f=fixture({recoverError:'crm.customer'});
- await assert.rejects(recoverStaffInQuickResto({ids,settings,transport:f.transport,done:f.done,save:f.save}),{message:NOT_RECOVERABLE});
+ await assert.rejects(recoverStaffInQuickResto({ids,settings,transport:f.transport,done:f.done,save:f.save}),{message:RECOVER_FAILED});
  assert.deepEqual(f.writes,['recover:crm.customer']);
  assert.equal(f.employees[0].deleted,true);
 });
 
-test('a failed employee recover after the guest is an error, not a success',async()=>{
+test('a failed employee recover after the guest is an error, not a success, and points to cancelling',async()=>{
  const f=fixture({silentRecover:'personnel.employee'});
- await assert.rejects(recoverStaffInQuickResto({ids,settings,transport:f.transport,done:f.done,save:f.save}),{message:NOT_RECOVERABLE});
+ await assert.rejects(recoverStaffInQuickResto({ids,settings,transport:f.transport,done:f.done,save:f.save}),{message:RECOVER_FAILED});
  assert.equal(f.done.guest,true);assert.equal(f.done.employee,undefined);
+ assert.match(restoreErrorMessage('fetch failed',f.done),/«Отменить возврат»/);
 });
 
 test('a lost lease after the pre-reads stops before the first Quick Resto write',async()=>{
  const f=fixture();
  await assert.rejects(recoverStaffInQuickResto({ids,settings,transport:f.transport,done:f.done,save:async()=>{throw new Error('lease lost');}}),/lease lost/);
  assert.deepEqual(f.writes,[]);
+});
+
+test('a retry after RECOVER_FAILED recovers normally once Quick Resto cooperates',async()=>{
+ const f=fixture({recoverError:'personnel.employee'});
+ await assert.rejects(recoverStaffInQuickResto({ids,settings,transport:f.transport,done:f.done,save:f.save}),{message:RECOVER_FAILED});
+ const transport={...f.transport,recover:async(m:'personnel.employee'|'crm.customer',row:RemoteRow)=>{f.writes.push('recover:'+m);(m==='personnel.employee'?f.employees:f.guests).find(x=>x.id===row.id)!.deleted=false;}};
+ f.writes.length=0;
+ assert.deepEqual(await recoverStaffInQuickResto({ids,settings,transport,done:f.done,save:f.save}),{bonusId:6001});
+ assert.deepEqual(f.writes,['recover:personnel.employee','store:1','store:16']);
+});
+
+test('a record that vanishes from the deleted list after recover is erased (terminal)',async()=>{
+ const f=fixture();
+ const transport={...f.transport,recover:async(m:'personnel.employee'|'crm.customer')=>{if(m==='crm.customer')f.guests.length=0;}};
+ await assert.rejects(recoverStaffInQuickResto({ids,settings,transport,done:f.done,save:f.save}),{message:NOT_RECOVERABLE});
+});
+
+test('error text points to «Отменить возврат» only when something was already returned',()=>{
+ assert.equal(restoreErrorMessage('Quick Resto не ответил',{}),'Quick Resto не ответил');
+ assert.match(restoreErrorMessage('Quick Resto не ответил',{guest:true}),/Часть записей уже возвращена.*«Отменить возврат»/);
+ assert.match(restoreErrorMessage(NOT_RECOVERABLE,{guest:true,guest_group:true}),/«Отменить возврат»/);
+ assert.equal(restoreErrorMessage(RECOVER_FAILED,{}),RECOVER_FAILED);
 });

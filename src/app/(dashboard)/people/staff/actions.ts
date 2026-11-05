@@ -825,10 +825,13 @@ export async function updateStaffRole(
     }
   }
 
-  const { error } = await supabase
+  // RLS может молча отфильтровать UPDATE (0 строк без ошибки) — это тоже отказ.
+  const { data: updated, error: updateError } = await supabase
     .from("user_venue_roles")
     .update({ role_id: roleId })
-    .eq("id", uvrId);
+    .eq("id", uvrId)
+    .select("id");
+  const error = updateError ?? (updated?.length ? null : { message: "Не удалось изменить доступ сотрудника: нет права или запись изменилась" });
 
   if (error) {
     if (!payrollChanged || !payrollRow) return { error: error.message };

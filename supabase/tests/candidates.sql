@@ -296,7 +296,7 @@ do $$declare h jsonb;begin
 end $$;
 -- Dismissal is authorized, idempotent and preserves employment history.
 savepoint termination_checks;
-update public.profiles set active_venue_id='ce000000-0000-4000-8000-000000000020' where id=(select (payload->>'target_user_id')::uuid from qa_hire_context);
+update public.profiles set active_venue_id='ce000000-0000-4000-8000-000000000020',telegram_id=' 4242 ' where id=(select (payload->>'target_user_id')::uuid from qa_hire_context);
 select set_config('request.jwt.claims','{"sub":"ce000000-0000-4000-8000-000000000002","role":"authenticated"}',true);
 select set_config('app.ctx_ready','',true);
 set local role authenticated;
@@ -322,6 +322,10 @@ do $$declare j public.staff_terminations;h jsonb;claim jsonb;begin
  select * into j from public.staff_terminations where id=(select id from qa_termination_context);
  select payload into h from qa_hire_context;
  if j.employee_id<>999999 or j.guest_id<>999998 or j.bonus_id<>999997 or j.shared_access or not j.door_revoked then raise exception 'Wrong cleanup manifest';end if;
+ -- The Telegram ID is snapshotted at dismissal start; a later profile edit does not change the job.
+ if j.telegram_id is distinct from '4242' then raise exception 'Telegram ID not snapshotted: %',j.telegram_id;end if;
+ update public.profiles set telegram_id='9999' where id=j.user_id;
+ if (select telegram_id from public.staff_terminations where id=j.id)<>'4242' then raise exception 'Snapshot follows the live profile';end if;
  if exists(select 1 from public.user_venue_roles where id=j.uvr_id and status='active') or exists(select 1 from public.payroll_employees where local_user_id=j.user_id and active) then raise exception 'Staff still active';end if;
  if exists(select 1 from public.schedule_qualifications where user_id=j.user_id) then raise exception 'Qualification still active';end if;
  if not exists(select 1 from public.staff_door_codes where user_id=j.user_id and revoked_at is not null and password_secret is null) then raise exception 'Door secret not revoked';end if;
@@ -329,6 +333,11 @@ do $$declare j public.staff_terminations;h jsonb;claim jsonb;begin
  if not exists(select 1 from public.audit_logs where entity_id=j.user_id and action_code='staff.fired' and user_id=j.actor_id) then raise exception 'Dismissal actor not logged';end if;
  claim:=public.staff_claim_termination(j.id);
  if claim->>'id' is distinct from j.id::text or public.staff_claim_termination(j.id) is not null then raise exception 'Concurrent job claim allowed';end if;
+ -- A dismissal worker that just overran its lease is still protected for a minute of grace.
+ update public.staff_terminations set lease_until=now()-interval '30 seconds' where id=j.id;
+ perform set_config('request.jwt.claims','{"sub":"ce000000-0000-4000-8000-000000000001","role":"authenticated"}',true);perform set_config('app.ctx_ready','',true);
+ begin perform public.staff_begin_restore(j.uvr_id);raise exception 'Restore cancelled a dismissal inside the lease grace';exception when others then if SQLERRM not like 'Увольнение ещё выполняется%' then raise;end if;end;
+ perform set_config('request.jwt.claims','',true);perform set_config('app.ctx_ready','',true);
  update public.staff_terminations set state='complete',completed_at=now(),lease_until=null where id=j.id;
  update public.staff_terminations set state='complete' where id=j.id;
  if (select count(*) from public.audit_logs where entity_id=j.user_id and action_code='staff.access_removed' and user_id=j.actor_id)<>1 then raise exception 'Missing or duplicate cleanup audit';end if;

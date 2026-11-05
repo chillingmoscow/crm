@@ -11,14 +11,24 @@ export type TelegramRemovalTransport = {
   unbanChatMember: (chatId: string, userId: number) => Promise<{ ok: boolean; description?: string }>;
   /** Journal write (idempotent upsert per chat). */
   record: (outcome: ChatOutcome) => Promise<void>;
+  /** Lease heartbeat before each chat: proves the job is still ours before a ban. */
+  save?: () => Promise<void>;
 };
 /** Journal chat_id for a step that could not reach any chat (nothing configured to iterate). */
 export const ALL_CHATS = "*";
 const FINAL: RemovalResult[] = ["removed", "absent"];
 
-const NOT_UNBANNED = "Исключён, но не разблокирован — повтор";
+export const NOT_UNBANNED = "Исключён, но не разблокирован — повтор";
 
-/** `retry`: an earlier attempt for this chat ended without a final result (e.g. unban failed). */
+/**
+ * The Telegram step applies unless the organization has neither a bot nor any
+ * active chat: then there is nothing to remove the person from. With chats
+ * configured, a missing bot or Telegram ID stays "unconfirmed".
+ */
+export const telegramStepApplies = ({ configured, chats }: { configured: boolean; chats: unknown[] }) =>
+  configured || chats.length > 0;
+
+/** `retry`: an earlier attempt for this chat banned the person but did not confirm the unban. */
 async function removeFromChat(chat: { chat_id: string; title: string }, userId: number, t: TelegramRemovalTransport, retry: boolean): Promise<ChatOutcome> {
   const outcome = (result: RemovalResult, detail: string | null = null) => ({ chat_id: chat.chat_id, title: chat.title, result, detail });
   // Unban lets the person rejoin later by a fresh invite; it does not re-add them.
@@ -55,7 +65,7 @@ export async function removeFromTelegramChats({ configured, telegramId, chats, p
   configured: boolean;
   telegramId: string | null;
   chats: Array<{ chat_id: string; title: string }>;
-  previous: Array<{ chat_id: string; result: string }>;
+  previous: Array<{ chat_id: string; result: string; detail?: string | null }>;
   transport: TelegramRemovalTransport;
 }): Promise<ChatOutcome[]> {
   const id = telegramId?.trim() ?? "";
@@ -74,10 +84,12 @@ export async function removeFromTelegramChats({ configured, telegramId, chats, p
     return outcomes;
   }
   const done = new Map(previous.filter(p => FINAL.includes(p.result as RemovalResult)).map(p => [p.chat_id, p.result as RemovalResult]));
-  const pending = new Set(previous.filter(p => !FINAL.includes(p.result as RemovalResult)).map(p => p.chat_id));
+  // Only our own unconfirmed unban justifies unbanning a "kicked" member; any other ban is foreign.
+  const pending = new Set(previous.filter(p => !FINAL.includes(p.result as RemovalResult) && p.detail === NOT_UNBANNED).map(p => p.chat_id));
   for (const chat of chats) {
     const prior = done.get(chat.chat_id);
     if (prior) { outcomes.push({ chat_id: chat.chat_id, title: chat.title, result: prior, detail: null }); continue; }
+    await transport.save?.();
     const o = await removeFromChat(chat, userId!, transport, pending.has(chat.chat_id));
     await transport.record(o);
     outcomes.push(o);
@@ -96,10 +108,11 @@ export function unconfirmedChats(outcomes: ChatOutcome[]) {
 }
 
 /** Message for the organization reports chat once the dismissal is complete. */
-export function terminationReport(name: string, outcomes: ChatOutcome[], writtenOff: number[]) {
+export function terminationReport(name: string, outcomes: ChatOutcome[], writtenOff: number[], telegramId: string | null = null) {
   const bonus = writtenOff.reduce((a, b) => a + b, 0);
   return [
     `Сотрудник уволен: ${name}`,
+    ...(telegramId ? [`Telegram ID: ${telegramId}`] : []),
     outcomes.length ? "Чаты:\n" + outcomes.map(o => "• " + line(o)).join("\n") : "Чаты: нет чатов организации",
     bonus > 0 ? `Списано бонусов: ${bonus.toLocaleString("ru-RU")}` : "Бонусы: остатка не было",
   ].join("\n");

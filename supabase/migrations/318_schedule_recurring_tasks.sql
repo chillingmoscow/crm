@@ -244,7 +244,7 @@ create function public.schedule_process_tasks() returns jsonb
 language plpgsql security definer set search_path=public,pg_catalog as $$
 declare settings public.schedule_task_settings;today date;tz text;entry jsonb;o public.schedule_task_occurrences;
  def public.schedule_task_definitions;s public.schedule_shifts;e public.payroll_employees;pred public.schedule_task_occurrences;
- n integer;count_shifts integer;blocked_reason text;group_index integer;assignment_deadline timestamptz;rules jsonb;kind text;medium text;amount numeric;
+ n integer;count_shifts integer;blocked_reason text;group_index integer;occurrence_index integer;assignment_deadline timestamptz;rules jsonb;kind text;medium text;amount numeric;
  adjustment uuid;created integer:=0;settled integer:=0;
 begin
  for settings in select st.* from public.schedule_task_settings st where st.enabled_from is not null and st.legacy_stopped for update skip locked loop
@@ -293,10 +293,15 @@ begin
     blocked_reason:='Срок истёк до доступности задачи. Нужна сверка без автоматического штрафа';
    end if;
    group_index:=jsonb_array_length(coalesce(o.snapshot->'equipment_groups','[]'));
+   if o.snapshot->'recurrence'->>'unit'='month' then
+    occurrence_index:=((extract(year from o.business_date)::integer-extract(year from (o.snapshot->'recurrence'->>'anchor')::date)::integer)*12+extract(month from o.business_date)::integer-extract(month from (o.snapshot->'recurrence'->>'anchor')::date)::integer)/greatest((o.snapshot->'recurrence'->>'interval')::integer,1);
+   else
+    occurrence_index:=(o.business_date-(o.snapshot->'recurrence'->>'anchor')::date)/(7*greatest((o.snapshot->'recurrence'->>'interval')::integer,1));
+   end if;
    update public.schedule_task_occurrences set shift_id=s.id,employee_id=e.id,user_id=coalesce(s.user_id,e.local_user_id),employee_name=e.name,
     predecessor_occurrence_id=pred.id,deadline_at=assignment_deadline,
     status=case when blocked_reason='' then 'assigned' else 'blocked' end,blocker=blocked_reason,
-    equipment=case when o.transferred then o.equipment when group_index>0 then (o.snapshot->'equipment_groups')->(((o.business_date-(o.snapshot->'recurrence'->>'anchor')::date)/(7*greatest((o.snapshot->'recurrence'->>'interval')::integer,1)))%group_index) else '[]'::jsonb end,
+    equipment=case when o.transferred then o.equipment when group_index>0 then (o.snapshot->'equipment_groups')->(occurrence_index%group_index) else '[]'::jsonb end,
     version=version+case when shift_id is distinct from s.id or employee_id is distinct from e.id or user_id is distinct from coalesce(s.user_id,e.local_user_id) or schedule_task_occurrences.blocker is distinct from blocked_reason then 1 else 0 end,updated_at=now() where id=o.id;
   end loop;
   update public.schedule_task_occurrences set status='blocked',blocker='Давнее задание после перерыва. Нужна сверка',version=version+1 where venue_id=settings.venue_id and business_date<today-7 and settled_at is null and status in ('assigned','in_progress','returned') and submitted_at is null and deadline_at<=now();

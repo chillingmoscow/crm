@@ -106,7 +106,7 @@ end $$;
 
 -- Regression scenarios from review: repeated carries, ambiguity after draft, late acceptance and correction deadlines.
 do $$
-declare owner_id uuid;staff_id uuid;v uuid;a uuid;d date;tpl uuid;employee uuid;def uuid;prep_def uuid;prep uuid;original uuid;carried uuid;second_carry uuid;started uuid;duplicate uuid;late uuid;returned uuid;shift uuid;future_occ uuid;future_shift uuid;dependent_def uuid;dependent uuid;late_prep uuid;correction_def uuid;expired_return uuid;new_carry uuid;late_assignment_def uuid;late_assignment uuid;replacement_user uuid;replacement_employee uuid;reassigned_def uuid;reassigned uuid;collision_def uuid;pending_carry uuid;occupied uuid;competing_source uuid;ver integer;check_id uuid:=gen_random_uuid();snap jsonb;prep_snap jsonb;
+declare owner_id uuid;staff_id uuid;v uuid;a uuid;d date;tpl uuid;employee uuid;def uuid;prep_def uuid;prep uuid;original uuid;carried uuid;second_carry uuid;started uuid;duplicate uuid;late uuid;returned uuid;shift uuid;future_occ uuid;future_shift uuid;dependent_def uuid;dependent uuid;late_prep uuid;correction_def uuid;expired_return uuid;new_carry uuid;late_assignment_def uuid;late_assignment uuid;replacement_user uuid;replacement_employee uuid;reassigned_def uuid;reassigned uuid;collision_def uuid;pending_carry uuid;occupied uuid;competing_source uuid;rotation_def uuid;rotation_occ uuid;rotation_case record;rotation_anchor date;rotation_snapshot jsonb;ver integer;check_id uuid:=gen_random_uuid();snap jsonb;prep_snap jsonb;
 begin
  select id into owner_id from auth.users where email='owner@test.com';
  select id into staff_id from auth.users where email='waiter@test.com';
@@ -247,6 +247,16 @@ begin
  values(v,a,collision_def,d-5,snap||jsonb_build_object('id',collision_def),'missed',now()) returning id into competing_source;
  perform public.schedule_process_tasks();
  if (select transfer_created from public.schedule_task_occurrences where id=competing_source) or (select count(*) from public.schedule_task_occurrences where transferred_from_id=pending_carry and business_date=d)<>1 then raise exception 'Второй перенос перехватил задание первого';end if;
- raise notice 'PASS: repeated prerequisite/equipment carry, ambiguous started assignment recovery, late approval reward, correction deadline/carry without backdated fines, calendar shift deletion/replacement, late assignment reconciliation, occupied carry retry and competing source preservation';
+ -- Equipment advances once per occurrence, using months for monthly recurrences and weeks for weekly ones.
+ for rotation_case in select * from (values ('week',1,0,1),('week',1,1,2),('week',1,2,3),('week',1,3,4),('week',1,4,1),('week',2,2,2),('month',1,0,1),('month',1,1,2),('month',1,2,3),('month',1,3,4),('month',1,4,1),('month',2,4,3)) as cases(unit,repeat_interval,elapsed,expected) loop
+  rotation_anchor:=case when rotation_case.unit='month' then (d-make_interval(months=>rotation_case.elapsed))::date else d-rotation_case.elapsed*7 end;
+  insert into public.schedule_task_definitions(account_id,venue_id,name,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount,equipment_groups)
+  select account_id,venue_id,'TEST Equipment Rotation',template_id,review_mode,items,jsonb_build_object('unit',rotation_case.unit,'interval',rotation_case.repeat_interval,'anchor',rotation_anchor),rotation_anchor,false,true,300,300,'[[1],[2],[3],[4]]'::jsonb from public.schedule_task_definitions where id=def returning id into rotation_def;
+  select to_jsonb(t) into rotation_snapshot from public.schedule_task_definitions t where id=rotation_def;
+  insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot) values(v,a,rotation_def,d,rotation_snapshot) returning id into rotation_occ;
+  perform public.schedule_process_tasks();
+  if not exists(select 1 from public.schedule_task_occurrences where id=rotation_occ and status='assigned' and equipment=jsonb_build_array(rotation_case.expected)) then raise exception 'Неверная группа оборудования: %, интервал %, смещение %',rotation_case.unit,rotation_case.repeat_interval,rotation_case.elapsed;end if;
+ end loop;
+ raise notice 'PASS: prerequisite/equipment carry, ambiguous/late assignments, late approval, correction deadlines, calendar deletion, occupied carry retry, competing sources, weekly/monthly equipment cycles including wraparound and interval > 1';
 end $$;
 rollback;

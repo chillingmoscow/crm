@@ -343,7 +343,13 @@ export function PayrollJournal({
         employee={selected ? (() => { const e = data.employees.find((e) => e.id === selected.employee_id); return {name:e?.name ?? "Сотрудник", role:e?.role_name, avatarUrl:e?.avatar_url}; })() : undefined}
         amount={selected ? entryAmount(selected) : undefined}
         amountLabel={selected?.kind === "warning" ? "Без денежного удержания" : selected?.kind === "allowance" ? "Надбавка за месяц" : selected?.kind === "bonus" ? "Сумма премии" : selected?.kind === "correction" ? "Сумма корректировки" : "Сумма удержания"}
-        status={selected?.deleted_at ? <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">Удалено</span> : undefined}
+        status={selected && (selected.deleted_at || detail?.notification) ? <span className="flex flex-wrap items-center justify-end gap-2">
+          {selected.deleted_at && <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">Удалено</span>}
+          {!selected.deleted_at && detail?.notification && <span
+            className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-300"
+            title={detail.notification.last_error ?? undefined}
+          >{detail.notification.final ? "Не будет отправлено" : "Не отправлено в чат"}</span>}
+        </span> : undefined}
         actions={canWrite && selected && !selected.deleted_at ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" disabled={busy} aria-label="Действия с записью"><MoreHorizontal size={18}/></Button></DropdownMenuTrigger>

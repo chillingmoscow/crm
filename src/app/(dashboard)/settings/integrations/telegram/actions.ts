@@ -63,3 +63,28 @@ export async function saveOrganizationTelegram(input: unknown) {
   return { bot_username: username, default_chat_id: value.chat_id, candidate_chat_id: value.candidate_chat_id || null,
     default_chat_title: titles.get(value.chat_id)!, candidate_chat_title: titles.get(value.candidate_chat_id) ?? null };
 }
+
+export type FinesChatSettings = { chat_id: string | null; title: string | null; notify_from: string | null };
+export async function readFinesChat(resolveTitle = false): Promise<FinesChatSettings | null> {
+  const s = await integrationScope();
+  const result = await s.db.from<{ secret: SavedTelegram["secret"]; fines_chat_id: string | null; fines_notify_from: string | null }>("organization_telegram_settings")
+    .select("secret,fines_chat_id,fines_notify_from").eq("account_id", s.accountId).maybeSingle();
+  // Code can reach prod before the fines-chat columns do: hide the section, keep the page.
+  if (result.error) return null;
+  const row = result.data;
+  if (!row) return null;
+  let title: string | null = null;
+  if (resolveTitle && row.fines_chat_id) {
+    try { title = await chatTitle(decryptSecret(row.secret), row.fines_chat_id); } catch { /* Title is optional. */ }
+  }
+  return { chat_id: row.fines_chat_id, title, notify_from: row.fines_notify_from };
+}
+export async function saveFinesChat(input: unknown) {
+  const s = await integrationScope();
+  const value = integrationInput(z.object({ chat_id: z.string().trim().regex(/^-?\d+$/, "Укажите числовой ID чата").or(z.literal("")), enabled: z.boolean() })
+    .refine(v => !v.enabled || v.chat_id !== "", { message: "Укажите ID чата штрафов и премий" }), input);
+  const { error } = await s.client.rpc("payroll_save_fines_chat", { p_chat_id: value.chat_id || null, p_enabled: value.enabled });
+  if (error) throw new Error(/[а-яё]/i.test(error.message) ? error.message : "Не удалось сохранить чат штрафов и премий");
+  revalidatePath("/settings/integrations/telegram");
+  return readFinesChat(true);
+}

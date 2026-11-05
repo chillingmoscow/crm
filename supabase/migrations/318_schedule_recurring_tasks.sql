@@ -339,10 +339,10 @@ begin
    update public.schedule_task_occurrences set adjustment_id=adjustment,settled_at=now(),blocker='',updated_at=now() where id=o.id;
    insert into public.schedule_task_history(venue_id,entity_id,action,details) values(o.venue_id,o.id,'result.settled',jsonb_build_object('adjustment_id',adjustment,'kind',kind));settled:=settled+1;
   end loop;
-  -- Carry an unfinished task once. A normal occurrence already scheduled for that day is reused.
+  -- Carry once to an available day, including after a delayed review/correction deadline. Reuse only untouched assignments.
   for o in select * from public.schedule_task_occurrences where venue_id=settings.venue_id and business_date>=settings.enabled_from and status='missed' and not transfer_created for update loop
    insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,transferred,transferred_from_id,predecessor_occurrence_id,equipment)
-   values(o.venue_id,o.account_id,o.definition_id,o.business_date+1,o.snapshot,true,o.id,o.predecessor_occurrence_id,o.equipment)
+   values(o.venue_id,o.account_id,o.definition_id,greatest(o.business_date+1,today),o.snapshot,true,o.id,o.predecessor_occurrence_id,o.equipment)
    on conflict(definition_id,business_date) do update set transferred=true,transferred_from_id=excluded.transferred_from_id,snapshot=excluded.snapshot,predecessor_occurrence_id=excluded.predecessor_occurrence_id,equipment=excluded.equipment,version=schedule_task_occurrences.version+1
    where schedule_task_occurrences.status in ('assigned','blocked') and schedule_task_occurrences.answers='{}'::jsonb and schedule_task_occurrences.settled_at is null;
    update public.schedule_task_occurrences set transfer_created=true where id=o.id;

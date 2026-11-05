@@ -332,6 +332,29 @@ do $$declare j public.staff_terminations;h jsonb;claim jsonb;begin
  if (select telegram_id from public.staff_terminations where id=j.id) is distinct from '9999' then raise exception 'Manual repeat did not refresh the Telegram ID snapshot';end if;
  if not exists(select 1 from public.audit_logs where action_code='staff.termination_telegram_id' and entity_id=j.user_id
   and user_id='ce000000-0000-4000-8000-000000000001' and details->>'before'='4242' and details->>'after'='9999') then raise exception 'Snapshot refresh not audited';end if;
+ -- Results for the old identity must not carry over: a changed ID resets the journal and Telegram markers.
+ insert into public.staff_telegram_actions(account_id,user_id,kind,event_key,chat_id,result,detail) values
+  (j.account_id,j.user_id,'remove','termination:'||j.id,'-100qa1','removed',null),
+  (j.account_id,j.user_id,'remove','termination:'||j.id,'-100qa2','error','Исключён, но не разблокирован — повтор'),
+  (j.account_id,j.user_id,'remove','termination:'||j.id,'*','unconfirmed','Нет Telegram ID');
+ update public.staff_terminations set state='working',lease_until=now()+interval '5 minutes',
+  steps=steps||'{"telegram":true,"telegram_report":true,"telegram_report_skipped":true,"telegram_skipped":true,"employee":true}' where id=j.id;
+ update public.profiles set telegram_id='7777' where id=j.user_id;
+ -- A live worker lease refuses the swap and leaves everything as it was.
+ begin perform public.staff_begin_termination(j.uvr_id,'Повтор');raise exception 'Snapshot refreshed under a live lease';
+ exception when others then if SQLERRM<>'Увольнение сейчас обрабатывается, повторите через минуту' then raise;end if;end;
+ if (select telegram_id from public.staff_terminations where id=j.id)<>'9999' or (select count(*) from public.staff_telegram_actions where event_key='termination:'||j.id)<>3
+ then raise exception 'Refused refresh changed the job';end if;
+ update public.staff_terminations set lease_until=now()-interval '2 minutes' where id=j.id;
+ if public.staff_begin_termination(j.uvr_id,'Повтор')<>j.id then raise exception 'Repeat did not continue the unfinished job';end if;
+ if (select telegram_id from public.staff_terminations where id=j.id) is distinct from '7777' then raise exception 'Expired lease blocked the refresh';end if;
+ if exists(select 1 from public.staff_telegram_actions where event_key='termination:'||j.id) then raise exception 'Old identity journal kept';end if;
+ if exists(select 1 from public.staff_terminations where id=j.id and (steps ?| array['telegram','telegram_report','telegram_report_skipped','telegram_skipped']
+  or not (steps ? 'employee') or state<>'pending' or lease_until is not null)) then raise exception 'Telegram markers not reset or expired attempt not released';end if;
+ -- Unchanged ID: a repeat under a live lease is fine (nothing to refresh).
+ update public.staff_terminations set lease_until=now()+interval '5 minutes' where id=j.id;
+ if public.staff_begin_termination(j.uvr_id,'Повтор')<>j.id then raise exception 'Unchanged repeat refused';end if;
+ update public.staff_terminations set lease_until=null,steps=steps-'employee' where id=j.id;
  perform set_config('request.jwt.claims','',true);perform set_config('app.ctx_ready','',true);
  if exists(select 1 from public.user_venue_roles where id=j.uvr_id and status='active') or exists(select 1 from public.payroll_employees where local_user_id=j.user_id and active) then raise exception 'Staff still active';end if;
  if exists(select 1 from public.schedule_qualifications where user_id=j.user_id) then raise exception 'Qualification still active';end if;

@@ -209,7 +209,8 @@ end $$;
 revoke all on function public.staff_claim_termination(uuid) from public,anon,authenticated;
 grant execute on function public.staff_claim_termination(uuid) to service_role;
 
--- Same body as 314 except: the Telegram ID is snapshotted (refreshed only by a manual repeat call); an unfinished restore without a live lease is abandoned (cancelled)
+-- Same body as 314 except: the Telegram ID is snapshotted (refreshed only by a manual repeat call,
+-- never under a live worker lease; a refresh resets the Telegram journal and step markers); an unfinished restore without a live lease is abandoned (cancelled)
 -- and the dismissal runs again, removing whatever the restore recovered; a cancelled job
 -- neither blocks nor is returned; an already fired person keeps the original date and reason.
 create or replace function public.staff_begin_termination(p_uvr uuid,p_reason text) returns uuid
@@ -230,14 +231,23 @@ begin
  update public.staff_restorations set state='cancelled',error='Отменено увольнением',lease_until=null,completed_at=now() where id=rs.id;
  abandoned:=true;
  end if;
- select * into job from public.staff_terminations where uvr_id=u.id order by created_at desc,id desc limit 1;
+ select * into job from public.staff_terminations where uvr_id=u.id order by created_at desc,id desc limit 1 for update;
  if found and u.status='fired' and job.state<>'cancelled' and not abandoned then
  -- Manual «Повторить» (permission-checked, with an actor) is the only path that refreshes the
  -- Telegram ID snapshot; the worker never reads the live profile the fired person could edit.
  if job.state<>'complete' then
  tg:=(select nullif(trim(p.telegram_id),'') from public.profiles p where p.id=u.user_id);
  if tg is distinct from job.telegram_id then
- update public.staff_terminations set telegram_id=tg where id=job.id;
+ -- Never swap the identity under a running worker (same minute of grace as the restore).
+ if job.lease_until>now()-interval '1 minute' then raise exception 'Увольнение сейчас обрабатывается, повторите через минуту';end if;
+ -- Journal results and Telegram step markers describe the old identity: the corrected
+ -- person must be checked in every chat again. An expired 'working' attempt is released,
+ -- so its leased writes (state + attempts guard) stop instead of restoring old markers.
+ delete from public.staff_telegram_actions where account_id=a and kind='remove' and event_key='termination:'||job.id;
+ update public.staff_terminations set telegram_id=tg,lease_until=null,
+ state=case when state='working' then 'pending' else state end,
+ steps=steps-'telegram'-'telegram_skipped'-'telegram_report'-'telegram_report_skipped'
+ where id=job.id;
  insert into public.audit_logs(account_id,venue_id,user_id,action_code,entity_type,entity_id,details)
  values(a,u.venue_id,auth.uid(),'staff.termination_telegram_id','staff',u.user_id,
  jsonb_build_object('termination_id',job.id,'before',job.telegram_id,'after',tg));

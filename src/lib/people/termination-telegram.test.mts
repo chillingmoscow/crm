@@ -4,8 +4,9 @@ import { ALL_CHATS, INVALID_TELEGRAM_ID, MISSING_TELEGRAM_ID, NOT_UNBANNED, remo
 import { removalComplete } from "../integrations/telegram-membership.ts";
 
 const chats = [{ chat_id: "-1", title: "Бар" }, { chat_id: "-2", title: "Кухня" }];
-function fixture(members: Record<string, string | Error> = {}, { stayAfterBan = false, unbanFails = 0 } = {}) {
+function fixture(members: Record<string, string | Error> = {}, { stayAfterBan = false, unbanFails = 0, unbanThrows = 0 } = {}) {
   let unbanFailures = unbanFails;
+  let unbanThrowsLeft = unbanThrows;
   const calls: string[] = [];
   const recorded: Array<{ chat_id: string; result: string; detail: string | null }> = [];
   const state = { ...members };
@@ -20,6 +21,7 @@ function fixture(members: Record<string, string | Error> = {}, { stayAfterBan = 
     banChatMember: async (chatId) => { calls.push(`ban:${chatId}`); if (!stayAfterBan) state[chatId] = "kicked"; return { ok: true }; },
     unbanChatMember: async (chatId) => {
       calls.push(`unban:${chatId}`);
+      if (unbanThrowsLeft > 0) { unbanThrowsLeft--; throw new Error("The operation was aborted due to timeout"); }
       if (unbanFailures > 0) { unbanFailures--; return { ok: false, description: "Too Many Requests" }; }
       if (!stayAfterBan && state[chatId] === "kicked") state[chatId] = "left";
       return { ok: true };
@@ -106,6 +108,19 @@ test("failed unban is not final; the retry unbans and only then records removed"
   assert.equal(first[0].result, "error");
   assert.equal(first[0].detail, NOT_UNBANNED);
   assert.equal(removalComplete(first.map(o => o.result)), false);
+  f.calls.length = 0;
+  const second = await removeFromTelegramChats({ configured: true, telegramId: "42", chats: [chats[0]],
+    previous: [{ chat_id: "-1", result: first[0].result, detail: first[0].detail }], transport: f.transport });
+  assert.equal(second[0].result, "removed");
+  assert.deepEqual(f.calls, ["get:-1:42", "unban:-1", "get:-1:42"]);
+});
+
+test("unban that throws after a confirmed ban keeps the marker; the retry unbans", async () => {
+  const f = fixture({ "-1": "member" }, { unbanThrows: 1 });
+  const first = await removeFromTelegramChats({ configured: true, telegramId: "42", chats: [chats[0]], previous: [], transport: f.transport });
+  assert.equal(first[0].result, "error");
+  assert.equal(first[0].detail, NOT_UNBANNED);
+  assert.deepEqual(f.recorded, [{ chat_id: "-1", result: "error", detail: NOT_UNBANNED }]);
   f.calls.length = 0;
   const second = await removeFromTelegramChats({ configured: true, telegramId: "42", chats: [chats[0]],
     previous: [{ chat_id: "-1", result: first[0].result, detail: first[0].detail }], transport: f.transport });

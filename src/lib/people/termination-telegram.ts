@@ -35,13 +35,20 @@ async function removeFromChat(chat: { chat_id: string; title: string }, userId: 
   const outcome = (result: RemovalResult, detail: string | null = null) => ({ chat_id: chat.chat_id, title: chat.title, result, detail });
   // Unban lets the person rejoin later by a fresh invite; it does not re-add them.
   // Only a confirmed unban finalizes: otherwise we would leave a permanent, invisible ban.
+  // Called only once our ban is confirmed (or left by our own earlier attempt): from here any
+  // failure — non-ok or a thrown timeout — keeps the NOT_UNBANNED marker, so the retry unbans
+  // instead of classifying the kicked person as "absent" and leaving a permanent ban.
   const unbanAndConfirm = async () => {
-    const unban = await t.unbanChatMember(chat.chat_id, userId);
-    if (!unban.ok) return outcome("error", NOT_UNBANNED);
-    const after = await t.getChatMember(chat.chat_id, userId);
-    if (after.result?.status === "kicked") return outcome("error", NOT_UNBANNED);
-    if (classifyChatMember(after) !== "absent") return outcome("unconfirmed", "После исключения участник всё ещё в чате");
-    return outcome("removed");
+    try {
+      const unban = await t.unbanChatMember(chat.chat_id, userId);
+      if (!unban.ok) return outcome("error", NOT_UNBANNED);
+      const after = await t.getChatMember(chat.chat_id, userId);
+      if (after.result?.status === "kicked") return outcome("error", NOT_UNBANNED);
+      if (classifyChatMember(after) !== "absent") return outcome("unconfirmed", "После исключения участник всё ещё в чате");
+      return outcome("removed");
+    } catch {
+      return outcome("error", NOT_UNBANNED);
+    }
   };
   try {
     const before = await t.getChatMember(chat.chat_id, userId);

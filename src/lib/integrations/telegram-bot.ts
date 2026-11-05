@@ -20,6 +20,8 @@ export type TelegramBot = {
   invitesChatId: string | null;
   getChatMember: (chatId: string, userId: number) => Promise<TelegramApiResult<{ status?: string; is_member?: boolean }>>;
   banChatMember: (chatId: string, userId: number) => Promise<TelegramApiResult<boolean>>;
+  /** The bot's own membership in a chat: status and the rights needed to invite and remove people. */
+  getOwnMembership: (chatId: string) => Promise<TelegramApiResult<{ status?: string; can_invite_users?: boolean; can_restrict_members?: boolean }>>;
   unbanChatMember: (chatId: string, userId: number) => Promise<TelegramApiResult<boolean>>;
   createChatInviteLink: (chatId: string, name: string) => Promise<TelegramApiResult<{ invite_link?: string }>>;
   sendMessage: (chatId: string, text: string, buttons?: TelegramButton[][]) => Promise<TelegramApiResult<{ message_id?: number }>>;
@@ -51,6 +53,7 @@ export async function loadTelegramBot(db: LooseDb, accountId: string): Promise<T
     reportsChatId: row.data.default_chat_id,
     invitesChatId: row.data.candidate_chat_id || row.data.default_chat_id,
     getChatMember: (chatId, userId) => call("getChatMember", { chat_id: chatId, user_id: userId }),
+    getOwnMembership: chatId => call("getChatMember", { chat_id: chatId, user_id: Number(token.split(":")[0]) }),
     banChatMember: (chatId, userId) => call("banChatMember", { chat_id: chatId, user_id: userId, revoke_messages: false }),
     unbanChatMember: (chatId, userId) => call("unbanChatMember", { chat_id: chatId, user_id: userId, only_if_banned: true }),
     // Telegram limits the link name to 32 characters.

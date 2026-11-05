@@ -7,10 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { candidateError } from "@/lib/candidates/errors";
+import { TelegramChats } from "./telegram-chats";
+import type { ChatRoleOption, TelegramChatRow } from "./chat-actions";
 import { readTelegramSettings, saveOrganizationTelegram } from "./actions";
 import { IntegrationLayout, IntegrationSection, IntegrationStatus, IntegrationNotice } from "../_components/integration-layout";
 type TelegramView = Awaited<ReturnType<typeof readTelegramSettings>>;
-export function TelegramSettings({ initial, editable }: { initial: TelegramView; editable: boolean }) {
+export function TelegramSettings({ initial, editable, chats, roles }: { initial: TelegramView; editable: boolean; chats: TelegramChatRow[]; roles: ChatRoleOption[] }) {
   const [saved, setSaved] = useState(initial), [editing, setEditing] = useState(!initial);
   const [token, setToken] = useState(""), [chat, setChat] = useState(initial?.default_chat_id ?? "");
   const [candidateChat, setCandidateChat] = useState(initial?.candidate_chat_id ?? ""), [sameChat, setSameChat] = useState(!initial?.candidate_chat_id);
@@ -43,6 +45,7 @@ export function TelegramSettings({ initial, editable }: { initial: TelegramView;
         setError(""); try { const next = await saveOrganizationTelegram({ token: token || undefined, chat_id: chat, candidate_chat_id: sameChat ? "" : candidateChat }); setSaved(next); setToken(""); setEditing(false); toast.success("Telegram настроен"); }
         catch (e) { setError(candidateError(e, "Не удалось сохранить Telegram")); }
       })}>{busy ? "Проверяем…" : "Проверить и сохранить"}</Button>{saved ? <Button variant="outline" size="sm" disabled={busy} onClick={reset}>Отмена</Button> : null}</div></div> : null}
+      <TelegramChats chats={chats} roles={roles} connected={!!saved} />
       {!editable ? <IntegrationNotice>Изменять подключение может владелец организации.</IntegrationNotice> : null}
     </div>
   </IntegrationLayout>;

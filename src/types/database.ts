@@ -2135,6 +2135,48 @@ export type Database = {
           },
         ]
       }
+      payroll_adjustment_notifications: {
+        Row: {
+          account_id: string
+          adjustment_id: string
+          attempts: number
+          available_at: string
+          claimed_at: string | null
+          created_at: string
+          last_error: string | null
+          message_id: number | null
+          state: string
+          updated_at: string
+          venue_id: string
+        }
+        Insert: {
+          account_id: string
+          adjustment_id: string
+          attempts?: number
+          available_at?: string
+          claimed_at?: string | null
+          created_at?: string
+          last_error?: string | null
+          message_id?: number | null
+          state?: string
+          updated_at?: string
+          venue_id: string
+        }
+        Update: {
+          account_id?: string
+          adjustment_id?: string
+          attempts?: number
+          available_at?: string
+          claimed_at?: string | null
+          created_at?: string
+          last_error?: string | null
+          message_id?: number | null
+          state?: string
+          updated_at?: string
+          venue_id?: string
+        }
+        Relationships: []
+      }
       permissions: {
         Row: {
           code: string
@@ -3263,6 +3305,23 @@ export type Database = {
       }
       kb_soft_delete_cascade: { Args: { p_id: string }; Returns: number }
       list_my_permissions: { Args: Record<string, never>; Returns: string[] }
+      payroll_claim_adjustment_notification: {
+        Args: Record<string, never>
+        Returns: Json
+      }
+      payroll_finish_adjustment_notification: {
+        Args: {
+          p_account: string
+          p_adjustment: string
+          p_error: string | null
+          p_message_id: number | null
+        }
+        Returns: undefined
+      }
+      payroll_save_fines_chat: {
+        Args: { p_chat_id: string | null; p_enabled: boolean }
+        Returns: undefined
+      }
       log_audit: {
         Args: {
           p_action_code: string

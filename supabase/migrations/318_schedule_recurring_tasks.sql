@@ -447,6 +447,23 @@ end $$;
 revoke all on function private.schedule_task_assignment_audit() from public,anon,authenticated;
 create trigger schedule_task_assignment_audit after insert or update on public.schedule_task_occurrences for each row execute function private.schedule_task_assignment_audit();
 
+-- Extend the submission window in the same transaction as the shift edit, including saved drafts.
+-- A manager's correction deadline and a deadline already promised to the employee stay intact.
+create function private.schedule_task_shift_deadline() returns trigger language plpgsql security definer set search_path='' as $$
+declare o public.schedule_task_occurrences;
+begin
+ for o in select * from public.schedule_task_occurrences
+  where shift_id=new.id and venue_id=new.venue_id and settled_at is null and submitted_at is null
+   and status in ('assigned','in_progress') and deadline_at<new.ends_at for update loop
+  update public.schedule_task_occurrences set deadline_at=new.ends_at,version=version+1,updated_at=now() where id=o.id;
+  insert into public.schedule_task_history(venue_id,entity_id,actor_id,action,details)
+  values(o.venue_id,o.id,auth.uid(),'assignment.deadline_extended',jsonb_build_object('before',to_jsonb(o),'after',(select to_jsonb(r) from public.schedule_task_occurrences r where r.id=o.id)));
+ end loop;
+ return new;
+end $$;
+revoke all on function private.schedule_task_shift_deadline() from public,anon,authenticated;
+create trigger schedule_task_shift_deadline after update of ends_at on public.schedule_shifts for each row when (new.ends_at>old.ends_at) execute function private.schedule_task_shift_deadline();
+
 create function public.schedule_retry_task_message(p_id uuid,p_evidence text) returns void
 language plpgsql security definer set search_path=public,pg_catalog as $$
 declare v uuid:=public.get_active_venue_id();a uuid:=public.get_active_account_id();

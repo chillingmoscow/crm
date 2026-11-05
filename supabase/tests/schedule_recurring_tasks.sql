@@ -259,4 +259,49 @@ begin
  end loop;
  raise notice 'PASS: prerequisite/equipment carry, ambiguous/late assignments, late approval, correction deadlines, calendar deletion, occupied carry retry, competing sources, weekly/monthly equipment cycles including wraparound and interval > 1';
 end $$;
+-- Editing a published shift extends saved drafts immediately, without changing correction deadlines.
+do $$
+declare owner_id uuid;staff_id uuid;v uuid;a uuid;employee uuid;tpl uuid;def uuid;shift uuid;occ uuid;correction uuid;check_id uuid:=gen_random_uuid();ver integer;snapshot jsonb;shift_start timestamptz;shift_end timestamptz;extended_end timestamptz;tz text;d date;
+begin
+ select id into owner_id from auth.users where email='owner@test.com';
+ select id into staff_id from auth.users where email='waiter@test.com';
+ select active_venue_id into v from public.profiles where id=owner_id;
+ select account_id,coalesce(timezone,'Europe/Moscow') into a,tz from public.venues where id=v;
+ select id into employee from public.payroll_employees where venue_id=v and local_user_id=staff_id;
+ perform set_config('request.jwt.claim.sub',owner_id::text,true);perform set_config('app.ctx_ready','0',true);
+ -- Earlier fixtures have already been checked; release their overlapping test shifts for the real calendar command.
+ delete from public.schedule_shifts where venue_id=v and user_id=staff_id and title like 'TEST%';
+ shift_start:=date_trunc('minute',now())-interval '12 hours';shift_end:=date_trunc('minute',now())-interval '1 hour';extended_end:=date_trunc('minute',now())+interval '2 hours';d:=(shift_start at time zone tz)::date;
+ insert into public.schedule_templates(venue_id,name,color,start_time,end_time) values(v,'TEST Shift Deadline','blue','17:00','23:00') returning id into tpl;
+ insert into public.schedule_task_definitions(account_id,venue_id,name,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount)
+ values(a,v,'TEST Extended Draft',tpl,'auto',jsonb_build_array(jsonb_build_object('id',check_id,'title','Готово','kind','check','required',true)),jsonb_build_object('unit','week','interval',52,'anchor',d),d,false,true,300,0) returning id into def;
+ select to_jsonb(t)||jsonb_build_object('task_rules',s.config->'tasks') into snapshot from public.schedule_task_definitions t join public.payroll_automation_settings s on s.venue_id=t.venue_id where t.id=def;
+ insert into public.schedule_shifts(venue_id,user_id,template_id,title,color,starts_at,ends_at,published)
+ values(v,staff_id,tpl,'TEST Extended Shift','blue',shift_start,shift_end,true) returning id into shift;
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,shift_id,employee_id,user_id,deadline_at)
+ values(v,a,def,d,snapshot,'assigned',shift,employee,staff_id,now()+interval '1 hour') returning id,version into occ,ver;
+ perform set_config('request.jwt.claim.sub',staff_id::text,true);perform set_config('app.ctx_ready','0',true);
+ perform public.schedule_task_command('run.save',jsonb_build_object('id',occ,'version',ver,'answers',jsonb_build_object(check_id,true)));
+ -- Simulate the original due time having elapsed before the edited shift ends.
+ update public.schedule_task_occurrences set deadline_at=shift_end where id=occ;
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,shift_id,employee_id,user_id,deadline_at,submitted_at)
+ values(v,a,def,d-1,snapshot,'returned',shift,employee,staff_id,now()+interval '30 minutes',now()-interval '1 day') returning id into correction;
+ perform set_config('request.jwt.claim.sub',owner_id::text,true);perform set_config('app.ctx_ready','0',true);
+ select version into ver from public.schedule_shifts where id=shift;
+ perform public.schedule_command('shift.edit',jsonb_build_object('id',shift,'version',ver,'user_id',staff_id,'template_id',tpl,'title','TEST Extended Shift','date',d,'start_time',(shift_start at time zone tz)::time,'end_time',(extended_end at time zone tz)::time));
+ if not exists(select 1 from public.schedule_task_occurrences where id=occ and status='in_progress' and deadline_at=extended_end and answers=jsonb_build_object(check_id,true)) then raise exception 'Продление смены не обновило срок начатого отчёта';end if;
+ if not exists(select 1 from public.schedule_task_history where entity_id=occ and action='assignment.deadline_extended' and details->'before'->>'deadline_at' is not null and (details->'after'->>'deadline_at')::timestamptz=extended_end) then raise exception 'Продление срока потеряло аудит';end if;
+ if not exists(select 1 from public.schedule_task_occurrences where id=correction and deadline_at=now()+interval '30 minutes') then raise exception 'Изменение смены затронуло срок исправления управляющего';end if;
+ perform public.schedule_process_tasks();perform public.schedule_process_tasks();
+ if not exists(select 1 from public.schedule_task_occurrences where id=occ and status='in_progress' and settled_at is null) or exists(select 1 from public.payroll_adjustments where automation_key='task:'||occ||':result') then raise exception 'Продлённая смена преждевременно оштрафовала начатую задачу';end if;
+ -- Shortening the shift later cannot reduce the saved draft's already granted window.
+ select version into ver from public.schedule_shifts where id=shift;
+ perform public.schedule_command('shift.edit',jsonb_build_object('id',shift,'version',ver,'user_id',staff_id,'template_id',tpl,'title','TEST Extended Shift','date',d,'start_time',(shift_start at time zone tz)::time,'end_time',(shift_end at time zone tz)::time));
+ if (select deadline_at from public.schedule_task_occurrences where id=occ)<>extended_end or (select count(*) from public.schedule_task_history where entity_id=occ and action='assignment.deadline_extended')<>1 then raise exception 'Повторное изменение смены сократило срок или продублировало аудит';end if;
+ perform set_config('request.jwt.claim.sub',staff_id::text,true);perform set_config('app.ctx_ready','0',true);
+ select version into ver from public.schedule_task_occurrences where id=occ;
+ perform public.schedule_task_command('run.submit',jsonb_build_object('id',occ,'version',ver,'answers',jsonb_build_object(check_id,true)));
+ if not exists(select 1 from public.schedule_task_occurrences where id=occ and status='completed') then raise exception 'Отчёт недоступен после продления смены';end if;
+ raise notice 'PASS: real shift.edit extends a saved draft with audit; worker cannot charge early; correction deadlines and granted windows survive; report can submit';
+end $$;
 rollback;

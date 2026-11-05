@@ -383,6 +383,35 @@ do $$begin
  or not exists(select 1 from public.user_venue_roles where id=(select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)) and status='fired') then raise exception 'Shared person restored by a local flip';end if;
 end $$;
 rollback to savepoint shared_restore;
+-- Normal abandon: dismissal complete → restore errors → «Отменить возврат» dismisses again with the recovered ids.
+savepoint abandon_after_complete;
+set local role authenticated;
+create temp table qa_abandon_restore(id uuid);
+insert into qa_abandon_restore select public.staff_begin_restore((select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)));
+reset role;
+update public.staff_restorations set state='error',lease_until=now()-interval '30 seconds',steps='{"guest":true,"bonus":6200}' where id=(select id from qa_abandon_restore);
+set local role authenticated;
+do $$begin
+ begin perform public.staff_begin_termination((select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)),'Продолжение увольнения');raise exception 'Abandon inside the lease grace allowed';exception when others then if SQLERRM not like 'Идёт возврат сотрудника%' then raise;end if;end;
+end $$;
+reset role;
+update public.staff_restorations set lease_until=now()-interval '2 minutes' where id=(select id from qa_abandon_restore);
+set local role authenticated;
+create temp table qa_abandon_termination(id uuid);
+insert into qa_abandon_termination select public.staff_begin_termination((select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)),'Продолжение увольнения');
+do $$begin
+ if (select id from qa_abandon_termination) is distinct from public.staff_begin_termination((select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)),'Повтор') then raise exception 'Later dismissal did not continue the new job';end if;
+end $$;
+reset role;
+do $$declare t public.staff_terminations;begin
+ select * into t from public.staff_terminations where id=(select id from qa_abandon_termination);
+ if t.id=(select id from qa_termination_context) or t.state<>'pending' or t.employee_id<>999999 or t.guest_id<>999998 or t.bonus_id<>6200 then
+ raise exception 'Abandon returned the completed dismissal instead of a new one';end if;
+ if not exists(select 1 from public.staff_restorations where id=(select id from qa_abandon_restore) and state='cancelled') then raise exception 'Restore not abandoned';end if;
+ if not exists(select 1 from public.staff_terminations where id=(select id from qa_termination_context) and state='complete') then raise exception 'Completed dismissal changed';end if;
+ if (select fired_reason from public.user_venue_roles where id=(select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)))<>'Проверка увольнения QA' then raise exception 'Original reason overwritten';end if;
+end $$;
+rollback to savepoint abandon_after_complete;
 set local role authenticated;
 create temp table qa_restore_context(id uuid);
 insert into qa_restore_context select public.staff_begin_restore((select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)));

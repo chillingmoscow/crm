@@ -221,12 +221,13 @@ begin
  perform pg_advisory_xact_lock(hashtextextended(a::text||u.user_id::text,0));
  select * into rs from public.staff_restorations where uvr_id=u.id and state not in ('complete','cancelled') order by created_at desc limit 1 for update;
  if found then
- if rs.lease_until>now() then raise exception 'Идёт возврат сотрудника. Дождитесь его завершения';end if;
+ -- A minute of grace past the lease: a worker that just overran it is still stopped by its own write guard.
+ if rs.lease_until>now()-interval '1 minute' then raise exception 'Идёт возврат сотрудника. Дождитесь его завершения';end if;
  update public.staff_restorations set state='cancelled',error='Отменено увольнением',lease_until=null,completed_at=now() where id=rs.id;
  abandoned:=true;
  end if;
  select * into job from public.staff_terminations where uvr_id=u.id order by created_at desc,id desc limit 1;
- if found and u.status='fired' and job.state<>'cancelled' then return job.id;end if;
+ if found and u.status='fired' and job.state<>'cancelled' and not abandoned then return job.id;end if;
  if found and job.state not in ('complete','cancelled') then raise exception 'Предыдущее увольнение ещё не завершено';end if;
  if u.status<>'active' and not (abandoned and u.status='fired') then raise exception 'Сотрудник уже уволен';end if;
  if length(trim(p_reason)) not between 1 and 2000 then raise exception 'Укажите причину увольнения (до 2000 символов)';end if;
@@ -237,6 +238,7 @@ begin
  if cardinality(ids)>1 then raise exception 'Связи Quick Resto расходятся. Проверьте карточку сотрудника';end if;
  employee:=ids[1];guest:=e.quickresto_guest_id;bonus:=e.quickresto_bonus_account_id;
  -- The previous account was removed by the first dismissal; only the restore's new one is live.
+ -- The worker removes every bonus account of the guest, so one created but not yet recorded goes too.
  if abandoned and u.status='fired' then bonus:=nullif(rs.steps->>'bonus','')::bigint;end if;
  -- Preserve account-wide access while the same person works at another venue.
  shared:=exists(select 1 from public.user_venue_roles x join public.venues v on v.id=x.venue_id

@@ -41,7 +41,7 @@ function fixture({balance=0,failAfter='',silent=false,missing=false,silentDebit=
   },
  };
  const run=(overrides={})=>removeStaffFromQuickResto({ids:{employeeId:180,guestId:4918,bonusId:5836,...overrides},transport,done,save:async()=>{}});
- return {run,writes,done,links,bonus,employees,guests};
+ return {run,transport,writes,done,links,bonus,employees,guests};
 }
 test('dismissal verifies employee, both stores and zero bonus before guest; unrelated links survive',async()=>{
  const f=fixture();await f.run();const before=[...f.writes];await f.run();
@@ -97,4 +97,10 @@ test('person without Quick Resto records has no Quick Resto work, so the dismiss
  assert.equal(hasQuickRestoWork({employeeId:null,guestId:null,bonusId:null}),false);
  assert.equal(hasQuickRestoWork({employeeId:180,guestId:null,bonusId:null}),true);
  assert.equal(hasQuickRestoWork({employeeId:null,guestId:4918,bonusId:5836}),true);
+});
+
+test('a lost lease stops before the first Quick Resto removal',async()=>{
+ const f=fixture();
+ await assert.rejects(removeStaffFromQuickResto({ids:{employeeId:180,guestId:4918,bonusId:5836},transport:f.transport,done:f.done,save:async()=>{throw new Error('lease lost');}}),/lease lost/);
+ assert.deepEqual(f.writes,[]);
 });

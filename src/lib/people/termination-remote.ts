@@ -48,6 +48,8 @@ export async function removeStaffFromQuickResto({ids,transport,done,save}: {
   const step = async (key: string, isRemoved: () => Promise<boolean>, remove: () => Promise<void>) => {
     // Even a stored success is read again: it is not evidence of current remote state.
     if (!(await isRemoved())) {
+      // save() also proves the job is still ours; it runs before every destructive write.
+      await save();
       await remove();
       if (!(await isRemoved())) throw new Error('Quick Resto не подтвердил удаление: ' + key);
     }
@@ -96,6 +98,7 @@ export async function removeStaffFromQuickResto({ids,transport,done,save}: {
         Object.assign(bonus, after);
       }
       if (bonus.accountState !== 'closed') {
+        await save();
         await transport.closeBonus(bonus,query);
         const closed=(await accounts()).find(x=>x.id===bonus.id);
         if (!closed || closed.accountState !== 'closed' || !zeroBalance(closed.accountBalance))

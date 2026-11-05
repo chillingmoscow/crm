@@ -117,3 +117,9 @@ test('a failed employee recover after the guest is an error, not a success',asyn
  await assert.rejects(recoverStaffInQuickResto({ids,settings,transport:f.transport,done:f.done,save:f.save}),{message:NOT_RECOVERABLE});
  assert.equal(f.done.guest,true);assert.equal(f.done.employee,undefined);
 });
+
+test('a lost lease after the pre-reads stops before the first Quick Resto write',async()=>{
+ const f=fixture();
+ await assert.rejects(recoverStaffInQuickResto({ids,settings,transport:f.transport,done:f.done,save:async()=>{throw new Error('lease lost');}}),/lease lost/);
+ assert.deepEqual(f.writes,[]);
+});

@@ -35,10 +35,13 @@ export async function recoverStaffInQuickResto({ids,settings,transport,done,save
   const employee = ids.employeeId ? await find(employees, ids.employeeId) : null;
   const guest = ids.guestId ? await find(guests, ids.guestId) : null;
   if ((ids.employeeId && !employee) || (ids.guestId && !guest)) throw new Error(NOT_RECOVERABLE);
+  // save() also proves the job is still ours; it runs before every Quick Resto write.
+  await save();
 
   const recover = async (key: string, moduleName: 'personnel.employee' | 'crm.customer', row: RemoteRow, reread: () => Promise<RemoteRow | undefined>) => {
     // A stored success is not evidence of remote state; the read decides.
     if (row.deleted === true) {
+      await save();
       try { await transport.recover(moduleName, row); }
       catch (e) { if (notFound(e)) throw new Error(NOT_RECOVERABLE); throw e; }
       const after = await reread();
@@ -55,30 +58,32 @@ export async function recoverStaffInQuickResto({ids,settings,transport,done,save
     await recover('guest', 'crm.customer', guest, () => find(guests, guestId));
     const current = await transport.readGuest(guestId);
     if (Number(object(current.customerGroup).id) !== settings.staffGroupId) {
+      await save();
       await transport.updateGuest({...current, customerGroup:{id:settings.staffGroupId}});
       if (Number(object((await transport.readGuest(guestId)).customerGroup).id) !== settings.staffGroupId)
         throw new Error('Quick Resto не подтвердил группу Staff для гостя');
-  }
-  done.guest_group = true;
-  await save();
+    }
+    done.guest_group = true;
+    await save();
 
-  // The previous account was closed on dismissal; an open one of the staff type is reused (re-read before create).
-  const query = {mode:'bonuses', ownerContextId:guestId, ownerContextClassName:customerClass};
-  const openBonus = async () => {
-    const open = (await transport.rows('crm.accounting.account/select', query)).filter(x =>
-      Number(object(x.accountType).id) === settings.bonusAccountTypeId && x.deleted !== true && x.accountState !== 'closed');
-    if (open.length > 1) throw new Error('Найдено несколько бонусных счетов сотрудника. Нужна проверка');
-    return open[0] ?? null;
-  };
-  let bonus = await openBonus();
-  if (!bonus) {
-    await transport.createBonus(guestId, settings.bonusAccountTypeId);
-    bonus = await openBonus();
-    if (!bonus || !Number.isSafeInteger(Number(bonus.id))) throw new Error('Quick Resto не подтвердил создание бонусного счёта');
-  }
-  done.bonus = Number(bonus.id);
-  await save();
-  bonusId = Number(bonus.id);
+    // The previous account was closed on dismissal; an open one of the staff type is reused (re-read before create).
+    const query = {mode:'bonuses', ownerContextId:guestId, ownerContextClassName:customerClass};
+    const openBonus = async () => {
+      const open = (await transport.rows('crm.accounting.account/select', query)).filter(x =>
+        Number(object(x.accountType).id) === settings.bonusAccountTypeId && x.deleted !== true && x.accountState !== 'closed');
+      if (open.length > 1) throw new Error('Найдено несколько бонусных счетов сотрудника. Нужна проверка');
+      return open[0] ?? null;
+    };
+    let bonus = await openBonus();
+    if (!bonus) {
+      await save();
+      await transport.createBonus(guestId, settings.bonusAccountTypeId);
+      bonus = await openBonus();
+      if (!bonus || !Number.isSafeInteger(Number(bonus.id))) throw new Error('Quick Resto не подтвердил создание бонусного счёта');
+    }
+    done.bonus = Number(bonus.id);
+    await save();
+    bonusId = Number(bonus.id);
   }
 
   if (ids.employeeId && employee) {
@@ -90,6 +95,7 @@ export async function recoverStaffInQuickResto({ids,settings,transport,done,save
       const linked = async () => (await transport.rows('warehouse.store.employee/select', query))
         .some(x => Number(object(x.employee).id) === employeeId && x.deleted !== true);
       if (!(await linked())) {
+        await save();
         await transport.createStoreLink(storeId, employeeId);
         if (!(await linked())) throw new Error('Quick Resto не подтвердил доступ к складу ' + storeId);
       }

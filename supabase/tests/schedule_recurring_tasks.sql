@@ -51,6 +51,8 @@ begin
  perform public.schedule_process_tasks();
  insert into public.schedule_shifts(venue_id,user_id,template_id,title,color,starts_at,ends_at,published) values(v,staff_id,tpl,'TEST Past Tasks','blue',((d-7)::timestamp+interval '9 hours') at time zone 'Europe/Moscow',((d-7)::timestamp+interval '17 hours') at time zone 'Europe/Moscow',true) returning id into shift;
  select id into occ from public.schedule_task_occurrences where definition_id=def_past and business_date=d-7;
+ -- Simulate an assignment that was available before its deadline, rather than a late first publication.
+ update public.schedule_task_occurrences set status='assigned',shift_id=shift,employee_id=employee,user_id=staff_id,deadline_at=now()-interval '1 hour' where id=occ;
  perform public.schedule_process_tasks();perform public.schedule_process_tasks();
  select count(*) into count_after from public.payroll_adjustments where automation_key='task:'||occ||':result' and amount=-300 and medium='money';
  if count_after<>1 then raise exception 'Штраф не идемпотентен: %',count_after;end if;
@@ -104,7 +106,7 @@ end $$;
 
 -- Regression scenarios from review: repeated carries, ambiguity after draft, late acceptance and correction deadlines.
 do $$
-declare owner_id uuid;staff_id uuid;v uuid;a uuid;d date;tpl uuid;employee uuid;def uuid;prep_def uuid;prep uuid;original uuid;carried uuid;second_carry uuid;started uuid;duplicate uuid;late uuid;returned uuid;shift uuid;future_occ uuid;future_shift uuid;dependent_def uuid;dependent uuid;late_prep uuid;correction_def uuid;expired_return uuid;new_carry uuid;ver integer;check_id uuid:=gen_random_uuid();snap jsonb;prep_snap jsonb;
+declare owner_id uuid;staff_id uuid;v uuid;a uuid;d date;tpl uuid;employee uuid;def uuid;prep_def uuid;prep uuid;original uuid;carried uuid;second_carry uuid;started uuid;duplicate uuid;late uuid;returned uuid;shift uuid;future_occ uuid;future_shift uuid;dependent_def uuid;dependent uuid;late_prep uuid;correction_def uuid;expired_return uuid;new_carry uuid;late_assignment_def uuid;late_assignment uuid;ver integer;check_id uuid:=gen_random_uuid();snap jsonb;prep_snap jsonb;
 begin
  select id into owner_id from auth.users where email='owner@test.com';
  select id into staff_id from auth.users where email='waiter@test.com';
@@ -201,6 +203,17 @@ begin
  select id into new_carry from public.schedule_task_occurrences where definition_id=correction_def and transferred_from_id=expired_return;
  if not exists(select 1 from public.schedule_task_occurrences where id=new_carry and business_date=d and status='assigned' and deadline_at>now() and settled_at is null) then raise exception 'Просроченное исправление перенесено задним числом';end if;
  if (select count(*) from public.payroll_adjustments where automation_key='task:'||expired_return||':result' and amount=-300)<>1 or exists(select 1 from public.payroll_adjustments where automation_key='task:'||new_carry||':result') or exists(select 1 from public.schedule_task_occurrences where definition_id=correction_def and business_date between d-4 and d-1) then raise exception 'Просроченное исправление породило цепочку штрафов';end if;
- raise notice 'PASS: repeated prerequisite/equipment carry, ambiguous started assignment recovery, late approval reward, correction deadline/carry without backdated fines, calendar shift deletion/replacement, late prerequisite reconciliation';
+ -- The same protection applies when an ordinary shift is first published after the task deadline.
+ insert into public.schedule_task_definitions(account_id,venue_id,name,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount)
+ select account_id,venue_id,'TEST Late Shift Publication',template_id,review_mode,items,recurrence,starts_on,false,true,300,300 from public.schedule_task_definitions where id=def returning id into late_assignment_def;
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot)
+ values(v,a,late_assignment_def,d-6,snap||jsonb_build_object('id',late_assignment_def)) returning id into late_assignment;
+ insert into public.schedule_shifts(venue_id,user_id,template_id,title,color,starts_at,ends_at,published)
+ values(v,staff_id,tpl,'TEST Late Publication','blue',((d-6)::timestamp+interval '9 hours') at time zone 'Europe/Moscow',((d-6)::timestamp+interval '17 hours') at time zone 'Europe/Moscow',false) returning id,version into shift,ver;
+ perform public.schedule_process_tasks();
+ perform public.schedule_command('shift.publish',jsonb_build_object('id',shift,'version',ver));
+ perform public.schedule_process_tasks();perform public.schedule_process_tasks();
+ if not exists(select 1 from public.schedule_task_occurrences where id=late_assignment and status='blocked' and shift_id=shift and blocker like 'Срок истёк%' and settled_at is null) or exists(select 1 from public.payroll_adjustments where automation_key='task:'||late_assignment||':result') then raise exception 'Поздняя публикация смены оштрафовала недоступную ранее задачу';end if;
+ raise notice 'PASS: repeated prerequisite/equipment carry, ambiguous started assignment recovery, late approval reward, correction deadline/carry without backdated fines, calendar shift deletion/replacement, late prerequisite and ordinary shift reconciliation';
 end $$;
 rollback;

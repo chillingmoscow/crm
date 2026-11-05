@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { processCandidateJobs } from "@/lib/candidates/jobs";
 import { processStaffTerminations } from "@/lib/people/termination";
+import { processStaffRestores } from "@/lib/people/restore";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -17,5 +18,6 @@ export async function POST(request: NextRequest) {
   if (a.length !== b.length || !timingSafeEqual(a, b))
     return NextResponse.json({ error: "Нет доступа" }, { status: 401 });
   const terminations = await processStaffTerminations();
-  return NextResponse.json({...await processCandidateJobs(),terminations});
+  const restorations = await processStaffRestores();
+  return NextResponse.json({...await processCandidateJobs(),terminations,restorations});
 }

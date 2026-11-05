@@ -11,6 +11,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { hasCustomMailerConfig, sendInvitationEmail } from "@/lib/people/invitations/mailer";
 import { revalidatePath } from "next/cache";
 import { processStaffTermination } from "@/lib/people/termination";
+import { processStaffRestore } from "@/lib/people/restore";
 import { asLooseDb } from "@/lib/supabase/loose";
 
 export type PendingInvitation = {
@@ -848,16 +849,26 @@ export async function retryStaffTermination(uvrId:string) {
   return fireStaff(uvrId,"Продолжение увольнения");
 }
 
+/**
+ * «Восстановить»: recovers the previous Quick Resto records, issues a new door code, then
+ * returns access. Calling it again continues an unfinished restore («Повторить»).
+ */
 export async function restoreStaff(
   uvrId: string
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("user_venue_roles")
-    .update({ status: "active", fired_at: null, fired_reason: null } as Record<string, unknown>)
-    .eq("id", uvrId);
-
+  const { data, error } = await asLooseDb(supabase).rpc("staff_begin_restore", { p_uvr: uvrId });
   if (error) return { error: error.message };
+  try {
+    await processStaffRestore(String(data));
+    const status = await asLooseDb(createAdminClient()).from<{ state: string; error: string | null }>("staff_restorations")
+      .select("state,error").eq("id", data).single();
+    if (status.error || status.data?.state !== "complete")
+      throw new Error(status.data?.error ?? "Возврат ещё выполняется. Состояние доступно в карточке сотрудника");
+  } catch (e) {
+    revalidatePath("/people/staff");
+    return { error: e instanceof Error ? e.message : "Сотрудник не возвращён. Проверьте карточку сотрудника" };
+  }
   revalidatePath("/people/staff");
   return { error: null };
 }

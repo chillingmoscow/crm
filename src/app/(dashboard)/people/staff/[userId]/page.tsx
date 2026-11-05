@@ -1,5 +1,6 @@
 import { StaffDoorCode } from "../../candidates/_components/staff-door-code";
 import { StaffTerminationStatus } from "../_components/staff-termination-status";
+import { StaffRestoreStatus } from "../_components/staff-restore-status";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { redirect } from "next/navigation";
 import {
@@ -268,6 +269,17 @@ export default async function StaffMemberPage({
         .limit(1)
         .maybeSingle()
     : null;
+  // An unfinished «Восстановить» (error or in progress) replaces the dismissal status.
+  const restoration = can("people.edit_staff") && isFired
+    ? await asLooseDb(admin)
+        .from<{ state: string; error: string | null; attempts: number }>("staff_restorations")
+        .select("state,error,attempts")
+        .eq("account_id", accountId)
+        .eq("uvr_id", targetUvr.id)
+        .neq("state", "complete")
+        .limit(1)
+        .maybeSingle()
+    : null;
   const revokedDoorNumbers =
     accountOwner && termination?.data?.door_revoked
       ? await asLooseDb(admin)
@@ -284,7 +296,9 @@ export default async function StaffMemberPage({
         candidateId={candidateLink.data?.id ?? null}
         doorCode={door?.data ? <StaffDoorCode userId={userId} /> : null}
         terminationStatus={
-          isFired && termination?.data ? (
+          isFired && restoration?.data ? (
+            <StaffRestoreStatus uvrId={targetUvr.id} status={restoration.data} />
+          ) : isFired && termination?.data && termination.data.state !== "cancelled" ? (
             <StaffTerminationStatus
               uvrId={targetUvr.id}
               status={termination.data}
@@ -309,13 +323,6 @@ export default async function StaffMemberPage({
         roles={roles ?? []}
         canEdit={canEdit}
         isFired={isFired}
-        canRestore={
-          !termination?.data ||
-          termination.data.shared_access ||
-          (!termination.data.employee_id &&
-            !termination.data.guest_id &&
-            !termination.data.door_revoked)
-        }
         firedAt={targetUvr.fired_at}
         firedReason={targetUvr.fired_reason}
         isMe={user.id === userId}

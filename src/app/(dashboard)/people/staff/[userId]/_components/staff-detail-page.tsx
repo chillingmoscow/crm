@@ -127,7 +127,6 @@ interface Props {
   roles: Role[];
   canEdit: boolean;
   isFired: boolean;
-  canRestore?: boolean;
   firedAt: string | null;
   firedReason: string | null;
   isMe: boolean;
@@ -186,7 +185,6 @@ export function StaffDetailPage({
   roles,
   canEdit: canEditProp,
   isFired,
-  canRestore = true,
   firedAt,
   firedReason,
   isMe,
@@ -689,7 +687,7 @@ export function StaffDetailPage({
       </PageBreadcrumb>
 
       <PageHeaderActions>
-        {isFired && canManageStaff && canRestore && (
+        {isFired && canManageStaff && (
           <Button
             variant="outline"
             size="sm"
@@ -698,6 +696,8 @@ export function StaffDetailPage({
                 const result = await restoreStaff(uvrId);
                 if (result.error) {
                   toast.error(translateError(result.error));
+                  // An unfinished restore shows its state and «Повторить» on the card.
+                  router.refresh();
                   return;
                 }
                 toast.success("Сотрудник восстановлен");

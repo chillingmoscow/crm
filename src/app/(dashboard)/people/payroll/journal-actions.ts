@@ -94,7 +94,11 @@ export type PayrollEntryDetail = {
     details: Record<string, unknown>;
   }[];
   photos: { id: string; name: string; url: string }[];
+  /** Telegram chat notification that failed; null when sent, pending or not queued. */
+  notification: { final: boolean; last_error: string | null } | null;
 };
+// Matches the worker's cap (migration 316): after this many failures the row is never retried.
+const NOTIFY_MAX_ATTEMPTS = 8;
 export async function loadPayrollEntry(
   id: string,
 ): Promise<PayrollEntryDetail> {
@@ -107,7 +111,7 @@ export async function loadPayrollEntry(
     .eq("id", id)
     .single();
   if (parent.error || !parent.data) throw new Error("Запись недоступна");
-  const [comments, history, photos] = await Promise.all([
+  const [comments, history, photos, notification] = await Promise.all([
     database
       .from<PayrollEntryDetail["comments"]>("payroll_adjustment_comments")
       .select("*")
@@ -127,6 +131,13 @@ export async function loadPayrollEntry(
       .select("id,name,storage_path")
       .eq("adjustment_id", id)
       .limit(100),
+    database
+      .from<{ state: string; attempts: number; last_error: string | null }>(
+        "payroll_adjustment_notifications",
+      )
+      .select("state,attempts,last_error")
+      .eq("adjustment_id", id)
+      .maybeSingle(),
   ]);
   for (const r of [comments, history, photos])
     if (r.error) throw new Error(r.error.message);
@@ -153,6 +164,10 @@ export async function loadPayrollEntry(
       author_name: c.source_author_name ?? names.get(c.id) ?? "Сотрудник",
     })),
     history: entries,
+    // The mark is optional: a missing queue table (code ahead of the migration) must not break the entry.
+    notification: !notification.error && notification.data?.state === "error"
+      ? { final: notification.data.attempts >= NOTIFY_MAX_ATTEMPTS, last_error: notification.data.last_error }
+      : null,
     photos: await Promise.all(
       (photos.data ?? []).map(async (p) => {
         const signed = await client.storage

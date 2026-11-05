@@ -67,8 +67,11 @@ export async function saveOrganizationTelegram(input: unknown) {
 export type FinesChatSettings = { chat_id: string | null; title: string | null; notify_from: string | null };
 export async function readFinesChat(resolveTitle = false): Promise<FinesChatSettings | null> {
   const s = await integrationScope();
-  const row = checked(await s.db.from<{ secret: SavedTelegram["secret"]; fines_chat_id: string | null; fines_notify_from: string | null }>("organization_telegram_settings")
-    .select("secret,fines_chat_id,fines_notify_from").eq("account_id", s.accountId).maybeSingle());
+  const result = await s.db.from<{ secret: SavedTelegram["secret"]; fines_chat_id: string | null; fines_notify_from: string | null }>("organization_telegram_settings")
+    .select("secret,fines_chat_id,fines_notify_from").eq("account_id", s.accountId).maybeSingle();
+  // Code can reach prod before the fines-chat columns do: hide the section, keep the page.
+  if (result.error) return null;
+  const row = result.data;
   if (!row) return null;
   let title: string | null = null;
   if (resolveTitle && row.fines_chat_id) {

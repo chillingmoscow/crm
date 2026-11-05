@@ -70,8 +70,12 @@ export async function POST(request: NextRequest) {
       while (Date.now() - finesStarted < 5000) {
         const r = await processAdjustmentNotification();
         if (r.idle) break;
-        if (r.error) finesErrors++;
-        else if (r.sent) finesSent++;
+        if (r.sent) finesSent++;
+        // Stop on the first error: an outage must not burn attempts on every due row in one tick.
+        if (r.error) {
+          finesErrors++;
+          break;
+        }
       }
     } catch {
       finesErrors++;

@@ -2,7 +2,7 @@ import "server-only";
 import { loadTelegramBot } from "@/lib/integrations/telegram-bot";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
-import { formatAdjustmentMessage, reportDelivered, type NotifyRow } from "./adjustment-notify";
+import { formatAdjustmentMessage, reportDelivered, sendWithPhotoFallback, type NotifyRow } from "./adjustment-notify";
 
 type Claim = NotifyRow & {
   adjustment_id: string;
@@ -33,6 +33,7 @@ export async function processAdjustmentNotification(): Promise<{ idle: boolean; 
       });
       if (!r.error) return;
       last = r.error.message;
+      if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 500));
     }
     throw new Error(last);
   };
@@ -64,10 +65,13 @@ export async function processAdjustmentNotification(): Promise<{ idle: boolean; 
       if (signed.error || !signed.data?.signedUrl) return await fail("Не удалось получить ссылку на фото");
       photoUrl = signed.data.signedUrl;
     }
-    // Caption limit: a long reason must not turn into a Telegram error; send text after the photo instead.
-    const sent = photoUrl && text.length <= CAPTION_LIMIT
-      ? await bot.sendPhoto(job.chat_id, photoUrl, text)
-      : await bot.sendMessage(job.chat_id, text, undefined, { html: true });
+    // Caption limit: a text longer than 1024 characters cannot be a caption, so it is
+    // sent as a plain message and the photo is left out.
+    const url = photoUrl && text.length <= CAPTION_LIMIT ? photoUrl : null;
+    const sent = await sendWithPhotoFallback(
+      url ? () => bot.sendPhoto(job.chat_id, url, text) : null,
+      () => bot.sendMessage(job.chat_id, text, undefined, { html: true }),
+    );
     if (!sent.ok || typeof sent.result?.message_id !== "number")
       return await fail(sent.description || "Telegram отклонил сообщение");
     // Delivered: from here on never mark the row as failed, that would resend it.

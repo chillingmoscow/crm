@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatAdjustmentMessage, reportDelivered, type NotifyRow } from "./adjustment-notify.ts";
+import { formatAdjustmentMessage, reportDelivered, sendWithPhotoFallback, type NotifyRow } from "./adjustment-notify.ts";
 
 const base: NotifyRow = {
   kind: "deduction", medium: "money", amount: -800, reason: "Опоздание",
@@ -46,4 +46,50 @@ test("reportDelivered: сбой записи после отправки не п
   assert.equal(failed.sent, true);
   assert.match(failed.error ?? "", /db down/);
   assert.equal(calls.length, 2);
+});
+
+test("sendWithPhotoFallback: без фото — только текст", async () => {
+  const calls: string[] = [];
+  const r = await sendWithPhotoFallback(null, async () => { calls.push("text"); return { ok: true, result: { message_id: 1 } }; });
+  assert.equal(r.result?.message_id, 1);
+  assert.deepEqual(calls, ["text"]);
+});
+
+test("sendWithPhotoFallback: фото принято — текст не шлётся", async () => {
+  const calls: string[] = [];
+  const r = await sendWithPhotoFallback(
+    async () => { calls.push("photo"); return { ok: true, result: { message_id: 7 } }; },
+    async () => { calls.push("text"); return { ok: true, result: { message_id: 8 } }; },
+  );
+  assert.equal(r.result?.message_id, 7);
+  assert.deepEqual(calls, ["photo"]);
+});
+
+test("sendWithPhotoFallback: фото отклонено — тот же текст в той же попытке", async () => {
+  const calls: string[] = [];
+  const r = await sendWithPhotoFallback(
+    async () => { calls.push("photo"); return { ok: false, description: "Bad Request: wrong file" }; },
+    async () => { calls.push("text"); return { ok: true, result: { message_id: 9 } }; },
+  );
+  assert.equal(r.ok, true);
+  assert.equal(r.result?.message_id, 9);
+  assert.deepEqual(calls, ["photo", "text"]);
+});
+
+test("sendWithPhotoFallback: отклонены оба — ошибка с причиной", async () => {
+  const r = await sendWithPhotoFallback(
+    async () => ({ ok: false, description: "wrong file" }),
+    async () => ({ ok: false, description: "chat not found" }),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.description ?? "", /chat not found/);
+});
+
+test("sendWithPhotoFallback: сетевая ошибка фото не ведёт к повтору текстом", async () => {
+  const calls: string[] = [];
+  await assert.rejects(sendWithPhotoFallback(
+    async () => { calls.push("photo"); throw new Error("Telegram не ответил"); },
+    async () => { calls.push("text"); return { ok: true, result: { message_id: 1 } }; },
+  ), /Telegram не ответил/);
+  assert.deepEqual(calls, ["photo"]);
 });

@@ -53,3 +53,25 @@ export async function reportDelivered(
     return { idle: false, sent: true, error: `Сообщение отправлено, но результат не записан${detail ? `: ${detail}` : ""}`.slice(0, 500) };
   }
 }
+
+export type SendResult = { ok: boolean; result?: { message_id?: number }; description?: string };
+
+/**
+ * Photo first, text as a fallback. A photo is optional context: when Telegram
+ * rejects it (`ok: false`, e.g. it cannot fetch the URL or the format), the same
+ * text goes out as a plain message in the same attempt. A thrown error (timeout,
+ * network) is not a rejection — Telegram may have accepted the photo — so it
+ * propagates instead of risking a second message.
+ */
+export async function sendWithPhotoFallback(
+  sendPhoto: (() => Promise<SendResult>) | null,
+  sendText: () => Promise<SendResult>,
+): Promise<SendResult> {
+  if (!sendPhoto) return sendText();
+  const photo = await sendPhoto();
+  if (photo.ok) return photo;
+  const text = await sendText();
+  if (text.ok) return text;
+  const reason = text.description || photo.description;
+  return { ...text, description: reason ? `Фото и текст не отправлены: ${reason}` : undefined };
+}

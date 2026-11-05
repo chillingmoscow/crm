@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { decryptSecret } from "@/lib/integrations/crypto";
 import { telegramDestination } from "@/lib/integrations/telegram-destination";
+import { sendChatInvites } from "@/lib/people/chat-invites";
 import { allowedPhotoURL } from "./schema";
 import type { CandidateFile } from "./types";
 type Job = {
@@ -35,6 +36,15 @@ export async function processCandidateJobs(limit = 5) {
           )
         )
           check(await admin.storage.from("candidate-files").remove(paths));
+      }
+      if (job.kind === "chat_invites") {
+        const { user_id, role_id, name, event_key } = job.payload as Record<string, unknown>;
+        if (typeof user_id !== "string" || typeof name !== "string" || typeof event_key !== "string")
+          throw new Error("Некорректное задание приглашений в чаты");
+        await sendChatInvites(db, {
+          accountId: job.account_id, userId: user_id, name, eventKey: event_key,
+          roleId: typeof role_id === "string" ? role_id : null,
+        });
       }
       if (["notify", "hired"].includes(job.kind) && job.candidate_id) {
         if (job.kind === "notify") check(

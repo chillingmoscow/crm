@@ -577,6 +577,23 @@ export async function provisionCandidateHire(hireId: string) {
         throw new Error("Не удалось подтвердить идентификатор сотрудника");
     }
     checked(await db.rpc("candidate_finish_hire", { p_hire: h.id }));
+    // One-time Telegram invitations for the role's chats; a repeated finish keeps the first job.
+    checked(
+      await db.from("candidate_jobs").upsert(
+        {
+          account_id: h.account_id,
+          candidate_id: h.candidate_id,
+          kind: "chat_invites",
+          payload: {
+            user_id: h.target_user_id,
+            role_id: h.input.role_id,
+            name: `${h.input.first_name} ${h.input.last_name}`.trim(),
+            event_key: `hire:${h.id}`,
+          },
+        },
+        { onConflict: "candidate_id,kind", ignoreDuplicates: true },
+      ),
+    );
     checked(
       await db
         .from("candidate_hires")

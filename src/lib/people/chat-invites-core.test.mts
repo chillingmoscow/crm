@@ -7,7 +7,6 @@ type Row = Record<string, unknown>;
 function fakeDb(tables: Record<string, Row[]>) {
   const from = (t: string) => {
     let rows = tables[t] ?? (tables[t] = []);
-    let single = false;
     const q: Record<string, unknown> = {
       select: () => q,
       order: () => q,
@@ -22,7 +21,6 @@ function fakeDb(tables: Record<string, Row[]>) {
       },
       then: (res: (v: unknown) => unknown) => res({ data: rows, error: null }),
     };
-    void single;
     return q;
   };
   return { from } as never;

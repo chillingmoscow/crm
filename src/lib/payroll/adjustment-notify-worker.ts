@@ -62,8 +62,8 @@ export async function processAdjustmentNotification(): Promise<{ idle: boolean; 
     let photoUrl: string | null = null;
     if (job.photo_path) {
       const signed = await admin.storage.from("payroll-photos").createSignedUrl(job.photo_path, 600);
-      if (signed.error || !signed.data?.signedUrl) return await fail("Не удалось получить ссылку на фото");
-      photoUrl = signed.data.signedUrl;
+      // The photo is optional: without a signed link the text still goes out.
+      photoUrl = signed.error ? null : (signed.data?.signedUrl ?? null);
     }
     // Caption limit: a text longer than 1024 characters cannot be a caption, so it is
     // sent as a plain message and the photo is left out.

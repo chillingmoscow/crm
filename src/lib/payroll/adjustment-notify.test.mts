@@ -38,6 +38,14 @@ test("экранирование HTML в имени и причине", () => {
   assert.ok(text.includes("📜  &lt;b&gt;&amp;&lt;/b&gt;"));
 });
 
+test("длинная причина обрезается под лимит Telegram", () => {
+  const text = formatAdjustmentMessage({ ...base, kind: "warning", employee_name: "Александров Александр Александрович", reason: "&".repeat(4000) });
+  const visible = text.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&");
+  assert.ok([...visible].length <= 4096);
+  assert.ok(text.includes("…"));
+  assert.ok(!/&(?!amp;)/.test(text));
+});
+
 test("reportDelivered: сбой записи после отправки не превращается в ошибку очереди", async () => {
   const calls: string[] = [];
   const ok = await reportDelivered(async () => { calls.push("finish"); });

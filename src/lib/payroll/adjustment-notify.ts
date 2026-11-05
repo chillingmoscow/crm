@@ -19,6 +19,14 @@ function formatDate(iso: string): string {
   return `${d}.${m}.${y}`;
 }
 
+/** Telegram accepts up to 4096 visible characters; the other lines need well under 500. */
+export const REASON_LIMIT = 3500;
+
+function clipReason(reason: string): string {
+  const chars = [...reason];
+  return chars.length <= REASON_LIMIT ? reason : chars.slice(0, REASON_LIMIT - 1).join("") + "…";
+}
+
 export function formatAdjustmentMessage(row: NotifyRow): string {
   const warning = row.kind === "warning";
   const category = warning ? "ПРЕДУПРЕЖДЕНИЕ" : row.amount < 0 ? "ШТРАФ" : "ПРЕМИЯ";
@@ -32,7 +40,7 @@ export function formatAdjustmentMessage(row: NotifyRow): string {
     const text = Number.isInteger(amount) ? String(amount) : String(Math.round(amount * 100) / 100);
     lines.push(row.medium === "bonus" ? `💰  ${text} бонусов` : `💰  ${text}₽`);
   }
-  lines.push(`📜  ${escapeHtml(row.reason)}`);
+  lines.push(`📜  ${escapeHtml(clipReason(row.reason))}`);
   if (warning) lines.push(`📮 Кол-во предупреждений: ${row.warnings_in_month}`);
   return lines.join("\n");
 }

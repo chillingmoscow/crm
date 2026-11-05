@@ -1,4 +1,7 @@
 import type { Database, Json } from "@/types/database";
+import type { TemplateVariant } from "./template-times";
+
+export type { TemplateVariant };
 
 export type ItemKind = "check" | "photo" | "number" | "text" | "info";
 export type ChecklistItem = {
@@ -36,6 +39,8 @@ export type ShiftTemplate = {
   color: string;
   start_time: string;
   end_time: string;
+  /** По дням недели (1=ПН…7=ВС); пусто — start_time/end_time на все дни. */
+  variants: TemplateVariant[];
   break_minutes: number;
   arrival_minutes: number;
   department_id: string | null;

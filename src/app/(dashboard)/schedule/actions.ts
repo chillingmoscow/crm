@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Json } from "@/types/database";
 import type { CandidateCalendarTrial, ScheduleDatabase, ScheduleData } from "@/lib/schedule/types";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { validateVariants } from "@/lib/schedule/template-times";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 const uuid = z.string().uuid();
@@ -35,17 +36,33 @@ const base = z.object({
   id: uuid.optional(),
   version: z.number().int().positive().optional(),
 });
-const template = base.extend({
-  name: z.string().trim().min(1).max(160),
-  color,
-  start_time: time,
-  end_time: time,
-  break_minutes: z.number().int().min(0).max(1439),
-  arrival_minutes: z.number().int().min(0).max(240),
-  department_id: nullable,
-  role_id: nullable,
-  checklist_ids: z.array(uuid).max(30),
-});
+const template = base
+  .extend({
+    name: z.string().trim().min(1).max(160),
+    color,
+    start_time: time,
+    end_time: time,
+    break_minutes: z.number().int().min(0).max(1439),
+    arrival_minutes: z.number().int().min(0).max(240),
+    department_id: nullable,
+    role_id: nullable,
+    checklist_ids: z.array(uuid).max(30),
+    // Отсутствует — при редактировании/копировании берутся варианты исходного шаблона.
+    variants: z
+      .array(
+        z.object({
+          days: z.array(z.number()),
+          start_time: z.string(),
+          end_time: z.string(),
+        }),
+      )
+      .optional(),
+  })
+  .superRefine((x, ctx) => {
+    const error = x.variants && validateVariants(x.variants, x.break_minutes);
+    if (error)
+      ctx.addIssue({ code: "custom", message: error, path: ["variants"] });
+  });
 const shift = base.extend({
   title: z.string().trim().min(1).max(160),
   color,

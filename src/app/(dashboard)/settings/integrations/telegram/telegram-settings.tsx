@@ -46,7 +46,7 @@ export function TelegramSettings({ initial, editable, chats, roles }: { initial:
         catch (e) { setError(candidateError(e, "Не удалось сохранить Telegram")); }
       })}>{busy ? "Проверяем…" : "Проверить и сохранить"}</Button>{saved ? <Button variant="outline" size="sm" disabled={busy} onClick={reset}>Отмена</Button> : null}</div></div> : null}
       <TelegramChats chats={chats} roles={roles} connected={!!saved} />
-      {!editable ? <IntegrationNotice>Изменять подключение может владелец организации.</IntegrationNotice> : null}
+      {!editable ? <IntegrationNotice>Бота и токен может менять только владелец организации. Чатами управляют все, у кого есть право на интеграции.</IntegrationNotice> : null}
     </div>
   </IntegrationLayout>;
 }

@@ -22,13 +22,19 @@ export async function readTelegramChats() {
   const s = await integrationScope();
   const chats = checked(await s.db.from<TelegramChatRow[]>("telegram_chats").select(columns)
     .eq("account_id", s.accountId).order("title")) ?? [];
-  const venues = checked(await s.db.from<{ id: string; name: string }[]>("venues").select("id,name")
-    .eq("account_id", s.accountId).is("archived_at", null)) ?? [];
-  const venueName = new Map(venues.map(v => [v.id, v.name]));
-  const roles = venues.length ? checked(await s.db.from<{ id: string; name: string; venue_id: string }[]>("roles")
-    .select("id,name,venue_id").in("venue_id", venues.map(v => v.id)).is("archived_at", null).order("name")) ?? [] : [];
-  const many = venues.length > 1;
-  const options: ChatRoleOption[] = roles.map(r => ({ id: r.id, label: many ? `${r.name} · ${venueName.get(r.venue_id) ?? ""}` : r.name }));
+  const venues = checked(await s.db.from<{ id: string; name: string; archived_at: string | null }[]>("venues").select("id,name,archived_at")
+    .eq("account_id", s.accountId)) ?? [];
+  const venueById = new Map(venues.map(v => [v.id, v]));
+  const roles = venues.length ? checked(await s.db.from<{ id: string; name: string; venue_id: string; archived_at: string | null }[]>("roles")
+    .select("id,name,venue_id,archived_at").in("venue_id", venues.map(v => v.id)).order("name")) ?? [] : [];
+  const used = new Set(chats.flatMap(c => c.role_ids));
+  const many = venues.filter(v => !v.archived_at).length > 1;
+  // Archived roles (or roles of archived venues) stay visible only where a chat still refers to them, so they can be removed.
+  const options: ChatRoleOption[] = roles.flatMap(r => {
+    const v = venueById.get(r.venue_id), gone = !!r.archived_at || !!v?.archived_at;
+    if (gone && !used.has(r.id)) return [];
+    return [{ id: r.id, label: `${r.name}${many && v ? ` · ${v.name}` : ""}${gone ? " · в архиве" : ""}` }];
+  });
   return { chats, roles: options };
 }
 
@@ -50,8 +56,11 @@ export async function saveTelegramChat(input: unknown, id?: string) {
     .eq("account_id", s.accountId).eq("chat_id", value.chat_id)) ?? [];
   if (dup.some(r => r.id !== id)) throw new Error("Чат с таким ID уже добавлен");
   const row = { title: value.title, chat_id: value.chat_id, invite: value.invite, role_ids };
-  if (id) checked(await s.db.from("telegram_chats").update({ ...row, updated_at: new Date().toISOString() })
-    .eq("account_id", s.accountId).eq("id", id));
+  if (id) {
+    const updated = checked(await s.db.from<{ id: string }[]>("telegram_chats").update({ ...row, updated_at: new Date().toISOString() })
+      .eq("account_id", s.accountId).eq("id", id).select("id")) ?? [];
+    if (!updated.length) throw new Error("Чат не найден");
+  }
   else checked(await s.db.from("telegram_chats").insert({ ...row, account_id: s.accountId }));
   revalidatePath("/settings/integrations/telegram");
 }
@@ -59,9 +68,10 @@ export async function saveTelegramChat(input: unknown, id?: string) {
 export async function setTelegramChatArchived(id: string, archived: boolean) {
   const s = await integrationScope();
   integrationInput(z.string().uuid(), id);
-  checked(await s.db.from("telegram_chats").update({
+  const updated = checked(await s.db.from<{ id: string }[]>("telegram_chats").update({
     archived_at: archived ? new Date().toISOString() : null, updated_at: new Date().toISOString(),
-  }).eq("account_id", s.accountId).eq("id", id));
+  }).eq("account_id", s.accountId).eq("id", id).select("id")) ?? [];
+  if (!updated.length) throw new Error("Чат не найден");
   revalidatePath("/settings/integrations/telegram");
 }
 

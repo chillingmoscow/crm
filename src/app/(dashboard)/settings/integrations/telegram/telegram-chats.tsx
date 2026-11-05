@@ -54,7 +54,7 @@ export function TelegramChats({ chats, roles, connected }: { chats: TelegramChat
         <DialogHeader><DialogTitle>{draft?.id ? "Изменить чат" : "Добавить чат"}</DialogTitle><DialogDescription>Бот должен быть добавлен в чат как администратор.</DialogDescription></DialogHeader>
         {draft ? <div className="space-y-4">
           <div className="space-y-2"><Label htmlFor="chat-title">Название</Label><Input id="chat-title" value={draft.title} disabled={busy} onChange={e => setDraft({ ...draft, title: e.target.value })} placeholder="Например, Общий чат бара" /></div>
-          <div className="space-y-2"><Label htmlFor="chat-id">ID чата</Label><Input id="chat-id" inputMode="numeric" value={draft.chat_id} disabled={busy} onChange={e => setDraft({ ...draft, chat_id: e.target.value })} placeholder="-100…" /></div>
+          <div className="space-y-2"><Label htmlFor="chat-id">ID чата</Label><Input id="chat-id" inputMode="text" autoCapitalize="off" autoCorrect="off" value={draft.chat_id} disabled={busy} onChange={e => setDraft({ ...draft, chat_id: e.target.value })} placeholder="-100…" /></div>
           <div className="flex items-center justify-between gap-4"><Label htmlFor="chat-invite">Приглашать при приёме</Label><Switch id="chat-invite" checked={draft.invite} disabled={busy} onCheckedChange={v => setDraft({ ...draft, invite: v })} /></div>
           {draft.invite ? <div className="space-y-2"><Label htmlFor="chat-roles">Должности</Label>
             <MultiOptionPicker id="chat-roles" label="Должности" options={roles} selectedIds={draft.role_ids} disabled={busy} placeholder="Все должности" onChange={ids => setDraft({ ...draft, role_ids: ids })} />

@@ -102,7 +102,7 @@ end $$;
 
 -- Regression scenarios from review: repeated carries, ambiguity after draft, late acceptance and correction deadlines.
 do $$
-declare owner_id uuid;staff_id uuid;v uuid;a uuid;d date;tpl uuid;employee uuid;def uuid;prep_def uuid;prep uuid;original uuid;carried uuid;second_carry uuid;started uuid;duplicate uuid;late uuid;returned uuid;shift uuid;ver integer;check_id uuid:=gen_random_uuid();snap jsonb;prep_snap jsonb;
+declare owner_id uuid;staff_id uuid;v uuid;a uuid;d date;tpl uuid;employee uuid;def uuid;prep_def uuid;prep uuid;original uuid;carried uuid;second_carry uuid;started uuid;duplicate uuid;late uuid;returned uuid;shift uuid;future_occ uuid;future_shift uuid;dependent_def uuid;dependent uuid;late_prep uuid;ver integer;check_id uuid:=gen_random_uuid();snap jsonb;prep_snap jsonb;
 begin
  select id into owner_id from auth.users where email='owner@test.com';
  select id into staff_id from auth.users where email='waiter@test.com';
@@ -161,6 +161,33 @@ begin
  perform set_config('request.jwt.claim.sub',staff_id::text,true);perform set_config('app.ctx_ready','0',true);
  perform public.schedule_task_command('run.submit',jsonb_build_object('id',returned,'version',ver,'answers',jsonb_build_object(check_id,true)));
  if not exists(select 1 from public.schedule_task_occurrences where id=returned and status='submitted') then raise exception 'Исправленный старый отчёт не отправлен';end if;
- raise notice 'PASS: repeated prerequisite/equipment carry, ambiguous started assignment recovery, late approval reward, explicit correction deadline and resubmission';
+ -- Existing calendar deletion must detach a future assignment and allow a replacement shift.
+ insert into public.schedule_shifts(venue_id,user_id,template_id,title,color,starts_at,ends_at,published)
+ values(v,staff_id,tpl,'TEST Future Delete','blue',((d+2)::timestamp+interval '9 hours') at time zone 'Europe/Moscow',((d+2)::timestamp+interval '17 hours') at time zone 'Europe/Moscow',true) returning id,version into future_shift,ver;
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot) values(v,a,def,d+2,snap) returning id into future_occ;
+ perform public.schedule_process_tasks();
+ if not exists(select 1 from public.schedule_task_occurrences where id=future_occ and shift_id=future_shift and status='assigned') then raise exception 'Будущая задача не назначена';end if;
+ perform set_config('request.jwt.claim.sub',owner_id::text,true);perform set_config('app.ctx_ready','0',true);
+ perform public.schedule_command('shift.delete',jsonb_build_object('id',future_shift,'version',ver));
+ if not exists(select 1 from public.schedule_task_occurrences where id=future_occ and shift_id is null) or not exists(select 1 from public.schedule_task_history where entity_id=future_occ and details->'before'->>'shift_id'=future_shift::text and details->'after'->>'shift_id' is null) then raise exception 'Удаление смены не отделило задачу или потеряло аудит';end if;
+ perform public.schedule_process_tasks();
+ if not exists(select 1 from public.schedule_task_occurrences where id=future_occ and status='blocked') then raise exception 'Удалённая смена оставила активное назначение';end if;
+ insert into public.schedule_shifts(venue_id,user_id,template_id,title,color,starts_at,ends_at,published)
+ values(v,staff_id,tpl,'TEST Future Replacement','blue',((d+2)::timestamp+interval '9 hours') at time zone 'Europe/Moscow',((d+2)::timestamp+interval '17 hours') at time zone 'Europe/Moscow',true) returning id into future_shift;
+ perform public.schedule_process_tasks();
+ if not exists(select 1 from public.schedule_task_occurrences where id=future_occ and shift_id=future_shift and status='assigned') then raise exception 'Замена удалённой смены не переназначила задачу';end if;
+ -- A prerequisite accepted after the dependent deadline cannot instantly penalize its assignee.
+ insert into public.schedule_shifts(venue_id,user_id,template_id,title,color,starts_at,ends_at,published)
+ values(v,staff_id,tpl,'TEST Late Preparation','blue',((d-4)::timestamp+interval '9 hours') at time zone 'Europe/Moscow',((d-4)::timestamp+interval '17 hours') at time zone 'Europe/Moscow',true) returning id into shift;
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,shift_id,employee_id,user_id,submitted_at)
+ values(v,a,prep_def,d-4,prep_snap,'submitted',shift,employee,staff_id,now()-interval '3 days') returning id,version into late_prep,ver;
+ insert into public.schedule_task_definitions(account_id,venue_id,name,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount,predecessor_id,predecessor_offset)
+ select account_id,venue_id,'TEST Late Dependent',template_id,review_mode,items,recurrence,starts_on,false,true,300,300,prep_def,1 from public.schedule_task_definitions where id=def returning id into dependent_def;
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,blocker)
+ values(v,a,dependent_def,d-3,snap||jsonb_build_object('id',dependent_def,'predecessor_id',prep_def,'predecessor_offset',1),'Ожидается выполнение предыдущей задачи') returning id into dependent;
+ perform public.schedule_task_command('run.approve',jsonb_build_object('id',late_prep,'version',ver));
+ perform public.schedule_process_tasks();perform public.schedule_process_tasks();
+ if not exists(select 1 from public.schedule_task_occurrences where id=dependent and status='blocked' and blocker like 'Срок истёк%' and settled_at is null) or exists(select 1 from public.payroll_adjustments where automation_key='task:'||dependent||':result') or exists(select 1 from public.schedule_task_occurrences where transferred_from_id=dependent) then raise exception 'Поздняя подготовка автоматически оштрафовала зависимую задачу';end if;
+ raise notice 'PASS: repeated prerequisite/equipment carry, ambiguous started assignment recovery, late approval reward, explicit correction deadline, calendar shift deletion/replacement, late prerequisite reconciliation';
 end $$;
 rollback;

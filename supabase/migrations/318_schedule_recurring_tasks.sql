@@ -22,7 +22,7 @@ create table public.schedule_task_settings (
 create table public.schedule_task_occurrences (
  id uuid primary key default gen_random_uuid(), venue_id uuid not null references public.venues(id),
  account_id uuid not null references public.accounts(id), definition_id uuid not null,
- business_date date not null, shift_id uuid references public.schedule_shifts(id),
+ business_date date not null, shift_id uuid references public.schedule_shifts(id) on delete set null,
  employee_id uuid references public.payroll_employees(id), user_id uuid references public.profiles(id),
  employee_name text, snapshot jsonb not null, answers jsonb not null default '{}',
  status text not null default 'blocked' check(status in ('assigned','in_progress','submitted','returned','completed','missed','blocked')),
@@ -244,7 +244,7 @@ create function public.schedule_process_tasks() returns jsonb
 language plpgsql security definer set search_path=public,pg_catalog as $$
 declare settings public.schedule_task_settings;today date;tz text;entry jsonb;o public.schedule_task_occurrences;
  def public.schedule_task_definitions;s public.schedule_shifts;e public.payroll_employees;pred public.schedule_task_occurrences;
- n integer;count_shifts integer;blocked_reason text;group_index integer;rules jsonb;kind text;medium text;amount numeric;
+ n integer;count_shifts integer;blocked_reason text;group_index integer;assignment_deadline timestamptz;rules jsonb;kind text;medium text;amount numeric;
  adjustment uuid;created integer:=0;settled integer:=0;
 begin
  for settings in select st.* from public.schedule_task_settings st where st.enabled_from is not null and st.legacy_stopped for update skip locked loop
@@ -288,9 +288,13 @@ begin
     end if;
     if pred.id is null or pred.status<>'completed' then blocked_reason:='Ожидается выполнение предыдущей задачи';end if;
    end if;
+   assignment_deadline:=case when s.id is not null then greatest(s.ends_at,((o.business_date+1)::timestamp+interval '11 hours 30 minutes') at time zone tz) end;
+   if blocked_reason='' and pred.id is not null and assignment_deadline<=now() and (o.status='blocked' or pred.completed_at>assignment_deadline) then
+    blocked_reason:='Срок истёк до доступности предыдущей задачи. Нужна сверка без автоматического штрафа';
+   end if;
    group_index:=jsonb_array_length(coalesce(o.snapshot->'equipment_groups','[]'));
    update public.schedule_task_occurrences set shift_id=s.id,employee_id=e.id,user_id=coalesce(s.user_id,e.local_user_id),employee_name=e.name,
-    predecessor_occurrence_id=pred.id,deadline_at=case when s.id is not null then greatest(s.ends_at,((o.business_date+1)::timestamp+interval '11 hours 30 minutes') at time zone tz) end,
+    predecessor_occurrence_id=pred.id,deadline_at=assignment_deadline,
     status=case when blocked_reason='' then 'assigned' else 'blocked' end,blocker=blocked_reason,
     equipment=case when o.transferred then o.equipment when group_index>0 then (o.snapshot->'equipment_groups')->(((o.business_date-(o.snapshot->'recurrence'->>'anchor')::date)/(7*greatest((o.snapshot->'recurrence'->>'interval')::integer,1)))%group_index) else '[]'::jsonb end,
     version=version+case when shift_id is distinct from s.id or employee_id is distinct from e.id or user_id is distinct from coalesce(s.user_id,e.local_user_id) or schedule_task_occurrences.blocker is distinct from blocked_reason then 1 else 0 end,updated_at=now() where id=o.id;

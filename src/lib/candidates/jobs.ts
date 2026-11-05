@@ -4,6 +4,7 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import { decryptSecret } from "@/lib/integrations/crypto";
 import { telegramDestination } from "@/lib/integrations/telegram-destination";
 import { PARTIAL_FROM_ATTEMPT, sendChatInvites } from "@/lib/people/chat-invites";
+import { hiresMissingInvites, recoveryCutoff } from "./chat-invites-recovery";
 import { allowedPhotoURL } from "./schema";
 import type { CandidateFile } from "./types";
 type Job = {
@@ -27,14 +28,14 @@ const check = <T>(r: { data: T | null; error: { message: string } | null }) => {
 /** Safety net: a completed hire whose invitations job was never created (enqueue failed) gets one. */
 async function enqueueMissingChatInvites(db: ReturnType<typeof asLooseDb>) {
   try {
-    const hires = check(await db.from<{ id: string; account_id: string; candidate_id: string; target_user_id: string; input: { role_id?: string; first_name?: string; last_name?: string } }[]>("candidate_hires")
-      .select("id,account_id,candidate_id,target_user_id,input").eq("state", "complete")
-      .gte("created_at", new Date(Date.now() - 14 * 86400000).toISOString()).order("created_at", { ascending: false }).limit(50)) ?? [];
+    const hires = check(await db.from<{ id: string; account_id: string; candidate_id: string; target_user_id: string; created_at: string; input: { role_id?: string; first_name?: string; last_name?: string } }[]>("candidate_hires")
+      .select("id,account_id,candidate_id,target_user_id,created_at,input").eq("state", "complete")
+      .gte("created_at", recoveryCutoff(Date.now())).order("created_at", { ascending: false }).limit(50)) ?? [];
     if (!hires.length) return;
     const have = check(await db.from<{ candidate_id: string }[]>("candidate_jobs").select("candidate_id")
       .eq("kind", "chat_invites").in("candidate_id", hires.map(h => h.candidate_id))) ?? [];
     const known = new Set(have.map(j => j.candidate_id));
-    for (const h of hires) if (!known.has(h.candidate_id)) await enqueueChatInvites(db, h);
+    for (const h of hiresMissingInvites(hires, known, Date.now())) await enqueueChatInvites(db, h);
   } catch (e) {
     console.error("chat_invites recovery failed:", e instanceof Error ? e.message : "unknown");
   }

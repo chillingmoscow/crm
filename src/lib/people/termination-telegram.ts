@@ -1,0 +1,94 @@
+// Dismissal step: remove a person from every organization Telegram chat.
+// I/O goes through an injected transport so the decisions are testable.
+import { classifyChatMember } from "../integrations/telegram-membership.ts";
+
+export type RemovalResult = "removed" | "absent" | "unconfirmed" | "error";
+export type ChatOutcome = { chat_id: string; title: string; result: RemovalResult; detail: string | null };
+type ApiResult = { ok: boolean; result?: { status?: string; is_member?: boolean }; description?: string };
+export type TelegramRemovalTransport = {
+  getChatMember: (chatId: string, userId: number) => Promise<ApiResult>;
+  banChatMember: (chatId: string, userId: number) => Promise<{ ok: boolean; description?: string }>;
+  unbanChatMember: (chatId: string, userId: number) => Promise<{ ok: boolean; description?: string }>;
+  /** Journal write (idempotent upsert per chat). */
+  record: (outcome: ChatOutcome) => Promise<void>;
+};
+/** Journal chat_id for a step that could not reach any chat (nothing configured to iterate). */
+export const ALL_CHATS = "*";
+const FINAL: RemovalResult[] = ["removed", "absent"];
+
+async function removeFromChat(chat: { chat_id: string; title: string }, userId: number, t: TelegramRemovalTransport): Promise<ChatOutcome> {
+  const outcome = (result: RemovalResult, detail: string | null = null) => ({ chat_id: chat.chat_id, title: chat.title, result, detail });
+  try {
+    const before = await t.getChatMember(chat.chat_id, userId);
+    const status = classifyChatMember(before);
+    if (status === "absent") return outcome("absent");
+    if (status === "unknown") return outcome("unconfirmed", before.description ?? "Telegram не подтвердил участие в чате");
+    const ban = await t.banChatMember(chat.chat_id, userId);
+    if (!ban.ok) return outcome("error", ban.description ?? "Telegram не исключил участника");
+    // Unban lets the person rejoin later by a fresh invite; it does not re-add them.
+    const unban = await t.unbanChatMember(chat.chat_id, userId);
+    const after = classifyChatMember(await t.getChatMember(chat.chat_id, userId));
+    if (after !== "absent") return outcome("unconfirmed", "После исключения участник всё ещё в чате");
+    return outcome("removed", unban.ok ? null : "Исключён, но остаётся заблокированным в чате");
+  } catch (error) {
+    return outcome("error", error instanceof Error ? error.message.slice(0, 300) : "Ошибка Telegram");
+  }
+}
+
+/**
+ * Removes the person from each chat. Chats whose journal already says removed/absent
+ * are not touched again. Without a bot or a Telegram ID nothing is proven, so the
+ * result is "unconfirmed" — even with zero chats, the step must not pass silently.
+ */
+export async function removeFromTelegramChats({ configured, telegramId, chats, previous, transport }: {
+  configured: boolean;
+  telegramId: string | null;
+  chats: Array<{ chat_id: string; title: string }>;
+  previous: Array<{ chat_id: string; result: string }>;
+  transport: TelegramRemovalTransport;
+}): Promise<ChatOutcome[]> {
+  const id = telegramId?.trim() ?? "";
+  const userId = /^\d{1,15}$/.test(id) ? Number(id) : null;
+  const blocked = !configured ? "Telegram не настроен"
+    : !id ? "У сотрудника не указан Telegram ID"
+    : userId === null ? "Некорректный Telegram ID сотрудника" : null;
+  const outcomes: ChatOutcome[] = [];
+  if (blocked) {
+    const targets = chats.length ? chats : [{ chat_id: ALL_CHATS, title: "Все чаты" }];
+    for (const chat of targets) {
+      const o: ChatOutcome = { chat_id: chat.chat_id, title: chat.title, result: "unconfirmed", detail: blocked };
+      await transport.record(o);
+      outcomes.push(o);
+    }
+    return outcomes;
+  }
+  const done = new Map(previous.filter(p => FINAL.includes(p.result as RemovalResult)).map(p => [p.chat_id, p.result as RemovalResult]));
+  for (const chat of chats) {
+    const prior = done.get(chat.chat_id);
+    if (prior) { outcomes.push({ chat_id: chat.chat_id, title: chat.title, result: prior, detail: null }); continue; }
+    const o = await removeFromChat(chat, userId!, transport);
+    await transport.record(o);
+    outcomes.push(o);
+  }
+  return outcomes;
+}
+
+const LABEL: Record<RemovalResult, string> = {
+  removed: "исключён", absent: "уже не состоял", unconfirmed: "не подтверждено", error: "ошибка",
+};
+const line = (o: ChatOutcome) => `${o.title || o.chat_id} — ${LABEL[o.result]}`;
+
+/** Chats without a final result, for the dismissal error text. */
+export function unconfirmedChats(outcomes: ChatOutcome[]) {
+  return outcomes.filter(o => !FINAL.includes(o.result)).map(line).join("; ");
+}
+
+/** Message for the organization reports chat once the dismissal is complete. */
+export function terminationReport(name: string, outcomes: ChatOutcome[], writtenOff: number[]) {
+  const bonus = writtenOff.reduce((a, b) => a + b, 0);
+  return [
+    `Сотрудник уволен: ${name}`,
+    outcomes.length ? "Чаты:\n" + outcomes.map(o => "• " + line(o)).join("\n") : "Чаты: нет чатов организации",
+    bonus > 0 ? `Списано бонусов: ${bonus.toLocaleString("ru-RU")}` : "Бонусы: остатка не было",
+  ].join("\n");
+}

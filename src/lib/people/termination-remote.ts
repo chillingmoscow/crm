@@ -6,21 +6,37 @@ export type TerminationTransport = {
   remove: (moduleName: string, className: string, id: number) => Promise<void>;
   removeChild: (path: string, row: RemoteRow, query: Record<string, string | number>) => Promise<void>;
   closeBonus: (row: RemoteRow, query: Record<string, string | number>) => Promise<void>;
+  /** A single accountDebit; never retried by the transport (no idempotency key in Quick Resto). */
+  debitBonus: (row: RemoteRow, amount: number, query: Record<string, string | number>) => Promise<void>;
 };
+/** Step markers; a bonus write-off stores its amount (`bonus_writeoff_<id>`). */
+export type TerminationSteps = Record<string, boolean | number>;
 const customerClass = 'ru.edgex.quickresto.modules.crm.customer.CrmCustomer';
 const employeeClass = 'ru.edgex.quickresto.modules.personnel.employee.Employee';
 const inactive = (row: RemoteRow | undefined) => !row || row.deleted === true;
-const zeroBalance = (value: unknown) => {
-  if (!value || typeof value !== 'object') return false;
+const balanceOf = (value: unknown) => {
+  if (!value || typeof value !== 'object') return null;
   const balance = value as RemoteRow;
-  return ['ledger', 'available', 'debitHold', 'creditHold'].every(k =>
-    balance[k] !== null && balance[k] !== '' && Number.isFinite(Number(balance[k])) && Number(balance[k]) === 0);
+  const read = (k: string) => balance[k] !== null && balance[k] !== '' && Number.isFinite(Number(balance[k])) ? Number(balance[k]) : null;
+  const [ledger, available, debitHold, creditHold] = ['ledger', 'available', 'debitHold', 'creditHold'].map(read);
+  if (ledger === null || available === null || debitHold === null || creditHold === null) return null;
+  return { ledger, available, debitHold, creditHold };
+};
+const zeroBalance = (value: unknown) => {
+  const b = balanceOf(value);
+  return !!b && b.ledger === 0 && b.available === 0 && b.debitHold === 0 && b.creditHold === 0;
+};
+/** Only a plain positive balance without holds may be written off; the amount is the whole of it. */
+const writeOffAmount = (row: RemoteRow) => {
+  const b = balanceOf(row.accountBalance);
+  if (row.accountState !== 'open' || !b || b.debitHold !== 0 || b.creditHold !== 0) return null;
+  return b.available > 0 && b.ledger === b.available ? b.available : null;
 };
 
 export async function removeStaffFromQuickResto({ids,transport,done,save}: {
   ids: TerminationIds;
   transport: TerminationTransport;
-  done: Record<string, boolean>;
+  done: TerminationSteps;
   save: () => Promise<void>;
 }) {
   for (const id of Object.values(ids)) if (id !== null && (!Number.isSafeInteger(id) || id <= 0))
@@ -60,7 +76,22 @@ export async function removeStaffFromQuickResto({ids,transport,done,save}: {
     for (const bonus of bonuses) done['bonus_owner_' + bonus.id] = true;
     await save();
     for (const bonus of bonuses.filter(x=>!x.deleted)) {
-      if (!zeroBalance(bonus.accountBalance)) throw new Error('На бонусном счёте есть остаток или удержания. Завершите расчёт перед удалением гостя');
+      if (!zeroBalance(bonus.accountBalance)) {
+        const key = 'bonus_writeoff_' + bonus.id;
+        // The marker is durable before the POST: a second debit is never sent automatically.
+        // A retry relies on the balance read above — zero means the earlier write-off landed.
+        if (done[key] !== undefined)
+          throw new Error('Списание остатка бонусов не подтверждено: баланс не обнулился. Проверьте бонусный счёт в Quick Resto и обнулите его вручную');
+        const amount = writeOffAmount(bonus);
+        if (amount === null) throw new Error('На бонусном счёте есть остаток или удержания. Завершите расчёт перед удалением гостя');
+        done[key] = amount;
+        await save();
+        await transport.debitBonus(bonus, amount, query);
+        const after = (await accounts()).find(x=>x.id===bonus.id);
+        if (!after || !zeroBalance(after.accountBalance))
+          throw new Error('Списание остатка бонусов не подтверждено: баланс не обнулился. Проверьте бонусный счёт в Quick Resto и обнулите его вручную');
+        Object.assign(bonus, after);
+      }
       if (bonus.accountState !== 'closed') {
         await transport.closeBonus(bonus,query);
         const closed=(await accounts()).find(x=>x.id===bonus.id);

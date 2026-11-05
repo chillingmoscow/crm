@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {removeStaffFromQuickResto,type RemoteRow,type TerminationTransport} from './termination-remote.ts';
+import {hasQuickRestoWork,removeStaffFromQuickResto,type RemoteRow,type TerminationTransport} from './termination-remote.ts';
 function fixture({balance=0,failAfter='',silent=false,missing=false,silentDebit=false}={}){
  const employees:RemoteRow[]=[{id:180,deleted:false}];
  const guests:RemoteRow[]=[{id:4918,deleted:false}];
@@ -92,4 +92,9 @@ test('missing or held bonus balance blocks deletion and debits nothing',async()=
 test('lost response after account closure resumes without closing twice',async()=>{
  const f=fixture({failAfter:'close'});await assert.rejects(f.run(),/lost response/);await f.run();
  assert.equal(f.writes.filter(x=>x.startsWith('close:')).length,1);assert.ok(f.done.bonus);
+});
+test('person without Quick Resto records has no Quick Resto work, so the dismissal goes straight to Telegram',()=>{
+ assert.equal(hasQuickRestoWork({employeeId:null,guestId:null,bonusId:null}),false);
+ assert.equal(hasQuickRestoWork({employeeId:180,guestId:null,bonusId:null}),true);
+ assert.equal(hasQuickRestoWork({employeeId:null,guestId:4918,bonusId:5836}),true);
 });

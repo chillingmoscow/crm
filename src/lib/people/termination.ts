@@ -6,7 +6,7 @@ import { getBackOfficeAuth, getConnection, withBackOfficeSession } from '@/app/(
 import { buildQuickRestoBackOfficeOrigin, callQuickRestoBackOfficeData, callQuickRestoBackOfficeRemove, quickRestoFetch } from '@/lib/integrations/quickresto/client';
 import { loadTelegramBot } from '@/lib/integrations/telegram-bot';
 import { removalComplete } from '@/lib/integrations/telegram-membership';
-import { removeStaffFromQuickResto, type RemoteRow, type TerminationSteps } from './termination-remote';
+import { hasQuickRestoWork, removeStaffFromQuickResto, type RemoteRow, type TerminationSteps } from './termination-remote';
 import { ALL_CHATS, removeFromTelegramChats, terminationReport, unconfirmedChats, type ChatOutcome } from './termination-telegram';
 type Job = {id:string;account_id:string;user_id:string;employee_id:number|null;guest_id:number|null;bonus_id:number|null;steps:TerminationSteps;attempts:number};
 type LooseAdmin = ReturnType<typeof asLooseDb>;
@@ -19,7 +19,10 @@ export async function processStaffTermination(id?:string) {
  const job=checked(await db.rpc('staff_claim_termination',{p_id:id??null})) as Job|null;
  if(!job)return false;
  const save = async()=>{checked(await db.from('staff_terminations').update({steps:job.steps,lease_until:new Date(Date.now()+300000).toISOString()}).eq('id',job.id));};
+ const ids={employeeId:job.employee_id,guestId:job.guest_id,bonusId:job.bonus_id};
  try{
+  // No Quick Resto records: skip that cleanup (and the connection requirement), Telegram still runs.
+  if(hasQuickRestoWork(ids)){
   const connection=await getConnection(job.account_id);
   if(!connection)throw new Error('Подключите Quick Resto для завершения увольнения');
   const rows = async(path:string,query:Record<string,string|number>={})=>{
@@ -37,7 +40,7 @@ export async function processStaffTermination(id?:string) {
    throw new Error('Список Quick Resto слишком большой для безопасной проверки удаления');
   };
   const password=decryptSecret({encrypted:connection.password_encrypted,iv:connection.password_iv,tag:connection.password_tag});
-  await removeStaffFromQuickResto({ids:{employeeId:job.employee_id,guestId:job.guest_id,bonusId:job.bonus_id},done:job.steps,save,transport:{rows,
+  await removeStaffFromQuickResto({ids,done:job.steps,save,transport:{rows,
    remove:async(moduleName,className,entityId)=>{
     const url=new URL('/platform/online/api/remove',buildQuickRestoBackOfficeOrigin({layerName:connection.login,baseUrl:connection.backoffice_base_url}));
     url.searchParams.set('moduleName',moduleName);url.searchParams.set('className',className);
@@ -59,6 +62,7 @@ export async function processStaffTermination(id?:string) {
     // The following balance read is the success signal.
    },
   }});
+  }
   // Telegram runs after Quick Resto; its failures keep their own text (see catch below).
   const telegram=async(step:()=>Promise<void>)=>{try{await step();}catch(e){throw e instanceof TelegramStepError?e:new TelegramStepError('Шаг Telegram не выполнен: '+(e instanceof Error?e.message:'неизвестная ошибка'));}};
   if(!job.steps.telegram){await telegram(()=>removeFromTelegram(db,job));job.steps.telegram=true;await save();}

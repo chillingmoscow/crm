@@ -33,6 +33,9 @@ const writeOffAmount = (row: RemoteRow) => {
   return b.available > 0 && b.ledger === b.available ? b.available : null;
 };
 
+/** A dismissal touches Quick Resto only when the person is linked to an employee or a guest there. */
+export const hasQuickRestoWork = (ids: TerminationIds) => ids.employeeId !== null || ids.guestId !== null;
+
 export async function removeStaffFromQuickResto({ids,transport,done,save}: {
   ids: TerminationIds;
   transport: TerminationTransport;

@@ -57,7 +57,7 @@ begin
  update public.schedule_task_occurrences set settled_at=null,status='assigned',deadline_at=now()-interval '1 hour',answers=jsonb_build_object(check_id,true) where id=occ;
  update public.schedule_shifts set published=false where id=shift;
  perform public.schedule_process_tasks();
- if not exists(select 1 from public.schedule_task_occurrences where id=occ and status='blocked') then raise exception 'Отмена смены не заблокировала начисление';end if;
+ if not exists(select 1 from public.schedule_task_occurrences where id=occ and status='assigned' and blocker<>'') then raise exception 'Отмена смены не заблокировала начисление';end if;
  -- Automatic acceptance produces a transferred-task reward through the existing bonus queue.
  def_auto:=(public.schedule_task_command('definition.save',body||jsonb_build_object('request_key',gen_random_uuid(),'name','TEST Auto','review_mode','auto'))->>'id')::uuid;
  perform public.schedule_process_tasks();
@@ -98,5 +98,69 @@ begin
  if not exists(select 1 from public.schedule_task_occurrences where id=other) or not exists(select 1 from storage.objects where bucket_id='task-evidence' and name=other||'/'||photo||'/other.jpg') then raise exception 'Предыдущий отчёт и фото недоступны ответственному следующей задачи';end if;
  execute 'reset role';
  raise notice 'PASS: preview, cutover gate, assignment, required evidence, pending review, self-approval, ordinary completion, exactly-once deduction/carry/reward, bonus queue integration, unknown delivery quarantine, changed shift, worker/table grants, authenticated report/photo RLS';
+end $$;
+
+-- Regression scenarios from review: repeated carries, ambiguity after draft, late acceptance and correction deadlines.
+do $$
+declare owner_id uuid;staff_id uuid;v uuid;a uuid;d date;tpl uuid;employee uuid;def uuid;prep_def uuid;prep uuid;original uuid;carried uuid;second_carry uuid;started uuid;duplicate uuid;late uuid;returned uuid;shift uuid;ver integer;check_id uuid:=gen_random_uuid();snap jsonb;prep_snap jsonb;
+begin
+ select id into owner_id from auth.users where email='owner@test.com';
+ select id into staff_id from auth.users where email='waiter@test.com';
+ select active_venue_id into v from public.profiles where id=owner_id;
+ select account_id,(now() at time zone coalesce(timezone,'Europe/Moscow'))::date into a,d from public.venues where id=v;
+ select id into employee from public.payroll_employees where venue_id=v and local_user_id=staff_id;
+ update public.schedule_task_settings set enabled_from=d-10 where venue_id=v;
+ insert into public.schedule_templates(venue_id,name,color,start_time,end_time) values(v,'TEST Review Regressions','blue','09:00','17:00') returning id into tpl;
+ insert into public.schedule_task_definitions(account_id,venue_id,name,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount)
+ values(a,v,'TEST Reviewed Task',tpl,'manager',jsonb_build_array(jsonb_build_object('id',check_id,'title','Проверено','kind','check','required',true)),jsonb_build_object('unit','week','interval',52,'anchor',d),d-10,true,true,300,300) returning id into def;
+ select to_jsonb(t)||jsonb_build_object('task_rules',s.config->'tasks') into snap from public.schedule_task_definitions t join public.payroll_automation_settings s on s.venue_id=t.venue_id where t.id=def;
+ insert into public.schedule_task_definitions(account_id,venue_id,name,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount)
+ values(a,v,'TEST Preparation',tpl,'auto','[]',jsonb_build_object('unit','week','interval',52,'anchor',d-2),d-10,false,false,0,0) returning id into prep_def;
+ select to_jsonb(t) into prep_snap from public.schedule_task_definitions t where id=prep_def;
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,settled_at) values(v,a,prep_def,d-2,prep_snap,'completed',now()) returning id into prep;
+ -- Freeze equipment [7] and the original completed preparation on a missed dependent task.
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,settled_at,predecessor_occurrence_id,equipment)
+ values(v,a,def,d-1,snap||jsonb_build_object('predecessor_id',prep_def,'predecessor_offset',1,'equipment_groups',jsonb_build_array(jsonb_build_array(7),jsonb_build_array(8))),'missed',now(),prep,'[7]') returning id into original;
+ insert into public.schedule_shifts(venue_id,user_id,template_id,title,color,starts_at,ends_at,published)
+ select v,staff_id,tpl,'TEST Regression Shift','blue',(day::timestamp+interval '9 hours') at time zone 'Europe/Moscow',(day::timestamp+interval '17 hours') at time zone 'Europe/Moscow',true from unnest(array[d,d+1,d-3,d-9,d-8]) day;
+ perform public.schedule_process_tasks();perform public.schedule_process_tasks();
+ select id into carried from public.schedule_task_occurrences where definition_id=def and business_date=d;
+ if not exists(select 1 from public.schedule_task_occurrences where id=carried and status='assigned' and predecessor_occurrence_id=prep and equipment='[7]' and transferred_from_id=original) then raise exception 'Первый перенос потерял исходную подготовку или оборудование';end if;
+ update public.schedule_task_occurrences set status='missed',settled_at=now() where id=carried;
+ perform public.schedule_process_tasks();perform public.schedule_process_tasks();
+ select id into second_carry from public.schedule_task_occurrences where definition_id=def and business_date=d+1;
+ if not exists(select 1 from public.schedule_task_occurrences where id=second_carry and status='assigned' and predecessor_occurrence_id=prep and equipment='[7]' and transferred_from_id=carried) then raise exception 'Повторный перенос потерял исходную подготовку или оборудование';end if;
+ -- A second published shift appearing after a draft must hold the charge without destroying the report.
+ select id into shift from public.schedule_shifts where template_id=tpl and (starts_at at time zone 'Europe/Moscow')::date=d-3;
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,shift_id,employee_id,user_id,answers,deadline_at)
+ values(v,a,def,d-3,snap,'in_progress',shift,employee,staff_id,jsonb_build_object(check_id,true),now()-interval '1 hour') returning id into started;
+ insert into public.schedule_shifts(venue_id,user_id,template_id,title,color,starts_at,ends_at,published)
+ select venue_id,user_id,template_id,'TEST Duplicate','blue',starts_at,ends_at,true from public.schedule_shifts where id=shift returning id into duplicate;
+ perform public.schedule_process_tasks();
+ if not exists(select 1 from public.schedule_task_occurrences where id=started and status='in_progress' and blocker<>'' and answers=jsonb_build_object(check_id,true) and settled_at is null) or exists(select 1 from public.payroll_adjustments where automation_key='task:'||started||':result') then raise exception 'Неоднозначная начатая задача оштрафована или потеряла отчёт';end if;
+ delete from public.schedule_shifts where id=duplicate;
+ perform public.schedule_process_tasks();
+ if (select count(*) from public.payroll_adjustments where automation_key='task:'||started||':result' and amount=-300)<>1 then raise exception 'После исправления назначения начисление не восстановилось';end if;
+ -- Approval after eight days still earns the transferred-task reward in an open period.
+ select id into shift from public.schedule_shifts where template_id=tpl and (starts_at at time zone 'Europe/Moscow')::date=d-9;
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,shift_id,employee_id,user_id,answers,deadline_at,submitted_at,transferred)
+ values(v,a,def,d-9,snap,'submitted',shift,employee,staff_id,jsonb_build_object(check_id,true),now()-interval '8 days',now()-interval '8 days',true) returning id,version into late,ver;
+ perform set_config('request.jwt.claim.sub',owner_id::text,true);perform set_config('app.ctx_ready','0',true);
+ perform public.schedule_task_command('run.approve',jsonb_build_object('id',late,'version',ver));
+ perform public.schedule_process_tasks();perform public.schedule_process_tasks();
+ if (select count(*) from public.payroll_adjustments where automation_key='task:'||late||':result' and amount=300 and medium='bonus')<>1 then raise exception 'Поздняя приёмка потеряла или задвоила премию';end if;
+ -- A late manager return requires an explicit new deadline and cannot cause an immediate fine.
+ select id into shift from public.schedule_shifts where template_id=tpl and (starts_at at time zone 'Europe/Moscow')::date=d-8;
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,shift_id,employee_id,user_id,answers,deadline_at,submitted_at)
+ values(v,a,def,d-8,snap,'submitted',shift,employee,staff_id,jsonb_build_object(check_id,true),now()-interval '7 days',now()-interval '7 days') returning id,version into returned,ver;
+ begin perform public.schedule_task_command('run.return',jsonb_build_object('id',returned,'version',ver,'comment','Исправить'));raise exception 'Возврат без срока разрешён';exception when others then if sqlerrm='Возврат без срока разрешён' then raise;end if;end;
+ perform public.schedule_task_command('run.return',jsonb_build_object('id',returned,'version',ver,'comment','Исправить','correct_until',now()+interval '2 days'));
+ perform public.schedule_process_tasks();
+ if not exists(select 1 from public.schedule_task_occurrences where id=returned and status='returned' and deadline_at>now() and settled_at is null) then raise exception 'Возврат просроченного отчёта сразу оштрафован или заблокирован';end if;
+ select version into ver from public.schedule_task_occurrences where id=returned;
+ perform set_config('request.jwt.claim.sub',staff_id::text,true);perform set_config('app.ctx_ready','0',true);
+ perform public.schedule_task_command('run.submit',jsonb_build_object('id',returned,'version',ver,'answers',jsonb_build_object(check_id,true)));
+ if not exists(select 1 from public.schedule_task_occurrences where id=returned and status='submitted') then raise exception 'Исправленный старый отчёт не отправлен';end if;
+ raise notice 'PASS: repeated prerequisite/equipment carry, ambiguous started assignment recovery, late approval reward, explicit correction deadline and resubmission';
 end $$;
 rollback;

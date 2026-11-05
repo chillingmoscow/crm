@@ -112,6 +112,7 @@ export function TasksClient({ initial }: { initial: TaskData }) {
   const [data, setData] = useState(initial),
     [tab, setTab] = useState<"tasks" | "definitions">("tasks"),
     [date, setDate] = useState(initial.today),
+    [pendingReview, setPendingReview] = useState(false),
     [mine, setMine] = useState(
       !initial.permissions.includes("schedule.view_all"),
     );
@@ -131,8 +132,10 @@ export function TasksClient({ initial }: { initial: TaskData }) {
     setData(next);
     return next;
   };
-  const occurrences = data.occurrences.filter(
-    (o) => o.business_date === date && (!mine || o.user_id === data.userId),
+  const occurrences = data.occurrences.filter((o) =>
+    pendingReview
+      ? o.status === "submitted"
+      : o.business_date === date && (!mine || o.user_id === data.userId),
   );
   async function showPreview() {
     setBusy(true);
@@ -209,11 +212,20 @@ export function TasksClient({ initial }: { initial: TaskData }) {
               className="w-44"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              min={addDays(data.today, -31)}
+              min={data.occurrences.reduce(
+                (min, o) => (o.business_date < min ? o.business_date : min),
+                addDays(data.today, -31),
+              )}
+              disabled={pendingReview}
               max={addDays(data.today, 14)}
             />
+            {data.permissions.includes("schedule.review") && (
+              <Check checked={pendingReview} onChange={setPendingReview}>
+                Ожидают проверки за все дни
+              </Check>
+            )}
             {data.permissions.includes("schedule.view_all") && (
-              <Check checked={mine} onChange={setMine}>
+              <Check checked={mine} onChange={setMine} disabled={pendingReview}>
                 Только мои
               </Check>
             )}
@@ -263,7 +275,9 @@ export function TasksClient({ initial }: { initial: TaskData }) {
               ))
             ) : (
               <div className="py-16 text-center text-sm text-muted-foreground">
-                На этот день задач нет
+                {pendingReview
+                  ? "Отчётов на проверку нет"
+                  : "На этот день задач нет"}
               </div>
             )}
           </div>
@@ -797,6 +811,7 @@ function TaskRun({
 }) {
   const [answers, setAnswers] = useState<Record<string, Answer>>(o.answers),
     [comment, setComment] = useState(o.review_comment),
+    [correctUntil, setCorrectUntil] = useState(""),
     [busy, setBusy] = useState(false),
     [dirty, setDirty] = useState(false),
     [urls, setUrls] = useState<Record<string, string>>({}),
@@ -862,6 +877,15 @@ function TaskRun({
         return;
       }
     }
+    if (
+      action === "run.return" &&
+      (!correctUntil ||
+        !Number.isFinite(new Date(correctUntil).getTime()) ||
+        new Date(correctUntil).getTime() <= Date.now())
+    ) {
+      toast.error("Укажите будущий срок исправления");
+      return;
+    }
     setBusy(true);
     try {
       const r = await taskRunCommand(action, {
@@ -869,6 +893,9 @@ function TaskRun({
         version: o.version,
         answers,
         comment,
+        ...(action === "run.return"
+          ? { correct_until: new Date(correctUntil).toISOString() }
+          : {}),
       });
       if (r.error) toast.error(r.error);
       else {
@@ -1099,13 +1126,26 @@ function TaskRun({
           ))}
         </div>
         {review && (
-          <Field label="Замечания">
-            <Textarea
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="Обязательно при возврате"
-            />
-          </Field>
+          <div className="space-y-4">
+            <Field label="Замечания">
+              <Textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="Обязательно при возврате"
+              />
+            </Field>
+            <Field label="Срок исправления при возврате">
+              <Input
+                type="datetime-local"
+                value={correctUntil}
+                onChange={(e) => setCorrectUntil(e.target.value)}
+              />
+            </Field>
+            <p className="text-xs text-muted-foreground">
+              Время вашего устройства. При возврате укажите срок в пределах 30
+              дней.
+            </p>
+          </div>
         )}
         {history.length > 0 && (
           <details>

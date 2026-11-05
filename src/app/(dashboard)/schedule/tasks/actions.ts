@@ -46,7 +46,7 @@ export async function loadTasks(): Promise<TaskData> {
       .from<TaskOccurrence[]>("schedule_task_occurrences")
       .select("*")
       .eq("venue_id", venueId)
-      .gte("business_date", addDays(today, -31))
+      .or(`business_date.gte.${addDays(today, -31)},settled_at.is.null`)
       .lte("business_date", addDays(today, 14))
       .order("business_date"),
     db
@@ -164,6 +164,7 @@ export async function taskRunCommand(action: string, input: unknown) {
           )
           .optional(),
         comment: z.string().max(5000).optional(),
+        correct_until: z.string().datetime().optional(),
       })
       .parse(input);
     const { db } = await context();

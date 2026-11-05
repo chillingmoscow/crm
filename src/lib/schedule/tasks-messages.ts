@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { loadTelegramBot } from "@/lib/integrations/telegram-bot";
+import { telegramMessageReceipt } from "@/lib/integrations/telegram-response";
 import { escapeHtml } from "@/lib/payroll/adjustment-notify";
 type Message = {
   id: string;
@@ -59,12 +60,18 @@ export async function processTaskMessage() {
     const result = await bot.sendMessage(job.chat_id, body, undefined, {
       html: true,
     });
-    if (!result.ok || typeof result.result?.message_id !== "number") {
-      await finish(null, result.description || "Telegram отклонил сообщение");
+    const receipt = telegramMessageReceipt(result);
+    if (receipt.messageId === null) {
+      await finish(
+        null,
+        result.description ||
+          "Ответ Telegram не подтверждён. Проверьте чат перед повтором",
+        receipt.uncertain,
+      );
       return { idle: false, error: true };
     }
     sent = true;
-    await finish(result.result.message_id, null);
+    await finish(receipt.messageId, null);
     return { idle: false, sent: true };
   } catch {
     if (!sent)

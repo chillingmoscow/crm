@@ -115,7 +115,7 @@ create function public.schedule_task_command(p_action text,p_input jsonb) return
 language plpgsql security definer set search_path=public,pg_catalog as $$
 declare u uuid:=auth.uid();v uuid:=public.get_active_venue_id();a uuid:=public.get_active_account_id();
  ident uuid:=nullif(p_input->>'id','')::uuid;def public.schedule_task_definitions;o public.schedule_task_occurrences;
- ans jsonb;item jsonb;perm text;pred uuid;rec jsonb;settings public.schedule_task_settings;
+ ans jsonb;item jsonb;perm text;pred uuid;rec jsonb;settings public.schedule_task_settings;correct_until timestamptz;
 begin
  if u is null or v is null or a is null or not exists(select 1 from public.venues where id=v and account_id=a) then raise exception 'Выберите заведение';end if;
  if p_action='definition.save' then
@@ -175,7 +175,7 @@ begin
   if p_action in ('run.save','run.submit') then
    if o.user_id is distinct from u or o.status not in ('assigned','in_progress','returned') or o.settled_at is not null then raise exception 'Выполнение недоступно';end if;
    if o.business_date>(now() at time zone coalesce((select timezone from public.venues where id=v),'Europe/Moscow'))::date then raise exception 'Задание доступно в день назначенной смены';end if;
-   if p_action='run.submit' and o.deadline_at<=now() and o.submitted_at is null then raise exception 'Срок сдачи истёк. Обратитесь к управляющему';end if;
+   if p_action='run.submit' and o.deadline_at<=now() then raise exception 'Срок сдачи истёк. Обратитесь к управляющему';end if;
    if not exists(select 1 from public.schedule_shifts s where s.id=o.shift_id and s.published and (s.user_id=u or (s.user_id is null and exists(select 1 from public.payroll_employees e where e.id=s.payroll_employee_id and e.local_user_id=u)))) then raise exception 'Ответственный в графике изменился';end if;
    ans:=coalesce(p_input->'answers','{}');
    if jsonb_typeof(ans) is distinct from 'object' or octet_length(ans::text)>100000 or exists(select 1 from jsonb_object_keys(ans) k where not exists(select 1 from jsonb_array_elements(o.snapshot->'items') i where i->>'id'=k)) then raise exception 'Неверные ответы';end if;
@@ -191,7 +191,11 @@ begin
   else
    if not public.has_permission('schedule.review') or o.status<>'submitted' or o.user_id=u then raise exception 'Нет доступа к проверке этой задачи';end if;
    if length(coalesce(p_input->>'comment',''))>5000 or (p_action='run.return' and length(trim(coalesce(p_input->>'comment','')))=0) then raise exception 'Укажите замечания';end if;
-   update public.schedule_task_occurrences set status=case when p_action='run.approve' then 'completed' else 'returned' end,review_comment=coalesce(p_input->>'comment',''),completed_at=case when p_action='run.approve' then now() else null end,version=version+1,updated_at=now() where id=ident;
+   if p_action='run.return' then
+    correct_until:=nullif(p_input->>'correct_until','')::timestamptz;
+    if correct_until is null or not isfinite(correct_until) or correct_until<=now() or correct_until>now()+interval '30 days' then raise exception 'Укажите будущий срок исправления, не позже 30 дней';end if;
+   end if;
+   update public.schedule_task_occurrences set deadline_at=case when p_action='run.return' then correct_until else deadline_at end,status=case when p_action='run.approve' then 'completed' else 'returned' end,review_comment=coalesce(p_input->>'comment',''),completed_at=case when p_action='run.approve' then now() else null end,version=version+1,updated_at=now() where id=ident;
   end if;
  else raise exception 'Неизвестное действие';end if;
  if p_action<>'definition.save' then
@@ -271,7 +275,13 @@ begin
     end if;
    end if;
    if nullif(o.snapshot->>'predecessor_id','') is not null then
-    select * into pred from public.schedule_task_occurrences where definition_id=(o.snapshot->>'predecessor_id')::uuid and business_date=o.business_date-(o.snapshot->>'predecessor_offset')::integer;
+    -- A carry keeps the prerequisite of the original assignment, even after several missed days.
+    if o.predecessor_occurrence_id is not null then
+     select * into pred from public.schedule_task_occurrences where id=o.predecessor_occurrence_id;
+    else
+     with recursive origins as(select p.id,p.transferred_from_id,p.business_date from public.schedule_task_occurrences p where p.id=o.id union all select p.id,p.transferred_from_id,p.business_date from public.schedule_task_occurrences p join origins c on p.id=c.transferred_from_id)
+     select p.* into pred from public.schedule_task_occurrences p where p.definition_id=(o.snapshot->>'predecessor_id')::uuid and p.business_date=(select business_date from origins order by business_date limit 1)-(o.snapshot->>'predecessor_offset')::integer;
+    end if;
     if pred.id is not null and pred.status='missed' then
      with recursive carried as(select p.id,p.transferred_from_id,p.business_date,p.status from public.schedule_task_occurrences p where p.id=pred.id union all select p.id,p.transferred_from_id,p.business_date,p.status from public.schedule_task_occurrences p join carried c on p.transferred_from_id=c.id where p.business_date<=o.business_date)
      select p.* into pred from public.schedule_task_occurrences p join carried c on c.id=p.id where c.status='completed' order by c.business_date desc limit 1;
@@ -282,17 +292,18 @@ begin
    update public.schedule_task_occurrences set shift_id=s.id,employee_id=e.id,user_id=coalesce(s.user_id,e.local_user_id),employee_name=e.name,
     predecessor_occurrence_id=pred.id,deadline_at=case when s.id is not null then greatest(s.ends_at,((o.business_date+1)::timestamp+interval '11 hours 30 minutes') at time zone tz) end,
     status=case when blocked_reason='' then 'assigned' else 'blocked' end,blocker=blocked_reason,
-    equipment=case when group_index>0 then (o.snapshot->'equipment_groups')->(((o.business_date-(o.snapshot->'recurrence'->>'anchor')::date)/(7*greatest((o.snapshot->'recurrence'->>'interval')::integer,1)))%group_index) else '[]'::jsonb end,
+    equipment=case when o.transferred then o.equipment when group_index>0 then (o.snapshot->'equipment_groups')->(((o.business_date-(o.snapshot->'recurrence'->>'anchor')::date)/(7*greatest((o.snapshot->'recurrence'->>'interval')::integer,1)))%group_index) else '[]'::jsonb end,
     version=version+case when shift_id is distinct from s.id or employee_id is distinct from e.id or user_id is distinct from coalesce(s.user_id,e.local_user_id) or schedule_task_occurrences.blocker is distinct from blocked_reason then 1 else 0 end,updated_at=now() where id=o.id;
   end loop;
-  update public.schedule_task_occurrences set status='blocked',blocker='Давнее задание после перерыва. Нужна сверка',version=version+1 where venue_id=settings.venue_id and business_date<today-7 and settled_at is null and status in ('assigned','in_progress','returned');
-  for o in select * from public.schedule_task_occurrences where venue_id=settings.venue_id and business_date>=greatest(settings.enabled_from,today-7) and settled_at is null and
-   (status='completed' or (status in ('assigned','in_progress','returned') and deadline_at<=now())) and business_date<=today for update loop
+  update public.schedule_task_occurrences set status='blocked',blocker='Давнее задание после перерыва. Нужна сверка',version=version+1 where venue_id=settings.venue_id and business_date<today-7 and settled_at is null and status in ('assigned','in_progress','returned') and submitted_at is null and deadline_at<=now();
+  for o in select * from public.schedule_task_occurrences where venue_id=settings.venue_id and business_date>=settings.enabled_from and settled_at is null and
+   (status='completed' or (status in ('assigned','in_progress','returned') and deadline_at<=now() and (business_date>=today-7 or submitted_at is not null))) and business_date<=today for update loop
    -- A changed/cancelled shift or a closed salary month must never produce a stale charge.
-   if not exists(select 1 from public.schedule_shifts current_shift where current_shift.id=o.shift_id and current_shift.venue_id=o.venue_id and current_shift.published and current_shift.template_id=(o.snapshot->>'template_id')::uuid and (current_shift.starts_at at time zone tz)::date=o.business_date and (current_shift.payroll_employee_id=o.employee_id or (current_shift.payroll_employee_id is null and current_shift.user_id=o.user_id)))
+   select count(*) into count_shifts from public.schedule_shifts where venue_id=o.venue_id and template_id=(o.snapshot->>'template_id')::uuid and published and (starts_at at time zone tz)::date=o.business_date;
+   if count_shifts<>1 or not exists(select 1 from public.schedule_shifts current_shift where current_shift.id=o.shift_id and current_shift.venue_id=o.venue_id and current_shift.published and current_shift.template_id=(o.snapshot->>'template_id')::uuid and (current_shift.starts_at at time zone tz)::date=o.business_date and (current_shift.payroll_employee_id=o.employee_id or (current_shift.payroll_employee_id is null and current_shift.user_id=o.user_id)))
     or not exists(select 1 from public.payroll_employees where id=o.employee_id and venue_id=o.venue_id and active and (hired_on is null or hired_on<=o.business_date))
     or not exists(select 1 from public.user_venue_roles uv where uv.user_id=o.user_id and uv.venue_id=o.venue_id and uv.status='active') then
-    update public.schedule_task_occurrences set blocker='Смена или сотрудник изменились. Нужна проверка',status='blocked',version=version+1 where id=o.id;continue;
+    update public.schedule_task_occurrences set blocker='Смена или сотрудник изменились. Нужна проверка',status=case when o.status='assigned' and o.answers='{}'::jsonb then 'blocked' else o.status end,version=version+case when o.blocker='Смена или сотрудник изменились. Нужна проверка' then 0 else 1 end where id=o.id;continue;
    end if;
    if exists(select 1 from public.payroll_periods where venue_id=o.venue_id and month=date_trunc('month',o.business_date)::date and status<>'draft') then
     update public.schedule_task_occurrences set blocker='Зарплатный период закрыт. Нужна сверка начисления' where id=o.id;continue;
@@ -326,9 +337,10 @@ begin
   end loop;
   -- Carry an unfinished task once. A normal occurrence already scheduled for that day is reused.
   for o in select * from public.schedule_task_occurrences where venue_id=settings.venue_id and business_date>=settings.enabled_from and status='missed' and not transfer_created for update loop
-   insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,transferred,transferred_from_id)
-   values(o.venue_id,o.account_id,o.definition_id,o.business_date+1,o.snapshot,true,o.id)
-   on conflict(definition_id,business_date) do update set transferred=true,transferred_from_id=coalesce(schedule_task_occurrences.transferred_from_id,excluded.transferred_from_id) where schedule_task_occurrences.status not in ('completed','missed');
+   insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,transferred,transferred_from_id,predecessor_occurrence_id,equipment)
+   values(o.venue_id,o.account_id,o.definition_id,o.business_date+1,o.snapshot,true,o.id,o.predecessor_occurrence_id,o.equipment)
+   on conflict(definition_id,business_date) do update set transferred=true,transferred_from_id=excluded.transferred_from_id,snapshot=excluded.snapshot,predecessor_occurrence_id=excluded.predecessor_occurrence_id,equipment=excluded.equipment,version=schedule_task_occurrences.version+1
+   where schedule_task_occurrences.status in ('assigned','blocked') and schedule_task_occurrences.answers='{}'::jsonb and schedule_task_occurrences.settled_at is null;
    update public.schedule_task_occurrences set transfer_created=true where id=o.id;
   end loop;
  end loop;

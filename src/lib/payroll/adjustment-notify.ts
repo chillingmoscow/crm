@@ -36,3 +36,20 @@ export function formatAdjustmentMessage(row: NotifyRow): string {
   if (warning) lines.push(`📮 Кол-во предупреждений: ${row.warnings_in_month}`);
   return lines.join("\n");
 }
+
+/**
+ * Report a message Telegram has already accepted. A failed report must never
+ * turn into an error state (that would resend the message): the row stays in
+ * `sending` and the problem is surfaced to the caller only.
+ */
+export async function reportDelivered(
+  report: () => Promise<void>,
+): Promise<{ idle: false; sent: true; error?: string }> {
+  try {
+    await report();
+    return { idle: false, sent: true };
+  } catch (e) {
+    const detail = e instanceof Error && e.message ? e.message : "";
+    return { idle: false, sent: true, error: `Сообщение отправлено, но результат не записан${detail ? `: ${detail}` : ""}`.slice(0, 500) };
+  }
+}

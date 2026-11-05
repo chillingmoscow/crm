@@ -2,7 +2,7 @@ import "server-only";
 import { loadTelegramBot } from "@/lib/integrations/telegram-bot";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
-import { formatAdjustmentMessage, type NotifyRow } from "./adjustment-notify";
+import { formatAdjustmentMessage, reportDelivered, type NotifyRow } from "./adjustment-notify";
 
 type Claim = NotifyRow & {
   adjustment_id: string;
@@ -70,8 +70,9 @@ export async function processAdjustmentNotification(): Promise<{ idle: boolean; 
       : await bot.sendMessage(job.chat_id, text, undefined, { html: true });
     if (!sent.ok || typeof sent.result?.message_id !== "number")
       return await fail(sent.description || "Telegram отклонил сообщение");
-    await finish(sent.result.message_id, null);
-    return { idle: false, sent: true };
+    // Delivered: from here on never mark the row as failed, that would resend it.
+    const messageId = sent.result.message_id;
+    return await reportDelivered(() => finish(messageId, null));
   } catch (e) {
     // Messages come from the Telegram client (token-free) or from our own text.
     const message = e instanceof Error && e.message ? e.message : "Ошибка отправки";

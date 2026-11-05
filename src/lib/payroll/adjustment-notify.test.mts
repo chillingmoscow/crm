@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatAdjustmentMessage, type NotifyRow } from "./adjustment-notify.ts";
+import { formatAdjustmentMessage, reportDelivered, type NotifyRow } from "./adjustment-notify.ts";
 
 const base: NotifyRow = {
   kind: "deduction", medium: "money", amount: -800, reason: "Опоздание",
@@ -36,4 +36,14 @@ test("экранирование HTML в имени и причине", () => {
   const text = formatAdjustmentMessage({ ...base, employee_name: "A&B <x>", reason: "<b>&</b>" });
   assert.ok(text.includes("👫  A&amp;B &lt;x&gt;"));
   assert.ok(text.includes("📜  &lt;b&gt;&amp;&lt;/b&gt;"));
+});
+
+test("reportDelivered: сбой записи после отправки не превращается в ошибку очереди", async () => {
+  const calls: string[] = [];
+  const ok = await reportDelivered(async () => { calls.push("finish"); });
+  assert.deepEqual(ok, { idle: false, sent: true });
+  const failed = await reportDelivered(async () => { calls.push("finish"); throw new Error("db down"); });
+  assert.equal(failed.sent, true);
+  assert.match(failed.error ?? "", /db down/);
+  assert.equal(calls.length, 2);
 });

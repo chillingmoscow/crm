@@ -114,7 +114,7 @@ export async function saveTask(input: unknown) {
       p_input: value,
     });
     if (result.error) throw new Error(result.error.message);
-    revalidatePath("/schedule/tasks");
+    revalidatePath("/schedule");
     return {
       ok: true,
       existing: !!(result.data as { existing?: boolean } | null)?.existing,
@@ -153,7 +153,7 @@ export async function saveTaskSettings(input: unknown) {
       p_input: value,
     });
     if (result.error) throw new Error(result.error.message);
-    revalidatePath("/schedule/tasks");
+    revalidatePath("/schedule");
     return { ok: true };
   } catch (e) {
     return {
@@ -195,7 +195,7 @@ export async function taskRunCommand(action: string, input: unknown) {
       p_input: value,
     });
     if (r.error) throw new Error(r.error.message);
-    revalidatePath("/schedule/tasks");
+    revalidatePath("/schedule");
     return { ok: true };
   } catch (e) {
     return {
@@ -287,7 +287,7 @@ export async function retryTaskMessage(id: string, evidence: string) {
       p_evidence: evidence,
     });
     if (r.error) throw new Error(r.error.message);
-    revalidatePath("/schedule/tasks");
+    revalidatePath("/schedule");
     return { ok: true };
   } catch (e) {
     return {

@@ -62,6 +62,8 @@ import {
 import { RunPanel } from "./run-panel";
 import { CandidateTrialCard } from "./candidate-trial-card";
 import { toast } from "sonner";
+import { ScheduleTasksTab } from "./tasks-tab";
+import type { TaskData } from "@/lib/schedule/tasks";
 type Editor =
   | {
       type: "shift";
@@ -87,9 +89,28 @@ const eventLabels: Record<string, string> = {
   "shift.publish": "Опубликована смена",
   "shift.delete": "Удалена смена",
 };
-export function ScheduleClient({ initial }: { initial: ScheduleData }) {
+export function ScheduleClient({ initial, initialTab = "calendar", initialTasks = null }: {
+  initial: ScheduleData;
+  initialTab?: string;
+  initialTasks?: TaskData | null;
+}) {
   const [data, setData] = useState(initial);
-  const [tab, setTab] = useState("calendar");
+  const [tab, setTab] = useState(initialTab);
+  const [tasksVisited, setTasksVisited] = useState(initialTab === "tasks");
+  useEffect(() => {
+    setTab(initialTab);
+    if (initialTab === "tasks") setTasksVisited(true);
+  }, [initialTab]);
+  useEffect(() => {
+    const restoreTab = () => {
+      const next = new URL(window.location.href).searchParams.get("tab") ?? "calendar";
+      const valid = ["calendar", "tasks", "templates", "checklists", "review", "team"].includes(next) ? next : "calendar";
+      setTab(valid);
+      if (valid === "tasks") setTasksVisited(true);
+    };
+    window.addEventListener("popstate", restoreTab);
+    return () => window.removeEventListener("popstate", restoreTab);
+  }, []);
   const [week, setWeek] = useState(
     weekStart(dateInZone(new Date(), initial.timezone)),
   );
@@ -371,7 +392,7 @@ export function ScheduleClient({ initial }: { initial: ScheduleData }) {
     />
   );
   return (
-    <div className="p-4 md:p-8 space-y-6 max-w-[1800px] mx-auto">
+    <div className="w-full min-w-0 p-4 md:p-8 space-y-6 max-w-[1800px] mx-auto">
       <div className="flex flex-wrap justify-between items-center gap-4">
         <h1 className="text-3xl font-bold tracking-tight">График работы</h1>
         <div className="flex gap-2">
@@ -411,12 +432,18 @@ export function ScheduleClient({ initial }: { initial: ScheduleData }) {
         onValueChange={(t) => {
           setTab(t);
           setArchive(false);
+          if (t === "tasks") setTasksVisited(true);
+          const url = new URL(window.location.href);
+          if (t === "calendar") url.searchParams.delete("tab");
+          else url.searchParams.set("tab", t);
+          window.history.pushState(null, "", url);
         }}
       >
         <TabsList className="overflow-x-auto justify-start">
           <TabsTrigger value="calendar">
             {canPlan ? "Расписание" : "Мои смены"}
           </TabsTrigger>
+          <TabsTrigger value="tasks">Задачи</TabsTrigger>
           {[
             "template_create",
             "template_edit",
@@ -865,6 +892,9 @@ export function ScheduleClient({ initial }: { initial: ScheduleData }) {
             <span>Часы указаны за вычетом перерывов</span>
             {canPlan && <span>Черновики видны только планировщикам</span>}
           </div>
+        </TabsContent>
+        <TabsContent value="tasks" forceMount={tasksVisited ? true : undefined} hidden={tab !== "tasks"}>
+          {tasksVisited && <ScheduleTasksTab initial={initialTasks} active={tab === "tasks"} />}
         </TabsContent>
         <TabsContent value="templates" className="space-y-4">
           <div className="flex gap-2">

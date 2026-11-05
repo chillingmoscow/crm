@@ -4,6 +4,7 @@ import {
   isValidElement,
   useEffect,
   useId,
+  useRef,
   useState,
 } from "react";
 import Image from "next/image";
@@ -12,7 +13,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { EditDrawer } from "@/components/ui/edit-drawer";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Answer, ChecklistItem } from "@/lib/schedule/types";
@@ -108,7 +116,96 @@ function newItem(kind: ChecklistItem["kind"] = "check"): ChecklistItem {
     max_length: 2000,
   };
 }
-export function TasksClient({ initial }: { initial: TaskData }) {
+function TaskScreen({
+  title,
+  description,
+  onBack,
+  actions,
+  children,
+  dirty = false,
+  busy = false,
+}: {
+  title: string;
+  description?: string;
+  onBack: () => void;
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+  dirty?: boolean;
+  busy?: boolean;
+}) {
+  const [confirmExit, setConfirmExit] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const screen = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if ((screen.current?.getBoundingClientRect().top ?? 0) < 0)
+      screen.current?.scrollIntoView({ block: "start" });
+    heading.current?.focus({ preventScroll: true });
+  }, []);
+  useEffect(() => {
+    const guard = (event: BeforeUnloadEvent) => {
+      if (dirty) event.preventDefault();
+    };
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [dirty]);
+  return (
+    <section ref={screen} className="w-full max-w-[1400px] space-y-6">
+      <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b bg-background py-3">
+        <Button
+          variant="ghost"
+          disabled={busy}
+          onClick={() => (dirty ? setConfirmExit(true) : onBack())}
+        >
+          <ArrowLeft className="mr-2 size-4" />К задачам
+        </Button>
+        {actions && (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {actions}
+          </div>
+        )}
+      </div>
+      <header className="max-w-3xl space-y-2">
+        <h2
+          ref={heading}
+          tabIndex={-1}
+          className="text-balance text-2xl font-semibold tracking-tight outline-none"
+        >
+          {title}
+        </h2>
+        {description && (
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            {description}
+          </p>
+        )}
+      </header>
+      {children}
+      <Dialog open={confirmExit} onOpenChange={setConfirmExit}>
+        <DialogContent hideClose>
+          <DialogHeader>
+            <DialogTitle>Выйти без сохранения?</DialogTitle>
+            <DialogDescription>
+              Несохранённые изменения будут потеряны.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmExit(false)}>
+              Продолжить редактирование
+            </Button>
+            <Button onClick={onBack}>Выйти без сохранения</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </section>
+  );
+}
+
+export function TasksClient({
+  initial,
+  active = true,
+}: {
+  initial: TaskData;
+  active?: boolean;
+}) {
   const [data, setData] = useState(initial),
     [tab, setTab] = useState<"tasks" | "definitions">("tasks"),
     [date, setDate] = useState(initial.today),
@@ -121,6 +218,23 @@ export function TasksClient({ initial }: { initial: TaskData }) {
     [settings, setSettings] = useState(false),
     [preview, setPreview] = useState<TaskPreview[] | null>(null),
     [busy, setBusy] = useState(false);
+  const wasActive = useRef(active);
+  useEffect(() => {
+    const returning = active && !wasActive.current;
+    wasActive.current = active;
+    if (!returning) return;
+    let alive = true;
+    loadTasks()
+      .then((next) => {
+        if (alive) setData(next);
+      })
+      .catch(() => {
+        if (alive) toast.error("Не удалось обновить задачи");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [active]);
   const manage = data.permissions.includes("schedule.checklist_edit"),
     create = data.permissions.includes("schedule.checklist_create"),
     canSettings =
@@ -149,11 +263,98 @@ export function TasksClient({ initial }: { initial: TaskData }) {
       setBusy(false);
     }
   }
+  if (editor)
+    return (
+      <DefinitionEditor
+        task={editor}
+        data={data}
+        editable={editor === "new" ? create : manage}
+        onClose={() => setEditor(null)}
+        onSaved={async () => {
+          await refresh();
+          setEditor(null);
+        }}
+      />
+    );
+  if (run)
+    return (
+      <TaskRun
+        key={run.id}
+        occurrence={run}
+        data={data}
+        onClose={() => setRun(null)}
+        onSaved={async () => {
+          const next = await refresh();
+          setRun(next.occurrences.find((o) => o.id === run.id) ?? null);
+        }}
+      />
+    );
+  if (settings)
+    return (
+      <SettingsEditor
+        data={data}
+        onClose={() => setSettings(false)}
+        onRefresh={async () => {
+          await refresh();
+        }}
+        onSaved={async () => {
+          await refresh();
+          setSettings(false);
+        }}
+      />
+    );
+  if (preview)
+    return (
+      <TaskScreen
+        title="Расписание задач на две недели"
+        description="Включая черновики. Предпросмотр не создаёт задания и начисления."
+        onBack={() => setPreview(null)}
+      >
+        <div className="divide-y">
+          {preview.length ? (
+            preview.map((item, index) => (
+              <div
+                key={index}
+                className="grid gap-2 py-4 md:grid-cols-[150px_minmax(0,1fr)_minmax(180px,1fr)]"
+              >
+                <p className="text-sm text-muted-foreground">
+                  {dayLabel(item.business_date)}
+                </p>
+                <div>
+                  <p className="font-medium">{item.snapshot.name}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {!item.snapshot.enabled ? "Черновик · " : ""}
+                    {
+                      data.templates.find(
+                        (t) => t.id === item.snapshot.template_id,
+                      )?.name
+                    }
+                  </p>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {item.assignment_count === 0
+                    ? "Нет опубликованной смены"
+                    : item.assignment_count > 1
+                      ? "Несколько подходящих смен"
+                      : item.employee || "Сотрудник не сопоставлен"}
+                </p>
+              </div>
+            ))
+          ) : (
+            <p className="py-10 text-sm text-muted-foreground">
+              Нет задач на этот период
+            </p>
+          )}
+        </div>
+      </TaskScreen>
+    );
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div className="space-y-5">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Задачи</h1>
+          <h2 className="text-xl font-semibold tracking-tight">
+            Задачи по сменам
+          </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Чек-листы, фотоотчёты и выполнение по сменам
           </p>
@@ -174,7 +375,7 @@ export function TasksClient({ initial }: { initial: TaskData }) {
         </div>
       </header>
       {!data.settings?.enabled_from && manage && (
-        <p className="border-l-2 border-border pl-4 text-sm text-muted-foreground">
+        <p className="rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
           Автоматическое назначение ещё не включено. Подготовьте шаблоны,
           проверьте расписание и выберите дату перехода в настройках.
         </p>
@@ -314,7 +515,7 @@ export function TasksClient({ initial }: { initial: TaskData }) {
                       {t.items.filter((i) => i.kind === "photo").length} фото
                     </p>
                   </div>
-                  <div className="space-y-1 text-right text-sm text-muted-foreground">
+                  <div className="space-y-1 text-sm text-muted-foreground sm:text-right">
                     <p>
                       {t.enabled ? "Включена" : "Черновик"} ·{" "}
                       {t.review_mode === "auto"
@@ -336,78 +537,6 @@ export function TasksClient({ initial }: { initial: TaskData }) {
             )}
           </div>
         </>
-      )}
-      {editor && (
-        <DefinitionEditor
-          task={editor}
-          data={data}
-          editable={editor === "new" ? create : manage}
-          onClose={() => setEditor(null)}
-          onSaved={async () => {
-            await refresh();
-            setEditor(null);
-          }}
-        />
-      )}
-      {run && (
-        <TaskRun
-          key={run.id}
-          occurrence={run}
-          data={data}
-          onClose={() => setRun(null)}
-          onSaved={async () => {
-            const d = await refresh();
-            setRun(d.occurrences.find((o) => o.id === run.id) ?? null);
-          }}
-        />
-      )}
-      {settings && (
-        <SettingsEditor
-          data={data}
-          onClose={() => setSettings(false)}
-          onSaved={async () => {
-            await refresh();
-            setSettings(false);
-          }}
-        />
-      )}
-      {preview && (
-        <EditDrawer
-          open
-          onOpenChange={(o) => !o && setPreview(null)}
-          title="Расписание на две недели"
-          description="Включая черновики. Предпросмотр не создаёт задания и начисления"
-        >
-          {preview.length ? (
-            preview.map((p, i) => (
-              <div key={i} className="border-b py-3">
-                <p className="text-sm text-muted-foreground">
-                  {dayLabel(p.business_date)}
-                </p>
-                <p>
-                  {p.snapshot.name}
-                  {!p.snapshot.enabled ? " (черновик)" : ""}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {
-                    data.templates.find((t) => t.id === p.snapshot.template_id)
-                      ?.name
-                  }{" "}
-                  ·{" "}
-                  {p.assignment_count === 0
-                    ? "Нет опубликованной смены"
-                    : p.assignment_count > 1
-                      ? "Несколько подходящих смен"
-                      : p.employee || "Сотрудник не сопоставлен"}
-                </p>
-              </div>
-            ))
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Нет включённых задач на этот период
-            </p>
-          )}
-        </EditDrawer>
       )}
     </div>
   );
@@ -448,9 +577,12 @@ function DefinitionEditor({
           }
         : task,
     ),
-    [busy, setBusy] = useState(false);
-  const set = <K extends keyof TaskInput>(key: K, v: TaskInput[K]) =>
+    [busy, setBusy] = useState(false),
+    [dirty, setDirty] = useState(false);
+  const set = <K extends keyof TaskInput>(key: K, v: TaskInput[K]) => {
+    setDirty(true);
     setValue((s) => ({ ...s, [key]: v }));
+  };
   const item = (index: number, patch: Partial<ChecklistItem>) =>
     set(
       "items",
@@ -476,326 +608,365 @@ function DefinitionEditor({
     }
   }
   return (
-    <EditDrawer
-      open
-      onOpenChange={(o) => !o && !busy && onClose()}
+    <TaskScreen
       title={task === "new" ? "Новая задача" : task.name}
-      footer={
-        <>
-          <Button variant="outline" disabled={busy} onClick={onClose}>
-            Отмена
+      description="Шаблон задачи. Изменения применятся к следующим заданиям."
+      onBack={onClose}
+      dirty={dirty}
+      busy={busy}
+      actions={
+        editable && (
+          <Button disabled={busy} onClick={() => void submit()}>
+            {busy ? "Сохранение…" : "Сохранить задачу"}
           </Button>
-          {editable && (
-            <Button disabled={busy} onClick={() => void submit()}>
-              {busy ? "Сохранение…" : "Сохранить"}
-            </Button>
-          )}
-        </>
+        )
       }
     >
-      <fieldset disabled={!editable || busy} className="space-y-6">
-        <Field label="Название">
-          <Input
-            value={value.name}
-            onChange={(e) => set("name", e.target.value)}
-          />
-        </Field>
-        <Field label="Ответственный по смене">
-          <select
-            className={selectClass}
-            value={value.template_id}
-            onChange={(e) => set("template_id", e.target.value)}
-          >
-            {data.templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Повторять раз в">
-            <Input
-              type="number"
-              min={1}
-              max={52}
-              value={value.recurrence.interval}
-              onChange={(e) =>
-                set("recurrence", {
-                  ...value.recurrence,
-                  interval: Number(e.target.value),
-                })
-              }
-            />
-          </Field>
-          <Field label="Период">
-            <select
-              className={selectClass}
-              value={value.recurrence.unit}
-              onChange={(e) =>
-                set("recurrence", {
-                  ...value.recurrence,
-                  unit: e.target.value as "week" | "month",
-                })
-              }
-            >
-              <option value="week">Неделю</option>
-              <option value="month">Месяц</option>
-            </select>
-          </Field>
-        </div>
-        <Field label="Дата первого повторения">
-          <Input
-            type="date"
-            value={value.recurrence.anchor}
-            onChange={(e) =>
-              set("recurrence", { ...value.recurrence, anchor: e.target.value })
-            }
-          />
-        </Field>
-        <Field label="Назначать начиная с">
-          <Input
-            type="date"
-            value={value.starts_on}
-            onChange={(e) => set("starts_on", e.target.value)}
-          />
-        </Field>
-        <Field label="Приёмка">
-          <select
-            className={selectClass}
-            value={value.review_mode}
-            onChange={(e) =>
-              set("review_mode", e.target.value as "auto" | "manager")
-            }
-          >
-            <option value="manager">Принимает управляющий</option>
-            <option value="auto">Автоматически после полного отчёта</option>
-          </select>
-        </Field>
-        <Field label="Инструкция">
-          <Textarea
-            rows={7}
-            value={value.instructions}
-            onChange={(e) => set("instructions", e.target.value)}
-          />
-        </Field>
-        <section className="space-y-4">
-          <h2 className="font-medium">Чек-лист</h2>
-          {value.items.map((x, i) => (
-            <div key={x.id} className="space-y-2 border-b pb-4">
-              <div className="flex gap-2">
-                <Input
-                  aria-label={`Пункт ${i + 1}`}
-                  value={x.title}
-                  onChange={(e) => item(i, { title: e.target.value })}
+      <fieldset
+        disabled={!editable || busy}
+        className="grid items-start gap-10 xl:grid-cols-[minmax(0,1fr)_360px]"
+      >
+        <div className="min-w-0 space-y-8">
+          <section className="space-y-5">
+            <Field label="Название">
+              <Input
+                value={value.name}
+                onChange={(e) => set("name", e.target.value)}
+              />
+            </Field>
+            <Field label="Инструкция">
+              <Textarea
+                rows={7}
+                value={value.instructions}
+                onChange={(e) => set("instructions", e.target.value)}
+              />
+            </Field>
+          </section>
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-semibold">Чек-лист</h3>
+              <span className="text-sm text-muted-foreground">
+                {value.items.length} пунктов
+              </span>
+            </div>
+            {value.items.map((x, i) => (
+              <div key={x.id} className="space-y-3 border-b py-5 first:pt-0">
+                <div className="flex items-start gap-3">
+                  <span className="w-5 shrink-0 pt-2 text-sm tabular-nums text-muted-foreground">
+                    {i + 1}.
+                  </span>
+                  <Textarea
+                    rows={2}
+                    className="min-h-16"
+                    aria-label={`Пункт ${i + 1}`}
+                    value={x.title}
+                    onChange={(e) => item(i, { title: e.target.value })}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Удалить пункт ${i + 1}`}
+                    onClick={() =>
+                      set(
+                        "items",
+                        value.items.filter((_, n) => n !== i),
+                      )
+                    }
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="flex items-center gap-3">
+                  <select
+                    aria-label="Тип ответа"
+                    className={cn(selectClass, "w-40")}
+                    value={x.kind}
+                    onChange={(e) =>
+                      item(i, {
+                        kind: e.target.value as ChecklistItem["kind"],
+                        required:
+                          e.target.value === "info" ? false : x.required,
+                      })
+                    }
+                  >
+                    <option value="check">Отметка</option>
+                    <option value="photo">Фото</option>
+                    <option value="text">Текст</option>
+                    <option value="number">Число</option>
+                    <option value="info">Подсказка</option>
+                  </select>
+                  {x.kind !== "info" && (
+                    <Check
+                      checked={x.required}
+                      onChange={(v) => item(i, { required: v })}
+                    >
+                      Обязательно
+                    </Check>
+                  )}
+                </div>
+                <Textarea
+                  aria-label={`Пояснение к пункту ${i + 1}`}
+                  placeholder="Пояснение к пункту"
+                  rows={2}
+                  className="min-h-16"
+                  value={x.hint}
+                  onChange={(e) => item(i, { hint: e.target.value })}
                 />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Удалить пункт"
-                  onClick={() =>
-                    set(
-                      "items",
-                      value.items.filter((_, n) => n !== i),
-                    )
-                  }
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                {x.kind === "number" && (
+                  <div className="grid grid-cols-3 gap-2">
+                    <Input
+                      aria-label="Минимум"
+                      type="number"
+                      placeholder="Минимум"
+                      value={x.min ?? ""}
+                      onChange={(e) =>
+                        item(i, {
+                          min:
+                            e.target.value === ""
+                              ? null
+                              : Number(e.target.value),
+                        })
+                      }
+                    />
+                    <Input
+                      aria-label="Максимум"
+                      type="number"
+                      placeholder="Максимум"
+                      value={x.max ?? ""}
+                      onChange={(e) =>
+                        item(i, {
+                          max:
+                            e.target.value === ""
+                              ? null
+                              : Number(e.target.value),
+                        })
+                      }
+                    />
+                    <Input
+                      aria-label="Единица"
+                      placeholder="Ед."
+                      value={x.unit}
+                      onChange={(e) => item(i, { unit: e.target.value })}
+                    />
+                  </div>
+                )}
               </div>
-              <div className="flex items-center gap-3">
-                <select
-                  aria-label="Тип ответа"
-                  className={cn(selectClass, "w-40")}
-                  value={x.kind}
+            ))}
+            <Button
+              variant="outline"
+              onClick={() => set("items", [...value.items, newItem()])}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Добавить пункт
+            </Button>
+          </section>
+        </div>
+        <div className="min-w-0 space-y-8 border-t pt-8 xl:border-l xl:border-t-0 xl:pl-8 xl:pt-0">
+          <section className="space-y-4">
+            <h3 className="font-semibold">Назначение и приёмка</h3>
+            <Field label="Ответственный по смене">
+              <select
+                className={selectClass}
+                value={value.template_id}
+                onChange={(e) => set("template_id", e.target.value)}
+              >
+                {data.templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Приёмка">
+              <select
+                className={selectClass}
+                value={value.review_mode}
+                onChange={(e) =>
+                  set("review_mode", e.target.value as "auto" | "manager")
+                }
+              >
+                <option value="manager">Принимает управляющий</option>
+                <option value="auto">Автоматически после полного отчёта</option>
+              </select>
+            </Field>
+          </section>
+          <section className="space-y-4">
+            <h3 className="font-semibold">Повторение</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Повторять раз в">
+                <Input
+                  type="number"
+                  min={1}
+                  max={52}
+                  value={value.recurrence.interval}
                   onChange={(e) =>
-                    item(i, {
-                      kind: e.target.value as ChecklistItem["kind"],
-                      required: e.target.value === "info" ? false : x.required,
+                    set("recurrence", {
+                      ...value.recurrence,
+                      interval: Number(e.target.value),
+                    })
+                  }
+                />
+              </Field>
+              <Field label="Период">
+                <select
+                  className={selectClass}
+                  value={value.recurrence.unit}
+                  onChange={(e) =>
+                    set("recurrence", {
+                      ...value.recurrence,
+                      unit: e.target.value as "week" | "month",
                     })
                   }
                 >
-                  <option value="check">Отметка</option>
-                  <option value="photo">Фото</option>
-                  <option value="text">Текст</option>
-                  <option value="number">Число</option>
-                  <option value="info">Подсказка</option>
+                  <option value="week">Неделю</option>
+                  <option value="month">Месяц</option>
                 </select>
-                {x.kind !== "info" && (
-                  <Check
-                    checked={x.required}
-                    onChange={(v) => item(i, { required: v })}
-                  >
-                    Обязательно
-                  </Check>
-                )}
-              </div>
-              <Textarea
-                aria-label="Пояснение к пункту"
-                placeholder="Пояснение к пункту"
-                value={x.hint}
-                onChange={(e) => item(i, { hint: e.target.value })}
-              />
-              {x.kind === "number" && (
-                <div className="grid grid-cols-3 gap-2">
-                  <Input
-                    aria-label="Минимум"
-                    type="number"
-                    placeholder="Минимум"
-                    value={x.min ?? ""}
-                    onChange={(e) =>
-                      item(i, {
-                        min:
-                          e.target.value === "" ? null : Number(e.target.value),
-                      })
-                    }
-                  />
-                  <Input
-                    aria-label="Максимум"
-                    type="number"
-                    placeholder="Максимум"
-                    value={x.max ?? ""}
-                    onChange={(e) =>
-                      item(i, {
-                        max:
-                          e.target.value === "" ? null : Number(e.target.value),
-                      })
-                    }
-                  />
-                  <Input
-                    aria-label="Единица"
-                    placeholder="Ед."
-                    value={x.unit}
-                    onChange={(e) => item(i, { unit: e.target.value })}
-                  />
-                </div>
-              )}
+              </Field>
             </div>
-          ))}
-          <Button
-            variant="outline"
-            onClick={() => set("items", [...value.items, newItem()])}
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Добавить пункт
-          </Button>
-        </section>
-        <fieldset disabled={!canFinance} className="space-y-3">
-          <legend className="font-medium">Начисления</legend>
-          <Check
-            checked={value.penalty_enabled}
-            onChange={(v) => set("penalty_enabled", v)}
-          >
-            Применять правило за невыполнение
-          </Check>
-          {value.penalty_enabled && (
-            <Field label="Штраф, ₽">
+            <Field label="Дата первого повторения">
+              <Input
+                type="date"
+                value={value.recurrence.anchor}
+                onChange={(e) =>
+                  set("recurrence", {
+                    ...value.recurrence,
+                    anchor: e.target.value,
+                  })
+                }
+              />
+            </Field>
+            <Field label="Назначать начиная с">
+              <Input
+                type="date"
+                value={value.starts_on}
+                onChange={(e) => set("starts_on", e.target.value)}
+              />
+            </Field>
+          </section>
+          <fieldset disabled={!canFinance} className="space-y-3">
+            <legend className="font-medium">Начисления</legend>
+            <Check
+              checked={value.penalty_enabled}
+              onChange={(v) => set("penalty_enabled", v)}
+            >
+              Применять правило за невыполнение
+            </Check>
+            {value.penalty_enabled && (
+              <Field label="Штраф, ₽">
+                <Input
+                  type="number"
+                  min={0}
+                  value={value.fine_amount ?? ""}
+                  placeholder="По правилам заведения"
+                  onChange={(e) =>
+                    set(
+                      "fine_amount",
+                      e.target.value === "" ? null : Number(e.target.value),
+                    )
+                  }
+                />
+              </Field>
+            )}
+            <Field label="Премия за выполнение после переноса">
               <Input
                 type="number"
                 min={0}
-                value={value.fine_amount ?? ""}
-                placeholder="По правилам заведения"
+                value={value.reward_amount ?? ""}
+                placeholder="Без премии"
                 onChange={(e) =>
                   set(
-                    "fine_amount",
+                    "reward_amount",
                     e.target.value === "" ? null : Number(e.target.value),
                   )
                 }
               />
             </Field>
-          )}
-          <Field label="Премия за выполнение после переноса">
-            <Input
-              type="number"
-              min={0}
-              value={value.reward_amount ?? ""}
-              placeholder="Без премии"
-              onChange={(e) =>
-                set(
-                  "reward_amount",
-                  e.target.value === "" ? null : Number(e.target.value),
-                )
-              }
-            />
-          </Field>
-          <p className="text-xs text-muted-foreground">
-            Деньги или бонусы и предупреждения определяются правилами зарплаты
-            заведения.
-          </p>
-        </fieldset>
-        <Field label="Предыдущая задача">
-          <select
-            className={selectClass}
-            value={value.predecessor_id ?? ""}
-            onChange={(e) => {
-              setValue((s) => ({
-                ...s,
-                predecessor_id: e.target.value || null,
-                predecessor_offset: e.target.value ? 1 : 0,
-              }));
-            }}
-          >
-            <option value="">Не зависит от другой задачи</option>
-            {data.definitions
-              .filter((t) => t.id !== value.id)
-              .map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-          </select>
-        </Field>
-        {value.predecessor_id && (
-          <Field label="Через сколько дней после неё">
-            <Input
-              type="number"
-              min={1}
-              max={7}
-              value={value.predecessor_offset}
-              onChange={(e) =>
-                set("predecessor_offset", Number(e.target.value))
-              }
-            />
-          </Field>
-        )}
-        {value.equipment_groups.length > 0 && (
-          <div className="space-y-2">
-            <h2 className="font-medium">Группы оборудования по очереди</h2>
-            {value.equipment_groups.map((g, i) => (
-              <Field key={i} label={`Группа ${i + 1}`}>
+            <p className="text-xs text-muted-foreground">
+              Деньги или бонусы и предупреждения определяются правилами зарплаты
+              заведения.
+            </p>
+          </fieldset>
+
+          <section className="space-y-4">
+            <h3 className="font-semibold">Связи и оборудование</h3>
+            <Field label="Предыдущая задача">
+              <select
+                className={selectClass}
+                value={value.predecessor_id ?? ""}
+                onChange={(e) => {
+                  setDirty(true);
+                  setValue((s) => ({
+                    ...s,
+                    predecessor_id: e.target.value || null,
+                    predecessor_offset: e.target.value ? 1 : 0,
+                  }));
+                }}
+              >
+                <option value="">Не зависит от другой задачи</option>
+                {data.definitions
+                  .filter((t) => t.id !== value.id)
+                  .map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+              </select>
+            </Field>
+            {value.predecessor_id && (
+              <Field label="Через сколько дней после неё">
                 <Input
-                  value={g.join(", ")}
+                  type="number"
+                  min={1}
+                  max={7}
+                  value={value.predecessor_offset}
                   onChange={(e) =>
-                    set(
-                      "equipment_groups",
-                      value.equipment_groups.map((s, n) =>
-                        n === i
-                          ? e.target.value
-                              .split(/[,;\s]+/)
-                              .filter(Boolean)
-                              .map(Number)
-                          : s,
-                      ),
-                    )
+                    set("predecessor_offset", Number(e.target.value))
                   }
                 />
               </Field>
-            ))}
-            <p className="text-xs text-muted-foreground">
-              Группы сменяются при каждом повторении, независимо от начала
-              месяца.
-            </p>
-          </div>
-        )}
-        <Check
-          disabled={!canPublish}
-          checked={value.enabled}
-          onChange={(v) => set("enabled", v)}
-        >
-          Включить задачу в расписание
-        </Check>
+            )}
+            {value.equipment_groups.length > 0 && (
+              <div className="space-y-2">
+                <h2 className="font-medium">Группы оборудования по очереди</h2>
+                {value.equipment_groups.map((g, i) => (
+                  <Field key={i} label={`Группа ${i + 1}`}>
+                    <Input
+                      value={g.join(", ")}
+                      onChange={(e) =>
+                        set(
+                          "equipment_groups",
+                          value.equipment_groups.map((s, n) =>
+                            n === i
+                              ? e.target.value
+                                  .split(/[,;\s]+/)
+                                  .filter(Boolean)
+                                  .map(Number)
+                              : s,
+                          ),
+                        )
+                      }
+                    />
+                  </Field>
+                ))}
+                <p className="text-xs text-muted-foreground">
+                  Группы сменяются при каждом повторении, независимо от начала
+                  месяца.
+                </p>
+              </div>
+            )}
+          </section>
+          <section className="border-t pt-6">
+            <Check
+              disabled={!canPublish}
+              checked={value.enabled}
+              onChange={(v) => set("enabled", v)}
+            >
+              Включить задачу в расписание
+            </Check>
+          </section>
+        </div>
       </fieldset>
-    </EditDrawer>
+    </TaskScreen>
   );
 }
 function TaskRun({
@@ -823,13 +994,6 @@ function TaskRun({
     setDirty(false);
     setComment(o.review_comment);
   }, [o.answers, o.version, o.review_comment]);
-  useEffect(() => {
-    const handler = (e: BeforeUnloadEvent) => {
-      if (dirty) e.preventDefault();
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [dirty]);
   useEffect(() => {
     let alive = true;
     taskHistory(o.id)
@@ -919,13 +1083,6 @@ function TaskRun({
       setBusy(false);
     }
   }
-  async function close() {
-    if (dirty) {
-      toast.error("Сохраните изменения перед закрытием");
-      return;
-    }
-    onClose();
-  }
   async function upload(id: string, file: File | undefined) {
     if (!file) return;
     setBusy(true);
@@ -945,21 +1102,14 @@ function TaskRun({
     (p) => p.id === o.predecessor_occurrence_id,
   );
   return (
-    <EditDrawer
-      open
-      onOpenChange={(v) => !v && !busy && void close()}
+    <TaskScreen
+      onBack={onClose}
+      dirty={dirty}
+      busy={busy}
       title={o.snapshot.name}
       description={`${taskStatus[o.status]} · ${o.employee_name || "Без назначения"}`}
-      footer={
+      actions={
         <div className="flex w-full flex-wrap justify-end gap-2">
-          <Button
-            variant="outline"
-            disabled={busy}
-            onClick={() => void close()}
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Закрыть
-          </Button>
           {editable && (
             <>
               <Button
@@ -993,7 +1143,7 @@ function TaskRun({
         </div>
       }
     >
-      <div className="space-y-6">
+      <div className="max-w-3xl space-y-6">
         {o.blocker && <p className="text-sm text-destructive">{o.blocker}</p>}
         {o.deadline_at && (
           <p className="text-sm text-muted-foreground">
@@ -1004,7 +1154,7 @@ function TaskRun({
           </p>
         )}
         {o.review_comment && (
-          <div className="border-l-2 border-border pl-3">
+          <div className="rounded-md border bg-muted/30 p-4">
             <p className="text-sm font-medium">Замечания управляющего</p>
             <p className="text-sm">{o.review_comment}</p>
           </div>
@@ -1168,7 +1318,7 @@ function TaskRun({
           </details>
         )}
       </div>
-    </EditDrawer>
+    </TaskScreen>
   );
 }
 function PriorPhoto({ path }: { path: Answer | undefined }) {
@@ -1197,10 +1347,12 @@ function PriorPhoto({ path }: { path: Answer | undefined }) {
 function SettingsEditor({
   data,
   onClose,
+  onRefresh,
   onSaved,
 }: {
   data: TaskData;
   onClose: () => void;
+  onRefresh: () => Promise<void>;
   onSaved: () => Promise<void>;
 }) {
   const [from, setFrom] = useState(data.settings?.enabled_from ?? ""),
@@ -1232,65 +1384,78 @@ function SettingsEditor({
     }
   }
   return (
-    <EditDrawer
-      open
-      onOpenChange={(v) => !v && !busy && onClose()}
+    <TaskScreen
       title="Настройки задач"
-      footer={
-        <>
-          <Button variant="outline" disabled={busy} onClick={onClose}>
-            Отмена
-          </Button>
-          <Button disabled={busy} onClick={() => void submit()}>
-            Сохранить
-          </Button>
-        </>
+      onBack={onClose}
+      busy={busy}
+      description="Автоматическое назначение, начисления и уведомления заведения."
+      dirty={
+        from !== (data.settings?.enabled_from ?? "") ||
+        stopped !== (data.settings?.legacy_stopped ?? false) ||
+        chat !== (data.settings?.chat_id ?? "") ||
+        reminders !== (data.settings?.reminder_chat_ids?.join(", ") ?? "")
+      }
+      actions={
+        <Button disabled={busy} onClick={() => void submit()}>
+          {busy ? "Сохранение…" : "Сохранить настройки"}
+        </Button>
       }
     >
-      <div className="space-y-6">
-        <p className="text-sm text-muted-foreground">
-          Дата перехода включает назначение заданий и начисления по их
-          результатам. Перед этим сверьте переходный период и отключите прежние
-          обработчики задач и напоминаний.
-        </p>
-        <Field label="Включить с">
-          <Input
-            type="date"
-            min={data.today}
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-          />
-        </Field>
-        <Check checked={stopped} onChange={setStopped}>
-          Прежние обработчики задач, начислений за задачи и напоминаний
-          отключены
-        </Check>
-        <Field label="ID чата для списка задач">
-          <Input
-            value={chat}
-            onChange={(e) => setChat(e.target.value)}
-            placeholder="−100…"
-          />
-        </Field>
-        <Field label="Чаты напоминаний о сдаче графика">
-          <Textarea
-            value={reminders}
-            onChange={(e) => setReminders(e.target.value)}
-            placeholder="ID чатов через запятую"
-          />
-        </Field>
-        <p className="text-xs text-muted-foreground">
-          Напоминания — в понедельник и среду в 14:00 по часовому поясу
-          заведения. Список задач — ежедневно в 12:00.
-        </p>
-        {from && (
-          <Button variant="outline" onClick={() => setFrom("")}>
-            Остановить автоматическую обработку
-          </Button>
-        )}
-        <TaskMessageErrors messages={data.messages} onSaved={onSaved} />
-      </div>
-    </EditDrawer>
+      <fieldset
+        disabled={busy}
+        className="grid items-start gap-10 lg:grid-cols-2"
+      >
+        <section className="max-w-xl space-y-5">
+          <h3 className="text-base font-semibold">
+            Переход на задачи в Sheerly
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            Дата перехода включает назначение заданий и начисления по их
+            результатам. Перед этим сверьте переходный период и отключите
+            прежние обработчики задач и напоминаний.
+          </p>
+          <Field label="Включить с">
+            <Input
+              type="date"
+              min={data.today}
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+            />
+          </Field>
+          <Check checked={stopped} onChange={setStopped}>
+            Прежние обработчики задач, начислений за задачи и напоминаний
+            отключены
+          </Check>
+          {from && (
+            <Button variant="outline" onClick={() => setFrom("")}>
+              Остановить автоматическую обработку
+            </Button>
+          )}
+        </section>
+        <section className="max-w-xl space-y-5">
+          <h3 className="text-base font-semibold">Уведомления</h3>
+          <Field label="ID чата для списка задач">
+            <Input
+              value={chat}
+              onChange={(e) => setChat(e.target.value)}
+              placeholder="−100…"
+            />
+          </Field>
+          <Field label="Чаты напоминаний о сдаче графика">
+            <Textarea
+              value={reminders}
+              onChange={(e) => setReminders(e.target.value)}
+              placeholder="ID чатов через запятую"
+            />
+          </Field>
+          <p className="text-xs text-muted-foreground">
+            Напоминания — в понедельник и среду в 14:00 по часовому поясу
+            заведения. Список задач — ежедневно в 12:00.
+          </p>
+        </section>
+      </fieldset>
+      <TaskMessageErrors messages={data.messages} onSaved={onRefresh} />
+    </TaskScreen>
   );
 }
 function TaskMessageErrors({

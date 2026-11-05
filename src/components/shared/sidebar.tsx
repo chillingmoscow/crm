@@ -159,11 +159,6 @@ const NAV_SECTIONS: NavSection[] = [
         icon: ClipboardList,
         permission: "payroll.view",
       },
-      {
-        title: "Задачи",
-        href: "/schedule/tasks",
-        icon: ClipboardList,
-      },
     ],
   },
   {

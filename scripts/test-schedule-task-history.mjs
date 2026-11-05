@@ -111,8 +111,19 @@ try {
       },
     ]),
   );
-  const response = await fetch(`${site}/schedule/tasks`, {
-    headers: { cookie: jar.map((c) => `${c.name}=${c.value}`).join("; ") },
+  const cookie = jar.map((c) => `${c.name}=${c.value}`).join("; ");
+  const legacy = await fetch(`${site}/schedule/tasks`, {
+    headers: { cookie },
+    redirect: "manual",
+  });
+  assert.equal(legacy.status, 307);
+  assert.equal(
+    new URL(legacy.headers.get("location"), site).pathname +
+      new URL(legacy.headers.get("location"), site).search,
+    "/schedule?tab=tasks",
+  );
+  const response = await fetch(`${site}/schedule?tab=tasks`, {
+    headers: { cookie },
   });
   assert.equal(response.status, 200);
   assert(
@@ -120,7 +131,7 @@ try {
     "The settled prerequisite outside the 31-day window was omitted",
   );
   console.log(
-    "PASS: authenticated task screen loads a 46-day-old settled prerequisite of an unsettled returned report",
+    "PASS: legacy link redirects to the schedule tasks tab; authenticated tab loads the 46-day-old settled prerequisite",
   );
 } finally {
   check(

@@ -45,7 +45,7 @@ export async function processTaskMessage() {
     const base = (
       process.env.NEXT_PUBLIC_SITE_URL || "https://sheerly.app"
     ).replace(/\/$/, "");
-    const link = `<a href="${escapeHtml(base)}/schedule/tasks">Открыть задачи в Sheerly</a>`;
+    const link = `<a href="${escapeHtml(base)}/schedule?tab=tasks">Открыть задачи в Sheerly</a>`;
     const text =
       job.kind === "daily"
         ? `✅ <b>Задачи на сегодня</b>\n\n${job.payload.map((t) => `• ${escapeHtml(t.name)} — ${escapeHtml(t.employee || "без назначения")}${t.blocked ? " (нужна проверка назначения)" : ""}`).join("\n")}\n\nЗаполните чек-листы и приложите фотографии к нужным пунктам.\n${link}`

@@ -64,6 +64,7 @@ const nextConfig: NextConfig = {
     // Remove these once external bookmarks and search index have
     // refreshed (~2 weeks after deployment).
     return [
+      { source: "/schedule/tasks", destination: "/schedule?tab=tasks", permanent: false },
       // KB: «Аналитика» объединена с «Дашбордом» в один экран.
       { source: "/knowledge/analytics",          destination: "/knowledge/dashboard",          permanent: true },
       { source: "/knowledge/analytics/:slug*",   destination: "/knowledge/dashboard/:slug*",   permanent: true },

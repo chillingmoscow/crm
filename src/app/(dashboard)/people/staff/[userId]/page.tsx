@@ -1,6 +1,8 @@
 import { StaffDoorCode } from "../../candidates/_components/staff-door-code";
 import { StaffTerminationStatus } from "../_components/staff-termination-status";
+import { StaffRestoreStatus } from "../_components/staff-restore-status";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { businessDate } from "@/lib/sales/time";
 import { redirect } from "next/navigation";
 import {
   createClient,
@@ -268,6 +270,17 @@ export default async function StaffMemberPage({
         .limit(1)
         .maybeSingle()
     : null;
+  // An unfinished «Восстановить» (error or in progress) replaces the dismissal status.
+  const restoration = can("people.edit_staff") && isFired
+    ? await asLooseDb(admin)
+        .from<{ state: string; error: string | null; attempts: number }>("staff_restorations")
+        .select("state,error,attempts")
+        .eq("account_id", accountId)
+        .eq("uvr_id", targetUvr.id)
+        .not("state", "in", "(complete,cancelled)")
+        .limit(1)
+        .maybeSingle()
+    : null;
   const revokedDoorNumbers =
     accountOwner && termination?.data?.door_revoked
       ? await asLooseDb(admin)
@@ -278,13 +291,27 @@ export default async function StaffMemberPage({
           .eq("account_id", accountId)
           .eq("user_id", userId)
       : null;
+  // «Сегодня» в часовом поясе заведения — дефолт даты смены должности.
+  const { data: salesSettings } = await asLooseDb(createAdminClient())
+    .from<{ timezone: string; day_start_hour: number }>("sales_settings")
+    .select("timezone, day_start_hour")
+    .eq("venue_id", venueId)
+    .maybeSingle();
+  const venueToday = businessDate(
+    new Date(),
+    salesSettings?.timezone ?? "Europe/Moscow",
+    salesSettings?.day_start_hour ?? 9,
+  );
+
   return (
     <>
       <StaffDetailPage
         candidateId={candidateLink.data?.id ?? null}
         doorCode={door?.data ? <StaffDoorCode userId={userId} /> : null}
         terminationStatus={
-          isFired && termination?.data ? (
+          isFired && restoration?.data ? (
+            <StaffRestoreStatus uvrId={targetUvr.id} status={restoration.data} />
+          ) : isFired && termination?.data && termination.data.state !== "cancelled" ? (
             <StaffTerminationStatus
               uvrId={targetUvr.id}
               status={termination.data}
@@ -299,6 +326,7 @@ export default async function StaffMemberPage({
         accountId={accountId}
         email={identity.email}
         uvrId={targetUvr.id}
+        venueToday={venueToday}
         roleId={targetUvr.role_id}
         roleName={targetUvr.roles?.name ?? ""}
         roleCode={targetUvr.roles?.code ?? ""}
@@ -309,13 +337,6 @@ export default async function StaffMemberPage({
         roles={roles ?? []}
         canEdit={canEdit}
         isFired={isFired}
-        canRestore={
-          !termination?.data ||
-          termination.data.shared_access ||
-          (!termination.data.employee_id &&
-            !termination.data.guest_id &&
-            !termination.data.door_revoked)
-        }
         firedAt={targetUvr.fired_at}
         firedReason={targetUvr.fired_reason}
         isMe={user.id === userId}

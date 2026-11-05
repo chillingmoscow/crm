@@ -3,6 +3,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { decryptSecret } from "@/lib/integrations/crypto";
 import { telegramDestination } from "@/lib/integrations/telegram-destination";
+import { PARTIAL_FROM_ATTEMPT, sendChatInvites } from "@/lib/people/chat-invites";
+import { hiresMissingInvites, recoveryCutoff } from "./chat-invites-recovery";
 import { allowedPhotoURL } from "./schema";
 import type { CandidateFile } from "./types";
 type Job = {
@@ -13,15 +15,37 @@ type Job = {
   payload: Record<string, unknown>;
   attempts: number;
 };
+export async function enqueueChatInvites(db: ReturnType<typeof asLooseDb>, h: { id: string; account_id: string; candidate_id: string; target_user_id: string; input: { role_id?: string; first_name?: string; last_name?: string } }) {
+  check(await db.from("candidate_jobs").upsert({
+    account_id: h.account_id, candidate_id: h.candidate_id, kind: "chat_invites",
+    payload: { user_id: h.target_user_id, role_id: h.input.role_id, name: `${h.input.first_name ?? ""} ${h.input.last_name ?? ""}`.trim(), event_key: `hire:${h.id}` },
+  }, { onConflict: "candidate_id,kind", ignoreDuplicates: true }));
+}
 const check = <T>(r: { data: T | null; error: { message: string } | null }) => {
   if (r.error) throw new Error(r.error.message);
   return r.data as T;
 };
+/** Safety net: a completed hire whose invitations job was never created (enqueue failed) gets one. */
+async function enqueueMissingChatInvites(db: ReturnType<typeof asLooseDb>) {
+  try {
+    const hires = check(await db.from<{ id: string; account_id: string; candidate_id: string; target_user_id: string; created_at: string; input: { role_id?: string; first_name?: string; last_name?: string } }[]>("candidate_hires")
+      .select("id,account_id,candidate_id,target_user_id,created_at,input").eq("state", "complete")
+      .gte("created_at", recoveryCutoff(Date.now())).order("created_at", { ascending: false }).limit(50)) ?? [];
+    if (!hires.length) return;
+    const have = check(await db.from<{ candidate_id: string }[]>("candidate_jobs").select("candidate_id")
+      .eq("kind", "chat_invites").in("candidate_id", hires.map(h => h.candidate_id))) ?? [];
+    const known = new Set(have.map(j => j.candidate_id));
+    for (const h of hiresMissingInvites(hires, known, Date.now())) await enqueueChatInvites(db, h);
+  } catch (e) {
+    console.error("chat_invites recovery failed:", e instanceof Error ? e.message : "unknown");
+  }
+}
 export async function processCandidateJobs(limit = 5) {
   const admin = createAdminClient(),
     db = asLooseDb(admin);
   let processed = 0,
     errors = 0;
+  await enqueueMissingChatInvites(db);
   for (let i = 0; i < limit; i++) {
     const job = check(await db.rpc("candidate_claim_job", {})) as Job | null;
     if (!job) break;
@@ -35,6 +59,16 @@ export async function processCandidateJobs(limit = 5) {
           )
         )
           check(await admin.storage.from("candidate-files").remove(paths));
+      }
+      if (job.kind === "chat_invites") {
+        const { user_id, role_id, name, event_key } = job.payload as Record<string, unknown>;
+        if (typeof user_id !== "string" || typeof name !== "string" || typeof event_key !== "string")
+          throw new Error("Некорректное задание приглашений в чаты");
+        await sendChatInvites(db, {
+          accountId: job.account_id, userId: user_id, name, eventKey: event_key,
+          roleId: typeof role_id === "string" ? role_id : null,
+          allowPartial: job.attempts >= PARTIAL_FROM_ATTEMPT,
+        });
       }
       if (["notify", "hired"].includes(job.kind) && job.candidate_id) {
         if (job.kind === "notify") check(

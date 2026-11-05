@@ -115,6 +115,8 @@ interface Props {
   accountId: string;
   email: string;
   uvrId: string;
+  /** Сегодняшняя дата в часовом поясе заведения (YYYY-MM-DD). */
+  venueToday: string;
   roleId: string;
   roleName: string;
   /** code текущей роли. owner (системная) через staff-UI не меняется —
@@ -127,7 +129,6 @@ interface Props {
   roles: Role[];
   canEdit: boolean;
   isFired: boolean;
-  canRestore?: boolean;
   firedAt: string | null;
   firedReason: string | null;
   isMe: boolean;
@@ -177,6 +178,7 @@ export function StaffDetailPage({
   email,
   uvrId,
   roleId,
+  venueToday,
   roleName,
   roleCode,
   departmentId,
@@ -186,7 +188,6 @@ export function StaffDetailPage({
   roles,
   canEdit: canEditProp,
   isFired,
-  canRestore = true,
   firedAt,
   firedReason,
   isMe,
@@ -229,6 +230,8 @@ export function StaffDetailPage({
   const [uploadingDocs, setUploadingDocs] = useState(false);
   const [confirmFire, setConfirmFire] = useState(false);
   const [fireReason, setFireReason] = useState("");
+  // Дата, с которой новая должность действует в зарплате (по умолчанию сегодня).
+  const [roleValidFrom, setRoleValidFrom] = useState(venueToday);
   const [isPending, startTransition] = useTransition();
   const [isInvitePending, startInviteTransition] = useTransition();
   // Если у юзера technical placeholder email — показываем пустое поле,
@@ -305,6 +308,7 @@ export function StaffDetailPage({
     setValue,
     control,
     reset,
+    watch,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -416,6 +420,8 @@ export function StaffDetailPage({
     toast.error(message);
   };
 
+  const watchedRoleId = watch("role_id");
+
   // Save: параллельные action'ы.
   // - updateStaffProfile — личные поля (тир 1+2)
   // - updateStaffAccountDetails — HR-данные аккаунта (тир 3)
@@ -441,8 +447,8 @@ export function StaffDetailPage({
 
       const rolePromise =
         canEditRole && values.role_id !== roleId
-          ? updateStaffRole(uvrId, values.role_id)
-          : Promise.resolve({ error: null });
+          ? updateStaffRole(uvrId, values.role_id, roleValidFrom)
+          : Promise.resolve({ error: null, notice: null as string | null });
 
       const [profileResult, detailsResult, pinResult, roleResult] =
         await Promise.all([
@@ -466,6 +472,7 @@ export function StaffDetailPage({
         return;
       }
       toast.success("Данные сохранены");
+      if (roleResult.notice) toast.warning(roleResult.notice);
       router.refresh();
     });
   };
@@ -689,7 +696,7 @@ export function StaffDetailPage({
       </PageBreadcrumb>
 
       <PageHeaderActions>
-        {isFired && canManageStaff && canRestore && (
+        {isFired && canManageStaff && (
           <Button
             variant="outline"
             size="sm"
@@ -698,6 +705,8 @@ export function StaffDetailPage({
                 const result = await restoreStaff(uvrId);
                 if (result.error) {
                   toast.error(translateError(result.error));
+                  // An unfinished restore shows its state and «Повторить» on the card.
+                  router.refresh();
                   return;
                 }
                 toast.success("Сотрудник восстановлен");
@@ -1139,7 +1148,10 @@ export function StaffDetailPage({
                       render={({ field }) => (
                         <Select
                           value={field.value}
-                          onValueChange={field.onChange}
+                          onValueChange={(v) => {
+                            field.onChange(v);
+                            setRoleValidFrom(venueToday);
+                          }}
                         >
                           <SelectTrigger>
                             <SelectValue placeholder="Выберите должность" />
@@ -1163,6 +1175,26 @@ export function StaffDetailPage({
                     </p>
                   )}
                 </div>
+
+                {canEditRole && watchedRoleId !== roleId && (
+                  <div className="space-y-1.5">
+                    <Label
+                      htmlFor="role_valid_from"
+                      className="text-[13px] font-medium"
+                    >
+                      Действует с
+                    </Label>
+                    <DatePicker
+                      id="role_valid_from"
+                      value={roleValidFrom}
+                      onChange={setRoleValidFrom}
+                      clearable={false}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      С этой даты у сотрудника меняется должность в зарплате.
+                    </p>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">

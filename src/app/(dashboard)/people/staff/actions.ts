@@ -11,7 +11,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { hasCustomMailerConfig, sendInvitationEmail } from "@/lib/people/invitations/mailer";
 import { revalidatePath } from "next/cache";
 import { processStaffTermination } from "@/lib/people/termination";
+import { processStaffRestore } from "@/lib/people/restore";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { validDate } from "@/lib/sales/time";
+import { assignPayrollPositionOnly, requeuePayrollFrom } from "@/app/(dashboard)/people/payroll/actions";
 
 export type PendingInvitation = {
   inv_id:    string;
@@ -757,8 +760,10 @@ export async function inviteImportedStaffByCurrentEmail(data: {
 
 export async function updateStaffRole(
   uvrId:  string,
-  roleId: string
-): Promise<{ error: string | null }> {
+  roleId: string,
+  validFrom: string,
+): Promise<{ error: string | null; notice?: string | null }> {
+  if (!validDate(validFrom)) return { error: "Укажите дату, с которой действует должность" };
   const supabase = await createClient();
 
   // Право на UPDATE user_venue_roles гейтит RLS-политика
@@ -789,19 +794,77 @@ export async function updateStaffRole(
     return { error: "Нельзя назначить архивную должность" };
   }
 
-  const { error } = await supabase
+  // Порядок: запись должности в зарплате (RPC) → роль доступа → пересчёт.
+  // RPC может отказать (период зафиксирован, у должности не настроена оплата) —
+  // тогда доступ не трогаем. Нет строки в зарплате — зарплатная часть не нужна.
+  const notices: string[] = [];
+  const admin = createAdminClient();
+  const { data: payrollRow } = await asLooseDb(admin)
+    .from<{ id: string; role_id: string | null; model_id: string | null; role_name: string }>("payroll_employees")
+    .select("id, role_id, model_id, role_name")
+    .eq("venue_id", uvr.venue_id)
+    .eq("local_user_id", uvr.user_id)
+    .maybeSingle();
+  let payrollChanged = false;
+  if (payrollRow && payrollRow.role_id !== roleId) {
+    const can = await getCachedPermissionChecker();
+    const { data: activeVenue } = await supabase.rpc("get_active_venue_id");
+    if (!can("payroll.configure")) {
+      notices.push("Должность в зарплате не изменена: нужно право настройки зарплаты");
+    } else if (activeVenue !== uvr.venue_id) {
+      notices.push("Должность в зарплате не изменена: переключитесь на заведение сотрудника и повторите");
+    } else {
+      try {
+        await assignPayrollPositionOnly(payrollRow.id, roleId, validFrom);
+        payrollChanged = true;
+      } catch (e) {
+        return {
+          error: e instanceof Error ? e.message : "Не удалось изменить должность в зарплате",
+        };
+      }
+    }
+  }
+
+  // RLS может молча отфильтровать UPDATE (0 строк без ошибки) — это тоже отказ.
+  const { data: updated, error: updateError } = await supabase
     .from("user_venue_roles")
     .update({ role_id: roleId })
-    .eq("id", uvrId);
+    .eq("id", uvrId)
+    .select("id");
+  const error = updateError ?? (updated?.length ? null : { message: "Не удалось изменить доступ сотрудника: нет права или запись изменилась" });
 
-  if (error) return { error: error.message };
+  if (error) {
+    if (!payrollChanged || !payrollRow) return { error: error.message };
+    // Откат зарплатной части (best effort). Повторный вызов RPC с прежней
+    // должностью с той же даты упёрся бы в unique(employee_id, valid_from),
+    // поэтому снимаем запись истории и возвращаем прежние модель/название.
+    const db = asLooseDb(admin);
+    const [hist, back] = await Promise.all([
+      db.from("payroll_employee_models").delete()
+        .eq("employee_id", payrollRow.id).eq("valid_from", validFrom),
+      db.from("payroll_employees")
+        .update({ model_id: payrollRow.model_id, role_name: payrollRow.role_name })
+        .eq("id", payrollRow.id),
+    ]);
+    const state = hist.error || back.error
+      ? "Должность в зарплате изменена, а доступ — нет, и откатить зарплату не удалось: проверьте условия сотрудника в Зарплате."
+      : "Изменения отменены: должность в зарплате возвращена, доступ не изменён.";
+    return { error: `${error.message}. ${state}` };
+  }
+
+  if (payrollChanged) {
+    try {
+      await requeuePayrollFrom(validFrom);
+    } catch {
+      notices.push("Должность изменена; пересчёт зарплаты поставьте вручную (Зарплата → Обновить)");
+    }
+  }
 
   // Синхронизируем неактивированное приглашение этого сотрудника в это
   // заведение. Иначе acceptInvitation (upsert по onConflict user_id,venue_id)
   // при активации перезапишет role_id обратно на старую роль из инвайта и
   // затрёт только что сделанную смену. Касается импортированных/pending
   // сотрудников, у которых UVR уже есть, но инвайт ещё не принят.
-  const admin = createAdminClient();
   const { data: authData } = await admin.auth.admin.getUserById(uvr.user_id);
   const email = authData?.user?.email;
   if (email) {
@@ -814,7 +877,7 @@ export async function updateStaffRole(
   }
 
   revalidatePath("/people/staff");
-  return { error: null };
+  return { error: null, notice: notices.length ? notices.join(". ") : null };
 }
 
 export async function fireStaff(
@@ -848,16 +911,26 @@ export async function retryStaffTermination(uvrId:string) {
   return fireStaff(uvrId,"Продолжение увольнения");
 }
 
+/**
+ * «Восстановить»: recovers the previous Quick Resto records, issues a new door code, then
+ * returns access. Calling it again continues an unfinished restore («Повторить»).
+ */
 export async function restoreStaff(
   uvrId: string
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("user_venue_roles")
-    .update({ status: "active", fired_at: null, fired_reason: null } as Record<string, unknown>)
-    .eq("id", uvrId);
-
+  const { data, error } = await asLooseDb(supabase).rpc("staff_begin_restore", { p_uvr: uvrId });
   if (error) return { error: error.message };
+  try {
+    await processStaffRestore(String(data));
+    const status = await asLooseDb(createAdminClient()).from<{ state: string; error: string | null }>("staff_restorations")
+      .select("state,error").eq("id", data).single();
+    if (status.error || status.data?.state !== "complete")
+      throw new Error(status.data?.error ?? "Возврат ещё выполняется. Состояние доступно в карточке сотрудника");
+  } catch (e) {
+    revalidatePath("/people/staff");
+    return { error: e instanceof Error ? e.message : "Сотрудник не возвращён. Проверьте карточку сотрудника" };
+  }
   revalidatePath("/people/staff");
   return { error: null };
 }

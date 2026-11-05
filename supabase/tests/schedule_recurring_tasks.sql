@@ -106,7 +106,7 @@ end $$;
 
 -- Regression scenarios from review: repeated carries, ambiguity after draft, late acceptance and correction deadlines.
 do $$
-declare owner_id uuid;staff_id uuid;v uuid;a uuid;d date;tpl uuid;employee uuid;def uuid;prep_def uuid;prep uuid;original uuid;carried uuid;second_carry uuid;started uuid;duplicate uuid;late uuid;returned uuid;shift uuid;future_occ uuid;future_shift uuid;dependent_def uuid;dependent uuid;late_prep uuid;correction_def uuid;expired_return uuid;new_carry uuid;late_assignment_def uuid;late_assignment uuid;replacement_user uuid;replacement_employee uuid;reassigned_def uuid;reassigned uuid;ver integer;check_id uuid:=gen_random_uuid();snap jsonb;prep_snap jsonb;
+declare owner_id uuid;staff_id uuid;v uuid;a uuid;d date;tpl uuid;employee uuid;def uuid;prep_def uuid;prep uuid;original uuid;carried uuid;second_carry uuid;started uuid;duplicate uuid;late uuid;returned uuid;shift uuid;future_occ uuid;future_shift uuid;dependent_def uuid;dependent uuid;late_prep uuid;correction_def uuid;expired_return uuid;new_carry uuid;late_assignment_def uuid;late_assignment uuid;replacement_user uuid;replacement_employee uuid;reassigned_def uuid;reassigned uuid;collision_def uuid;pending_carry uuid;occupied uuid;competing_source uuid;ver integer;check_id uuid:=gen_random_uuid();snap jsonb;prep_snap jsonb;
 begin
  select id into owner_id from auth.users where email='owner@test.com';
  select id into staff_id from auth.users where email='waiter@test.com';
@@ -227,6 +227,26 @@ begin
  perform public.schedule_command('shift.assign',jsonb_build_object('id',shift,'version',ver,'user_id',replacement_user));
  perform public.schedule_process_tasks();perform public.schedule_process_tasks();
  if not exists(select 1 from public.schedule_task_occurrences where id=reassigned and status='blocked' and user_id=replacement_user and blocker like 'Срок истёк%' and settled_at is null) or exists(select 1 from public.payroll_adjustments where automation_key='task:'||reassigned||':result') then raise exception 'Поздняя замена сотрудника перенесла штраф на замену';end if;
- raise notice 'PASS: repeated prerequisite/equipment carry, ambiguous started assignment recovery, late approval reward, correction deadline/carry without backdated fines, calendar shift deletion/replacement, late prerequisite/publication/reassignment reconciliation';
+ -- An occupied carry date preserves the report and keeps the missed source pending until insertion succeeds.
+ insert into public.schedule_task_definitions(account_id,venue_id,name,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount)
+ select account_id,venue_id,'TEST Carry Collision',template_id,review_mode,items,recurrence,starts_on,false,true,300,300 from public.schedule_task_definitions where id=def returning id into collision_def;
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,settled_at)
+ values(v,a,collision_def,d-4,snap||jsonb_build_object('id',collision_def),'missed',now()) returning id into pending_carry;
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,user_id,answers)
+ values(v,a,collision_def,d,snap||jsonb_build_object('id',collision_def),'in_progress',staff_id,jsonb_build_object(check_id,true)) returning id into occupied;
+ perform public.schedule_process_tasks();perform public.schedule_process_tasks();
+ if not exists(select 1 from public.schedule_task_occurrences where id=pending_carry and not transfer_created and blocker like 'Перенос ожидает%') or not exists(select 1 from public.schedule_task_occurrences where id=occupied and status='in_progress' and transferred_from_id is null and answers=jsonb_build_object(check_id,true)) then raise exception 'Занятый день потерял перенос или перезаписал начатый отчёт';end if;
+ update public.schedule_task_occurrences set status='completed',settled_at=now() where id=occupied;
+ perform public.schedule_process_tasks();
+ if (select transfer_created from public.schedule_task_occurrences where id=pending_carry) then raise exception 'Выполненный отчёт ложно подтвердил перенос';end if;
+ -- Move the fixture out of the candidate date to exercise the next successful retry.
+ update public.schedule_task_occurrences set business_date=d+4 where id=occupied;
+ perform public.schedule_process_tasks();perform public.schedule_process_tasks();
+ if not exists(select 1 from public.schedule_task_occurrences where id=pending_carry and transfer_created and blocker='') or (select count(*) from public.schedule_task_occurrences where transferred_from_id=pending_carry and business_date=d)<>1 then raise exception 'Ожидавший перенос не восстановился ровно один раз';end if;
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,settled_at)
+ values(v,a,collision_def,d-5,snap||jsonb_build_object('id',collision_def),'missed',now()) returning id into competing_source;
+ perform public.schedule_process_tasks();
+ if (select transfer_created from public.schedule_task_occurrences where id=competing_source) or (select count(*) from public.schedule_task_occurrences where transferred_from_id=pending_carry and business_date=d)<>1 then raise exception 'Второй перенос перехватил задание первого';end if;
+ raise notice 'PASS: repeated prerequisite/equipment carry, ambiguous started assignment recovery, late approval reward, correction deadline/carry without backdated fines, calendar shift deletion/replacement, late assignment reconciliation, occupied carry retry and competing source preservation';
 end $$;
 rollback;

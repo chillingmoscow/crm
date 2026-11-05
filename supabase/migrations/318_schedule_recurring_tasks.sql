@@ -344,8 +344,13 @@ begin
    insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,transferred,transferred_from_id,predecessor_occurrence_id,equipment)
    values(o.venue_id,o.account_id,o.definition_id,greatest(o.business_date+1,today),o.snapshot,true,o.id,o.predecessor_occurrence_id,o.equipment)
    on conflict(definition_id,business_date) do update set transferred=true,transferred_from_id=excluded.transferred_from_id,snapshot=excluded.snapshot,predecessor_occurrence_id=excluded.predecessor_occurrence_id,equipment=excluded.equipment,version=schedule_task_occurrences.version+1
-   where schedule_task_occurrences.status in ('assigned','blocked') and schedule_task_occurrences.answers='{}'::jsonb and schedule_task_occurrences.settled_at is null;
-   update public.schedule_task_occurrences set transfer_created=true where id=o.id;
+   where schedule_task_occurrences.status in ('assigned','blocked') and schedule_task_occurrences.answers='{}'::jsonb and schedule_task_occurrences.settled_at is null and (schedule_task_occurrences.transferred_from_id is null or schedule_task_occurrences.transferred_from_id=excluded.transferred_from_id);
+   get diagnostics n=row_count;
+   if n>0 then
+    update public.schedule_task_occurrences set transfer_created=true,blocker='' where id=o.id;
+   else
+    update public.schedule_task_occurrences set blocker='Перенос ожидает свободного дня: текущее задание уже занято другим отчётом' where id=o.id;
+   end if;
   end loop;
  end loop;
  return jsonb_build_object('created',created,'settled',settled);

@@ -579,6 +579,9 @@ function DefinitionEditor({
     ),
     [busy, setBusy] = useState(false),
     [dirty, setDirty] = useState(false);
+  const [equipmentTexts, setEquipmentTexts] = useState(() =>
+    value.equipment_groups.map((group) => group.join(", ")),
+  );
   const set = <K extends keyof TaskInput>(key: K, v: TaskInput[K]) => {
     setDirty(true);
     setValue((s) => ({ ...s, [key]: v }));
@@ -589,9 +592,22 @@ function DefinitionEditor({
       value.items.map((x, i) => (i === index ? { ...x, ...patch } : x)),
     );
   async function submit() {
+    const equipmentGroups = equipmentTexts.map((text) =>
+      text.split(/[,;\s]+/).filter(Boolean).map(Number),
+    );
+    if (
+      equipmentGroups.some(
+        (group) =>
+          group.length === 0 ||
+          group.some((n) => !Number.isInteger(n) || n < 1 || n > 999),
+      )
+    ) {
+      toast.error("Укажите в группах целые номера оборудования от 1 до 999");
+      return;
+    }
     setBusy(true);
     try {
-      const r = await saveTask(value);
+      const r = await saveTask({ ...value, equipment_groups: equipmentGroups });
       if (r.error) toast.error(r.error);
       else {
         toast.success(
@@ -928,23 +944,19 @@ function DefinitionEditor({
             {value.equipment_groups.length > 0 && (
               <div className="space-y-2">
                 <h2 className="font-medium">Группы оборудования по очереди</h2>
-                {value.equipment_groups.map((g, i) => (
+                {equipmentTexts.map((text, i) => (
                   <Field key={i} label={`Группа ${i + 1}`}>
                     <Input
-                      value={g.join(", ")}
-                      onChange={(e) =>
-                        set(
-                          "equipment_groups",
-                          value.equipment_groups.map((s, n) =>
-                            n === i
-                              ? e.target.value
-                                  .split(/[,;\s]+/)
-                                  .filter(Boolean)
-                                  .map(Number)
-                              : s,
+                      aria-label={`Группа оборудования ${i + 1}`}
+                      value={text}
+                      onChange={(e) => {
+                        setDirty(true);
+                        setEquipmentTexts((groups) =>
+                          groups.map((group, n) =>
+                            n === i ? e.target.value : group,
                           ),
-                        )
-                      }
+                        );
+                      }}
                     />
                   </Field>
                 ))}

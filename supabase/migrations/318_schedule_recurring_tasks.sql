@@ -447,19 +447,27 @@ end $$;
 revoke all on function private.schedule_task_assignment_audit() from public,anon,authenticated;
 create trigger schedule_task_assignment_audit after insert or update on public.schedule_task_occurrences for each row execute function private.schedule_task_assignment_audit();
 
--- Untouched assignments can detach through the FK; reports with work/results must retain their shift.
-create function private.schedule_task_shift_delete_guard() returns trigger language plpgsql security definer set search_path='' as $$
-declare o public.schedule_task_occurrences;
+-- Untouched assignments can be corrected; reports with work/results retain their shift and assignment.
+create function private.schedule_task_shift_report_guard() returns trigger language plpgsql security definer set search_path='' as $$
+declare o public.schedule_task_occurrences;tz text;
 begin
+ if tg_op='UPDATE' then
+  select coalesce(timezone,'Europe/Moscow') into tz from public.venues where id=old.venue_id;
+  if new.user_id is not distinct from old.user_id and new.payroll_employee_id is not distinct from old.payroll_employee_id
+   and new.template_id is not distinct from old.template_id and (new.starts_at at time zone tz)::date=(old.starts_at at time zone tz)::date then return new;end if;
+ end if;
  for o in select * from public.schedule_task_occurrences where shift_id=old.id for update loop
   if o.status not in ('blocked','assigned') or o.answers<>'{}'::jsonb or o.submitted_at is not null or o.settled_at is not null then
-   raise exception 'Нельзя удалить смену с начатым отчётом задачи';
+   if tg_op='DELETE' then raise exception 'Нельзя удалить смену с начатым отчётом задачи';end if;
+   raise exception 'Нельзя менять назначение смены с начатым отчётом задачи';
   end if;
  end loop;
- return old;
+ if tg_op='DELETE' then return old;end if;
+ return new;
 end $$;
-revoke all on function private.schedule_task_shift_delete_guard() from public,anon,authenticated;
-create trigger schedule_task_shift_delete_guard before delete on public.schedule_shifts for each row execute function private.schedule_task_shift_delete_guard();
+revoke all on function private.schedule_task_shift_report_guard() from public,anon,authenticated;
+create trigger schedule_task_shift_delete_guard before delete on public.schedule_shifts for each row execute function private.schedule_task_shift_report_guard();
+create trigger schedule_task_shift_assignment_guard before update of user_id,payroll_employee_id,template_id,starts_at on public.schedule_shifts for each row execute function private.schedule_task_shift_report_guard();
 
 -- Extend the submission window in the same transaction as the shift edit, including saved drafts.
 -- A manager's correction deadline and a deadline already promised to the employee stay intact.

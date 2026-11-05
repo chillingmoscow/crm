@@ -161,19 +161,30 @@ async function attachCandidatePhotos(s: CandidateScope, rows: Candidate[]) {
     ),
   ];
   if (!paths.length) return;
-  const { data: signed } = await s.client.storage
-    .from("candidate-files")
-    .createSignedUrls(paths, 1800);
+  // The list shows a 36px avatar: originals average 1.5 MB (up to 8 MB), so the
+  // browser gets server-resized copies; the original stays as a fallback.
+  const bucket = s.client.storage.from("candidate-files");
+  const sign = (path: string, transform: { width: number; height?: number; resize: "cover" | "contain" }) =>
+    bucket.createSignedUrl(path, 1800, { transform }).then((r) => r.data?.signedUrl ?? null);
+  const [{ data: signed }, resized] = await Promise.all([
+    bucket.createSignedUrls(paths, 1800),
+    Promise.all(paths.map(async (path) => ({
+      path,
+      thumb: await sign(path, { width: 96, height: 96, resize: "cover" }),
+      preview: await sign(path, { width: 640, resize: "contain" }),
+    }))),
+  ]);
   const urls = new Map(
     (signed ?? [])
       .filter((f) => !!f.path && !!f.signedUrl)
       .map((f) => [f.path, f.signedUrl]),
   );
+  const resizedByPath = new Map(resized.map((r) => [r.path, r]));
   for (const row of rows) {
-    const file = files.find((f) => f.candidate_id === row.id);
-    row.photo_url = file?.storage_path
-      ? (urls.get(file.storage_path) ?? null)
-      : null;
+    const path = files.find((f) => f.candidate_id === row.id)?.storage_path;
+    row.photo_url = path ? (urls.get(path) ?? null) : null;
+    row.photo_thumb_url = path ? (resizedByPath.get(path)?.thumb ?? null) : null;
+    row.photo_preview_url = path ? (resizedByPath.get(path)?.preview ?? null) : null;
   }
 }
 export async function candidateList(

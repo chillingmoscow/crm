@@ -72,6 +72,9 @@ export type Candidate = {
   hired_at: string | null;
   archived_at: string | null;
   photo_url?: string | null;
+  /** Server-resized copies for the list avatar and its hover preview. */
+  photo_thumb_url?: string | null;
+  photo_preview_url?: string | null;
 };
 export type CandidateFile = {
   id: string;

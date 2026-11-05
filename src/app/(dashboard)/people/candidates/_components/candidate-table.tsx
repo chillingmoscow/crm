@@ -88,7 +88,12 @@ export function candidateColumns(
             </Link>
           );
         if (id === "photo")
-          return <PersonAvatar src={c.photo_url} name={c.full_name} />;
+          return <PersonAvatar
+              src={c.photo_thumb_url ?? c.photo_url}
+              previewSrc={c.photo_preview_url}
+              fallbackSrc={c.photo_url}
+              name={c.full_name}
+            />;
         if (id === "status")
           return (
             <CandidateStatusCell

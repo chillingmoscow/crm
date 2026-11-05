@@ -261,7 +261,7 @@ begin
 end $$;
 -- Editing a published shift extends saved drafts immediately, without changing correction deadlines.
 do $$
-declare owner_id uuid;staff_id uuid;v uuid;a uuid;employee uuid;tpl uuid;def uuid;shift uuid;occ uuid;correction uuid;check_id uuid:=gen_random_uuid();ver integer;snapshot jsonb;shift_start timestamptz;shift_end timestamptz;extended_end timestamptz;tz text;d date;
+declare owner_id uuid;staff_id uuid;v uuid;a uuid;employee uuid;tpl uuid;def uuid;shift uuid;occ uuid;correction uuid;check_id uuid:=gen_random_uuid();ver integer;snapshot jsonb;shift_start timestamptz;shift_end timestamptz;extended_end timestamptz;tz text;d date;original_cutover date;settings_input jsonb;paused_message uuid;
 begin
  select id into owner_id from auth.users where email='owner@test.com';
  select id into staff_id from auth.users where email='waiter@test.com';
@@ -320,6 +320,32 @@ begin
  select version into ver from public.schedule_task_occurrences where id=occ;
  perform public.schedule_task_command('run.submit',jsonb_build_object('id',occ,'version',ver,'answers',jsonb_build_object(check_id,true)));
  if not exists(select 1 from public.schedule_task_occurrences where id=occ and status='completed') then raise exception 'Отчёт недоступен после продления смены';end if;
- raise notice 'PASS: shift.delete and shift.assign preserve started reports; real shift.edit extends a saved draft with audit; worker cannot charge early; correction deadlines and granted windows survive; report can submit';
+ -- Pausing preserves the original cutover and an approved transferred reward from before the resume day.
+ update public.schedule_task_occurrences target set transferred=true,snapshot=jsonb_set(jsonb_set(target.snapshot,'{reward_amount}','300'),'{task_rules,extra_reward_enabled}','true') where id=occ;
+ perform set_config('request.jwt.claim.sub',owner_id::text,true);perform set_config('app.ctx_ready','0',true);
+ select enabled_from,version into original_cutover,ver from public.schedule_task_settings where venue_id=v;
+ settings_input:=jsonb_build_object('version',ver,'enabled_from',original_cutover,'paused',true,'legacy_stopped',true,'chat_id',null,'reminder_chat_ids','[]'::jsonb);
+ perform public.schedule_task_command('settings.save',settings_input);
+ perform public.schedule_process_tasks();
+ if not exists(select 1 from public.schedule_task_settings where venue_id=v and paused and enabled_from=original_cutover) or exists(select 1 from public.schedule_task_occurrences where id=occ and settled_at is not null) then raise exception 'Пауза не сохранила дату перехода или продолжила начисления';end if;
+ insert into public.schedule_task_messages(venue_id,account_id,business_date,message_key,chat_id,kind,payload)
+ values(v,a,(now() at time zone tz)::date,'pause-fixture','-1000','daily','[]') returning id into paused_message;
+ if public.schedule_claim_task_message() is not null or not exists(select 1 from public.schedule_task_messages where id=paused_message and state='pending') then raise exception 'Пауза не остановила очередь уведомлений';end if;
+ -- The former client's empty-date stop command must also preserve historical work.
+ select version into ver from public.schedule_task_settings where venue_id=v;
+ perform public.schedule_task_command('settings.save',settings_input||jsonb_build_object('version',ver,'enabled_from',null,'paused',false));
+ if not exists(select 1 from public.schedule_task_settings where venue_id=v and paused and enabled_from=original_cutover) then raise exception 'Прежняя команда остановки стёрла дату перехода';end if;
+ select version into ver from public.schedule_task_settings where venue_id=v;
+ begin
+  perform public.schedule_task_command('settings.save',settings_input||jsonb_build_object('version',ver,'enabled_from',(now() at time zone tz)::date,'paused',false));
+  raise exception 'Дата перехода с отчётами была перезаписана';
+ exception when others then
+  if sqlerrm<>'Дата перехода уже используется отчётами. Используйте паузу без изменения даты' then raise;end if;
+ end;
+ perform public.schedule_task_command('settings.save',settings_input||jsonb_build_object('version',ver,'paused',false));
+ perform public.schedule_process_tasks();perform public.schedule_process_tasks();
+ if not exists(select 1 from public.schedule_task_settings where venue_id=v and not paused and enabled_from=original_cutover) or (select count(*) from public.payroll_adjustments where automation_key='task:'||occ||':result' and amount=300 and kind='bonus')<>1 then raise exception 'Возобновление потеряло или задвоило премию прежнего отчёта';end if;
+ if (public.schedule_claim_task_message()->>'id') is distinct from paused_message::text then raise exception 'Возобновление не восстановило очередь уведомлений';end if;
+ raise notice 'PASS: shift.delete/assign preserve started reports; shift.edit extends saved draft with audit; no early charge; correction windows survive; report can submit; pause/resume preserves historical rewards and cutover';
 end $$;
 rollback;

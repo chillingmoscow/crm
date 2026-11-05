@@ -374,6 +374,12 @@ export function TasksClient({
           )}
         </div>
       </header>
+      {data.settings?.paused && manage && (
+        <p className="rounded-md border p-4 text-sm text-muted-foreground">
+          Автоматическая обработка приостановлена. Дата перехода и отчёты
+          сохранены. Возобновить обработку можно в настройках.
+        </p>
+      )}
       {!data.settings?.enabled_from && manage && (
         <p className="rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
           Автоматическое назначение ещё не включено. Подготовьте шаблоны,
@@ -1368,6 +1374,7 @@ function SettingsEditor({
   onSaved: () => Promise<void>;
 }) {
   const [from, setFrom] = useState(data.settings?.enabled_from ?? ""),
+    [paused, setPaused] = useState(data.settings?.paused ?? false),
     [stopped, setStopped] = useState(data.settings?.legacy_stopped ?? false),
     [chat, setChat] = useState(data.settings?.chat_id ?? ""),
     [reminders, setReminders] = useState(
@@ -1380,6 +1387,7 @@ function SettingsEditor({
       const r = await saveTaskSettings({
         version: data.settings?.version,
         enabled_from: from || null,
+        paused,
         legacy_stopped: stopped,
         chat_id: chat || null,
         reminder_chat_ids: reminders.split(/[,;\s]+/).filter(Boolean),
@@ -1403,6 +1411,7 @@ function SettingsEditor({
       description="Автоматическое назначение, начисления и уведомления заведения."
       dirty={
         from !== (data.settings?.enabled_from ?? "") ||
+        paused !== (data.settings?.paused ?? false) ||
         stopped !== (data.settings?.legacy_stopped ?? false) ||
         chat !== (data.settings?.chat_id ?? "") ||
         reminders !== (data.settings?.reminder_chat_ids?.join(", ") ?? "")
@@ -1426,10 +1435,11 @@ function SettingsEditor({
             результатам. Перед этим сверьте переходный период и отключите
             прежние обработчики задач и напоминаний.
           </p>
-          <Field label="Включить с">
+          <Field label="Дата перехода">
             <Input
               type="date"
               min={data.today}
+              disabled={Boolean(data.settings?.enabled_from)}
               value={from}
               onChange={(e) => setFrom(e.target.value)}
             />
@@ -1439,9 +1449,18 @@ function SettingsEditor({
             отключены
           </Check>
           {from && (
-            <Button variant="outline" onClick={() => setFrom("")}>
-              Остановить автоматическую обработку
-            </Button>
+            <div className="space-y-2">
+              <Button variant="outline" onClick={() => setPaused(!paused)}>
+                {paused
+                  ? "Возобновить автоматическую обработку"
+                  : "Приостановить автоматическую обработку"}
+              </Button>
+              <p className="text-sm text-muted-foreground">
+                {paused ? "Обработка будет приостановлена." : "Обработка будет включена."}
+                {" "}Дата перехода и существующие отчёты сохраняются. Изменение
+                вступит в силу после сохранения настроек.
+              </p>
+            </div>
           )}
         </section>
         <section className="max-w-xl space-y-5">

@@ -104,6 +104,7 @@ export type TaskOccurrence = {
 export type TaskSettings = {
   venue_id: string;
   enabled_from: string | null;
+  paused: boolean;
   legacy_stopped: boolean;
   chat_id: string | null;
   reminder_chat_ids: string[];

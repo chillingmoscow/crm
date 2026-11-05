@@ -139,6 +139,7 @@ export async function saveTaskSettings(input: unknown) {
           .string()
           .regex(/^\d{4}-\d{2}-\d{2}$/)
           .nullable(),
+        paused: z.boolean().default(false),
         legacy_stopped: z.boolean(),
         chat_id: z
           .string()

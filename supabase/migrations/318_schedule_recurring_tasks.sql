@@ -15,7 +15,7 @@ create table public.schedule_task_definitions (
 );
 create table public.schedule_task_settings (
  venue_id uuid primary key references public.venues(id), account_id uuid not null references public.accounts(id),
- enabled_from date, legacy_stopped boolean not null default false, chat_id text,
+ enabled_from date, paused boolean not null default false, legacy_stopped boolean not null default false, chat_id text,
  reminder_chat_ids jsonb not null default '[]', version integer not null default 1,
  check(enabled_from is null or legacy_stopped)
 );
@@ -115,7 +115,7 @@ create function public.schedule_task_command(p_action text,p_input jsonb) return
 language plpgsql security definer set search_path=public,pg_catalog as $$
 declare u uuid:=auth.uid();v uuid:=public.get_active_venue_id();a uuid:=public.get_active_account_id();
  ident uuid:=nullif(p_input->>'id','')::uuid;def public.schedule_task_definitions;o public.schedule_task_occurrences;
- ans jsonb;item jsonb;perm text;pred uuid;rec jsonb;settings public.schedule_task_settings;correct_until timestamptz;
+ ans jsonb;item jsonb;perm text;pred uuid;rec jsonb;settings public.schedule_task_settings;correct_until timestamptz;activation_date date;is_paused boolean;
 begin
  if u is null or v is null or a is null or not exists(select 1 from public.venues where id=v and account_id=a) then raise exception 'Выберите заведение';end if;
  if p_action='definition.save' then
@@ -161,13 +161,16 @@ begin
   if not public.has_permission('schedule.checklist_edit') or not public.has_permission('payroll.configure') or not public.has_permission('payroll.review') then raise exception 'Нет доступа к переключению задач';end if;
   select * into settings from public.schedule_task_settings where venue_id=v and account_id=a for update;
   if settings.venue_id is not null and settings.version is distinct from (p_input->>'version')::integer then raise exception 'Настройки изменились';end if;
-  if nullif(p_input->>'enabled_from','')::date is distinct from settings.enabled_from and nullif(p_input->>'enabled_from','')::date < (now() at time zone coalesce((select timezone from public.venues where id=v),'Europe/Moscow'))::date then raise exception 'Переключение задним числом запрещено';end if;
-  if nullif(p_input->>'enabled_from','') is not null and (p_input->>'legacy_stopped')::boolean is distinct from true then raise exception 'Сначала отключите прежние начисления за задачи';end if;
-  if nullif(p_input->>'enabled_from','') is not null and (not exists(select 1 from public.payroll_settings where venue_id=v and account_id=a) or not exists(select 1 from public.payroll_automation_settings where venue_id=v and account_id=a and version>0)) then raise exception 'Сначала настройте зарплату и подтвердите правила задач';end if;
+  activation_date:=coalesce(nullif(p_input->>'enabled_from','')::date,settings.enabled_from);
+  is_paused:=coalesce((p_input->>'paused')::boolean,false) or (nullif(p_input->>'enabled_from','') is null and settings.enabled_from is not null);
+  if settings.enabled_from is not null and activation_date is distinct from settings.enabled_from and exists(select 1 from public.schedule_task_occurrences where venue_id=v) then raise exception 'Дата перехода уже используется отчётами. Используйте паузу без изменения даты';end if;
+  if activation_date is distinct from settings.enabled_from and activation_date < (now() at time zone coalesce((select timezone from public.venues where id=v),'Europe/Moscow'))::date then raise exception 'Переключение задним числом запрещено';end if;
+  if activation_date is not null and (p_input->>'legacy_stopped')::boolean is distinct from true then raise exception 'Сначала отключите прежние начисления за задачи';end if;
+  if activation_date is not null and (not exists(select 1 from public.payroll_settings where venue_id=v and account_id=a) or not exists(select 1 from public.payroll_automation_settings where venue_id=v and account_id=a and version>0)) then raise exception 'Сначала настройте зарплату и подтвердите правила задач';end if;
   if nullif(p_input->>'chat_id','') is not null and p_input->>'chat_id' !~ '^-?[0-9]{1,20}$' then raise exception 'Неверный ID чата';end if;
   if jsonb_typeof(coalesce(p_input->'reminder_chat_ids','[]')) is distinct from 'array' or jsonb_array_length(coalesce(p_input->'reminder_chat_ids','[]'))>30 or exists(select 1 from jsonb_array_elements_text(coalesce(p_input->'reminder_chat_ids','[]')) x where x !~ '^-?[0-9]{1,20}$') then raise exception 'Проверьте чаты напоминаний';end if;
-  insert into public.schedule_task_settings(venue_id,account_id,enabled_from,legacy_stopped,chat_id,reminder_chat_ids) values(v,a,nullif(p_input->>'enabled_from','')::date,coalesce((p_input->>'legacy_stopped')::boolean,false),nullif(p_input->>'chat_id',''),coalesce(p_input->'reminder_chat_ids','[]'))
-  on conflict(venue_id) do update set enabled_from=excluded.enabled_from,legacy_stopped=excluded.legacy_stopped,chat_id=excluded.chat_id,reminder_chat_ids=excluded.reminder_chat_ids,version=schedule_task_settings.version+1;
+  insert into public.schedule_task_settings(venue_id,account_id,enabled_from,paused,legacy_stopped,chat_id,reminder_chat_ids) values(v,a,activation_date,is_paused,coalesce((p_input->>'legacy_stopped')::boolean,false),nullif(p_input->>'chat_id',''),coalesce(p_input->'reminder_chat_ids','[]'))
+  on conflict(venue_id) do update set enabled_from=excluded.enabled_from,paused=excluded.paused,legacy_stopped=excluded.legacy_stopped,chat_id=excluded.chat_id,reminder_chat_ids=excluded.reminder_chat_ids,version=schedule_task_settings.version+1;
   ident:=v;
  elsif p_action in ('run.save','run.submit','run.approve','run.return') then
   select * into o from public.schedule_task_occurrences where id=ident and venue_id=v and account_id=a for update;
@@ -247,7 +250,9 @@ declare settings public.schedule_task_settings;today date;tz text;entry jsonb;o 
  n integer;count_shifts integer;blocked_reason text;group_index integer;occurrence_index integer;assignment_deadline timestamptz;rules jsonb;kind text;medium text;amount numeric;
  adjustment uuid;created integer:=0;settled integer:=0;
 begin
- for settings in select st.* from public.schedule_task_settings st where st.enabled_from is not null and st.legacy_stopped for update skip locked loop
+ for settings in select st.* from public.schedule_task_settings st where st.enabled_from is not null and st.legacy_stopped and not st.paused for update skip locked loop
+  -- Share the venue lock with payroll approval until the journal and salary overlays are settled.
+  perform pg_advisory_xact_lock(hashtextextended(settings.venue_id::text,0));
   select coalesce(timezone,'Europe/Moscow') into tz from public.venues where id=settings.venue_id and account_id=settings.account_id;
   if tz is null then continue;end if;today:=(now() at time zone tz)::date;
   if settings.enabled_from>today then continue;end if;
@@ -369,7 +374,7 @@ declare body text;
 begin
  select pg_get_functiondef('public.payroll_prepare_bonus_operations()'::regprocedure) into body;
  if position('r.origin in (''lateness'',''manual'')' in body)=0 then raise exception 'Не найдена ожидаемая версия исполнителя бонусов';end if;
- body:=replace(body,'r.origin in (''lateness'',''manual'')','(r.origin in (''lateness'',''manual'') or (r.origin=''task'' and exists(select 1 from public.schedule_task_settings st where st.venue_id=r.venue_id and st.account_id=r.account_id and st.legacy_stopped and st.enabled_from<=r.business_date)))');
+ body:=replace(body,'r.origin in (''lateness'',''manual'')','(r.origin in (''lateness'',''manual'') or (r.origin=''task'' and exists(select 1 from public.schedule_task_settings st where st.venue_id=r.venue_id and st.account_id=r.account_id and st.legacy_stopped and not st.paused and st.enabled_from<=r.business_date)))');
  execute body;
 end $migration$;
 
@@ -394,7 +399,7 @@ language plpgsql security definer set search_path=public,pg_catalog as $$
 declare st public.schedule_task_settings;today date;local_time timestamp;tz text;tasks jsonb;chat text;msg public.schedule_task_messages;token uuid:=gen_random_uuid();weekday integer;
 begin
  update public.schedule_task_messages set state='review',error='Ответ Telegram неизвестен. Проверьте чат перед повтором' where state='sending' and claimed_at<now()-interval '3 minutes';
- for st in select s.* from public.schedule_task_settings s where s.enabled_from is not null and s.legacy_stopped loop
+ for st in select s.* from public.schedule_task_settings s where s.enabled_from is not null and s.legacy_stopped and not s.paused loop
   select coalesce(timezone,'Europe/Moscow') into tz from public.venues where id=st.venue_id;
   local_time:=now() at time zone tz;today:=local_time::date;weekday:=extract(isodow from today)::integer;
   if today<st.enabled_from then continue;end if;
@@ -411,7 +416,7 @@ begin
   end if;
  end loop;
  update public.schedule_task_messages m set state='expired' from public.venues v where v.id=m.venue_id and m.state in ('pending','error') and m.business_date<(now() at time zone coalesce(v.timezone,'Europe/Moscow'))::date;
- select m.* into msg from public.schedule_task_messages m join public.schedule_task_settings s on s.venue_id=m.venue_id and s.account_id=m.account_id where s.enabled_from is not null and s.legacy_stopped and m.business_date>=s.enabled_from and m.state in ('pending','error') and m.attempts<5 and m.available_at<=now() order by m.available_at,m.id for update of m skip locked limit 1;
+ select m.* into msg from public.schedule_task_messages m join public.schedule_task_settings s on s.venue_id=m.venue_id and s.account_id=m.account_id where s.enabled_from is not null and s.legacy_stopped and not s.paused and m.business_date>=s.enabled_from and m.state in ('pending','error') and m.attempts<5 and m.available_at<=now() order by m.available_at,m.id for update of m skip locked limit 1;
  if msg.id is null then return null;end if;
  update public.schedule_task_messages set state='sending',lease_token=token,claimed_at=now(),attempts=attempts+1 where id=msg.id;
  return to_jsonb(msg)||jsonb_build_object('lease_token',token);

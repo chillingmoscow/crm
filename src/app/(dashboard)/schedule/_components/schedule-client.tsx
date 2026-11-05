@@ -57,6 +57,7 @@ import {
   Field,
   selectClass,
   type Save,
+  formatTemplateTimes,
 } from "./editors";
 import { RunPanel } from "./run-panel";
 import { CandidateTrialCard } from "./candidate-trial-card";
@@ -589,9 +590,7 @@ export function ScheduleClient({ initial }: { initial: ScheduleData }) {
                   >
                     <GripVertical className="size-3" />
                     {t.name}
-                    <span>
-                      {t.start_time.slice(0, 5)}–{t.end_time.slice(0, 5)}
-                    </span>
+                    <span>{formatTemplateTimes(t)}</span>
                   </button>
                 ))}
               {!data.templates.some((t) => !t.archived) && (
@@ -905,7 +904,7 @@ export function ScheduleClient({ initial }: { initial: ScheduleData }) {
                     <div className="flex-1 min-w-40">
                       <p className="text-sm font-medium">{t.name}</p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {t.start_time.slice(0, 5)}–{t.end_time.slice(0, 5)} ·
+                        {formatTemplateTimes(t)} ·
                         перерыв {t.break_minutes} мин · чек-листов{" "}
                         {t.checklist_ids.length}
                       </p>

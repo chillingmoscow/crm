@@ -269,8 +269,8 @@ begin
  select account_id,coalesce(timezone,'Europe/Moscow') into a,tz from public.venues where id=v;
  select id into employee from public.payroll_employees where venue_id=v and local_user_id=staff_id;
  perform set_config('request.jwt.claim.sub',owner_id::text,true);perform set_config('app.ctx_ready','0',true);
- -- Earlier fixtures have already been checked; release their overlapping test shifts for the real calendar command.
- delete from public.schedule_shifts where venue_id=v and user_id=staff_id and title like 'TEST%';
+ -- Earlier fixtures have already been checked; release their test assignee for the real calendar command.
+ update public.schedule_shifts set user_id=null where venue_id=v and user_id=staff_id and title like 'TEST%';
  shift_start:=date_trunc('minute',now())-interval '12 hours';shift_end:=date_trunc('minute',now())-interval '1 hour';extended_end:=date_trunc('minute',now())+interval '2 hours';d:=(shift_start at time zone tz)::date;
  insert into public.schedule_templates(venue_id,name,color,start_time,end_time) values(v,'TEST Shift Deadline','blue','17:00','23:00') returning id into tpl;
  insert into public.schedule_task_definitions(account_id,venue_id,name,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount)
@@ -282,6 +282,16 @@ begin
  values(v,a,def,d,snapshot,'assigned',shift,employee,staff_id,now()+interval '1 hour') returning id,version into occ,ver;
  perform set_config('request.jwt.claim.sub',staff_id::text,true);perform set_config('app.ctx_ready','0',true);
  perform public.schedule_task_command('run.save',jsonb_build_object('id',occ,'version',ver,'answers',jsonb_build_object(check_id,true)));
+ -- The real delete command must preserve a draft even without a schedule_runs record.
+ perform set_config('request.jwt.claim.sub',owner_id::text,true);perform set_config('app.ctx_ready','0',true);
+ select version into ver from public.schedule_shifts where id=shift;
+ begin
+  perform public.schedule_command('shift.delete',jsonb_build_object('id',shift,'version',ver));
+  raise exception 'Удалена смена с начатым отчётом';
+ exception when others then
+  if sqlerrm<>'Нельзя удалить смену с начатым отчётом задачи' then raise;end if;
+ end;
+ if not exists(select 1 from public.schedule_shifts where id=shift) or not exists(select 1 from public.schedule_task_occurrences where id=occ and shift_id=shift and status='in_progress' and answers=jsonb_build_object(check_id,true)) then raise exception 'Неудачное удаление потеряло смену или отчёт';end if;
  -- Simulate the original due time having elapsed before the edited shift ends.
  update public.schedule_task_occurrences set deadline_at=shift_end where id=occ;
  insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,shift_id,employee_id,user_id,deadline_at,submitted_at)
@@ -302,6 +312,6 @@ begin
  select version into ver from public.schedule_task_occurrences where id=occ;
  perform public.schedule_task_command('run.submit',jsonb_build_object('id',occ,'version',ver,'answers',jsonb_build_object(check_id,true)));
  if not exists(select 1 from public.schedule_task_occurrences where id=occ and status='completed') then raise exception 'Отчёт недоступен после продления смены';end if;
- raise notice 'PASS: real shift.edit extends a saved draft with audit; worker cannot charge early; correction deadlines and granted windows survive; report can submit';
+ raise notice 'PASS: shift.delete preserves started reports; real shift.edit extends a saved draft with audit; worker cannot charge early; correction deadlines and granted windows survive; report can submit';
 end $$;
 rollback;

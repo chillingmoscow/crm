@@ -447,6 +447,20 @@ end $$;
 revoke all on function private.schedule_task_assignment_audit() from public,anon,authenticated;
 create trigger schedule_task_assignment_audit after insert or update on public.schedule_task_occurrences for each row execute function private.schedule_task_assignment_audit();
 
+-- Untouched assignments can detach through the FK; reports with work/results must retain their shift.
+create function private.schedule_task_shift_delete_guard() returns trigger language plpgsql security definer set search_path='' as $$
+declare o public.schedule_task_occurrences;
+begin
+ for o in select * from public.schedule_task_occurrences where shift_id=old.id for update loop
+  if o.status not in ('blocked','assigned') or o.answers<>'{}'::jsonb or o.submitted_at is not null or o.settled_at is not null then
+   raise exception 'Нельзя удалить смену с начатым отчётом задачи';
+  end if;
+ end loop;
+ return old;
+end $$;
+revoke all on function private.schedule_task_shift_delete_guard() from public,anon,authenticated;
+create trigger schedule_task_shift_delete_guard before delete on public.schedule_shifts for each row execute function private.schedule_task_shift_delete_guard();
+
 -- Extend the submission window in the same transaction as the shift edit, including saved drafts.
 -- A manager's correction deadline and a deadline already promised to the employee stay intact.
 create function private.schedule_task_shift_deadline() returns trigger language plpgsql security definer set search_path='' as $$

@@ -2,6 +2,7 @@ import { StaffDoorCode } from "../../candidates/_components/staff-door-code";
 import { StaffTerminationStatus } from "../_components/staff-termination-status";
 import { StaffRestoreStatus } from "../_components/staff-restore-status";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { businessDate } from "@/lib/sales/time";
 import { redirect } from "next/navigation";
 import {
   createClient,
@@ -290,6 +291,18 @@ export default async function StaffMemberPage({
           .eq("account_id", accountId)
           .eq("user_id", userId)
       : null;
+  // «Сегодня» в часовом поясе заведения — дефолт даты смены должности.
+  const { data: salesSettings } = await asLooseDb(createAdminClient())
+    .from<{ timezone: string; day_start_hour: number }>("sales_settings")
+    .select("timezone, day_start_hour")
+    .eq("venue_id", venueId)
+    .maybeSingle();
+  const venueToday = businessDate(
+    new Date(),
+    salesSettings?.timezone ?? "Europe/Moscow",
+    salesSettings?.day_start_hour ?? 9,
+  );
+
   return (
     <>
       <StaffDetailPage
@@ -313,6 +326,7 @@ export default async function StaffMemberPage({
         accountId={accountId}
         email={identity.email}
         uvrId={targetUvr.id}
+        venueToday={venueToday}
         roleId={targetUvr.role_id}
         roleName={targetUvr.roles?.name ?? ""}
         roleCode={targetUvr.roles?.code ?? ""}

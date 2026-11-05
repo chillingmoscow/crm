@@ -14,7 +14,7 @@ import { processStaffTermination } from "@/lib/people/termination";
 import { processStaffRestore } from "@/lib/people/restore";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { validDate } from "@/lib/sales/time";
-import { assignPayrollPosition } from "@/app/(dashboard)/people/payroll/actions";
+import { assignPayrollPositionOnly, requeuePayrollFrom } from "@/app/(dashboard)/people/payroll/actions";
 
 export type PendingInvitation = {
   inv_id:    string;
@@ -794,25 +794,29 @@ export async function updateStaffRole(
     return { error: "Нельзя назначить архивную должность" };
   }
 
-  // Должность в зарплате меняется ДО роли доступа: зарплатная часть может
-  // отказать (период зафиксирован, у должности не настроена оплата), и тогда
-  // доступ не должен разойтись с зарплатой. Нет строки в зарплате — нечего
-  // менять. Нет права настройки зарплаты — доступ меняем, но говорим об этом.
-  let notice: string | null = null;
+  // Порядок: запись должности в зарплате (RPC) → роль доступа → пересчёт.
+  // RPC может отказать (период зафиксирован, у должности не настроена оплата) —
+  // тогда доступ не трогаем. Нет строки в зарплате — зарплатная часть не нужна.
+  const notices: string[] = [];
   const admin = createAdminClient();
   const { data: payrollRow } = await asLooseDb(admin)
-    .from<{ id: string; role_id: string | null }>("payroll_employees")
-    .select("id, role_id")
+    .from<{ id: string; role_id: string | null; model_id: string | null; role_name: string }>("payroll_employees")
+    .select("id, role_id, model_id, role_name")
     .eq("venue_id", uvr.venue_id)
     .eq("local_user_id", uvr.user_id)
     .maybeSingle();
+  let payrollChanged = false;
   if (payrollRow && payrollRow.role_id !== roleId) {
     const can = await getCachedPermissionChecker();
+    const { data: activeVenue } = await supabase.rpc("get_active_venue_id");
     if (!can("payroll.configure")) {
-      notice = "Должность в зарплате не изменена: нужно право настройки зарплаты";
+      notices.push("Должность в зарплате не изменена: нужно право настройки зарплаты");
+    } else if (activeVenue !== uvr.venue_id) {
+      notices.push("Должность в зарплате не изменена: переключитесь на заведение сотрудника и повторите");
     } else {
       try {
-        await assignPayrollPosition(payrollRow.id, roleId, validFrom);
+        await assignPayrollPositionOnly(payrollRow.id, roleId, validFrom);
+        payrollChanged = true;
       } catch (e) {
         return {
           error: e instanceof Error ? e.message : "Не удалось изменить должность в зарплате",
@@ -826,7 +830,32 @@ export async function updateStaffRole(
     .update({ role_id: roleId })
     .eq("id", uvrId);
 
-  if (error) return { error: error.message };
+  if (error) {
+    if (!payrollChanged || !payrollRow) return { error: error.message };
+    // Откат зарплатной части (best effort). Повторный вызов RPC с прежней
+    // должностью с той же даты упёрся бы в unique(employee_id, valid_from),
+    // поэтому снимаем запись истории и возвращаем прежние модель/название.
+    const db = asLooseDb(admin);
+    const [hist, back] = await Promise.all([
+      db.from("payroll_employee_models").delete()
+        .eq("employee_id", payrollRow.id).eq("valid_from", validFrom),
+      db.from("payroll_employees")
+        .update({ model_id: payrollRow.model_id, role_name: payrollRow.role_name })
+        .eq("id", payrollRow.id),
+    ]);
+    const state = hist.error || back.error
+      ? "Должность в зарплате изменена, а доступ — нет, и откатить зарплату не удалось: проверьте условия сотрудника в Зарплате."
+      : "Изменения отменены: должность в зарплате возвращена, доступ не изменён.";
+    return { error: `${error.message}. ${state}` };
+  }
+
+  if (payrollChanged) {
+    try {
+      await requeuePayrollFrom(validFrom);
+    } catch {
+      notices.push("Должность изменена; пересчёт зарплаты поставьте вручную (Зарплата → Обновить)");
+    }
+  }
 
   // Синхронизируем неактивированное приглашение этого сотрудника в это
   // заведение. Иначе acceptInvitation (upsert по onConflict user_id,venue_id)
@@ -845,7 +874,7 @@ export async function updateStaffRole(
   }
 
   revalidatePath("/people/staff");
-  return { error: null, notice };
+  return { error: null, notice: notices.length ? notices.join(". ") : null };
 }
 
 export async function fireStaff(

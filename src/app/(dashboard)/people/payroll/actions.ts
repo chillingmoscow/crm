@@ -787,12 +787,21 @@ export async function saveRoleCompensation(roleId:string,input:Record<string,unk
  return result.data;
 }
 export async function assignPayrollPosition(employeeId:string,roleId:string,from:string) {
+ const data=await assignPayrollPositionOnly(employeeId,roleId,from);
+ await requeuePayrollFrom(from);
+ return data;
+}
+/** Только запись должности (RPC) без постановки пересчёта: вызывающий сам решает, что делать при сбое очереди. */
+export async function assignPayrollPositionOnly(employeeId:string,roleId:string,from:string) {
  const s=await scope("payroll.configure");
  if(!validDate(from)) throw new Error("Укажите дату начала действия");
  const result=await s.db.rpc("payroll_assign_position",{p_employee_id:employeeId,p_role_id:roleId,p_valid_from:from});
  if(result.error) throw new Error(result.error.message);
- await queueChangedConditions(s,from);
  return result.data;
+}
+export async function requeuePayrollFrom(from:string) {
+ const s=await scope("payroll.configure");
+ await queueChangedConditions(s,from);
 }
 
 export async function setPayrollAttendanceSource(employeeId:string,source:"quickresto"|"schedule"|"excluded",from:string,reason:string,expectedRuleId:string|null) {

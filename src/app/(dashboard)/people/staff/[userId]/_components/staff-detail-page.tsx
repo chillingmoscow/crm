@@ -115,6 +115,8 @@ interface Props {
   accountId: string;
   email: string;
   uvrId: string;
+  /** Сегодняшняя дата в часовом поясе заведения (YYYY-MM-DD). */
+  venueToday: string;
   roleId: string;
   roleName: string;
   /** code текущей роли. owner (системная) через staff-UI не меняется —
@@ -176,6 +178,7 @@ export function StaffDetailPage({
   email,
   uvrId,
   roleId,
+  venueToday,
   roleName,
   roleCode,
   departmentId,
@@ -228,9 +231,7 @@ export function StaffDetailPage({
   const [confirmFire, setConfirmFire] = useState(false);
   const [fireReason, setFireReason] = useState("");
   // Дата, с которой новая должность действует в зарплате (по умолчанию сегодня).
-  const [roleValidFrom, setRoleValidFrom] = useState(() =>
-    new Date().toLocaleDateString("sv-SE"),
-  );
+  const [roleValidFrom, setRoleValidFrom] = useState(venueToday);
   const [isPending, startTransition] = useTransition();
   const [isInvitePending, startInviteTransition] = useTransition();
   // Если у юзера technical placeholder email — показываем пустое поле,
@@ -1147,7 +1148,10 @@ export function StaffDetailPage({
                       render={({ field }) => (
                         <Select
                           value={field.value}
-                          onValueChange={field.onChange}
+                          onValueChange={(v) => {
+                            field.onChange(v);
+                            setRoleValidFrom(venueToday);
+                          }}
                         >
                           <SelectTrigger>
                             <SelectValue placeholder="Выберите должность" />

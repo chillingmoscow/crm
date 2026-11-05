@@ -49,6 +49,7 @@ import { statementRows } from "@/lib/payroll/calculate";
 import type { Accrual, PayrollData } from "@/lib/payroll/types";
 import s from "./payroll-concept.module.css";
 import { PageFrame } from "@/components/shared/page-frame";
+import { recalculateInventoryDeduction } from "@/app/(dashboard)/inventory/_actions/deduction";
 
 type Row = ReturnType<typeof statementRows>[number];
 const rub = (n: number) =>
@@ -287,8 +288,23 @@ export function PayrollConcept({
       </div>
     ),
   };
+  // Пересчёт удержания по недостаче за открытый месяц: нужен после правок табеля
+  // и смен, которые автопересчёт не запускают. Право проверяет и сервер.
+  const canRecalculateShortage = data.permissions.includes("inventory.post_deductions");
+  const recalculateShortage = async () => {
+    const label = new Date(`${monthStart}T12:00:00`).toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
+    const id = toast.loading(`Пересчитываем недостачу за ${label}…`);
+    try {
+      const r = await recalculateInventoryDeduction({ venueId: data.venueId, month: monthStart });
+      if (r.error) toast.error(r.error, { id });
+      else toast.success(r.summary ?? "Недостача пересчитана", { id, duration: 8000 });
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось пересчитать недостачу", { id });
+    }
+  };
   const tableActions = tab === "statement" ? (
-    (can("pay") || can("review")) && <DropdownMenu>
+    (can("pay") || can("review") || canRecalculateShortage) && <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button className={s.actionButton} disabled={busy}><Plus size={16} />Добавить<ChevronDown size={14} /></Button>
       </DropdownMenuTrigger>
@@ -298,6 +314,9 @@ export function PayrollConcept({
         {can("review") && <><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => {
           setTransferEmployee(undefined); setTransferOpen(true);
         }}>Перенести остаток</DropdownMenuItem></>}
+        {canRecalculateShortage && <><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => void recalculateShortage()}>
+          Пересчитать недостачу за месяц
+        </DropdownMenuItem></>}
       </DropdownMenuContent>
     </DropdownMenu>
   ) : tab === "payments" && can("pay") ? (

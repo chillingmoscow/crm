@@ -42,7 +42,7 @@ test('recovers the previous employee and guest, restores Staff group and opens a
  const f=fixture();
  const result=await recoverStaffInQuickResto({ids,settings,transport:f.transport,done:f.done,save:f.save});
  assert.deepEqual(result,{bonusId:6001});
- assert.deepEqual(f.writes,['recover:personnel.employee','store:1','store:16','recover:crm.customer','group:8','bonus']);
+ assert.deepEqual(f.writes,['recover:crm.customer','group:8','bonus','recover:personnel.employee','store:1','store:16']);
  assert.equal(f.employees[0].deleted,false);assert.equal(f.employees[0].pin,'4821');
  assert.equal(f.done.employee,true);assert.equal(f.done.guest,true);assert.equal(f.done.bonus,6001);
 });
@@ -60,7 +60,7 @@ test('a lost recover response is not repeated: the next read shows it landed',as
  await assert.rejects(recoverStaffInQuickResto({ids,settings,transport:f.transport,done:f.done,save:f.save}),/fetch failed/);
  f.writes.length=0;
  await recoverStaffInQuickResto({ids,settings,transport:f.transport,done:f.done,save:f.save});
- assert.deepEqual(f.writes,['group:8','bonus']);
+ assert.deepEqual(f.writes,['group:8','bonus','recover:personnel.employee','store:1','store:16']);
 });
 
 test('an erased employee stops the restore before anything is recovered',async()=>{
@@ -103,4 +103,17 @@ test('without Quick Resto ids nothing is touched',async()=>{
 test('rejects malformed ids',async()=>{
  const f=fixture();
  await assert.rejects(recoverStaffInQuickResto({ids:{employeeId:-1,guestId:null},settings,transport:f.transport,done:f.done,save:f.save}),/Некорректная связь/);
+});
+
+test('a failed guest recover leaves the employee deleted in Quick Resto',async()=>{
+ const f=fixture({recoverError:'crm.customer'});
+ await assert.rejects(recoverStaffInQuickResto({ids,settings,transport:f.transport,done:f.done,save:f.save}),{message:NOT_RECOVERABLE});
+ assert.deepEqual(f.writes,['recover:crm.customer']);
+ assert.equal(f.employees[0].deleted,true);
+});
+
+test('a failed employee recover after the guest is an error, not a success',async()=>{
+ const f=fixture({silentRecover:'personnel.employee'});
+ await assert.rejects(recoverStaffInQuickResto({ids,settings,transport:f.transport,done:f.done,save:f.save}),{message:NOT_RECOVERABLE});
+ assert.equal(f.done.guest,true);assert.equal(f.done.employee,undefined);
 });

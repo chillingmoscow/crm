@@ -5,6 +5,7 @@ import { asLooseDb } from '@/lib/supabase/loose';
 import { decryptSecret, encryptSecret } from '@/lib/integrations/crypto';
 import { getConnection, withBackOfficeSession } from '@/app/(dashboard)/inventory/actions-shared';
 import { buildQuickRestoBackOfficeOrigin, callQuickRestoBackOfficeData, quickRestoFetch } from '@/lib/integrations/quickresto/client';
+import { LeaseLostError, leasedUpdate } from './job-lease';
 import { customerClass, NOT_RECOVERABLE, recoverStaffInQuickResto, storeClass, type RemoteRow, type RestoreSteps } from './restore-remote';
 
 type Job = {
@@ -21,14 +22,17 @@ export async function processStaffRestore(id?: string) {
   const db = asLooseDb(createAdminClient());
   const job = checked(await db.rpc('staff_claim_restore', {p_id: id ?? null})) as Job | null;
   if (!job) return false;
-  const save = async () => {checked(await db.from('staff_restorations').update({steps:job.steps,lease_until:new Date(Date.now()+300000).toISOString()}).eq('id',job.id));};
+  // Every write checks the job is still this attempt: a cancelled or re-claimed restore stops here.
+  const save = async () => {await leasedUpdate(db,'staff_restorations',job,{steps:job.steps,lease_until:new Date(Date.now()+300000).toISOString()});};
   try {
+    await save();
     let bonusId: number | null = null;
     if (job.employee_id !== null || job.guest_id !== null) bonusId = await recoverInQuickResto(db, job, save);
     if (job.door_needed) await reserveDoor(db, job);
-    checked(await db.rpc('staff_finish_restore', {p_restore: job.id, p_bonus: bonusId}));
+    checked(await db.rpc('staff_finish_restore', {p_restore: job.id, p_bonus: bonusId, p_attempts: job.attempts}));
     return true;
   } catch (error) {
+    if (error instanceof LeaseLostError) throw error;
     let message = error instanceof Error ? error.message : 'Не удалось вернуть сотрудника';
     const permanent = message === NOT_RECOVERABLE;
     if (!permanent) {
@@ -38,12 +42,12 @@ export async function processStaffRestore(id?: string) {
       else if (http) message = `Quick Resto отклонил восстановление (код ${http}). Повтор сначала проверит, что уже восстановлено`;
       else if (/timed out|fetch failed|ECONN|ENOTFOUND/i.test(message)) message = 'Quick Resto не ответил. Повтор сначала проверит, что уже восстановлено';
     }
-    checked(await db.from('staff_restorations').update({
+    await leasedUpdate(db, 'staff_restorations', job, {
       state:'error', error:message.slice(0,1500), lease_until:null, steps:job.steps,
       // An erased record will not come back: stop automatic retries, keep the manual one.
       ...(permanent ? {attempts:5} : {}),
       available_at:new Date(Date.now()+Math.min(3600000,30000*2**job.attempts)).toISOString(),
-    }).eq('id',job.id));
+    });
     throw new Error(message);
   }
 }
@@ -123,7 +127,7 @@ async function reserveDoor(db: ReturnType<typeof asLooseDb>, job: Job) {
   for (let attempt = 0; attempt < 100; attempt++) {
     const code = String(randomInt(100000, 1000000));
     const r = await db.rpc('staff_restore_reserve_door', {
-      p_restore:job.id, p_number:randomInt(100, 1000),
+      p_restore:job.id, p_attempts:job.attempts, p_number:randomInt(100, 1000),
       p_hash:createHash('sha256').update(code).digest('hex'), p_secret:encryptSecret(code),
     });
     if (!r.error) return;

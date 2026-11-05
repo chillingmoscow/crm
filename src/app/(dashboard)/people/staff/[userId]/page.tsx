@@ -276,7 +276,7 @@ export default async function StaffMemberPage({
         .select("state,error,attempts")
         .eq("account_id", accountId)
         .eq("uvr_id", targetUvr.id)
-        .neq("state", "complete")
+        .not("state", "in", "(complete,cancelled)")
         .limit(1)
         .maybeSingle()
     : null;

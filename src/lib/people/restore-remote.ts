@@ -48,31 +48,16 @@ export async function recoverStaffInQuickResto({ids,settings,transport,done,save
     await save();
   };
 
-  if (ids.employeeId && employee) {
-    const employeeId = ids.employeeId;
-    await recover('employee', 'personnel.employee', employee, () => find(employees, employeeId));
-    // Dismissal removed warehouse access; give back the hire-time stores.
-    for (const storeId of settings.storeIds) {
-      const query = {ownerContextId:storeId, ownerContextClassName:storeClass};
-      const linked = async () => (await transport.rows('warehouse.store.employee/select', query))
-        .some(x => Number(object(x.employee).id) === employeeId && x.deleted !== true);
-      if (!(await linked())) {
-        await transport.createStoreLink(storeId, employeeId);
-        if (!(await linked())) throw new Error('Quick Resto не подтвердил доступ к складу ' + storeId);
-      }
-      done['store_' + storeId] = true;
-      await save();
-    }
-  }
-
-  if (!ids.guestId || !guest) return { bonusId: null };
-  const guestId = ids.guestId;
-  await recover('guest', 'crm.customer', guest, () => find(guests, guestId));
-  const current = await transport.readGuest(guestId);
-  if (Number(object(current.customerGroup).id) !== settings.staffGroupId) {
-    await transport.updateGuest({...current, customerGroup:{id:settings.staffGroupId}});
-    if (Number(object((await transport.readGuest(guestId)).customerGroup).id) !== settings.staffGroupId)
-      throw new Error('Quick Resto не подтвердил группу Staff для гостя');
+  // Guest first, employee last: a failure never leaves a live terminal login for a fired person.
+  let bonusId: number | null = null;
+  if (ids.guestId && guest) {
+    const guestId = ids.guestId;
+    await recover('guest', 'crm.customer', guest, () => find(guests, guestId));
+    const current = await transport.readGuest(guestId);
+    if (Number(object(current.customerGroup).id) !== settings.staffGroupId) {
+      await transport.updateGuest({...current, customerGroup:{id:settings.staffGroupId}});
+      if (Number(object((await transport.readGuest(guestId)).customerGroup).id) !== settings.staffGroupId)
+        throw new Error('Quick Resto не подтвердил группу Staff для гостя');
   }
   done.guest_group = true;
   await save();
@@ -93,5 +78,24 @@ export async function recoverStaffInQuickResto({ids,settings,transport,done,save
   }
   done.bonus = Number(bonus.id);
   await save();
-  return { bonusId: Number(bonus.id) };
+  bonusId = Number(bonus.id);
+  }
+
+  if (ids.employeeId && employee) {
+    const employeeId = ids.employeeId;
+    await recover('employee', 'personnel.employee', employee, () => find(employees, employeeId));
+    // Dismissal removed warehouse access; give back the hire-time stores.
+    for (const storeId of settings.storeIds) {
+      const query = {ownerContextId:storeId, ownerContextClassName:storeClass};
+      const linked = async () => (await transport.rows('warehouse.store.employee/select', query))
+        .some(x => Number(object(x.employee).id) === employeeId && x.deleted !== true);
+      if (!(await linked())) {
+        await transport.createStoreLink(storeId, employeeId);
+        if (!(await linked())) throw new Error('Quick Resto не подтвердил доступ к складу ' + storeId);
+      }
+      done['store_' + storeId] = true;
+      await save();
+    }
+  }
+  return { bonusId };
 }

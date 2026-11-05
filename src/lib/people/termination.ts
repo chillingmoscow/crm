@@ -6,6 +6,7 @@ import { getBackOfficeAuth, getConnection, withBackOfficeSession } from '@/app/(
 import { buildQuickRestoBackOfficeOrigin, callQuickRestoBackOfficeData, callQuickRestoBackOfficeRemove, quickRestoFetch } from '@/lib/integrations/quickresto/client';
 import { loadTelegramBot } from '@/lib/integrations/telegram-bot';
 import { removalComplete } from '@/lib/integrations/telegram-membership';
+import { LeaseLostError, leasedUpdate } from './job-lease';
 import { hasQuickRestoWork, removeStaffFromQuickResto, type RemoteRow, type TerminationSteps } from './termination-remote';
 import { ALL_CHATS, removeFromTelegramChats, terminationReport, unconfirmedChats, type ChatOutcome } from './termination-telegram';
 type Job = {id:string;account_id:string;user_id:string;employee_id:number|null;guest_id:number|null;bonus_id:number|null;steps:TerminationSteps;attempts:number};
@@ -18,9 +19,11 @@ export async function processStaffTermination(id?:string) {
  const db=asLooseDb(createAdminClient());
  const job=checked(await db.rpc('staff_claim_termination',{p_id:id??null})) as Job|null;
  if(!job)return false;
- const save = async()=>{checked(await db.from('staff_terminations').update({steps:job.steps,lease_until:new Date(Date.now()+300000).toISOString()}).eq('id',job.id));};
+ // Every write checks the job is still this attempt: a cancelled or re-claimed job stops here.
+ const save = async()=>{await leasedUpdate(db,'staff_terminations',job,{steps:job.steps,lease_until:new Date(Date.now()+300000).toISOString()});};
  const ids={employeeId:job.employee_id,guestId:job.guest_id,bonusId:job.bonus_id};
  try{
+  await save(); // still ours before the first destructive step
   // No Quick Resto records: skip that cleanup (and the connection requirement), Telegram still runs.
   if(hasQuickRestoWork(ids)){
   const connection=await getConnection(job.account_id);
@@ -65,14 +68,15 @@ export async function processStaffTermination(id?:string) {
   }
   // Telegram runs after Quick Resto; its failures keep their own text (see catch below).
   const telegram=async(step:()=>Promise<void>)=>{try{await step();}catch(e){throw e instanceof TelegramStepError?e:new TelegramStepError('Шаг Telegram не выполнен: '+(e instanceof Error?e.message:'неизвестная ошибка'));}};
-  if(!job.steps.telegram){await telegram(()=>removeFromTelegram(db,job));job.steps.telegram=true;await save();}
+  if(!job.steps.telegram){await save();await telegram(()=>removeFromTelegram(db,job));job.steps.telegram=true;await save();}
   if(!job.steps.telegram_report){
    let sent=false;await telegram(async()=>{sent=await reportTermination(db,job);});
    job.steps.telegram_report=true;if(!sent)job.steps.telegram_report_skipped=true;await save();
   }
-  checked(await db.from('staff_terminations').update({state:'complete',completed_at:new Date().toISOString(),error:null,lease_until:null,steps:job.steps}).eq('id',job.id));
+  await leasedUpdate(db,'staff_terminations',job,{state:'complete',completed_at:new Date().toISOString(),error:null,lease_until:null,steps:job.steps});
   return true;
  }catch(error){
+  if(error instanceof LeaseLostError)throw error;
   let message=error instanceof Error?error.message:'Не удалось закрыть внешний доступ';
   if(!(error instanceof TelegramStepError)){
   const http=message.match(/(?:ошибку|HTTP)\s*(\d{3})/i)?.[1];
@@ -81,7 +85,7 @@ export async function processStaffTermination(id?:string) {
   else if(http)message=`Quick Resto отклонил удаление (код ${http}). Проверьте состояние связанных записей`;
   else if(/timed out|fetch failed|ECONN|ENOTFOUND/i.test(message))message='Quick Resto не ответил. Повтор сначала проверит, какие записи уже удалены';
   }
-  checked(await db.from('staff_terminations').update({state:'error',error:message.slice(0,1500),lease_until:null,steps:job.steps,available_at:new Date(Date.now()+Math.min(3600000,30000*2**job.attempts)).toISOString()}).eq('id',job.id));
+  await leasedUpdate(db,'staff_terminations',job,{state:'error',error:message.slice(0,1500),lease_until:null,steps:job.steps,available_at:new Date(Date.now()+Math.min(3600000,30000*2**job.attempts)).toISOString()});
   throw new Error(message);
  }
 }

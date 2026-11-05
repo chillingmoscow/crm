@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { restoreStaff } from "../actions";
+import { restoreStaff, retryStaffTermination } from "../actions";
 
 /** An unfinished «Восстановить»: shows the step error and continues the same restore. */
 export function StaffRestoreStatus({
@@ -44,6 +44,7 @@ export function StaffRestoreStatus({
           {status.error}
         </p>
       )}
+      <div className="flex flex-wrap gap-2">
       <Button
         type="button"
         size="sm"
@@ -60,6 +61,26 @@ export function StaffRestoreStatus({
       >
         {busy ? "Проверяем…" : "Повторить"}
       </Button>
+      {error && (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          onClick={() =>
+            start(async () => {
+              // Abandons the restore; the dismissal runs again and removes what was recovered.
+              const result = await retryStaffTermination(uvrId);
+              if (result.error) toast.error(result.error);
+              else toast.success("Возврат отменён, доступы закрыты");
+              router.refresh();
+            })
+          }
+        >
+          Отменить возврат
+        </Button>
+      )}
+      </div>
     </div>
   );
 }

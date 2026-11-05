@@ -346,33 +346,63 @@ select set_config('request.jwt.claims','{"sub":"ce000000-0000-4000-8000-00000000
 select set_config('app.ctx_ready','',true);
 set local role authenticated;
 do $$begin
- begin perform public.staff_begin_restore((select id from public.user_venue_roles where user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)));raise exception 'Recruiter could restore staff';exception when others then if SQLERRM<>'Нет права возвращать сотрудника' then raise;end if;end;
+ begin perform public.staff_begin_restore((select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)));raise exception 'Recruiter could restore staff';exception when others then if SQLERRM<>'Нет права возвращать сотрудника' then raise;end if;end;
  if has_table_privilege('authenticated','public.staff_restorations','SELECT') or has_function_privilege('authenticated','public.staff_claim_restore(uuid)','EXECUTE')
- or has_function_privilege('authenticated','public.staff_finish_restore(uuid,bigint)','EXECUTE') then raise exception 'Private restore job exposed';end if;
+ or has_function_privilege('authenticated','public.staff_finish_restore(uuid,bigint,int)','EXECUTE') then raise exception 'Private restore job exposed';end if;
 end $$;
 reset role;
+-- Local preconditions are checked before any Quick Resto write.
+delete from public.candidate_employment_settings where venue_id='ce000000-0000-4000-8000-000000000020';
 select set_config('request.jwt.claims','{"sub":"ce000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
 select set_config('app.ctx_ready','',true);
 set local role authenticated;
-create temp table qa_restore_context(id uuid);
-insert into qa_restore_context select public.staff_begin_restore((select id from public.user_venue_roles where user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)));
 do $$begin
- if (select id from qa_restore_context) is distinct from public.staff_begin_restore((select id from public.user_venue_roles where user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context))) then raise exception 'Duplicate restore job';end if;
+ begin perform public.staff_begin_restore((select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)));raise exception 'Restore without hire settings';exception when others then if SQLERRM not like 'Заполните настройки приёма%' then raise;end if;end;
 end $$;
 reset role;
-do $$declare r public.staff_restorations;claim jsonb;n int;begin
+insert into public.candidate_employment_settings(account_id,venue_id) values('ce000000-0000-4000-8000-000000000010','ce000000-0000-4000-8000-000000000020');
+set local role authenticated;
+do $$begin
+ begin perform public.staff_begin_restore((select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)));raise exception 'Restore without door pool';exception when others then if SQLERRM<>'Сначала перенесите занятые коды офисного замка' then raise;end if;end;
+end $$;
+reset role;
+update public.candidate_employment_settings set office_pool_initialized=true where venue_id='ce000000-0000-4000-8000-000000000020';
+do $$begin
+ if exists(select 1 from public.staff_restorations) or exists(select 1 from public.staff_terminations where state='cancelled') then raise exception 'Refused restore left a trace';end if;
+end $$;
+-- A person who now works at another venue still gets the remote restore: the dismissal deleted their records.
+savepoint shared_restore;
+insert into public.venues(id,account_id,name) values('ce000000-0000-4000-8000-000000000023','ce000000-0000-4000-8000-000000000010','Третье QA');
+insert into public.roles(id,venue_id,name,code) values('ce000000-0000-4000-8000-000000000033','ce000000-0000-4000-8000-000000000023','Работник QA','worker_qa3');
+insert into public.user_venue_roles(user_id,venue_id,role_id,status) select (payload->>'target_user_id')::uuid,'ce000000-0000-4000-8000-000000000023','ce000000-0000-4000-8000-000000000033','active' from qa_hire_context;
+set local role authenticated;
+select public.staff_begin_restore((select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)));
+reset role;
+do $$begin
+ if not exists(select 1 from public.staff_restorations where uvr_id=(select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)) and state='pending' and shared_access and employee_id=999999 and guest_id=999998)
+ or not exists(select 1 from public.user_venue_roles where id=(select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)) and status='fired') then raise exception 'Shared person restored by a local flip';end if;
+end $$;
+rollback to savepoint shared_restore;
+set local role authenticated;
+create temp table qa_restore_context(id uuid);
+insert into qa_restore_context select public.staff_begin_restore((select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)));
+do $$begin
+ if (select id from qa_restore_context) is distinct from public.staff_begin_restore((select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context))) then raise exception 'Duplicate restore job';end if;
+end $$;
+reset role;
+do $$declare r public.staff_restorations;claim jsonb;n int;k int;begin
  select * into r from public.staff_restorations where id=(select id from qa_restore_context);
  if r.employee_id<>999999 or r.guest_id<>999998 or not r.door_needed or r.shared_access or r.state<>'pending' then raise exception 'Wrong restore manifest';end if;
  if not exists(select 1 from public.user_venue_roles where id=r.uvr_id and status='fired') then raise exception 'Status flipped before Quick Resto recovery';end if;
  begin update public.user_venue_roles set status='active' where id=r.uvr_id;raise exception 'Direct restore allowed';exception when others then if SQLERRM not like 'Внешний доступ закрыт%' then raise;end if;end;
- claim:=public.staff_claim_restore(r.id);
+ claim:=public.staff_claim_restore(r.id);k:=(claim->>'attempts')::int;
  if claim->>'id' is distinct from r.id::text or claim->>'role_id' is null or public.staff_claim_restore(r.id) is not null then raise exception 'Concurrent restore claim allowed';end if;
- begin perform public.staff_finish_restore(r.id,6001);raise exception 'Finished without door';exception when others then if SQLERRM<>'Новый код замка не выдан' then raise;end if;end;
- insert into public.candidate_employment_settings(account_id,venue_id,office_pool_initialized) values(r.account_id,r.venue_id,true)
- on conflict(venue_id) do update set office_pool_initialized=true;
- if public.staff_restore_reserve_door(r.id,455,'qa-restore-hash','{}') is distinct from public.staff_restore_reserve_door(r.id,456,'qa-other-hash','{}') then raise exception 'Second door code issued';end if;
- begin perform public.staff_finish_restore(r.id,null);raise exception 'Finished without bonus';exception when others then if SQLERRM<>'Новый бонусный счёт не подтверждён' then raise;end if;end;
- perform public.staff_finish_restore(r.id,6001);perform public.staff_finish_restore(r.id,6001);
+ begin perform public.staff_finish_restore(r.id,6001,k);raise exception 'Finished without door';exception when others then if SQLERRM<>'Новый код замка не выдан' then raise;end if;end;
+ begin perform public.staff_restore_reserve_door(r.id,k-1,457,'qa-stale-hash','{}');raise exception 'Stale attempt reserved a door';exception when others then if SQLERRM not like 'Возврат отменён или перехвачен%' then raise;end if;end;
+ if public.staff_restore_reserve_door(r.id,k,455,'qa-restore-hash','{}') is distinct from public.staff_restore_reserve_door(r.id,k,456,'qa-other-hash','{}') then raise exception 'Second door code issued';end if;
+ begin perform public.staff_finish_restore(r.id,null,k);raise exception 'Finished without bonus';exception when others then if SQLERRM<>'Новый бонусный счёт не подтверждён' then raise;end if;end;
+ begin perform public.staff_finish_restore(r.id,6001,k+1);raise exception 'Stale attempt finished';exception when others then if SQLERRM not like 'Возврат отменён или перехвачен%' then raise;end if;end;
+ perform public.staff_finish_restore(r.id,6001,k);perform public.staff_finish_restore(r.id,6001,k);
  if not exists(select 1 from public.user_venue_roles where id=r.uvr_id and status='active' and fired_at is null and fired_reason is null) then raise exception 'Status not restored';end if;
  if not exists(select 1 from public.payroll_employees where local_user_id=r.user_id and active and quickresto_bonus_account_id=6001 and quickresto_id=999999) then raise exception 'Payroll not restored';end if;
  if not exists(select 1 from public.staff_door_codes where user_id=r.user_id and revoked_at is null and user_number=455) then raise exception 'New door code missing';end if;
@@ -384,18 +414,36 @@ end $$;
 -- Dismiss again, then restore while that dismissal is unfinished: the job is cancelled, not a dead end.
 set local role authenticated;
 create temp table qa_second_termination(id uuid);
-insert into qa_second_termination select public.staff_begin_termination((select id from public.user_venue_roles where user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)),'QA второе увольнение');
+insert into qa_second_termination select public.staff_begin_termination((select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)),'QA второе увольнение');
 create temp table qa_second_restore(id uuid);
-insert into qa_second_restore select public.staff_begin_restore((select id from public.user_venue_roles where user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)));
-do $$begin
- begin perform public.staff_begin_termination((select id from public.user_venue_roles where user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)),'QA');raise exception 'Dismissal during restore allowed';exception when others then if SQLERRM not like 'Идёт возврат сотрудника%' then raise;end if;end;
-end $$;
+insert into qa_second_restore select public.staff_begin_restore((select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)));
 reset role;
 do $$begin
  if (select id from qa_second_termination)=(select id from qa_termination_context) then raise exception 'Second dismissal reused the first job';end if;
  if not exists(select 1 from public.staff_terminations where id=(select id from qa_second_termination) and state='cancelled') then raise exception 'Open dismissal not cancelled by restore';end if;
  if public.staff_claim_termination((select id from qa_second_termination)) is not null then raise exception 'Cancelled dismissal claimed';end if;
- if (select count(*) from public.staff_restorations where uvr_id=(select id from public.user_venue_roles where user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)))<>2 then raise exception 'Restore not started after a cancelled dismissal';end if;
+ if (select count(*) from public.staff_restorations where uvr_id=(select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)))<>2 then raise exception 'Restore not started after a cancelled dismissal';end if;
+ update public.staff_restorations set state='working',lease_until=now()+interval '1 minute' where id=(select id from qa_second_restore);
+end $$;
+-- A running restore blocks dismissal; an errored one is abandoned and the dismissal runs again.
+set local role authenticated;
+do $$begin
+ begin perform public.staff_begin_termination((select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)),'QA');raise exception 'Dismissal during a running restore allowed';exception when others then if SQLERRM not like 'Идёт возврат сотрудника%' then raise;end if;end;
+end $$;
+reset role;
+create temp table qa_fired_at as select fired_at,fired_reason from public.user_venue_roles where id=(select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context));
+update public.staff_restorations set state='error',lease_until=null,error='QA сбой',steps='{"guest":true,"bonus":6100}' where id=(select id from qa_second_restore);
+set local role authenticated;
+create temp table qa_third_termination(id uuid);
+insert into qa_third_termination select public.staff_begin_termination((select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)),'Продолжение увольнения');
+reset role;
+do $$declare t public.staff_terminations;begin
+ select * into t from public.staff_terminations where id=(select id from qa_third_termination);
+ if t.id=(select id from qa_second_termination) or t.state<>'pending' or t.guest_id<>999998 or t.employee_id<>999999 or t.bonus_id<>6100 then raise exception 'Errored restore did not lead to a new dismissal';end if;
+ if not exists(select 1 from public.staff_restorations where id=(select id from qa_second_restore) and state='cancelled') then raise exception 'Errored restore not abandoned';end if;
+ if (select fired_at from public.user_venue_roles where id=(select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context))) is distinct from (select fired_at from qa_fired_at)
+ or (select fired_reason from public.user_venue_roles where id=(select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context))) is distinct from (select fired_reason from qa_fired_at) then raise exception 'Original dismissal date or reason overwritten';end if;
+ if public.staff_claim_restore((select id from qa_second_restore)) is not null then raise exception 'Cancelled restore claimed';end if;
 end $$;
 rollback to savepoint termination_checks;
 -- An employee still active in another venue keeps shared QR and door access.

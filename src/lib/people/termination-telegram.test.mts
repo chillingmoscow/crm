@@ -4,7 +4,8 @@ import { ALL_CHATS, removeFromTelegramChats, terminationReport, unconfirmedChats
 import { removalComplete } from "../integrations/telegram-membership.ts";
 
 const chats = [{ chat_id: "-1", title: "Бар" }, { chat_id: "-2", title: "Кухня" }];
-function fixture(members: Record<string, string | Error> = {}, { stayAfterBan = false } = {}) {
+function fixture(members: Record<string, string | Error> = {}, { stayAfterBan = false, unbanFails = 0 } = {}) {
+  let unbanFailures = unbanFails;
   const calls: string[] = [];
   const recorded: Array<{ chat_id: string; result: string; detail: string | null }> = [];
   const state = { ...members };
@@ -17,7 +18,12 @@ function fixture(members: Record<string, string | Error> = {}, { stayAfterBan = 
       return { ok: true, result: { status: s } };
     },
     banChatMember: async (chatId) => { calls.push(`ban:${chatId}`); if (!stayAfterBan) state[chatId] = "kicked"; return { ok: true }; },
-    unbanChatMember: async (chatId) => { calls.push(`unban:${chatId}`); if (!stayAfterBan) state[chatId] = "left"; return { ok: true }; },
+    unbanChatMember: async (chatId) => {
+      calls.push(`unban:${chatId}`);
+      if (unbanFailures > 0) { unbanFailures--; return { ok: false, description: "Too Many Requests" }; }
+      if (!stayAfterBan && state[chatId] === "kicked") state[chatId] = "left";
+      return { ok: true };
+    },
     record: async (o) => { recorded.push({ chat_id: o.chat_id, result: o.result, detail: o.detail }); },
   };
   return { transport, calls, recorded };
@@ -92,4 +98,24 @@ test("summary and report name each chat and the written-off bonus", () => {
   assert.match(text, /Бар — исключён/);
   assert.match(text, /150/);
   assert.match(terminationReport("Иван", [], []), /не было/);
+});
+
+test("failed unban is not final; the retry unbans and only then records removed", async () => {
+  const f = fixture({ "-1": "member" }, { unbanFails: 1 });
+  const first = await removeFromTelegramChats({ configured: true, telegramId: "42", chats: [chats[0]], previous: [], transport: f.transport });
+  assert.equal(first[0].result, "error");
+  assert.match(first[0].detail ?? "", /не разблокирован/);
+  assert.equal(removalComplete(first.map(o => o.result)), false);
+  f.calls.length = 0;
+  const second = await removeFromTelegramChats({ configured: true, telegramId: "42", chats: [chats[0]],
+    previous: [{ chat_id: "-1", result: first[0].result }], transport: f.transport });
+  assert.equal(second[0].result, "removed");
+  assert.deepEqual(f.calls, ["get:-1:42", "unban:-1", "get:-1:42"]);
+});
+
+test("a ban not left by this dismissal is just absent and is not lifted", async () => {
+  const f = fixture({ "-1": "kicked" });
+  const out = await removeFromTelegramChats({ configured: true, telegramId: "42", chats: [chats[0]], previous: [], transport: f.transport });
+  assert.equal(out[0].result, "absent");
+  assert.deepEqual(f.calls, ["get:-1:42"]);
 });

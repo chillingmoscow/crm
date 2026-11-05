@@ -16,20 +16,31 @@ export type TelegramRemovalTransport = {
 export const ALL_CHATS = "*";
 const FINAL: RemovalResult[] = ["removed", "absent"];
 
-async function removeFromChat(chat: { chat_id: string; title: string }, userId: number, t: TelegramRemovalTransport): Promise<ChatOutcome> {
+const NOT_UNBANNED = "Исключён, но не разблокирован — повтор";
+
+/** `retry`: an earlier attempt for this chat ended without a final result (e.g. unban failed). */
+async function removeFromChat(chat: { chat_id: string; title: string }, userId: number, t: TelegramRemovalTransport, retry: boolean): Promise<ChatOutcome> {
   const outcome = (result: RemovalResult, detail: string | null = null) => ({ chat_id: chat.chat_id, title: chat.title, result, detail });
+  // Unban lets the person rejoin later by a fresh invite; it does not re-add them.
+  // Only a confirmed unban finalizes: otherwise we would leave a permanent, invisible ban.
+  const unbanAndConfirm = async () => {
+    const unban = await t.unbanChatMember(chat.chat_id, userId);
+    if (!unban.ok) return outcome("error", NOT_UNBANNED);
+    const after = await t.getChatMember(chat.chat_id, userId);
+    if (after.result?.status === "kicked") return outcome("error", NOT_UNBANNED);
+    if (classifyChatMember(after) !== "absent") return outcome("unconfirmed", "После исключения участник всё ещё в чате");
+    return outcome("removed");
+  };
   try {
     const before = await t.getChatMember(chat.chat_id, userId);
+    // A ban left by our own earlier attempt is finished here; a foreign ban is just "absent".
+    if (retry && before.ok && before.result?.status === "kicked") return await unbanAndConfirm();
     const status = classifyChatMember(before);
     if (status === "absent") return outcome("absent");
     if (status === "unknown") return outcome("unconfirmed", before.description ?? "Telegram не подтвердил участие в чате");
     const ban = await t.banChatMember(chat.chat_id, userId);
     if (!ban.ok) return outcome("error", ban.description ?? "Telegram не исключил участника");
-    // Unban lets the person rejoin later by a fresh invite; it does not re-add them.
-    const unban = await t.unbanChatMember(chat.chat_id, userId);
-    const after = classifyChatMember(await t.getChatMember(chat.chat_id, userId));
-    if (after !== "absent") return outcome("unconfirmed", "После исключения участник всё ещё в чате");
-    return outcome("removed", unban.ok ? null : "Исключён, но остаётся заблокированным в чате");
+    return await unbanAndConfirm();
   } catch (error) {
     return outcome("error", error instanceof Error ? error.message.slice(0, 300) : "Ошибка Telegram");
   }
@@ -63,10 +74,11 @@ export async function removeFromTelegramChats({ configured, telegramId, chats, p
     return outcomes;
   }
   const done = new Map(previous.filter(p => FINAL.includes(p.result as RemovalResult)).map(p => [p.chat_id, p.result as RemovalResult]));
+  const pending = new Set(previous.filter(p => !FINAL.includes(p.result as RemovalResult)).map(p => p.chat_id));
   for (const chat of chats) {
     const prior = done.get(chat.chat_id);
     if (prior) { outcomes.push({ chat_id: chat.chat_id, title: chat.title, result: prior, detail: null }); continue; }
-    const o = await removeFromChat(chat, userId!, transport);
+    const o = await removeFromChat(chat, userId!, transport, pending.has(chat.chat_id));
     await transport.record(o);
     outcomes.push(o);
   }

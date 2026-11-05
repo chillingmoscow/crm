@@ -66,7 +66,10 @@ export async function processStaffTermination(id?:string) {
   // Telegram runs after Quick Resto; its failures keep their own text (see catch below).
   const telegram=async(step:()=>Promise<void>)=>{try{await step();}catch(e){throw e instanceof TelegramStepError?e:new TelegramStepError('Шаг Telegram не выполнен: '+(e instanceof Error?e.message:'неизвестная ошибка'));}};
   if(!job.steps.telegram){await telegram(()=>removeFromTelegram(db,job));job.steps.telegram=true;await save();}
-  if(!job.steps.telegram_report){await telegram(()=>reportTermination(db,job));job.steps.telegram_report=true;await save();}
+  if(!job.steps.telegram_report){
+   let sent=false;await telegram(async()=>{sent=await reportTermination(db,job);});
+   job.steps.telegram_report=true;if(!sent)job.steps.telegram_report_skipped=true;await save();
+  }
   checked(await db.from('staff_terminations').update({state:'complete',completed_at:new Date().toISOString(),error:null,lease_until:null,steps:job.steps}).eq('id',job.id));
   return true;
  }catch(error){
@@ -105,9 +108,10 @@ async function removeFromTelegram(db:LooseAdmin,job:Job){
  // A stale "all chats" marker from an earlier blocked attempt no longer describes the result.
  checked(await db.from('staff_telegram_actions').delete().eq('account_id',job.account_id).eq('event_key',eventKey(job)).eq('chat_id',ALL_CHATS));
 }
-async function reportTermination(db:LooseAdmin,job:Job){
+/** Returns false when there is no reports chat: the report is skipped, it never blocks the dismissal. */
+async function reportTermination(db:LooseAdmin,job:Job):Promise<boolean>{
  const bot=await loadTelegramBot(db,job.account_id);
- if(!bot?.reportsChatId)throw new TelegramStepError('Укажите чат отчётов в настройках Telegram, чтобы отправить отчёт об увольнении');
+ if(!bot?.reportsChatId)return false;
  const [person,{chats,journal}]=await Promise.all([
   db.from<{first_name:string|null;last_name:string|null}>('profiles').select('first_name,last_name').eq('id',job.user_id).maybeSingle().then(checked),
   chatOutcomes(db,job),
@@ -118,6 +122,7 @@ async function reportTermination(db:LooseAdmin,job:Job){
  const name=[person?.first_name,person?.last_name].filter(Boolean).join(' ')||'Сотрудник';
  const sent=await bot.sendMessage(bot.reportsChatId,terminationReport(name,outcomes,writtenOff));
  if(!sent.ok)throw new TelegramStepError('Telegram не принял отчёт об увольнении. Повтор отправит только отчёт');
+ return true;
 }
 export async function processStaffTerminations(){
  try{return {processed:await processStaffTermination()?1:0,errors:0};}

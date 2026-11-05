@@ -12,6 +12,7 @@ import {
   buildQuickRestoBackOfficeOrigin,
   quickRestoFetch,
 } from "@/lib/integrations/quickresto/client";
+import { enqueueChatInvites } from "./jobs";
 import { normalizePhone } from "./schema";
 import { runProvisionStep, type ProvisionStep } from "./provision-state";
 type Obj = Record<string, unknown>;
@@ -577,23 +578,13 @@ export async function provisionCandidateHire(hireId: string) {
         throw new Error("Не удалось подтвердить идентификатор сотрудника");
     }
     checked(await db.rpc("candidate_finish_hire", { p_hire: h.id }));
-    // One-time Telegram invitations for the role's chats; a repeated finish keeps the first job.
-    checked(
-      await db.from("candidate_jobs").upsert(
-        {
-          account_id: h.account_id,
-          candidate_id: h.candidate_id,
-          kind: "chat_invites",
-          payload: {
-            user_id: h.target_user_id,
-            role_id: h.input.role_id,
-            name: `${h.input.first_name} ${h.input.last_name}`.trim(),
-            event_key: `hire:${h.id}`,
-          },
-        },
-        { onConflict: "candidate_id,kind", ignoreDuplicates: true },
-      ),
-    );
+    // One-time Telegram invitations. The hire is already complete: a failure here must not
+    // mark it as errored; the cron re-creates a missing job.
+    try {
+      await enqueueChatInvites(db, h);
+    } catch (e) {
+      console.error("chat_invites enqueue failed:", e instanceof Error ? e.message : "unknown");
+    }
     checked(
       await db
         .from("candidate_hires")

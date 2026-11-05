@@ -18,3 +18,8 @@ test("no chats: short message without buttons", () => {
 test("missing role name", () => {
   assert.match(buildInviteMessage("А Б", null, []).text, /без должности/);
 });
+test("failed chats are listed under the message, links stay as buttons", () => {
+  const m = buildInviteMessage("А Б", "Бармен", [{ title: "Общий", url: "https://t.me/+b" }], ["Бары", "Кухня"]);
+  assert.match(m.text, /\nНе удалось создать приглашение: Бары, Кухня$/);
+  assert.equal(m.buttons?.length, 1);
+});

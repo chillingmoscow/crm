@@ -99,22 +99,14 @@ async function chatOutcomes(db:LooseAdmin,job:Job){
   .eq('account_id',job.account_id).eq('event_key',eventKey(job)).eq('kind','remove'));
  return {chats:chats??[],journal:journal??[]};
 }
-const validTelegramId=(id:string|null|undefined)=>/^\d{1,15}$/.test(id?.trim()??'');
 async function removeFromTelegram(db:LooseAdmin,job:Job,save:()=>Promise<void>){
  const [bot,{chats,journal}]=await Promise.all([loadTelegramBot(db,job.account_id),chatOutcomes(db,job)]);
  const clearAllChatsMarker=async()=>{checked(await db.from('staff_telegram_actions').delete().eq('account_id',job.account_id).eq('event_key',eventKey(job)).eq('chat_id',ALL_CHATS));};
  // No bot and no chats: nothing to remove the person from; the step is not applicable.
  if(!telegramStepApplies({configured:!!bot,chats})){job.steps.telegram_skipped=true;await clearAllChatsMarker();return;}
  delete job.steps.telegram_skipped;
- // The ID snapshotted at dismissal start is used; a later profile edit cannot redirect the removal.
- // Only a missing/invalid snapshot may be filled from the profile (the "fix the ID and retry" path).
- if(!validTelegramId(job.telegram_id)){
-  const profile=checked(await db.from<{telegram_id:string|null}>('profiles').select('telegram_id').eq('id',job.user_id).maybeSingle());
-  if(validTelegramId(profile?.telegram_id)){
-   job.telegram_id=profile!.telegram_id!.trim();
-   await leasedUpdate(db,'staff_terminations',job,{telegram_id:job.telegram_id});
-  }
- }
+ // Only the ID snapshotted by staff_begin_termination is used (set at dismissal start, refreshed by a
+ // manual «Повторить»); the live profile is never read here — the fired person could edit it.
  const record=async(o:ChatOutcome)=>{checked(await db.from('staff_telegram_actions').upsert({account_id:job.account_id,user_id:job.user_id,kind:'remove',
   event_key:eventKey(job),chat_id:o.chat_id,result:o.result,detail:o.detail,created_at:new Date().toISOString()},{onConflict:'account_id,event_key,chat_id'}));};
  const missing=async()=>{throw new Error('Telegram не настроен');};

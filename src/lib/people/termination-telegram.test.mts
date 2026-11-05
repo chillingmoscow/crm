@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ALL_CHATS, NOT_UNBANNED, removeFromTelegramChats, telegramStepApplies, terminationReport, unconfirmedChats, type TelegramRemovalTransport } from "./termination-telegram.ts";
+import { ALL_CHATS, INVALID_TELEGRAM_ID, MISSING_TELEGRAM_ID, NOT_UNBANNED, removeFromTelegramChats, telegramStepApplies, terminationReport, unconfirmedChats, type TelegramRemovalTransport } from "./termination-telegram.ts";
 import { removalComplete } from "../integrations/telegram-membership.ts";
 
 const chats = [{ chat_id: "-1", title: "Бар" }, { chat_id: "-2", title: "Кухня" }];
@@ -157,4 +157,14 @@ test("Telegram step: not applicable only without a bot and without chats", () =>
 test("the report names the Telegram ID used for removal", () => {
   assert.match(terminationReport("Иван", [], [], "123456"), /Telegram ID: 123456/);
   assert.doesNotMatch(terminationReport("Иван", [], []), /Telegram ID/);
+});
+
+test("missing or invalid snapshot ID: unconfirmed with a «Повторить» hint, no Telegram calls", async () => {
+  for (const [id, detail] of [[null, MISSING_TELEGRAM_ID], ["@ivan", INVALID_TELEGRAM_ID]] as const) {
+    const f = fixture({ "-1": "member" });
+    const out = await removeFromTelegramChats({ configured: true, telegramId: id, chats, previous: [], transport: f.transport });
+    assert.ok(out.every(o => o.result === "unconfirmed" && o.detail === detail));
+    assert.match(detail, /нажмите «Повторить»/);
+    assert.deepEqual(f.calls, []);
+  }
 });

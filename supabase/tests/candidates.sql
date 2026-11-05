@@ -326,6 +326,13 @@ do $$declare j public.staff_terminations;h jsonb;claim jsonb;begin
  if j.telegram_id is distinct from '4242' then raise exception 'Telegram ID not snapshotted: %',j.telegram_id;end if;
  update public.profiles set telegram_id='9999' where id=j.user_id;
  if (select telegram_id from public.staff_terminations where id=j.id)<>'4242' then raise exception 'Snapshot follows the live profile';end if;
+ -- Only a manual repeat (begin on the unfinished job, with an actor) refreshes the snapshot, and it is audited.
+ perform set_config('request.jwt.claims','{"sub":"ce000000-0000-4000-8000-000000000001","role":"authenticated"}',true);perform set_config('app.ctx_ready','',true);
+ if public.staff_begin_termination(j.uvr_id,'Повтор')<>j.id then raise exception 'Repeat did not continue the unfinished job';end if;
+ if (select telegram_id from public.staff_terminations where id=j.id) is distinct from '9999' then raise exception 'Manual repeat did not refresh the Telegram ID snapshot';end if;
+ if not exists(select 1 from public.audit_logs where action_code='staff.termination_telegram_id' and entity_id=j.user_id
+  and user_id='ce000000-0000-4000-8000-000000000001' and details->>'before'='4242' and details->>'after'='9999') then raise exception 'Snapshot refresh not audited';end if;
+ perform set_config('request.jwt.claims','',true);perform set_config('app.ctx_ready','',true);
  if exists(select 1 from public.user_venue_roles where id=j.uvr_id and status='active') or exists(select 1 from public.payroll_employees where local_user_id=j.user_id and active) then raise exception 'Staff still active';end if;
  if exists(select 1 from public.schedule_qualifications where user_id=j.user_id) then raise exception 'Qualification still active';end if;
  if not exists(select 1 from public.staff_door_codes where user_id=j.user_id and revoked_at is not null and password_secret is null) then raise exception 'Door secret not revoked';end if;

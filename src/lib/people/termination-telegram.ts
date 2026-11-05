@@ -18,6 +18,8 @@ export type TelegramRemovalTransport = {
 export const ALL_CHATS = "*";
 const FINAL: RemovalResult[] = ["removed", "absent"];
 
+export const MISSING_TELEGRAM_ID = "Нет Telegram ID — заполните в карточке и нажмите «Повторить»";
+export const INVALID_TELEGRAM_ID = "Некорректный Telegram ID — исправьте в карточке и нажмите «Повторить»";
 export const NOT_UNBANNED = "Исключён, но не разблокирован — повтор";
 
 /**
@@ -58,8 +60,10 @@ async function removeFromChat(chat: { chat_id: string; title: string }, userId: 
 
 /**
  * Removes the person from each chat. Chats whose journal already says removed/absent
- * are not touched again. Without a bot or a Telegram ID nothing is proven, so the
- * result is "unconfirmed" — even with zero chats, the step must not pass silently.
+ * are not touched again. Without a bot or a valid Telegram ID nothing is proven, so the
+ * result is "unconfirmed" — even with zero chats, the step must not pass silently. The
+ * caller decides applicability first (`telegramStepApplies`: no bot and no chats → skipped)
+ * and passes the ID snapshotted on the job, never the live profile.
  */
 export async function removeFromTelegramChats({ configured, telegramId, chats, previous, transport }: {
   configured: boolean;
@@ -71,8 +75,8 @@ export async function removeFromTelegramChats({ configured, telegramId, chats, p
   const id = telegramId?.trim() ?? "";
   const userId = /^\d{1,15}$/.test(id) ? Number(id) : null;
   const blocked = !configured ? "Telegram не настроен"
-    : !id ? "У сотрудника не указан Telegram ID"
-    : userId === null ? "Некорректный Telegram ID сотрудника" : null;
+    : !id ? MISSING_TELEGRAM_ID
+    : userId === null ? INVALID_TELEGRAM_ID : null;
   const outcomes: ChatOutcome[] = [];
   if (blocked) {
     const targets = chats.length ? chats : [{ chat_id: ALL_CHATS, title: "Все чаты" }];

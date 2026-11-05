@@ -607,6 +607,25 @@ export function ShiftEditor({
           </span>
         )}
       </Field>
+      {chosenTimes &&
+        !(started && !copy) &&
+        (chosenTimes.start_time.slice(0, 5) !== value.start_time.slice(0, 5) ||
+          chosenTimes.end_time.slice(0, 5) !== value.end_time.slice(0, 5)) && (
+          <div className="-mt-2">
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto p-0"
+              onClick={() => {
+                set({ ...value, ...chosenTimes });
+                setManualTime(false);
+              }}
+            >
+              Взять время из шаблона
+            </Button>
+          </div>
+        )}
       <Field label="Название">
         <Input
           value={value.name}

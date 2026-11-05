@@ -13,6 +13,8 @@ import { revalidatePath } from "next/cache";
 import { processStaffTermination } from "@/lib/people/termination";
 import { processStaffRestore } from "@/lib/people/restore";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { validDate } from "@/lib/sales/time";
+import { assignPayrollPosition } from "@/app/(dashboard)/people/payroll/actions";
 
 export type PendingInvitation = {
   inv_id:    string;
@@ -758,8 +760,10 @@ export async function inviteImportedStaffByCurrentEmail(data: {
 
 export async function updateStaffRole(
   uvrId:  string,
-  roleId: string
-): Promise<{ error: string | null }> {
+  roleId: string,
+  validFrom: string,
+): Promise<{ error: string | null; notice?: string | null }> {
+  if (!validDate(validFrom)) return { error: "Укажите дату, с которой действует должность" };
   const supabase = await createClient();
 
   // Право на UPDATE user_venue_roles гейтит RLS-политика
@@ -790,6 +794,33 @@ export async function updateStaffRole(
     return { error: "Нельзя назначить архивную должность" };
   }
 
+  // Должность в зарплате меняется ДО роли доступа: зарплатная часть может
+  // отказать (период зафиксирован, у должности не настроена оплата), и тогда
+  // доступ не должен разойтись с зарплатой. Нет строки в зарплате — нечего
+  // менять. Нет права настройки зарплаты — доступ меняем, но говорим об этом.
+  let notice: string | null = null;
+  const admin = createAdminClient();
+  const { data: payrollRow } = await asLooseDb(admin)
+    .from<{ id: string; role_id: string | null }>("payroll_employees")
+    .select("id, role_id")
+    .eq("venue_id", uvr.venue_id)
+    .eq("local_user_id", uvr.user_id)
+    .maybeSingle();
+  if (payrollRow && payrollRow.role_id !== roleId) {
+    const can = await getCachedPermissionChecker();
+    if (!can("payroll.configure")) {
+      notice = "Должность в зарплате не изменена: нужно право настройки зарплаты";
+    } else {
+      try {
+        await assignPayrollPosition(payrollRow.id, roleId, validFrom);
+      } catch (e) {
+        return {
+          error: e instanceof Error ? e.message : "Не удалось изменить должность в зарплате",
+        };
+      }
+    }
+  }
+
   const { error } = await supabase
     .from("user_venue_roles")
     .update({ role_id: roleId })
@@ -802,7 +833,6 @@ export async function updateStaffRole(
   // при активации перезапишет role_id обратно на старую роль из инвайта и
   // затрёт только что сделанную смену. Касается импортированных/pending
   // сотрудников, у которых UVR уже есть, но инвайт ещё не принят.
-  const admin = createAdminClient();
   const { data: authData } = await admin.auth.admin.getUserById(uvr.user_id);
   const email = authData?.user?.email;
   if (email) {
@@ -815,7 +845,7 @@ export async function updateStaffRole(
   }
 
   revalidatePath("/people/staff");
-  return { error: null };
+  return { error: null, notice };
 }
 
 export async function fireStaff(

@@ -154,6 +154,18 @@ const NAV_SECTIONS: NavSection[] = [
         exact: true,
       },
       {
+        title: "Задачи",
+        href: "/schedule/tasks",
+        icon: ClipboardList,
+        permissions: ["schedule.view_all", "schedule.checklist_create", "schedule.checklist_edit"],
+      },
+      {
+        title: "Шаблоны смен",
+        href: "/schedule/templates",
+        icon: CalendarDays,
+        permissions: ["schedule.template_create", "schedule.template_edit", "schedule.template_copy", "schedule.template_archive", "schedule.shift_create"],
+      },
+      {
         title: "Табель",
         href: "/schedule/attendance",
         icon: ClipboardList,

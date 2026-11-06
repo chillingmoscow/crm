@@ -11,29 +11,11 @@ export default async function SchedulePage({
 }) {
   if (!(await getCachedUser())) redirect("/login");
   const params = await searchParams;
-  const initialTab = [
-    "calendar",
-    "tasks",
-    "templates",
-    "checklists",
-    "review",
-    "team",
-  ].includes(params.tab ?? "")
-    ? params.tab!
-    : "calendar";
-  const [data, tasks] = await Promise.all([
-    loadSchedule(),
-    initialTab === "tasks" ? loadTasks() : Promise.resolve(null),
-  ]);
-  if (
-    initialTab === "tasks" &&
-    ![
-      "schedule.view_all",
-      "schedule.checklist_create",
-      "schedule.checklist_edit",
-    ].some((permission) => data.permissions.includes(permission))
-  )
-    redirect("/schedule?showTasks=1");
+  if (params.tab === "tasks") redirect("/schedule/tasks");
+  if (params.tab === "templates") redirect("/schedule/templates");
+  if (params.tab === "team") redirect("/people/staff");
+  if (params.tab) redirect("/schedule");
+  const data = await loadSchedule();
   const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(params.date ?? "")
     ? new Date(params.date + "T00:00:00Z")
     : null;
@@ -45,16 +27,13 @@ export default async function SchedulePage({
       : undefined;
   const showTasks = params.showTasks === "1";
   const week = weekStart(initialDate ?? dateInZone(new Date(), data.timezone));
-  const calendarTasks =
-    showTasks && initialTab === "calendar"
-      ? await loadTasks({ from: week, to: addDays(week, 6) })
-      : null;
+  const calendarTasks = showTasks
+    ? await loadTasks({ from: week, to: addDays(week, 6) })
+    : null;
   return (
     <ScheduleClient
       key={data.venueId}
       initial={data}
-      initialTab={initialTab}
-      initialTasks={tasks}
       initialCalendarTasks={calendarTasks}
       initialShowTasks={params.showTasks === undefined ? undefined : showTasks}
       initialDate={initialDate}

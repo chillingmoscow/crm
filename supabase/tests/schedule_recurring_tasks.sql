@@ -15,7 +15,7 @@ begin
  insert into public.schedule_templates(venue_id,name,color,start_time,end_time) values(v,'TEST Tasks','blue','09:00','17:00') returning id into tpl;
  select id into employee from public.payroll_employees where venue_id=v and local_user_id=staff_id;
  if employee is null then insert into public.payroll_employees(account_id,venue_id,local_user_id,name,role_name) values(a,v,staff_id,'TEST Task Employee','Официант') returning id into employee;end if;
- body:=jsonb_build_object('request_key',gen_random_uuid(),'name','TEST Checklist','instructions','Инструкция','template_id',tpl,'review_mode','manager','items',jsonb_build_array(jsonb_build_object('id',check_id,'title','Отметить выполнение','kind','check','required',true),jsonb_build_object('id',photo,'title','Фото','kind','photo','required',true)),'recurrence',jsonb_build_object('unit','week','interval',1,'anchor',d-7),'starts_on',d-7,'enabled',true,'penalty_enabled',true,'fine_amount',300,'reward_amount',300,'predecessor_id',null,'predecessor_offset',0,'equipment_groups','[]'::jsonb);
+ body:=jsonb_build_object('request_key',gen_random_uuid(),'name','TEST Checklist','instructions','Инструкция','template_id',tpl,'review_mode','manager','items',jsonb_build_array(jsonb_build_object('id',check_id,'title','Отметить выполнение','kind','check','required',true),jsonb_build_object('id',photo,'title','Фото','kind','photo','required',true)),'recurrence',jsonb_build_object('unit','week','interval',1,'anchor',d-7),'starts_on',d-7,'enabled',true,'penalty_enabled',true,'fine_amount',300,'reward_amount',300,'equipment_groups','[]'::jsonb);
  def:=(public.schedule_task_command('definition.save',body)->>'id')::uuid;
  if (public.schedule_task_command('definition.save',body)->>'id')::uuid<>def or (select count(*) from public.schedule_task_definitions where venue_id=v and name='TEST Checklist')<>1 then raise exception 'Повтор создания продублировал задачу';end if;
  select count(*) into before_count from public.schedule_task_occurrences where definition_id=def;
@@ -97,16 +97,12 @@ begin
  if exists(select 1 from public.schedule_task_occurrences where id=other) then raise exception 'RLS показал чужое задание';end if;
  if exists(select 1 from storage.objects where bucket_id='task-evidence' and name=other||'/'||photo||'/other.jpg') then raise exception 'RLS показал чужую фотографию';end if;
  execute 'reset role';
- update public.schedule_task_occurrences set predecessor_occurrence_id=other where id=occ_auto;
- execute 'set local role authenticated';
- if not exists(select 1 from public.schedule_task_occurrences where id=other) or not exists(select 1 from storage.objects where bucket_id='task-evidence' and name=other||'/'||photo||'/other.jpg') then raise exception 'Предыдущий отчёт и фото недоступны ответственному следующей задачи';end if;
- execute 'reset role';
  raise notice 'PASS: preview, cutover gate, assignment, required evidence, pending review, self-approval, ordinary completion, exactly-once deduction/carry/reward, bonus queue integration, unknown delivery quarantine, changed shift, worker/table grants, authenticated report/photo RLS';
 end $$;
 
 -- Regression scenarios from review: repeated carries, ambiguity after draft, late acceptance and correction deadlines.
 do $$
-declare owner_id uuid;staff_id uuid;v uuid;a uuid;d date;tpl uuid;employee uuid;def uuid;prep_def uuid;prep uuid;original uuid;carried uuid;second_carry uuid;started uuid;duplicate uuid;late uuid;returned uuid;shift uuid;future_occ uuid;future_shift uuid;dependent_def uuid;dependent uuid;late_prep uuid;correction_def uuid;expired_return uuid;new_carry uuid;late_assignment_def uuid;late_assignment uuid;replacement_user uuid;replacement_employee uuid;reassigned_def uuid;reassigned uuid;collision_def uuid;pending_carry uuid;occupied uuid;competing_source uuid;rotation_def uuid;rotation_occ uuid;rotation_case record;rotation_anchor date;rotation_snapshot jsonb;ver integer;check_id uuid:=gen_random_uuid();snap jsonb;prep_snap jsonb;
+declare owner_id uuid;staff_id uuid;v uuid;a uuid;d date;tpl uuid;employee uuid;def uuid;prep_def uuid;original uuid;carried uuid;second_carry uuid;started uuid;duplicate uuid;late uuid;returned uuid;shift uuid;future_occ uuid;future_shift uuid;correction_def uuid;expired_return uuid;new_carry uuid;late_assignment_def uuid;late_assignment uuid;replacement_user uuid;replacement_employee uuid;reassigned_def uuid;reassigned uuid;collision_def uuid;pending_carry uuid;occupied uuid;competing_source uuid;rotation_def uuid;rotation_occ uuid;rotation_case record;rotation_anchor date;rotation_snapshot jsonb;ver integer;check_id uuid:=gen_random_uuid();snap jsonb;prep_snap jsonb;
 begin
  select id into owner_id from auth.users where email='owner@test.com';
  select id into staff_id from auth.users where email='waiter@test.com';
@@ -121,19 +117,19 @@ begin
  insert into public.schedule_task_definitions(account_id,venue_id,name,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount)
  values(a,v,'TEST Preparation',tpl,'auto','[]',jsonb_build_object('unit','week','interval',52,'anchor',d-2),d-10,false,false,0,0) returning id into prep_def;
  select to_jsonb(t) into prep_snap from public.schedule_task_definitions t where id=prep_def;
- insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,settled_at) values(v,a,prep_def,d-2,prep_snap,'completed',now()) returning id into prep;
- -- Freeze equipment [7] and the original completed preparation on a missed dependent task.
- insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,settled_at,predecessor_occurrence_id,equipment)
- values(v,a,def,d-1,snap||jsonb_build_object('predecessor_id',prep_def,'predecessor_offset',1,'equipment_groups',jsonb_build_array(jsonb_build_array(7),jsonb_build_array(8))),'missed',now(),prep,'[7]') returning id into original;
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,settled_at) values(v,a,prep_def,d-2,prep_snap,'blocked',null);
+ -- An unfinished preparation is independent; repeated carries retain equipment [7].
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,settled_at,equipment)
+ values(v,a,def,d-1,snap||jsonb_build_object('equipment_groups',jsonb_build_array(jsonb_build_array(7),jsonb_build_array(8))),'missed',now(),'[7]') returning id into original;
  insert into public.schedule_shifts(venue_id,user_id,template_id,title,color,starts_at,ends_at,published)
  select v,staff_id,tpl,'TEST Regression Shift','blue',(day::timestamp+interval '9 hours') at time zone 'Europe/Moscow',(day::timestamp+interval '17 hours') at time zone 'Europe/Moscow',true from unnest(array[d,d+1,d-3,d-9,d-8]) day;
  perform public.schedule_process_tasks();perform public.schedule_process_tasks();
  select id into carried from public.schedule_task_occurrences where definition_id=def and business_date=d;
- if not exists(select 1 from public.schedule_task_occurrences where id=carried and status='assigned' and predecessor_occurrence_id=prep and equipment='[7]' and transferred_from_id=original) then raise exception 'Первый перенос потерял исходную подготовку или оборудование';end if;
+ if not exists(select 1 from public.schedule_task_occurrences where id=carried and status='assigned' and equipment='[7]' and transferred_from_id=original) then raise exception 'Первый перенос потерял оборудование или независимость задач';end if;
  update public.schedule_task_occurrences set status='missed',settled_at=now() where id=carried;
  perform public.schedule_process_tasks();perform public.schedule_process_tasks();
  select id into second_carry from public.schedule_task_occurrences where definition_id=def and business_date=d+1;
- if not exists(select 1 from public.schedule_task_occurrences where id=second_carry and status='assigned' and predecessor_occurrence_id=prep and equipment='[7]' and transferred_from_id=carried) then raise exception 'Повторный перенос потерял исходную подготовку или оборудование';end if;
+ if not exists(select 1 from public.schedule_task_occurrences where id=second_carry and status='assigned' and equipment='[7]' and transferred_from_id=carried) then raise exception 'Повторный перенос потерял оборудование или независимость задач';end if;
  -- A second published shift appearing after a draft must hold the charge without destroying the report.
  select id into shift from public.schedule_shifts where template_id=tpl and (starts_at at time zone 'Europe/Moscow')::date=d-3;
  insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,shift_id,employee_id,user_id,answers,deadline_at)
@@ -180,18 +176,6 @@ begin
  values(v,staff_id,tpl,'TEST Future Replacement','blue',((d+2)::timestamp+interval '9 hours') at time zone 'Europe/Moscow',((d+2)::timestamp+interval '17 hours') at time zone 'Europe/Moscow',true) returning id into future_shift;
  perform public.schedule_process_tasks();
  if not exists(select 1 from public.schedule_task_occurrences where id=future_occ and shift_id=future_shift and status='assigned') then raise exception 'Замена удалённой смены не переназначила задачу';end if;
- -- A prerequisite accepted after the dependent deadline cannot instantly penalize its assignee.
- insert into public.schedule_shifts(venue_id,user_id,template_id,title,color,starts_at,ends_at,published)
- values(v,staff_id,tpl,'TEST Late Preparation','blue',((d-4)::timestamp+interval '9 hours') at time zone 'Europe/Moscow',((d-4)::timestamp+interval '17 hours') at time zone 'Europe/Moscow',true) returning id into shift;
- insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,shift_id,employee_id,user_id,submitted_at)
- values(v,a,prep_def,d-4,prep_snap,'submitted',shift,employee,staff_id,now()-interval '3 days') returning id,version into late_prep,ver;
- insert into public.schedule_task_definitions(account_id,venue_id,name,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount,predecessor_id,predecessor_offset)
- select account_id,venue_id,'TEST Late Dependent',template_id,review_mode,items,recurrence,starts_on,false,true,300,300,prep_def,1 from public.schedule_task_definitions where id=def returning id into dependent_def;
- insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,blocker)
- values(v,a,dependent_def,d-3,snap||jsonb_build_object('id',dependent_def,'predecessor_id',prep_def,'predecessor_offset',1),'Ожидается выполнение предыдущей задачи') returning id into dependent;
- perform public.schedule_task_command('run.approve',jsonb_build_object('id',late_prep,'version',ver));
- perform public.schedule_process_tasks();perform public.schedule_process_tasks();
- if not exists(select 1 from public.schedule_task_occurrences where id=dependent and status='blocked' and blocker like 'Срок истёк%' and settled_at is null) or exists(select 1 from public.payroll_adjustments where automation_key='task:'||dependent||':result') or exists(select 1 from public.schedule_task_occurrences where transferred_from_id=dependent) then raise exception 'Поздняя подготовка автоматически оштрафовала зависимую задачу';end if;
  -- Missing an extended correction deadline must never create a chain of backdated fines.
  insert into public.schedule_task_definitions(account_id,venue_id,name,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount)
  select account_id,venue_id,'TEST Expired Correction',template_id,review_mode,items,recurrence,starts_on,false,true,300,300 from public.schedule_task_definitions where id=def returning id into correction_def;
@@ -257,7 +241,7 @@ begin
   perform public.schedule_process_tasks();
   if not exists(select 1 from public.schedule_task_occurrences where id=rotation_occ and status='assigned' and equipment=jsonb_build_array(rotation_case.expected)) then raise exception 'Неверная группа оборудования: %, интервал %, смещение %',rotation_case.unit,rotation_case.repeat_interval,rotation_case.elapsed;end if;
  end loop;
- raise notice 'PASS: prerequisite/equipment carry, ambiguous/late assignments, late approval, correction deadlines, calendar deletion, occupied carry retry, competing sources, weekly/monthly equipment cycles including wraparound and interval > 1';
+ raise notice 'PASS: independent tasks/equipment carry, ambiguous/late assignments, late approval, correction deadlines, calendar deletion, occupied carry retry, competing sources, weekly/monthly equipment cycles including wraparound and interval > 1';
 end $$;
 -- Editing a published shift extends saved drafts immediately, without changing correction deadlines.
 do $$

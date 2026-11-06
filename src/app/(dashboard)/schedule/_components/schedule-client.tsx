@@ -16,7 +16,6 @@ import {
   Archive,
   Send,
   Users,
-  ClipboardCheck,
   GripVertical,
   ListChecks,
   CheckCircle2,
@@ -30,7 +29,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import {
@@ -52,8 +50,6 @@ import {
   weekStart,
 } from "@/lib/schedule/utils";
 import type {
-  Checklist,
-  ChecklistRun,
   ScheduleData,
   Shift,
   ShiftTemplate,
@@ -61,7 +57,6 @@ import type {
 } from "@/lib/schedule/types";
 import { loadSchedule, scheduleCommand, scheduleHistory } from "../actions";
 import {
-  ChecklistEditor,
   ShiftEditor,
   TemplateEditor,
   Field,
@@ -69,11 +64,10 @@ import {
   type Save,
   formatTemplateTimes,
 } from "./editors";
-import { RunPanel } from "./run-panel";
 import { CandidateTrialCard } from "./candidate-trial-card";
 import { toast } from "sonner";
 import { ScheduleTasksTab } from "./tasks-tab";
-import { TaskHeaderTarget } from "./task-header-actions";
+import { TaskHeaderTarget, TaskTitleTarget } from "./task-header-actions";
 import {
   taskStatus,
   type TaskData,
@@ -101,14 +95,7 @@ type Editor =
       template?: ShiftTemplate;
       copy?: boolean;
     }
-  | { type: "template"; template?: ShiftTemplate; copy?: boolean }
-  | { type: "checklist"; checklist?: Checklist };
-const runLabel = {
-  in_progress: "В процессе",
-  submitted: "Ожидает проверки",
-  returned: "На доработке",
-  approved: "Утверждено",
-};
+  | { type: "template"; template?: ShiftTemplate; copy?: boolean };
 const eventLabels: Record<string, string> = {
   "shift.create": "Создана смена",
   "shift.copy": "Создана копия",
@@ -119,48 +106,24 @@ const eventLabels: Record<string, string> = {
 };
 export function ScheduleClient({
   initial,
-  initialTab = "calendar",
+  section = "calendar",
   initialTasks = null,
   initialCalendarTasks = null,
   initialShowTasks,
   initialDate,
 }: {
   initial: ScheduleData;
-  initialTab?: string;
+  section?: "calendar" | "tasks" | "templates";
   initialTasks?: TaskData | null;
   initialCalendarTasks?: TaskData | null;
   initialShowTasks?: boolean;
   initialDate?: string;
 }) {
   const [data, setData] = useState(initial);
-  const [tab, setTab] = useState(initialTab);
-  const [tasksVisited, setTasksVisited] = useState(initialTab === "tasks");
+  const tab = section;
+  const [screenTitle, setScreenTitle] = useState<string | null>(null);
   const [taskHeaderTarget, setTaskHeaderTarget] =
     useState<HTMLDivElement | null>(null);
-  useEffect(() => {
-    setTab(initialTab);
-    if (initialTab === "tasks") setTasksVisited(true);
-  }, [initialTab]);
-  useEffect(() => {
-    const restoreTab = () => {
-      const next =
-        new URL(window.location.href).searchParams.get("tab") ?? "calendar";
-      const valid = [
-        "calendar",
-        "tasks",
-        "templates",
-        "checklists",
-        "review",
-        "team",
-      ].includes(next)
-        ? next
-        : "calendar";
-      setTab(valid);
-      if (valid === "tasks") setTasksVisited(true);
-    };
-    window.addEventListener("popstate", restoreTab);
-    return () => window.removeEventListener("popstate", restoreTab);
-  }, []);
   const [week, setWeek] = useState(
     weekStart(initialDate ?? dateInZone(new Date(), initial.timezone)),
   );
@@ -248,26 +211,18 @@ export function ScheduleClient({
   const [archive, setArchive] = useState(false);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [selected, setSelected] = useState<Shift | null>(null);
-  const [run, setRun] = useState<ChecklistRun | null>(null);
   const [confirmation, setConfirmation] = useState<{
     title: string;
     description: string;
     action: () => Promise<void>;
   } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [qualification, setQualification] = useState(false);
-  const [qualUser, setQualUser] = useState("");
-  const [qualRole, setQualRole] = useState("");
   const [history, setHistory] = useState<ScheduleEvent[]>([]);
-  const [reviewChecklist, setReviewChecklist] = useState("all");
-  const [reviewStatus, setReviewStatus] = useState("all");
   const can = useCallback(
     (p: string) => data.permissions.includes("schedule." + p),
     [data.permissions],
   );
   const canPlan = can("view_all");
-  const canConfigureTasks =
-    canPlan || can("checklist_create") || can("checklist_edit");
   const pendingTaskReports = can("review")
     ? (calendarTasks?.occurrences ?? []).filter(
         (task) => task.status === "submitted" && task.user_id !== data.userId,
@@ -524,37 +479,6 @@ export function ScheduleClient({
         : null,
     });
   };
-  const startRun = async (shift: Shift, checklistId: string) => {
-    const existing = data.runs.find(
-      (r) => r.shift_id === shift.id && r.checklist_id === checklistId,
-    );
-    if (existing) {
-      setSelected(null);
-      setRun(existing);
-      return;
-    }
-    setBusy(true);
-    try {
-      const r = await scheduleCommand("run.start", {
-        shift_id: shift.id,
-        checklist_id: checklistId,
-      });
-      if (r.error) toast.error(r.error);
-      else {
-        const next = await loadSchedule();
-        setData(next);
-        const found = next.runs.find((x) => x.id === r.id);
-        if (found) {
-          setSelected(null);
-          setRun(found);
-        }
-      }
-    } catch {
-      toast.error("Не удалось открыть выполнение. Проверьте соединение.");
-    } finally {
-      setBusy(false);
-    }
-  };
   const card = (s: Shift) => (
     <button
       key={s.id}
@@ -596,9 +520,17 @@ export function ScheduleClient({
     />
   );
   return (
+    <TaskTitleTarget.Provider value={setScreenTitle}>
     <div className="w-full min-w-0 p-4 md:p-8 space-y-6 max-w-[1800px] mx-auto">
       <div className="flex flex-wrap justify-between items-center gap-4">
-        <h1 className="text-3xl font-bold tracking-tight">График работы</h1>
+          <h1 className="text-3xl font-bold tracking-tight">
+            {screenTitle ??
+              (tab === "tasks"
+                ? "Задачи"
+                : tab === "templates"
+                  ? "Шаблоны смен"
+                  : "Расписание")}
+          </h1>
         <div
           ref={setTaskHeaderTarget}
           className="flex flex-wrap items-center gap-2"
@@ -627,67 +559,10 @@ export function ScheduleClient({
               Шаблон
             </Button>
           )}
-          {tab === "checklists" && can("checklist_create") && (
-            <Button onClick={() => setEditor({ type: "checklist" })}>
-              <Plus className="size-4 mr-2" />
-              Чек-лист
-            </Button>
-          )}
         </div>
       </div>
-      <Tabs
-        value={tab}
-        onValueChange={(t) => {
-          setTab(t);
-          setArchive(false);
-          if (t === "tasks") setTasksVisited(true);
-          const url = new URL(window.location.href);
-          if (t === "calendar") url.searchParams.delete("tab");
-          else url.searchParams.set("tab", t);
-          window.history.pushState(null, "", url);
-        }}
-      >
-        <TabsList className="overflow-x-auto justify-start">
-          <TabsTrigger value="calendar">
-            {canPlan ? "Расписание" : "Мои смены"}
-          </TabsTrigger>
-          {canConfigureTasks && <TabsTrigger value="tasks">Задачи</TabsTrigger>}
-          {[
-            "template_create",
-            "template_edit",
-            "template_copy",
-            "template_archive",
-            "shift_create",
-          ].some(can) && (
-            <TabsTrigger value="templates">Шаблоны смен</TabsTrigger>
-          )}
-          {[
-            "checklist_create",
-            "checklist_edit",
-            "checklist_publish",
-            "checklist_archive",
-            "review",
-          ].some(can) && (
-            <TabsTrigger value="checklists">Чек-листы</TabsTrigger>
-          )}
-          {can("review") && (
-            <TabsTrigger value="review">
-              Проверка
-              {data.runs.filter((r) => r.status === "submitted").length > 0 && (
-                <span className="ml-2 rounded-full bg-muted px-2 text-xs">
-                  {data.runs.filter((r) => r.status === "submitted").length}
-                </span>
-              )}
-            </TabsTrigger>
-          )}
-          {canPlan && <TabsTrigger value="team">Команда</TabsTrigger>}
-        </TabsList>
-        <TabsContent
-          value="calendar"
-          className="space-y-5"
-          forceMount={selectedTask ? true : undefined}
-          hidden={tab !== "calendar"}
-        >
+        {tab === "calendar" && (
+          <section className="space-y-5">
           {selectedTask && calendarTasks ? (
             <TaskHeaderTarget.Provider
               value={tab === "calendar" ? taskHeaderTarget : null}
@@ -739,7 +614,9 @@ export function ScheduleClient({
                     variant="ghost"
                     size="sm"
                     onClick={() =>
-                      setWeek(weekStart(dateInZone(new Date(), data.timezone)))
+                        setWeek(
+                          weekStart(dateInZone(new Date(), data.timezone)),
+                        )
                     }
                   >
                     Сегодня
@@ -839,7 +716,9 @@ export function ScheduleClient({
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => void refreshCalendarTasks().catch(() => {})}
+                      onClick={() =>
+                        void refreshCalendarTasks().catch(() => {})
+                      }
                   >
                     Повторить
                   </Button>
@@ -1031,13 +910,17 @@ export function ScheduleClient({
                               <td
                                 key={d}
                                 onDragOver={(e) => {
-                                  if (can("shift_edit") || can("shift_create"))
+                                    if (
+                                      can("shift_edit") ||
+                                      can("shift_create")
+                                    )
                                     e.preventDefault();
                                 }}
                                 onDrop={(e) => void drop(e, d, s.id)}
                                 className={cn(
                                   "border-l p-1.5 align-top h-[80px]",
-                                  d === dateInZone(new Date(), data.timezone) &&
+                                    d ===
+                                      dateInZone(new Date(), data.timezone) &&
                                     "bg-brand/[0.025]",
                                 )}
                               >
@@ -1091,7 +974,10 @@ export function ScheduleClient({
                           </tr>
                         )}
                         {trialCandidates.map((candidate) => (
-                          <tr key={candidate.candidate_id} className="border-t">
+                            <tr
+                              key={candidate.candidate_id}
+                              className="border-t"
+                            >
                             <th className="px-4 py-3 text-left font-normal">
                               <Link
                                 href={`/people/candidates/${candidate.candidate_id}`}
@@ -1109,7 +995,10 @@ export function ScheduleClient({
                               </span>
                             </th>
                             {days.map((day) => (
-                              <td key={day} className="border-l p-2 align-top">
+                                <td
+                                  key={day}
+                                  className="border-l p-2 align-top"
+                                >
                                 <div className="space-y-2">
                                   {weekTrials
                                     .filter(
@@ -1186,7 +1075,10 @@ export function ScheduleClient({
                     </table>
                   </div>
                   <div
-                    className={cn("space-y-6", view !== "list" && "md:hidden")}
+                      className={cn(
+                        "space-y-6",
+                        view !== "list" && "md:hidden",
+                      )}
                   >
                     {days.map((d) => (
                       <section key={d}>
@@ -1230,7 +1122,8 @@ export function ScheduleClient({
                               />
                             ))}
                           {!weekShifts.some(
-                            (s) => dateInZone(s.starts_at, data.timezone) === d,
+                              (s) =>
+                                dateInZone(s.starts_at, data.timezone) === d,
                           ) &&
                             !weekTrials.some(
                               (trial) => trialDay(trial) === d,
@@ -1261,29 +1154,24 @@ export function ScheduleClient({
               <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
                 <span>Часовой пояс: {data.timezone}</span>
                 <span>Часы указаны за вычетом перерывов</span>
-                {showTasks && <span>Задач на неделе: {weekTasks.length}</span>}
+                  {showTasks && (
+                    <span>Задач на неделе: {weekTasks.length}</span>
+                  )}
                 {canPlan && <span>Черновики видны только планировщикам</span>}
               </div>
             </>
           )}
-        </TabsContent>
-        <TabsContent
-          value="tasks"
-          forceMount={tasksVisited ? true : undefined}
-          hidden={tab !== "tasks"}
-        >
-          <TaskHeaderTarget.Provider
-            value={tab === "tasks" ? taskHeaderTarget : null}
-          >
-            {tasksVisited && (
-              <ScheduleTasksTab
-                initial={initialTasks}
-                active={tab === "tasks"}
-              />
+          </section>
             )}
+        {tab === "tasks" && (
+          <section>
+            <TaskHeaderTarget.Provider value={taskHeaderTarget}>
+              <ScheduleTasksTab initial={initialTasks} active />
           </TaskHeaderTarget.Provider>
-        </TabsContent>
-        <TabsContent value="templates" className="space-y-4">
+          </section>
+        )}
+        {tab === "templates" && (
+          <section className="space-y-4">
           <div className="flex gap-2">
             <Button
               size="sm"
@@ -1304,7 +1192,7 @@ export function ScheduleClient({
             noData(
               Layers,
               archive ? "Архив пуст" : "Создайте первый шаблон",
-              "Сохраните время, цвет и чек-листы, чтобы быстро планировать повторяющиеся смены.",
+                "Сохраните время, цвет и должность, чтобы быстро планировать повторяющиеся смены.",
             )
           ) : (
             <div className="divide-y border-y">
@@ -1316,13 +1204,16 @@ export function ScheduleClient({
                     className="flex flex-wrap items-center gap-4 py-4"
                   >
                     <span
-                      className={cn("size-3 rounded-full", paletteBg(t.color))}
+                        className={cn(
+                          "size-3 rounded-full",
+                          paletteBg(t.color),
+                        )}
                     />
                     <div className="flex-1 min-w-40">
                       <p className="text-sm font-medium">{t.name}</p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {formatTemplateTimes(t)} · перерыв {t.break_minutes} мин
-                        · чек-листов {t.checklist_ids.length}
+                          {formatTemplateTimes(t)} · перерыв {t.break_minutes}{" "}
+                          мин
                       </p>
                     </div>
                     <div className="flex gap-1">
@@ -1374,244 +1265,8 @@ export function ScheduleClient({
                 ))}
             </div>
           )}
-        </TabsContent>
-        <TabsContent value="checklists" className="space-y-4">
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant={!archive ? "secondary" : "ghost"}
-              onClick={() => setArchive(false)}
-            >
-              Активные
-            </Button>
-            <Button
-              size="sm"
-              variant={archive ? "secondary" : "ghost"}
-              onClick={() => setArchive(true)}
-            >
-              Архив
-            </Button>
-          </div>
-          {!data.checklists.some((c) => c.archived === archive) ? (
-            noData(
-              ClipboardCheck,
-              archive ? "Архив пуст" : "Создайте чек-лист смены",
-              "Добавьте задачи открытия, закрытия или проверки, затем опубликуйте чек-лист.",
-            )
-          ) : (
-            <div className="divide-y border-y">
-              {data.checklists
-                .filter((c) => c.archived === archive)
-                .map((c) => (
-                  <div
-                    key={c.id}
-                    className="flex flex-wrap items-center gap-4 py-4"
-                  >
-                    <ClipboardCheck className="size-5 text-muted-foreground" />
-                    <div className="flex-1 min-w-40">
-                      <p className="text-sm font-medium">{c.name}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {c.published ? "Опубликован" : "Черновик"} · v
-                        {c.version} · {c.items.length} пунктов · {c.duration}{" "}
-                        мин
-                      </p>
-                    </div>
-                    <div className="flex gap-1">
-                      {can("review") && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setReviewChecklist(c.id);
-                            setReviewStatus("all");
-                            setTab("review");
-                          }}
-                        >
-                          Выполнения ·{" "}
-                          {
-                            data.runs.filter((r) => r.checklist_id === c.id)
-                              .length
-                          }
-                        </Button>
+          </section>
                       )}
-                      {can("checklist_edit") && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={`Изменить ${c.name}`}
-                          onClick={() =>
-                            setEditor({ type: "checklist", checklist: c })
-                          }
-                        >
-                          <Pencil className="size-4" />
-                        </Button>
-                      )}
-                      {can("checklist_publish") && !c.published && !archive && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            void save("checklist.publish", {
-                              id: c.id,
-                              version: c.version,
-                            })
-                          }
-                        >
-                          Опубликовать
-                        </Button>
-                      )}
-                      {can("checklist_archive") && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            void save("checklist.archive", {
-                              id: c.id,
-                              version: c.version,
-                            })
-                          }
-                        >
-                          {archive ? "Восстановить" : "В архив"}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-            </div>
-          )}
-        </TabsContent>
-        <TabsContent value="review" className="space-y-4">
-          <div className="flex flex-wrap gap-3">
-            <select
-              className={selectClass}
-              aria-label="Чек-лист для проверки"
-              value={reviewChecklist}
-              onChange={(e) => setReviewChecklist(e.target.value)}
-            >
-              <option value="all">Все чек-листы</option>
-              {data.checklists.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-            <select
-              className={selectClass}
-              aria-label="Статус выполнения"
-              value={reviewStatus}
-              onChange={(e) => setReviewStatus(e.target.value)}
-            >
-              <option value="all">Все статусы</option>
-              {Object.entries(runLabel).map(([key, label]) => (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {Object.entries(runLabel)
-              .map(
-                ([status, label]) =>
-                  `${label}: ${data.runs.filter((r) => (reviewChecklist === "all" || r.checklist_id === reviewChecklist) && r.status === status).length}`,
-              )
-              .join(" · ")}
-          </p>
-          {!data.runs.length ? (
-            noData(
-              ClipboardCheck,
-              "Выполнений пока нет",
-              "Здесь появятся чек-листы, которые сотрудники начали или отправили на проверку.",
-            )
-          ) : (
-            <div className="divide-y border-y">
-              {data.runs
-                .filter(
-                  (r) =>
-                    (reviewChecklist === "all" ||
-                      r.checklist_id === reviewChecklist) &&
-                    (reviewStatus === "all" || r.status === reviewStatus),
-                )
-                .map((r) => (
-                  <button
-                    key={r.id}
-                    onClick={() => setRun(r)}
-                    className="flex gap-4 items-center py-4 text-left w-full hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <ClipboardCheck className="size-5 text-muted-foreground" />
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">{r.snapshot.name}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {name(r.user_id)} · v{r.snapshot.version} ·{" "}
-                        {dayLabel(dateInZone(r.started_at, data.timezone))}
-                      </p>
-                    </div>
-                    <span
-                      className={cn(
-                        "text-xs rounded-full px-3 py-1",
-                        r.status === "submitted"
-                          ? "bg-brand/10 text-brand"
-                          : "bg-muted text-muted-foreground",
-                      )}
-                    >
-                      {runLabel[r.status]}
-                    </span>
-                  </button>
-                ))}
-              {!data.runs.some(
-                (r) =>
-                  (reviewChecklist === "all" ||
-                    r.checklist_id === reviewChecklist) &&
-                  (reviewStatus === "all" || r.status === reviewStatus),
-              ) && (
-                <p className="py-6 text-sm text-muted-foreground">
-                  Нет выполнений для выбранных условий
-                </p>
-              )}
-            </div>
-          )}
-        </TabsContent>
-        <TabsContent value="team" className="space-y-6">
-          <div className="flex flex-wrap justify-between gap-4 items-center">
-            <p className="text-sm text-muted-foreground">
-              Подразделения и основные позиции настраиваются в разделе «Люди».
-            </p>
-            {data.permissions.includes("people.view_roles") && (
-              <Button variant="outline" asChild>
-                <Link href="/people/departments">Подразделения</Link>
-              </Button>
-            )}
-            {can("qualifications") && (
-              <Button variant="outline" onClick={() => setQualification(true)}>
-                Дополнительные позиции
-              </Button>
-            )}
-          </div>
-          <div className="divide-y border-y">
-            {data.staff.map((s) => (
-              <div key={s.user_id} className="py-4 flex gap-4 justify-between">
-                <div>
-                  <p className="text-sm font-medium">{name(s.user_id)}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {s.role_name} ·{" "}
-                    {data.departments.find((d) => d.id === s.department_id)
-                      ?.name ?? "Без подразделения"}
-                  </p>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {data.qualifications
-                    .filter((q) => q.user_id === s.user_id)
-                    .map(
-                      (q) => data.roles.find((r) => r.id === q.role_id)?.name,
-                    )
-                    .filter(Boolean)
-                    .join(", ")}
-                </p>
-              </div>
-            ))}
-          </div>
-        </TabsContent>
-      </Tabs>
       {editor?.type === "shift" && (
         <ShiftEditor
           key={`${editor.shift?.id ?? "new"}-${editor.copy}`}
@@ -1624,15 +1279,6 @@ export function ScheduleClient({
       {editor?.type === "template" && (
         <TemplateEditor
           key={`${editor.template?.id ?? "new"}-${editor.copy}`}
-          data={data}
-          {...editor}
-          onClose={() => setEditor(null)}
-          save={save}
-        />
-      )}
-      {editor?.type === "checklist" && (
-        <ChecklistEditor
-          key={editor.checklist?.id ?? "new"}
           data={data}
           {...editor}
           onClose={() => setEditor(null)}
@@ -1779,55 +1425,6 @@ export function ScheduleClient({
               </select>
             </Field>
           )}
-          <h3 className="text-base font-semibold">Чек-листы смены</h3>
-          {!selected.checklist_ids.length && (
-            <p className="text-sm text-muted-foreground">Чек-листов нет</p>
-          )}
-          {selected.checklist_ids.map((id) => {
-            const c = data.checklists.find((c) => c.id === id);
-            const r = data.runs.find(
-              (r) => r.shift_id === selected.id && r.checklist_id === id,
-            );
-            return (
-              <div key={id} className="border-b pb-4 grid gap-2">
-                <p className="text-sm font-medium">
-                  {r?.snapshot.name ??
-                    selected.checklist_snapshots?.[id]?.name ??
-                    c?.name ??
-                    "Чек-лист"}
-                </p>
-                <span className="text-xs text-muted-foreground">
-                  {r
-                    ? runLabel[r.status]
-                    : !selected.checklist_snapshots?.[id]
-                      ? "Требует публикации"
-                      : "Не начат"}
-                </span>
-                {selected.published && selected.user_id === data.userId && (
-                  <Button
-                    disabled={
-                      busy || (!r && !selected.checklist_snapshots?.[id])
-                    }
-                    variant="outline"
-                    onClick={() => void startRun(selected, id)}
-                  >
-                    {r ? "Открыть выполнение" : "Начать чек-лист"}
-                  </Button>
-                )}
-                {r && can("review") && selected.user_id !== data.userId && (
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setSelected(null);
-                      setRun(r);
-                    }}
-                  >
-                    Открыть выполнение
-                  </Button>
-                )}
-              </div>
-            );
-          })}
           <details>
             <summary className="cursor-pointer text-sm font-medium">
               История изменений
@@ -1847,113 +1444,6 @@ export function ScheduleClient({
               ))}
             </div>
           </details>
-        </EditDrawer>
-      )}
-      {run && (
-        <RunPanel
-          key={run.id}
-          run={run}
-          data={data}
-          onClose={() => setRun(null)}
-          onUpdated={refresh}
-        />
-      )}
-      {qualification && (
-        <EditDrawer
-          open
-          onOpenChange={setQualification}
-          title="Дополнительные позиции"
-          description="Допускают сотрудника к смене на другой позиции. Права доступа не меняются."
-          footer={
-            <Button variant="outline" onClick={() => setQualification(false)}>
-              Готово
-            </Button>
-          }
-        >
-          <Field label="Сотрудник">
-            <select
-              className={selectClass}
-              value={qualUser}
-              onChange={(e) => setQualUser(e.target.value)}
-            >
-              <option value="">Выберите сотрудника</option>
-              {data.staff.map((s) => (
-                <option key={s.user_id} value={s.user_id}>
-                  {name(s.user_id)}
-                </option>
-              ))}
-            </select>
-          </Field>
-          {qualUser && (
-            <>
-              <p className="text-sm text-muted-foreground">
-                Основная позиция:{" "}
-                {data.staff.find((s) => s.user_id === qualUser)?.role_name}
-              </p>
-              {data.qualifications
-                .filter((q) => q.user_id === qualUser)
-                .map((q) => (
-                  <div key={q.id} className="flex items-center justify-between">
-                    <span className="text-sm">
-                      {data.roles.find((r) => r.id === q.role_id)?.name}
-                    </span>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      aria-label="Убрать позицию"
-                      onClick={() =>
-                        void save("qualification.save", {
-                          user_id: qualUser,
-                          role_id: q.role_id,
-                          remove: true,
-                        })
-                      }
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </div>
-                ))}
-              <Field label="Добавить позицию">
-                <select
-                  className={selectClass}
-                  value={qualRole}
-                  onChange={(e) => setQualRole(e.target.value)}
-                >
-                  <option value="">Выберите позицию</option>
-                  {data.roles
-                    .filter(
-                      (r) =>
-                        r.id !==
-                          data.staff.find((s) => s.user_id === qualUser)
-                            ?.role_id &&
-                        !data.qualifications.some(
-                          (q) => q.user_id === qualUser && q.role_id === r.id,
-                        ),
-                    )
-                    .map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name}
-                      </option>
-                    ))}
-                </select>
-              </Field>
-              <Button
-                disabled={!qualRole}
-                onClick={async () => {
-                  if (
-                    await save("qualification.save", {
-                      user_id: qualUser,
-                      role_id: qualRole,
-                      remove: false,
-                    })
-                  )
-                    setQualRole("");
-                }}
-              >
-                Добавить позицию
-              </Button>
-            </>
-          )}
         </EditDrawer>
       )}
       <Dialog
@@ -1995,5 +1485,6 @@ export function ScheduleClient({
         </DialogContent>
       </Dialog>
     </div>
+    </TaskTitleTarget.Provider>
   );
 }

@@ -931,8 +931,7 @@
         }
       ],
       "status": "draft_requires_editorial_review",
-      "dateOffsetDays": 1,
-      "dependsOnKey": "18889d79-8fce-426f-ba1e-300849815ee1"
+      "dateOffsetDays": 1
     }
   ]
 }

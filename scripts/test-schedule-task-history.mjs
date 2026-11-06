@@ -1,4 +1,4 @@
-/** Local integration: old returned reports retain their settled handover evidence. */
+/** Local integration: old returned reports remain accessible in the calendar. */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -45,7 +45,6 @@ const check = (r) => {
   return r.data;
 };
 const definitionId = randomUUID(),
-  prerequisiteId = randomUUID(),
   returnedId = randomUUID();
 try {
   const { user } = check(
@@ -77,78 +76,63 @@ try {
     name: "TEST history definition",
     source_key: `test-history:${definitionId}`,
     enabled: false,
-    predecessor_id: null,
-    predecessor_offset: 0,
   };
   check(await admin.from("schedule_task_definitions").insert(definition));
   const date = (days) =>
     new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
-  const marker = `TEST old handover snapshot ${prerequisiteId}`;
+  const marker = `TEST old returned report ${returnedId}`;
   check(
     await admin.from("schedule_task_occurrences").insert([
-      {
-        id: prerequisiteId,
-        venue_id: venue,
-        account_id: source.account_id,
-        definition_id: definitionId,
-        business_date: date(46),
-        snapshot: { ...definition, name: marker },
-        status: "completed",
-        user_id: user.id,
-        settled_at: new Date().toISOString(),
-      },
       {
         id: returnedId,
         venue_id: venue,
         account_id: source.account_id,
         definition_id: definitionId,
         business_date: date(45),
-        snapshot: definition,
+        snapshot: { ...definition, name: marker },
         status: "returned",
         user_id: user.id,
-        predecessor_occurrence_id: prerequisiteId,
         deadline_at: new Date(Date.now() + 86400000).toISOString(),
       },
     ]),
   );
   const cookie = jar.map((c) => `${c.name}=${c.value}`).join("; ");
-  const legacy = await fetch(`${site}/schedule/tasks`, {
+  const legacy = await fetch(`${site}/schedule?tab=tasks`, {
     headers: { cookie },
     redirect: "manual",
   });
   assert.equal(legacy.status, 307);
   assert.equal(
-    new URL(legacy.headers.get("location"), site).pathname +
-      new URL(legacy.headers.get("location"), site).search,
-    "/schedule?tab=tasks",
+    new URL(legacy.headers.get("location"), site).pathname,
+    "/schedule/tasks",
   );
-  const response = await fetch(`${site}/schedule?tab=tasks`, {
+  const response = await fetch(`${site}/schedule/tasks`, {
     headers: { cookie },
   });
   assert.equal(response.status, 200);
   assert(
     (await response.text()).includes(marker),
-    "The settled prerequisite outside the 31-day window was omitted",
+    "The pending report outside the 31-day window was omitted",
   );
   for (const targetDate of [date(0), date(45)]) {
-    const calendar = await fetch(`${site}/schedule?showTasks=1&date=${targetDate}`, { headers: { cookie } });
+    const calendar = await fetch(
+      `${site}/schedule?showTasks=1&date=${targetDate}`,
+      { headers: { cookie } },
+    );
     assert.equal(calendar.status, 200);
     const body = await calendar.text();
-    assert(body.includes(marker), "Calendar omitted the linked settled prerequisite");
-    assert(body.includes("Показать задачи"), "Calendar task display option is missing");
+    assert(body.includes(marker), "Calendar omitted the old pending report");
+    assert(
+      body.includes("Показать задачи"),
+      "Calendar task display option is missing",
+    );
   }
   console.log(
-    "PASS: legacy redirect and template screen; current/historical calendar retains the 46-day-old settled prerequisite",
+    "PASS: legacy redirect and template screen; current/historical calendar retains the 45-day-old pending report",
   );
 } finally {
   check(
     await admin.from("schedule_task_occurrences").delete().eq("id", returnedId),
-  );
-  check(
-    await admin
-      .from("schedule_task_occurrences")
-      .delete()
-      .eq("id", prerequisiteId),
   );
   check(
     await admin
@@ -160,7 +144,7 @@ try {
     await admin
       .from("schedule_task_history")
       .delete()
-      .in("entity_id", [definitionId, prerequisiteId, returnedId]),
+      .in("entity_id", [definitionId, returnedId]),
   );
   await client.auth.signOut({ scope: "local" });
 }

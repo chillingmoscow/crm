@@ -8,7 +8,6 @@ create table public.schedule_task_definitions (
  recurrence jsonb not null, starts_on date not null, enabled boolean not null default false,
  penalty_enabled boolean not null default true, fine_amount numeric check(fine_amount between 0 and 100000),
  reward_amount numeric check(reward_amount between 0 and 100000),
- predecessor_id uuid references public.schedule_task_definitions(id), predecessor_offset integer not null default 0 check(predecessor_offset between 0 and 7),
  equipment_groups jsonb not null default '[]', source_key text, source_url text, version integer not null default 1,
  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
  unique(venue_id,id), unique(venue_id,source_key)
@@ -27,7 +26,7 @@ create table public.schedule_task_occurrences (
  employee_name text, snapshot jsonb not null, answers jsonb not null default '{}',
  status text not null default 'blocked' check(status in ('assigned','in_progress','submitted','returned','completed','missed','blocked')),
  transferred boolean not null default false, transferred_from_id uuid references public.schedule_task_occurrences(id),
- transfer_created boolean not null default false, predecessor_occurrence_id uuid references public.schedule_task_occurrences(id),
+ transfer_created boolean not null default false,
  deadline_at timestamptz, submitted_at timestamptz, completed_at timestamptz,
  review_comment text not null default '', blocker text not null default '', equipment jsonb not null default '[]',
  version integer not null default 1, adjustment_id uuid references public.payroll_adjustments(id), settled_at timestamptz,
@@ -38,7 +37,6 @@ create table public.schedule_task_occurrences (
 create index schedule_task_occurrences_calendar on public.schedule_task_occurrences(venue_id,business_date);
 create index schedule_task_occurrences_assignee on public.schedule_task_occurrences(user_id,business_date);
 create index schedule_task_occurrences_carry on public.schedule_task_occurrences(transferred_from_id) where transferred_from_id is not null;
-create index schedule_task_occurrences_prerequisite on public.schedule_task_occurrences(predecessor_occurrence_id,user_id) where predecessor_occurrence_id is not null;
 create table public.schedule_task_history (
  id uuid primary key default gen_random_uuid(), venue_id uuid not null references public.venues(id),
  entity_id uuid not null, actor_id uuid references public.profiles(id), action text not null,
@@ -54,19 +52,9 @@ revoke all on public.schedule_task_definitions,public.schedule_task_settings,pub
 grant select on public.schedule_task_definitions,public.schedule_task_settings,public.schedule_task_occurrences,public.schedule_task_history to authenticated;
 grant all on public.schedule_task_definitions,public.schedule_task_settings,public.schedule_task_occurrences,public.schedule_task_history to service_role;
 
--- A handover may show the preceding report to its next assignee without exposing unrelated reports.
-create function private.schedule_task_prerequisite_read(p_occurrence uuid) returns boolean
-language sql stable security definer set search_path='' as $$
- select auth.uid() is not null and exists(select 1 from public.schedule_task_occurrences child
-  where child.predecessor_occurrence_id=p_occurrence and child.user_id=(select auth.uid())
-   and child.venue_id=(select public.get_active_venue_id()) and child.account_id=(select public.get_active_account_id()))
-$$;
-revoke all on function private.schedule_task_prerequisite_read(uuid) from public,anon;
-grant execute on function private.schedule_task_prerequisite_read(uuid) to authenticated;
-
 create policy task_occurrences_read on public.schedule_task_occurrences for select to authenticated using (
  venue_id=(select public.get_active_venue_id()) and account_id=(select public.get_active_account_id()) and
- (user_id=(select auth.uid()) or (select public.has_permission('schedule.view_all')) or (select public.has_permission('schedule.review')) or (select public.has_permission('schedule.checklist_edit')) or private.schedule_task_prerequisite_read(id))
+ (user_id=(select auth.uid()) or (select public.has_permission('schedule.view_all')) or (select public.has_permission('schedule.review')) or (select public.has_permission('schedule.checklist_edit')))
 );
 create policy task_definitions_read on public.schedule_task_definitions for select to authenticated using (
  venue_id=(select public.get_active_venue_id()) and account_id=(select public.get_active_account_id()) and
@@ -115,7 +103,7 @@ create function public.schedule_task_command(p_action text,p_input jsonb) return
 language plpgsql security definer set search_path=public,pg_catalog as $$
 declare u uuid:=auth.uid();v uuid:=public.get_active_venue_id();a uuid:=public.get_active_account_id();
  ident uuid:=nullif(p_input->>'id','')::uuid;def public.schedule_task_definitions;o public.schedule_task_occurrences;
- ans jsonb;item jsonb;perm text;pred uuid;rec jsonb;settings public.schedule_task_settings;correct_until timestamptz;activation_date date;is_paused boolean;
+ ans jsonb;item jsonb;perm text;rec jsonb;settings public.schedule_task_settings;correct_until timestamptz;activation_date date;is_paused boolean;
 begin
  if u is null or v is null or a is null or not exists(select 1 from public.venues where id=v and account_id=a) then raise exception 'Выберите заведение';end if;
  if p_action='definition.save' then
@@ -138,11 +126,6 @@ begin
   if jsonb_typeof(rec) is distinct from 'object' or coalesce(rec->>'unit','') not in ('week','month') or rec->>'interval' is null or (rec->>'interval')::integer not between 1 and 52
    or coalesce(rec->>'anchor','') !~ '^\d{4}-\d{2}-\d{2}$' or coalesce(p_input->>'starts_on','') !~ '^\d{4}-\d{2}-\d{2}$'
    or not isfinite((rec->>'anchor')::date) or not isfinite((p_input->>'starts_on')::date) then raise exception 'Проверьте периодичность';end if;
-  pred:=nullif(p_input->>'predecessor_id','')::uuid;
-  if pred is not null then
-   if pred=ident or not exists(select 1 from public.schedule_task_definitions where id=pred and venue_id=v and account_id=a) or coalesce((p_input->>'predecessor_offset')::integer,0) not between 1 and 7
-    or exists(with recursive parents as(select id,predecessor_id from public.schedule_task_definitions where id=pred union all select d.id,d.predecessor_id from public.schedule_task_definitions d join parents p on d.id=p.predecessor_id) select 1 from parents where id=ident) then raise exception 'Проверьте предыдущую задачу';end if;
-  end if;
   if jsonb_typeof(coalesce(p_input->'equipment_groups','[]')) is distinct from 'array' or jsonb_array_length(coalesce(p_input->'equipment_groups','[]'))>12 then raise exception 'Проверьте группы оборудования';end if;
   for item in select value from jsonb_array_elements(coalesce(p_input->'equipment_groups','[]')) loop
    if jsonb_typeof(item) is distinct from 'array' or jsonb_array_length(item) not between 1 and 100 or exists(select 1 from jsonb_array_elements(item) x where jsonb_typeof(x)<>'number' or (x#>>'{}')::numeric<>trunc((x#>>'{}')::numeric) or (x#>>'{}')::numeric not between 1 and 999) then raise exception 'Проверьте номера оборудования';end if;
@@ -150,12 +133,12 @@ begin
   if ident is null then
    if nullif(p_input->>'source_key','') is null and coalesce(p_input->>'request_key','') !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' then raise exception 'Нужен ключ создания задачи';end if;
    if length(coalesce(p_input->>'source_key',''))>200 then raise exception 'Неверный источник';end if;
-   insert into public.schedule_task_definitions(account_id,venue_id,name,instructions,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount,predecessor_id,predecessor_offset,equipment_groups,source_key)
-   values(a,v,trim(p_input->>'name'),coalesce(p_input->>'instructions',''),(p_input->>'template_id')::uuid,p_input->>'review_mode',p_input->'items',rec,(p_input->>'starts_on')::date,(p_input->>'enabled')::boolean,(p_input->>'penalty_enabled')::boolean,(p_input->>'fine_amount')::numeric,(p_input->>'reward_amount')::numeric,pred,coalesce((p_input->>'predecessor_offset')::integer,0),coalesce(p_input->'equipment_groups','[]'),coalesce(nullif(p_input->>'source_key',''),'manual:'||(p_input->>'request_key')))
+   insert into public.schedule_task_definitions(account_id,venue_id,name,instructions,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount,equipment_groups,source_key)
+   values(a,v,trim(p_input->>'name'),coalesce(p_input->>'instructions',''),(p_input->>'template_id')::uuid,p_input->>'review_mode',p_input->'items',rec,(p_input->>'starts_on')::date,(p_input->>'enabled')::boolean,(p_input->>'penalty_enabled')::boolean,(p_input->>'fine_amount')::numeric,(p_input->>'reward_amount')::numeric,coalesce(p_input->'equipment_groups','[]'),coalesce(nullif(p_input->>'source_key',''),'manual:'||(p_input->>'request_key')))
    on conflict(venue_id,source_key) do nothing returning id into ident;
    if ident is null then select id into ident from public.schedule_task_definitions where venue_id=v and source_key=coalesce(nullif(p_input->>'source_key',''),'manual:'||(p_input->>'request_key'));return jsonb_build_object('id',ident,'existing',true);end if;
   else
-   update public.schedule_task_definitions set name=trim(p_input->>'name'),instructions=coalesce(p_input->>'instructions',''),template_id=(p_input->>'template_id')::uuid,review_mode=p_input->>'review_mode',items=p_input->'items',recurrence=rec,starts_on=(p_input->>'starts_on')::date,enabled=(p_input->>'enabled')::boolean,penalty_enabled=(p_input->>'penalty_enabled')::boolean,fine_amount=(p_input->>'fine_amount')::numeric,reward_amount=(p_input->>'reward_amount')::numeric,predecessor_id=pred,predecessor_offset=coalesce((p_input->>'predecessor_offset')::integer,0),equipment_groups=coalesce(p_input->'equipment_groups','[]'),version=version+1,updated_at=now() where id=ident;
+   update public.schedule_task_definitions set name=trim(p_input->>'name'),instructions=coalesce(p_input->>'instructions',''),template_id=(p_input->>'template_id')::uuid,review_mode=p_input->>'review_mode',items=p_input->'items',recurrence=rec,starts_on=(p_input->>'starts_on')::date,enabled=(p_input->>'enabled')::boolean,penalty_enabled=(p_input->>'penalty_enabled')::boolean,fine_amount=(p_input->>'fine_amount')::numeric,reward_amount=(p_input->>'reward_amount')::numeric,equipment_groups=coalesce(p_input->'equipment_groups','[]'),version=version+1,updated_at=now() where id=ident;
   end if;
  elsif p_action='settings.save' then
   if not public.has_permission('schedule.checklist_edit') or not public.has_permission('payroll.configure') or not public.has_permission('payroll.review') then raise exception 'Нет доступа к переключению задач';end if;
@@ -246,7 +229,7 @@ grant execute on function public.schedule_task_preview(date,date) to authenticat
 create function public.schedule_process_tasks() returns jsonb
 language plpgsql security definer set search_path=public,pg_catalog as $$
 declare settings public.schedule_task_settings;today date;tz text;entry jsonb;o public.schedule_task_occurrences;
- def public.schedule_task_definitions;s public.schedule_shifts;e public.payroll_employees;pred public.schedule_task_occurrences;
+ def public.schedule_task_definitions;s public.schedule_shifts;e public.payroll_employees;
  n integer;count_shifts integer;blocked_reason text;group_index integer;occurrence_index integer;assignment_deadline timestamptz;rules jsonb;kind text;medium text;amount numeric;
  adjustment uuid;created integer:=0;settled integer:=0;
 begin
@@ -266,7 +249,7 @@ begin
   -- Rebind untouched assignments when the published shift is filled or corrected.
   for o in select * from public.schedule_task_occurrences where venue_id=settings.venue_id and business_date>=settings.enabled_from and business_date between today-7 and today+7 and status in ('blocked','assigned') and answers='{}'::jsonb and settled_at is null for update loop
    select count(*) into count_shifts from public.schedule_shifts where venue_id=o.venue_id and template_id=(o.snapshot->>'template_id')::uuid and published and (starts_at at time zone tz)::date=o.business_date;
-   blocked_reason:='';s:=null;e:=null;pred:=null;
+   blocked_reason:='';s:=null;e:=null;
    if count_shifts=0 then blocked_reason:='Нет опубликованной смены нужного шаблона';
    elsif count_shifts>1 then blocked_reason:='Найдено несколько смен. Уточните назначение в графике';
    else
@@ -279,22 +262,8 @@ begin
      if not exists(select 1 from public.user_venue_roles uv where uv.user_id=coalesce(s.user_id,e.local_user_id) and uv.venue_id=o.venue_id and uv.status='active') then blocked_reason:='У сотрудника нет активного доступа в заведение';end if;
     end if;
    end if;
-   if nullif(o.snapshot->>'predecessor_id','') is not null then
-    -- A carry keeps the prerequisite of the original assignment, even after several missed days.
-    if o.predecessor_occurrence_id is not null then
-     select * into pred from public.schedule_task_occurrences where id=o.predecessor_occurrence_id;
-    else
-     with recursive origins as(select p.id,p.transferred_from_id,p.business_date from public.schedule_task_occurrences p where p.id=o.id union all select p.id,p.transferred_from_id,p.business_date from public.schedule_task_occurrences p join origins c on p.id=c.transferred_from_id)
-     select p.* into pred from public.schedule_task_occurrences p where p.definition_id=(o.snapshot->>'predecessor_id')::uuid and p.business_date=(select business_date from origins order by business_date limit 1)-(o.snapshot->>'predecessor_offset')::integer;
-    end if;
-    if pred.id is not null and pred.status='missed' then
-     with recursive carried as(select p.id,p.transferred_from_id,p.business_date,p.status from public.schedule_task_occurrences p where p.id=pred.id union all select p.id,p.transferred_from_id,p.business_date,p.status from public.schedule_task_occurrences p join carried c on p.transferred_from_id=c.id where p.business_date<=o.business_date)
-     select p.* into pred from public.schedule_task_occurrences p join carried c on c.id=p.id where c.status='completed' order by c.business_date desc limit 1;
-    end if;
-    if pred.id is null or pred.status<>'completed' then blocked_reason:='Ожидается выполнение предыдущей задачи';end if;
-   end if;
    assignment_deadline:=case when s.id is not null then greatest(s.ends_at,((o.business_date+1)::timestamp+interval '11 hours 30 minutes') at time zone tz) end;
-   if blocked_reason='' and assignment_deadline<=now() and (o.status='blocked' or pred.completed_at>assignment_deadline or o.shift_id is distinct from s.id or o.employee_id is distinct from e.id or o.user_id is distinct from coalesce(s.user_id,e.local_user_id)) then
+   if blocked_reason='' and assignment_deadline<=now() and (o.status='blocked' or o.shift_id is distinct from s.id or o.employee_id is distinct from e.id or o.user_id is distinct from coalesce(s.user_id,e.local_user_id)) then
     blocked_reason:='Срок истёк до доступности задачи. Нужна сверка без автоматического штрафа';
    end if;
    group_index:=jsonb_array_length(coalesce(o.snapshot->'equipment_groups','[]'));
@@ -304,7 +273,7 @@ begin
     occurrence_index:=(o.business_date-(o.snapshot->'recurrence'->>'anchor')::date)/(7*greatest((o.snapshot->'recurrence'->>'interval')::integer,1));
    end if;
    update public.schedule_task_occurrences set shift_id=s.id,employee_id=e.id,user_id=coalesce(s.user_id,e.local_user_id),employee_name=e.name,
-    predecessor_occurrence_id=pred.id,deadline_at=assignment_deadline,
+    deadline_at=assignment_deadline,
     status=case when blocked_reason='' then 'assigned' else 'blocked' end,blocker=blocked_reason,
     equipment=case when o.transferred then o.equipment when group_index>0 then (o.snapshot->'equipment_groups')->(occurrence_index%group_index) else '[]'::jsonb end,
     version=version+case when shift_id is distinct from s.id or employee_id is distinct from e.id or user_id is distinct from coalesce(s.user_id,e.local_user_id) or schedule_task_occurrences.blocker is distinct from blocked_reason then 1 else 0 end,updated_at=now() where id=o.id;
@@ -351,9 +320,9 @@ begin
   end loop;
   -- Carry once to an available day, including after a delayed review/correction deadline. Reuse only untouched assignments.
   for o in select * from public.schedule_task_occurrences where venue_id=settings.venue_id and business_date>=settings.enabled_from and status='missed' and not transfer_created for update loop
-   insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,transferred,transferred_from_id,predecessor_occurrence_id,equipment)
-   values(o.venue_id,o.account_id,o.definition_id,greatest(o.business_date+1,today),o.snapshot,true,o.id,o.predecessor_occurrence_id,o.equipment)
-   on conflict(definition_id,business_date) do update set transferred=true,transferred_from_id=excluded.transferred_from_id,snapshot=excluded.snapshot,predecessor_occurrence_id=excluded.predecessor_occurrence_id,equipment=excluded.equipment,version=schedule_task_occurrences.version+1
+   insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,transferred,transferred_from_id,equipment)
+   values(o.venue_id,o.account_id,o.definition_id,greatest(o.business_date+1,today),o.snapshot,true,o.id,o.equipment)
+   on conflict(definition_id,business_date) do update set transferred=true,transferred_from_id=excluded.transferred_from_id,snapshot=excluded.snapshot,equipment=excluded.equipment,version=schedule_task_occurrences.version+1
    where schedule_task_occurrences.status in ('assigned','blocked') and schedule_task_occurrences.answers='{}'::jsonb and schedule_task_occurrences.settled_at is null and (schedule_task_occurrences.transferred_from_id is null or schedule_task_occurrences.transferred_from_id=excluded.transferred_from_id);
    get diagnostics n=row_count;
    if n>0 then

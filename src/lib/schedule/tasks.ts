@@ -41,8 +41,6 @@ export const taskDefinitionSchema = z
     penalty_enabled: z.boolean().default(true),
     fine_amount: z.number().min(0).max(100000).nullable(),
     reward_amount: z.number().min(0).max(100000).nullable(),
-    predecessor_id: z.string().uuid().nullable().default(null),
-    predecessor_offset: z.number().int().min(0).max(7).default(0),
     equipment_groups: z
       .array(z.array(z.number().int().min(1).max(999)).min(1))
       .max(12)
@@ -54,11 +52,6 @@ export const taskDefinitionSchema = z
     for (const i of s.items)
       if (i.min !== null && i.max !== null && i.min > i.max)
         ctx.addIssue({ code: "custom", message: "Минимум больше максимума" });
-    if (s.predecessor_id && !s.predecessor_offset)
-      ctx.addIssue({
-        code: "custom",
-        message: "Укажите интервал после предыдущей задачи",
-      });
   });
 export type TaskInput = z.infer<typeof taskDefinitionSchema>;
 export type TaskDefinition = TaskInput & {
@@ -91,7 +84,6 @@ export type TaskOccurrence = {
     | "missed"
     | "blocked";
   transferred: boolean;
-  predecessor_occurrence_id: string | null;
   deadline_at: string | null;
   submitted_at: string | null;
   completed_at: string | null;

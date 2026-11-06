@@ -3,11 +3,13 @@ import {
   cloneElement,
   isValidElement,
   useEffect,
+  useLayoutEffect,
   useId,
   useRef,
   useState,
 } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { Plus, Settings2, ArrowLeft, Camera, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,8 +25,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import { ProfileSection } from "@/components/shared/profile-section";
-import { TaskHeaderActions } from "../_components/task-header-actions";
+import {
+  TaskHeaderActions,
+  TaskPageTitle,
+} from "../_components/task-header-actions";
 import { TableControls } from "@/components/shared/table";
 import { TableFilterChip } from "@/components/shared/table/table-filter-chip";
 import { TaskList, type TaskListRow } from "./task-list";
@@ -205,6 +211,41 @@ function newItem(kind: ChecklistItem["kind"] = "check"): ChecklistItem {
     max_length: 2000,
   };
 }
+function ChecklistText({
+  value,
+  onChange,
+  ...props
+}: React.ComponentProps<typeof Textarea>) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const field = ref.current;
+    if (!field) return;
+    const resize = () => {
+      field.style.height = "0px";
+      field.style.height = `${field.scrollHeight + field.offsetHeight - field.clientHeight}px`;
+    };
+    resize();
+    const observer = new ResizeObserver(() => {
+      if (field.clientWidth !== width) {
+        width = field.clientWidth;
+        resize();
+      }
+    });
+    let width = field.clientWidth;
+    observer.observe(field);
+    return () => observer.disconnect();
+  }, [value]);
+  return (
+    <Textarea
+      {...props}
+      ref={ref}
+      value={value}
+      onChange={onChange}
+      rows={1}
+      className="min-h-9 overflow-hidden py-2 leading-5"
+    />
+  );
+}
 function TaskScreen({
   title,
   description,
@@ -214,9 +255,11 @@ function TaskScreen({
   dirty = false,
   busy = false,
   backLabel = "К задачам",
+  backHref = "/schedule/tasks",
 }: {
   title: string;
   backLabel?: string;
+  backHref?: string;
   description?: string;
   onBack: () => void;
   actions?: React.ReactNode;
@@ -225,47 +268,88 @@ function TaskScreen({
   busy?: boolean;
 }) {
   const [confirmExit, setConfirmExit] = useState(false);
-  const heading = useRef<HTMLHeadingElement>(null);
+  const [exitHref, setExitHref] = useState<string | null>(null);
+  const router = useRouter();
   const screen = useRef<HTMLElement>(null);
   useEffect(() => {
     if ((screen.current?.getBoundingClientRect().top ?? 0) < 0)
       screen.current?.scrollIntoView({ block: "start" });
-    heading.current?.focus({ preventScroll: true });
+    screen.current?.focus({ preventScroll: true });
   }, []);
   useEffect(() => {
     const guard = (event: BeforeUnloadEvent) => {
       if (dirty) event.preventDefault();
     };
+    const guardLink = (event: MouseEvent) => {
+      if (
+        !dirty ||
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      )
+        return;
+      const anchor =
+        event.target instanceof Element
+          ? event.target.closest<HTMLAnchorElement>("a[href]")
+          : null;
+      if (
+        !anchor ||
+        anchor.target === "_blank" ||
+        anchor.hasAttribute("download")
+      )
+        return;
+      const url = new URL(anchor.href);
+      if (
+        url.origin !== window.location.origin ||
+        url.href === window.location.href
+      )
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      setExitHref(url.pathname + url.search + url.hash);
+      setConfirmExit(true);
+    };
     window.addEventListener("beforeunload", guard);
-    return () => window.removeEventListener("beforeunload", guard);
+    document.addEventListener("click", guardLink, true);
+    return () => {
+      window.removeEventListener("beforeunload", guard);
+      document.removeEventListener("click", guardLink, true);
+    };
   }, [dirty]);
   return (
-    <section ref={screen} className="mx-auto w-full max-w-[720px] space-y-5">
+    <section
+      ref={screen}
+      tabIndex={-1}
+      className="mx-auto w-full max-w-[720px] space-y-5 outline-none"
+    >
+      <TaskPageTitle title={title} />
       <TaskHeaderActions>{actions}</TaskHeaderActions>
-      <header className="space-y-3">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="-ml-3 text-muted-foreground"
-          disabled={busy}
-          onClick={() => (dirty ? setConfirmExit(true) : onBack())}
+      <PageBreadcrumb>
+        <a
+          href={backHref}
+          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 py-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          aria-disabled={busy}
+          onClick={(event) => {
+            event.preventDefault();
+            if (!busy) {
+              setExitHref(null);
+              if (dirty) setConfirmExit(true);
+              else onBack();
+            }
+          }}
         >
-          <ArrowLeft className="mr-2 size-4" />
+          <ArrowLeft className="size-4" />
           {backLabel}
-        </Button>
-        <h2
-          ref={heading}
-          tabIndex={-1}
-          className="text-balance text-2xl font-semibold tracking-tight outline-none"
-        >
-          {title}
-        </h2>
-        {description && (
-          <p className="text-sm leading-relaxed text-muted-foreground">
-            {description}
-          </p>
-        )}
-      </header>
+        </a>
+      </PageBreadcrumb>
+      {description && (
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          {description}
+        </p>
+      )}
       {children}
       {actions && (
         <div className="flex flex-wrap justify-end gap-2 pb-3">{actions}</div>
@@ -282,7 +366,11 @@ function TaskScreen({
             <Button variant="outline" onClick={() => setConfirmExit(false)}>
               Продолжить редактирование
             </Button>
-            <Button onClick={onBack}>Выйти без сохранения</Button>
+            <Button
+              onClick={() => (exitHref ? router.push(exitHref) : onBack())}
+            >
+              Выйти без сохранения
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -469,7 +557,7 @@ export function TasksClient({
             content: (
               <div className="space-y-4 p-3">
                 <p className="text-sm font-semibold">Фильтры</p>
-                <Field label="Ответственная смена">
+                <Field label="Шаблон смены">
                   <TaskSelect
                     value={templateFilter}
                     onChange={setTemplateFilter}
@@ -554,7 +642,7 @@ export function TasksClient({
           <div className="flex flex-wrap gap-2">
             {templateFilter && (
               <TableFilterChip
-                label="Ответственная смена"
+                label="Шаблон смены"
                 value={templateFilter}
                 onChange={setTemplateFilter}
                 options={data.templates.map((template) => ({
@@ -644,7 +732,7 @@ function DefinitionEditor({
             request_key: crypto.randomUUID(),
             name: "",
             instructions: "",
-            template_id: data.templates[0]?.id ?? "",
+            template_id: "",
             review_mode: "manager",
             items: [newItem()],
             recurrence: { unit: "week", interval: 1, anchor: data.today },
@@ -653,8 +741,6 @@ function DefinitionEditor({
             penalty_enabled: canFinance,
             fine_amount: null,
             reward_amount: null,
-            predecessor_id: null,
-            predecessor_offset: 0,
             equipment_groups: [],
           }
         : task,
@@ -677,6 +763,10 @@ function DefinitionEditor({
       value.items.map((x, i) => (i === index ? { ...x, ...patch } : x)),
     );
   async function submit() {
+    if (!value.template_id) {
+      toast.error("Выберите шаблон смены");
+      return;
+    }
     const equipmentGroups = equipmentTexts.map((text) =>
       text
         .split(/[,;\s]+/)
@@ -736,7 +826,7 @@ function DefinitionEditor({
           </Field>
           <Field label="Инструкция">
             <Textarea
-              rows={5}
+              rows={3}
               value={value.instructions}
               onChange={(e) => set("instructions", e.target.value)}
               placeholder="Как выполнить задачу"
@@ -760,16 +850,14 @@ function DefinitionEditor({
                   <span className="w-4 shrink-0 pt-2.5 text-sm tabular-nums text-muted-foreground">
                     {i + 1}.
                   </span>
-                  <div className="min-w-0 flex-1 space-y-3">
-                    <Textarea
-                      rows={2}
-                      className="min-h-20 sm:min-h-16"
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <ChecklistText
                       aria-label={`Пункт ${i + 1}`}
                       value={x.title}
                       onChange={(e) => item(i, { title: e.target.value })}
                     />
-                    <div className="flex flex-wrap items-center gap-4">
-                      <div className="w-44">
+                    <div className="-mr-10 flex flex-wrap items-center gap-x-3 gap-y-2 sm:mr-0">
+                      <div className="w-28 shrink-0">
                         <TaskSelect
                           label={`Тип ответа для пункта ${i + 1}`}
                           disabled={!editable || busy}
@@ -797,27 +885,27 @@ function DefinitionEditor({
                           Обязательно
                         </Check>
                       )}
+                      {!expandedHints.includes(x.id) && (
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="h-auto p-0 text-[13px] text-muted-foreground"
+                          aria-label={`Добавить пояснение к пункту ${i + 1}`}
+                          onClick={() =>
+                            setExpandedHints((ids) => [...ids, x.id])
+                          }
+                        >
+                          Добавить пояснение
+                        </Button>
+                      )}
                     </div>
-                    {expandedHints.includes(x.id) ? (
-                      <Textarea
+                    {expandedHints.includes(x.id) && (
+                      <ChecklistText
                         aria-label={`Пояснение к пункту ${i + 1}`}
                         placeholder="Пояснение к пункту"
-                        rows={2}
                         value={x.hint}
                         onChange={(e) => item(i, { hint: e.target.value })}
                       />
-                    ) : (
-                      <Button
-                        variant="link"
-                        size="sm"
-                        className="h-auto p-0 text-[13px] text-muted-foreground"
-                        aria-label={`Добавить пояснение к пункту ${i + 1}`}
-                        onClick={() =>
-                          setExpandedHints((ids) => [...ids, x.id])
-                        }
-                      >
-                        Добавить пояснение
-                      </Button>
                     )}
                     {x.kind === "number" && (
                       <div className="grid gap-3 sm:grid-cols-3">
@@ -888,66 +976,32 @@ function DefinitionEditor({
         </ProfileSection>
 
         <ProfileSection title="Выполнение">
-          <Field label="Ответственная смена">
+          <Field label="Шаблон смены">
             <TaskSelect
               disabled={!editable || busy}
               value={value.template_id}
               onChange={(template) => set("template_id", template)}
-              options={data.templates.map((template) => ({
-                value: template.id,
-                label: template.name,
-              }))}
-            />
-          </Field>
-          <Field label="Приёмка отчёта">
-            <TaskSelect
-              disabled={!editable || busy}
-              value={value.review_mode}
-              onChange={(mode) =>
-                set("review_mode", mode as "auto" | "manager")
-              }
               options={[
-                { value: "manager", label: "Управляющим" },
-                { value: "auto", label: "Автоматически после полного отчёта" },
+                { value: "", label: "Выберите шаблон смены" },
+                ...data.templates.map((template) => ({
+                  value: template.id,
+                  label: template.name,
+                })),
               ]}
             />
           </Field>
-          <Field label="Предыдущая задача">
-            <TaskSelect
-              disabled={!editable || busy}
-              value={value.predecessor_id ?? ""}
-              onChange={(previous) => {
-                setDirty(true);
-                setValue((current) => ({
-                  ...current,
-                  predecessor_id: previous || null,
-                  predecessor_offset: previous ? 1 : 0,
-                }));
-              }}
-              options={[
-                { value: "", label: "Не зависит от другой задачи" },
-                ...data.definitions
-                  .filter((definition) => definition.id !== value.id)
-                  .map((definition) => ({
-                    value: definition.id,
-                    label: definition.name,
-                  })),
-              ]}
-            />
-          </Field>
-          {value.predecessor_id && (
-            <Field label="Через сколько дней после неё">
-              <Input
-                type="number"
-                min={1}
-                max={7}
-                value={value.predecessor_offset}
-                onChange={(e) =>
-                  set("predecessor_offset", Number(e.target.value))
-                }
-              />
-            </Field>
-          )}
+          <p className="-mt-1 text-[13px] leading-snug text-muted-foreground">
+            Задачу получит сотрудник, назначенный на этот шаблон в расписании.
+          </p>
+          <Check
+            checked={value.review_mode === "manager"}
+            onChange={(required) =>
+              set("review_mode", required ? "manager" : "auto")
+            }
+            disabled={!editable || busy}
+          >
+            Требуется приёмка
+          </Check>
         </ProfileSection>
 
         <ProfileSection title="Повторение">
@@ -1216,13 +1270,11 @@ export function TaskReport({
       setBusy(false);
     }
   }
-  const predecessor = data.occurrences.find(
-    (p) => p.id === o.predecessor_occurrence_id,
-  );
   return (
     <TaskScreen
       onBack={onClose}
       backLabel="К графику"
+      backHref="/schedule"
       dirty={dirty}
       busy={busy}
       title={o.snapshot.name}
@@ -1282,41 +1334,6 @@ export function TaskReport({
           <p className="text-sm font-medium">
             В этот раз: камеры № {o.equipment.join(", ")}
           </p>
-        )}
-        {predecessor && (
-          <details>
-            <summary className="cursor-pointer text-sm font-medium">
-              Предыдущая задача: {predecessor.snapshot.name}
-            </summary>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {predecessor.employee_name} · {taskStatus[predecessor.status]}
-            </p>
-            {predecessor.snapshot.items
-              .filter((i) => i.kind === "photo")
-              .map((i) => (
-                <PriorPhoto key={i.id} path={predecessor.answers[i.id]} />
-              ))}
-          </details>
-        )}
-        {o.snapshot.instructions && (
-          <details>
-            <summary className="cursor-pointer text-sm font-medium">
-              Инструкция
-            </summary>
-            <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-              {o.snapshot.instructions}
-            </p>
-            {o.snapshot.source_url && (
-              <a
-                href={o.snapshot.source_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-3 inline-block text-sm text-primary underline underline-offset-4"
-              >
-                Исходная инструкция с иллюстрациями
-              </a>
-            )}
-          </details>
         )}
         <ProfileSection title="Отчёт">
           {o.snapshot.items.map((i, index) => (
@@ -1445,29 +1462,6 @@ export function TaskReport({
       </div>
     </TaskScreen>
   );
-}
-function PriorPhoto({ path }: { path: Answer | undefined }) {
-  const [url, setUrl] = useState<string>();
-  useEffect(() => {
-    let alive = true;
-    if (typeof path === "string")
-      taskPhotoUrl(path)
-        .then((r) => alive && setUrl(r.url))
-        .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [path]);
-  return url ? (
-    <Image
-      src={url}
-      alt="Фото предыдущей задачи"
-      width={420}
-      height={280}
-      unoptimized
-      className="mt-2 max-h-60 object-contain"
-    />
-  ) : null;
 }
 function SettingsEditor({
   data,

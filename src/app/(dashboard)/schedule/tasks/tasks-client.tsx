@@ -1335,6 +1335,28 @@ export function TaskReport({
             В этот раз: камеры № {o.equipment.join(", ")}
           </p>
         )}
+        {(o.snapshot.instructions || o.snapshot.source_url) && (
+          <details>
+            <summary className="cursor-pointer text-sm font-medium">
+              Инструкция
+            </summary>
+            {o.snapshot.instructions && (
+              <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                {o.snapshot.instructions}
+              </p>
+            )}
+            {o.snapshot.source_url && (
+              <a
+                href={o.snapshot.source_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-block text-sm text-primary underline underline-offset-4"
+              >
+                Исходная инструкция с иллюстрациями
+              </a>
+            )}
+          </details>
+        )}
         <ProfileSection title="Отчёт">
           {o.snapshot.items.map((i, index) => (
             <div key={i.id} className="space-y-2 border-b pb-4">

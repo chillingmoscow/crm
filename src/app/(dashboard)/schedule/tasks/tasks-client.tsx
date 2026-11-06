@@ -4,13 +4,14 @@ import {
   isValidElement,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useId,
   useRef,
   useState,
 } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Plus, Settings2, ArrowLeft, Camera, Trash2, X } from "lucide-react";
+import { Plus, Settings2, ArrowLeft, Camera, Trash2, X, ListChecks, SearchX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -32,6 +33,8 @@ import {
   TaskHeaderActions,
   TaskPageTitle,
 } from "../_components/task-header-actions";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { TableControls } from "@/components/shared/table";
 import { TableFilterChip } from "@/components/shared/table/table-filter-chip";
 import { InstructionPagePicker, InstructionBody } from "./instruction-page";
@@ -442,6 +445,14 @@ export function TasksClient({
     setTemplateFilter("");
     setDefinitionStatus("");
   };
+  const listTitle = useMemo(() => (
+    <span className="inline-flex items-center gap-3">
+      Задачи
+      <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-md bg-muted px-2 text-sm font-normal tabular-nums text-muted-foreground" aria-label={`Шаблонов: ${definitions.length} из ${data.definitions.length}`}>
+        {definitions.length}
+      </span>
+    </span>
+  ), [definitions.length, data.definitions.length]);
   if (editor)
     return (
       <DefinitionEditor
@@ -488,6 +499,7 @@ export function TasksClient({
   const filtersActive = Boolean(templateFilter || definitionStatus);
   return (
     <div className="space-y-4">
+      <TaskPageTitle title={listTitle} />
       <TaskHeaderActions>
         <TableControls
           search={{
@@ -537,16 +549,20 @@ export function TasksClient({
           secondaryActions={
             <>
               {canSettings && (
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="size-9"
-                  aria-label="Настройки задач"
-                  title="Настройки задач"
-                  onClick={() => setSettings(true)}
-                >
-                  <Settings2 className="size-4" />
-                </Button>
+                <Tooltip delayDuration={450}>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8 border-border text-muted-foreground hover:border-brand/40 hover:bg-background hover:text-foreground sm:h-9 sm:w-9"
+                      aria-label="Настройки задач"
+                      onClick={() => setSettings(true)}
+                    >
+                      <Settings2 className="size-3.5 sm:size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent sideOffset={6}>Настройки задач</TooltipContent>
+                </Tooltip>
               )}
             </>
           }
@@ -564,16 +580,8 @@ export function TasksClient({
           }
         />
       </TaskHeaderActions>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-[13px] text-muted-foreground">
-          {definitions.length}{" "}
-          {plural(definitions.length, "шаблон", "шаблона", "шаблонов")}
-          {definitions.length !== data.definitions.length
-            ? ` из ${data.definitions.length}`
-            : ""}
-        </p>
         {filtersActive && (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2" aria-label="Условия списка задач">
             {templateFilter && (
               <TableFilterChip
                 label="Шаблон смены"
@@ -598,32 +606,19 @@ export function TasksClient({
             )}
           </div>
         )}
-      </div>
       <TaskList
         rows={rows}
         empty={
-          <div className="space-y-2">
-            <p>
-              {query || filtersActive
-                ? "Нет шаблонов по выбранным условиям"
-                : "Шаблонов задач пока нет"}
-            </p>
-            {query || filtersActive ? (
-              <Button
-                variant="link"
-                onClick={() => {
-                  setQuery("");
-                  resetFilters();
-                }}
-              >
-                Сбросить поиск и фильтры
-              </Button>
+          <EmptyState
+            icon={query || filtersActive ? SearchX : ListChecks}
+            title={query || filtersActive ? "Задачи не найдены" : "Шаблонов задач пока нет"}
+            description={query || filtersActive ? "Измените условия поиска или сбросьте фильтры." : "Создайте задачу, добавьте инструкцию и чек-лист, затем настройте повторение."}
+            action={query || filtersActive ? (
+              <Button variant="outline" onClick={() => { setQuery(""); resetFilters(); }}>Сбросить поиск и фильтры</Button>
             ) : create ? (
-              <Button variant="link" onClick={() => setEditor("new")}>
-                Создать первую задачу
-              </Button>
+              <Button onClick={() => setEditor("new")}><Plus className="mr-2 size-4" />Новая задача</Button>
             ) : null}
-          </div>
+          />
         }
       />
       {manage && (!data.settings?.enabled_from || data.settings?.paused) && (
@@ -880,7 +875,7 @@ function DefinitionEditor({
                               className="size-9 shrink-0 text-muted-foreground"
                               aria-label={`Убрать пояснение к пункту ${i + 1}`}
                               onClick={() => {
-                                item(i, { hint: "" });
+                                if (x.hint) item(i, { hint: "" });
                                 setExpandedHints((ids) =>
                                   ids.filter((id) => id !== x.id),
                                 );

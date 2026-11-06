@@ -27,6 +27,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { PageFrame } from "@/components/shared/page-frame";
 import { EmptyState } from "@/components/ui/empty-state";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import {
@@ -120,7 +121,7 @@ export function ScheduleClient({
 }) {
   const [data, setData] = useState(initial);
   const tab = section;
-  const [screenTitle, setScreenTitle] = useState<string | null>(null);
+  const [screenTitle, setScreenTitle] = useState<React.ReactNode>(null);
   const [taskHeaderTarget, setTaskHeaderTarget] =
     useState<HTMLDivElement | null>(null);
   const [week, setWeek] = useState(
@@ -589,9 +590,10 @@ export function ScheduleClient({
       action={action}
     />
   );
+  const ContentFrame = tab === "tasks" ? PageFrame : "div";
   return (
     <TaskTitleTarget.Provider value={setScreenTitle}>
-    <div className="w-full min-w-0 p-4 md:p-8 space-y-6 max-w-[1800px] mx-auto">
+    <ContentFrame className={tab === "tasks" ? "space-y-6" : "w-full min-w-0 p-4 md:p-8 space-y-6 max-w-[1800px] mx-auto"}>
       <div className="flex flex-wrap justify-between items-center gap-4">
           <h1 className="text-3xl font-bold tracking-tight">
             {screenTitle ??
@@ -1470,7 +1472,7 @@ export function ScheduleClient({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </ContentFrame>
     </TaskTitleTarget.Provider>
   );
 }

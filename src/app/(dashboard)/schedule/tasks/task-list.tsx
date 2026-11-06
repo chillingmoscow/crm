@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import styles from "@/components/people/people-table.module.css";
 
 export type TaskListRow = {
   id: string;
@@ -40,20 +41,15 @@ export function TaskList({
   rows: TaskListRow[];
   empty: ReactNode;
 }) {
-  if (!rows.length)
-    return (
-      <div className="rounded-lg border bg-card px-5 py-14 text-center text-sm text-muted-foreground">
-        {empty}
-      </div>
-    );
+  if (!rows.length) return <>{empty}</>;
   return (
     <>
-      <div className="hidden overflow-x-auto rounded-lg border bg-card sm:block">
+      <div className={styles.scroll}>
         <table
-          className="w-full min-w-[820px] text-sm"
+          className={cn(styles.table, "min-w-[820px]")}
           aria-label="Шаблоны задач"
         >
-          <thead className="h-11 border-b bg-muted/70 text-left text-xs font-medium text-muted-foreground">
+          <thead className="sticky top-0 z-20 bg-muted text-xs font-medium tracking-wide text-muted-foreground">
             <tr>
               {[
                 "Задача",
@@ -62,7 +58,7 @@ export function TaskList({
                 "Приёмка",
                 "Статус",
               ].map((title) => (
-                <th key={title} scope="col" className="px-3 py-3 font-medium">
+                <th key={title} scope="col" className="h-11 border-b bg-muted px-3 py-3 text-left font-medium">
                   {title}
                 </th>
               ))}
@@ -72,7 +68,7 @@ export function TaskList({
             {rows.map((row) => (
               <tr
                 key={row.id}
-                className="h-[60px] cursor-pointer transition-colors hover:bg-muted/50"
+                className="cursor-pointer transition-colors"
                 onClick={row.onOpen}
               >
                 <td className="w-[34%] min-w-64 px-3 py-3">
@@ -111,11 +107,11 @@ export function TaskList({
           </tbody>
         </table>
       </div>
-      <div className="divide-y rounded-lg border bg-card sm:hidden">
+      <div className={styles.mobileCards}>
         {rows.map((row) => (
           <button
             key={row.id}
-            className="block w-full space-y-2 px-4 py-4 text-left transition-colors hover:bg-muted/50"
+            className={cn(styles.mobileCard, "block w-full space-y-2 text-left transition-colors hover:bg-muted/50")}
             onClick={row.onOpen}
           >
             <p className="text-sm font-medium leading-5">{row.name}</p>

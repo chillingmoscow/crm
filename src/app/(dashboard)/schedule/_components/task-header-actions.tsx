@@ -5,10 +5,10 @@ import { createPortal } from "react-dom";
 
 export const TaskHeaderTarget = createContext<HTMLDivElement | null>(null);
 export const TaskTitleTarget = createContext<
-  ((title: string | null) => void) | null
+  ((title: ReactNode) => void) | null
 >(null);
 
-export function TaskPageTitle({ title }: { title: string }) {
+export function TaskPageTitle({ title }: { title: ReactNode }) {
   const setTitle = useContext(TaskTitleTarget);
   useEffect(() => {
     setTitle?.(title);

@@ -28,6 +28,7 @@ export const taskDefinitionSchema = z
     request_key: z.string().uuid().optional(),
     name: z.string().trim().min(1).max(160),
     instructions: z.string().max(50000),
+    instruction_page_id: z.string().uuid().nullable().default(null),
     template_id: z.string().uuid(),
     review_mode: z.enum(["auto", "manager"]),
     items: z.array(taskItemSchema).min(1).max(150),
@@ -54,7 +55,9 @@ export const taskDefinitionSchema = z
         ctx.addIssue({ code: "custom", message: "Минимум больше максимума" });
   });
 export type TaskInput = z.infer<typeof taskDefinitionSchema>;
+export type TaskInstruction = { page_id: string; title: string; content: import("@/types/knowledge").KbBlock[]; updated_at: string | null; files: {id:string;path:string}[] };
 export type TaskDefinition = TaskInput & {
+  instruction_snapshot?: TaskInstruction | null;
   id: string;
   venue_id: string;
   account_id: string;
@@ -65,6 +68,7 @@ export type TaskDefinition = TaskInput & {
   updated_at: string;
 };
 export type TaskOccurrence = {
+  planned?: boolean;
   id: string;
   venue_id: string;
   definition_id: string;
@@ -118,6 +122,8 @@ export type TaskPreview = {
   employee: string | null;
 };
 export type TaskData = {
+  plans?: TaskPreview[];
+  instructionPages?: {id:string;title:string;slug:string;parent_id:string|null}[];
   definitions: TaskDefinition[];
   occurrences: TaskOccurrence[];
   settings: TaskSettings | null;

@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PageBreadcrumb } from "@/components/shared/page-header-actions";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ProfileSection } from "@/components/shared/profile-section";
 import {
   TaskHeaderActions,
@@ -33,6 +34,7 @@ import {
 } from "../_components/task-header-actions";
 import { TableControls } from "@/components/shared/table";
 import { TableFilterChip } from "@/components/shared/table/table-filter-chip";
+import { InstructionPagePicker, InstructionBody } from "./instruction-page";
 import { TaskList, type TaskListRow } from "./task-list";
 import {
   Dialog,
@@ -44,7 +46,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import type { Answer, ChecklistItem } from "@/lib/schedule/types";
-import { addDays, dayLabel } from "@/lib/schedule/utils";
+import { dayLabel } from "@/lib/schedule/utils";
 import {
   missingItems,
   taskStatus,
@@ -52,7 +54,6 @@ import {
   type TaskDefinition,
   type TaskInput,
   type TaskOccurrence,
-  type TaskPreview,
 } from "@/lib/schedule/tasks";
 import {
   loadTasks,
@@ -62,7 +63,6 @@ import {
   uploadTaskPhoto,
   taskPhotoUrl,
   taskHistory,
-  previewTasks,
   retryTaskMessage,
 } from "./actions";
 
@@ -256,10 +256,12 @@ function TaskScreen({
   busy = false,
   backLabel = "К задачам",
   backHref = "/schedule/tasks",
+  showFooterActions = true,
 }: {
   title: string;
   backLabel?: string;
   backHref?: string;
+  showFooterActions?: boolean;
   description?: string;
   onBack: () => void;
   actions?: React.ReactNode;
@@ -351,7 +353,7 @@ function TaskScreen({
         </p>
       )}
       {children}
-      {actions && (
+      {showFooterActions && actions && (
         <div className="flex flex-wrap justify-end gap-2 pb-3">{actions}</div>
       )}
       <Dialog open={confirmExit} onOpenChange={setConfirmExit}>
@@ -392,8 +394,6 @@ export function TasksClient({
   const [definitionStatus, setDefinitionStatus] = useState("");
   const [editor, setEditor] = useState<TaskDefinition | "new" | null>(null);
   const [settings, setSettings] = useState(false);
-  const [preview, setPreview] = useState<TaskPreview[] | null>(null);
-  const [busy, setBusy] = useState(false);
   const wasActive = useRef(active);
   useEffect(() => {
     const returning = active && !wasActive.current;
@@ -442,18 +442,6 @@ export function TasksClient({
     setTemplateFilter("");
     setDefinitionStatus("");
   };
-  async function showPreview() {
-    setBusy(true);
-    try {
-      const r = await previewTasks(data.today, addDays(data.today, 14));
-      if (r.error) toast.error(r.error);
-      else setPreview(r.rows ?? []);
-    } catch {
-      toast.error("Не удалось получить расписание");
-    } finally {
-      setBusy(false);
-    }
-  }
   if (editor)
     return (
       <DefinitionEditor
@@ -481,61 +469,15 @@ export function TasksClient({
         }}
       />
     );
-  if (preview)
-    return (
-      <TaskScreen
-        title="Расписание задач на две недели"
-        description="Включая черновики. Предпросмотр не создаёт задания и начисления."
-        onBack={() => setPreview(null)}
-      >
-        <div className="divide-y">
-          {preview.length ? (
-            preview.map((item, index) => (
-              <div
-                key={index}
-                className="grid gap-2 py-4 md:grid-cols-[150px_minmax(0,1fr)_minmax(180px,1fr)]"
-              >
-                <p className="text-sm text-muted-foreground">
-                  {dayLabel(item.business_date)}
-                </p>
-                <div>
-                  <p className="font-medium">{item.snapshot.name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {!item.snapshot.enabled ? "Черновик · " : ""}
-                    {
-                      data.templates.find(
-                        (t) => t.id === item.snapshot.template_id,
-                      )?.name
-                    }
-                  </p>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {item.assignment_count === 0
-                    ? "Нет опубликованной смены"
-                    : item.assignment_count > 1
-                      ? "Несколько подходящих смен"
-                      : item.employee || "Сотрудник не сопоставлен"}
-                </p>
-              </div>
-            ))
-          ) : (
-            <p className="py-10 text-sm text-muted-foreground">
-              Нет задач на этот период
-            </p>
-          )}
-        </div>
-      </TaskScreen>
-    );
   const rows: TaskListRow[] = definitions.map((definition) => ({
     id: definition.id,
     name: definition.name,
-    details: `${definition.items.filter((point) => point.kind !== "info").length} ${plural(definition.items.filter((point) => point.kind !== "info").length, "пункт", "пункта", "пунктов")} · ${definition.items.filter((point) => point.kind === "photo").length} фото`,
+    details: `${definition.items.filter((point) => point.kind !== "info").length} ${plural(definition.items.filter((point) => point.kind !== "info").length, "пункт", "пункта", "пунктов")} · фотоотчёт: ${definition.items.filter((point) => point.kind === "photo").length} ${plural(definition.items.filter((point) => point.kind === "photo").length, "пункт", "пункта", "пунктов")}`,
     assignee:
       data.templates.find((template) => template.id === definition.template_id)
         ?.name ?? "Шаблон недоступен",
     timing: `Раз в ${definition.recurrence.interval} ${definition.recurrence.unit === "week" ? "нед." : "мес."}`,
-    review:
-      definition.review_mode === "auto" ? "Автоматическая" : "Управляющим",
+    review: definition.review_mode === "auto" ? "Не требуется" : "Требуется",
     status: definition.enabled ? "Включена" : "Черновик",
     tone: definition.enabled ? "positive" : undefined,
     onOpen: () => setEditor(definition),
@@ -591,17 +533,6 @@ export function TasksClient({
           }}
           secondaryActions={
             <>
-              {(manage || data.permissions.includes("schedule.view_all")) && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-9"
-                  disabled={busy}
-                  onClick={() => void showPreview()}
-                >
-                  Проверить расписание
-                </Button>
-              )}
               {canSettings && (
                 <Button
                   variant="outline"
@@ -732,6 +663,7 @@ function DefinitionEditor({
             request_key: crypto.randomUUID(),
             name: "",
             instructions: "",
+            instruction_page_id: null,
             template_id: "",
             review_mode: "manager",
             items: [newItem()],
@@ -803,6 +735,7 @@ function DefinitionEditor({
   }
   return (
     <TaskScreen
+      showFooterActions={false}
       title={task === "new" ? "Новая задача" : task.name}
       onBack={onClose}
       dirty={dirty}
@@ -815,7 +748,14 @@ function DefinitionEditor({
         )
       }
     >
-      <fieldset disabled={!editable || busy} className="min-w-0 space-y-5">
+      <Tabs defaultValue="main" className="mx-auto w-full max-w-[720px]">
+        <TabsList>
+          <TabsTrigger value="main">Основное</TabsTrigger>
+          <TabsTrigger value="checklist">Чек-лист</TabsTrigger>
+          <TabsTrigger value="settings">Настройки</TabsTrigger>
+        </TabsList>
+        <fieldset disabled={!editable || busy} className="min-w-0">
+          <TabsContent value="main" className="space-y-5">
         <ProfileSection title="Основное">
           <Field label="Название">
             <Input
@@ -824,16 +764,26 @@ function DefinitionEditor({
               placeholder="Что нужно сделать"
             />
           </Field>
-          <Field label="Инструкция">
-            <Textarea
-              rows={3}
-              value={value.instructions}
-              onChange={(e) => set("instructions", e.target.value)}
-              placeholder="Как выполнить задачу"
+              <InstructionPagePicker
+                data={data}
+                value={value.instruction_page_id}
+                onChange={(id) => set("instruction_page_id", id)}
+                name={value.name}
+                disabled={!editable || busy}
             />
-          </Field>
+              {!value.instruction_page_id && value.instructions && (
+                <details>
+                  <summary className="cursor-pointer text-sm text-muted-foreground">
+                    Прежний текст инструкции
+                  </summary>
+                  <p className="mt-3 whitespace-pre-wrap text-sm text-muted-foreground">
+                    {value.instructions}
+                  </p>
+                </details>
+              )}
         </ProfileSection>
-
+          </TabsContent>
+          <TabsContent value="checklist" className="space-y-5">
         <ProfileSection
           title="Чек-лист"
           actions={
@@ -845,7 +795,10 @@ function DefinitionEditor({
         >
           <div className="divide-y">
             {value.items.map((x, i) => (
-              <div key={x.id} className="space-y-3 py-4 first:pt-0 last:pb-0">
+                  <div
+                    key={x.id}
+                    className="space-y-3 py-4 first:pt-0 last:pb-0"
+                  >
                 <div className="flex items-start gap-3">
                   <span className="w-4 shrink-0 pt-2.5 text-sm tabular-nums text-muted-foreground">
                     {i + 1}.
@@ -865,7 +818,8 @@ function DefinitionEditor({
                           onChange={(kind) =>
                             item(i, {
                               kind: kind as ChecklistItem["kind"],
-                              required: kind === "info" ? false : x.required,
+                                  required:
+                                    kind === "info" ? false : x.required,
                             })
                           }
                           options={[
@@ -940,7 +894,9 @@ function DefinitionEditor({
                         <Field label="Единица">
                           <Input
                             value={x.unit}
-                            onChange={(e) => item(i, { unit: e.target.value })}
+                                onChange={(e) =>
+                                  item(i, { unit: e.target.value })
+                                }
                             placeholder="шт., °C, мл"
                           />
                         </Field>
@@ -974,7 +930,8 @@ function DefinitionEditor({
             Добавить пункт
           </Button>
         </ProfileSection>
-
+          </TabsContent>
+          <TabsContent value="settings" className="space-y-5">
         <ProfileSection title="Выполнение">
           <Field label="Шаблон смены">
             <TaskSelect
@@ -991,7 +948,8 @@ function DefinitionEditor({
             />
           </Field>
           <p className="-mt-1 text-[13px] leading-snug text-muted-foreground">
-            Задачу получит сотрудник, назначенный на этот шаблон в расписании.
+                Задачу получит сотрудник, назначенный на этот шаблон в
+                расписании.
           </p>
           <Check
             checked={value.review_mode === "manager"}
@@ -1106,8 +1064,8 @@ function DefinitionEditor({
               />
             </Field>
             <p className="text-[13px] leading-snug text-muted-foreground">
-              Деньги, бонусы и предупреждения определяются правилами зарплаты
-              заведения.
+                  Деньги, бонусы и предупреждения определяются правилами
+                  зарплаты заведения.
             </p>
           </fieldset>
         </ProfileSection>
@@ -1137,7 +1095,9 @@ function DefinitionEditor({
             </div>
           </ProfileSection>
         )}
+          </TabsContent>
       </fieldset>
+      </Tabs>
     </TaskScreen>
   );
 }
@@ -1168,13 +1128,14 @@ export function TaskReport({
   }, [o.answers, o.version, o.review_comment]);
   useEffect(() => {
     let alive = true;
+    if (o.planned) return;
     taskHistory(o.id)
       .then((h) => alive && setHistory(h))
       .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [o.id, o.version]);
+  }, [o.id, o.version, o.planned]);
   useEffect(() => {
     let alive = true;
     const paths = Object.values(answers).filter(
@@ -1195,6 +1156,7 @@ export function TaskReport({
     };
   }, [answers, o.id]);
   const editable =
+      !o.planned &&
       o.user_id === data.userId &&
       ["assigned", "in_progress", "returned"].includes(o.status),
     review =
@@ -1278,7 +1240,7 @@ export function TaskReport({
       dirty={dirty}
       busy={busy}
       title={o.snapshot.name}
-      description={`${taskStatus[o.status]} · ${o.employee_name || "Без назначения"}`}
+      description={`${o.planned ? "План" : taskStatus[o.status]} · ${o.employee_name || "Без назначения"}`}
       actions={
         <div className="flex w-full flex-wrap justify-end gap-2">
           {editable && (
@@ -1315,6 +1277,12 @@ export function TaskReport({
       }
     >
       <div className="max-w-3xl space-y-6">
+        {o.planned && (
+          <p className="text-sm text-muted-foreground">
+            Предварительное назначение. Отчёт станет доступен после
+            автоматического создания задания.
+          </p>
+        )}
         {o.blocker && <p className="text-sm text-destructive">{o.blocker}</p>}
         {o.deadline_at && (
           <p className="text-sm text-muted-foreground">
@@ -1335,7 +1303,18 @@ export function TaskReport({
             В этот раз: камеры № {o.equipment.join(", ")}
           </p>
         )}
-        {(o.snapshot.instructions || o.snapshot.source_url) && (
+        {o.snapshot.instruction_snapshot ? (
+          <details open>
+            <summary className="cursor-pointer text-sm font-medium">
+              Инструкция: {o.snapshot.instruction_snapshot.title}
+            </summary>
+            <InstructionBody
+              instruction={o.snapshot.instruction_snapshot}
+              kbAccess={data.permissions.includes("kb.view_pages")}
+            />
+          </details>
+        ) : (
+          (o.snapshot.instructions || o.snapshot.source_url) && (
           <details>
             <summary className="cursor-pointer text-sm font-medium">
               Инструкция
@@ -1356,6 +1335,7 @@ export function TaskReport({
               </a>
             )}
           </details>
+          )
         )}
         <ProfileSection title="Отчёт">
           {o.snapshot.items.map((i, index) => (

@@ -101,7 +101,41 @@ export async function loadTasks(range?: {
     if (r.error)
       throw new Error("Не удалось загрузить задачи: " + r.error.message);
   const occurrences = results[1].data ?? [];
+  const instructionPages =
+    permissions.includes("kb.view_pages") &&
+    [
+      "schedule.view_all",
+      "schedule.checklist_edit",
+      "schedule.checklist_create",
+    ].some((p) => permissions.includes(p))
+      ? await db
+          .from<
+            {
+              id: string;
+              title: string;
+              slug: string;
+              parent_id: string | null;
+            }[]
+          >("kb_pages")
+          .select("id,title,slug,parent_id")
+          .is("deleted_at", null)
+          .order("title")
+      : null;
+  if (instructionPages?.error)
+    throw new Error("Не удалось загрузить инструкции");
+  const plans =
+    period &&
+    (permissions.includes("schedule.view_all") ||
+      permissions.includes("schedule.checklist_edit"))
+      ? await db.rpc("schedule_task_preview", {
+          p_from: period.from,
+          p_to: period.to,
+        })
+      : null;
+  if (plans?.error) throw new Error("Не удалось загрузить план задач");
   return {
+    instructionPages: instructionPages?.data ?? [],
+    plans: (plans?.data ?? []) as TaskPreview[],
     definitions: results[0].data ?? [],
     occurrences,
     settings: results[2].data,
@@ -303,4 +337,34 @@ export async function retryTaskMessage(id: string, evidence: string) {
       error: e instanceof Error ? e.message : "Не удалось повторить отправку",
     };
   }
+}
+
+export async function loadTaskInstructionPage(id: string) {
+  const { db } = await context();
+  const page = await db
+    .from<{
+      id: string;
+      title: string;
+      slug: string;
+      parent_id: string | null;
+      content: import("@/types/knowledge").KbBlock[];
+      updated_at: string | null;
+    }>("kb_pages")
+    .select("id,title,slug,parent_id,content,updated_at")
+    .eq("id", z.string().uuid().parse(id))
+    .is("deleted_at", null)
+    .single();
+  if (page.error || !page.data)
+    return { error: "Страница инструкции недоступна" };
+  return { instruction: { ...page.data, page_id: page.data.id, files: [] } };
+}
+export async function taskInstructionFileUrl(url: string) {
+  if (!url.startsWith("kbfile://")) return url;
+  const { client } = await context();
+  const path = url.slice("kbfile://".length);
+  const result = await client.storage
+    .from("account-attachments")
+    .createSignedUrl(path, 3600);
+  if (result.error || !result.data) return "";
+  return result.data.signedUrl;
 }

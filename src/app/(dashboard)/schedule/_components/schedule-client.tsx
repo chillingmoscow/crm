@@ -12,8 +12,6 @@ import {
   Layers,
   Copy,
   Trash2,
-  Pencil,
-  Archive,
   Send,
   Users,
   GripVertical,
@@ -66,6 +64,7 @@ import {
 } from "./editors";
 import { CandidateTrialCard } from "./candidate-trial-card";
 import { toast } from "sonner";
+import { TemplateList } from "./template-list";
 import { ScheduleTasksTab } from "./tasks-tab";
 import { TaskHeaderTarget, TaskTitleTarget } from "./task-header-actions";
 import {
@@ -208,7 +207,6 @@ export function ScheduleClient({
   const [department, setDepartment] = useState("all");
   const [publication, setPublication] = useState("all");
   const [view, setView] = useState("week");
-  const [archive, setArchive] = useState(false);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [selected, setSelected] = useState<Shift | null>(null);
   const [confirmation, setConfirmation] = useState<{
@@ -340,15 +338,81 @@ export function ScheduleClient({
   const visibleStaffIds = new Set(staff.map((person) => person.user_id));
   const taskRowId = (task: TaskOccurrence) =>
     task.user_id && rosterIds.has(task.user_id) ? task.user_id : null;
+  const plannedTasks: TaskOccurrence[] = canPlan
+    ? (calendarTasks?.plans ?? [])
+        .filter(
+          (plan) =>
+            plan.business_date > (calendarTasks?.today ?? "") &&
+            !calendarTasks?.occurrences.some(
+              (o) =>
+                o.definition_id === plan.definition_id &&
+                o.business_date === plan.business_date,
+            ),
+        )
+        .map((plan) => {
+          const matches = data.shifts.filter(
+            (shift) =>
+              shift.template_id === plan.snapshot.template_id &&
+              dateInZone(shift.starts_at, data.timezone) === plan.business_date,
+          );
+          const shift = matches.length === 1 ? matches[0] : null;
+          const person = data.staff.find((p) => p.user_id === shift?.user_id);
+          return {
+            id: `plan:${plan.definition_id}:${plan.business_date}`,
+            planned: true,
+            venue_id: data.venueId,
+            definition_id: plan.definition_id,
+            business_date: plan.business_date,
+            shift_id: shift?.id ?? null,
+            employee_id: null,
+            user_id: shift?.user_id ?? null,
+            employee_name: person
+              ? [person.first_name, person.last_name].filter(Boolean).join(" ")
+              : plan.employee,
+            snapshot: plan.snapshot,
+            answers: {},
+            status: "assigned",
+            transferred: false,
+            deadline_at: null,
+            submitted_at: null,
+            completed_at: null,
+            review_comment: "",
+            blocker:
+              plan.snapshot.instruction_page_id &&
+              !plan.snapshot.instruction_snapshot
+                ? "Страница инструкции недоступна"
+                : matches.length > 1
+                  ? "Несколько подходящих смен"
+                  : !shift
+                    ? "Смена ещё не назначена"
+                    : "",
+            version: 0,
+            adjustment_id: null,
+            equipment: [],
+          };
+        })
+    : [];
   const weekTasks =
     showTasks && calendarTasksWeek === week
-      ? (calendarTasks?.occurrences ?? []).filter((task) => {
-          if (!days.includes(task.business_date) || publication === "draft")
+      ? [...(calendarTasks?.occurrences ?? []), ...plannedTasks].filter(
+          (task) => {
+            if (
+              !days.includes(task.business_date) ||
+              (publication === "draft" && !task.planned)
+            )
             return false;
           const assignee = taskRowId(task);
           if (assignee ? !visibleStaffIds.has(assignee) : !canPlan)
             return false;
-          const shift = data.shifts.find((entry) => entry.id === task.shift_id);
+            const shift = data.shifts.find(
+              (entry) => entry.id === task.shift_id,
+            );
+            if (
+              shift &&
+              ((publication === "published" && !shift.published) ||
+                (publication === "draft" && shift.published))
+            )
+              return false;
           if (
             department !== "all" &&
             shift &&
@@ -363,13 +427,14 @@ export function ScheduleClient({
                 .includes(search)) &&
               (department === "all" || shift?.department_id === department))
           );
-        })
+          },
+        )
       : [];
   const taskCard = (task: TaskOccurrence, compact = true) => (
     <button
       key={task.id}
       onClick={() => setSelectedTask(task)}
-      aria-label={`Задача: ${task.snapshot.name}, ${taskStatus[task.status]}`}
+      aria-label={`Задача: ${task.snapshot.name}, ${task.planned ? "План" : taskStatus[task.status]}`}
       title={`${task.snapshot.name} · ${task.employee_name || "Без назначения"} · ${taskStatus[task.status]}`}
       className={cn(
         "flex w-full items-start gap-1.5 rounded-md border bg-background px-2 py-2 text-left text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -389,6 +454,11 @@ export function ScheduleClient({
           }
         >
           {task.snapshot.name}
+          {task.planned && (
+            <span className="ml-1 text-[10px] font-normal text-muted-foreground">
+              План
+            </span>
+          )}
         </span>
         {!compact && (
           <span className="mt-1 block text-[13px] text-muted-foreground">
@@ -551,12 +621,6 @@ export function ScheduleClient({
               <Button disabled={busy} onClick={publish}>
                 <Send className="size-4 mr-2" />
                 Опубликовать · {draftShifts.length}
-              </Button>
-            )}
-          {tab === "templates" && can("template_create") && (
-            <Button onClick={() => setEditor({ type: "template" })}>
-              <Plus className="size-4 mr-2" />
-              Шаблон
             </Button>
           )}
         </div>
@@ -1171,101 +1235,23 @@ export function ScheduleClient({
           </section>
         )}
         {tab === "templates" && (
-          <section className="space-y-4">
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant={!archive ? "secondary" : "ghost"}
-              onClick={() => setArchive(false)}
-            >
-              Активные
-            </Button>
-            <Button
-              size="sm"
-              variant={archive ? "secondary" : "ghost"}
-              onClick={() => setArchive(true)}
-            >
-              Архив
-            </Button>
-          </div>
-          {!data.templates.some((t) => t.archived === archive) ? (
-            noData(
-              Layers,
-              archive ? "Архив пуст" : "Создайте первый шаблон",
-                "Сохраните время, цвет и должность, чтобы быстро планировать повторяющиеся смены.",
-            )
-          ) : (
-            <div className="divide-y border-y">
-              {data.templates
-                .filter((t) => t.archived === archive)
-                .map((t) => (
-                  <div
-                    key={t.id}
-                    className="flex flex-wrap items-center gap-4 py-4"
-                  >
-                    <span
-                        className={cn(
-                          "size-3 rounded-full",
-                          paletteBg(t.color),
-                        )}
-                    />
-                    <div className="flex-1 min-w-40">
-                      <p className="text-sm font-medium">{t.name}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                          {formatTemplateTimes(t)} · перерыв {t.break_minutes}{" "}
-                          мин
-                      </p>
-                    </div>
-                    <div className="flex gap-1">
-                      {can("template_edit") && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={`Изменить ${t.name}`}
-                          onClick={() =>
-                            setEditor({ type: "template", template: t })
+          <TaskHeaderTarget.Provider value={taskHeaderTarget}>
+            <TemplateList
+              templates={data.templates}
+              can={can}
+              onCreate={() => setEditor({ type: "template" })}
+              onEdit={(template) => setEditor({ type: "template", template })}
+              onCopy={(template) =>
+                setEditor({ type: "template", template, copy: true })
                           }
-                        >
-                          <Pencil className="size-4" />
-                        </Button>
-                      )}
-                      {can("template_copy") && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={`Копировать ${t.name}`}
-                          onClick={() =>
-                            setEditor({
-                              type: "template",
-                              template: t,
-                              copy: true,
+              onArchive={(template) =>
+                void save("template.archive", {
+                  id: template.id,
+                  version: template.version,
                             })
                           }
-                        >
-                          <Copy className="size-4" />
-                        </Button>
-                      )}
-                      {can("template_archive") && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            void save("template.archive", {
-                              id: t.id,
-                              version: t.version,
-                            })
-                          }
-                        >
-                          <Archive className="size-4 mr-2" />
-                          {archive ? "Восстановить" : "В архив"}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-            </div>
-          )}
-          </section>
+            />
+          </TaskHeaderTarget.Provider>
                       )}
       {editor?.type === "shift" && (
         <ShiftEditor

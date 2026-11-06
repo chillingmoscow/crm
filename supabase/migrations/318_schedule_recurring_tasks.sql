@@ -3,7 +3,7 @@ begin;
 create table public.schedule_task_definitions (
  id uuid primary key default gen_random_uuid(), account_id uuid not null references public.accounts(id),
  venue_id uuid not null references public.venues(id), name text not null,
- instructions text not null default '', template_id uuid not null references public.schedule_templates(id),
+ instructions text not null default '', instruction_page_id uuid references public.kb_pages(id) on delete set null, instruction_snapshot jsonb, template_id uuid not null references public.schedule_templates(id),
  review_mode text not null check(review_mode in ('auto','manager')), items jsonb not null,
  recurrence jsonb not null, starts_on date not null, enabled boolean not null default false,
  penalty_enabled boolean not null default true, fine_amount numeric check(fine_amount between 0 and 100000),
@@ -58,8 +58,7 @@ create policy task_occurrences_read on public.schedule_task_occurrences for sele
 );
 create policy task_definitions_read on public.schedule_task_definitions for select to authenticated using (
  venue_id=(select public.get_active_venue_id()) and account_id=(select public.get_active_account_id()) and
- ((select public.has_permission('schedule.checklist_edit')) or (select public.has_permission('schedule.checklist_create')) or (select public.has_permission('schedule.view_all')) or (select public.has_permission('schedule.review')) or
- exists(select 1 from public.schedule_task_occurrences o where o.definition_id=schedule_task_definitions.id and o.user_id=(select auth.uid())))
+ ((select public.has_permission('schedule.checklist_edit')) or (select public.has_permission('schedule.checklist_create')) or (select public.has_permission('schedule.view_all')) or (select public.has_permission('schedule.review')))
 );
 create policy task_settings_read on public.schedule_task_settings for select to authenticated using (
  venue_id=(select public.get_active_venue_id()) and account_id=(select public.get_active_account_id()) and
@@ -98,12 +97,21 @@ begin
 end $$;
 revoke all on function private.schedule_task_due(jsonb,date) from public,anon,authenticated;
 
+-- The explicit task link shares only this page body and its registered attachments with the assignee.
+create function private.schedule_task_instruction(p_page uuid,p_account uuid) returns jsonb
+language sql stable set search_path='' as $$
+ select jsonb_build_object('page_id',p.id,'title',p.title,'content',p.content,'updated_at',p.updated_at,'files',
+  coalesce((select jsonb_agg(jsonb_build_object('id',f.id,'path',f.storage_path)) from public.kb_page_attachments pa join public.account_files f on f.id=pa.file_id where pa.page_id=p.id and f.account_id=p_account and (position(('kbfile://'||f.storage_path) in p.content::text)>0 or position(f.id::text in p.content::text)>0)),'[]'::jsonb))
+ from public.kb_pages p where p.id=p_page and p.account_id=p_account and p.deleted_at is null
+$$;
+revoke all on function private.schedule_task_instruction(uuid,uuid) from public,anon,authenticated;
+
 -- Browser writes are scoped and versioned. No direct table/storage write can approve a report.
 create function public.schedule_task_command(p_action text,p_input jsonb) returns jsonb
 language plpgsql security definer set search_path=public,pg_catalog as $$
 declare u uuid:=auth.uid();v uuid:=public.get_active_venue_id();a uuid:=public.get_active_account_id();
  ident uuid:=nullif(p_input->>'id','')::uuid;def public.schedule_task_definitions;o public.schedule_task_occurrences;
- ans jsonb;item jsonb;perm text;rec jsonb;settings public.schedule_task_settings;correct_until timestamptz;activation_date date;is_paused boolean;task_today date;
+ ans jsonb;item jsonb;perm text;rec jsonb;settings public.schedule_task_settings;correct_until timestamptz;activation_date date;is_paused boolean;task_today date;instruction_page uuid;instruction jsonb;
 begin
  if u is null or v is null or a is null or not exists(select 1 from public.venues where id=v and account_id=a) then raise exception 'Выберите заведение';end if;
  if p_action='definition.save' then
@@ -120,6 +128,12 @@ begin
    or jsonb_typeof(p_input->'enabled') is distinct from 'boolean' or jsonb_typeof(p_input->'penalty_enabled') is distinct from 'boolean'
    or (p_input->>'fine_amount')::numeric not between 0 and 100000 or (p_input->>'reward_amount')::numeric not between 0 and 100000
    or not exists(select 1 from public.schedule_templates where id=(p_input->>'template_id')::uuid and venue_id=v and not archived) then raise exception 'Проверьте название, чек-лист, шаблон и суммы';end if;
+  instruction_page:=nullif(p_input->>'instruction_page_id','')::uuid;
+  if instruction_page is not null then
+   if (ident is null or instruction_page is distinct from def.instruction_page_id) and not public.has_permission('kb.view_pages') then raise exception 'Нет доступа к выбору инструкции из базы знаний';end if;
+   instruction:=private.schedule_task_instruction(instruction_page,a);
+   if instruction is null then raise exception 'Страница инструкции удалена или принадлежит другому аккаунту';end if;
+  end if;
   rec:=p_input->'recurrence';
   if ((ident is null and ((p_input->>'penalty_enabled')::boolean or coalesce((p_input->>'reward_amount')::numeric,0)>0)) or
     (ident is not null and ((p_input->>'penalty_enabled')::boolean is distinct from def.penalty_enabled or (p_input->>'fine_amount')::numeric is distinct from def.fine_amount or (p_input->>'reward_amount')::numeric is distinct from def.reward_amount)))
@@ -135,12 +149,12 @@ begin
   if ident is null then
    if nullif(p_input->>'source_key','') is null and coalesce(p_input->>'request_key','') !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' then raise exception 'Нужен ключ создания задачи';end if;
    if length(coalesce(p_input->>'source_key',''))>200 then raise exception 'Неверный источник';end if;
-   insert into public.schedule_task_definitions(account_id,venue_id,name,instructions,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount,equipment_groups,source_key)
-   values(a,v,trim(p_input->>'name'),coalesce(p_input->>'instructions',''),(p_input->>'template_id')::uuid,p_input->>'review_mode',p_input->'items',rec,(p_input->>'starts_on')::date,(p_input->>'enabled')::boolean,(p_input->>'penalty_enabled')::boolean,(p_input->>'fine_amount')::numeric,(p_input->>'reward_amount')::numeric,coalesce(p_input->'equipment_groups','[]'),coalesce(nullif(p_input->>'source_key',''),'manual:'||(p_input->>'request_key')))
+   insert into public.schedule_task_definitions(account_id,venue_id,name,instructions,instruction_page_id,instruction_snapshot,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount,equipment_groups,source_key)
+   values(a,v,trim(p_input->>'name'),coalesce(p_input->>'instructions',''),instruction_page,instruction,(p_input->>'template_id')::uuid,p_input->>'review_mode',p_input->'items',rec,(p_input->>'starts_on')::date,(p_input->>'enabled')::boolean,(p_input->>'penalty_enabled')::boolean,(p_input->>'fine_amount')::numeric,(p_input->>'reward_amount')::numeric,coalesce(p_input->'equipment_groups','[]'),coalesce(nullif(p_input->>'source_key',''),'manual:'||(p_input->>'request_key')))
    on conflict(venue_id,source_key) do nothing returning id into ident;
    if ident is null then select id into ident from public.schedule_task_definitions where venue_id=v and source_key=coalesce(nullif(p_input->>'source_key',''),'manual:'||(p_input->>'request_key'));return jsonb_build_object('id',ident,'existing',true);end if;
   else
-   update public.schedule_task_definitions set name=trim(p_input->>'name'),instructions=coalesce(p_input->>'instructions',''),template_id=(p_input->>'template_id')::uuid,review_mode=p_input->>'review_mode',items=p_input->'items',recurrence=rec,starts_on=(p_input->>'starts_on')::date,enabled=(p_input->>'enabled')::boolean,penalty_enabled=(p_input->>'penalty_enabled')::boolean,fine_amount=(p_input->>'fine_amount')::numeric,reward_amount=(p_input->>'reward_amount')::numeric,equipment_groups=coalesce(p_input->'equipment_groups','[]'),version=version+1,updated_at=now() where id=ident;
+   update public.schedule_task_definitions set name=trim(p_input->>'name'),instructions=coalesce(p_input->>'instructions',''),instruction_page_id=instruction_page,instruction_snapshot=instruction,template_id=(p_input->>'template_id')::uuid,review_mode=p_input->>'review_mode',items=p_input->'items',recurrence=rec,starts_on=(p_input->>'starts_on')::date,enabled=(p_input->>'enabled')::boolean,penalty_enabled=(p_input->>'penalty_enabled')::boolean,fine_amount=(p_input->>'fine_amount')::numeric,reward_amount=(p_input->>'reward_amount')::numeric,equipment_groups=coalesce(p_input->'equipment_groups','[]'),version=version+1,updated_at=now() where id=ident;
   end if;
   if def.id is not null then
    select (now() at time zone coalesce(timezone,'Europe/Moscow'))::date into task_today from public.venues where id=v;
@@ -213,6 +227,26 @@ insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types) v
 create policy task_evidence_read on storage.objects for select to authenticated using(bucket_id='task-evidence' and exists(select 1 from public.schedule_task_occurrences o where o.id::text=(storage.foldername(name))[1]));
 create policy task_evidence_insert on storage.objects for insert to authenticated with check(bucket_id='task-evidence' and exists(select 1 from public.schedule_task_occurrences o where o.id::text=(storage.foldername(name))[1] and o.user_id=(select auth.uid()) and o.status in ('assigned','in_progress','returned') and o.settled_at is null and exists(select 1 from jsonb_array_elements(o.snapshot->'items') i where i->>'id'=(storage.foldername(name))[2] and i->>'kind'='photo')));
 
+create function private.schedule_task_instruction_file_read(p_path text) returns boolean
+language sql stable set search_path='' as $$
+ select exists(select 1 from public.schedule_task_occurrences o where o.account_id=(select public.get_active_account_id()) and o.venue_id=(select public.get_active_venue_id()) and o.snapshot->'instruction_snapshot'->'files' @> jsonb_build_array(jsonb_build_object('path',p_path)))
+ or (((select public.has_permission('schedule.view_all')) or (select public.has_permission('schedule.checklist_edit')) or (select public.has_permission('schedule.checklist_create'))) and exists(select 1 from public.schedule_task_definitions d where d.account_id=(select public.get_active_account_id()) and d.venue_id=(select public.get_active_venue_id()) and d.instruction_snapshot->'files' @> jsonb_build_array(jsonb_build_object('path',p_path))))
+$$;
+revoke all on function private.schedule_task_instruction_file_read(text) from public,anon;
+grant execute on function private.schedule_task_instruction_file_read(text) to authenticated;
+-- Configurers with KB access can preview newer media on explicitly linked instruction pages.
+create function private.schedule_task_instruction_live_file_read(p_path text) returns boolean
+language sql stable security definer set search_path='' as $$
+ select auth.uid() is not null and public.has_permission('kb.view_pages') and
+ (public.has_permission('schedule.view_all') or public.has_permission('schedule.checklist_edit') or public.has_permission('schedule.checklist_create')) and exists(
+ select 1 from public.schedule_task_definitions d join public.kb_pages p on p.id=d.instruction_page_id and p.account_id=d.account_id and p.deleted_at is null
+ join public.kb_page_attachments pa on pa.page_id=p.id join public.account_files f on f.id=pa.file_id and f.account_id=d.account_id
+ where d.venue_id=public.get_active_venue_id() and d.account_id=public.get_active_account_id() and f.storage_path=p_path and (position(('kbfile://'||f.storage_path) in p.content::text)>0 or position(f.id::text in p.content::text)>0))
+$$;
+revoke all on function private.schedule_task_instruction_live_file_read(text) from public,anon;
+grant execute on function private.schedule_task_instruction_live_file_read(text) to authenticated;
+create policy task_instruction_files_read on storage.objects for select to authenticated using(bucket_id='account-attachments' and (private.schedule_task_instruction_file_read(name) or private.schedule_task_instruction_live_file_read(name)));
+
 -- One plan is shared by the read-only preview and the scheduled writer.
 create function private.schedule_task_plan(p_venue uuid,p_from date,p_to date) returns jsonb
 language plpgsql stable set search_path='' as $$
@@ -225,7 +259,7 @@ begin
   for d in select generate_series(p_from::timestamp,p_to::timestamp,interval '1 day')::date loop
    if d<def.starts_on or not private.schedule_task_due(def.recurrence,d) then continue;end if;
    select count(distinct sh.id),string_agg(distinct pe.name,', ') into matches,employee_names from public.schedule_shifts sh left join public.payroll_employees pe on pe.venue_id=p_venue and pe.active and (pe.id=sh.payroll_employee_id or (sh.payroll_employee_id is null and pe.local_user_id=sh.user_id)) where sh.venue_id=p_venue and sh.template_id=def.template_id and sh.published and (sh.starts_at at time zone tz)::date=d;
-   result:=result||jsonb_build_array(jsonb_build_object('definition_id',def.id,'business_date',d,'assignment_count',matches,'employee',employee_names,'snapshot',to_jsonb(def)||jsonb_build_object('task_rules',cfg)));
+   result:=result||jsonb_build_array(jsonb_build_object('definition_id',def.id,'business_date',d,'assignment_count',matches,'employee',employee_names,'snapshot',to_jsonb(def)||jsonb_build_object('task_rules',cfg,'instruction_snapshot',case when def.instruction_page_id is not null then private.schedule_task_instruction(def.instruction_page_id,def.account_id) else def.instruction_snapshot end)));
   end loop;
  end loop;
  return result;
@@ -279,6 +313,7 @@ begin
      if not exists(select 1 from public.user_venue_roles uv where uv.user_id=coalesce(s.user_id,e.local_user_id) and uv.venue_id=o.venue_id and uv.status='active') then blocked_reason:='У сотрудника нет активного доступа в заведение';end if;
     end if;
    end if;
+   if nullif(o.snapshot->>'instruction_page_id','') is not null and (o.snapshot->'instruction_snapshot' is null or o.snapshot->'instruction_snapshot'='null'::jsonb) then blocked_reason:='Страница инструкции недоступна. Проверьте шаблон задачи';end if;
    assignment_deadline:=case when s.id is not null then greatest(s.ends_at,((o.business_date+1)::timestamp+interval '11 hours 30 minutes') at time zone tz) end;
    if blocked_reason='' and assignment_deadline<=now() and (o.status='blocked' or o.shift_id is distinct from s.id or o.employee_id is distinct from e.id or o.user_id is distinct from coalesce(s.user_id,e.local_user_id)) then
     blocked_reason:='Срок истёк до доступности задачи. Нужна сверка без автоматического штрафа';

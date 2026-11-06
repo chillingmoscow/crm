@@ -103,12 +103,14 @@ create function public.schedule_task_command(p_action text,p_input jsonb) return
 language plpgsql security definer set search_path=public,pg_catalog as $$
 declare u uuid:=auth.uid();v uuid:=public.get_active_venue_id();a uuid:=public.get_active_account_id();
  ident uuid:=nullif(p_input->>'id','')::uuid;def public.schedule_task_definitions;o public.schedule_task_occurrences;
- ans jsonb;item jsonb;perm text;rec jsonb;settings public.schedule_task_settings;correct_until timestamptz;activation_date date;is_paused boolean;
+ ans jsonb;item jsonb;perm text;rec jsonb;settings public.schedule_task_settings;correct_until timestamptz;activation_date date;is_paused boolean;task_today date;
 begin
  if u is null or v is null or a is null or not exists(select 1 from public.venues where id=v and account_id=a) then raise exception 'Выберите заведение';end if;
  if p_action='definition.save' then
   perm:=case when ident is null then 'schedule.checklist_create' else 'schedule.checklist_edit' end;
   if not public.has_permission(perm) then raise exception 'Нет доступа к настройке задач';end if;
+  -- Serialize definition edits with generation/settlement, so a stale worker cannot restore obsolete assignments.
+  perform pg_advisory_xact_lock(hashtextextended(v::text,0));
   perform pg_advisory_xact_lock(hashtextextended('schedule-tasks:'||v::text,0));
   if ident is not null then select * into def from public.schedule_task_definitions where id=ident and venue_id=v and account_id=a for update;
    if not found or def.version is distinct from (p_input->>'version')::integer then raise exception 'Задача изменилась. Обновите страницу';end if;
@@ -139,6 +141,21 @@ begin
    if ident is null then select id into ident from public.schedule_task_definitions where venue_id=v and source_key=coalesce(nullif(p_input->>'source_key',''),'manual:'||(p_input->>'request_key'));return jsonb_build_object('id',ident,'existing',true);end if;
   else
    update public.schedule_task_definitions set name=trim(p_input->>'name'),instructions=coalesce(p_input->>'instructions',''),template_id=(p_input->>'template_id')::uuid,review_mode=p_input->>'review_mode',items=p_input->'items',recurrence=rec,starts_on=(p_input->>'starts_on')::date,enabled=(p_input->>'enabled')::boolean,penalty_enabled=(p_input->>'penalty_enabled')::boolean,fine_amount=(p_input->>'fine_amount')::numeric,reward_amount=(p_input->>'reward_amount')::numeric,equipment_groups=coalesce(p_input->'equipment_groups','[]'),version=version+1,updated_at=now() where id=ident;
+  end if;
+  if def.id is not null then
+   select (now() at time zone coalesce(timezone,'Europe/Moscow'))::date into task_today from public.venues where id=v;
+   -- Future, untouched plan entries are disposable; current reports and historical carries keep their snapshots.
+   with obsolete as (
+    delete from public.schedule_task_occurrences planned where planned.definition_id=ident and planned.venue_id=v and planned.account_id=a
+     and planned.business_date>task_today and planned.status in ('assigned','blocked') and planned.answers='{}'::jsonb
+     and planned.submitted_at is null and planned.completed_at is null and planned.settled_at is null and planned.adjustment_id is null
+     and not planned.transferred and planned.transferred_from_id is null
+     and not exists(select 1 from public.schedule_task_occurrences child where child.transferred_from_id=planned.id)
+     and not exists(select 1 from storage.objects photo where photo.bucket_id='task-evidence' and photo.name like planned.id::text||'/%')
+    returning planned.*
+   )
+   insert into public.schedule_task_history(venue_id,entity_id,actor_id,action,details)
+   select v,ident,u,'assignment.cancelled',jsonb_build_object('reason','definition.updated','occurrence_id',obsolete.id,'before',to_jsonb(obsolete)) from obsolete;
   end if;
  elsif p_action='settings.save' then
   if not public.has_permission('schedule.checklist_edit') or not public.has_permission('payroll.configure') or not public.has_permission('payroll.review') then raise exception 'Нет доступа к переключению задач';end if;

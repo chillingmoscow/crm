@@ -25,7 +25,31 @@ async function context() {
   if (venue.error || !venue.data) throw new Error("Выберите заведение");
   return { client, db, user, venueId: String(venue.data) };
 }
-export async function loadTasks(): Promise<TaskData> {
+export async function loadTasks(range?: {
+  from: string;
+  to: string;
+}): Promise<TaskData> {
+  const date = z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .refine((value) => {
+      const parsed = new Date(value + "T00:00:00Z");
+      return (
+        Number.isFinite(parsed.getTime()) &&
+        parsed.toISOString().slice(0, 10) === value
+      );
+    });
+  const period = range
+    ? z
+        .object({ from: date, to: date })
+        .refine(
+          (value) =>
+            value.to >= value.from &&
+            new Date(value.to).getTime() - new Date(value.from).getTime() <=
+              31 * 86400000,
+        )
+        .parse(range)
+    : null;
   const { db, user, venueId } = await context();
   const venue = await db
     .from<{ timezone: string }>("venues")
@@ -36,19 +60,24 @@ export async function loadTasks(): Promise<TaskData> {
   const timezone = venue.data?.timezone || "Europe/Moscow",
     today = dateInZone(new Date(), timezone);
   const permissions = await getCachedPermissions();
+  let occurrencesQuery = db
+    .from<TaskOccurrence[]>("schedule_task_occurrences")
+    .select("*")
+    .eq("venue_id", venueId);
+  occurrencesQuery = period
+    ? occurrencesQuery.or(
+        `and(business_date.gte.${period.from},business_date.lte.${period.to}),settled_at.is.null`,
+      )
+    : occurrencesQuery
+        .or(`business_date.gte.${addDays(today, -31)},settled_at.is.null`)
+        .lte("business_date", addDays(today, 14));
   const results = await Promise.all([
     db
       .from<TaskDefinition[]>("schedule_task_definitions")
       .select("*")
       .eq("venue_id", venueId)
       .order("name"),
-    db
-      .from<TaskOccurrence[]>("schedule_task_occurrences")
-      .select("*")
-      .eq("venue_id", venueId)
-      .or(`business_date.gte.${addDays(today, -31)},settled_at.is.null`)
-      .lte("business_date", addDays(today, 14))
-      .order("business_date"),
+    occurrencesQuery.order("business_date"),
     db
       .from<TaskSettings>("schedule_task_settings")
       .select("*")

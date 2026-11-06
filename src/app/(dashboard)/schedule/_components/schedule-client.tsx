@@ -1,6 +1,7 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { shiftAssignee, assignmentFields } from "@/lib/schedule/types";
 import {
   CalendarDays,
@@ -17,9 +18,18 @@ import {
   Users,
   ClipboardCheck,
   GripVertical,
+  ListChecks,
+  CheckCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
 import { EditDrawer } from "@/components/ui/edit-drawer";
@@ -63,7 +73,25 @@ import { RunPanel } from "./run-panel";
 import { CandidateTrialCard } from "./candidate-trial-card";
 import { toast } from "sonner";
 import { ScheduleTasksTab } from "./tasks-tab";
-import type { TaskData } from "@/lib/schedule/tasks";
+import { TaskHeaderTarget } from "./task-header-actions";
+import {
+  taskStatus,
+  type TaskData,
+  type TaskOccurrence,
+} from "@/lib/schedule/tasks";
+import { loadTasks } from "../tasks/actions";
+const CalendarTaskReport = dynamic(
+  () => import("../tasks/tasks-client").then((module) => module.TaskReport),
+  {
+    loading: () => (
+      <div
+        role="status"
+        aria-label="Загрузка отчёта задачи"
+        className="mx-auto h-72 w-full max-w-[720px] animate-pulse rounded-xl bg-muted motion-reduce:animate-none"
+      />
+    ),
+  },
+);
 type Editor =
   | {
       type: "shift";
@@ -89,22 +117,44 @@ const eventLabels: Record<string, string> = {
   "shift.publish": "Опубликована смена",
   "shift.delete": "Удалена смена",
 };
-export function ScheduleClient({ initial, initialTab = "calendar", initialTasks = null }: {
+export function ScheduleClient({
+  initial,
+  initialTab = "calendar",
+  initialTasks = null,
+  initialCalendarTasks = null,
+  initialShowTasks,
+  initialDate,
+}: {
   initial: ScheduleData;
   initialTab?: string;
   initialTasks?: TaskData | null;
+  initialCalendarTasks?: TaskData | null;
+  initialShowTasks?: boolean;
+  initialDate?: string;
 }) {
   const [data, setData] = useState(initial);
   const [tab, setTab] = useState(initialTab);
   const [tasksVisited, setTasksVisited] = useState(initialTab === "tasks");
+  const [taskHeaderTarget, setTaskHeaderTarget] =
+    useState<HTMLDivElement | null>(null);
   useEffect(() => {
     setTab(initialTab);
     if (initialTab === "tasks") setTasksVisited(true);
   }, [initialTab]);
   useEffect(() => {
     const restoreTab = () => {
-      const next = new URL(window.location.href).searchParams.get("tab") ?? "calendar";
-      const valid = ["calendar", "tasks", "templates", "checklists", "review", "team"].includes(next) ? next : "calendar";
+      const next =
+        new URL(window.location.href).searchParams.get("tab") ?? "calendar";
+      const valid = [
+        "calendar",
+        "tasks",
+        "templates",
+        "checklists",
+        "review",
+        "team",
+      ].includes(next)
+        ? next
+        : "calendar";
       setTab(valid);
       if (valid === "tasks") setTasksVisited(true);
     };
@@ -112,8 +162,83 @@ export function ScheduleClient({ initial, initialTab = "calendar", initialTasks 
     return () => window.removeEventListener("popstate", restoreTab);
   }, []);
   const [week, setWeek] = useState(
-    weekStart(dateInZone(new Date(), initial.timezone)),
+    weekStart(initialDate ?? dateInZone(new Date(), initial.timezone)),
   );
+  useEffect(() => {
+    if (initialDate) setWeek(weekStart(initialDate));
+  }, [initialDate]);
+  const [showTasks, setShowTasks] = useState(
+    initialShowTasks ?? !initial.permissions.includes("schedule.view_all"),
+  );
+  const [calendarTasks, setCalendarTasks] = useState(initialCalendarTasks);
+  const [calendarTasksWeek, setCalendarTasksWeek] = useState(week);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [tasksError, setTasksError] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<TaskOccurrence | null>(null);
+  const tasksRequest = useRef(0);
+  useEffect(() => {
+    if (initialShowTasks !== undefined) {
+      setShowTasks(initialShowTasks);
+      return;
+    }
+    try {
+      const saved = localStorage.getItem(
+        `schedule.tasks.${initial.venueId}.${initial.userId}`,
+      );
+      if (saved !== null) setShowTasks(saved === "true");
+    } catch {}
+  }, [initialShowTasks, initial.venueId, initial.userId]);
+  const toggleTasks = (enabled: boolean) => {
+    setShowTasks(enabled);
+    try {
+      localStorage.setItem(
+        `schedule.tasks.${initial.venueId}.${initial.userId}`,
+        String(enabled),
+      );
+    } catch {}
+    const url = new URL(window.location.href);
+    if (enabled) url.searchParams.set("showTasks", "1");
+    else url.searchParams.delete("showTasks");
+    window.history.replaceState(null, "", url);
+  };
+  const refreshCalendarTasks = useCallback(async () => {
+    const request = ++tasksRequest.current;
+    try {
+      const [next, schedule] = await Promise.all([
+        loadTasks({ from: week, to: addDays(week, 6) }),
+        loadSchedule(),
+      ]);
+      if (request === tasksRequest.current) {
+        setData(schedule);
+        setCalendarTasks(next);
+        setCalendarTasksWeek(week);
+        setTasksError(false);
+        setTasksLoading(false);
+      }
+      return next;
+    } catch (error) {
+      if (request === tasksRequest.current) {
+        setTasksError(true);
+        setTasksLoading(false);
+      }
+      throw error;
+    }
+  }, [week]);
+  useEffect(() => {
+    if (!showTasks || tab !== "calendar") return;
+    setTasksLoading(true);
+    void refreshCalendarTasks().catch(() => {});
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible")
+        void refreshCalendarTasks().catch(() => {});
+    }, 60000);
+    return () => {
+      // This counter invalidates requests started by both the initial load and later polling.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      tasksRequest.current++;
+      clearInterval(timer);
+    };
+  }, [showTasks, tab, refreshCalendarTasks]);
   const [filters, setFilters] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -141,6 +266,13 @@ export function ScheduleClient({ initial, initialTab = "calendar", initialTasks 
     [data.permissions],
   );
   const canPlan = can("view_all");
+  const canConfigureTasks =
+    canPlan || can("checklist_create") || can("checklist_edit");
+  const pendingTaskReports = can("review")
+    ? (calendarTasks?.occurrences ?? []).filter(
+        (task) => task.status === "submitted" && task.user_id !== data.userId,
+      )
+    : [];
   const refresh = useCallback(async () => {
     try {
       setData(await loadSchedule());
@@ -221,13 +353,23 @@ export function ScheduleClient({ initial, initialTab = "calendar", initialTasks 
       (publication === "all" ||
         (publication === "draft" ? !s.published : s.published)),
   );
-  const trialDay = (trial: NonNullable<ScheduleData["candidateTrials"]>[number]) =>
-    trial.starts_at ? dateInZone(trial.starts_at, data.timezone) : trial.appointment_date;
-  const weekTrials = (data.candidateTrials ?? []).filter((trial) =>
-    days.includes(trialDay(trial)) && department === "all" &&
-    `${trial.full_name} ${trial.desired_position ?? ""} стажировка кандидат`.toLowerCase().includes(search),
+  const trialDay = (
+    trial: NonNullable<ScheduleData["candidateTrials"]>[number],
+  ) =>
+    trial.starts_at
+      ? dateInZone(trial.starts_at, data.timezone)
+      : trial.appointment_date;
+  const weekTrials = (data.candidateTrials ?? []).filter(
+    (trial) =>
+      days.includes(trialDay(trial)) &&
+      department === "all" &&
+      `${trial.full_name} ${trial.desired_position ?? ""} стажировка кандидат`
+        .toLowerCase()
+        .includes(search),
   );
-  const trialCandidates = [...new Map(weekTrials.map((trial) => [trial.candidate_id, trial])).values()];
+  const trialCandidates = [
+    ...new Map(weekTrials.map((trial) => [trial.candidate_id, trial])).values(),
+  ];
   const staff = roster.filter(
     (s) =>
       (canPlan || s.user_id === data.userId) &&
@@ -238,6 +380,68 @@ export function ScheduleClient({ initial, initialTab = "calendar", initialTasks 
             shiftAssignee(w) === s.user_id && w.department_id === department,
         )) &&
       matchingStaff.has(s.user_id),
+  );
+  const rosterIds = new Set(roster.map((person) => person.user_id));
+  const visibleStaffIds = new Set(staff.map((person) => person.user_id));
+  const taskRowId = (task: TaskOccurrence) =>
+    task.user_id && rosterIds.has(task.user_id) ? task.user_id : null;
+  const weekTasks =
+    showTasks && calendarTasksWeek === week
+      ? (calendarTasks?.occurrences ?? []).filter((task) => {
+          if (!days.includes(task.business_date) || publication === "draft")
+            return false;
+          const assignee = taskRowId(task);
+          if (assignee ? !visibleStaffIds.has(assignee) : !canPlan)
+            return false;
+          const shift = data.shifts.find((entry) => entry.id === task.shift_id);
+          if (
+            department !== "all" &&
+            shift &&
+            shift.department_id !== department
+          )
+            return false;
+          return (
+            Boolean(assignee) ||
+            ((!search ||
+              `${task.employee_name ?? "без сотрудника"}`
+                .toLowerCase()
+                .includes(search)) &&
+              (department === "all" || shift?.department_id === department))
+          );
+        })
+      : [];
+  const taskCard = (task: TaskOccurrence, compact = true) => (
+    <button
+      key={task.id}
+      onClick={() => setSelectedTask(task)}
+      aria-label={`Задача: ${task.snapshot.name}, ${taskStatus[task.status]}`}
+      title={`${task.snapshot.name} · ${task.employee_name || "Без назначения"} · ${taskStatus[task.status]}`}
+      className={cn(
+        "flex w-full items-start gap-1.5 rounded-md border bg-background px-2 py-2 text-left text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        task.status === "completed" && "text-muted-foreground",
+        task.status === "missed" && "border-destructive/30",
+      )}
+    >
+      {task.status === "completed" ? (
+        <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+      ) : (
+        <ListChecks className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      )}
+      <span className="min-w-0 flex-1">
+        <span
+          className={
+            compact ? "line-clamp-2 leading-4" : "block text-sm font-medium"
+          }
+        >
+          {task.snapshot.name}
+        </span>
+        {!compact && (
+          <span className="mt-1 block text-[13px] text-muted-foreground">
+            {task.employee_name || "Без назначения"} · {taskStatus[task.status]}
+          </span>
+        )}
+      </span>
+    </button>
   );
   const draftShifts = weekShifts.filter((s) => !s.published);
   const openShifts = weekShifts.filter((s) => !shiftAssignee(s));
@@ -395,8 +599,11 @@ export function ScheduleClient({ initial, initialTab = "calendar", initialTasks 
     <div className="w-full min-w-0 p-4 md:p-8 space-y-6 max-w-[1800px] mx-auto">
       <div className="flex flex-wrap justify-between items-center gap-4">
         <h1 className="text-3xl font-bold tracking-tight">График работы</h1>
-        <div className="flex gap-2">
-          {tab === "calendar" && can("shift_create") && (
+        <div
+          ref={setTaskHeaderTarget}
+          className="flex flex-wrap items-center gap-2"
+        >
+          {tab === "calendar" && !selectedTask && can("shift_create") && (
             <Button
               variant="outline"
               onClick={() => create(dateInZone(new Date(), data.timezone))}
@@ -406,6 +613,7 @@ export function ScheduleClient({ initial, initialTab = "calendar", initialTasks 
             </Button>
           )}
           {tab === "calendar" &&
+            !selectedTask &&
             can("shift_publish") &&
             draftShifts.length > 0 && (
               <Button disabled={busy} onClick={publish}>
@@ -443,14 +651,16 @@ export function ScheduleClient({ initial, initialTab = "calendar", initialTasks 
           <TabsTrigger value="calendar">
             {canPlan ? "Расписание" : "Мои смены"}
           </TabsTrigger>
-          <TabsTrigger value="tasks">Задачи</TabsTrigger>
+          {canConfigureTasks && <TabsTrigger value="tasks">Задачи</TabsTrigger>}
           {[
             "template_create",
             "template_edit",
             "template_copy",
             "template_archive",
             "shift_create",
-          ].some(can) && <TabsTrigger value="templates">Шаблоны</TabsTrigger>}
+          ].some(can) && (
+            <TabsTrigger value="templates">Шаблоны смен</TabsTrigger>
+          )}
           {[
             "checklist_create",
             "checklist_edit",
@@ -472,429 +682,606 @@ export function ScheduleClient({ initial, initialTab = "calendar", initialTasks 
           )}
           {canPlan && <TabsTrigger value="team">Команда</TabsTrigger>}
         </TabsList>
-        <TabsContent value="calendar" className="space-y-5">
-          <div className="flex flex-wrap justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Button
-                size="icon"
-                variant="ghost"
-                aria-label="Предыдущая неделя"
-                onClick={() => setWeek(addDays(week, -7))}
-              >
-                <ChevronLeft className="size-4" />
-              </Button>
-              <span className="text-base font-semibold min-w-48 text-center">
-                {dayLabel(days[0], { day: "numeric", month: "short" })} –{" "}
-                {dayLabel(days[6], {
-                  day: "numeric",
-                  month: "short",
-                  year: "numeric",
-                })}
-              </span>
-              <Button
-                size="icon"
-                variant="ghost"
-                aria-label="Следующая неделя"
-                onClick={() => setWeek(addDays(week, 7))}
-              >
-                <ChevronRight className="size-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() =>
-                  setWeek(weekStart(dateInZone(new Date(), data.timezone)))
-                }
-              >
-                Сегодня
-              </Button>
-            </div>
-            <div className="flex gap-2 items-center">
-              {can("shift_create") && (
-                <Button
-                  variant={templatesOpen ? "secondary" : "ghost"}
-                  size="sm"
-                  onClick={() => setTemplatesOpen(!templatesOpen)}
-                  aria-expanded={templatesOpen}
-                >
-                  <Layers className="size-4 mr-2" />
-                  Шаблоны
-                </Button>
-              )}
-              <Button
-                variant={filters ? "secondary" : "ghost"}
-                size="sm"
-                aria-expanded={filters}
-                onClick={() => setFilters(!filters)}
-              >
-                <SlidersHorizontal className="size-4 mr-2" />
-                Фильтры
-                {(department !== "all" || query || publication !== "all") && (
-                  <span className="ml-2 size-1.5 rounded-full bg-brand" />
-                )}
-              </Button>
-              <select
-                aria-label="Вид графика"
-                className={cn(selectClass, "w-auto hidden md:block h-9")}
-                value={view}
-                onChange={(e) => setView(e.target.value)}
-              >
-                <option value="week">Неделя</option>
-                <option value="list">Список</option>
-              </select>
-            </div>
-          </div>
-          {filters && (
-            <div className="flex flex-wrap gap-3 items-end rounded-lg bg-muted/50 p-3">
-              <div className="min-w-48 flex-1">
-                <Input
-                  aria-label="Поиск сотрудника"
-                  placeholder="Найти сотрудника"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-              </div>
-              <select
-                aria-label="Подразделение"
-                className={cn(selectClass, "w-auto")}
-                value={department}
-                onChange={(e) => setDepartment(e.target.value)}
-              >
-                <option value="all">Все подразделения</option>
-                {data.departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
-              {canPlan && (
-                <select
-                  aria-label="Состояние публикации"
-                  className={cn(selectClass, "w-auto")}
-                  value={publication}
-                  onChange={(e) => setPublication(e.target.value)}
-                >
-                  <option value="all">Все смены</option>
-                  <option value="draft">Черновики</option>
-                  <option value="published">Опубликованные</option>
-                </select>
-              )}
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setDepartment("all");
-                  setQuery("");
-                  setPublication("all");
+        <TabsContent
+          value="calendar"
+          className="space-y-5"
+          forceMount={selectedTask ? true : undefined}
+          hidden={tab !== "calendar"}
+        >
+          {selectedTask && calendarTasks ? (
+            <TaskHeaderTarget.Provider
+              value={tab === "calendar" ? taskHeaderTarget : null}
+            >
+              <CalendarTaskReport
+                key={selectedTask.id}
+                occurrence={selectedTask}
+                data={calendarTasks}
+                onClose={() => setSelectedTask(null)}
+                onSaved={async () => {
+                  const next = await refreshCalendarTasks();
+                  setSelectedTask(
+                    next.occurrences.find(
+                      (task) => task.id === selectedTask.id,
+                    ) ?? null,
+                  );
                 }}
-              >
-                Сбросить
-              </Button>
-            </div>
-          )}
-          {templatesOpen && (
-            <div className="flex flex-wrap gap-2 items-center">
-              <span className="text-xs text-muted-foreground mr-2">
-                Перетащите в календарь или выберите шаблон
-              </span>
-              {data.templates
-                .filter((t) => !t.archived)
-                .map((t) => (
-                  <button
-                    key={t.id}
-                    draggable
-                    onDragStart={(e) =>
-                      e.dataTransfer.setData(
-                        "application/sheerly-template",
-                        t.id,
-                      )
-                    }
-                    onClick={() => create(days[0], null, t)}
-                    className={cn(
-                      "flex gap-2 items-center px-3 py-2 text-xs rounded-lg focus-visible:ring-2 focus-visible:ring-ring",
-                      paletteBg(t.color),
-                      paletteText(t.color),
-                    )}
-                  >
-                    <GripVertical className="size-3" />
-                    {t.name}
-                    <span>{formatTemplateTimes(t)}</span>
-                  </button>
-                ))}
-              {!data.templates.some((t) => !t.archived) && (
-                <span className="text-sm text-muted-foreground">
-                  Шаблонов пока нет
-                </span>
-              )}
-            </div>
-          )}
-          {!staff.length && !openShifts.length && !weekTrials.length ? (
-            noData(
-              Users,
-              "Нет сотрудников для выбранных условий",
-              "Сбросьте фильтры или добавьте сотрудников в разделе «Люди».",
-              canPlan ? (
-                <Button asChild variant="outline">
-                  <Link href="/people/staff">Перейти к сотрудникам</Link>
-                </Button>
-              ) : undefined,
-            )
+              />
+            </TaskHeaderTarget.Provider>
           ) : (
             <>
-              <div
-                className={cn(
-                  "overflow-x-auto rounded-xl border hidden md:block",
-                  view === "list" && "md:hidden",
-                )}
-              >
-                <table className="w-full border-collapse table-fixed min-w-[1000px]">
-                  <thead>
-                    <tr className="bg-muted/50">
-                      <th className="w-[200px] p-4 text-left text-xs font-medium">
-                        Сотрудники · {staff.length}
-                      </th>
-                      {days.map((d) => (
-                        <th
-                          key={d}
-                          className={cn(
-                            "border-l p-3 text-center font-medium",
-                            d === dateInZone(new Date(), data.timezone) &&
-                              "bg-brand/5 text-brand",
-                          )}
-                        >
-                          <span className="block text-xs text-muted-foreground mb-1">
-                            {dayLabel(d, { weekday: "short" })}
-                          </span>
-                          <span className="text-base">
-                            {dayLabel(d, { day: "numeric" })}
-                          </span>
-                        </th>
-                      ))}
-                      <th className="w-16 p-2 border-l text-xs font-medium text-muted-foreground">
-                        Часы
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[
-                      ...staff.map((s) => ({
-                        id: s.user_id,
-                        label: name(s.user_id),
-                        role: s.role_name,
-                      })),
-                      ...(canPlan
-                        ? [
-                            {
-                              id: null,
-                              label: "Открытые смены",
-                              role: "Без сотрудника",
-                            },
-                          ]
-                        : []),
-                    ].map((s) => (
-                      <tr key={s.id ?? "open"} className="border-t">
-                        <th className="px-4 py-3 text-left font-normal">
-                          <div className="flex items-center gap-2">
-                            <span className="rounded-full size-8 bg-muted flex items-center justify-center text-xs shrink-0">
-                              {s.id ? (
-                                s.label
-                                  .split(" ")
-                                  .map((w) => w[0])
-                                  .slice(0, 2)
-                                  .join("")
-                              ) : (
-                                <Users className="size-4" />
-                              )}
-                            </span>
-                            <div className="min-w-0">
-                              <p className="text-xs font-medium truncate">
-                                {s.label}
+              <div className="flex flex-wrap justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    aria-label="Предыдущая неделя"
+                    onClick={() => setWeek(addDays(week, -7))}
+                  >
+                    <ChevronLeft className="size-4" />
+                  </Button>
+                  <span className="text-base font-semibold min-w-48 text-center">
+                    {dayLabel(days[0], { day: "numeric", month: "short" })} –{" "}
+                    {dayLabel(days[6], {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </span>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    aria-label="Следующая неделя"
+                    onClick={() => setWeek(addDays(week, 7))}
+                  >
+                    <ChevronRight className="size-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      setWeek(weekStart(dateInZone(new Date(), data.timezone)))
+                    }
+                  >
+                    Сегодня
+                  </Button>
+                </div>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <div className="mr-2 flex items-center gap-2">
+                    <Switch
+                      id="calendar-show-tasks"
+                      checked={showTasks}
+                      onCheckedChange={toggleTasks}
+                    />
+                    <Label
+                      htmlFor="calendar-show-tasks"
+                      className="cursor-pointer whitespace-nowrap text-sm"
+                    >
+                      Показать задачи
+                    </Label>
+                  </div>
+                  {showTasks && pendingTaskReports.length > 0 && (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" size="sm">
+                          На приёмке · {pendingTaskReports.length}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="end"
+                        className="max-h-[70vh] w-96 max-w-[calc(100vw-32px)] overflow-y-auto p-3"
+                      >
+                        <p className="mb-1 text-sm font-semibold">
+                          Отчёты на приёмке
+                        </p>
+                        <p className="mb-3 text-[13px] text-muted-foreground">
+                          За все дни, включая прошлые недели
+                        </p>
+                        <div className="space-y-2">
+                          {pendingTaskReports.map((task) => (
+                            <div key={task.id}>
+                              <p className="mb-1 text-xs text-muted-foreground">
+                                {dayLabel(task.business_date)}
                               </p>
-                              <p className="text-[11px] text-muted-foreground truncate">
-                                {s.role}
-                              </p>
+                              {taskCard(task, false)}
                             </div>
-                          </div>
-                        </th>
-                        {days.map((d) => (
-                          <td
-                            key={d}
-                            onDragOver={(e) => {
-                              if (can("shift_edit") || can("shift_create"))
-                                e.preventDefault();
-                            }}
-                            onDrop={(e) => void drop(e, d, s.id)}
-                            className={cn(
-                              "border-l p-1.5 align-top h-[80px]",
-                              d === dateInZone(new Date(), data.timezone) &&
-                                "bg-brand/[0.025]",
-                            )}
-                          >
-                            <div className="grid gap-1.5">
-                              {personShifts(s.id, d).map(card)}
-                              {can("shift_create") && (
-                                <button
-                                  aria-label={`Добавить смену: ${s.label}, ${dayLabel(d)}`}
-                                  onClick={() => create(d, s.id)}
-                                  className="flex items-center justify-center w-full rounded-md text-muted-foreground/60 hover:bg-muted hover:text-foreground min-h-8 focus-visible:ring-2 focus-visible:ring-ring"
-                                >
-                                  <Plus className="size-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        ))}
-                        <td className="border-l text-center text-xs font-medium tabular-nums">
-                          {personShifts(s.id)
-                            .reduce(
-                              (sum, s) =>
-                                sum +
-                                shiftHours(
-                                  s.starts_at,
-                                  s.ends_at,
-                                  s.break_minutes,
-                                ),
-                              0,
-                            )
-                            .toLocaleString("ru", { maximumFractionDigits: 1 })}
-                        </td>
-                      </tr>
-                    ))}
-                    {trialCandidates.length > 0 && (
-                      <tr className="border-t bg-muted/30">
-                        <th colSpan={9} className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">
-                          Стажировки · {trialCandidates.length}
-                        </th>
-                      </tr>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  )}
+                  {can("shift_create") && (
+                    <Button
+                      variant={templatesOpen ? "secondary" : "ghost"}
+                      size="sm"
+                      onClick={() => setTemplatesOpen(!templatesOpen)}
+                      aria-expanded={templatesOpen}
+                    >
+                      <Layers className="size-4 mr-2" />
+                      Шаблоны
+                    </Button>
+                  )}
+                  <Button
+                    variant={filters ? "secondary" : "ghost"}
+                    size="sm"
+                    aria-expanded={filters}
+                    onClick={() => setFilters(!filters)}
+                  >
+                    <SlidersHorizontal className="size-4 mr-2" />
+                    Фильтры
+                    {(department !== "all" ||
+                      query ||
+                      publication !== "all") && (
+                      <span className="ml-2 size-1.5 rounded-full bg-brand" />
                     )}
-                    {trialCandidates.map((candidate) => (
-                      <tr key={candidate.candidate_id} className="border-t">
-                        <th className="px-4 py-3 text-left font-normal">
-                          <Link href={`/people/candidates/${candidate.candidate_id}`} className="block break-words text-xs font-medium hover:underline">
-                            {candidate.full_name}
-                          </Link>
-                          <span className="mt-1 block text-[11px] text-muted-foreground">
-                            {candidate.hired_user_id ? "Принят на работу" : "Кандидат"}
-                            {candidate.desired_position ? ` · ${candidate.desired_position}` : ""}
-                          </span>
-                        </th>
-                        {days.map((day) => (
-                          <td key={day} className="border-l p-2 align-top">
-                            <div className="space-y-2">
-                              {weekTrials.filter((trial) => trial.candidate_id === candidate.candidate_id && trialDay(trial) === day).map((trial) => (
-                                <CandidateTrialCard key={trial.id} trial={trial} timezone={data.timezone} />
-                              ))}
-                            </div>
-                          </td>
-                        ))}
-                        <td className="border-l text-center text-xs text-muted-foreground">—</td>
-                      </tr>
+                  </Button>
+                  <select
+                    aria-label="Вид графика"
+                    className={cn(selectClass, "w-auto hidden md:block h-9")}
+                    value={view}
+                    onChange={(e) => setView(e.target.value)}
+                  >
+                    <option value="week">Неделя</option>
+                    <option value="list">Список</option>
+                  </select>
+                </div>
+              </div>
+              {showTasks && tasksLoading && !calendarTasks && (
+                <p role="status" className="text-sm text-muted-foreground">
+                  Загружаем задачи…
+                </p>
+              )}
+              {showTasks && tasksError && (
+                <div
+                  role="alert"
+                  className="flex flex-wrap items-center gap-3 text-sm text-destructive"
+                >
+                  <span>Не удалось загрузить задачи</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void refreshCalendarTasks().catch(() => {})}
+                  >
+                    Повторить
+                  </Button>
+                </div>
+              )}
+              {showTasks &&
+                !tasksLoading &&
+                !tasksError &&
+                !weekTasks.length && (
+                  <p className="text-sm text-muted-foreground">
+                    На этой неделе назначенных задач нет
+                  </p>
+                )}
+              {filters && (
+                <div className="flex flex-wrap gap-3 items-end rounded-lg bg-muted/50 p-3">
+                  <div className="min-w-48 flex-1">
+                    <Input
+                      aria-label="Поиск сотрудника"
+                      placeholder="Найти сотрудника"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                    />
+                  </div>
+                  <select
+                    aria-label="Подразделение"
+                    className={cn(selectClass, "w-auto")}
+                    value={department}
+                    onChange={(e) => setDepartment(e.target.value)}
+                  >
+                    <option value="all">Все подразделения</option>
+                    {data.departments.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
                     ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t bg-muted/50">
-                      <th className="p-3 text-left text-xs font-medium">
-                        Всего часов
-                      </th>
-                      {days.map((d) => (
-                        <td
-                          key={d}
-                          className="p-3 border-l text-center text-xs text-muted-foreground tabular-nums"
-                        >
+                  </select>
+                  {canPlan && (
+                    <select
+                      aria-label="Состояние публикации"
+                      className={cn(selectClass, "w-auto")}
+                      value={publication}
+                      onChange={(e) => setPublication(e.target.value)}
+                    >
+                      <option value="all">Все смены</option>
+                      <option value="draft">Черновики</option>
+                      <option value="published">Опубликованные</option>
+                    </select>
+                  )}
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setDepartment("all");
+                      setQuery("");
+                      setPublication("all");
+                    }}
+                  >
+                    Сбросить
+                  </Button>
+                </div>
+              )}
+              {templatesOpen && (
+                <div className="flex flex-wrap gap-2 items-center">
+                  <span className="text-xs text-muted-foreground mr-2">
+                    Перетащите в календарь или выберите шаблон
+                  </span>
+                  {data.templates
+                    .filter((t) => !t.archived)
+                    .map((t) => (
+                      <button
+                        key={t.id}
+                        draggable
+                        onDragStart={(e) =>
+                          e.dataTransfer.setData(
+                            "application/sheerly-template",
+                            t.id,
+                          )
+                        }
+                        onClick={() => create(days[0], null, t)}
+                        className={cn(
+                          "flex gap-2 items-center px-3 py-2 text-xs rounded-lg focus-visible:ring-2 focus-visible:ring-ring",
+                          paletteBg(t.color),
+                          paletteText(t.color),
+                        )}
+                      >
+                        <GripVertical className="size-3" />
+                        {t.name}
+                        <span>{formatTemplateTimes(t)}</span>
+                      </button>
+                    ))}
+                  {!data.templates.some((t) => !t.archived) && (
+                    <span className="text-sm text-muted-foreground">
+                      Шаблонов пока нет
+                    </span>
+                  )}
+                </div>
+              )}
+              {!staff.length &&
+              !openShifts.length &&
+              !weekTrials.length &&
+              !weekTasks.length ? (
+                noData(
+                  Users,
+                  "Нет сотрудников для выбранных условий",
+                  "Сбросьте фильтры или добавьте сотрудников в разделе «Люди».",
+                  canPlan ? (
+                    <Button asChild variant="outline">
+                      <Link href="/people/staff">Перейти к сотрудникам</Link>
+                    </Button>
+                  ) : undefined,
+                )
+              ) : (
+                <>
+                  <div
+                    className={cn(
+                      "overflow-x-auto rounded-xl border hidden md:block",
+                      view === "list" && "md:hidden",
+                    )}
+                  >
+                    <table className="w-full border-collapse table-fixed min-w-[1000px]">
+                      <thead>
+                        <tr className="bg-muted/50">
+                          <th className="w-[200px] p-4 text-left text-xs font-medium">
+                            Сотрудники · {staff.length}
+                          </th>
+                          {days.map((d) => (
+                            <th
+                              key={d}
+                              className={cn(
+                                "border-l p-3 text-center font-medium",
+                                d === dateInZone(new Date(), data.timezone) &&
+                                  "bg-brand/5 text-brand",
+                              )}
+                            >
+                              <span className="block text-xs text-muted-foreground mb-1">
+                                {dayLabel(d, { weekday: "short" })}
+                              </span>
+                              <span className="text-base">
+                                {dayLabel(d, { day: "numeric" })}
+                              </span>
+                            </th>
+                          ))}
+                          <th className="w-16 p-2 border-l text-xs font-medium text-muted-foreground">
+                            Часы
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          ...staff.map((s) => ({
+                            id: s.user_id,
+                            label: name(s.user_id),
+                            role: s.role_name,
+                          })),
+                          ...(canPlan
+                            ? [
+                                {
+                                  id: null,
+                                  label: "Открытые смены",
+                                  role: "Без сотрудника",
+                                },
+                              ]
+                            : []),
+                        ].map((s) => (
+                          <tr key={s.id ?? "open"} className="border-t">
+                            <th className="px-4 py-3 text-left font-normal">
+                              <div className="flex items-center gap-2">
+                                <span className="rounded-full size-8 bg-muted flex items-center justify-center text-xs shrink-0">
+                                  {s.id ? (
+                                    s.label
+                                      .split(" ")
+                                      .map((w) => w[0])
+                                      .slice(0, 2)
+                                      .join("")
+                                  ) : (
+                                    <Users className="size-4" />
+                                  )}
+                                </span>
+                                <div className="min-w-0">
+                                  <p className="text-xs font-medium truncate">
+                                    {s.label}
+                                  </p>
+                                  <p className="text-[11px] text-muted-foreground truncate">
+                                    {s.role}
+                                  </p>
+                                </div>
+                              </div>
+                            </th>
+                            {days.map((d) => (
+                              <td
+                                key={d}
+                                onDragOver={(e) => {
+                                  if (can("shift_edit") || can("shift_create"))
+                                    e.preventDefault();
+                                }}
+                                onDrop={(e) => void drop(e, d, s.id)}
+                                className={cn(
+                                  "border-l p-1.5 align-top h-[80px]",
+                                  d === dateInZone(new Date(), data.timezone) &&
+                                    "bg-brand/[0.025]",
+                                )}
+                              >
+                                <div className="grid gap-1.5">
+                                  {personShifts(s.id, d).map(card)}
+                                  {weekTasks
+                                    .filter(
+                                      (task) =>
+                                        task.business_date === d &&
+                                        taskRowId(task) === s.id,
+                                    )
+                                    .map((task) => taskCard(task))}
+                                  {can("shift_create") && (
+                                    <button
+                                      aria-label={`Добавить смену: ${s.label}, ${dayLabel(d)}`}
+                                      onClick={() => create(d, s.id)}
+                                      className="flex items-center justify-center w-full rounded-md text-muted-foreground/60 hover:bg-muted hover:text-foreground min-h-8 focus-visible:ring-2 focus-visible:ring-ring"
+                                    >
+                                      <Plus className="size-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            ))}
+                            <td className="border-l text-center text-xs font-medium tabular-nums">
+                              {personShifts(s.id)
+                                .reduce(
+                                  (sum, s) =>
+                                    sum +
+                                    shiftHours(
+                                      s.starts_at,
+                                      s.ends_at,
+                                      s.break_minutes,
+                                    ),
+                                  0,
+                                )
+                                .toLocaleString("ru", {
+                                  maximumFractionDigits: 1,
+                                })}
+                            </td>
+                          </tr>
+                        ))}
+                        {trialCandidates.length > 0 && (
+                          <tr className="border-t bg-muted/30">
+                            <th
+                              colSpan={9}
+                              className="px-4 py-2 text-left text-xs font-medium text-muted-foreground"
+                            >
+                              Стажировки · {trialCandidates.length}
+                            </th>
+                          </tr>
+                        )}
+                        {trialCandidates.map((candidate) => (
+                          <tr key={candidate.candidate_id} className="border-t">
+                            <th className="px-4 py-3 text-left font-normal">
+                              <Link
+                                href={`/people/candidates/${candidate.candidate_id}`}
+                                className="block break-words text-xs font-medium hover:underline"
+                              >
+                                {candidate.full_name}
+                              </Link>
+                              <span className="mt-1 block text-[11px] text-muted-foreground">
+                                {candidate.hired_user_id
+                                  ? "Принят на работу"
+                                  : "Кандидат"}
+                                {candidate.desired_position
+                                  ? ` · ${candidate.desired_position}`
+                                  : ""}
+                              </span>
+                            </th>
+                            {days.map((day) => (
+                              <td key={day} className="border-l p-2 align-top">
+                                <div className="space-y-2">
+                                  {weekTrials
+                                    .filter(
+                                      (trial) =>
+                                        trial.candidate_id ===
+                                          candidate.candidate_id &&
+                                        trialDay(trial) === day,
+                                    )
+                                    .map((trial) => (
+                                      <CandidateTrialCard
+                                        key={trial.id}
+                                        trial={trial}
+                                        timezone={data.timezone}
+                                      />
+                                    ))}
+                                </div>
+                              </td>
+                            ))}
+                            <td className="border-l text-center text-xs text-muted-foreground">
+                              —
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t bg-muted/50">
+                          <th className="p-3 text-left text-xs font-medium">
+                            Всего часов
+                          </th>
+                          {days.map((d) => (
+                            <td
+                              key={d}
+                              className="p-3 border-l text-center text-xs text-muted-foreground tabular-nums"
+                            >
+                              {weekShifts
+                                .filter(
+                                  (s) =>
+                                    dateInZone(s.starts_at, data.timezone) ===
+                                    d,
+                                )
+                                .reduce(
+                                  (sum, s) =>
+                                    sum +
+                                    shiftHours(
+                                      s.starts_at,
+                                      s.ends_at,
+                                      s.break_minutes,
+                                    ),
+                                  0,
+                                )
+                                .toLocaleString("ru", {
+                                  maximumFractionDigits: 1,
+                                })}
+                            </td>
+                          ))}
+                          <td className="border-l text-center text-xs font-semibold">
+                            {weekShifts
+                              .reduce(
+                                (sum, s) =>
+                                  sum +
+                                  shiftHours(
+                                    s.starts_at,
+                                    s.ends_at,
+                                    s.break_minutes,
+                                  ),
+                                0,
+                              )
+                              .toLocaleString("ru", {
+                                maximumFractionDigits: 1,
+                              })}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                  <div
+                    className={cn("space-y-6", view !== "list" && "md:hidden")}
+                  >
+                    {days.map((d) => (
+                      <section key={d}>
+                        <h3 className="text-sm font-semibold mb-3">
+                          {dayLabel(d, {
+                            weekday: "long",
+                            day: "numeric",
+                            month: "long",
+                          })}
+                        </h3>
+                        <div className="space-y-2">
                           {weekShifts
                             .filter(
                               (s) =>
                                 dateInZone(s.starts_at, data.timezone) === d,
                             )
-                            .reduce(
-                              (sum, s) =>
-                                sum +
-                                shiftHours(
-                                  s.starts_at,
-                                  s.ends_at,
-                                  s.break_minutes,
-                                ),
-                              0,
-                            )
-                            .toLocaleString("ru", { maximumFractionDigits: 1 })}
-                        </td>
-                      ))}
-                      <td className="border-l text-center text-xs font-semibold">
-                        {weekShifts
-                          .reduce(
-                            (sum, s) =>
-                              sum +
-                              shiftHours(
-                                s.starts_at,
-                                s.ends_at,
-                                s.break_minutes,
-                              ),
-                            0,
-                          )
-                          .toLocaleString("ru", { maximumFractionDigits: 1 })}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-              <div className={cn("space-y-6", view !== "list" && "md:hidden")}>
-                {days.map((d) => (
-                  <section key={d}>
-                    <h3 className="text-sm font-semibold mb-3">
-                      {dayLabel(d, {
-                        weekday: "long",
-                        day: "numeric",
-                        month: "long",
-                      })}
-                    </h3>
-                    <div className="space-y-2">
-                      {weekShifts
-                        .filter(
-                          (s) => dateInZone(s.starts_at, data.timezone) === d,
-                        )
-                        .map((s) => (
-                          <div key={s.id} className="flex gap-4 items-center">
-                            <div className="flex-1">{card(s)}</div>
-                            {canPlan && (
-                              <span className="text-xs text-muted-foreground w-36">
-                                {name(shiftAssignee(s))}
-                              </span>
+                            .map((s) => (
+                              <div
+                                key={s.id}
+                                className="flex gap-4 items-center"
+                              >
+                                <div className="flex-1">{card(s)}</div>
+                                {canPlan && (
+                                  <span className="text-xs text-muted-foreground w-36">
+                                    {name(shiftAssignee(s))}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          {weekTasks
+                            .filter((task) => task.business_date === d)
+                            .map((task) => taskCard(task, false))}
+                          {weekTrials
+                            .filter((trial) => trialDay(trial) === d)
+                            .map((trial) => (
+                              <CandidateTrialCard
+                                key={trial.id}
+                                trial={trial}
+                                timezone={data.timezone}
+                                showName
+                              />
+                            ))}
+                          {!weekShifts.some(
+                            (s) => dateInZone(s.starts_at, data.timezone) === d,
+                          ) &&
+                            !weekTrials.some(
+                              (trial) => trialDay(trial) === d,
+                            ) &&
+                            !weekTasks.some(
+                              (task) => task.business_date === d,
+                            ) && (
+                              <p className="text-sm text-muted-foreground">
+                                Смен нет
+                              </p>
                             )}
-                          </div>
-                        ))}
-                      {weekTrials.filter((trial) => trialDay(trial) === d).map((trial) => (
-                        <CandidateTrialCard key={trial.id} trial={trial} timezone={data.timezone} showName />
-                      ))}
-                      {!weekShifts.some(
-                        (s) => dateInZone(s.starts_at, data.timezone) === d,
-                      ) && !weekTrials.some((trial) => trialDay(trial) === d) && (
-                        <p className="text-sm text-muted-foreground">
-                          Смен нет
-                        </p>
-                      )}
-                      {can("shift_create") && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => create(d)}
-                        >
-                          <Plus className="size-4 mr-2" />
-                          Добавить смену
-                        </Button>
-                      )}
-                    </div>
-                  </section>
-                ))}
+                          {can("shift_create") && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => create(d)}
+                            >
+                              <Plus className="size-4 mr-2" />
+                              Добавить смену
+                            </Button>
+                          )}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                </>
+              )}
+              <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+                <span>Часовой пояс: {data.timezone}</span>
+                <span>Часы указаны за вычетом перерывов</span>
+                {showTasks && <span>Задач на неделе: {weekTasks.length}</span>}
+                {canPlan && <span>Черновики видны только планировщикам</span>}
               </div>
             </>
           )}
-          <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-            <span>Часовой пояс: {data.timezone}</span>
-            <span>Часы указаны за вычетом перерывов</span>
-            {canPlan && <span>Черновики видны только планировщикам</span>}
-          </div>
         </TabsContent>
-        <TabsContent value="tasks" forceMount={tasksVisited ? true : undefined} hidden={tab !== "tasks"}>
-          {tasksVisited && <ScheduleTasksTab initial={initialTasks} active={tab === "tasks"} />}
+        <TabsContent
+          value="tasks"
+          forceMount={tasksVisited ? true : undefined}
+          hidden={tab !== "tasks"}
+        >
+          <TaskHeaderTarget.Provider
+            value={tab === "tasks" ? taskHeaderTarget : null}
+          >
+            {tasksVisited && (
+              <ScheduleTasksTab
+                initial={initialTasks}
+                active={tab === "tasks"}
+              />
+            )}
+          </TaskHeaderTarget.Provider>
         </TabsContent>
         <TabsContent value="templates" className="space-y-4">
           <div className="flex gap-2">
@@ -934,9 +1321,8 @@ export function ScheduleClient({ initial, initialTab = "calendar", initialTasks 
                     <div className="flex-1 min-w-40">
                       <p className="text-sm font-medium">{t.name}</p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {formatTemplateTimes(t)} ·
-                        перерыв {t.break_minutes} мин · чек-листов{" "}
-                        {t.checklist_ids.length}
+                        {formatTemplateTimes(t)} · перерыв {t.break_minutes} мин
+                        · чек-листов {t.checklist_ids.length}
                       </p>
                     </div>
                     <div className="flex gap-1">

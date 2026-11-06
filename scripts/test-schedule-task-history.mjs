@@ -130,8 +130,15 @@ try {
     (await response.text()).includes(marker),
     "The settled prerequisite outside the 31-day window was omitted",
   );
+  for (const targetDate of [date(0), date(45)]) {
+    const calendar = await fetch(`${site}/schedule?showTasks=1&date=${targetDate}`, { headers: { cookie } });
+    assert.equal(calendar.status, 200);
+    const body = await calendar.text();
+    assert(body.includes(marker), "Calendar omitted the linked settled prerequisite");
+    assert(body.includes("Показать задачи"), "Calendar task display option is missing");
+  }
   console.log(
-    "PASS: legacy link redirects to the schedule tasks tab; authenticated tab loads the 46-day-old settled prerequisite",
+    "PASS: legacy redirect and template screen; current/historical calendar retains the 46-day-old settled prerequisite",
   );
 } finally {
   check(

@@ -3,13 +3,14 @@ begin;
 create table public.schedule_task_definitions (
  id uuid primary key default gen_random_uuid(), account_id uuid not null references public.accounts(id),
  venue_id uuid not null references public.venues(id), name text not null,
- instructions text not null default '', instruction_page_id uuid references public.kb_pages(id) on delete set null, instruction_snapshot jsonb, template_id uuid not null references public.schedule_templates(id),
+ instructions text not null default '', instruction_page_id uuid references public.kb_pages(id) on delete set null, instruction_snapshot jsonb, template_id uuid references public.schedule_templates(id),
  review_mode text not null check(review_mode in ('auto','manager')), items jsonb not null,
- recurrence jsonb not null, starts_on date not null, enabled boolean not null default false,
+ recurrence jsonb, starts_on date not null, enabled boolean not null default false,
  penalty_enabled boolean not null default true, fine_amount numeric check(fine_amount between 0 and 100000),
  reward_amount numeric check(reward_amount between 0 and 100000),
  equipment_groups jsonb not null default '[]', source_key text, source_url text, version integer not null default 1,
  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+ constraint schedule_task_enabled_config check (not enabled or (template_id is not null and recurrence is not null and jsonb_array_length(items)>0)),
  unique(venue_id,id), unique(venue_id,source_key)
 );
 create table public.schedule_task_settings (
@@ -72,7 +73,7 @@ create policy task_history_read on public.schedule_task_history for select to au
 create function private.schedule_task_items_valid(items jsonb) returns boolean language plpgsql immutable set search_path='' as $$
 declare i jsonb;
 begin
- if jsonb_typeof(items) is distinct from 'array' or jsonb_array_length(items) not between 1 and 150 then return false;end if;
+ if jsonb_typeof(items) is distinct from 'array' or jsonb_array_length(items) not between 0 and 150 then return false;end if;
  for i in select value from jsonb_array_elements(items) loop
   if jsonb_typeof(i) is distinct from 'object' or length(trim(coalesce(i->>'title',''))) not between 1 and 300 or length(coalesce(i->>'hint',''))>2000
    or coalesce(i->>'kind','') not in ('check','photo','number','text','info') or jsonb_typeof(i->'required') is distinct from 'boolean'
@@ -127,21 +128,22 @@ begin
    or p_input->>'review_mode' not in ('auto','manager') or p_input->>'review_mode' is null or not private.schedule_task_items_valid(p_input->'items')
    or jsonb_typeof(p_input->'enabled') is distinct from 'boolean' or jsonb_typeof(p_input->'penalty_enabled') is distinct from 'boolean'
    or (p_input->>'fine_amount')::numeric not between 0 and 100000 or (p_input->>'reward_amount')::numeric not between 0 and 100000
-   or not exists(select 1 from public.schedule_templates where id=(p_input->>'template_id')::uuid and venue_id=v and not archived) then raise exception 'Проверьте название, чек-лист, шаблон и суммы';end if;
+   or (nullif(p_input->>'template_id','') is not null and not exists(select 1 from public.schedule_templates where id=(p_input->>'template_id')::uuid and venue_id=v and not archived)) then raise exception 'Проверьте название, чек-лист, шаблон и суммы';end if;
   instruction_page:=nullif(p_input->>'instruction_page_id','')::uuid;
   if instruction_page is not null then
    if (ident is null or instruction_page is distinct from def.instruction_page_id) and not public.has_permission('kb.view_pages') then raise exception 'Нет доступа к выбору инструкции из базы знаний';end if;
    instruction:=private.schedule_task_instruction(instruction_page,a);
    if instruction is null then raise exception 'Страница инструкции удалена или принадлежит другому аккаунту';end if;
   end if;
-  rec:=p_input->'recurrence';
+  rec:=nullif(p_input->'recurrence','null'::jsonb);
+  if (p_input->>'enabled')::boolean and (nullif(p_input->>'template_id','') is null or rec is null or jsonb_array_length(p_input->'items')=0) then raise exception 'Для включения задачи укажите смену, повтор и чек-лист';end if;
   if ((ident is null and ((p_input->>'penalty_enabled')::boolean or coalesce((p_input->>'reward_amount')::numeric,0)>0)) or
     (ident is not null and ((p_input->>'penalty_enabled')::boolean is distinct from def.penalty_enabled or (p_input->>'fine_amount')::numeric is distinct from def.fine_amount or (p_input->>'reward_amount')::numeric is distinct from def.reward_amount)))
    and not public.has_permission('payroll.configure') then raise exception 'Нет доступа к изменению начислений';end if;
   if (p_input->>'enabled')::boolean and (ident is null or not def.enabled) and not public.has_permission('schedule.checklist_publish') then raise exception 'Нет доступа к включению задачи';end if;
-  if jsonb_typeof(rec) is distinct from 'object' or coalesce(rec->>'unit','') not in ('week','month') or rec->>'interval' is null or (rec->>'interval')::integer not between 1 and 52
-   or coalesce(rec->>'anchor','') !~ '^\d{4}-\d{2}-\d{2}$' or coalesce(p_input->>'starts_on','') !~ '^\d{4}-\d{2}-\d{2}$'
-   or not isfinite((rec->>'anchor')::date) or not isfinite((p_input->>'starts_on')::date) then raise exception 'Проверьте периодичность';end if;
+  if coalesce(p_input->>'starts_on','') !~ '^\d{4}-\d{2}-\d{2}$' or not isfinite((p_input->>'starts_on')::date) then raise exception 'Проверьте дату начала';end if;
+  if rec is not null and (jsonb_typeof(rec) is distinct from 'object' or coalesce(rec->>'unit','') not in ('week','month') or rec->>'interval' is null or (rec->>'interval')::integer not between 1 and 52
+   or coalesce(rec->>'anchor','') !~ '^\d{4}-\d{2}-\d{2}$' or not isfinite((rec->>'anchor')::date)) then raise exception 'Проверьте периодичность';end if;
   if jsonb_typeof(coalesce(p_input->'equipment_groups','[]')) is distinct from 'array' or jsonb_array_length(coalesce(p_input->'equipment_groups','[]'))>12 then raise exception 'Проверьте группы оборудования';end if;
   for item in select value from jsonb_array_elements(coalesce(p_input->'equipment_groups','[]')) loop
    if jsonb_typeof(item) is distinct from 'array' or jsonb_array_length(item) not between 1 and 100 or exists(select 1 from jsonb_array_elements(item) x where jsonb_typeof(x)<>'number' or (x#>>'{}')::numeric<>trunc((x#>>'{}')::numeric) or (x#>>'{}')::numeric not between 1 and 999) then raise exception 'Проверьте номера оборудования';end if;

@@ -1,7 +1,7 @@
 "use client";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
-import { ExternalLink, Plus } from "lucide-react";
+import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -117,12 +117,15 @@ export function InstructionPagePicker({
   }, [value]);
   const selected = pages.find((p) => p.id === value);
   async function create() {
+    const destination = window.open("about:blank", "_blank");
+    if (destination) destination.opener = null;
     setCreating(true);
     try {
       const r = await createKbPage({
         title: name.trim() || "Инструкция задачи",
       });
       if (r.error || !r.id || !r.slug) {
+        destination?.close();
         toast.error(r.error ?? "Не удалось создать инструкцию");
         return;
       }
@@ -136,7 +139,9 @@ export function InstructionPagePicker({
         },
       ]);
       onChange(r.id);
+      if (destination) destination.location.href = `/knowledge/${r.slug}`;
     } catch {
+      destination?.close();
       toast.error("Не удалось создать инструкцию");
     } finally {
       setCreating(false);
@@ -194,20 +199,22 @@ export function InstructionPagePicker({
               target="_blank"
               rel="noopener noreferrer"
             >
-              <ExternalLink className="mr-2 size-4" />
-              Открыть в базе знаний
+              <Pencil className="mr-2 size-4" />
+              Редактировать инструкцию
             </a>
           </Button>
         )}
-        {data.permissions.includes("kb.create_pages") && !disabled && (
+        {!value &&
+          data.permissions.includes("kb.create_pages") &&
+          !disabled && (
           <Button
             variant="outline"
             size="sm"
             disabled={creating}
             onClick={() => void create()}
           >
-            <Plus className="mr-2 size-4" />
-            {creating ? "Создание…" : "Создать инструкцию"}
+              <Pencil className="mr-2 size-4" />
+              {creating ? "Подготовка…" : "Редактировать инструкцию"}
           </Button>
         )}
       </div>

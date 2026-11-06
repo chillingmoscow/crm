@@ -10,7 +10,7 @@ import {
 } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Plus, Settings2, ArrowLeft, Camera, Trash2 } from "lucide-react";
+import { Plus, Settings2, ArrowLeft, Camera, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -475,8 +475,11 @@ export function TasksClient({
     details: `${definition.items.filter((point) => point.kind !== "info").length} ${plural(definition.items.filter((point) => point.kind !== "info").length, "пункт", "пункта", "пунктов")} · фотоотчёт: ${definition.items.filter((point) => point.kind === "photo").length} ${plural(definition.items.filter((point) => point.kind === "photo").length, "пункт", "пункта", "пунктов")}`,
     assignee:
       data.templates.find((template) => template.id === definition.template_id)
-        ?.name ?? "Шаблон недоступен",
-    timing: `Раз в ${definition.recurrence.interval} ${definition.recurrence.unit === "week" ? "нед." : "мес."}`,
+        ?.name ??
+      (definition.template_id ? "Шаблон недоступен" : "Не назначено"),
+    timing: definition.recurrence
+      ? `Раз в ${definition.recurrence.interval} ${definition.recurrence.unit === "week" ? "нед." : "мес."}`
+      : "Повтор не настроен",
     review: definition.review_mode === "auto" ? "Не требуется" : "Требуется",
     status: definition.enabled ? "Включена" : "Черновик",
     tone: definition.enabled ? "positive" : undefined,
@@ -664,9 +667,9 @@ function DefinitionEditor({
             name: "",
             instructions: "",
             instruction_page_id: null,
-            template_id: "",
+            template_id: null,
             review_mode: "manager",
-            items: [newItem()],
+            items: [],
             recurrence: { unit: "week", interval: 1, anchor: data.today },
             starts_on: data.today,
             enabled: false,
@@ -679,6 +682,11 @@ function DefinitionEditor({
     ),
     [busy, setBusy] = useState(false),
     [dirty, setDirty] = useState(false);
+  const recurrence = value.recurrence ?? {
+    unit: "week" as const,
+    interval: 1,
+    anchor: data.today,
+  };
   const [equipmentTexts, setEquipmentTexts] = useState(() =>
     value.equipment_groups.map((group) => group.join(", ")),
   );
@@ -695,8 +703,11 @@ function DefinitionEditor({
       value.items.map((x, i) => (i === index ? { ...x, ...patch } : x)),
     );
   async function submit() {
-    if (!value.template_id) {
-      toast.error("Выберите шаблон смены");
+    if (
+      value.enabled &&
+      (!value.template_id || !value.recurrence || !value.items.length)
+    ) {
+      toast.error("Для включения задачи укажите смену, повтор и чек-лист");
       return;
     }
     const equipmentGroups = equipmentTexts.map((text) =>
@@ -854,12 +865,30 @@ function DefinitionEditor({
                       )}
                     </div>
                     {expandedHints.includes(x.id) && (
+                          <div className="flex items-start gap-2">
                       <ChecklistText
                         aria-label={`Пояснение к пункту ${i + 1}`}
                         placeholder="Пояснение к пункту"
                         value={x.hint}
-                        onChange={(e) => item(i, { hint: e.target.value })}
+                              onChange={(e) =>
+                                item(i, { hint: e.target.value })
+                              }
                       />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-9 shrink-0 text-muted-foreground"
+                              aria-label={`Убрать пояснение к пункту ${i + 1}`}
+                              onClick={() => {
+                                item(i, { hint: "" });
+                                setExpandedHints((ids) =>
+                                  ids.filter((id) => id !== x.id),
+                                );
+                              }}
+                            >
+                              <X className="size-4" />
+                            </Button>
+                          </div>
                     )}
                     {x.kind === "number" && (
                       <div className="grid gap-3 sm:grid-cols-3">
@@ -936,8 +965,8 @@ function DefinitionEditor({
           <Field label="Шаблон смены">
             <TaskSelect
               disabled={!editable || busy}
-              value={value.template_id}
-              onChange={(template) => set("template_id", template)}
+                  value={value.template_id ?? ""}
+                  onChange={(template) => set("template_id", template || null)}
               options={[
                 { value: "", label: "Выберите шаблон смены" },
                 ...data.templates.map((template) => ({
@@ -963,16 +992,28 @@ function DefinitionEditor({
         </ProfileSection>
 
         <ProfileSection title="Повторение">
+              <SwitchRow
+                label="Повторять задачу"
+                checked={value.recurrence !== null}
+                onChange={(enabled) =>
+                  set("recurrence", enabled ? recurrence : null)
+                }
+                disabled={!editable || busy}
+              />
+              <fieldset
+                disabled={value.recurrence === null}
+                className="space-y-4"
+              >
           <div className="grid grid-cols-2 gap-4">
             <Field label="Повторять раз в">
               <Input
                 type="number"
                 min={1}
                 max={52}
-                value={value.recurrence.interval}
+                      value={recurrence.interval}
                 onChange={(e) =>
                   set("recurrence", {
-                    ...value.recurrence,
+                          ...recurrence,
                     interval: Number(e.target.value),
                   })
                 }
@@ -981,10 +1022,10 @@ function DefinitionEditor({
             <Field label="Период">
               <TaskSelect
                 disabled={!editable || busy}
-                value={value.recurrence.unit}
+                      value={recurrence.unit}
                 onChange={(unit) =>
                   set("recurrence", {
-                    ...value.recurrence,
+                          ...recurrence,
                     unit: unit as "week" | "month",
                   })
                 }
@@ -999,10 +1040,10 @@ function DefinitionEditor({
             <Field label="Первое повторение">
               <DatePicker
                 disabled={!editable || busy}
-                value={value.recurrence.anchor}
+                      value={recurrence.anchor}
                 clearable={false}
                 onChange={(anchor) =>
-                  set("recurrence", { ...value.recurrence, anchor })
+                        set("recurrence", { ...recurrence, anchor })
                 }
               />
             </Field>
@@ -1015,6 +1056,7 @@ function DefinitionEditor({
               />
             </Field>
           </div>
+              </fieldset>
           <div className="border-t pt-4">
             <SwitchRow
               label="Автоматически назначать задачу"

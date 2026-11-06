@@ -29,14 +29,16 @@ export const taskDefinitionSchema = z
     name: z.string().trim().min(1).max(160),
     instructions: z.string().max(50000),
     instruction_page_id: z.string().uuid().nullable().default(null),
-    template_id: z.string().uuid(),
+    template_id: z.string().uuid().nullable().default(null),
     review_mode: z.enum(["auto", "manager"]),
-    items: z.array(taskItemSchema).min(1).max(150),
-    recurrence: z.object({
+    items: z.array(taskItemSchema).max(150),
+    recurrence: z
+      .object({
       unit: z.enum(["week", "month"]),
       interval: z.number().int().min(1).max(52),
       anchor: calendarDate,
-    }),
+      })
+      .nullable(),
     starts_on: calendarDate,
     enabled: z.boolean(),
     penalty_enabled: z.boolean().default(true),
@@ -48,6 +50,11 @@ export const taskDefinitionSchema = z
       .default([]),
   })
   .superRefine((s, ctx) => {
+    if (s.enabled && (!s.template_id || !s.recurrence || !s.items.length))
+      ctx.addIssue({
+        code: "custom",
+        message: "Для включения задачи укажите смену, повтор и чек-лист",
+      });
     if (new Set(s.items.map((i) => i.id)).size !== s.items.length)
       ctx.addIssue({ code: "custom", message: "Пункты повторяются" });
     for (const i of s.items)
@@ -55,7 +62,13 @@ export const taskDefinitionSchema = z
         ctx.addIssue({ code: "custom", message: "Минимум больше максимума" });
   });
 export type TaskInput = z.infer<typeof taskDefinitionSchema>;
-export type TaskInstruction = { page_id: string; title: string; content: import("@/types/knowledge").KbBlock[]; updated_at: string | null; files: {id:string;path:string}[] };
+export type TaskInstruction = {
+  page_id: string;
+  title: string;
+  content: import("@/types/knowledge").KbBlock[];
+  updated_at: string | null;
+  files: { id: string; path: string }[];
+};
 export type TaskDefinition = TaskInput & {
   instruction_snapshot?: TaskInstruction | null;
   id: string;
@@ -123,7 +136,12 @@ export type TaskPreview = {
 };
 export type TaskData = {
   plans?: TaskPreview[];
-  instructionPages?: {id:string;title:string;slug:string;parent_id:string|null}[];
+  instructionPages?: {
+    id: string;
+    title: string;
+    slug: string;
+    parent_id: string | null;
+  }[];
   definitions: TaskDefinition[];
   occurrences: TaskOccurrence[];
   settings: TaskSettings | null;

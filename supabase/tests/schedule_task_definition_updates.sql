@@ -1,7 +1,7 @@
 -- A changed definition must not leave obsolete future assignments eligible for deductions.
 begin;
 do $$
-declare owner_id uuid;staff_id uuid;v uuid;a uuid;d date;tpl uuid;def uuid;old_occ uuid;new_occ uuid;current_occ uuid;historical_occ uuid;carry_occ uuid;started_occ uuid;photo_occ uuid;point uuid:=gen_random_uuid();body jsonb;snap jsonb;
+declare owner_id uuid;staff_id uuid;v uuid;a uuid;d date;tpl uuid;def uuid;draft uuid;old_occ uuid;new_occ uuid;current_occ uuid;historical_occ uuid;carry_occ uuid;started_occ uuid;photo_occ uuid;point uuid:=gen_random_uuid();body jsonb;snap jsonb;
 begin
  select id into owner_id from auth.users where email='owner@test.com';
  select id into staff_id from auth.users where email='waiter@test.com';
@@ -9,6 +9,16 @@ begin
  select account_id,(now() at time zone coalesce(timezone,'Europe/Moscow'))::date into a,d from public.venues where id=v;
  if owner_id is null or staff_id is null or v is null then raise exception 'Нужны локальные seed-пользователи';end if;
  perform set_config('request.jwt.claim.sub',owner_id::text,true);perform set_config('app.ctx_ready','0',true);
+ body:=jsonb_build_object('request_key',gen_random_uuid(),'name','TEST Unconfigured Imported Draft','instructions','','template_id',null,'review_mode','manager','items','[]'::jsonb,'recurrence',null,'starts_on',d,'enabled',false,'penalty_enabled',false,'fine_amount',0,'reward_amount',0);
+ draft:=(public.schedule_task_command('definition.save',body)->>'id')::uuid;
+ if not exists(select 1 from public.schedule_task_definitions where id=draft and template_id is null and recurrence is null and items='[]'::jsonb and not enabled) then raise exception 'Не удалось сохранить ненастроенный черновик';end if;
+ select to_jsonb(t)||jsonb_build_object('enabled',true) into body from public.schedule_task_definitions t where id=draft;
+ begin
+  perform public.schedule_task_command('definition.save',body);
+  raise exception 'Ненастроенный черновик удалось включить';
+ exception when others then
+  if sqlerrm<>'Для включения задачи укажите смену, повтор и чек-лист' then raise;end if;
+ end;
  insert into public.schedule_templates(venue_id,name,color,start_time,end_time) values(v,'TEST Definition Updates','blue','09:00','17:00') returning id into tpl;
  insert into public.schedule_task_settings(venue_id,account_id,enabled_from,legacy_stopped,paused) values(v,a,d-7,true,false) on conflict(venue_id) do update set enabled_from=d-7,legacy_stopped=true,paused=false;
  body:=jsonb_build_object('request_key',gen_random_uuid(),'name','TEST Future Plan','instructions','Версия 1','template_id',tpl,'review_mode','manager','items',jsonb_build_array(jsonb_build_object('id',point,'title','Фото результата','kind','photo','required',true)),'recurrence',jsonb_build_object('unit','week','interval',1,'anchor',d+1),'starts_on',d,'enabled',true,'penalty_enabled',false,'fine_amount',0,'reward_amount',0,'equipment_groups','[]'::jsonb);

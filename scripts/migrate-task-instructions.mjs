@@ -36,7 +36,7 @@ const defs = check(
     .select(
       "id,account_id,name,instructions,source_url,enabled,instruction_page_id",
     )
-    .eq("venue_id", venue),
+    .eq("venue_id", venue).is("deleted_at", null),
 );
 const pending = defs.filter(
   (d) => !d.instruction_page_id && d.instructions.trim(),

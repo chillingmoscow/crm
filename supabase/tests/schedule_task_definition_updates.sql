@@ -1,7 +1,7 @@
 -- A changed definition must not leave obsolete future assignments eligible for deductions.
 begin;
 do $$
-declare owner_id uuid;staff_id uuid;v uuid;a uuid;d date;tpl uuid;def uuid;draft uuid;old_occ uuid;new_occ uuid;current_occ uuid;historical_occ uuid;carry_occ uuid;started_occ uuid;photo_occ uuid;point uuid:=gen_random_uuid();body jsonb;snap jsonb;
+declare owner_id uuid;staff_id uuid;v uuid;a uuid;d date;tpl uuid;def uuid;draft uuid;old_occ uuid;new_occ uuid;current_occ uuid;historical_occ uuid;carry_occ uuid;started_occ uuid;photo_occ uuid;delete_candidate uuid;deleted_version integer;point uuid:=gen_random_uuid();body jsonb;snap jsonb;
 begin
  select id into owner_id from auth.users where email='owner@test.com';
  select id into staff_id from auth.users where email='waiter@test.com';
@@ -51,6 +51,36 @@ begin
  if exists(select 1 from public.schedule_task_occurrences where id=new_occ or (definition_id=def and business_date in(d+1,d+2))) then raise exception 'Выключенный шаблон оставил или восстановил будущий план';end if;
  if (select count(*) from public.schedule_task_occurrences where id in(historical_occ,current_occ,carry_occ,started_occ,photo_occ))<>5 then raise exception 'Выключение затронуло защищённые отчёты';end if;
  if exists(select 1 from public.payroll_adjustments where automation_key in('task:'||old_occ||':result','task:'||new_occ||':result')) then raise exception 'Устаревший план попал в начисления';end if;
+ -- Deletion is versioned, permission checked and preserves the same protected reports.
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status)
+ values(v,a,def,d+6,snap,'assigned') returning id into delete_candidate;
+ select to_jsonb(t) into body from public.schedule_task_definitions t where id=def;
+ perform set_config('request.jwt.claim.sub',staff_id::text,true);perform set_config('app.ctx_ready','0',true);
+ begin
+  perform public.schedule_task_command('definition.delete',body);
+  raise exception 'Сотрудник удалил шаблон';
+ exception when others then if sqlerrm<>'Нет доступа к удалению задач' then raise;end if;end;
+ perform set_config('request.jwt.claim.sub',owner_id::text,true);perform set_config('app.ctx_ready','0',true);
+ begin
+  perform public.schedule_task_command('definition.delete',body||jsonb_build_object('version',0));
+  raise exception 'Удаление приняло старую версию';
+ exception when others then if sqlerrm<>'Задача изменилась. Обновите страницу' then raise;end if;end;
+ perform public.schedule_task_command('definition.delete',body);
+ if not exists(select 1 from public.schedule_task_definitions where id=def and deleted_at is not null and not enabled) then raise exception 'Удалённый шаблон остался активным';end if;
+ if exists(select 1 from public.schedule_task_occurrences where id=delete_candidate) or (select count(*) from public.schedule_task_occurrences where id in(historical_occ,current_occ,carry_occ,started_occ,photo_occ) and snapshot=snap)<>5 then raise exception 'Удаление потеряло отчёты или оставило будущий пустой план';end if;
+ if not exists(select 1 from public.schedule_task_history where entity_id=def and action='assignment.cancelled' and details->>'reason'='definition.deleted' and details->>'occurrence_id'=delete_candidate::text) then raise exception 'Нет аудита отмены при удалении';end if;
+ if exists(select 1 from jsonb_array_elements(private.schedule_task_plan(v,d,d+7)) x where x->>'definition_id'=def::text) then raise exception 'Удалённый шаблон вернулся в план';end if;
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,settled_at)
+ values(v,a,def,d-2,snap,'missed',now());
+ perform public.schedule_process_tasks();
+ if exists(select 1 from public.schedule_task_occurrences where definition_id=def and business_date=d-2 and transfer_created) then raise exception 'Удалённый шаблон создал новый перенос';end if;
+ select version into deleted_version from public.schedule_task_definitions where id=def;
+ perform public.schedule_task_command('definition.delete',body);
+ if (select version from public.schedule_task_definitions where id=def)<>deleted_version or (select count(*) from public.schedule_task_history where entity_id=def and action='definition.deleted')<>1 then raise exception 'Повторное удаление не идемпотентно';end if;
+ begin
+  perform public.schedule_task_command('definition.save',body||jsonb_build_object('version',deleted_version));
+  raise exception 'Удалённый шаблон восстановился при сохранении';
+ exception when others then if sqlerrm<>'Задача изменилась. Обновите страницу' then raise;end if;end;
  raise notice 'PASS: future plan is rebuilt after recurrence edits and removed on disable; today/history/carries/started/photo reports and cancellation audit are preserved';
 end $$;
 rollback;

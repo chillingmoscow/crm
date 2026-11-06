@@ -9,7 +9,7 @@ create table public.schedule_task_definitions (
  penalty_enabled boolean not null default true, fine_amount numeric check(fine_amount between 0 and 100000),
  reward_amount numeric check(reward_amount between 0 and 100000),
  equipment_groups jsonb not null default '[]', source_key text, source_url text, version integer not null default 1,
- created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+ created_at timestamptz not null default now(), updated_at timestamptz not null default now(), deleted_at timestamptz,
  constraint schedule_task_enabled_config check (not enabled or (template_id is not null and recurrence is not null and jsonb_array_length(items)>0)),
  unique(venue_id,id), unique(venue_id,source_key)
 );
@@ -58,7 +58,7 @@ create policy task_occurrences_read on public.schedule_task_occurrences for sele
  (user_id=(select auth.uid()) or (select public.has_permission('schedule.view_all')) or (select public.has_permission('schedule.review')) or (select public.has_permission('schedule.checklist_edit')))
 );
 create policy task_definitions_read on public.schedule_task_definitions for select to authenticated using (
- venue_id=(select public.get_active_venue_id()) and account_id=(select public.get_active_account_id()) and
+ deleted_at is null and venue_id=(select public.get_active_venue_id()) and account_id=(select public.get_active_account_id()) and
  ((select public.has_permission('schedule.checklist_edit')) or (select public.has_permission('schedule.checklist_create')) or (select public.has_permission('schedule.view_all')) or (select public.has_permission('schedule.review')))
 );
 create policy task_settings_read on public.schedule_task_settings for select to authenticated using (
@@ -107,6 +107,23 @@ language sql stable set search_path='' as $$
 $$;
 revoke all on function private.schedule_task_instruction(uuid,uuid) from public,anon,authenticated;
 
+create function private.schedule_task_cancel_future(p_definition uuid,p_venue uuid,p_account uuid,p_today date,p_actor uuid,p_reason text)
+returns void language sql set search_path='' as $$
+   with obsolete as (
+    delete from public.schedule_task_occurrences planned where planned.definition_id=p_definition and planned.venue_id=p_venue and planned.account_id=p_account
+     and planned.business_date>p_today and planned.status in ('assigned','blocked') and planned.answers='{}'::jsonb
+     and planned.submitted_at is null and planned.completed_at is null and planned.settled_at is null and planned.adjustment_id is null
+     and not planned.transferred and planned.transferred_from_id is null
+     and not exists(select 1 from public.schedule_task_occurrences child where child.transferred_from_id=planned.id)
+     and not exists(select 1 from storage.objects photo where photo.bucket_id='task-evidence' and photo.name like planned.id::text||'/%')
+    returning planned.*
+   )
+   insert into public.schedule_task_history(venue_id,entity_id,actor_id,action,details)
+   select p_venue,p_definition,p_actor,'assignment.cancelled',jsonb_build_object('reason',p_reason,'occurrence_id',obsolete.id,'before',to_jsonb(obsolete)) from obsolete;
+
+$$;
+revoke all on function private.schedule_task_cancel_future(uuid,uuid,uuid,date,uuid,text) from public,anon,authenticated;
+
 -- Browser writes are scoped and versioned. No direct table/storage write can approve a report.
 create function public.schedule_task_command(p_action text,p_input jsonb) returns jsonb
 language plpgsql security definer set search_path=public,pg_catalog as $$
@@ -121,7 +138,7 @@ begin
   -- Serialize definition edits with generation/settlement, so a stale worker cannot restore obsolete assignments.
   perform pg_advisory_xact_lock(hashtextextended(v::text,0));
   perform pg_advisory_xact_lock(hashtextextended('schedule-tasks:'||v::text,0));
-  if ident is not null then select * into def from public.schedule_task_definitions where id=ident and venue_id=v and account_id=a for update;
+  if ident is not null then select * into def from public.schedule_task_definitions where id=ident and venue_id=v and account_id=a and deleted_at is null for update;
    if not found or def.version is distinct from (p_input->>'version')::integer then raise exception 'Задача изменилась. Обновите страницу';end if;
   end if;
   if length(trim(coalesce(p_input->>'name',''))) not between 1 and 160 or length(coalesce(p_input->>'instructions',''))>50000
@@ -160,19 +177,21 @@ begin
   end if;
   if def.id is not null then
    select (now() at time zone coalesce(timezone,'Europe/Moscow'))::date into task_today from public.venues where id=v;
-   -- Future, untouched plan entries are disposable; current reports and historical carries keep their snapshots.
-   with obsolete as (
-    delete from public.schedule_task_occurrences planned where planned.definition_id=ident and planned.venue_id=v and planned.account_id=a
-     and planned.business_date>task_today and planned.status in ('assigned','blocked') and planned.answers='{}'::jsonb
-     and planned.submitted_at is null and planned.completed_at is null and planned.settled_at is null and planned.adjustment_id is null
-     and not planned.transferred and planned.transferred_from_id is null
-     and not exists(select 1 from public.schedule_task_occurrences child where child.transferred_from_id=planned.id)
-     and not exists(select 1 from storage.objects photo where photo.bucket_id='task-evidence' and photo.name like planned.id::text||'/%')
-    returning planned.*
-   )
-   insert into public.schedule_task_history(venue_id,entity_id,actor_id,action,details)
-   select v,ident,u,'assignment.cancelled',jsonb_build_object('reason','definition.updated','occurrence_id',obsolete.id,'before',to_jsonb(obsolete)) from obsolete;
+   perform private.schedule_task_cancel_future(ident,v,a,task_today,u,'definition.updated');
   end if;
+ elsif p_action='definition.delete' then
+  if not public.has_permission('schedule.checklist_edit') then raise exception 'Нет доступа к удалению задач';end if;
+  perform pg_advisory_xact_lock(hashtextextended(v::text,0));
+  perform pg_advisory_xact_lock(hashtextextended('schedule-tasks:'||v::text,0));
+  select * into def from public.schedule_task_definitions where id=ident and venue_id=v and account_id=a for update;
+  if not found then raise exception 'Задача не найдена';end if;
+  if def.deleted_at is not null then return jsonb_build_object('id',ident,'existing',true);end if;
+  if def.version is distinct from (p_input->>'version')::integer then raise exception 'Задача изменилась. Обновите страницу';end if;
+  select (now() at time zone coalesce(timezone,'Europe/Moscow'))::date into task_today from public.venues where id=v;
+  update public.schedule_task_definitions set enabled=false,deleted_at=now(),updated_at=now(),version=version+1 where id=ident;
+  perform private.schedule_task_cancel_future(ident,v,a,task_today,u,'definition.deleted');
+  insert into public.schedule_task_history(venue_id,entity_id,actor_id,action,details)
+  values(v,ident,u,'definition.deleted',jsonb_build_object('before',to_jsonb(def),'after',(select to_jsonb(d) from public.schedule_task_definitions d where d.id=ident)));
  elsif p_action='settings.save' then
   if not public.has_permission('schedule.checklist_edit') or not public.has_permission('payroll.configure') or not public.has_permission('payroll.review') then raise exception 'Нет доступа к переключению задач';end if;
   select * into settings from public.schedule_task_settings where venue_id=v and account_id=a for update;
@@ -217,7 +236,7 @@ begin
    update public.schedule_task_occurrences set deadline_at=case when p_action='run.return' then correct_until else deadline_at end,status=case when p_action='run.approve' then 'completed' else 'returned' end,review_comment=coalesce(p_input->>'comment',''),completed_at=case when p_action='run.approve' then now() else null end,version=version+1,updated_at=now() where id=ident;
   end if;
  else raise exception 'Неизвестное действие';end if;
- if p_action<>'definition.save' then
+ if p_action not in ('definition.save','definition.delete') then
   insert into public.schedule_task_history(venue_id,entity_id,actor_id,action,details) values(v,ident,u,p_action,jsonb_build_object('comment',p_input->>'comment','before',case when p_action like 'run.%' then to_jsonb(o) else to_jsonb(settings) end,'after',case when p_action like 'run.%' then (select to_jsonb(r) from public.schedule_task_occurrences r where r.id=ident) else (select to_jsonb(s) from public.schedule_task_settings s where s.venue_id=v) end));
  end if;
  return jsonb_build_object('id',ident);
@@ -257,7 +276,7 @@ begin
  if p_from is null or p_to is null or p_to<p_from or p_to-p_from>31 then raise exception 'Выберите период до 31 дня';end if;
  select coalesce(timezone,'Europe/Moscow') into tz from public.venues where id=p_venue;
  select config->'tasks' into cfg from public.payroll_automation_settings where venue_id=p_venue and version>0;
- for def in select * from public.schedule_task_definitions where venue_id=p_venue loop
+ for def in select * from public.schedule_task_definitions where venue_id=p_venue and deleted_at is null loop
   for d in select generate_series(p_from::timestamp,p_to::timestamp,interval '1 day')::date loop
    if d<def.starts_on or not private.schedule_task_due(def.recurrence,d) then continue;end if;
    select count(distinct sh.id),string_agg(distinct pe.name,', ') into matches,employee_names from public.schedule_shifts sh left join public.payroll_employees pe on pe.venue_id=p_venue and pe.active and (pe.id=sh.payroll_employee_id or (sh.payroll_employee_id is null and pe.local_user_id=sh.user_id)) where sh.venue_id=p_venue and sh.template_id=def.template_id and sh.published and (sh.starts_at at time zone tz)::date=d;
@@ -373,7 +392,7 @@ begin
    insert into public.schedule_task_history(venue_id,entity_id,action,details) values(o.venue_id,o.id,'result.settled',jsonb_build_object('adjustment_id',adjustment,'kind',kind));settled:=settled+1;
   end loop;
   -- Carry once to an available day, including after a delayed review/correction deadline. Reuse only untouched assignments.
-  for o in select * from public.schedule_task_occurrences where venue_id=settings.venue_id and business_date>=settings.enabled_from and status='missed' and not transfer_created for update loop
+  for o in select * from public.schedule_task_occurrences where venue_id=settings.venue_id and business_date>=settings.enabled_from and status='missed' and not transfer_created and exists(select 1 from public.schedule_task_definitions d where d.id=definition_id and d.deleted_at is null) for update loop
    insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,transferred,transferred_from_id,equipment)
    values(o.venue_id,o.account_id,o.definition_id,greatest(o.business_date+1,today),o.snapshot,true,o.id,o.equipment)
    on conflict(definition_id,business_date) do update set transferred=true,transferred_from_id=excluded.transferred_from_id,snapshot=excluded.snapshot,equipment=excluded.equipment,version=schedule_task_occurrences.version+1

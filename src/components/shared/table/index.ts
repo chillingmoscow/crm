@@ -2,7 +2,7 @@ export { TableBulkBar } from "./table-bulk-bar";
 export { ResizableTableHead } from "./table-head";
 export { TableColumnManager, type ManagedTableColumn } from "./table-column-manager";
 export { TableControlPin } from "./table-control-pin";
-export { TableControls } from "./table-controls";
+export { TableControls, TooltipIconButton as TableIconButton } from "./table-controls";
 export { TablePageHeader } from "./table-page-header";
 export { TablePagination } from "./table-pagination";
 export { TableRowMenu, type TableRowMenuAction } from "./table-row-menu";

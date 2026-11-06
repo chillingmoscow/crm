@@ -75,6 +75,7 @@ export async function loadTasks(range?: {
     db
       .from<TaskDefinition[]>("schedule_task_definitions")
       .select("*")
+      .is("deleted_at", null)
       .eq("venue_id", venueId)
       .order("name"),
     occurrencesQuery.order("business_date"),
@@ -134,6 +135,7 @@ export async function loadTasks(range?: {
       : null;
   if (plans?.error) throw new Error("Не удалось загрузить план задач");
   return {
+    venueId,
     instructionPages: instructionPages?.data ?? [],
     plans: (plans?.data ?? []) as TaskPreview[],
     definitions: results[0].data ?? [],
@@ -146,6 +148,27 @@ export async function loadTasks(range?: {
     today,
     timezone,
   };
+}
+export async function deleteTask(input: { id: string; version: number }) {
+  try {
+    const value = z
+      .object({ id: z.string().uuid(), version: z.number().int().positive() })
+      .parse(input);
+    const { db } = await context();
+    const result = await db.rpc("schedule_task_command", {
+      p_action: "definition.delete",
+      p_input: value,
+    });
+    if (result.error) throw new Error(result.error.message);
+    revalidatePath("/schedule");
+    revalidatePath("/schedule/tasks");
+    return { ok: true };
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error ? error.message : "Не удалось удалить задачу",
+    };
+  }
 }
 export async function saveTask(input: unknown) {
   try {

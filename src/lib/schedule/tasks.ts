@@ -75,6 +75,7 @@ export type TaskDefinition = TaskInput & {
   venue_id: string;
   account_id: string;
   version: number;
+  deleted_at?: string | null;
   source_key: string | null;
   source_url?: string | null;
   created_at: string;
@@ -135,6 +136,7 @@ export type TaskPreview = {
   employee: string | null;
 };
 export type TaskData = {
+  venueId?: string;
   plans?: TaskPreview[];
   instructionPages?: {
     id: string;

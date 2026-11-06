@@ -4,14 +4,13 @@ import {
   isValidElement,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useId,
   useRef,
   useState,
 } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Plus, Settings2, ArrowLeft, Camera, Trash2, X, ListChecks, SearchX } from "lucide-react";
+import { Plus, ArrowLeft, Camera, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -27,18 +26,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PageBreadcrumb } from "@/components/shared/page-header-actions";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Tabs,
+  ProfileTabsList,
+  TabsTrigger,
+  TabsContent,
+} from "@/components/ui/tabs";
 import { ProfileSection } from "@/components/shared/profile-section";
 import {
   TaskHeaderActions,
   TaskPageTitle,
 } from "../_components/task-header-actions";
-import { EmptyState } from "@/components/ui/empty-state";
-import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { TableControls } from "@/components/shared/table";
-import { TableFilterChip } from "@/components/shared/table/table-filter-chip";
 import { InstructionPagePicker, InstructionBody } from "./instruction-page";
-import { TaskList, type TaskListRow } from "./task-list";
+import { TaskList } from "./task-list";
+import { DeleteTaskDialog } from "./delete-task-dialog";
 import {
   Dialog,
   DialogContent,
@@ -260,11 +261,13 @@ function TaskScreen({
   backLabel = "К задачам",
   backHref = "/schedule/tasks",
   showFooterActions = true,
+  wide = false,
 }: {
   title: string;
   backLabel?: string;
   backHref?: string;
   showFooterActions?: boolean;
+  wide?: boolean;
   description?: string;
   onBack: () => void;
   actions?: React.ReactNode;
@@ -328,7 +331,7 @@ function TaskScreen({
     <section
       ref={screen}
       tabIndex={-1}
-      className="mx-auto w-full max-w-[720px] space-y-5 outline-none"
+      className={wide ? "w-full space-y-5 outline-none" : "mx-auto w-full max-w-[720px] space-y-5 outline-none"}
     >
       <TaskPageTitle title={title} />
       <TaskHeaderActions>{actions}</TaskHeaderActions>
@@ -391,10 +394,6 @@ export function TasksClient({
   active?: boolean;
 }) {
   const [data, setData] = useState(initial);
-  const [query, setQuery] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [templateFilter, setTemplateFilter] = useState("");
-  const [definitionStatus, setDefinitionStatus] = useState("");
   const [editor, setEditor] = useState<TaskDefinition | "new" | null>(null);
   const [settings, setSettings] = useState(false);
   const wasActive = useRef(active);
@@ -415,8 +414,8 @@ export function TasksClient({
     };
   }, [active]);
   const manage = data.permissions.includes("schedule.checklist_edit"),
-    create = data.permissions.includes("schedule.checklist_create"),
-    canSettings =
+    create = data.permissions.includes("schedule.checklist_create");
+  const canSettings =
       manage &&
       data.permissions.includes("payroll.configure") &&
       data.permissions.includes("payroll.review");
@@ -425,201 +424,16 @@ export function TasksClient({
     setData(next);
     return next;
   };
-  const matchesQuery = (name: string, assignee = "") =>
-    `${name} ${assignee}`
-      .toLocaleLowerCase("ru")
-      .includes(query.trim().toLocaleLowerCase("ru"));
-  const definitions = data.definitions.filter(
-    (definition) =>
-      (!templateFilter || definition.template_id === templateFilter) &&
-      (!definitionStatus ||
-        definition.enabled === (definitionStatus === "enabled")) &&
-      matchesQuery(
-        definition.name,
-        data.templates.find(
-          (template) => template.id === definition.template_id,
-        )?.name,
-      ),
-  );
-  const resetFilters = () => {
-    setTemplateFilter("");
-    setDefinitionStatus("");
-  };
-  const listTitle = useMemo(() => (
-    <span className="inline-flex items-center gap-3">
-      Задачи
-      <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-md bg-muted px-2 text-sm font-normal tabular-nums text-muted-foreground" aria-label={`Шаблонов: ${definitions.length} из ${data.definitions.length}`}>
-        {definitions.length}
-      </span>
-    </span>
-  ), [definitions.length, data.definitions.length]);
-  if (editor)
     return (
-      <DefinitionEditor
-        task={editor}
+    <>
+      <div hidden={!!editor || settings} className="space-y-4">
+        <TaskPageTitle title={null} />
+        <TaskList
         data={data}
-        editable={editor === "new" ? create : manage}
-        onClose={() => setEditor(null)}
-        onSaved={async () => {
-          await refresh();
-          setEditor(null);
-        }}
-      />
-    );
-  if (settings)
-    return (
-      <SettingsEditor
-        data={data}
-        onClose={() => setSettings(false)}
-        onRefresh={async () => {
-          await refresh();
-        }}
-        onSaved={async () => {
-          await refresh();
-          setSettings(false);
-        }}
-      />
-    );
-  const rows: TaskListRow[] = definitions.map((definition) => ({
-    id: definition.id,
-    name: definition.name,
-    details: `${definition.items.filter((point) => point.kind !== "info").length} ${plural(definition.items.filter((point) => point.kind !== "info").length, "пункт", "пункта", "пунктов")} · фотоотчёт: ${definition.items.filter((point) => point.kind === "photo").length} ${plural(definition.items.filter((point) => point.kind === "photo").length, "пункт", "пункта", "пунктов")}`,
-    assignee:
-      data.templates.find((template) => template.id === definition.template_id)
-        ?.name ??
-      (definition.template_id ? "Шаблон недоступен" : "Не назначено"),
-    timing: definition.recurrence
-      ? `Раз в ${definition.recurrence.interval} ${definition.recurrence.unit === "week" ? "нед." : "мес."}`
-      : "Повтор не настроен",
-    review: definition.review_mode === "auto" ? "Не требуется" : "Требуется",
-    status: definition.enabled ? "Включена" : "Черновик",
-    tone: definition.enabled ? "positive" : undefined,
-    onOpen: () => setEditor(definition),
-  }));
-  const filtersActive = Boolean(templateFilter || definitionStatus);
-  return (
-    <div className="space-y-4">
-      <TaskPageTitle title={listTitle} />
-      <TaskHeaderActions>
-        <TableControls
-          search={{
-            value: query,
-            onChange: setQuery,
-            open: searchOpen,
-            onOpenChange: setSearchOpen,
-            placeholder: "Найти шаблон задачи",
-          }}
-          filters={{
-            active: filtersActive,
-            content: (
-              <div className="space-y-4 p-3">
-                <p className="text-sm font-semibold">Фильтры</p>
-                <Field label="Шаблон смены">
-                  <TaskSelect
-                    value={templateFilter}
-                    onChange={setTemplateFilter}
-                    options={[
-                      { value: "", label: "Все смены" },
-                      ...data.templates.map((template) => ({
-                        value: template.id,
-                        label: template.name,
-                      })),
-                    ]}
-                  />
-                </Field>
-                <Field label="Статус">
-                  <TaskSelect
-                    value={definitionStatus}
-                    onChange={setDefinitionStatus}
-                    options={[
-                      { value: "", label: "Все шаблоны" },
-                      { value: "enabled", label: "Включённые" },
-                      { value: "draft", label: "Черновики" },
-                    ]}
-                  />
-                </Field>
-                {filtersActive && (
-                  <Button variant="ghost" size="sm" onClick={resetFilters}>
-                    Сбросить фильтры
-                  </Button>
-                )}
-              </div>
-            ),
-          }}
-          secondaryActions={
-            <>
-              {canSettings && (
-                <Tooltip delayDuration={450}>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-8 w-8 border-border text-muted-foreground hover:border-brand/40 hover:bg-background hover:text-foreground sm:h-9 sm:w-9"
-                      aria-label="Настройки задач"
-                      onClick={() => setSettings(true)}
-                    >
-                      <Settings2 className="size-3.5 sm:size-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent sideOffset={6}>Настройки задач</TooltipContent>
-                </Tooltip>
-              )}
-            </>
-          }
-          primaryActions={
-            create && (
-              <Button
-                size="sm"
-                className="h-9"
-                onClick={() => setEditor("new")}
-              >
-                <Plus className="mr-2 size-4" />
-                Новая задача
-              </Button>
-            )
-          }
-        />
-      </TaskHeaderActions>
-        {filtersActive && (
-          <div className="flex flex-wrap items-center gap-2" aria-label="Условия списка задач">
-            {templateFilter && (
-              <TableFilterChip
-                label="Шаблон смены"
-                value={templateFilter}
-                onChange={setTemplateFilter}
-                options={data.templates.map((template) => ({
-                  value: template.id,
-                  label: template.name,
-                }))}
-              />
-            )}
-            {definitionStatus && (
-              <TableFilterChip
-                label="Статус"
-                value={definitionStatus}
-                onChange={setDefinitionStatus}
-                options={[
-                  { value: "enabled", label: "Включённые" },
-                  { value: "draft", label: "Черновики" },
-                ]}
-              />
-            )}
-          </div>
-        )}
-      <TaskList
-        rows={rows}
-        empty={
-          <EmptyState
-            icon={query || filtersActive ? SearchX : ListChecks}
-            title={query || filtersActive ? "Задачи не найдены" : "Шаблонов задач пока нет"}
-            description={query || filtersActive ? "Измените условия поиска или сбросьте фильтры." : "Создайте задачу, добавьте инструкцию и чек-лист, затем настройте повторение."}
-            action={query || filtersActive ? (
-              <Button variant="outline" onClick={() => { setQuery(""); resetFilters(); }}>Сбросить поиск и фильтры</Button>
-            ) : create ? (
-              <Button onClick={() => setEditor("new")}><Plus className="mr-2 size-4" />Новая задача</Button>
-            ) : null}
-          />
-        }
+          onOpen={setEditor}
+          onCreate={create ? () => setEditor("new") : undefined}
+          onSettings={canSettings ? () => setSettings(true) : undefined}
+          onRefresh={refresh}
       />
       {manage && (!data.settings?.enabled_from || data.settings?.paused) && (
         <p className="text-[13px] text-muted-foreground">
@@ -637,6 +451,31 @@ export function TasksClient({
         </p>
       )}
     </div>
+      {editor ? (
+        <DefinitionEditor
+          task={editor}
+          data={data}
+          editable={editor === "new" ? create : manage}
+          onClose={() => setEditor(null)}
+          onSaved={async () => {
+            await refresh();
+            setEditor(null);
+          }}
+        />
+      ) : settings ? (
+        <SettingsEditor
+          data={data}
+          onClose={() => setSettings(false)}
+          onRefresh={async () => {
+            await refresh();
+          }}
+          onSaved={async () => {
+            await refresh();
+            setSettings(false);
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -653,6 +492,7 @@ function DefinitionEditor({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
+  const [deleting, setDeleting] = useState(false);
   const canFinance = data.permissions.includes("payroll.configure"),
     canPublish = data.permissions.includes("schedule.checklist_publish");
   const [value, setValue] = useState<TaskInput>(() =>
@@ -741,6 +581,7 @@ function DefinitionEditor({
   }
   return (
     <TaskScreen
+      wide
       showFooterActions={false}
       title={task === "new" ? "Новая задача" : task.name}
       onBack={onClose}
@@ -748,20 +589,33 @@ function DefinitionEditor({
       busy={busy}
       actions={
         editable && (
+          <>
+            {task !== "new" && (
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => setDeleting(true)}
+                className="gap-2 text-destructive hover:text-destructive"
+              >
+                <Trash2 className="size-4" />
+                Удалить задачу
+              </Button>
+            )}
           <Button disabled={busy} onClick={() => void submit()}>
             {busy ? "Сохранение…" : "Сохранить задачу"}
           </Button>
+          </>
         )
       }
     >
-      <Tabs defaultValue="main" className="mx-auto w-full max-w-[720px]">
-        <TabsList>
+      <Tabs defaultValue="main" className="w-full">
+        <ProfileTabsList>
           <TabsTrigger value="main">Основное</TabsTrigger>
           <TabsTrigger value="checklist">Чек-лист</TabsTrigger>
           <TabsTrigger value="settings">Настройки</TabsTrigger>
-        </TabsList>
+        </ProfileTabsList>
         <fieldset disabled={!editable || busy} className="min-w-0">
-          <TabsContent value="main" className="space-y-5">
+          <TabsContent value="main" className="mx-auto w-full max-w-[720px] space-y-5">
         <ProfileSection title="Основное">
           <Field label="Название">
             <Input
@@ -789,7 +643,7 @@ function DefinitionEditor({
               )}
         </ProfileSection>
           </TabsContent>
-          <TabsContent value="checklist" className="space-y-5">
+          <TabsContent value="checklist" className="mx-auto w-full max-w-[720px] space-y-5">
         <ProfileSection
           title="Чек-лист"
           actions={
@@ -955,7 +809,7 @@ function DefinitionEditor({
           </Button>
         </ProfileSection>
           </TabsContent>
-          <TabsContent value="settings" className="space-y-5">
+          <TabsContent value="settings" className="mx-auto w-full max-w-[720px] space-y-5">
         <ProfileSection title="Выполнение">
           <Field label="Шаблон смены">
             <TaskSelect
@@ -1135,6 +989,11 @@ function DefinitionEditor({
           </TabsContent>
       </fieldset>
       </Tabs>
+      <DeleteTaskDialog
+        task={deleting && task !== "new" ? task : null}
+        onClose={() => setDeleting(false)}
+        onDeleted={onSaved}
+      />
     </TaskScreen>
   );
 }

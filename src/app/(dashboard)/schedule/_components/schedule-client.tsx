@@ -121,7 +121,7 @@ export function ScheduleClient({
 }) {
   const [data, setData] = useState(initial);
   const tab = section;
-  const [screenTitle, setScreenTitle] = useState<React.ReactNode>(null);
+  const [screenTitle, setScreenTitle] = useState<string | null>(null);
   const [taskHeaderTarget, setTaskHeaderTarget] =
     useState<HTMLDivElement | null>(null);
   const [week, setWeek] = useState(
@@ -594,7 +594,7 @@ export function ScheduleClient({
   return (
     <TaskTitleTarget.Provider value={setScreenTitle}>
     <ContentFrame className={tab === "tasks" ? "space-y-6" : "w-full min-w-0 p-4 md:p-8 space-y-6 max-w-[1800px] mx-auto"}>
-      <div className="flex flex-wrap justify-between items-center gap-4">
+      {(tab!=="tasks"||screenTitle!==null)&&<div className="flex flex-wrap justify-between items-center gap-4">
           <h1 className="text-3xl font-bold tracking-tight">
             {screenTitle ??
               (tab === "tasks"
@@ -626,7 +626,7 @@ export function ScheduleClient({
             </Button>
           )}
         </div>
-      </div>
+      </div>}
         {tab === "calendar" && (
           <section className="space-y-5">
           {selectedTask && calendarTasks ? (

@@ -96,6 +96,8 @@ const settings = check(
 );
 if (settings?.enabled_from)
   throw Error("Автоматическое назначение уже включено");
+// Owner removed this empty Notion placeholder; never recreate it on a fresh import.
+const excludedSources = new Set(["c802ca9bf68c4bba9ecebcae1ea6cf12"]);
 const source = JSON.parse(
   readFileSync(
     new URL(
@@ -134,6 +136,7 @@ const roles = {
 };
 const fresh = [];
 for (const s of source) {
+  if (excludedSources.has(canonical(s.sourceId))) continue;
   if (curated.some((t) => canonical(t.sourceId) === canonical(s.sourceId)))
     continue;
   const key = `notion:archive:${canonical(s.sourceId)}`;
@@ -166,7 +169,7 @@ if (args.includes("--catalog-only")) {
     JSON.stringify({
       mode: apply ? "apply_disabled_drafts" : "dry_run",
       newTasks: fresh.length,
-      totalTasks: defs.length + fresh.length,
+      totalTasks: defs.filter((d) => !d.deleted_at).length + fresh.length,
       activation: false,
     }),
   );
@@ -186,7 +189,7 @@ if (args.includes("--catalog-only")) {
   process.exit(0);
 }
 const allDefs = [
-  ...defs.filter((d) => d.source_key?.startsWith("notion:")),
+  ...defs.filter((d) => !d.deleted_at && d.source_key?.startsWith("notion:")),
   ...fresh,
 ];
 const folderId = uuid(`task-instructions:${venue}`),
@@ -194,9 +197,10 @@ const folderId = uuid(`task-instructions:${venue}`),
 const targets = new Map();
 const pages = [];
 for (const p of bundle.pages) {
+  if (excludedSources.has(p.sourceId)) continue;
   if (!/^[a-f0-9]{31,32}$/.test(p.sourceId))
     throw Error("Неверный идентификатор источника");
-  const native = allDefs.filter((d) => {
+  const native = [...defs, ...fresh].filter((d) => {
     const c = curated.find((t) => `notion:${t.key}` === d.source_key);
     return c
       ? canonical(c.sourceId) === p.sourceId
@@ -214,6 +218,7 @@ for (const p of bundle.pages) {
     ? `task-instruction-${one.id}`
     : `notion-${venue}-${p.sourceId}`;
   targets.set(p.sourceId, { id, slug, title: p.title });
+  if (one?.deleted_at) continue;
   pages.push({
     ...p,
     id,
@@ -223,7 +228,10 @@ for (const p of bundle.pages) {
   });
 }
 for (const s of source)
-  if (!targets.has(canonical(s.sourceId)))
+  if (
+    !excludedSources.has(canonical(s.sourceId)) &&
+    !targets.has(canonical(s.sourceId))
+  )
     throw Error("В пакете отсутствует шаблон " + s.name);
 const files = new Map();
 for (const a of bundle.assets) {
@@ -430,6 +438,7 @@ const rewrite = (value) => {
     }
     return value
       .replace(/notionpage:\/\/([a-f0-9]{31,32})/g, (_, id) => {
+        if (excludedSources.has(id)) return "/schedule/tasks";
         const t = targets.get(id);
         if (!t) throw Error("Неизвестная связанная страница");
         return `/knowledge/${t.slug}`;
@@ -439,6 +448,7 @@ const rewrite = (value) => {
         (_, id) => {
           id = canonical(id);
           if (id === "768f265590174214b80fa86dbd849267") return "/schedule";
+          if (excludedSources.has(id)) return "/schedule/tasks";
           const t = targets.get(id);
           if (!t) throw Error("Неизвестная связанная страница");
           return `/knowledge/${t.slug}`;

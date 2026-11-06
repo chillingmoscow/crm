@@ -220,6 +220,11 @@ begin
  values(v,a,collision_def,d,snap||jsonb_build_object('id',collision_def),'in_progress',staff_id,jsonb_build_object(check_id,true)) returning id into occupied;
  perform public.schedule_process_tasks();perform public.schedule_process_tasks();
  if not exists(select 1 from public.schedule_task_occurrences where id=pending_carry and not transfer_created and blocker like 'Перенос ожидает%') or not exists(select 1 from public.schedule_task_occurrences where id=occupied and status='in_progress' and transferred_from_id is null and answers=jsonb_build_object(check_id,true)) then raise exception 'Занятый день потерял перенос или перезаписал начатый отчёт';end if;
+ -- Uploading evidence precedes the report save: assigned + empty answers is already protected work.
+ update public.schedule_task_occurrences set status='assigned',answers='{}',snapshot=snap||jsonb_build_object('id',collision_def,'name','TEST Photo Pending Save','equipment_groups','[[99]]'::jsonb),equipment='[99]' where id=occupied;
+ insert into storage.objects(bucket_id,name,metadata) values('task-evidence',occupied||'/'||check_id||'/pending-save.jpg','{"mimetype":"image/jpeg"}');
+ perform public.schedule_process_tasks();perform public.schedule_process_tasks();
+ if (select transfer_created from public.schedule_task_occurrences where id=pending_carry) or not exists(select 1 from public.schedule_task_occurrences where id=occupied and status='assigned' and answers='{}'::jsonb and transferred_from_id is null and snapshot->>'name'='TEST Photo Pending Save' and equipment='[99]'::jsonb) then raise exception 'Перенос перезаписал задание с загруженным, но ещё не сохранённым фото';end if;
  update public.schedule_task_occurrences set status='completed',settled_at=now() where id=occupied;
  perform public.schedule_process_tasks();
  if (select transfer_created from public.schedule_task_occurrences where id=pending_carry) then raise exception 'Выполненный отчёт ложно подтвердил перенос';end if;

@@ -27,6 +27,22 @@ const TabsList = React.forwardRef<
 ))
 TabsList.displayName = TabsPrimitive.List.displayName
 
+/** Shared strip for profile/editor pages, including overflow on phones. */
+const ProfileTabsList = React.forwardRef<
+  React.ElementRef<typeof TabsList>,
+  React.ComponentPropsWithoutRef<typeof TabsList>
+>(({ className, ...props }, ref) => (
+  <TabsList
+    ref={ref}
+    className={cn(
+      "justify-start overflow-x-auto [&>button]:shrink-0 [&>button:first-child]:ml-auto [&>button:last-child]:mr-auto",
+      className,
+    )}
+    {...props}
+  />
+));
+ProfileTabsList.displayName = "ProfileTabsList";
+
 /**
  * `id` и `aria-controls` не уходят в SSR-разметку — атрибуты
  * дорисовываются после гидратации. Почему так — см.
@@ -70,4 +86,4 @@ const TabsContent = React.forwardRef<
 ))
 TabsContent.displayName = TabsPrimitive.Content.displayName
 
-export { Tabs, TabsList, TabsTrigger, TabsContent }
+export { Tabs, TabsList, ProfileTabsList, TabsTrigger, TabsContent };

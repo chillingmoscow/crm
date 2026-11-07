@@ -81,7 +81,9 @@ function TimeRange({
             type="time"
             required
             value={start.slice(0, 5)}
-            onChange={(e) => onChange({ start_time: e.target.value, end_time: end })}
+            onChange={(e) =>
+              onChange({ start_time: e.target.value, end_time: end })
+            }
           />
         </Field>
         <Field label="Окончание">
@@ -90,7 +92,9 @@ function TimeRange({
             type="time"
             required
             value={end.slice(0, 5)}
-            onChange={(e) => onChange({ start_time: start, end_time: e.target.value })}
+            onChange={(e) =>
+              onChange({ start_time: start, end_time: e.target.value })
+            }
           />
         </Field>
       </div>
@@ -174,7 +178,14 @@ export function formatDays(days: number[]) {
     while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) j++;
     const from = WEEKDAYS[sorted[i] - 1];
     const to = WEEKDAYS[sorted[j] - 1];
-    parts.push(j - i >= 2 ? `${from}–${to}` : sorted.slice(i, j + 1).map((d) => WEEKDAYS[d - 1]).join(", "));
+    parts.push(
+      j - i >= 2
+        ? `${from}–${to}`
+        : sorted
+            .slice(i, j + 1)
+            .map((d) => WEEKDAYS[d - 1])
+            .join(", "),
+    );
     i = j + 1;
   }
   return parts.join(", ");
@@ -375,51 +386,7 @@ function Colors({
     </fieldset>
   );
 }
-function ChecklistSelection({
-  data,
-  ids,
-  set,
-}: {
-  data: ScheduleData;
-  ids: string[];
-  set: (a: string[]) => void;
-}) {
-  const available = data.checklists.filter(
-    (c) => (!!c.published_snapshot && !c.archived) || ids.includes(c.id),
-  );
-  return (
-    <fieldset className="space-y-3">
-      <legend className="text-sm font-medium mb-2">Чек-листы смены</legend>
-      {available.length ? (
-        available.map((c) => (
-          <label key={c.id} className="flex items-center gap-3 text-sm">
-            <input
-              type="checkbox"
-              checked={ids.includes(c.id)}
-              onChange={(e) =>
-                set(
-                  e.target.checked
-                    ? [...ids, c.id]
-                    : ids.filter((id) => id !== c.id),
-                )
-              }
-            />
-            <span>
-              {c.name}
-              {!c.published && (
-                <span className="text-destructive"> · есть черновик</span>
-              )}
-            </span>
-          </label>
-        ))
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          Сначала создайте и опубликуйте чек-лист во вкладке «Чек-листы».
-        </p>
-      )}
-    </fieldset>
-  );
-}
+
 export function ShiftEditor({
   data,
   shift,
@@ -483,13 +450,23 @@ export function ShiftEditor({
   const casualEmployee = data.casualEmployees?.find(
     (e) => `payroll:${e.id}` === who,
   );
-  const selectedPayModel = payModel || casualEmployee?.model_id || "";
+  const candidatePayModel = payModel || casualEmployee?.model_id || "";
+  const selectedPayModel = data.payModels?.some(
+    (model) =>
+      model.id === candidatePayModel &&
+      model.role_name ===
+        data.roles.find((role) => role.id === value.role_id)?.name,
+  )
+    ? candidatePayModel
+    : "";
   const [note, setNote] = useState(shift?.note ?? "");
   const [templateId, setTemplateId] = useState(
     shift?.template_id ?? template?.id ?? null,
   );
   const chosen = data.templates.find((t) => t.id === templateId);
-  const chosenTimes = chosen ? templateTimesFor(chosen, isoWeekday(date)) : null;
+  const chosenTimes = chosen
+    ? templateTimesFor(chosen, isoWeekday(date))
+    : null;
   // Время подставляется из шаблона при выборе шаблона и при смене даты, пока
   // его не поправили руками. Для существующей смены — только если её время
   // совпадает со временем шаблона на эту дату.
@@ -567,8 +544,7 @@ export function ShiftEditor({
     >
       {started && !copy && (
         <p className="text-sm text-muted-foreground">
-          Чек-лист уже начат. Время, позицию, сотрудника и набор чек-листов
-          менять нельзя.
+          Отчёт смены уже начат. Время, должность и сотрудника менять нельзя.
         </p>
       )}
       <Field label="Шаблон">
@@ -659,29 +635,17 @@ export function ShiftEditor({
             }}
           >
             <option value="">Открытая смена, без сотрудника</option>
-            {data.staff
-              .filter(
-                (s) =>
-                  !value.role_id ||
-                  s.role_id === value.role_id ||
-                  data.qualifications.some(
-                    (q) =>
-                      q.user_id === s.user_id && q.role_id === value.role_id,
-                  ),
-              )
-              .map((s) => (
-                <option key={s.user_id} value={s.user_id}>
-                  {[s.first_name, s.last_name].filter(Boolean).join(" ") ||
-                    s.role_name}
-                </option>
-              ))}
-            {(data.casualEmployees ?? [])
-              .filter((e) => !value.role_id || e.role_id === value.role_id)
-              .map((e) => (
-                <option key={e.id} value={`payroll:${e.id}`}>
-                  {e.name} · разовый
-                </option>
-              ))}
+            {data.staff.map((s) => (
+              <option key={s.user_id} value={s.user_id}>
+                {[s.first_name, s.last_name].filter(Boolean).join(" ") ||
+                  s.role_name}
+              </option>
+            ))}
+            {(data.casualEmployees ?? []).map((e) => (
+              <option key={e.id} value={`payroll:${e.id}`}>
+                {e.name} · разовый
+              </option>
+            ))}
             {canAssign && data.permissions.includes("payroll.configure") && (
               <option value="new-casual">＋ Новый разовый сотрудник</option>
             )}
@@ -724,13 +688,6 @@ export function ShiftEditor({
               окончания, без отметки Quick Resto.
             </p>
           </div>
-        )}
-        {!casual && (
-          <ChecklistSelection
-            data={data}
-            ids={value.checklist_ids}
-            set={(ids) => set({ ...value, checklist_ids: ids })}
-          />
         )}
       </fieldset>
       <Colors
@@ -785,7 +742,8 @@ export function TemplateEditor({
     if (problem) return;
     // Один вариант на все дни — обычный шаблон без вариантов.
     const everyDay =
-      variants.length === 1 && ALL_DAYS.every((d) => variants[0].days.includes(d));
+      variants.length === 1 &&
+      ALL_DAYS.every((d) => variants[0].days.includes(d));
     setBusy(true);
     if (
       await save(
@@ -846,11 +804,6 @@ export function TemplateEditor({
       <Colors
         value={value.color}
         onChange={(color) => set({ ...value, color })}
-      />
-      <ChecklistSelection
-        data={data}
-        ids={value.checklist_ids}
-        set={(checklist_ids) => set({ ...value, checklist_ids })}
       />
     </EditDrawer>
   );

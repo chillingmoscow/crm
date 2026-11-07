@@ -395,7 +395,10 @@ begin
   for o in select * from public.schedule_task_occurrences where venue_id=settings.venue_id and business_date>=settings.enabled_from and status='missed' and not transfer_created and exists(select 1 from public.schedule_task_definitions d where d.id=definition_id and d.deleted_at is null) for update loop
    insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,transferred,transferred_from_id,equipment)
    values(o.venue_id,o.account_id,o.definition_id,greatest(o.business_date+1,today),o.snapshot,true,o.id,o.equipment)
-   on conflict(definition_id,business_date) do update set transferred=true,transferred_from_id=excluded.transferred_from_id,snapshot=excluded.snapshot,equipment=excluded.equipment,version=schedule_task_occurrences.version+1
+   on conflict(definition_id,business_date) do update set transferred=true,transferred_from_id=excluded.transferred_from_id,snapshot=excluded.snapshot,equipment=excluded.equipment,
+    -- The carried snapshot may belong to a different shift template. Never expose its old binding.
+    shift_id=null,employee_id=null,user_id=null,employee_name=null,deadline_at=null,
+    status='blocked',blocker='Перенос ожидает назначения смены',updated_at=now(),version=schedule_task_occurrences.version+1
    where schedule_task_occurrences.status in ('assigned','blocked') and schedule_task_occurrences.answers='{}'::jsonb and schedule_task_occurrences.settled_at is null and (schedule_task_occurrences.transferred_from_id is null or schedule_task_occurrences.transferred_from_id=excluded.transferred_from_id)
     and not exists(select 1 from storage.objects photo where photo.bucket_id='task-evidence' and photo.name like schedule_task_occurrences.id::text||'/%');
    get diagnostics n=row_count;

@@ -102,7 +102,7 @@ end $$;
 
 -- Regression scenarios from review: repeated carries, ambiguity after draft, late acceptance and correction deadlines.
 do $$
-declare owner_id uuid;staff_id uuid;v uuid;a uuid;d date;tpl uuid;employee uuid;def uuid;prep_def uuid;original uuid;carried uuid;second_carry uuid;started uuid;duplicate uuid;late uuid;returned uuid;shift uuid;future_occ uuid;future_shift uuid;correction_def uuid;expired_return uuid;new_carry uuid;late_assignment_def uuid;late_assignment uuid;replacement_user uuid;replacement_employee uuid;reassigned_def uuid;reassigned uuid;collision_def uuid;pending_carry uuid;occupied uuid;competing_source uuid;rotation_def uuid;rotation_occ uuid;rotation_case record;rotation_anchor date;rotation_snapshot jsonb;ver integer;check_id uuid:=gen_random_uuid();snap jsonb;prep_snap jsonb;
+declare carry_tpl uuid;carry_def uuid;carry_source uuid;carry_target uuid;carry_shift uuid;carry_action text;owner_id uuid;staff_id uuid;v uuid;a uuid;d date;tpl uuid;employee uuid;def uuid;prep_def uuid;original uuid;carried uuid;second_carry uuid;started uuid;duplicate uuid;late uuid;returned uuid;shift uuid;future_occ uuid;future_shift uuid;correction_def uuid;expired_return uuid;new_carry uuid;late_assignment_def uuid;late_assignment uuid;replacement_user uuid;replacement_employee uuid;reassigned_def uuid;reassigned uuid;collision_def uuid;pending_carry uuid;occupied uuid;competing_source uuid;rotation_def uuid;rotation_occ uuid;rotation_case record;rotation_anchor date;rotation_snapshot jsonb;ver integer;check_id uuid:=gen_random_uuid();snap jsonb;prep_snap jsonb;
 begin
  select id into owner_id from auth.users where email='owner@test.com';
  select id into staff_id from auth.users where email='waiter@test.com';
@@ -202,6 +202,34 @@ begin
  select id into replacement_user from auth.users where email='manager@test.com';
  select id into replacement_employee from public.payroll_employees where venue_id=v and local_user_id=replacement_user;
  if replacement_employee is null then insert into public.payroll_employees(account_id,venue_id,local_user_id,name,role_name) values(a,v,replacement_user,'TEST Replacement','Менеджер') returning id into replacement_employee;end if;
+ -- A delayed carry can replace today's untouched task after its template changed.
+ -- It must lose the superseded binding before any employee can start a report.
+ insert into public.schedule_templates(venue_id,name,color,start_time,end_time) values(v,'TEST Changed Carry Template','blue','09:00','17:00') returning id into carry_tpl;
+ insert into public.schedule_shifts(venue_id,user_id,template_id,title,color,starts_at,ends_at,published)
+ values(v,replacement_user,carry_tpl,'TEST Changed Carry Shift','blue',(d::timestamp+interval '9 hours') at time zone 'Europe/Moscow',(d::timestamp+interval '17 hours') at time zone 'Europe/Moscow',true) returning id into carry_shift;
+ insert into public.schedule_task_definitions(account_id,venue_id,name,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount)
+ select account_id,venue_id,'TEST Carry Rebinding',carry_tpl,review_mode,items,recurrence,starts_on,false,true,300,300 from public.schedule_task_definitions where id=def returning id into carry_def;
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,settled_at)
+ values(v,a,carry_def,d-4,snap||jsonb_build_object('id',carry_def),'missed',now()) returning id into carry_source;
+ insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,shift_id,employee_id,user_id,employee_name,deadline_at)
+ values(v,a,carry_def,d,snap||jsonb_build_object('id',carry_def,'template_id',carry_tpl),'assigned',carry_shift,replacement_employee,replacement_user,'TEST Replacement',now()+interval '1 day') returning id into carry_target;
+ perform public.schedule_process_tasks();
+ if not exists(select 1 from public.schedule_task_occurrences where id=carry_target and transferred_from_id=carry_source and snapshot->>'template_id'=tpl::text and status='blocked' and shift_id is null and employee_id is null and user_id is null and employee_name is null and deadline_at is null) then raise exception 'Перенос сохранил назначение другого шаблона';end if;
+ select version into ver from public.schedule_task_occurrences where id=carry_target;
+ perform set_config('request.jwt.claim.sub',replacement_user::text,true);perform set_config('app.ctx_ready','0',true);
+ foreach carry_action in array array['run.save','run.submit'] loop
+  begin
+   perform public.schedule_task_command(carry_action,jsonb_build_object('id',carry_target,'version',ver,'answers',jsonb_build_object(check_id,true)));
+   raise exception 'Старый исполнитель начал перенесённый отчёт';
+  exception when others then if sqlerrm<>'Выполнение недоступно' then raise;end if;end;
+ end loop;
+ perform public.schedule_process_tasks();
+ if not exists(select 1 from public.schedule_task_occurrences where id=carry_target and status='assigned' and user_id=staff_id and employee_id=employee and shift_id<>carry_shift and deadline_at>now()) then raise exception 'Перенос не назначен исполнителю исходного шаблона';end if;
+ select version into ver from public.schedule_task_occurrences where id=carry_target;
+ perform set_config('request.jwt.claim.sub',staff_id::text,true);perform set_config('app.ctx_ready','0',true);
+ perform public.schedule_task_command('run.save',jsonb_build_object('id',carry_target,'version',ver,'answers',jsonb_build_object(check_id,true)));
+ if not exists(select 1 from public.schedule_task_occurrences where id=carry_target and status='in_progress' and user_id=staff_id) then raise exception 'Правильный исполнитель не может начать перенос';end if;
+ perform set_config('request.jwt.claim.sub',owner_id::text,true);perform set_config('app.ctx_ready','0',true);
  insert into public.schedule_task_definitions(account_id,venue_id,name,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount)
  select account_id,venue_id,'TEST Expired Reassignment',template_id,review_mode,items,recurrence,starts_on,false,true,300,300 from public.schedule_task_definitions where id=def returning id into reassigned_def;
  insert into public.schedule_shifts(venue_id,user_id,template_id,title,color,starts_at,ends_at,published)

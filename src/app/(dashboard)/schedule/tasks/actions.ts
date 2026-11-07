@@ -2,6 +2,7 @@
 import { createClient, getCachedPermissions } from "@/lib/supabase/server";
 import { listKbPageTreeRows } from "@/lib/knowledge/pages";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { readTaskOccurrences } from "@/lib/schedule/task-occurrences";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { addDays, dateInZone } from "@/lib/schedule/utils";
@@ -61,17 +62,19 @@ export async function loadTasks(range?: {
   const timezone = venue.data?.timezone || "Europe/Moscow",
     today = dateInZone(new Date(), timezone);
   const permissions = await getCachedPermissions();
-  let occurrencesQuery = db
-    .from<TaskOccurrence[]>("schedule_task_occurrences")
-    .select("*")
-    .eq("venue_id", venueId);
-  occurrencesQuery = period
-    ? occurrencesQuery.or(
-        `and(business_date.gte.${period.from},business_date.lte.${period.to}),settled_at.is.null`,
-      )
-    : occurrencesQuery
-        .or(`business_date.gte.${addDays(today, -31)},settled_at.is.null`)
-        .lte("business_date", addDays(today, 14));
+  const occurrencesQuery = () => {
+    const query = db
+      .from<TaskOccurrence[]>("schedule_task_occurrences")
+      .select("*")
+      .eq("venue_id", venueId);
+    return period
+      ? query.or(
+          `and(business_date.gte.${period.from},business_date.lte.${period.to}),settled_at.is.null`,
+        )
+      : query
+          .or(`business_date.gte.${addDays(today, -31)},settled_at.is.null`)
+          .lte("business_date", addDays(today, 14));
+  };
   const results = await Promise.all([
     db
       .from<TaskDefinition[]>("schedule_task_definitions")
@@ -79,7 +82,7 @@ export async function loadTasks(range?: {
       .is("deleted_at", null)
       .eq("venue_id", venueId)
       .order("name"),
-    occurrencesQuery.order("business_date"),
+    readTaskOccurrences(occurrencesQuery),
     db
       .from<TaskSettings>("schedule_task_settings")
       .select("*")

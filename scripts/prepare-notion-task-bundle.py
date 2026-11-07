@@ -170,12 +170,16 @@ def prepare(cache, output, scope_file=None):
         # No executable schemes in imported rich text.
         return url if re.match(r"^(https?://|mailto:|tel:|/)", url, re.I) else ""
 
-    def inline(nodes, styles=None):
+    def inline(nodes, styles=None, parse_markdown=True):
         result = []
         for node in nodes:
             if isinstance(node, NavigableString):
                 if str(node):
-                    result.append({"type": "text", "text": str(node), "styles": styles or {}})
+                    if parse_markdown and re.search(r"\[[^\n]*\]\(|\*\*|~~|`|https?://", str(node)):
+                        parsed = BeautifulSoup(markdown(str(node)), "html.parser")
+                        result.extend(inline(parsed.children, styles, False))
+                    else:
+                        result.append({"type": "text", "text": str(node), "styles": styles or {}})
                 continue
             if node.name in ["script", "style", "image", "img", "video", "file"]:
                 continue
@@ -193,7 +197,7 @@ def prepare(cache, output, scope_file=None):
                 result.append({"type": "link", "href": href, "content": [{"type": "text", "text": label, "styles": new}]})
             elif node.name == "a":
                 href = link(node.get("href", ""))
-                children = inline(node.children, new)
+                children = inline(node.children, new, False)
                 target_id = notion_id(node.get("href", ""))
                 if target_id and node.get_text().strip() == node.get("href", ""):
                     target_id = aliases.get(target_id, target_id)
@@ -205,11 +209,16 @@ def prepare(cache, output, scope_file=None):
                             child["text"] = "Вложение"
                 result.extend([{"type": "link", "href": href, "content": children}] if href else children)
             else:
-                result.extend(inline(node.children, new))
+                result.extend(inline(node.children, new, parse_markdown))
         return result
 
     def convert(page):
         source = body(page)
+        # URLs inside raw HTML paragraphs/captions must also be represented in
+        # the graph, even when the source renderer leaves them as plain text.
+        graph_source = re.sub(r'<(?:synced-block(?:-reference)?|unknown)\b([^>]*?)\burl="[^"]*"', lambda m: '<block' + m.group(1), source)
+        for match in NOTION.finditer(graph_source):
+            link(match.group())
         if canonical(page["id"]) in task_sources:
             source = re.sub(r"в комментар(?:ий|ии)(?: к задаче)?", "в отчёт этой задачи в Sheerly", source, flags=re.I)
             source = re.sub(r" и отметьте (?:управляющего|менеджера)", "", source, flags=re.I)
@@ -315,7 +324,10 @@ def prepare(cache, output, scope_file=None):
                     ref = html.unescape(node.get("source", node.get("src", "")))
                     digest = by_ref.get(asset_identity(ref))
                     caption = node.get_text(" ", strip=True) or node.get("caption", "") or node.get("alt", "")
-                    if digest:
+                    if not ref:
+                        warnings.append({"source": canonical(page["id"]), "reason": "source_media_without_reference"})
+                        dest.append(block("paragraph", [{"type": "text", "text": "Пустой блок вложения в Notion: исходный файл не указан", "styles": {"italic": True}}]))
+                    elif digest:
                         kind = "image" if tag in ["image", "img"] else "file" if tag == "pdf" else tag
                         dest.append(block(kind, props={"url": "bundleasset://" + digest, "name": assets[digest]["name"], "caption": caption, **({"previewWidth": 64} if node.get("data-page-icon") == "true" else {})}))
                     elif ref.startswith("notion-file-block://") or re.search(r"X-Amz-|X-Goog-", ref, re.I) or tag in ["image", "img"]:

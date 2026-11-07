@@ -58,6 +58,38 @@ class NotionBundleTests(unittest.TestCase):
             listed = next(b for b in blocks if b["type"] == "numberedListItem")
             self.assertEqual(listed["children"][0]["type"], "image")
 
+    def test_markdown_links_inside_notion_html_join_the_graph(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            for name in ["pages", "assets", "collections"]:
+                (root / name).mkdir()
+            target = "127a0eef11b64ed0b5efa859e0089058"
+            (root / "pages" / "root.json").write_text(json.dumps({"id": "a" * 32, "title": "Source", "text": '<content><callout><p>Не забудь **проверить** [статью](https://www.notion.so/' + target + ').</p></callout></content>'}))
+            with contextlib.redirect_stdout(io.StringIO()):
+                bundle.prepare(root, root / "out")
+            result = json.loads((root / "out" / "bundle.json").read_text())
+            pages = {p["sourceId"]: p for p in result["pages"]}
+            self.assertTrue(pages[target]["pending"])
+            serialized = json.dumps(pages["a" * 32]["content"], ensure_ascii=False)
+            self.assertIn("notionpage://" + target, serialized)
+            self.assertIn('"bold": true', serialized)
+            self.assertNotIn("**", serialized)
+            self.assertNotIn("https://www.notion.so", serialized)
+
+    def test_empty_source_media_is_reported_without_blocking_available_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            for name in ["pages", "assets", "collections"]:
+                (root / name).mkdir()
+            (root / "pages" / "empty.json").write_text(json.dumps({"id": "a" * 32, "title": "Empty upload", "text": '<content><image /><image source="notion-file-block://missing-file" /></content>'}))
+            with contextlib.redirect_stdout(io.StringIO()):
+                bundle.prepare(root, root / "out")
+            result = json.loads((root / "out" / "bundle.json").read_text())
+            self.assertEqual(result["warnings"], [{"source": "a" * 32, "reason": "source_media_without_reference"}])
+            # Empty placeholders are not downloadable files. Real missing references still block import.
+            self.assertEqual(result["missingAssets"], [hashlib.sha256(b"notion-file-block://missing-file").hexdigest()])
+            self.assertIn("исходный файл не указан", json.dumps(result, ensure_ascii=False))
+
     def test_database_uses_native_hierarchy_instead_of_a_duplicate_text_index(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)

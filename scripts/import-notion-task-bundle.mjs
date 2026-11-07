@@ -349,6 +349,11 @@ if (verify) {
   );
   process.exit(0);
 }
+// Newly created KB pages can have a null updated_at until their first body save.
+// Use SQL IS NULL for the same optimistic guard used for existing timestamps.
+const withUnchangedPage = (query, row) => row.updated_at === null
+  ? query.eq("id", row.id).is("updated_at", null)
+  : query.eq("id", row.id).eq("updated_at", row.updated_at);
 const statePath = resolve(bundleRoot, `state-${venue}.json`);
 const importState = existsSync(statePath)
   ? JSON.parse(readFileSync(statePath, "utf8"))
@@ -364,9 +369,9 @@ const ensurePage = async (p) => {
     if (p.showChildren && !importState.$folderChildren?.[p.id]) {
       if (!old.show_children && !old.content?.length &&
           (old.title === p.title || (p.id === relatedId && old.title === "Связанные материалы"))) {
-        const updated = check(await kb.from("kb_pages").update({ show_children: true })
-          .eq("id", p.id).eq("updated_at", old.updated_at)
-          .select("updated_at,show_children").maybeSingle());
+        const updated = check(await withUnchangedPage(
+          kb.from("kb_pages").update({ show_children: true }), old,
+        ).select("updated_at,show_children").maybeSingle());
         if (!updated) throw Error("Папка изменена во время переноса");
         Object.assign(old, updated);
         initializedFolders++;
@@ -436,9 +441,9 @@ for (const p of pages) {
   const previous = Object.hasOwn(hierarchyState, p.id) ? hierarchyState[p.id] : relatedId;
   if (old.parent_id === previous && old.parent_id !== desired) {
     const moved = check(
-      await kb.from("kb_pages").update({ parent_id: desired })
-        .eq("id", p.id).eq("updated_at", old.updated_at)
-        .select("updated_at,parent_id").maybeSingle(),
+      await withUnchangedPage(
+        kb.from("kb_pages").update({ parent_id: desired }), old,
+      ).select("updated_at,parent_id").maybeSingle(),
     );
     if (!moved) throw Error("Страница изменена во время переноса иерархии");
     Object.assign(old, moved);

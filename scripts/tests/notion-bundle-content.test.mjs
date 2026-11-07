@@ -16,3 +16,12 @@ test("unchanged imported text can be refreshed completely", () => {
   const incoming = [{ type: "paragraph", content: "Обновлённая исходная инструкция" }];
   assert.deepEqual(mergeImportedContent({ current: [{ type: "paragraph", content: "Старое" }], incoming, previousHash: "same", currentHash: "same" }), { content: incoming, manuallyEdited: false });
 });
+
+
+test("a removed imported image stays removed while genuinely new evidence is added", () => {
+  const removed = { type: "image", props: { url: "kbfile://account/removed.png" } };
+  const added = { type: "image", props: { url: "kbfile://account/new.png" } };
+  const manual = [{ type: "paragraph", content: "Редакция без прежней фотографии" }];
+  const result = mergeImportedContent({ current: manual, incoming: [removed, added], currentHash: "edited", previousHash: "original", seenMedia: [removed.props.url] });
+  assert.deepEqual(result, { content: [...manual, added], manuallyEdited: true });
+});

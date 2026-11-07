@@ -8,7 +8,9 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -181,22 +183,24 @@ export function InstructionPagePicker({
           <SelectValue placeholder="Выберите страницу" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="none">Без страницы</SelectItem>
-          {options.map((page) => (
-            <SelectItem key={page.id} value={page.id}>
-              {pageTitles.get(page.parent_id ?? "")
-                ? `${pageTitles.get(page.parent_id ?? "")} / `
-                : ""}
-              {page.title}
-            </SelectItem>
-          ))}
+          <SelectGroup>
+            {matches.length > 50 && (
+              <SelectLabel className="max-w-sm whitespace-normal text-xs font-normal text-muted-foreground">
+                Найдено страниц: {matches.length}. Уточните поиск, чтобы увидеть остальные.
+              </SelectLabel>
+            )}
+            <SelectItem value="none">Без страницы</SelectItem>
+            {options.map((page) => (
+              <SelectItem key={page.id} value={page.id}>
+                {pageTitles.get(page.parent_id ?? "")
+                  ? `${pageTitles.get(page.parent_id ?? "")} / `
+                  : ""}
+                {page.title}
+              </SelectItem>
+            ))}
+          </SelectGroup>
         </SelectContent>
       </Select>
-      {matches.length > 50 && (
-        <p className="text-[13px] text-muted-foreground">
-          Найдено страниц: {matches.length}. Уточните поиск, чтобы увидеть остальные.
-        </p>
-      )}
       <p className="text-[13px] text-muted-foreground">
         Текст и изображения редактируются в базе знаний. Назначенному сотруднику
         будет доступна инструкция внутри задания.

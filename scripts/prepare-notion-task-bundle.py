@@ -4,6 +4,10 @@ Requires beautifulsoup4==4.13.4 and mistune==3.1.3. Never commit the private
 source cache: it contains expiring download credentials and operational data.
 Usage: python scripts/prepare-notion-task-bundle.py CACHE_DIR OUTPUT_DIR
 """
+from collections import Counter, defaultdict
+
+from datetime import datetime
+
 import hashlib
 import html
 import json
@@ -21,7 +25,8 @@ NOTION = re.compile(r"https://(?:app\.notion\.com/|(?:www\.)?notion\.so/|[a-z0-9
 
 
 def notion_id(url):
-    if not NOTION.fullmatch(html.unescape(url)):
+    url = html.unescape(url).strip("{}")
+    if not NOTION.fullmatch(url):
         return None
     path = urllib.parse.urlparse(html.unescape(url)).path.rstrip("/")
     match = re.search(r"([a-f0-9]{32}|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-f0-9]{31})$", path, re.I)
@@ -29,13 +34,50 @@ def notion_id(url):
 
 
 def asset_identity(ref):
-    if re.search(r"[?&](?:X-Amz-|X-Goog-)", ref, re.I):
+    if ref.startswith("notion-file-block://") or re.search(r"[?&](?:X-Amz-|X-Goog-)", ref, re.I):
         return urllib.parse.urlsplit(ref)._replace(query="", fragment="").geturl()
     return ref
 
 
 def canonical(value):
     return value.replace("-", "").lower()
+
+
+def display_properties(properties):
+    """Fold Notion's date storage columns into their original field labels."""
+    rows, dates = [], {}
+    for key, value in properties.items():
+        match = re.fullmatch(r"date:(.*):(start|end|is_datetime)", key)
+        if match:
+            dates.setdefault(match.group(1), {})[match.group(2)] = value
+        elif key != "url" and value not in [None, "", [], {}]:
+            rows.append((key.removeprefix("userDefined:"), value))
+
+    def date_text(value, with_time):
+        if not value:
+            return ""
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            result = parsed.strftime("%d.%m.%Y")
+            if with_time:
+                result += parsed.strftime(" %H:%M")
+                if parsed.second or parsed.microsecond:
+                    result += parsed.strftime(":%S")
+                if parsed.microsecond:
+                    result += (".%06d" % parsed.microsecond).rstrip("0")
+                offset = parsed.strftime("%z")
+                if offset:
+                    result += " UTC" + offset[:3] + ":" + offset[3:]
+            return result
+        except (ValueError, TypeError):
+            return str(value)
+
+    for key, value in dates.items():
+        start = date_text(value.get("start"), bool(value.get("is_datetime")))
+        end = date_text(value.get("end"), bool(value.get("is_datetime")))
+        if start or end:
+            rows.append((key, " → ".join(part for part in [start, end] if part)))
+    return rows
 
 
 def body(page):
@@ -86,6 +128,29 @@ def prepare(cache, output, scope_file=None):
         assets[digest]["name"] = meta.get("name") or pathlib.Path(meta["file"]).name
     missing_assets, missing_pages, warnings = set(), set(), []
     markdown = mistune.create_markdown(escape=False, plugins=["table", "strikethrough", "url"])
+    owner_votes, owner_candidates = defaultdict(Counter), defaultdict(set)
+    for ident, page in pages.items():
+        text = page["text"]
+        parent = re.search(r'<ancestor-path>\s*<parent-data-source\b[^>]*url="([^"]+)"[^>]*>\s*<ancestor-\d+-database\b[^>]*url="([^"]+)"', text)
+        if parent:
+            owner = notion_id(parent.group(2))
+            if owner in pages:
+                owner_votes[parent.group(1).strip("{}")][owner] += 1
+        if page.get("metadata", {}).get("type") == "database":
+            for ds in re.findall(r'<data-source\s+url="\{?\{?(collection://[a-f0-9-]{36})', text):
+                owner_candidates[ds].add(ident)
+    data_source_owners = {}
+    for ds in set(owner_votes) | set(owner_candidates):
+        ranked = sorted(owner_candidates[ds] | set(owner_votes[ds]), key=lambda ident: (-owner_votes[ds][ident], pages[ident].get("title", "").startswith("View of"), ident))
+        if ranked:
+            data_source_owners[ds] = ranked[0]
+    record_parents = {}
+    for ds, collection in collections.items():
+        for url in collection.get("urls", []):
+            ident = aliases.get(notion_id(url), notion_id(url))
+            if ident:
+                record_parents[ident] = data_source_owners.get(ds)
+
 
     def link(url):
         digest = by_ref.get(asset_identity(html.unescape(url)))
@@ -129,6 +194,11 @@ def prepare(cache, output, scope_file=None):
             elif node.name == "a":
                 href = link(node.get("href", ""))
                 children = inline(node.children, new)
+                target_id = notion_id(node.get("href", ""))
+                if target_id and node.get_text().strip() == node.get("href", ""):
+                    target_id = aliases.get(target_id, target_id)
+                    label = pages.get(target_id, {}).get("title") or "Связанная страница"
+                    children = [{"type": "text", "text": label, "styles": new}]
                 if re.search(r"X-Amz-|X-Goog-", node.get("href", ""), re.I):
                     for child in children:
                         if child.get("type") == "text" and re.search(r"X-Amz-|X-Goog-", child.get("text", ""), re.I):
@@ -143,6 +213,7 @@ def prepare(cache, output, scope_file=None):
         if canonical(page["id"]) in task_sources:
             source = re.sub(r"в комментар(?:ий|ии)(?: к задаче)?", "в отчёт этой задачи в Sheerly", source, flags=re.I)
             source = re.sub(r" и отметьте (?:управляющего|менеджера)", "", source, flags=re.I)
+            source = re.sub(r"Отправьте фотоотч[её]т о выполнении задачи в отч[её]т этой задачи в Sheerly\.?", "Приложите фотографию выполненной работы к отчёту задачи в Sheerly.", source, flags=re.I)
         if "Обслуживание холодильников" in page.get("title", ""):
             source = source.replace("Неделя месяца", "Группа непрерывного цикла")
             source = "Группы 1–4 чередуются непрерывно, без сброса в начале месяца. Текущая группа указана в задании Sheerly.\n\n" + source
@@ -156,6 +227,10 @@ def prepare(cache, output, scope_file=None):
             try:
                 properties = json.loads(props.group(1))
                 def property_value(v):
+                    if isinstance(v, bool):
+                        return "Да" if v else "Нет"
+                    if isinstance(v, str) and v in ["__YES__", "__NO__"]:
+                        return "Да" if v == "__YES__" else "Нет"
                     if isinstance(v, list):
                         return " · ".join(property_value(x) for x in v)
                     if isinstance(v, str) and re.search(r"X-Amz-|X-Goog-", v, re.I):
@@ -170,7 +245,7 @@ def prepare(cache, output, scope_file=None):
                     if isinstance(v, str):
                         return html.escape(v)
                     return html.escape(str(v))
-                source = "\n".join("**" + str(k) + ":** " + property_value(v) + "\n" for k, v in properties.items() if k != "url" and v not in [None, "", [], {}]) + "\n\n" + source
+                source = "\n".join("**" + str(k) + ":** " + property_value(v) + "\n" for k, v in display_properties(properties)) + "\n\n" + source
             except ValueError:
                 warnings.append({"source": canonical(page["id"]), "reason": "unparsed_properties"})
         for metadata_tag in ["coverMetadata", "iconMetadata"]:
@@ -185,11 +260,14 @@ def prepare(cache, output, scope_file=None):
                         source = '<image data-page-icon="' + ('true' if metadata_tag == 'iconMetadata' else 'false') + '" source="' + html.escape(ref, quote=True) + '"></image>\n\n' + source
                 except (ValueError, AttributeError):
                     warnings.append({"source": canonical(page["id"]), "reason": "unparsed_cover_or_icon"})
-        for ds in re.findall(r'<data-source\b[^>]*url="(collection://[a-f0-9-]{36})"', page["text"]):
+        for ds in re.findall(r'<data-source\b[^>]*url="\{?\{?(collection://[a-f0-9-]{36})', page["text"]):
+            # Register completeness without rendering thousands of duplicate
+            # BlockNote paragraphs: the native children list is the index.
             for url in collections.get(ds, {}).get("urls", []):
-                ident = aliases.get(notion_id(url), notion_id(url))
-                title = pages.get(ident, {}).get("title") or "Запись источника"
-                source += '\n\n<page url="' + html.escape(url, quote=True) + '">' + html.escape(title) + '</page>'
+                link(url)
+            owner = data_source_owners.get(ds)
+            if owner and owner != canonical(page["id"]):
+                source += '\n\n<page url="https://app.notion.com/p/' + owner + '">Записи базы: ' + html.escape(pages[owner].get("title", "База")) + '</page>'
         source = re.sub(r"<(image|file|pdf|audio|video|mention|page|database)\b([^>]*?)/>", r"<\1\2></\1>", source)
         soup = BeautifulSoup(markdown(source), "html.parser")
         blocks = []
@@ -302,12 +380,10 @@ def prepare(cache, output, scope_file=None):
             ancestor_db = re.search(r'<ancestor-path>\s*<parent-data-source\b[^>]*>\s*<ancestor-\d+-database\b[^>]*url="([^"]+)"', page["text"])
             parent_id = notion_id(ancestor_db.group(1)) if ancestor_db else None
             if parent_id not in pages:
-                owners = [(key, value) for key, value in pages.items() if value.get("metadata", {}).get("type") == "database" and re.search(r'<data-source\s+url="\{?\{?' + re.escape(parent_ds.group(1)) + r'\}?\}?"', value["text"])]
-                owners.sort(key=lambda item: (item[1].get("title", "").startswith("View of"), item[0]))
-                parent_id = owners[0][0] if owners else None
+                parent_id = data_source_owners.get(parent_ds.group(1).strip("{}"))
         result.append({"sourceId": ident, "title": page.get("title") or "Без названия", "parentSourceId": aliases.get(parent_id, parent_id), "sourceKind": page.get("metadata", {}).get("type", "page"), "icon": page.get("icon") if isinstance(page.get("icon"), str) and not page["icon"].startswith("http") else None, "sourceEditedAt": page.get("page_last_edited_at"), "content": convert(page)})
     for ident in sorted(missing_pages):
-        result.append({"sourceId": ident, "title": ("Недоступная страница · " if ident in failed_ids else "Связанный материал · ") + ident[:8], "unavailable": ident in failed_ids, "pending": ident not in failed_ids, "content": [{"type": "paragraph", "content": [{"type": "text", "text": ("Notion возвращает «страница не найдена». " if ident in failed_ids else "Материал ещё не перенесён. ") + "Исходный идентификатор: " + ident, "styles": {}}]}]})
+        result.append({"sourceId": ident, "parentSourceId": record_parents.get(ident), "title": ("Недоступная страница · " if ident in failed_ids else "Связанный материал · ") + ident[:8], "unavailable": ident in failed_ids, "pending": ident not in failed_ids, "content": [{"type": "paragraph", "content": [{"type": "text", "text": ("Notion возвращает «страница не найдена». " if ident in failed_ids else "Материал ещё не перенесён. ") + "Исходный идентификатор: " + ident, "styles": {}}]}]})
     used_assets = set(re.findall(r"bundleasset://([a-f0-9]{64})", json.dumps(result)))
     assets = {key: value for key, value in assets.items() if key in used_assets}
     for asset in assets.values():

@@ -7,7 +7,7 @@ import { existsSync, readFileSync, writeFileSync, realpathSync } from "node:fs";
 import { resolve, basename, sep } from "node:path";
 import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
-import { mergeImportedContent } from "./notion-bundle-content.mjs";
+import { mergeImportedContent, importedMediaUrls } from "./notion-bundle-content.mjs";
 
 const args = process.argv.slice(2);
 const arg = (name) =>
@@ -307,7 +307,7 @@ if (
 const existingPages = new Map();
 for (let offset = 0; ; offset += 500) {
   const rows = check(await kb.from("kb_pages")
-    .select("id,account_id,slug,title,icon,icon_color,content,parent_id,deleted_at,updated_at")
+    .select("id,account_id,slug,title,icon,icon_color,content,parent_id,show_children,deleted_at,updated_at")
     .eq("account_id", account).order("id").range(offset, offset + 499));
   for (const page of rows) existingPages.set(page.id, page);
   if (rows.length < 500) break;
@@ -349,11 +349,32 @@ if (verify) {
   );
   process.exit(0);
 }
+const statePath = resolve(bundleRoot, `state-${venue}.json`);
+const importState = existsSync(statePath)
+  ? JSON.parse(readFileSync(statePath, "utf8"))
+  : {};
+let initializedFolders = 0;
 const ensurePage = async (p) => {
   const old = existingPages.get(p.id);
   if (old) {
     if (old.account_id !== account || old.deleted_at)
       throw Error("Страница недоступна");
+    // Upgrade only generated empty folders once. Subsequent imports respect
+    // the owner's choice to hide the child list again.
+    if (p.showChildren && !importState.$folderChildren?.[p.id]) {
+      if (!old.show_children && !old.content?.length &&
+          (old.title === p.title || (p.id === relatedId && old.title === "Связанные материалы"))) {
+        const updated = check(await kb.from("kb_pages").update({ show_children: true })
+          .eq("id", p.id).eq("updated_at", old.updated_at)
+          .select("updated_at,show_children").maybeSingle());
+        if (!updated) throw Error("Папка изменена во время переноса");
+        Object.assign(old, updated);
+        initializedFolders++;
+      }
+      importState.$folderChildren ??= {};
+      importState.$folderChildren[p.id] = true;
+      writeFileSync(statePath, JSON.stringify(importState, null, 2));
+    }
     return old;
   }
   const row = check(
@@ -368,25 +389,33 @@ const ensurePage = async (p) => {
         title: p.title,
         slug: p.slug,
         icon: p.icon ?? null,
+        show_children: p.showChildren === true || p.sourceKind === "database",
         content: [],
       })
       .select(
-        "id,account_id,slug,title,icon,icon_color,content,parent_id,deleted_at,updated_at",
+        "id,account_id,slug,title,icon,icon_color,content,parent_id,show_children,deleted_at,updated_at",
       )
       .single(),
   );
   existingPages.set(row.id, row);
+  if (p.showChildren) {
+    importState.$folderChildren ??= {};
+    importState.$folderChildren[p.id] = true;
+    writeFileSync(statePath, JSON.stringify(importState, null, 2));
+  }
   return row;
 };
 await ensurePage({
   id: folderId,
   title: `Инструкции задач · ${venueRow.name}`,
   slug: `task-instructions-${venue}`,
+  showChildren: true,
 });
 await ensurePage({
   id: relatedId,
   title: "Архив Notion",
   slug: `task-instruction-references-${venue}`,
+  showChildren: true,
 });
 for (const p of pages) {
   const old = await ensurePage(p);
@@ -456,7 +485,7 @@ for (const f of files.values()) {
   const id = check(
     await kb.rpc("kb_register_attachment", {
       p_storage_path: f.path,
-      p_name: f.file,
+      p_name: typeof f.name === "string" && f.name.trim() ? f.name : f.file,
       p_mime_type: f.mime,
       p_size_bytes: f.bytes,
       p_page_id: relatedId,
@@ -523,10 +552,7 @@ const plain = (v) =>
           ? v.text
           : Object.values(v).map(plain).join(" ")
         : "";
-const statePath = resolve(bundleRoot, `state-${venue}.json`);
-const importState = existsSync(statePath)
-  ? JSON.parse(readFileSync(statePath, "utf8"))
-  : {};
+
 let saved = 0,
   preserved = 0;
 async function save(p, original) {
@@ -548,6 +574,7 @@ async function save(p, original) {
       previousHash: importState[p.id],
       currentHash: sha(stable(old.content)),
       generated,
+      seenMedia: importState.$mediaSeen?.[p.id] ?? [],
     });
     content = merged.content;
     manuallyEdited = merged.manuallyEdited;
@@ -567,7 +594,7 @@ async function save(p, original) {
         { onConflict: "page_id,file_id", ignoreDuplicates: true },
       ),
     );
-  const title = /^(Связанный материал|Недоступная страница) · [a-f0-9]{8}$/.test(old.title) && !p.pending && !p.unavailable ? p.title : old.title;
+  const title = /^(Связанный материал|Недоступная страница) · [a-f0-9]{8}$/.test(old.title) && p.title ? p.title : old.title;
   if (stable(old.content) !== stable(content) || old.title !== title) {
     const current = check(
       await kb.from("kb_pages").select("updated_at").eq("id", p.id).single(),
@@ -590,6 +617,11 @@ async function save(p, original) {
   }
   if (manuallyEdited) delete importState[p.id];
   else importState[p.id] = sha(stable(content));
+  importState.$mediaSeen ??= {};
+  importState.$mediaSeen[p.id] = [...new Set([
+    ...(importState.$mediaSeen[p.id] ?? []),
+    ...importedMediaUrls(content),
+  ])];
   writeFileSync(statePath, JSON.stringify(importState, null, 2));
   return content;
 }
@@ -623,6 +655,7 @@ for (const d of allDefs) {
 const result = {
   ...report,
   savedPages: saved,
+  initializedFolders,
   preservedEdits: preserved,
   completedAt: new Date().toISOString(),
 };

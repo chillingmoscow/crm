@@ -1,6 +1,6 @@
 "use client";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -116,6 +116,19 @@ export function InstructionPagePicker({
     };
   }, [value]);
   const selected = pages.find((p) => p.id === value);
+  const pageTitles = useMemo(
+    () => new Map(pages.map((page) => [page.id, page.title])),
+    [pages],
+  );
+  const matches = useMemo(() => {
+    const text = query.trim().toLocaleLowerCase("ru");
+    return pages.filter((page) => page.title.toLocaleLowerCase("ru").includes(text));
+  }, [pages, query]);
+  // Keep every page searchable without mounting thousands of select items.
+  const options = [
+    ...(selected ? [selected] : []),
+    ...matches.filter((page) => page.id !== value).slice(0, selected ? 49 : 50),
+  ];
   async function create() {
     const destination = window.open("about:blank", "_blank");
     if (destination) destination.opener = null;
@@ -169,24 +182,21 @@ export function InstructionPagePicker({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="none">Без страницы</SelectItem>
-          {pages
-            .filter(
-              (p) =>
-                p.id === value ||
-                p.title
-                  .toLocaleLowerCase("ru")
-                  .includes(query.toLocaleLowerCase("ru")),
-            )
-            .map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                {pages.find((parent) => parent.id === p.parent_id)?.title
-                  ? `${pages.find((parent) => parent.id === p.parent_id)?.title} / `
-                  : ""}
-                {p.title}
-              </SelectItem>
-            ))}
+          {options.map((page) => (
+            <SelectItem key={page.id} value={page.id}>
+              {pageTitles.get(page.parent_id ?? "")
+                ? `${pageTitles.get(page.parent_id ?? "")} / `
+                : ""}
+              {page.title}
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
+      {matches.length > 50 && (
+        <p className="text-[13px] text-muted-foreground">
+          Найдено страниц: {matches.length}. Уточните поиск, чтобы увидеть остальные.
+        </p>
+      )}
       <p className="text-[13px] text-muted-foreground">
         Текст и изображения редактируются в базе знаний. Назначенному сотруднику
         будет доступна инструкция внутри задания.

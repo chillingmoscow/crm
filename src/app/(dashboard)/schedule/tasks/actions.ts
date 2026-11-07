@@ -1,5 +1,6 @@
 "use server";
 import { createClient, getCachedPermissions } from "@/lib/supabase/server";
+import { listKbPageTreeRows } from "@/lib/knowledge/pages";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -109,18 +110,7 @@ export async function loadTasks(range?: {
       "schedule.checklist_edit",
       "schedule.checklist_create",
     ].some((p) => permissions.includes(p))
-      ? await db
-          .from<
-            {
-              id: string;
-              title: string;
-              slug: string;
-              parent_id: string | null;
-            }[]
-          >("kb_pages")
-          .select("id,title,slug,parent_id")
-          .is("deleted_at", null)
-          .order("title")
+      ? await listKbPageTreeRows()
       : null;
   if (instructionPages?.error)
     throw new Error("Не удалось загрузить инструкции");
@@ -136,7 +126,7 @@ export async function loadTasks(range?: {
   if (plans?.error) throw new Error("Не удалось загрузить план задач");
   return {
     venueId,
-    instructionPages: instructionPages?.data ?? [],
+    instructionPages: instructionPages?.rows ?? [],
     plans: (plans?.data ?? []) as TaskPreview[],
     definitions: results[0].data ?? [],
     occurrences,

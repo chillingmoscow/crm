@@ -7,6 +7,7 @@ import { existsSync, readFileSync, writeFileSync, realpathSync } from "node:fs";
 import { resolve, basename, sep } from "node:path";
 import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
+import { mergeImportedContent } from "./notion-bundle-content.mjs";
 
 const args = process.argv.slice(2);
 const arg = (name) =>
@@ -303,16 +304,14 @@ if (
   check(await kb.rpc("get_active_venue_id")) !== venue
 )
   throw Error("Неверный аккаунт или заведение владельца");
-const existingPages = new Map(
-  check(
-    await kb
-      .from("kb_pages")
-      .select(
-        "id,account_id,slug,title,icon,icon_color,content,deleted_at,updated_at",
-      )
-      .eq("account_id", account),
-  ).map((p) => [p.id, p]),
-);
+const existingPages = new Map();
+for (let offset = 0; ; offset += 500) {
+  const rows = check(await kb.from("kb_pages")
+    .select("id,account_id,slug,title,icon,icon_color,content,parent_id,deleted_at,updated_at")
+    .eq("account_id", account).order("id").range(offset, offset + 499));
+  for (const page of rows) existingPages.set(page.id, page);
+  if (rows.length < 500) break;
+}
 if (verify) {
   for (const f of files.values()) {
     const blob = check(
@@ -321,6 +320,16 @@ if (verify) {
     const binary = Buffer.from(await blob.arrayBuffer());
     if (binary.length !== f.bytes || sha(binary) !== f.sha256)
       throw Error("Файл в хранилище отличается от исходного");
+  }
+  const slugs = new Set([...existingPages.values()].filter((p) => !p.deleted_at).map((p) => p.slug));
+  for (const source of pages) {
+    const page = existingPages.get(source.id);
+    if (!page || page.deleted_at) throw Error("Страница архива не сохранена");
+    const text = JSON.stringify(page.content);
+    if (/notionpage:\/\/|bundleasset:\/\/|X-Amz-|X-Goog-/.test(text))
+      throw Error("Остались неразрешённые ссылки архива");
+    for (const match of text.matchAll(/\/knowledge\/([a-zA-Z0-9_-]+)/g))
+      if (!slugs.has(match[1])) throw Error("Внутренняя ссылка ведёт на отсутствующую страницу");
   }
   for (const d of allDefs) {
     const page = existingPages.get(d.instruction_page_id);
@@ -333,6 +342,7 @@ if (verify) {
   console.log(
     JSON.stringify({
       verifiedFiles: files.size,
+      verifiedPages: pages.length,
       linkedTasks: allDefs.length,
       activation: false,
     }),
@@ -357,10 +367,11 @@ const ensurePage = async (p) => {
         parent_id: p.parent_id ?? null,
         title: p.title,
         slug: p.slug,
+        icon: p.icon ?? null,
         content: [],
       })
       .select(
-        "id,account_id,slug,title,icon,icon_color,content,deleted_at,updated_at",
+        "id,account_id,slug,title,icon,icon_color,content,parent_id,deleted_at,updated_at",
       )
       .single(),
   );
@@ -374,13 +385,37 @@ await ensurePage({
 });
 await ensurePage({
   id: relatedId,
-  title: "Связанные материалы",
+  title: "Архив Notion",
   slug: `task-instruction-references-${venue}`,
-  parent_id: folderId,
 });
 for (const p of pages) {
   const old = await ensurePage(p);
   targets.get(p.sourceId).slug = old.slug;
+}
+// Recreate source hierarchy only where the parent remains import-owned.
+const hierarchyPath = resolve(bundleRoot, `hierarchy-${venue}.json`);
+const hierarchyState = existsSync(hierarchyPath) ? JSON.parse(readFileSync(hierarchyPath, "utf8")) : {};
+const archive = existingPages.get(relatedId);
+if (archive.title === "Связанные материалы" && archive.parent_id === folderId) {
+  check(await kb.from("kb_pages").update({ title: "Архив Notion", parent_id: null }).eq("id", relatedId).eq("title", archive.title).eq("parent_id", folderId));
+}
+for (const p of pages) {
+  if (p.definition) continue;
+  const old = existingPages.get(p.id);
+  const desired = targets.get(p.parentSourceId)?.id ?? relatedId;
+  if (desired === p.id) throw Error("Источник ссылается на себя как на родителя");
+  const previous = Object.hasOwn(hierarchyState, p.id) ? hierarchyState[p.id] : relatedId;
+  if (old.parent_id === previous && old.parent_id !== desired) {
+    const moved = check(
+      await kb.from("kb_pages").update({ parent_id: desired })
+        .eq("id", p.id).eq("updated_at", old.updated_at)
+        .select("updated_at,parent_id").maybeSingle(),
+    );
+    if (!moved) throw Error("Страница изменена во время переноса иерархии");
+    Object.assign(old, moved);
+  }
+  if (old.parent_id === desired) hierarchyState[p.id] = desired;
+  writeFileSync(hierarchyPath, JSON.stringify(hierarchyState, null, 2));
 }
 // Preserve the generated candle pages as separate native task instructions.
 const candleDefs = allDefs.filter(
@@ -444,9 +479,12 @@ const rewrite = (value) => {
         return `/knowledge/${t.slug}`;
       })
       .replace(
-        /https:\/\/(?:app\.notion\.com\/p\/|(?:www\.)?notion\.so\/)([a-f0-9-]{31,36})[^\s"<>)]*/gi,
-        (_, id) => {
-          id = canonical(id);
+        /https:\/\/(?:app\.notion\.com|(?:www\.)?notion\.so|[a-z0-9-]+\.notion\.site)\/[^\s"<>)]*/gi,
+        (url) => {
+          const path = new URL(url).pathname.replace(/\/$/, "");
+          const match = path.match(/([a-f0-9]{32}|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-f0-9]{31})$/i);
+          if (!match) return url;
+          const id = canonical(match[1]);
           if (id === "768f265590174214b80fa86dbd849267") return "/schedule";
           if (excludedSources.has(id)) return "/schedule/tasks";
           const t = targets.get(id);
@@ -494,6 +532,7 @@ let saved = 0,
 async function save(p, original) {
   const old = existingPages.get(p.id);
   let content = rewrite(original);
+  let manuallyEdited = false;
   if (old.content?.length) {
     const stripped = stripSource(old.content);
     const generated =
@@ -503,19 +542,16 @@ async function save(p, original) {
           (b) => !["image", "file", "video", "audio"].includes(b.type),
         ),
       ) === stable(rewrite(legacyContent(p.definition)));
-    const previousImport = importState[p.id] === sha(stable(old.content));
-    if (!generated && !previousImport && stable(stripped) !== stable(content)) {
-      // Never replace manual edits. Enrich their instruction with missing media.
-      const images = content.filter((b) =>
-        ["image", "file", "video", "audio"].includes(b.type),
-      );
-      const serialized = JSON.stringify(stripped);
-      content = [
-        ...rewrite(stripped),
-        ...images.filter((b) => !serialized.includes(b.props.url)),
-      ];
-      preserved++;
-    }
+    const merged = mergeImportedContent({
+      current: rewrite(stripped),
+      incoming: content,
+      previousHash: importState[p.id],
+      currentHash: sha(stable(old.content)),
+      generated,
+    });
+    content = merged.content;
+    manuallyEdited = merged.manuallyEdited;
+    if (manuallyEdited) preserved++;
   }
   const used = [...files.values()].filter((f) =>
     JSON.stringify(content).includes(`kbfile://${f.path}`),
@@ -531,7 +567,8 @@ async function save(p, original) {
         { onConflict: "page_id,file_id", ignoreDuplicates: true },
       ),
     );
-  if (stable(old.content) !== stable(content)) {
+  const title = /^(Связанный материал|Недоступная страница) · [a-f0-9]{8}$/.test(old.title) && !p.pending && !p.unavailable ? p.title : old.title;
+  if (stable(old.content) !== stable(content) || old.title !== title) {
     const current = check(
       await kb.from("kb_pages").select("updated_at").eq("id", p.id).single(),
     );
@@ -540,7 +577,7 @@ async function save(p, original) {
     check(
       await kb.rpc("kb_save_page", {
         p_id: p.id,
-        p_title: old.title,
+        p_title: title,
         p_icon: old.icon ?? null,
         p_icon_color: old.icon_color ?? null,
         p_content: content,
@@ -551,7 +588,8 @@ async function save(p, original) {
     );
     saved++;
   }
-  importState[p.id] = sha(stable(content));
+  if (manuallyEdited) delete importState[p.id];
+  else importState[p.id] = sha(stable(content));
   writeFileSync(statePath, JSON.stringify(importState, null, 2));
   return content;
 }

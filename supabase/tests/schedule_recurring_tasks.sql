@@ -250,7 +250,7 @@ begin
 end $$;
 -- Editing a published shift extends saved drafts immediately, without changing correction deadlines.
 do $$
-declare owner_id uuid;staff_id uuid;v uuid;a uuid;employee uuid;tpl uuid;def uuid;shift uuid;occ uuid;correction uuid;check_id uuid:=gen_random_uuid();ver integer;snapshot jsonb;shift_start timestamptz;shift_end timestamptz;extended_end timestamptz;tz text;d date;original_cutover date;settings_input jsonb;paused_message uuid;
+declare owner_id uuid;staff_id uuid;v uuid;a uuid;employee uuid;tpl uuid;def uuid;shift uuid;occ uuid;correction uuid;photo_id uuid:=gen_random_uuid();check_id uuid:=gen_random_uuid();ver integer;snapshot jsonb;shift_start timestamptz;shift_end timestamptz;extended_end timestamptz;tz text;d date;original_cutover date;settings_input jsonb;paused_message uuid;
 begin
  select id into owner_id from auth.users where email='owner@test.com';
  select id into staff_id from auth.users where email='waiter@test.com';
@@ -259,17 +259,37 @@ begin
  select id into employee from public.payroll_employees where venue_id=v and local_user_id=staff_id;
  perform set_config('request.jwt.claim.sub',owner_id::text,true);perform set_config('app.ctx_ready','0',true);
  -- Earlier fixtures have already been checked; release their test assignee for the real calendar command.
- update public.schedule_task_occurrences set status='blocked',answers='{}',submitted_at=null,settled_at=null where shift_id in (select id from public.schedule_shifts where venue_id=v and user_id=staff_id and title like 'TEST%');
+ update public.schedule_task_occurrences set shift_id=null,status='blocked',answers='{}',submitted_at=null,settled_at=null where shift_id in (select id from public.schedule_shifts where venue_id=v and user_id=staff_id and title like 'TEST%');
  update public.schedule_shifts set user_id=null where venue_id=v and user_id=staff_id and title like 'TEST%';
  shift_start:=date_trunc('minute',now())-interval '12 hours';shift_end:=date_trunc('minute',now())-interval '1 hour';extended_end:=date_trunc('minute',now())+interval '2 hours';d:=(shift_start at time zone tz)::date;
  insert into public.schedule_templates(venue_id,name,color,start_time,end_time) values(v,'TEST Shift Deadline','blue','17:00','23:00') returning id into tpl;
  insert into public.schedule_task_definitions(account_id,venue_id,name,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount)
- values(a,v,'TEST Extended Draft',tpl,'auto',jsonb_build_array(jsonb_build_object('id',check_id,'title','Готово','kind','check','required',true)),jsonb_build_object('unit','week','interval',52,'anchor',d),d,false,true,300,0) returning id into def;
+ values(a,v,'TEST Extended Draft',tpl,'auto',jsonb_build_array(jsonb_build_object('id',check_id,'title','Готово','kind','check','required',true),jsonb_build_object('id',photo_id,'title','Фото','kind','photo','required',false)),jsonb_build_object('unit','week','interval',52,'anchor',d),d,false,true,300,0) returning id into def;
  select to_jsonb(t)||jsonb_build_object('task_rules',s.config->'tasks') into snapshot from public.schedule_task_definitions t join public.payroll_automation_settings s on s.venue_id=t.venue_id where t.id=def;
  insert into public.schedule_shifts(venue_id,user_id,template_id,title,color,starts_at,ends_at,published)
  values(v,staff_id,tpl,'TEST Extended Shift','blue',shift_start,shift_end,true) returning id into shift;
  insert into public.schedule_task_occurrences(venue_id,account_id,definition_id,business_date,snapshot,status,shift_id,employee_id,user_id,deadline_at)
  values(v,a,def,d,snapshot,'assigned',shift,employee,staff_id,now()+interval '1 hour') returning id,version into occ,ver;
+ -- A completed upload is work even before run.save changes status or answers.
+ insert into storage.objects(bucket_id,name,metadata) values('task-evidence',occ||'/'||photo_id||'/pending-save.jpg','{"mimetype":"image/jpeg"}');
+ select version into ver from public.schedule_shifts where id=shift;
+ begin
+  perform public.schedule_command('shift.delete',jsonb_build_object('id',shift,'version',ver));
+  raise exception 'Удалена смена с фото до сохранения отчёта';
+ exception when others then
+  if sqlerrm<>'Нельзя удалить смену с начатым отчётом задачи' then raise;end if;
+ end;
+ begin
+  perform public.schedule_command('shift.assign',jsonb_build_object('id',shift,'version',ver,'user_id',null));
+  raise exception 'Переназначена смена с фото до сохранения отчёта';
+ exception when others then
+  if sqlerrm<>'Нельзя менять назначение смены с начатым отчётом задачи' then raise;end if;
+ end;
+ if not exists(select 1 from public.schedule_shifts where id=shift and user_id=staff_id and version=ver)
+  or not exists(select 1 from public.schedule_task_occurrences where id=occ and shift_id=shift and user_id=staff_id and status='assigned' and answers='{}')
+  or not exists(select 1 from storage.objects where bucket_id='task-evidence' and name=occ||'/'||photo_id||'/pending-save.jpg')
+ then raise exception 'Защита не сохранила назначение и загруженное фото';end if;
+ select version into ver from public.schedule_task_occurrences where id=occ;
  perform set_config('request.jwt.claim.sub',staff_id::text,true);perform set_config('app.ctx_ready','0',true);
  perform public.schedule_task_command('run.save',jsonb_build_object('id',occ,'version',ver,'answers',jsonb_build_object(check_id,true)));
  -- The real delete command must preserve a draft even without a schedule_runs record.

@@ -505,7 +505,8 @@ begin
    and new.template_id is not distinct from old.template_id and (new.starts_at at time zone tz)::date=(old.starts_at at time zone tz)::date then return new;end if;
  end if;
  for o in select * from public.schedule_task_occurrences where shift_id=old.id for update loop
-  if o.status not in ('blocked','assigned') or o.answers<>'{}'::jsonb or o.submitted_at is not null or o.settled_at is not null then
+  if o.status not in ('blocked','assigned') or o.answers<>'{}'::jsonb or o.submitted_at is not null or o.settled_at is not null
+   or exists(select 1 from storage.objects photo where photo.bucket_id='task-evidence' and photo.name like o.id::text||'/%') then
    if tg_op='DELETE' then raise exception 'Нельзя удалить смену с начатым отчётом задачи';end if;
    raise exception 'Нельзя менять назначение смены с начатым отчётом задачи';
   end if;

@@ -165,12 +165,6 @@ const NAV_SECTIONS: NavSection[] = [
         icon: CalendarDays,
         permissions: ["schedule.template_create", "schedule.template_edit", "schedule.template_copy", "schedule.template_archive", "schedule.shift_create"],
       },
-      {
-        title: "Табель",
-        href: "/schedule/attendance",
-        icon: ClipboardList,
-        permission: "payroll.view",
-      },
     ],
   },
   {

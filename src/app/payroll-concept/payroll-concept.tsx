@@ -36,6 +36,7 @@ import { PayrollDetailDialog } from "@/app/(dashboard)/people/payroll/_component
 import { ConceptPaymentForm } from "./concept-payment-form";
 import paymentStyle from "./concept-payment-form.module.css";
 import { paymentJournalRows } from "@/lib/payroll/payment-journal";
+import { AttendanceReview } from "@/app/(dashboard)/people/payroll/_components/attendance-review";
 import { PayrollPaymentsTable } from "@/app/(dashboard)/people/payroll/_components/payroll-payments-table";
 import {
   loadPayroll,
@@ -96,9 +97,11 @@ function componentGroups(accruals: Accrual[]) {
 export function PayrollConcept({
   data: initial,
   initialMonth,
+  initialTab,
 }: {
   data: PayrollData;
   initialMonth: string;
+  initialTab: "attendance" | "statement";
 }) {
   const [data, setData] = useState(initial);
   const [busy, setBusy] = useState(false);
@@ -141,11 +144,11 @@ export function PayrollConcept({
   const [pickerYear, setPickerYear] = useState(
     Number(initialMonth.slice(0, 4)),
   );
-  const [tab, setTab] = useState("statement");
+  const [tab, setTab] = useState<string>(initialTab);
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).has("entry"))
+    if (initialTab !== "attendance" && new URLSearchParams(window.location.search).has("entry"))
       setTab("journal");
-  }, []);
+  }, [initialTab]);
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("transfer");
     const transfer = initial.transfers.find((t) => t.id === id);
@@ -324,11 +327,29 @@ export function PayrollConcept({
       <Plus size={16} />Добавить выплату
     </Button>
   ) : null;
+  const changeMonth = (value: string) => {
+    setMonth(value);
+    setHoverDay(null);
+    const url = new URL(window.location.href);
+    url.searchParams.set("month", value);
+    window.history.replaceState(null, "", url);
+  };
+  const changeTab = (id: string) => {
+    setTab(id);
+    setQuery("");
+    const url = new URL(window.location.href);
+    if (id === "attendance") {
+      url.searchParams.set("tab", id);
+      url.searchParams.set("month", month);
+    } else {
+      url.searchParams.delete("tab");
+    }
+    window.history.replaceState(null, "", url);
+  };
   const moveMonth = (direction: number) => {
     const date = new Date(`${monthStart}T12:00:00Z`);
     date.setUTCMonth(date.getUTCMonth() + direction);
-    setMonth(date.toISOString().slice(0, 7));
-    setHoverDay(null);
+    changeMonth(date.toISOString().slice(0, 7));
   };
   const exportRows = () => {
     const records = [
@@ -501,8 +522,7 @@ export function PayrollConcept({
                             key={i}
                             className={value === month ? s.selectedMonth : ""}
                             onClick={() => {
-                              setMonth(value);
-                              setHoverDay(null);
+                              changeMonth(value);
                               setMonthOpen(false);
                             }}
                           >
@@ -602,15 +622,13 @@ export function PayrollConcept({
                   ["statement", "Ведомость"],
                   ["payments", "Выплаты"],
                   ["journal", "Начисления и удержания"],
+                  ...(can("view") ? [["attendance", "Проверка выходов"]] : []),
                 ].map(([id, label]) => (
                   <button
                     key={id}
                     role="tab"
                     aria-selected={tab === id}
-                    onClick={() => {
-                      setTab(id);
-                      setQuery("");
-                    }}
+                    onClick={() => changeTab(id)}
                     className={tab === id ? s.activeTab : ""}
                   >
                     {label}
@@ -817,7 +835,7 @@ export function PayrollConcept({
               </section>
             )}
             <section className={`${s.ledger} ${s.functionalTable}`}>
-              {role && (
+              {role && tab !== "attendance" && (
                 <div className={s.ledgerHeading}>
                   <button
                     className={s.appliedFilter}
@@ -827,7 +845,15 @@ export function PayrollConcept({
                   </button>
                 </div>
               )}
-              {tab === "journal" ? (
+              {tab === "attendance" && can("view") ? (
+                <AttendanceReview
+                  key={month}
+                  data={data}
+                  month={month}
+                  onRefresh={reload}
+                  toolbarTargetId="payroll-concept-controls"
+                />
+              ) : tab === "journal" ? (
                 <PayrollJournal
                   data={data}
                   month={monthStart}
@@ -877,7 +903,7 @@ export function PayrollConcept({
           </PageFrame>
         </div>
         <PayrollEntryForm initialKind={entryKind} open={entryOpen} onOpenChange={setEntryOpen} data={data} month={monthStart}
-          onCreated={async () => { await reload(); setTab("journal"); }} />
+          onCreated={async () => { await reload(); changeTab("journal"); }} />
         {transferOpen && <PayrollTransferDrawer data={data} month={monthStart} employeeId={transferEmployee}
           onClose={() => setTransferOpen(false)} onChange={reload} />}
         <Dialog

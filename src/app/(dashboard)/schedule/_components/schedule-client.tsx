@@ -8,7 +8,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Plus,
-  SlidersHorizontal,
   Layers,
   Copy,
   Trash2,
@@ -19,7 +18,17 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { PersonAvatar } from "@/components/people/person-avatar";
+import { PageBreadcrumb } from "@/components/shared/page-header-actions";
+import { TableControls, TableIconButton, TablePageHeader } from "@/components/shared/table";
+import { TableFilterChip } from "@/components/shared/table/table-filter-chip";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import {
@@ -202,6 +211,7 @@ export function ScheduleClient({
       clearInterval(timer);
     };
   }, [showTasks, tab, refreshCalendarTasks]);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [filters, setFilters] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -550,7 +560,7 @@ export function ScheduleClient({
         : null,
     });
   };
-  const card = (s: Shift) => (
+  const card = (s: Shift, showAssignee = false) => (
     <button
       key={s.id}
       draggable={can("shift_edit")}
@@ -559,16 +569,17 @@ export function ScheduleClient({
       }
       onClick={() => setSelected(s)}
       className={cn(
-        "w-full rounded-md p-2 text-left grid gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-opacity hover:opacity-80",
+        "w-full rounded-md px-1.5 py-2 text-left grid gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-opacity hover:opacity-80",
         paletteBg(s.color),
         paletteText(s.color),
       )}
     >
-      <span className="text-xs font-semibold tabular-nums">
+      <span className="whitespace-nowrap text-[11px] font-semibold tabular-nums">
         {timeInZone(s.starts_at, data.timezone)}–
         {timeInZone(s.ends_at, data.timezone)}
       </span>
-      <span className="text-[11px] truncate">{s.title}</span>
+      <span className={cn("text-xs", !showAssignee && "truncate")}>{s.title}</span>
+      {showAssignee && <span className="text-xs">{name(shiftAssignee(s))}</span>}
       {!s.published && (
         <span className="flex gap-1 items-center text-[10px]">
           <span className="size-1.5 rounded-full bg-current" />
@@ -590,38 +601,76 @@ export function ScheduleClient({
       action={action}
     />
   );
-  const ContentFrame = tab === "calendar" ? "div" : PageFrame;
+  const calendarVisible = tab === "calendar" && !(selectedTask && calendarTasks);
+  const canPublish = can("shift_publish") && draftShifts.length > 0;
+  const filtersActive = department !== "all" || publication !== "all";
+  const today = dateInZone(new Date(), data.timezone);
   return (
     <TaskTitleTarget.Provider value={setScreenTitle}>
-    <ContentFrame className={tab === "calendar" ? "w-full min-w-0 p-4 md:p-8 space-y-6 max-w-[1800px] mx-auto" : "space-y-6"}>
-      {(tab === "calendar" || (tab === "tasks" && screenTitle !== null)) && <div className="flex flex-wrap justify-between items-center gap-4">
-          <h1 className="text-3xl font-bold tracking-tight">
-            {screenTitle ?? "Расписание"}
-          </h1>
-        <div
-          ref={setTaskHeaderTarget}
-          className="flex flex-wrap items-center gap-2"
-        >
-          {tab === "calendar" && !selectedTask && can("shift_create") && (
-            <Button
-              variant="outline"
-              onClick={() => create(dateInZone(new Date(), data.timezone))}
-            >
-              <Plus className="size-4 mr-2" />
-              Смена
-            </Button>
-          )}
-          {tab === "calendar" &&
-            !selectedTask &&
-            can("shift_publish") &&
-            draftShifts.length > 0 && (
-              <Button disabled={busy} onClick={publish}>
-                <Send className="size-4 mr-2" />
-                Опубликовать · {draftShifts.length}
-            </Button>
-          )}
-        </div>
-      </div>}
+    <PageFrame className="space-y-6">
+      {calendarVisible && (
+        <>
+          <PageBreadcrumb>
+            <nav aria-label="Навигация по разделам" className="flex min-w-0 items-center gap-2 text-sm">
+              <span className="text-muted-foreground">График работы</span>
+              <span aria-hidden="true" className="text-muted-foreground">/</span>
+              <span className="truncate">Расписание</span>
+            </nav>
+          </PageBreadcrumb>
+          <TablePageHeader
+            title="Расписание"
+            className="md:flex-wrap md:items-center [&>div:last-child]:max-w-full"
+            actions={
+              <TableControls
+                search={{
+                  value: query,
+                  onChange: setQuery,
+                  open: searchOpen,
+                  onOpenChange: setSearchOpen,
+                  placeholder: "Найти сотрудника",
+                }}
+                filters={{
+                  active: filters || filtersActive,
+                  onClick: () => setFilters(!filters),
+                }}
+                secondaryActions={
+                  can("shift_create") ? (
+                    <TableIconButton
+                      label={templatesOpen ? "Скрыть шаблоны смен" : "Показать шаблоны смен"}
+                      active={templatesOpen}
+                      onClick={() => setTemplatesOpen(!templatesOpen)}
+                    >
+                      <Layers />
+                    </TableIconButton>
+                  ) : null
+                }
+                primaryActions={
+                  <>
+                    {can("shift_create") && (
+                      <Button size="sm" className="h-8 sm:h-9" variant={canPublish ? "outline" : "default"} onClick={() => create(today)}>
+                        <Plus />
+                        Новая смена
+                      </Button>
+                    )}
+                    {canPublish && (
+                      <Button size="sm" className="h-8 sm:h-9" disabled={busy} onClick={publish}>
+                        <Send />
+                        Опубликовать · {draftShifts.length}
+                      </Button>
+                    )}
+                  </>
+                }
+              />
+            }
+          />
+        </>
+      )}
+      {((tab === "calendar" && !calendarVisible) || (tab === "tasks" && screenTitle !== null)) && (
+        <TablePageHeader
+          title={screenTitle ?? "Расписание"}
+          actions={<div ref={setTaskHeaderTarget} className="flex flex-wrap items-center gap-2" />}
+        />
+      )}
         {tab === "calendar" && (
           <section className="space-y-5">
           {selectedTask && calendarTasks ? (
@@ -647,15 +696,13 @@ export function ScheduleClient({
             <>
               <div className="flex flex-wrap justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    aria-label="Предыдущая неделя"
+                  <TableIconButton
+                    label="Предыдущая неделя"
                     onClick={() => setWeek(addDays(week, -7))}
                   >
-                    <ChevronLeft className="size-4" />
-                  </Button>
-                  <span className="text-base font-semibold min-w-48 text-center">
+                    <ChevronLeft />
+                  </TableIconButton>
+                  <span className="px-1 text-center text-sm font-semibold tabular-nums">
                     {dayLabel(days[0], { day: "numeric", month: "short" })} –{" "}
                     {dayLabel(days[6], {
                       day: "numeric",
@@ -663,14 +710,12 @@ export function ScheduleClient({
                       year: "numeric",
                     })}
                   </span>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    aria-label="Следующая неделя"
+                  <TableIconButton
+                    label="Следующая неделя"
                     onClick={() => setWeek(addDays(week, 7))}
                   >
-                    <ChevronRight className="size-4" />
-                  </Button>
+                    <ChevronRight />
+                  </TableIconButton>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -727,40 +772,15 @@ export function ScheduleClient({
                       </PopoverContent>
                     </Popover>
                   )}
-                  {can("shift_create") && (
-                    <Button
-                      variant={templatesOpen ? "secondary" : "ghost"}
-                      size="sm"
-                      onClick={() => setTemplatesOpen(!templatesOpen)}
-                      aria-expanded={templatesOpen}
-                    >
-                      <Layers className="size-4 mr-2" />
-                      Шаблоны
-                    </Button>
-                  )}
-                  <Button
-                    variant={filters ? "secondary" : "ghost"}
-                    size="sm"
-                    aria-expanded={filters}
-                    onClick={() => setFilters(!filters)}
-                  >
-                    <SlidersHorizontal className="size-4 mr-2" />
-                    Фильтры
-                    {(department !== "all" ||
-                      query ||
-                      publication !== "all") && (
-                      <span className="ml-2 size-1.5 rounded-full bg-brand" />
-                    )}
-                  </Button>
-                  <select
-                    aria-label="Вид графика"
-                    className={cn(selectClass, "w-auto hidden md:block h-9")}
-                    value={view}
-                    onChange={(e) => setView(e.target.value)}
-                  >
-                    <option value="week">Неделя</option>
-                    <option value="list">Список</option>
-                  </select>
+                  <Select value={view} onValueChange={setView}>
+                    <SelectTrigger aria-label="Вид расписания" className="hidden w-[128px] md:flex">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="week">Неделя</SelectItem>
+                      <SelectItem value="list">Список</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               {showTasks && tasksLoading && !calendarTasks && (
@@ -793,88 +813,60 @@ export function ScheduleClient({
                     На этой неделе назначенных задач нет
                   </p>
                 )}
-              {filters && (
-                <div className="flex flex-wrap gap-3 items-end rounded-lg bg-muted/50 p-3">
-                  <div className="min-w-48 flex-1">
-                    <Input
-                      aria-label="Поиск сотрудника"
-                      placeholder="Найти сотрудника"
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                    />
-                  </div>
-                  <select
-                    aria-label="Подразделение"
-                    className={cn(selectClass, "w-auto")}
-                    value={department}
-                    onChange={(e) => setDepartment(e.target.value)}
-                  >
-                    <option value="all">Все подразделения</option>
-                    {data.departments.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name}
-                      </option>
-                    ))}
-                  </select>
+              {(filters || filtersActive) && (
+                <div className="flex flex-wrap items-center gap-2" aria-label="Фильтры расписания">
+                  <TableFilterChip
+                    label="Подразделение"
+                    value={department === "all" ? "" : department}
+                    options={[
+                      { value: "", label: "Все подразделения" },
+                      ...data.departments.map(({ id, name }) => ({ value: id, label: name })),
+                    ]}
+                    onChange={(value) => setDepartment(value || "all")}
+                  />
                   {canPlan && (
-                    <select
-                      aria-label="Состояние публикации"
-                      className={cn(selectClass, "w-auto")}
-                      value={publication}
-                      onChange={(e) => setPublication(e.target.value)}
-                    >
-                      <option value="all">Все смены</option>
-                      <option value="draft">Черновики</option>
-                      <option value="published">Опубликованные</option>
-                    </select>
+                    <TableFilterChip
+                      label="Публикация"
+                      value={publication === "all" ? "" : publication}
+                      options={[
+                        { value: "", label: "Все смены" },
+                        { value: "draft", label: "Черновики" },
+                        { value: "published", label: "Опубликованные" },
+                      ]}
+                      onChange={(value) => setPublication(value || "all")}
+                    />
                   )}
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      setDepartment("all");
-                      setQuery("");
-                      setPublication("all");
-                    }}
-                  >
-                    Сбросить
-                  </Button>
                 </div>
               )}
               {templatesOpen && (
-                <div className="flex flex-wrap gap-2 items-center">
-                  <span className="text-xs text-muted-foreground mr-2">
-                    Перетащите в календарь или выберите шаблон
-                  </span>
-                  {data.templates
-                    .filter((t) => !t.archived)
-                    .map((t) => (
-                      <button
+                <section aria-label="Шаблоны смен" className="space-y-3 rounded-lg border bg-card p-4">
+                  <div>
+                    <h2 className="text-sm font-medium">Шаблоны смен</h2>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Перетащите шаблон в ячейку или выберите его, чтобы создать смену.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {data.templates.filter((t) => !t.archived).map((t) => (
+                      <Button
                         key={t.id}
+                        variant="outline"
+                        size="sm"
                         draggable
-                        onDragStart={(e) =>
-                          e.dataTransfer.setData(
-                            "application/sheerly-template",
-                            t.id,
-                          )
-                        }
+                        title={formatTemplateTimes(t)}
+                        onDragStart={(e) => e.dataTransfer.setData("application/sheerly-template", t.id)}
                         onClick={() => create(days[0], null, t)}
-                        className={cn(
-                          "flex gap-2 items-center px-3 py-2 text-xs rounded-lg focus-visible:ring-2 focus-visible:ring-ring",
-                          paletteBg(t.color),
-                          paletteText(t.color),
-                        )}
                       >
-                        <GripVertical className="size-3" />
+                        <GripVertical className="text-muted-foreground" />
+                        <span className={cn("size-2 shrink-0 rounded-full", paletteBg(t.color))} />
                         {t.name}
-                        <span>{formatTemplateTimes(t)}</span>
-                      </button>
+                      </Button>
                     ))}
-                  {!data.templates.some((t) => !t.archived) && (
-                    <span className="text-sm text-muted-foreground">
-                      Шаблонов пока нет
-                    </span>
-                  )}
-                </div>
+                    {!data.templates.some((t) => !t.archived) && (
+                      <span className="text-sm text-muted-foreground">Шаблонов пока нет</span>
+                    )}
+                  </div>
+                </section>
               )}
               {!staff.length &&
               !openShifts.length &&
@@ -894,34 +886,29 @@ export function ScheduleClient({
                 <>
                   <div
                     className={cn(
-                      "overflow-x-auto rounded-xl border hidden md:block",
+                      "hidden max-h-[72dvh] overflow-auto rounded-lg border bg-card md:block",
                       view === "list" && "md:hidden",
                     )}
                   >
-                    <table className="w-full border-collapse table-fixed min-w-[1000px]">
-                      <thead>
-                        <tr className="bg-muted/50">
-                          <th className="w-[200px] p-4 text-left text-xs font-medium">
+                    <table aria-label="Расписание на неделю" className="w-full min-w-[900px] table-fixed border-separate border-spacing-0">
+                      <thead className="sticky top-0 z-20">
+                        <tr className="bg-muted text-muted-foreground">
+                          <th scope="col" className="sticky left-0 z-10 w-[214px] border-b bg-muted px-4 py-3 text-left text-xs font-medium">
                             Сотрудники · {staff.length}
                           </th>
                           {days.map((d) => (
                             <th
                               key={d}
+                              scope="col"
                               className={cn(
-                                "border-l p-3 text-center font-medium",
-                                d === dateInZone(new Date(), data.timezone) &&
-                                  "bg-brand/5 text-brand",
+                                "border-b border-l px-2 py-3 text-center text-xs font-medium",
+                                d === today && "bg-brand/10 text-brand",
                               )}
                             >
-                              <span className="block text-xs text-muted-foreground mb-1">
-                                {dayLabel(d, { weekday: "short" })}
-                              </span>
-                              <span className="text-base">
-                                {dayLabel(d, { day: "numeric" })}
-                              </span>
+                              {dayLabel(d, { weekday: "short", day: "numeric" })}
                             </th>
                           ))}
-                          <th className="w-16 p-2 border-l text-xs font-medium text-muted-foreground">
+                          <th scope="col" className="w-16 border-b border-l p-2 text-xs font-medium">
                             Часы
                           </th>
                         </tr>
@@ -943,25 +930,21 @@ export function ScheduleClient({
                               ]
                             : []),
                         ].map((s) => (
-                          <tr key={s.id ?? "open"} className="border-t">
-                            <th className="px-4 py-3 text-left font-normal">
-                              <div className="flex items-center gap-2">
-                                <span className="rounded-full size-8 bg-muted flex items-center justify-center text-xs shrink-0">
-                                  {s.id ? (
-                                    s.label
-                                      .split(" ")
-                                      .map((w) => w[0])
-                                      .slice(0, 2)
-                                      .join("")
-                                  ) : (
+                          <tr key={s.id ?? "open"} className="group hover:bg-muted/30">
+                            <th scope="row" className="sticky left-0 z-10 border-b bg-card px-4 py-3 text-left font-normal group-hover:bg-muted">
+                              <div className="flex items-center gap-3">
+                                {s.id ? (
+                                  <PersonAvatar name={s.label} />
+                                ) : (
+                                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
                                     <Users className="size-4" />
-                                  )}
-                                </span>
+                                  </span>
+                                )}
                                 <div className="min-w-0">
-                                  <p className="text-xs font-medium truncate">
+                                  <p className="break-words text-[13px] font-medium">
                                     {s.label}
                                   </p>
-                                  <p className="text-[11px] text-muted-foreground truncate">
+                                  <p className="truncate text-xs text-muted-foreground">
                                     {s.role}
                                   </p>
                                 </div>
@@ -979,14 +962,12 @@ export function ScheduleClient({
                                 }}
                                 onDrop={(e) => void drop(e, d, s.id)}
                                 className={cn(
-                                  "border-l p-1.5 align-top h-[80px]",
-                                    d ===
-                                      dateInZone(new Date(), data.timezone) &&
-                                    "bg-brand/[0.025]",
+                                  "h-16 border-b border-l p-1.5 align-top",
+                                  d === today && "bg-brand/[0.025]",
                                 )}
                               >
                                 <div className="grid gap-1.5">
-                                  {personShifts(s.id, d).map(card)}
+                                  {personShifts(s.id, d).map((shift) => card(shift))}
                                   {weekTasks
                                     .filter(
                                       (task) =>
@@ -995,18 +976,20 @@ export function ScheduleClient({
                                     )
                                     .map((task) => taskCard(task))}
                                   {can("shift_create") && (
-                                    <button
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
                                       aria-label={`Добавить смену: ${s.label}, ${dayLabel(d)}`}
                                       onClick={() => create(d, s.id)}
-                                      className="flex items-center justify-center w-full rounded-md text-muted-foreground/60 hover:bg-muted hover:text-foreground min-h-8 focus-visible:ring-2 focus-visible:ring-ring"
+                                      className="h-8 w-full text-muted-foreground/70"
                                     >
                                       <Plus className="size-3.5" />
-                                    </button>
+                                    </Button>
                                   )}
                                 </div>
                               </td>
                             ))}
-                            <td className="border-l text-center text-xs font-medium tabular-nums">
+                            <td className="border-b border-l text-center text-xs font-medium tabular-nums">
                               {personShifts(s.id)
                                 .reduce(
                                   (sum, s) =>
@@ -1025,10 +1008,10 @@ export function ScheduleClient({
                           </tr>
                         ))}
                         {trialCandidates.length > 0 && (
-                          <tr className="border-t bg-muted/30">
+                          <tr className="bg-muted/50">
                             <th
                               colSpan={9}
-                              className="px-4 py-2 text-left text-xs font-medium text-muted-foreground"
+                              className="border-b px-4 py-2 text-left text-xs font-medium text-muted-foreground"
                             >
                               Стажировки · {trialCandidates.length}
                             </th>
@@ -1037,9 +1020,8 @@ export function ScheduleClient({
                         {trialCandidates.map((candidate) => (
                             <tr
                               key={candidate.candidate_id}
-                              className="border-t"
                             >
-                            <th className="px-4 py-3 text-left font-normal">
+                            <th scope="row" className="sticky left-0 z-10 border-b bg-card px-4 py-3 text-left font-normal">
                               <Link
                                 href={`/people/candidates/${candidate.candidate_id}`}
                                 className="block break-words text-xs font-medium hover:underline"
@@ -1058,7 +1040,7 @@ export function ScheduleClient({
                             {days.map((day) => (
                                 <td
                                   key={day}
-                                  className="border-l p-2 align-top"
+                                  className="border-b border-l p-2 align-top"
                                 >
                                 <div className="space-y-2">
                                   {weekTrials
@@ -1078,15 +1060,15 @@ export function ScheduleClient({
                                 </div>
                               </td>
                             ))}
-                            <td className="border-l text-center text-xs text-muted-foreground">
+                            <td className="border-b border-l text-center text-xs text-muted-foreground">
                               —
                             </td>
                           </tr>
                         ))}
                       </tbody>
                       <tfoot>
-                        <tr className="border-t bg-muted/50">
-                          <th className="p-3 text-left text-xs font-medium">
+                        <tr className="bg-muted">
+                          <th scope="row" className="sticky left-0 z-10 bg-muted px-4 py-3 text-left text-xs font-medium">
                             Всего часов
                           </th>
                           {days.map((d) => (
@@ -1142,33 +1124,21 @@ export function ScheduleClient({
                       )}
                   >
                     {days.map((d) => (
-                      <section key={d}>
-                        <h3 className="text-sm font-semibold mb-3">
+                      <section key={d} className="overflow-hidden rounded-lg border bg-card">
+                        <h3 className={cn("border-b bg-muted/50 px-4 py-3 text-sm font-medium first-letter:uppercase", d === today && "text-brand")}>
                           {dayLabel(d, {
                             weekday: "long",
                             day: "numeric",
                             month: "long",
                           })}
                         </h3>
-                        <div className="space-y-2">
+                        <div className="space-y-2 p-3">
                           {weekShifts
                             .filter(
                               (s) =>
                                 dateInZone(s.starts_at, data.timezone) === d,
                             )
-                            .map((s) => (
-                              <div
-                                key={s.id}
-                                className="flex gap-4 items-center"
-                              >
-                                <div className="flex-1">{card(s)}</div>
-                                {canPlan && (
-                                  <span className="text-xs text-muted-foreground w-36">
-                                    {name(shiftAssignee(s))}
-                                  </span>
-                                )}
-                              </div>
-                            ))}
+                            .map((shift) => card(shift, canPlan))}
                           {weekTasks
                             .filter((task) => task.business_date === d)
                             .map((task) => taskCard(task, false))}
@@ -1466,7 +1436,7 @@ export function ScheduleClient({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </ContentFrame>
+    </PageFrame>
     </TaskTitleTarget.Provider>
   );
 }

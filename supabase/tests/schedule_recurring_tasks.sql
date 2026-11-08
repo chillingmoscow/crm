@@ -78,6 +78,23 @@ begin
  insert into public.payroll_execution_policy(venue_id,account_id,bonus_from,legacy_stopped,activated_at) values(v,a,d,true,now()) on conflict(venue_id) do update set bonus_from=d,legacy_stopped=true,activated_at=now();
  perform public.payroll_prepare_bonus_operations();perform public.payroll_prepare_bonus_operations();
  if (select count(*) from public.payroll_bonus_operations where adjustment_id=bonus_id and direction='credit' and amount=300)<>1 then raise exception 'Премия задачи не вошла в существующий исполнитель бонусов';end if;
+ -- Pausing between claim and send must put the bonus back without authorizing a POST.
+ declare bonus_job jsonb; settings_version integer; send_authorized boolean;
+ begin
+  perform set_config('request.jwt.claim.sub',owner_id::text,true);perform set_config('app.ctx_ready','0',true);
+  select version into settings_version from public.schedule_task_settings where venue_id=v;
+  perform public.schedule_task_command('settings.save',jsonb_build_object('version',settings_version,'enabled_from',d-7,'legacy_stopped',true,'paused',true));
+  if (public.payroll_claim_bonus_operation()->>'adjustment_id')=bonus_id::text then raise exception 'Пауза выдала бонус из очереди';end if;
+  perform public.schedule_task_command('settings.save',jsonb_build_object('version',settings_version+1,'enabled_from',d-7,'legacy_stopped',true,'paused',false));
+  bonus_job:=public.payroll_claim_bonus_operation();
+  if bonus_job->>'adjustment_id' is distinct from bonus_id::text then raise exception 'После паузы бонус не вернулся в очередь';end if;
+  perform public.schedule_task_command('settings.save',jsonb_build_object('version',settings_version+2,'enabled_from',d-7,'legacy_stopped',true,'paused',true));
+  send_authorized:=public.payroll_begin_bonus_send((bonus_job->>'id')::uuid,(bonus_job->>'lease_token')::uuid,1000);
+  if send_authorized or not exists(select 1 from public.payroll_bonus_operations where adjustment_id=bonus_id and state='pending' and lease_token is null) then
+    raise exception 'Начатая проверка баланса пропустила паузу или потеряла бонус';
+  end if;
+  perform public.schedule_task_command('settings.save',jsonb_build_object('version',settings_version+3,'enabled_from',d-7,'legacy_stopped',true,'paused',false));
+ end;
  -- Unknown Telegram delivery is quarantined, not retried into a duplicate message.
  insert into public.schedule_task_messages(venue_id,account_id,business_date,message_key,chat_id,kind,payload,available_at) values(v,a,d,'fixture','-1000','daily','[]',now()-interval '1 day') returning id into msg_id;
  claim:=public.schedule_claim_task_message();
@@ -300,6 +317,16 @@ begin
  values(v,a,def,d,snapshot,'assigned',shift,employee,staff_id,now()+interval '1 hour') returning id,version into occ,ver;
  -- A completed upload is work even before run.save changes status or answers.
  insert into storage.objects(bucket_id,name,metadata) values('task-evidence',occ||'/'||photo_id||'/pending-save.jpg','{"mimetype":"image/jpeg"}');
+ declare competing_shift uuid;
+ begin
+  insert into public.schedule_shifts(venue_id,user_id,template_id,title,starts_at,ends_at,published)
+  values(v,owner_id,tpl,'TEST Competing Shift',shift_start,shift_end,true) returning id into competing_shift;
+  perform public.schedule_process_tasks();
+  if not exists(select 1 from public.schedule_task_occurrences where id=occ and user_id=staff_id and shift_id=shift and status='assigned' and evidence_started) then
+   raise exception 'Вторая опубликованная смена отобрала отчёт с загруженным фото';
+  end if;
+  delete from public.schedule_shifts where id=competing_shift;
+ end;
  select version into ver from public.schedule_shifts where id=shift;
  begin
   perform public.schedule_command('shift.delete',jsonb_build_object('id',shift,'version',ver));

@@ -25,6 +25,7 @@ create table public.schedule_task_occurrences (
  business_date date not null, shift_id uuid references public.schedule_shifts(id) on delete set null,
  employee_id uuid references public.payroll_employees(id), user_id uuid references public.profiles(id),
  employee_name text, snapshot jsonb not null, answers jsonb not null default '{}',
+ evidence_started boolean not null default false,
  status text not null default 'blocked' check(status in ('assigned','in_progress','submitted','returned','completed','missed','blocked')),
  transferred boolean not null default false, transferred_from_id uuid references public.schedule_task_occurrences(id),
  transfer_created boolean not null default false,
@@ -115,7 +116,7 @@ returns void language sql set search_path='' as $$
      and planned.submitted_at is null and planned.completed_at is null and planned.settled_at is null and planned.adjustment_id is null
      and not planned.transferred and planned.transferred_from_id is null
      and not exists(select 1 from public.schedule_task_occurrences child where child.transferred_from_id=planned.id)
-     and not exists(select 1 from storage.objects photo where photo.bucket_id='task-evidence' and photo.name like planned.id::text||'/%')
+     and not planned.evidence_started
     returning planned.*
    )
    insert into public.schedule_task_history(venue_id,entity_id,actor_id,action,details)
@@ -195,6 +196,8 @@ begin
  elsif p_action='settings.save' then
   if not public.has_permission('schedule.checklist_edit') or not public.has_permission('payroll.configure') or not public.has_permission('payroll.review') then raise exception 'Нет доступа к переключению задач';end if;
   select * into settings from public.schedule_task_settings where venue_id=v and account_id=a for update;
+  -- Same lock order as the task worker; the bonus send checks the saved pause under the venue lock.
+  perform pg_advisory_xact_lock(hashtextextended(v::text,0));
   if settings.venue_id is not null and settings.version is distinct from (p_input->>'version')::integer then raise exception 'Настройки изменились';end if;
   activation_date:=coalesce(nullif(p_input->>'enabled_from','')::date,settings.enabled_from);
   is_paused:=coalesce((p_input->>'paused')::boolean,false) or (nullif(p_input->>'enabled_from','') is null and settings.enabled_from is not null);
@@ -247,6 +250,27 @@ grant execute on function public.schedule_task_command(text,jsonb) to authentica
 insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types) values('task-evidence','task-evidence',false,12582912,array['image/jpeg','image/png','image/webp']) on conflict(id) do nothing;
 create policy task_evidence_read on storage.objects for select to authenticated using(bucket_id='task-evidence' and exists(select 1 from public.schedule_task_occurrences o where o.id::text=(storage.foldername(name))[1]));
 create policy task_evidence_insert on storage.objects for insert to authenticated with check(bucket_id='task-evidence' and exists(select 1 from public.schedule_task_occurrences o where o.id::text=(storage.foldername(name))[1] and o.user_id=(select auth.uid()) and o.status in ('assigned','in_progress','returned') and o.settled_at is null and exists(select 1 from jsonb_array_elements(o.snapshot->'items') i where i->>'id'=(storage.foldername(name))[2] and i->>'kind'='photo')));
+
+-- An upload is work even before the answers are saved. Mark the occurrence
+-- in the storage transaction, using the same row lock as assignment changes.
+create function private.schedule_task_mark_evidence() returns trigger
+language plpgsql security definer set search_path='' as $$
+begin
+ update public.schedule_task_occurrences
+ set evidence_started=true
+ where id=(storage.foldername(new.name))[1]::uuid
+   and (coalesce(auth.role(),'')<>'authenticated' or (
+     user_id=auth.uid() and venue_id=public.get_active_venue_id()
+     and account_id=public.get_active_account_id()
+     and status in ('assigned','in_progress','returned') and settled_at is null
+   ));
+ if not found then raise exception 'Задание для фото недоступно';end if;
+ return new;
+end $$;
+revoke all on function private.schedule_task_mark_evidence() from public,anon,authenticated;
+create trigger schedule_task_mark_evidence before insert on storage.objects
+for each row when (new.bucket_id='task-evidence') execute function private.schedule_task_mark_evidence();
+
 
 create function private.schedule_task_instruction_file_read(p_path text) returns boolean
 language sql stable set search_path='' as $$
@@ -320,6 +344,7 @@ begin
   end loop;
   -- Rebind untouched assignments when the published shift is filled or corrected.
   for o in select * from public.schedule_task_occurrences where venue_id=settings.venue_id and business_date>=settings.enabled_from and business_date between today-7 and today+7 and status in ('blocked','assigned') and answers='{}'::jsonb and settled_at is null for update loop
+   if o.evidence_started then continue;end if;
    select count(*) into count_shifts from public.schedule_shifts where venue_id=o.venue_id and template_id=(o.snapshot->>'template_id')::uuid and published and (starts_at at time zone tz)::date=o.business_date;
    blocked_reason:='';s:=null;e:=null;
    if count_shifts=0 then blocked_reason:='Нет опубликованной смены нужного шаблона';
@@ -359,7 +384,7 @@ begin
    if count_shifts<>1 or not exists(select 1 from public.schedule_shifts current_shift where current_shift.id=o.shift_id and current_shift.venue_id=o.venue_id and current_shift.published and current_shift.template_id=(o.snapshot->>'template_id')::uuid and (current_shift.starts_at at time zone tz)::date=o.business_date and (current_shift.payroll_employee_id=o.employee_id or (current_shift.payroll_employee_id is null and current_shift.user_id=o.user_id)))
     or not exists(select 1 from public.payroll_employees where id=o.employee_id and venue_id=o.venue_id and active and (hired_on is null or hired_on<=o.business_date))
     or not exists(select 1 from public.user_venue_roles uv where uv.user_id=o.user_id and uv.venue_id=o.venue_id and uv.status='active') then
-    update public.schedule_task_occurrences set blocker='Смена или сотрудник изменились. Нужна проверка',status=case when o.status='assigned' and o.answers='{}'::jsonb then 'blocked' else o.status end,version=version+case when o.blocker='Смена или сотрудник изменились. Нужна проверка' then 0 else 1 end where id=o.id;continue;
+    update public.schedule_task_occurrences set blocker='Смена или сотрудник изменились. Нужна проверка',status=case when o.status='assigned' and o.answers='{}'::jsonb and not o.evidence_started then 'blocked' else o.status end,version=version+case when o.blocker='Смена или сотрудник изменились. Нужна проверка' then 0 else 1 end where id=o.id;continue;
    end if;
    if exists(select 1 from public.payroll_periods where venue_id=o.venue_id and month=date_trunc('month',o.business_date)::date and status<>'draft') then
     update public.schedule_task_occurrences set blocker='Зарплатный период закрыт. Нужна сверка начисления' where id=o.id;continue;
@@ -400,7 +425,7 @@ begin
     shift_id=null,employee_id=null,user_id=null,employee_name=null,deadline_at=null,
     status='blocked',blocker='Перенос ожидает назначения смены',updated_at=now(),version=schedule_task_occurrences.version+1
    where schedule_task_occurrences.status in ('assigned','blocked') and schedule_task_occurrences.answers='{}'::jsonb and schedule_task_occurrences.settled_at is null and (schedule_task_occurrences.transferred_from_id is null or schedule_task_occurrences.transferred_from_id=excluded.transferred_from_id)
-    and not exists(select 1 from storage.objects photo where photo.bucket_id='task-evidence' and photo.name like schedule_task_occurrences.id::text||'/%');
+    and not schedule_task_occurrences.evidence_started;
    get diagnostics n=row_count;
    if n>0 then
     update public.schedule_task_occurrences set transfer_created=true,blocker='' where id=o.id;
@@ -509,7 +534,7 @@ begin
  end if;
  for o in select * from public.schedule_task_occurrences where shift_id=old.id for update loop
   if o.status not in ('blocked','assigned') or o.answers<>'{}'::jsonb or o.submitted_at is not null or o.settled_at is not null
-   or exists(select 1 from storage.objects photo where photo.bucket_id='task-evidence' and photo.name like o.id::text||'/%') then
+   or o.evidence_started then
    if tg_op='DELETE' then raise exception 'Нельзя удалить смену с начатым отчётом задачи';end if;
    raise exception 'Нельзя менять назначение смены с начатым отчётом задачи';
   end if;

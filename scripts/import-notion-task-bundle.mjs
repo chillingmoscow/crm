@@ -9,6 +9,8 @@ import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { mergeImportedContent, importedMediaUrls } from "./notion-bundle-content.mjs";
 
+import { scopeNotionBundle, stripPersonalNotionReferences } from "./notion-bundle-scope.mjs";
+
 const args = process.argv.slice(2);
 const arg = (name) =>
   args.includes(name) ? args[args.indexOf(name) + 1] : undefined;
@@ -28,6 +30,7 @@ if (
   throw Error("Неверный формат пакета");
 if (!args.includes("--catalog-only") && bundle.missingAssets.length)
   throw Error("Сначала восстановите недостающие вложения пакета");
+const scoped = scopeNotionBundle(bundle);
 const stable = (v) =>
   JSON.stringify(v, (_, x) =>
     x && typeof x === "object" && !Array.isArray(x)
@@ -197,7 +200,7 @@ const folderId = uuid(`task-instructions:${venue}`),
   relatedId = uuid(`task-instruction-references:${venue}`);
 const targets = new Map();
 const pages = [];
-for (const p of bundle.pages) {
+for (const p of scoped.pages) {
   if (excludedSources.has(p.sourceId)) continue;
   if (!/^[a-f0-9]{31,32}$/.test(p.sourceId))
     throw Error("Неверный идентификатор источника");
@@ -235,7 +238,7 @@ for (const s of source)
   )
     throw Error("В пакете отсутствует шаблон " + s.name);
 const files = new Map();
-for (const a of bundle.assets) {
+for (const a of scoped.assets) {
   if (
     !/^[a-f0-9]{64}$/.test(a.sha256) ||
     basename(a.file) !== a.file ||
@@ -263,6 +266,8 @@ const report = {
   totalTasks: allDefs.length,
   pages: pages.length,
   files: files.size,
+  excludedPersonalPages: bundle.pages.filter((page) => scoped.excluded.has(page.sourceId)).length,
+  excludedPersonalFiles: bundle.assets.length - scoped.assets.length,
   unavailablePages: pages.filter((p) => p.unavailable).length,
   pendingPages: pages.filter((p) => p.pending).length,
   sourceWarnings: bundle.warnings.length,
@@ -312,6 +317,13 @@ for (let offset = 0; ; offset += 500) {
   for (const page of rows) existingPages.set(page.id, page);
   if (rows.length < 500) break;
 }
+// A previously imported private record is not made safe by skipping it
+// on a rerun. Stop before any writes until the old copies are reconciled.
+for (const sourceId of scoped.excluded) {
+  const page = existingPages.get(uuid(`notion-source:${venue}:${sourceId}`));
+  if (page && !page.deleted_at)
+    throw Error("В базе остались личные карточки из предыдущего импорта");
+}
 if (verify) {
   for (const f of files.values()) {
     const blob = check(
@@ -326,6 +338,8 @@ if (verify) {
     const page = existingPages.get(source.id);
     if (!page || page.deleted_at) throw Error("Страница архива не сохранена");
     const text = JSON.stringify(page.content);
+    if (stable(stripPersonalNotionReferences(page.content, scoped.excluded)) !== stable(page.content))
+      throw Error("В архиве остались ссылки на личные карточки");
     if (/notionpage:\/\/|bundleasset:\/\/|X-Amz-|X-Goog-/.test(text))
       throw Error("Остались неразрешённые ссылки архива");
     for (const match of text.matchAll(/\/knowledge\/([a-zA-Z0-9_-]+)/g))
@@ -508,6 +522,7 @@ const rewrite = (value) => {
     return value
       .replace(/notionpage:\/\/([a-f0-9]{31,32})/g, (_, id) => {
         if (excludedSources.has(id)) return "/schedule/tasks";
+        if (scoped.excluded.has(id)) return "Личная карточка пропущена";
         const t = targets.get(id);
         if (!t) throw Error("Неизвестная связанная страница");
         return `/knowledge/${t.slug}`;
@@ -520,7 +535,8 @@ const rewrite = (value) => {
           if (!match) return url;
           const id = canonical(match[1]);
           if (id === "768f265590174214b80fa86dbd849267") return "/schedule";
-          if (excludedSources.has(id)) return "/schedule/tasks";
+            if (excludedSources.has(id)) return "/schedule/tasks";
+          if (scoped.excluded.has(id)) return "Личная карточка пропущена";
           const t = targets.get(id);
           if (!t) throw Error("Неизвестная связанная страница");
           return `/knowledge/${t.slug}`;
@@ -562,10 +578,10 @@ let saved = 0,
   preserved = 0;
 async function save(p, original) {
   const old = existingPages.get(p.id);
-  let content = rewrite(original);
+  let content = rewrite(stripPersonalNotionReferences(original, scoped.excluded));
   let manuallyEdited = false;
   if (old.content?.length) {
-    const stripped = stripSource(old.content);
+    const stripped = stripPersonalNotionReferences(stripSource(old.content), scoped.excluded);
     const generated =
       p.definition &&
       stable(

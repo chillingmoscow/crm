@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import { ProfileSection } from "@/components/shared/profile-section";
 import { PALETTE_COLORS, paletteBg, paletteText } from "@/lib/palette";
 import { cn } from "@/lib/utils";
 import { addDays, dateInZone, timeInZone } from "@/lib/schedule/utils";
@@ -224,7 +225,7 @@ function Variants({
     <fieldset className="grid gap-3">
       <legend className="text-sm font-medium mb-2">Время по дням недели</legend>
       {variants.map((v, index) => (
-        <div key={index} className="grid gap-3 rounded-lg border p-3">
+        <div key={index} className="grid gap-3 border-b pb-3">
           <div className="flex items-center justify-between gap-2">
             <div
               role="group"
@@ -235,20 +236,17 @@ function Variants({
                 const day = i + 1;
                 const on = v.days.includes(day);
                 return (
-                  <button
+                  <Button
                     key={day}
                     type="button"
+                    size="sm"
+                    variant={on ? "default" : "outline"}
                     aria-pressed={on}
                     onClick={() => toggle(index, day)}
-                    className={cn(
-                      "h-8 min-w-9 rounded-md border px-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                      on
-                        ? "border-brand bg-brand text-brand-foreground"
-                        : "border-input bg-background text-muted-foreground hover:bg-muted",
-                    )}
+                    className="h-8 min-w-7 px-1 text-xs sm:min-w-9 sm:px-2"
                   >
                     {label}
-                  </button>
+                  </Button>
                 );
               })}
             </div>
@@ -362,7 +360,7 @@ function Colors({
   return (
     <fieldset>
       <legend className="text-sm font-medium mb-2">Цвет смены</legend>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-1 sm:gap-2">
         {PALETTE_COLORS.filter(
           (c) => !["default", "brown"].includes(c.name),
         ).map((c) => (
@@ -784,27 +782,35 @@ export function TemplateEditor({
         </>
       }
     >
-      <Field label="Название">
-        <Input
-          maxLength={160}
-          value={value.name}
-          onChange={(e) => set({ ...value, name: e.target.value })}
+      <ProfileSection title="Основное">
+        <Field label="Название">
+          <Input
+            maxLength={160}
+            value={value.name}
+            onChange={(e) => set({ ...value, name: e.target.value })}
+          />
+        </Field>
+        <Colors
+          value={value.color}
+          onChange={(color) => set({ ...value, color })}
         />
-      </Field>
-      <Variants
-        variants={variants}
-        set={(v) => {
-          setVariants(v);
-          setError(null);
-        }}
-      />
-      {error && <p className="text-sm text-destructive">{error}</p>}
-      <Extras value={value} set={set} />
-      <Assignments data={data} value={value} set={set} />
-      <Colors
-        value={value.color}
-        onChange={(color) => set({ ...value, color })}
-      />
+      </ProfileSection>
+      <ProfileSection title="Расписание">
+        <Variants
+          variants={variants}
+          set={(next) => {
+            setVariants(next);
+            setError(null);
+          }}
+        />
+        <Extras value={value} set={set} />
+        {error && (
+          <p role="alert" className="text-sm text-destructive">{error}</p>
+        )}
+      </ProfileSection>
+      <ProfileSection title="Назначение">
+        <Assignments data={data} value={value} set={set} />
+      </ProfileSection>
     </EditDrawer>
   );
 }

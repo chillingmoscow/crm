@@ -590,18 +590,13 @@ export function ScheduleClient({
       action={action}
     />
   );
-  const ContentFrame = tab === "tasks" ? PageFrame : "div";
+  const ContentFrame = tab === "calendar" ? "div" : PageFrame;
   return (
     <TaskTitleTarget.Provider value={setScreenTitle}>
-    <ContentFrame className={tab === "tasks" ? "space-y-6" : "w-full min-w-0 p-4 md:p-8 space-y-6 max-w-[1800px] mx-auto"}>
-      {(tab!=="tasks"||screenTitle!==null)&&<div className="flex flex-wrap justify-between items-center gap-4">
+    <ContentFrame className={tab === "calendar" ? "w-full min-w-0 p-4 md:p-8 space-y-6 max-w-[1800px] mx-auto" : "space-y-6"}>
+      {(tab === "calendar" || (tab === "tasks" && screenTitle !== null)) && <div className="flex flex-wrap justify-between items-center gap-4">
           <h1 className="text-3xl font-bold tracking-tight">
-            {screenTitle ??
-              (tab === "tasks"
-                ? "Задачи"
-                : tab === "templates"
-                  ? "Шаблоны смен"
-                  : "Расписание")}
+            {screenTitle ?? "Расписание"}
           </h1>
         <div
           ref={setTaskHeaderTarget}
@@ -1237,24 +1232,23 @@ export function ScheduleClient({
           </section>
         )}
         {tab === "templates" && (
-          <TaskHeaderTarget.Provider value={taskHeaderTarget}>
-            <TemplateList
-              templates={data.templates}
-              can={can}
-              onCreate={() => setEditor({ type: "template" })}
-              onEdit={(template) => setEditor({ type: "template", template })}
-              onCopy={(template) =>
-                setEditor({ type: "template", template, copy: true })
-                          }
-              onArchive={(template) =>
-                void save("template.archive", {
-                  id: template.id,
-                  version: template.version,
-                            })
-                          }
-            />
-          </TaskHeaderTarget.Provider>
-                      )}
+          <TemplateList
+            templates={data.templates}
+            tableId={`schedule.templates.${data.userId}.${data.venueId}`}
+            can={can}
+            onCreate={() => setEditor({ type: "template" })}
+            onEdit={(template) => setEditor({ type: "template", template })}
+            onCopy={(template) =>
+              setEditor({ type: "template", template, copy: true })
+            }
+            onArchive={(template) =>
+              void save("template.archive", {
+                id: template.id,
+                version: template.version,
+              })
+            }
+          />
+        )}
       {editor?.type === "shift" && (
         <ShiftEditor
           key={`${editor.shift?.id ?? "new"}-${editor.copy}`}

@@ -29,17 +29,8 @@ export function PeopleListHeader({
       </PageBreadcrumb>
       <TablePageHeader
         className="md:flex-wrap md:items-center [&>div:last-child]:max-w-full"
-        title={
-          <span className="inline-flex items-center gap-3">
-            {title}
-            <span
-              className="inline-flex h-7 min-w-7 items-center justify-center rounded-md bg-muted px-2 text-sm font-normal tabular-nums text-muted-foreground"
-              aria-label={`Всего: ${count}`}
-            >
-              {count}
-            </span>
-          </span>
-        }
+        title={title}
+        count={count}
         subtitle={description}
         actions={actions}
       />

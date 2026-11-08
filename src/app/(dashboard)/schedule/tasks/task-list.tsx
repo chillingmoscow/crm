@@ -320,17 +320,8 @@ export function TaskList({
     <div className="space-y-4">
       <TablePageHeader
         className="md:flex-wrap md:items-center [&>div:last-child]:max-w-full"
-        title={
-          <span className="inline-flex items-center gap-3">
-            Задачи
-            <span
-              className="inline-flex h-7 min-w-7 items-center justify-center rounded-md bg-muted px-2 text-sm font-normal tabular-nums text-muted-foreground"
-              aria-label={`Всего: ${rows.length}`}
-            >
-              {rows.length}
-            </span>
-          </span>
-        }
+        title="Задачи"
+        count={rows.length}
         actions={
           <TableControls
             search={{

@@ -31,7 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { deleteRole, setRolePermission, updateRole } from "../../actions";
+import { deleteRole, setRolePermission, setRoleScheduleVisibility, updateRole } from "../../actions";
 import { setRoleDepartment } from "../../../departments/actions";
 import {
   metaForModule,
@@ -87,6 +87,8 @@ type RolePermission = {
 };
 
 type Props = {
+  showInSchedule: boolean;
+  canEditSchedule: boolean;
   initialCompensation?: boolean;
   role: Role;
   permissions: Permission[];
@@ -109,6 +111,8 @@ type TabKey = "main" | "permissions" | "compensation" | "history" | "danger";
 
 export function RoleDetailPage({
   role,
+  showInSchedule,
+  canEditSchedule,
   initialCompensation,
   permissions,
   rolePermissions: initialRolePerms,
@@ -130,6 +134,7 @@ export function RoleDetailPage({
   // Settings tab state
   const [nameValue, setNameValue] = useState(role.name);
   const [commentValue, setCommentValue] = useState(role.comment ?? "");
+  const [schedulePending, saveScheduleVisibility] = useTransition();
   const [iconValue, setIconValue] = useState<string | null>(role.icon);
   const [iconColorValue, setIconColorValue] = useState<string | null>(
     role.icon_color ?? null,
@@ -669,6 +674,28 @@ export function RoleDetailPage({
                     className={!canEdit ? "bg-muted/50" : ""}
                     placeholder="Для чего используется роль, кому назначается…"
                     rows={4}
+                  />
+                </div>
+
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <Label htmlFor="role-show-in-schedule">Показывать в расписании</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Сотрудники этой должности видны при планировании. Уже назначенные смены остаются в графике.
+                    </p>
+                  </div>
+                  <Switch
+                    id="role-show-in-schedule"
+                    checked={showInSchedule}
+                    onCheckedChange={(visible) => saveScheduleVisibility(async () => {
+                      const result = await setRoleScheduleVisibility(role.id, visible);
+                      if (result.error) toast.error(result.error);
+                      else {
+                        toast.success("Видимость в расписании сохранена");
+                        router.refresh();
+                      }
+                    })}
+                    disabled={!canEditSchedule || schedulePending}
                   />
                 </div>
 

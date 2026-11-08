@@ -321,26 +321,6 @@
   margin-bottom: 26px;
   gap: 12px;
 }
-.monthControl {
-  display: flex;
-  align-items: center;
-  background: hsl(var(--card));
-  border: 1px solid hsl(var(--border));
-  border-radius: 7px;
-  overflow: hidden;
-  height: 35px;
-}
-.monthControl > button {
-  background: none;
-  border: none;
-  color: hsl(var(--muted-foreground));
-  padding: 8px;
-  display: grid;
-  place-items: center;
-}
-.monthControl > button:hover {
-  background: hsl(var(--muted));
-}
 
 .metrics {
   display: grid;
@@ -1511,9 +1491,6 @@
     align-items: center;
   }
 
-  .monthControl > button {
-    padding: 6px;
-  }
   .metric {
     padding: 16px;
   }
@@ -1601,21 +1578,6 @@
     transition: none !important;
     scroll-behavior: auto !important;
   }
-}
-.monthControl .monthTrigger {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 0 11px;
-  height: 33px;
-  background: white;
-  border: 0;
-  border-left: 1px solid hsl(var(--border));
-  border-right: 1px solid hsl(var(--border));
-  font-size: 12px;
-  font-weight: 500;
-  text-transform: capitalize;
-  color: hsl(var(--foreground));
 }
 .monthPicker {
   background: hsl(var(--card)) !important;
@@ -1863,23 +1825,6 @@
 .contextBar {
   margin-top: 24px;
   margin-bottom: 24px;
-}
-.monthControl {
-  height: 36px;
-  border-radius: 8px;
-  background: hsl(var(--brand) / 0.06);
-  border-color: hsl(var(--brand) / 0.2);
-}
-.monthControl > button,
-.monthControl .monthTrigger {
-  color: hsl(var(--brand));
-  background: transparent;
-  height: 34px;
-  border-color: hsl(var(--brand) / 0.12);
-  font-size: 13px;
-}
-.monthControl > button:hover {
-  background: hsl(var(--brand) / 0.08);
 }
 .metrics {
   border-radius: 12px;

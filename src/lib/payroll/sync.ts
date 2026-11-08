@@ -21,7 +21,7 @@ import type {
   PayAssignment,
 } from "./types";
 import { readPayrollDay, extraBonuses } from "./source";
-import { reconcileAttendance, blocksPayrollAttendance, attendanceRuleAtDate, payrollFactRows } from "./attendance";
+import { applyScheduleReviews, reconcileAttendance, blocksPayrollAttendance, attendanceRuleAtDate, payrollFactRows } from "./attendance";
 import {
   computeAccrual,
   hasShiftPay,
@@ -109,10 +109,6 @@ export async function processPayrollDay() {
         .select("*")
         .eq("venue_id", venueId),
       admin
-        .from<Shift[]>("schedule_shifts")
-        .select("*")
-        .eq("venue_id", venueId),
-      admin
         .from<Attendance[]>("payroll_attendance")
         .select("*")
         .eq("venue_id", venueId)
@@ -136,7 +132,6 @@ export async function processPayrollDay() {
       employeesResult,
       modelsResult,
       rulesResult,
-      shiftsResult,
       priorResult,
       adjustmentsResult,
       dayResult,
@@ -146,7 +141,6 @@ export async function processPayrollDay() {
       employees = employeesResult.data ?? [],
       models = modelsResult.data ?? [],
       rules = rulesResult.data ?? [],
-      shifts = shiftsResult.data ?? [],
       prior = priorResult.data ?? [],
       adjustments = (adjustmentsResult.data ?? []).filter(
         (a) => !a.deleted_at && (!a.medium || a.medium === "money"),
@@ -253,7 +247,8 @@ export async function processPayrollDay() {
         (r) =>
           !Number.isSafeInteger(r.id) ||
           !Number.isFinite(r.startTime) ||
-          !Number.isSafeInteger(r.owner.id),
+          !Number.isSafeInteger(r.owner.id) ||
+          (r.endTime !== null && !Number.isFinite(r.endTime)),
       )
     )
       throw new Error("Некорректные отметки Quick Resto");
@@ -265,6 +260,18 @@ export async function processPayrollDay() {
           sales.day_start_hour,
         ) === date,
     );
+    // A mark can overlap a night shift on either side of the business day.
+    const lastEnd = own.reduce(
+      (end, row) => Math.max(end, row.endTime ?? row.startTime + 86400000),
+      source.window.end,
+    );
+    const shiftResult = await admin.from<Shift[]>("schedule_shifts").select("*")
+      .eq("venue_id", venueId).eq("published", true)
+      .gte("ends_at", new Date(source.window.start).toISOString())
+      .lt("starts_at", new Date(lastEnd).toISOString());
+    if (shiftResult.error) throw new Error(shiftResult.error.message);
+    const shifts = shiftResult.data ?? [];
+    if (shifts.length >= 1000) throw new Error("Неполный список смен рабочего дня");
     const crossBoundary = rows.filter((r) => !own.includes(r));
     const checkedBoundary = crossBoundary.length
       ? await admin
@@ -299,23 +306,12 @@ export async function processPayrollDay() {
       sales.timezone,
       sales.day_start_hour,
     );
-    const unresolvedMissing = reconciled.missing.filter(
-      ({ shift }) =>
-        !scheduleReviews.some(
-          (review) =>
-            review.shift_id === shift.id &&
-            review.snapshot.user_id === shift.user_id &&
-            Date.parse(review.snapshot.starts_at) ===
-              Date.parse(shift.starts_at) &&
-            Date.parse(review.snapshot.ends_at) === Date.parse(shift.ends_at),
-        ),
-    );
     // Время сравниваем как моменты, а не строки: из базы приходит «…+00:00», из
     // Quick Resto - «…Z». При сравнении строк решение проверяющего («не учитывать»,
     // «подтверждено») терялось, и проигнорированная отметка снова оплачивалась.
     const sameInstant = (a: string | null | undefined, b: string | null | undefined) =>
       a == null || b == null ? a == b : Date.parse(a) === Date.parse(b);
-    const attendance = reconciled.items.map((r) => {
+    const reviewedItems = reconciled.items.map((r) => {
       const old = prior.find((o) => o.external_id === r.external_id);
       return old?.reviewed_by &&
         old.employee_id === r.employee_id &&
@@ -324,6 +320,14 @@ export async function processPayrollDay() {
         ? { ...r, status: old.status, reviewed_by: old.reviewed_by }
         : r;
     });
+    const { items: attendance, missing: unresolvedMissing, marks } = applyScheduleReviews(
+      { ...reconciled, items: reviewedItems },
+      shifts,
+      scheduleReviews,
+      date,
+      day?.status === "complete" ? settings.schedule_fallback_from ?? null : null,
+      prior,
+    );
     const primaryEmployees = employees.map(e => ({...e}));
     const positionIssues = new Map<string,string>();
     // The planned duty changes shift earnings, never the primary monthly salary.
@@ -331,6 +335,7 @@ export async function processPayrollDay() {
       const planned = shifts.filter(
         (s) =>
           (s.payroll_employee_id === employees[i].id || Boolean(employees[i].local_user_id && s.user_id === employees[i].local_user_id)) &&
+          marks[s.id]?.state !== "excluded" &&
           s.published &&
           Date.parse(s.ends_at) <= Date.now() &&
           businessDate(
@@ -572,6 +577,7 @@ export async function processPayrollDay() {
           attendance_count: own.length,
           schedule_attendance_count:attendance.filter(a=>a.external_id<0).length,
           missing_shifts: unresolvedMissing.map((m) => m.shift.id),
+          shift_attendance: marks,
           cross_boundary_ids: unresolvedBoundary.map((r) => r.id),
           cashbox_count: source.cashbox.length,
           extras,
@@ -639,6 +645,12 @@ export async function processPayrollDay() {
     }
     return { idle: false, date, employees: accruals.length };
   } catch (e) {
+    if (e instanceof Error && e.message === "Смена изменилась. Повторите расчёт зарплаты") {
+      await admin.from("payroll_source_days")
+        .update({ state: "pending", error: "Расписание изменилось. Пересчёт продолжится автоматически." })
+        .eq("venue_id", venueId).eq("business_date", date).eq("lease_token", lease_token);
+      return { idle: false, date, error: "Расписание изменилось во время расчёта" };
+    }
     if (e instanceof Error && /429|частот|rate.limit/i.test(e.message)) {
       const retryAt = new Date(Date.now() + 60000).toISOString();
       await admin

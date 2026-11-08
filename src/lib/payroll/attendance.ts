@@ -1,11 +1,30 @@
 import { businessDate, dayWindow } from "@/lib/sales/time";
 import type { Shift } from "@/lib/schedule/types";
-import type { PayEmployee, Attendance, AttendanceRule } from "./types";
+import type { PayEmployee, Attendance, AttendanceRule, ScheduleReview, ShiftAttendanceSnapshot } from "./types";
+type AttendanceDraft = Pick<Attendance, "external_id" | "employee_id" | "business_date" |
+  "starts_at" | "ends_at" | "shift_id" | "role_name" | "status" | "issue"> & {
+  schedule_review_override?: boolean;
+};
 export function attendanceRuleAtDate(rules:AttendanceRule[],employeeId:string,date:string) {
  return rules.filter(r=>r.employee_id===employeeId&&r.valid_from<=date).sort((a,b)=>b.valid_from.localeCompare(a.valid_from)||b.created_at.localeCompare(a.created_at)||b.id.localeCompare(a.id))[0]??null;
 }
 function plannedEmployee(shift:Shift,employees:PayEmployee[]) {
  return shift.payroll_employee_id?employees.find(e=>e.id===shift.payroll_employee_id&&e.attendance_source!=="excluded"):employees.find(e=>e.local_user_id&&e.local_user_id===shift.user_id&&e.attendance_source==="schedule");
+}
+function scheduledAttendance(shift: Shift, employee: PayEmployee | undefined, date: string): AttendanceDraft {
+  if (!Number.isSafeInteger(shift.payroll_fact_id) || shift.payroll_fact_id! >= 0)
+    throw new Error("Не задан ID записи графика");
+  return {
+    external_id: shift.payroll_fact_id!,
+    employee_id: employee?.id ?? null,
+    business_date: date,
+    starts_at: shift.starts_at,
+    ends_at: shift.ends_at,
+    shift_id: shift.id,
+    role_name: employee?.role_name ?? "",
+    status: "confirmed",
+    issue: null,
+  };
 }
 export function reconcileAttendance(
   rows: {
@@ -78,12 +97,6 @@ export function reconcileAttendance(
       } else if (!shift) {
         status = "unplanned";
         issue = "Фактический выход без опубликованной смены в Sheerly";
-      } else if (
-        Math.abs(r.startTime - Date.parse(shift.starts_at)) > 15 * 60000 ||
-        Math.abs(r.endTime - Date.parse(shift.ends_at)) > 15 * 60000
-      ) {
-        status = "deviation";
-        issue = "План и факт отличаются более чем на 15 минут";
       }
       return {
         external_id: r.id,
@@ -100,19 +113,7 @@ export function reconcileAttendance(
   const scheduleItems = scheduled.map((s) => {
     const e = plannedEmployee(s,employees);
     matched.add(s.id);
-    if (!Number.isSafeInteger(s.payroll_fact_id) || s.payroll_fact_id! >= 0)
-      throw new Error("Не задан ID записи графика");
-    return {
-      external_id: s.payroll_fact_id!,
-      employee_id: e?.id ?? null,
-      business_date: date,
-      starts_at: s.starts_at,
-      ends_at: s.ends_at,
-      shift_id: s.id,
-      role_name: e?.role_name ?? "",
-      status: "confirmed" as const,
-      issue: null,
-    };
+    return scheduledAttendance(s, e, date);
   });
   const missing = future
     ? []
@@ -121,6 +122,7 @@ export function reconcileAttendance(
           (s) =>
             s.published &&
             s.user_id &&
+            Date.parse(s.ends_at) <= Date.now() &&
             !matched.has(s.id) &&
             !employees.some(e=>e.local_user_id===s.user_id&&(e.attendance_source==="schedule"||e.attendance_source==="excluded")) &&
             businessDate(new Date(s.starts_at), timezone, hour) === date,
@@ -130,6 +132,73 @@ export function reconcileAttendance(
           employee: employees.find((e) => e.local_user_id === s.user_id),
         }));
   return { items: [...items, ...scheduleItems], missing };
+}
+
+export function applyScheduleReviews(
+  reconciled: { items: AttendanceDraft[]; missing: ReturnType<typeof reconcileAttendance>["missing"] },
+  shifts: Shift[],
+  reviews: ScheduleReview[],
+  date: string,
+  fallbackFrom: string | null,
+  prior: Attendance[] = [],
+) {
+  const reviewByShift = new Map(reviews.flatMap((review) => {
+    const shift = shifts.find((s) => s.id === review.shift_id);
+    if (!shift?.published || shift.user_id !== review.snapshot.user_id ||
+        (shift.payroll_employee_id ?? null) !== (review.snapshot.payroll_employee_id ?? null) ||
+        Date.parse(shift.starts_at) !== Date.parse(review.snapshot.starts_at) ||
+        Date.parse(shift.ends_at) !== Date.parse(review.snapshot.ends_at)) return [];
+    return [[shift.id, { review, shiftVersion: shift.version }] as const];
+  }));
+  const marks: Record<string, ShiftAttendanceSnapshot> = {};
+  const items = reconciled.items.map((item) => {
+    const entry = item.shift_id ? reviewByShift.get(item.shift_id) : undefined;
+    const review = entry?.review;
+    if (!entry || review?.employee_id !== item.employee_id || !review?.decision) return item;
+    const state = review.decision === "exclude" ? "excluded" : "included";
+    marks[review.shift_id] = {
+      state,
+      shiftVersion: entry.shiftVersion,
+      reason: review.reason,
+      hasQuickResto: item.external_id > 0,
+    };
+    return review.decision === "exclude"
+      ? { ...item, status: "ignored" as const, issue: review.reason, schedule_review_override: true }
+      : item;
+  });
+  const missing = [];
+  const qrEmployees = new Set(reconciled.items.filter((item) =>
+    item.external_id > 0 && item.status !== "ignored",
+  ).map((item) => item.employee_id));
+  for (const entry of reconciled.missing) {
+    const { shift, employee } = entry;
+    const savedReview = reviewByShift.get(shift.id)?.review;
+    const review = savedReview?.employee_id === (employee?.id ?? null) ? savedReview : undefined;
+    const hasQuickResto = employee ? qrEmployees.has(employee.id) : false;
+    const details = { shiftVersion: shift.version, hasQuickResto };
+    if (review && (!review.decision || review.decision === "exclude")) {
+      marks[shift.id] = { ...details, state: "excluded", reason: review.reason };
+      continue;
+    }
+    const alreadyCounted = employee && prior.some((fact) =>
+      fact.external_id === shift.payroll_fact_id && fact.shift_id === shift.id &&
+      fact.employee_id === employee.id && fact.status === "confirmed" &&
+      Date.parse(fact.starts_at) === Date.parse(shift.starts_at) &&
+      !!fact.ends_at && Date.parse(fact.ends_at) === Date.parse(shift.ends_at),
+    );
+    const automatic = fallbackFrom && Date.parse(shift.starts_at) >= Date.parse(fallbackFrom) &&
+      (employee?.active || alreadyCounted) && !hasQuickResto;
+    if (employee && (review?.decision === "include" || automatic)) {
+      marks[shift.id] = review
+        ? { ...details, state: "included", reason: review.reason }
+        : { ...details, state: "scheduled" };
+      items.push(scheduledAttendance(shift, employee, date));
+    } else {
+      missing.push(entry);
+      marks[shift.id] = { ...details, state: "missing" };
+    }
+  }
+  return { items, missing, marks };
 }
 
 // Schedule discrepancies are informational. Only missing or ambiguous cash-register facts block salary.

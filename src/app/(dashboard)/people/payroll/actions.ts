@@ -154,7 +154,7 @@ export async function loadPayroll(): Promise<PayrollData> {
         .maybeSingle(),
       s.admin
         .from<PayrollData["sources"]>("payroll_source_days")
-        .select("business_date,state,error,synced_at")
+        .select("business_date,state,error,synced_at,missing_shifts:source->missing_shifts")
         .eq("account_id", s.accountId)
         .eq("venue_id", s.venueId)
         .order("business_date", { ascending: false }),

@@ -4,6 +4,7 @@ import {
   getCachedPermissionChecker,
 } from "@/lib/supabase/server";
 import { listAuditEvents } from "@/lib/audit/list";
+import { asLooseDb } from "@/lib/supabase/loose";
 import { RoleDetailPage } from "./_components/role-detail-page";
 
 export default async function RoleDetailServerPage({
@@ -133,9 +134,16 @@ export default async function RoleDetailServerPage({
         : Promise.resolve({ data: [] as { id: string; name: string }[] }),
     ]);
 
+  const visibility = activeVenueId
+    ? await asLooseDb(supabase).from("schedule_hidden_roles").select("role_id")
+      .eq("venue_id", activeVenueId).eq("role_id", roleId).maybeSingle()
+    : null;
+  if (visibility?.error) throw new Error("Не удалось загрузить настройки расписания");
   return (
     <RoleDetailPage
       role={role}
+      showInSchedule={!visibility?.data}
+      canEditSchedule={!!activeVenueId && can("people.manage_roles")}
       initialCompensation={query.tab === "compensation"}
       permissions={permissionsResult.data ?? []}
       rolePermissions={rolePermsResult.data ?? []}

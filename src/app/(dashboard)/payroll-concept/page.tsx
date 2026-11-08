@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { loadPayroll } from "@/app/(dashboard)/people/payroll/actions";
 import { validDate } from "@/lib/sales/time";
 import { PayrollConcept } from "@/app/payroll-concept/payroll-concept";
@@ -19,17 +20,13 @@ export default async function PayrollConceptPage({
       : new Date()
           .toLocaleDateString("sv-SE", { timeZone: "Europe/Moscow" })
           .slice(0, 7);
+  if (query.tab === "attendance") redirect(`/schedule?date=${month}-01`);
   const data = await loadPayroll();
-  const initialTab =
-    query.tab === "attendance" && data.permissions.includes("payroll.view")
-      ? "attendance"
-      : "statement";
   return (
     <PayrollConcept
-      key={`${data.venueId}:${month}:${initialTab}`}
+      key={`${data.venueId}:${month}`}
       data={data}
       initialMonth={month}
-      initialTab={initialTab}
     />
   );
 }

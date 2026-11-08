@@ -633,7 +633,7 @@ export function ShiftEditor({
             }}
           >
             <option value="">Открытая смена, без сотрудника</option>
-            {data.staff.map((s) => (
+            {data.staff.filter((s) => s.show_in_schedule || s.user_id === who).map((s) => (
               <option key={s.user_id} value={s.user_id}>
                 {[s.first_name, s.last_name].filter(Boolean).join(" ") ||
                   s.role_name}

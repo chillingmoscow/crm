@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import { ProfileSection } from "@/components/shared/profile-section";
 import { PALETTE_COLORS, paletteBg, paletteText } from "@/lib/palette";
 import { cn } from "@/lib/utils";
 import { addDays, dateInZone, timeInZone } from "@/lib/schedule/utils";
@@ -81,7 +82,9 @@ function TimeRange({
             type="time"
             required
             value={start.slice(0, 5)}
-            onChange={(e) => onChange({ start_time: e.target.value, end_time: end })}
+            onChange={(e) =>
+              onChange({ start_time: e.target.value, end_time: end })
+            }
           />
         </Field>
         <Field label="Окончание">
@@ -90,7 +93,9 @@ function TimeRange({
             type="time"
             required
             value={end.slice(0, 5)}
-            onChange={(e) => onChange({ start_time: start, end_time: e.target.value })}
+            onChange={(e) =>
+              onChange({ start_time: start, end_time: e.target.value })
+            }
           />
         </Field>
       </div>
@@ -174,7 +179,14 @@ export function formatDays(days: number[]) {
     while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) j++;
     const from = WEEKDAYS[sorted[i] - 1];
     const to = WEEKDAYS[sorted[j] - 1];
-    parts.push(j - i >= 2 ? `${from}–${to}` : sorted.slice(i, j + 1).map((d) => WEEKDAYS[d - 1]).join(", "));
+    parts.push(
+      j - i >= 2
+        ? `${from}–${to}`
+        : sorted
+            .slice(i, j + 1)
+            .map((d) => WEEKDAYS[d - 1])
+            .join(", "),
+    );
     i = j + 1;
   }
   return parts.join(", ");
@@ -213,7 +225,7 @@ function Variants({
     <fieldset className="grid gap-3">
       <legend className="text-sm font-medium mb-2">Время по дням недели</legend>
       {variants.map((v, index) => (
-        <div key={index} className="grid gap-3 rounded-lg border p-3">
+        <div key={index} className="grid gap-3 border-b pb-3">
           <div className="flex items-center justify-between gap-2">
             <div
               role="group"
@@ -224,20 +236,17 @@ function Variants({
                 const day = i + 1;
                 const on = v.days.includes(day);
                 return (
-                  <button
+                  <Button
                     key={day}
                     type="button"
+                    size="sm"
+                    variant={on ? "default" : "outline"}
                     aria-pressed={on}
                     onClick={() => toggle(index, day)}
-                    className={cn(
-                      "h-8 min-w-9 rounded-md border px-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                      on
-                        ? "border-brand bg-brand text-brand-foreground"
-                        : "border-input bg-background text-muted-foreground hover:bg-muted",
-                    )}
+                    className="h-8 min-w-7 px-1 text-xs sm:min-w-9 sm:px-2"
                   >
                     {label}
-                  </button>
+                  </Button>
                 );
               })}
             </div>
@@ -351,7 +360,7 @@ function Colors({
   return (
     <fieldset>
       <legend className="text-sm font-medium mb-2">Цвет смены</legend>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-1 sm:gap-2">
         {PALETTE_COLORS.filter(
           (c) => !["default", "brown"].includes(c.name),
         ).map((c) => (
@@ -375,51 +384,7 @@ function Colors({
     </fieldset>
   );
 }
-function ChecklistSelection({
-  data,
-  ids,
-  set,
-}: {
-  data: ScheduleData;
-  ids: string[];
-  set: (a: string[]) => void;
-}) {
-  const available = data.checklists.filter(
-    (c) => (!!c.published_snapshot && !c.archived) || ids.includes(c.id),
-  );
-  return (
-    <fieldset className="space-y-3">
-      <legend className="text-sm font-medium mb-2">Чек-листы смены</legend>
-      {available.length ? (
-        available.map((c) => (
-          <label key={c.id} className="flex items-center gap-3 text-sm">
-            <input
-              type="checkbox"
-              checked={ids.includes(c.id)}
-              onChange={(e) =>
-                set(
-                  e.target.checked
-                    ? [...ids, c.id]
-                    : ids.filter((id) => id !== c.id),
-                )
-              }
-            />
-            <span>
-              {c.name}
-              {!c.published && (
-                <span className="text-destructive"> · есть черновик</span>
-              )}
-            </span>
-          </label>
-        ))
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          Сначала создайте и опубликуйте чек-лист во вкладке «Чек-листы».
-        </p>
-      )}
-    </fieldset>
-  );
-}
+
 export function ShiftEditor({
   data,
   shift,
@@ -483,13 +448,23 @@ export function ShiftEditor({
   const casualEmployee = data.casualEmployees?.find(
     (e) => `payroll:${e.id}` === who,
   );
-  const selectedPayModel = payModel || casualEmployee?.model_id || "";
+  const candidatePayModel = payModel || casualEmployee?.model_id || "";
+  const selectedPayModel = data.payModels?.some(
+    (model) =>
+      model.id === candidatePayModel &&
+      model.role_name ===
+        data.roles.find((role) => role.id === value.role_id)?.name,
+  )
+    ? candidatePayModel
+    : "";
   const [note, setNote] = useState(shift?.note ?? "");
   const [templateId, setTemplateId] = useState(
     shift?.template_id ?? template?.id ?? null,
   );
   const chosen = data.templates.find((t) => t.id === templateId);
-  const chosenTimes = chosen ? templateTimesFor(chosen, isoWeekday(date)) : null;
+  const chosenTimes = chosen
+    ? templateTimesFor(chosen, isoWeekday(date))
+    : null;
   // Время подставляется из шаблона при выборе шаблона и при смене даты, пока
   // его не поправили руками. Для существующей смены — только если её время
   // совпадает со временем шаблона на эту дату.
@@ -567,8 +542,7 @@ export function ShiftEditor({
     >
       {started && !copy && (
         <p className="text-sm text-muted-foreground">
-          Чек-лист уже начат. Время, позицию, сотрудника и набор чек-листов
-          менять нельзя.
+          Отчёт смены уже начат. Время, должность и сотрудника менять нельзя.
         </p>
       )}
       <Field label="Шаблон">
@@ -659,29 +633,17 @@ export function ShiftEditor({
             }}
           >
             <option value="">Открытая смена, без сотрудника</option>
-            {data.staff
-              .filter(
-                (s) =>
-                  !value.role_id ||
-                  s.role_id === value.role_id ||
-                  data.qualifications.some(
-                    (q) =>
-                      q.user_id === s.user_id && q.role_id === value.role_id,
-                  ),
-              )
-              .map((s) => (
-                <option key={s.user_id} value={s.user_id}>
-                  {[s.first_name, s.last_name].filter(Boolean).join(" ") ||
-                    s.role_name}
-                </option>
-              ))}
-            {(data.casualEmployees ?? [])
-              .filter((e) => !value.role_id || e.role_id === value.role_id)
-              .map((e) => (
-                <option key={e.id} value={`payroll:${e.id}`}>
-                  {e.name} · разовый
-                </option>
-              ))}
+            {data.staff.map((s) => (
+              <option key={s.user_id} value={s.user_id}>
+                {[s.first_name, s.last_name].filter(Boolean).join(" ") ||
+                  s.role_name}
+              </option>
+            ))}
+            {(data.casualEmployees ?? []).map((e) => (
+              <option key={e.id} value={`payroll:${e.id}`}>
+                {e.name} · разовый
+              </option>
+            ))}
             {canAssign && data.permissions.includes("payroll.configure") && (
               <option value="new-casual">＋ Новый разовый сотрудник</option>
             )}
@@ -724,13 +686,6 @@ export function ShiftEditor({
               окончания, без отметки Quick Resto.
             </p>
           </div>
-        )}
-        {!casual && (
-          <ChecklistSelection
-            data={data}
-            ids={value.checklist_ids}
-            set={(ids) => set({ ...value, checklist_ids: ids })}
-          />
         )}
       </fieldset>
       <Colors
@@ -785,7 +740,8 @@ export function TemplateEditor({
     if (problem) return;
     // Один вариант на все дни — обычный шаблон без вариантов.
     const everyDay =
-      variants.length === 1 && ALL_DAYS.every((d) => variants[0].days.includes(d));
+      variants.length === 1 &&
+      ALL_DAYS.every((d) => variants[0].days.includes(d));
     setBusy(true);
     if (
       await save(
@@ -826,32 +782,35 @@ export function TemplateEditor({
         </>
       }
     >
-      <Field label="Название">
-        <Input
-          maxLength={160}
-          value={value.name}
-          onChange={(e) => set({ ...value, name: e.target.value })}
+      <ProfileSection title="Основное">
+        <Field label="Название">
+          <Input
+            maxLength={160}
+            value={value.name}
+            onChange={(e) => set({ ...value, name: e.target.value })}
+          />
+        </Field>
+        <Colors
+          value={value.color}
+          onChange={(color) => set({ ...value, color })}
         />
-      </Field>
-      <Variants
-        variants={variants}
-        set={(v) => {
-          setVariants(v);
-          setError(null);
-        }}
-      />
-      {error && <p className="text-sm text-destructive">{error}</p>}
-      <Extras value={value} set={set} />
-      <Assignments data={data} value={value} set={set} />
-      <Colors
-        value={value.color}
-        onChange={(color) => set({ ...value, color })}
-      />
-      <ChecklistSelection
-        data={data}
-        ids={value.checklist_ids}
-        set={(checklist_ids) => set({ ...value, checklist_ids })}
-      />
+      </ProfileSection>
+      <ProfileSection title="Расписание">
+        <Variants
+          variants={variants}
+          set={(next) => {
+            setVariants(next);
+            setError(null);
+          }}
+        />
+        <Extras value={value} set={set} />
+        {error && (
+          <p role="alert" className="text-sm text-destructive">{error}</p>
+        )}
+      </ProfileSection>
+      <ProfileSection title="Назначение">
+        <Assignments data={data} value={value} set={set} />
+      </ProfileSection>
     </EditDrawer>
   );
 }

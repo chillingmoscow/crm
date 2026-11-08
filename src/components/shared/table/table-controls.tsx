@@ -217,7 +217,7 @@ export function TableControls({
   );
 }
 
-function TooltipIconButton({
+export function TooltipIconButton({
   label,
   active,
   disabled,

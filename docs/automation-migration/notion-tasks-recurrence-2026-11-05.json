@@ -1,0 +1,187 @@
+{
+  "capturedOn": "2026-11-05",
+  "source": "Notion template picker > Edit cadence (read-only UI inspection)",
+  "recurrenceChanged": false,
+  "items": [
+    {
+      "name": "Ежемесячное обслуживание мебели",
+      "unit": "week",
+      "interval": 4,
+      "weekdays": [
+        1
+      ],
+      "time": "04:15",
+      "utcOffset": "+03:00",
+      "nextOccurrence": "2026-11-23",
+      "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+      "startLabel": "18 мар. 2024 г."
+    },
+    {
+      "name": "Заточка ножей",
+      "unit": "week",
+      "interval": 1,
+      "weekdays": [
+        4
+      ],
+      "time": "03:15",
+      "utcOffset": "+03:00",
+      "nextOccurrence": "2026-11-12",
+      "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+      "startLabel": "10 апр. 2023 г."
+    },
+    {
+      "name": "Обслуживание посудомоечных машин",
+      "unit": "week",
+      "interval": 1,
+      "weekdays": [
+        6
+      ],
+      "time": "04:15",
+      "utcOffset": "+03:00",
+      "nextOccurrence": "2026-11-07",
+      "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+      "startLabel": "10 апр. 2023 г."
+    },
+    {
+      "name": "Уборка за холодильниками на кухне",
+      "unit": "week",
+      "interval": 1,
+      "weekdays": [
+        1
+      ],
+      "time": "04:15",
+      "utcOffset": "+03:00",
+      "nextOccurrence": "2026-11-09",
+      "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+      "startLabel": "5 июл. 2024 г."
+    },
+    {
+      "name": "Уборка кассовой зоны",
+      "unit": "week",
+      "interval": 2,
+      "weekdays": [
+        3
+      ],
+      "time": "04:15",
+      "utcOffset": "+03:00",
+      "nextOccurrence": "2026-11-11",
+      "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+      "startLabel": "30 апр. 2025 г."
+    },
+    {
+      "name": "Очистка посудомоечных машин",
+      "unit": "week",
+      "interval": 4,
+      "weekdays": [
+        7
+      ],
+      "time": "04:15",
+      "utcOffset": "+03:00",
+      "nextOccurrence": "2026-11-22",
+      "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+      "startLabel": "11 апр. 2023 г."
+    },
+    {
+      "name": "Обслуживание сололифтов",
+      "unit": "month",
+      "interval": 2,
+      "weekdays": [],
+      "time": "04:15",
+      "utcOffset": "+03:00",
+      "nextOccurrence": "2026-12-23",
+      "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+      "startLabel": "23 июн. 2024 г.",
+      "monthDay": 23
+    },
+    {
+      "name": "Обслуживание холодильников",
+      "unit": "week",
+      "interval": 1,
+      "weekdays": [
+        1
+      ],
+      "time": "04:15",
+      "utcOffset": "+00:00",
+      "nextOccurrence": "2026-11-09",
+      "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+      "startLabel": "24 июн."
+    },
+    {
+      "name": "Чистка печи для пиццы",
+      "unit": "week",
+      "interval": 2,
+      "weekdays": [
+        6
+      ],
+      "time": "04:15",
+      "utcOffset": "+00:00",
+      "nextOccurrence": "2026-11-14",
+      "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+      "startLabel": "24 июн."
+    },
+    {
+      "name": "Чистка чайной посуды от налёта",
+      "unit": "week",
+      "interval": 1,
+      "weekdays": [
+        3
+      ],
+      "time": "04:15",
+      "utcOffset": "+03:00",
+      "nextOccurrence": "2026-11-11",
+      "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+      "startLabel": "19 апр. 2023 г."
+    },
+    {
+      "name": "Чистка термопота / чайника",
+      "unit": "week",
+      "interval": 1,
+      "weekdays": [
+        7
+      ],
+      "time": "04:15",
+      "utcOffset": "+00:00",
+      "nextOccurrence": "2026-11-08",
+      "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+      "startLabel": "24 июн."
+    },
+    {
+      "name": "Чистка стеклянных подсвечников",
+      "unit": "week",
+      "interval": 2,
+      "weekdays": [
+        1
+      ],
+      "time": "04:15",
+      "utcOffset": "+00:00",
+      "nextOccurrence": "2026-11-09",
+      "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+      "startLabel": "24 июн."
+    },
+    {
+      "name": "Чистка деревянных менажниц",
+      "unit": "week",
+      "interval": 2,
+      "weekdays": [
+        1
+      ],
+      "time": "04:15",
+      "utcOffset": "+00:00",
+      "nextOccurrence": "2026-11-09",
+      "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+      "startLabel": "24 июн."
+    },
+    {
+      "name": "Чистка кухонного кондиционера",
+      "unit": "month",
+      "interval": 1,
+      "weekdays": [],
+      "time": "04:15",
+      "utcOffset": "+00:00",
+      "nextOccurrence": "2026-11-24",
+      "nextOccurrenceBasis": "read_from_Notion_UI_relative_label_on_2026-11-05",
+      "startLabel": "24 июн.",
+      "monthDay": 24
+    }
+  ]
+}

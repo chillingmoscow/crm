@@ -37,7 +37,7 @@ import { PhoneInput } from "@/components/ui/phone-input";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tabs, ProfileTabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -792,7 +792,7 @@ export function StaffDetailPage({
           value={activeTab}
           onValueChange={(v) => setActiveTab(v as TabKey)}
         >
-          <TabsList className="justify-start overflow-x-auto [&>button]:shrink-0 [&>button:first-child]:ml-auto [&>button:last-child]:mr-auto">
+          <ProfileTabsList>
             <TabsTrigger value="main">Основное</TabsTrigger>
             <TabsTrigger value="documents">Документы</TabsTrigger>
             <TabsTrigger value="pay">Оплата</TabsTrigger>
@@ -808,7 +808,7 @@ export function StaffDetailPage({
             >
               Опасная зона
             </TabsTrigger>
-          </TabsList>
+          </ProfileTabsList>
 
           {/* ── Основное ─────────────────────────────────────── */}
           <TabsContent value="main">

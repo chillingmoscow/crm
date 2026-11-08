@@ -7,6 +7,7 @@ import {
 } from "@/lib/automations/worker";
 import { processPayrollBonus } from "@/lib/payroll/bonus-worker";
 import { processAdjustmentNotification } from "@/lib/payroll/adjustment-notify-worker";
+import { processScheduleTasks } from "@/lib/schedule/tasks-worker";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -22,6 +23,9 @@ export async function POST(request: NextRequest) {
   if (a.length !== b.length || !timingSafeEqual(a, b))
     return NextResponse.json({ error: "Нет доступа" }, { status: 401 });
   try {
+    let taskResult: {created:number;settled:number}|null = null;
+    let taskErrors = 0;
+    try { taskResult = await processScheduleTasks(); } catch { taskErrors++; }
     await schedulePayroll();
     const started = Date.now();
     let processed = 0,
@@ -81,6 +85,8 @@ export async function POST(request: NextRequest) {
       finesErrors++;
     }
     return NextResponse.json({
+      tasks: taskResult,
+      taskErrors,
       finesSent,
       finesErrors,
       bonusProcessed,

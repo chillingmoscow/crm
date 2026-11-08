@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { isUnavailableNotionPage } from "@/lib/knowledge/notion-unavailable";
 import { createClient } from "@/lib/supabase/server";
 import type { KbPageRow } from "@/types/knowledge";
 
@@ -41,7 +42,7 @@ export async function listMyKbFavorites(): Promise<{
   const byId = new Map((pages ?? []).map((p) => [p.id, p]));
   const ordered = favRows
     .map((r) => byId.get(r.page_id))
-    .filter((p): p is KbFavoritePage => p != null);
+    .filter((p): p is KbFavoritePage => p != null && !isUnavailableNotionPage(p));
   return { pages: ordered, error: null };
 }
 

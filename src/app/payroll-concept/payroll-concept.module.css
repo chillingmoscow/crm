@@ -2319,3 +2319,18 @@
     font-size: 22px;
   }
 }
+
+@media (max-width: 540px) {
+  .tabs > div {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px 16px;
+  }
+  .tabs button {
+    min-height: 40px;
+    padding: 6px 0;
+    text-align: left;
+    line-height: 1.3;
+  }
+}

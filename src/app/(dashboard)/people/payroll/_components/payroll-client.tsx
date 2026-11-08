@@ -476,11 +476,11 @@ export function PayrollClient({
                     Если есть незакрытые или неоднозначные выходы Quick Resto,
                     проверьте их в{" "}
                     <Link
-                      href="/schedule/attendance"
+                      href={`/people/payroll?tab=attendance&month=${month.slice(0, 7)}`}
                       onClick={() => setApprovalOpen(false)}
                       className="text-brand hover:underline"
                     >
-                      табеле смен сотрудников
+                      разделе «Проверка выходов»
                     </Link>
                     .
                   </li>

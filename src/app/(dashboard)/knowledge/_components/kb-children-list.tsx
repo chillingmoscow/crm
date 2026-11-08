@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { ArrowUpRight } from "lucide-react";
 
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
@@ -36,6 +38,8 @@ export function KbChildrenList({
   allPages,
   initialVisible,
 }: KbChildrenListProps) {
+  const [shown, setShown] = useState({ pageId, limit: 50 });
+  const limit = shown.pageId === pageId ? shown.limit : 50;
   const stateOverride = useKbPageStateOverride(pageId);
   const visible = stateOverride?.showChildren ?? initialVisible;
   const children = allPages
@@ -57,7 +61,7 @@ export function KbChildrenList({
         Подстраницы
       </h2>
       <ul className="flex flex-col gap-1">
-        {children.map((row) => (
+        {children.slice(0, limit).map((row) => (
           <li key={row.id}>
             <Link
               href={`/knowledge/${row.slug}`}
@@ -72,6 +76,17 @@ export function KbChildrenList({
           </li>
         ))}
       </ul>
+      {children.length > limit && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="self-start"
+          onClick={() => setShown({ pageId, limit: limit + 50 })}
+        >
+          Показать ещё {Math.min(50, children.length - limit)}
+          <span className="text-muted-foreground">из {children.length}</span>
+        </Button>
+      )}
     </section>
   );
 }

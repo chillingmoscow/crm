@@ -14,6 +14,7 @@ import {
   kbPageMoveSchema,
   kbPageSaveSchema,
 } from "@/lib/knowledge/schemas";
+import { isUnavailableNotionPage } from "@/lib/knowledge/notion-unavailable";
 import { generateKbSlug } from "@/lib/knowledge/slug";
 import type {
   KbPageCreateInput,
@@ -31,14 +32,23 @@ export async function listKbPages(): Promise<{
   error: string | null;
 }> {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("kb_pages")
-    .select("*")
-    .is("deleted_at", null)
-    .order("parent_id", { ascending: true, nullsFirst: true })
-    .order("position", { ascending: true });
-  if (error) return { rows: [], error: error.message };
-  return { rows: (data ?? []) as KbPageRow[], error: null };
+  const rows: KbPageRow[] = [];
+  // Fetch beyond PostgREST's row cap; ID makes equal positions deterministic.
+  const pageSize = 500;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase
+      .from("kb_pages")
+      .select("*")
+      .is("deleted_at", null)
+      .order("parent_id", { ascending: true, nullsFirst: true })
+      .order("position", { ascending: true })
+      .order("id")
+      .range(offset, offset + pageSize - 1);
+    if (error) return { rows: [], error: error.message };
+    rows.push(...((data ?? []) as KbPageRow[]));
+    if ((data?.length ?? 0) < pageSize) break;
+  }
+  return { rows, error: null };
 }
 
 /** Slim projection for tree/sidebar/children/count use-cases. Avoids
@@ -48,14 +58,23 @@ export async function listKbPageTreeRows(): Promise<{
   error: string | null;
 }> {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("kb_pages")
-    .select("id, parent_id, position, title, icon, icon_color, slug, locked_at")
-    .is("deleted_at", null)
-    .order("parent_id", { ascending: true, nullsFirst: true })
-    .order("position", { ascending: true });
-  if (error) return { rows: [], error: error.message };
-  return { rows: (data ?? []) as KbPageTreeRow[], error: null };
+  const rows: KbPageTreeRow[] = [];
+  // Fetch beyond PostgREST's row cap; ID makes equal positions deterministic.
+  const pageSize = 500;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase
+      .from("kb_pages")
+      .select("id, parent_id, position, title, icon, icon_color, slug, locked_at")
+      .is("deleted_at", null)
+      .order("parent_id", { ascending: true, nullsFirst: true })
+      .order("position", { ascending: true })
+      .order("id")
+      .range(offset, offset + pageSize - 1);
+    if (error) return { rows: [], error: error.message };
+    rows.push(...((data ?? []) as KbPageTreeRow[]));
+    if ((data?.length ?? 0) < pageSize) break;
+  }
+  return { rows: rows.filter((page) => !isUnavailableNotionPage(page)), error: null };
 }
 
 /** Trash list row — slim проекция KbPageRow (без content/plain_text/

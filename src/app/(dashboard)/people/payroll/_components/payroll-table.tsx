@@ -18,6 +18,7 @@ import {
   useTableState,
 } from "@/components/shared/table";
 import { createPortal } from "react-dom";
+import { PeopleMobileCards } from "@/components/people/people-mobile-cards";
 import { cn } from "@/lib/utils";
 const noHiddenColumns: string[] = [];
 export function PayrollTable<T>({
@@ -38,6 +39,9 @@ export function PayrollTable<T>({
   exportAction,
   scrollMode = "contained",
   minWidth = 600,
+  label,
+  mobileCards,
+  empty,
 }: {
   id: string;
   rows: T[];
@@ -56,6 +60,9 @@ export function PayrollTable<T>({
   exportAction?: { label: string; onClick: () => void };
   scrollMode?: "contained" | "page";
   minWidth?: number;
+  label?: string;
+  mobileCards?: boolean;
+  empty?: React.ReactNode;
 }) {
   const [toolbarTarget, setToolbarTarget] = useState<HTMLElement | null>(null);
   useEffect(() => {
@@ -270,108 +277,130 @@ export function PayrollTable<T>({
           ? createPortal(controls, toolbarTarget)
           : null
         : controls}
-      <div className="overflow-hidden rounded-xl border">
+      {!filtered.length && empty ? (
+        empty
+      ) : (
         <div
-          data-payroll-scroll={scrollMode}
           className={cn(
-            "overflow-x-auto",
-            scrollMode === "contained" && "max-h-[65dvh] overflow-y-auto",
+            "overflow-hidden rounded-xl border",
+            mobileCards && "hidden sm:block",
           )}
         >
-          <table
-            // TableConvert adds attributes before hydration; allow its table annotations.
-            suppressHydrationWarning
-            className="w-full table-fixed text-[13px] [&_thead]:text-xs [&_tbody_td]:px-4 [&_tbody_td]:py-4"
-            style={{ minWidth: Math.max(minWidth, table.getTotalSize()) }}
+          <div
+            data-payroll-scroll={scrollMode}
+            className={cn(
+              "overflow-x-auto",
+              scrollMode === "contained" && "max-h-[65dvh] overflow-y-auto",
+            )}
           >
-            <ResizableTableHead
-              table={table}
-              isControlColumn={() => false}
-              isRightAligned={(id) => numeric.includes(id)}
-              sortableColumnIds={
-                new Set(Object.keys(labels).filter((id) => id !== "actions"))
-              }
-              onSort={(id, event) => sort(id, event.shiftKey)}
-              headerIndicator={(id) => {
-                const s = st.sorting.find((s) => s.id === id);
-                return s ? (
-                  <span className="inline-flex items-center gap-0.5">
-                    {s.desc ? (
-                      <ArrowDown className="h-3 w-3" />
-                    ) : (
-                      <ArrowUp className="h-3 w-3" />
-                    )}
-                    {st.sorting.length > 1 && (
-                      <small>
-                        {st.sorting.findIndex((sort) => sort.id === id) + 1}
-                      </small>
-                    )}
-                  </span>
-                ) : null;
-              }}
-              headerAriaSort={(id) => {
-                const s = st.sorting.find((s) => s.id === id);
-                return s ? (s.desc ? "descending" : "ascending") : "none";
-              }}
-            />
-            <tbody>
-              {table.getRowModel().rows.map((row) => (
-                <tr
-                  key={row.id}
-                  className={cn(
-                    "border-b last:border-0 hover:bg-muted/40",
-                    onRow && "cursor-pointer",
-                  )}
-                  onClick={() => onRow?.(row.original)}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <td
-                      key={cell.id}
-                      className={cn(
-                        "px-3 py-4",
-                        numeric.includes(cell.column.id) &&
-                          "text-right tabular-nums",
+            <table
+              // TableConvert adds attributes before hydration; allow its table annotations.
+              suppressHydrationWarning
+              aria-label={label}
+              className="w-full table-fixed text-[13px] [&_thead]:text-xs [&_tbody_td]:px-4 [&_tbody_td]:py-4"
+              style={{ minWidth: Math.max(minWidth, table.getTotalSize()) }}
+            >
+              <ResizableTableHead
+                table={table}
+                isControlColumn={() => false}
+                isRightAligned={(id) => numeric.includes(id)}
+                sortableColumnIds={
+                  new Set(Object.keys(labels).filter((id) => id !== "actions"))
+                }
+                onSort={(id, event) => sort(id, event.shiftKey)}
+                headerIndicator={(id) => {
+                  const s = st.sorting.find((s) => s.id === id);
+                  return s ? (
+                    <span className="inline-flex items-center gap-0.5">
+                      {s.desc ? (
+                        <ArrowDown className="h-3 w-3" />
+                      ) : (
+                        <ArrowUp className="h-3 w-3" />
                       )}
-                    >
-                      {onRow && cell.column.id === "employee" ? (
-                        <button
-                          type="button"
-                          className="w-full text-left"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onRow(row.original);
-                          }}
-                          aria-label={`Открыть ${searchText(row.original)}`}
-                        >
-                          {flexRender(
+                      {st.sorting.length > 1 && (
+                        <small>
+                          {st.sorting.findIndex((sort) => sort.id === id) + 1}
+                        </small>
+                      )}
+                    </span>
+                  ) : null;
+                }}
+                headerAriaSort={(id) => {
+                  const s = st.sorting.find((s) => s.id === id);
+                  return s ? (s.desc ? "descending" : "ascending") : "none";
+                }}
+              />
+              <tbody>
+                {table.getRowModel().rows.map((row) => (
+                  <tr
+                    key={row.id}
+                    className={cn(
+                      "border-b last:border-0 hover:bg-muted/40",
+                      onRow && "cursor-pointer",
+                    )}
+                    onClick={() => onRow?.(row.original)}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <td
+                        key={cell.id}
+                        className={cn(
+                          "px-3 py-4",
+                          numeric.includes(cell.column.id) &&
+                            "text-right tabular-nums",
+                        )}
+                      >
+                        {onRow && cell.column.id === "employee" ? (
+                          <button
+                            type="button"
+                            className="w-full text-left"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onRow(row.original);
+                            }}
+                            aria-label={`Открыть ${searchText(row.original)}`}
+                          >
+                            {flexRender(
+                              cell.column.columnDef.cell,
+                              cell.getContext(),
+                            )}
+                          </button>
+                        ) : (
+                          flexRender(
                             cell.column.columnDef.cell,
                             cell.getContext(),
-                          )}
-                        </button>
-                      ) : (
-                        flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext(),
-                        )
-                      )}
+                          )
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+                {!filtered.length && (
+                  <tr>
+                    <td
+                      colSpan={columns.length}
+                      className="p-12 text-center text-muted-foreground"
+                    >
+                      Нет записей за выбранный период
                     </td>
-                  ))}
-                </tr>
-              ))}
-              {!filtered.length && (
-                <tr>
-                  <td
-                    colSpan={columns.length}
-                    className="p-12 text-center text-muted-foreground"
-                  >
-                    Нет записей за выбранный период
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
+      {mobileCards && filtered.length > 0 && (
+        <PeopleMobileCards
+          table={table}
+          label={label ?? "Карточки"}
+          nameColumn="employee"
+          photoColumn="__none"
+          roleColumn="__none"
+          statusColumn="status"
+          labels={labels}
+          empty={null}
+        />
+      )}
       <TablePagination
         pageIndex={st.pagination.pageIndex}
         pageSize={st.pagination.pageSize}

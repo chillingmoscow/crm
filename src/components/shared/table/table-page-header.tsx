@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 
 type TablePageHeaderProps = {
   title: ReactNode;
+  count?: number;
   subtitle?: ReactNode;
   meta?: ReactNode;
   actions?: ReactNode;
@@ -12,6 +13,7 @@ type TablePageHeaderProps = {
 
 export function TablePageHeader({
   title,
+  count,
   subtitle,
   meta,
   actions,
@@ -28,14 +30,30 @@ export function TablePageHeader({
       )}
     >
       <div className="min-w-0">
-        <h1 className="truncate text-3xl font-bold tracking-tight">{title}</h1>
+        <h1 className="truncate text-3xl font-bold tracking-tight">
+          {count === undefined ? (
+            title
+          ) : (
+            <span className="inline-flex items-center gap-3">
+              {title}
+              <span
+                className="inline-flex h-7 min-w-7 items-center justify-center rounded-md bg-muted px-2 text-sm font-normal tabular-nums text-muted-foreground"
+                aria-label={`Всего: ${count}`}
+              >
+                {count}
+              </span>
+            </span>
+          )}
+        </h1>
         {subtitle ? (
           <div className="mt-1 text-sm text-muted-foreground">{subtitle}</div>
         ) : null}
         {meta ? <div className="mt-2 flex flex-wrap gap-2">{meta}</div> : null}
       </div>
       {actions ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {actions}
+        </div>
       ) : null}
     </div>
   );

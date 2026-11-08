@@ -222,6 +222,7 @@ export type ShiftAttendanceSnapshot = {
   shiftVersion?: number;
   reason?: string;
   hasQuickResto?: boolean;
+  crossBoundary?: boolean;
 };
 export type ShiftAttendanceMark = ShiftAttendanceSnapshot & {
   date: string;

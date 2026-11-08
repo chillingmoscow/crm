@@ -21,7 +21,7 @@ import type {
   PayAssignment,
 } from "./types";
 import { readPayrollDay, extraBonuses } from "./source";
-import { applyScheduleReviews, reconcileAttendance, blocksPayrollAttendance, attendanceRuleAtDate, payrollFactRows } from "./attendance";
+import { applyScheduleReviews, reconcileAttendance, reconcileBoundaryClocks, blocksPayrollAttendance, attendanceRuleAtDate, payrollFactRows } from "./attendance";
 import {
   computeAccrual,
   hasShiftPay,
@@ -273,8 +273,11 @@ export async function processPayrollDay() {
     const shifts = shiftResult.data ?? [];
     if (shifts.length >= 1000) throw new Error("Неполный список смен рабочего дня");
     const crossBoundary = rows.filter((r) => !own.includes(r));
-    const checkedBoundary = crossBoundary.length
-      ? await admin
+    const dayShiftIds = shifts.filter((shift) =>
+      businessDate(new Date(shift.starts_at), sales.timezone, sales.day_start_hour) === date,
+    ).map((shift) => shift.id);
+    const [checkedBoundary, previousFacts] = await Promise.all([
+      crossBoundary.length ? admin
           .from<Attendance[]>("payroll_attendance")
           .select("*")
           .eq("account_id", accountId)
@@ -283,21 +286,23 @@ export async function processPayrollDay() {
             "external_id",
             crossBoundary.map((r) => r.id),
           )
-      : { data: [] as Attendance[], error: null };
+      : { data: [] as Attendance[], error: null },
+      dayShiftIds.length ? admin.from<Attendance[]>("payroll_attendance")
+        .select("*")
+        .eq("account_id", accountId)
+        .eq("venue_id", venueId)
+        .eq("status", "confirmed")
+        .gte("external_id", 1)
+        .lt("business_date", date)
+        .in("shift_id", dayShiftIds)
+      : { data: [] as Attendance[], error: null },
+    ]);
     if (checkedBoundary.error) throw new Error(checkedBoundary.error.message);
-    const unresolvedBoundary = crossBoundary.filter(
-      (r) =>
-        !checkedBoundary.data?.some(
-          (saved) =>
-            saved.external_id === r.id &&
-            saved.employee_id ===
-              employees.find((e) => e.quickresto_id === r.owner.id)?.id &&
-            saved.reviewed_by &&
-            ["confirmed", "ignored"].includes(saved.status) &&
-            Date.parse(saved.starts_at) === r.startTime &&
-            (saved.ends_at ? Date.parse(saved.ends_at) : null) === r.endTime,
-        ),
+    if (previousFacts.error) throw new Error(previousFacts.error.message);
+    const boundary = reconcileBoundaryClocks(
+      crossBoundary, checkedBoundary.data ?? [], employees,
     );
+    const unresolvedBoundary = boundary.unresolved;
     const reconciled = reconcileAttendance(
       own,
       employees,
@@ -306,27 +311,13 @@ export async function processPayrollDay() {
       sales.timezone,
       sales.day_start_hour,
     );
-    // Время сравниваем как моменты, а не строки: из базы приходит «…+00:00», из
-    // Quick Resto - «…Z». При сравнении строк решение проверяющего («не учитывать»,
-    // «подтверждено») терялось, и проигнорированная отметка снова оплачивалась.
-    const sameInstant = (a: string | null | undefined, b: string | null | undefined) =>
-      a == null || b == null ? a == b : Date.parse(a) === Date.parse(b);
-    const reviewedItems = reconciled.items.map((r) => {
-      const old = prior.find((o) => o.external_id === r.external_id);
-      return old?.reviewed_by &&
-        old.employee_id === r.employee_id &&
-        sameInstant(old.starts_at, r.starts_at) &&
-        sameInstant(old.ends_at, r.ends_at)
-        ? { ...r, status: old.status, reviewed_by: old.reviewed_by }
-        : r;
-    });
     const { items: attendance, missing: unresolvedMissing, marks } = applyScheduleReviews(
-      { ...reconciled, items: reviewedItems },
+      reconciled,
       shifts,
       scheduleReviews,
       date,
       day?.status === "complete" ? settings.schedule_fallback_from ?? null : null,
-      prior,
+      { prior, boundaryClocks: boundary.countable, confirmedOnAnotherDay: previousFacts.data ?? [] },
     );
     const primaryEmployees = employees.map(e => ({...e}));
     const positionIssues = new Map<string,string>();

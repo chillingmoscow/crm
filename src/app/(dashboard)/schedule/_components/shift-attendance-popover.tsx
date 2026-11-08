@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { CircleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import type { ShiftAttendanceMark, ShiftAttendanceState } from "@/lib/payroll/types";
+import { addDays } from "@/lib/sales/time";
 import { reviewShiftAttendance } from "../actions";
 
 const descriptions: Record<ShiftAttendanceState, string> = {
@@ -114,9 +116,15 @@ export function ShiftAttendancePopover({ shiftId, version, mark, canReview }: {
           <p className="text-sm font-semibold">{heading}</p>
           <p className="text-xs text-muted-foreground">
             {failed ? "Пересчёт не завершился. Проверьте синхронизацию зарплаты."
-              : pending ? "Начисления пересчитываются." : descriptions[mark.state]}
+              : pending ? "Начисления пересчитываются."
+                : mark.crossBoundary ? "Сначала проверьте отметку на границе рабочего дня." : descriptions[mark.state]}
           </p>
           {mark.reason && !pending && <p className="text-xs text-muted-foreground">{mark.reason}</p>}
+          {mark.crossBoundary && !pending && (
+            <Link className="text-xs text-brand hover:underline" href={`/schedule/attendance?date=${addDays(mark.date, -1)}`}>
+              Сверить предыдущий рабочий день
+            </Link>
+          )}
         </div>
         {canReview && mark.syncedAt && mark.sourceState === "complete" && !pending && (
           <>
@@ -133,7 +141,7 @@ export function ShiftAttendancePopover({ shiftId, version, mark, canReview }: {
               />
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" disabled={saving || mark.state === "included"} onClick={() => void save("include")}>Засчитать</Button>
+              <Button size="sm" disabled={saving || mark.state === "included" || mark.crossBoundary} onClick={() => void save("include")}>Засчитать</Button>
               <Button size="sm" variant="outline" disabled={saving || mark.state === "excluded" || reason.trim().length < 3} onClick={() => void save("exclude")}>Не засчитывать</Button>
             </div>
           </>

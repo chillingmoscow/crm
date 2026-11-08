@@ -49,6 +49,9 @@ begin
   where d.account_id = account and d.venue_id = venue and d.business_date = day and d.state = 'complete'
     and p_synced_at is not null and d.synced_at = p_synced_at
     and (d.source->'shift_attendance' ? p_shift::text or d.source->'missing_shifts' ? p_shift::text)
+    and (p_decision <> 'include' or not coalesce(
+      (d.source #>> array['shift_attendance', p_shift::text, 'crossBoundary'])::boolean, false
+    ))
     and coalesce(
       (d.source #>> array['shift_attendance', p_shift::text, 'shiftVersion'])::integer = plan.version,
       d.synced_at >= plan.updated_at
@@ -93,6 +96,11 @@ grant execute on function public.payroll_review_schedule_shift(uuid, integer, ti
 create or replace function private.payroll_schedule_fact_guard() returns trigger
 language plpgsql security definer set search_path = '' as $$
 begin
+  if private.payroll_attendance_source(new.employee_id, new.business_date) = 'excluded' then
+    new.status := 'ignored';
+    new.issue := 'Не участвует в зарплатном учёте';
+    return new;
+  end if;
   if new.status = 'deviation' and new.issue = 'Отметка удалена в Quick Resto' then
     if new.external_id < 0 then
       new.status := 'ignored';
@@ -114,6 +122,13 @@ begin
     where s.id = new.shift_id and s.venue_id = new.venue_id and s.payroll_fact_id = new.external_id
       and s.published and s.ends_at <= now() and s.starts_at = new.starts_at and s.ends_at = new.ends_at
       and ((s.starts_at at time zone cfg.timezone) - make_interval(hours => cfg.day_start_hour))::date = new.business_date
+      and not exists (
+        select 1 from public.payroll_attendance previous
+        where previous.venue_id = s.venue_id and previous.employee_id = e.id and previous.shift_id = s.id
+          and previous.business_date < new.business_date and previous.external_id > 0
+          and previous.status = 'confirmed'
+          and previous.starts_at < s.ends_at and previous.ends_at > s.starts_at
+      )
       and (r.id is null or r.decision is distinct from 'exclude')
       and ((s.payroll_employee_id = e.id and e.casual) or
         (s.payroll_employee_id is null and s.user_id = e.local_user_id and (

@@ -72,6 +72,19 @@ begin
     or not exists(select 1 from public.payroll_accruals where employee_id = employee and business_date = day and salary = 1500 and tips = 500)
     then raise exception 'Выход не засчитан'; end if;
 
+  insert into public.payroll_attendance(account_id, venue_id, business_date, external_id,
+    employee_id, starts_at, ends_at, shift_id, role_name, status, reviewed_by)
+  values(account, venue, day - 1, 900000000000 - plan.payroll_fact_id, employee,
+    plan.starts_at - interval '5 hours', plan.ends_at, shift, 'Тест', 'confirmed', actor);
+  begin
+    update public.payroll_source_days set state = 'loading', lease_token = lease where venue_id = venue and business_date = day;
+    perform public.payroll_commit_day(input || jsonb_build_object('source', source, 'attendance', jsonb_build_array(fact)));
+    raise exception 'Одна смена засчитана дважды';
+  exception when others then
+    if sqlerrm <> 'Запись графика изменилась. Повторите расчёт' then raise; end if;
+  end;
+  delete from public.payroll_attendance where venue_id = venue and external_id = 900000000000 - plan.payroll_fact_id;
+
   select synced_at into synced from public.payroll_source_days where venue_id = venue and business_date = day;
   perform public.payroll_review_schedule_shift(shift, plan.version, synced, 'exclude', 'Выход отменён после проверки');
   update public.payroll_source_days set state = 'loading', lease_token = lease where venue_id = venue and business_date = day;
@@ -79,5 +92,14 @@ begin
   if not exists(select 1 from public.payroll_attendance where shift_id = shift and status = 'ignored')
     or exists(select 1 from public.payroll_accruals where employee_id = employee and business_date = day)
     then raise exception 'Исключённый выход попал в начисления'; end if;
+
+  insert into public.payroll_attendance_rules(account_id, venue_id, employee_id, valid_from, source, reason)
+    values(account, venue, employee, day, 'excluded', 'Исключён из учёта');
+  insert into public.payroll_attendance(account_id, venue_id, business_date, external_id, employee_id,
+    starts_at, ends_at, role_name, status)
+  values(account, venue, day, 900000000000 - plan.payroll_fact_id, employee, plan.starts_at, null, 'Тест', 'open');
+  if not exists(select 1 from public.payroll_attendance where venue_id = venue
+    and external_id = 900000000000 - plan.payroll_fact_id and status = 'ignored')
+    then raise exception 'Незакрытая отметка исключённого сотрудника заблокировала учёт'; end if;
 end $$;
 rollback;

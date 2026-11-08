@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { ShieldAlert } from "lucide-react";
+import { FileX, ShieldAlert } from "lucide-react";
 
 import { createClient, getCachedActiveAccountId, getCachedPermissions } from "@/lib/supabase/server";
 import {
@@ -9,6 +9,8 @@ import {
   resolveKbMentionTargets,
 } from "@/lib/knowledge/pages";
 import { extractBacklinks } from "@/lib/knowledge/backlinks";
+import { isUnavailableNotionPage } from "@/lib/knowledge/notion-unavailable";
+import { EmptyState } from "@/components/ui/empty-state";
 import { getKbTreeRows } from "@/lib/knowledge/tree";
 import {
   PageBreadcrumb,
@@ -59,6 +61,23 @@ export default async function KbPageView({ params }: PageProps) {
     );
     if (deletedExists) return <DeletedPageAccessDenied />;
     notFound();
+  }
+
+  if (isUnavailableNotionPage(row)) {
+    return (
+      <>
+        <PageBreadcrumb>
+          <KbBackLink href="/knowledge" label="База знаний" />
+        </PageBreadcrumb>
+        <div className="mx-auto w-full max-w-[760px] px-4 py-6 md:px-8">
+          <EmptyState
+            icon={FileX}
+            title="Материал недоступен"
+            description="При переносе из Notion не удалось получить содержимое этой страницы."
+          />
+        </div>
+      </>
+    );
   }
 
   // Auth context for permission gating. RLS on the row already ran;

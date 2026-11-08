@@ -14,6 +14,7 @@ import {
   kbPageMoveSchema,
   kbPageSaveSchema,
 } from "@/lib/knowledge/schemas";
+import { isUnavailableNotionPage } from "@/lib/knowledge/notion-unavailable";
 import { generateKbSlug } from "@/lib/knowledge/slug";
 import type {
   KbPageCreateInput,
@@ -73,7 +74,7 @@ export async function listKbPageTreeRows(): Promise<{
     rows.push(...((data ?? []) as KbPageTreeRow[]));
     if ((data?.length ?? 0) < pageSize) break;
   }
-  return { rows, error: null };
+  return { rows: rows.filter((page) => !isUnavailableNotionPage(page)), error: null };
 }
 
 /** Trash list row — slim проекция KbPageRow (без content/plain_text/

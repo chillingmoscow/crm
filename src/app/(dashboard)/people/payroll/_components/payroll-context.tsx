@@ -81,7 +81,7 @@ export function PayrollDayPanel({ date }: { date: string }) {
         members={nativeDayMembers(accruals, data.employees)}
       />
       <Link
-        href={`/people/payroll?tab=attendance&month=${date.slice(0, 7)}`}
+        href={`/schedule/attendance?date=${date}`}
         className="inline-block text-sm text-brand hover:underline"
       >
         Проверить фактические выходы →

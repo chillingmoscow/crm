@@ -36,7 +36,6 @@ import { PayrollDetailDialog } from "@/app/(dashboard)/people/payroll/_component
 import { ConceptPaymentForm } from "./concept-payment-form";
 import paymentStyle from "./concept-payment-form.module.css";
 import { paymentJournalRows } from "@/lib/payroll/payment-journal";
-import { AttendanceReview } from "@/app/(dashboard)/people/payroll/_components/attendance-review";
 import { PayrollPaymentsTable } from "@/app/(dashboard)/people/payroll/_components/payroll-payments-table";
 import {
   loadPayroll,
@@ -49,6 +48,7 @@ import { PayrollLedger } from "./payroll-ledger";
 import { statementRows } from "@/lib/payroll/calculate";
 import type { Accrual, PayrollData } from "@/lib/payroll/types";
 import s from "./payroll-concept.module.css";
+import { PeriodStepper, periodTriggerClass } from "@/components/shared/period-stepper";
 import { PageFrame } from "@/components/shared/page-frame";
 import { recalculateInventoryDeduction } from "@/app/(dashboard)/inventory/_actions/deduction";
 
@@ -97,11 +97,9 @@ function componentGroups(accruals: Accrual[]) {
 export function PayrollConcept({
   data: initial,
   initialMonth,
-  initialTab,
 }: {
   data: PayrollData;
   initialMonth: string;
-  initialTab: "attendance" | "statement";
 }) {
   const [data, setData] = useState(initial);
   const [busy, setBusy] = useState(false);
@@ -144,11 +142,11 @@ export function PayrollConcept({
   const [pickerYear, setPickerYear] = useState(
     Number(initialMonth.slice(0, 4)),
   );
-  const [tab, setTab] = useState<string>(initialTab);
+  const [tab, setTab] = useState("statement");
   useEffect(() => {
-    if (initialTab !== "attendance" && new URLSearchParams(window.location.search).has("entry"))
+    if (new URLSearchParams(window.location.search).has("entry"))
       setTab("journal");
-  }, [initialTab]);
+  }, []);
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("transfer");
     const transfer = initial.transfers.find((t) => t.id === id);
@@ -337,14 +335,6 @@ export function PayrollConcept({
   const changeTab = (id: string) => {
     setTab(id);
     setQuery("");
-    const url = new URL(window.location.href);
-    if (id === "attendance") {
-      url.searchParams.set("tab", id);
-      url.searchParams.set("month", month);
-    } else {
-      url.searchParams.delete("tab");
-    }
-    window.history.replaceState(null, "", url);
   };
   const moveMonth = (direction: number) => {
     const date = new Date(`${monthStart}T12:00:00Z`);
@@ -474,13 +464,12 @@ export function PayrollConcept({
               </div>
             </section>
             <div className={s.contextBar}>
-              <div className={s.monthControl}>
-                <button
-                  onClick={() => moveMonth(-1)}
-                  aria-label="Предыдущий месяц"
-                >
-                  <ChevronLeft size={16} />
-                </button>
+              <PeriodStepper
+                previous="Предыдущий месяц"
+                next="Следующий месяц"
+                onPrevious={() => moveMonth(-1)}
+                onNext={() => moveMonth(1)}
+              >
                 <Popover
                   open={monthOpen}
                   onOpenChange={(open) => {
@@ -490,7 +479,7 @@ export function PayrollConcept({
                 >
                   <PopoverTrigger asChild>
                     <button
-                      className={s.monthTrigger}
+                      className={periodTriggerClass}
                       aria-label="Месяц ведомости"
                     >
                       <CalendarDays size={15} />
@@ -538,13 +527,7 @@ export function PayrollConcept({
                     </div>
                   </PopoverContent>
                 </Popover>
-                <button
-                  onClick={() => moveMonth(1)}
-                  aria-label="Следующий месяц"
-                >
-                  <ChevronRight size={16} />
-                </button>
-              </div>
+              </PeriodStepper>
               <div
                 id="payroll-concept-controls"
                 className={s.functionalControls}
@@ -622,7 +605,6 @@ export function PayrollConcept({
                   ["statement", "Ведомость"],
                   ["payments", "Выплаты"],
                   ["journal", "Начисления и удержания"],
-                  ...(can("view") ? [["attendance", "Проверка выходов"]] : []),
                 ].map(([id, label]) => (
                   <button
                     key={id}
@@ -835,7 +817,7 @@ export function PayrollConcept({
               </section>
             )}
             <section className={`${s.ledger} ${s.functionalTable}`}>
-              {role && tab !== "attendance" && (
+              {role && (
                 <div className={s.ledgerHeading}>
                   <button
                     className={s.appliedFilter}
@@ -845,15 +827,7 @@ export function PayrollConcept({
                   </button>
                 </div>
               )}
-              {tab === "attendance" && can("view") ? (
-                <AttendanceReview
-                  key={month}
-                  data={data}
-                  month={month}
-                  onRefresh={reload}
-                  toolbarTargetId="payroll-concept-controls"
-                />
-              ) : tab === "journal" ? (
+              {tab === "journal" ? (
                 <PayrollJournal
                   data={data}
                   month={monthStart}

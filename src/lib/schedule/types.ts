@@ -134,6 +134,8 @@ export type ScheduleStaff = {
   user_id: string;
   first_name: string | null;
   last_name: string | null;
+  avatar_url: string | null;
+  show_in_schedule: boolean;
   role_id: string;
   role_name: string;
   department_id: string | null;

@@ -1,10 +1,13 @@
 "use server";
-import { createClient, getCachedPermissions } from "@/lib/supabase/server";
+import { createClient, getCachedActiveAccountId, getCachedPermissions } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Json } from "@/types/database";
 import type { CandidateCalendarTrial, ScheduleDatabase, ScheduleData } from "@/lib/schedule/types";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { validateVariants } from "@/lib/schedule/template-times";
+import type { ShiftAttendanceMark, ShiftAttendanceSnapshot } from "@/lib/payroll/types";
+import { addDays, validDate } from "@/lib/sales/time";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 const uuid = z.string().uuid();
@@ -113,6 +116,66 @@ const checklist = base
 async function client() {
   return (await createClient()) as unknown as SupabaseClient<ScheduleDatabase>;
 }
+export async function loadShiftAttendance(week: string): Promise<Record<string, ShiftAttendanceMark>> {
+  if (!validDate(week)) throw new Error("Некорректная дата расписания");
+  const db = await client();
+  const [{ data: { user } }, { data: venueId }, accountId, permissions] =
+    await Promise.all([
+      db.auth.getUser(),
+      db.rpc("get_active_venue_id"),
+      getCachedActiveAccountId(),
+      getCachedPermissions(),
+    ]);
+  if (!user || !venueId || !accountId ||
+      !permissions.includes("payroll.view") ||
+      !permissions.includes("schedule.view_all")) return {};
+
+  const { data, error } = await asLooseDb(createAdminClient())
+    .from<{
+      business_date: string;
+      synced_at: string | null;
+      state: string;
+      missing_shifts: string[] | null;
+      marks: Record<string, ShiftAttendanceSnapshot> | null;
+    }[]>("payroll_source_days")
+    .select("business_date,synced_at,state,missing_shifts:source->missing_shifts,marks:source->shift_attendance")
+    .eq("account_id", accountId)
+    .eq("venue_id", venueId)
+    .gte("business_date", addDays(week, -1))
+    .lte("business_date", addDays(week, 6));
+  if (error) throw new Error("Не удалось загрузить отметки о выходах");
+  const result: Record<string, ShiftAttendanceMark> = {};
+  for (const day of data ?? []) {
+    const context = { date: day.business_date, syncedAt: day.synced_at, sourceState: day.state };
+    for (const id of day.missing_shifts ?? []) result[id] = { ...context, state: "missing" };
+    for (const [id, mark] of Object.entries(day.marks ?? {})) result[id] = { ...context, ...mark };
+  }
+  return result;
+}
+export async function reviewShiftAttendance(input: {
+  shiftId: string;
+  version: number;
+  syncedAt: string | null;
+  decision: "include" | "exclude";
+  reason: string;
+}) {
+  const value = z.object({
+    shiftId: uuid,
+    version: z.number().int().positive(),
+    syncedAt: z.string().datetime({ offset: true }).nullable(),
+    decision: z.enum(["include", "exclude"]),
+    reason: z.string().trim().min(3).max(1000),
+  }).parse(input);
+  const db = await client();
+  const { error } = await asLooseDb(db).rpc("payroll_review_schedule_shift", {
+    p_shift: value.shiftId,
+    p_version: value.version,
+    p_synced_at: value.syncedAt,
+    p_decision: value.decision,
+    p_reason: value.reason,
+  });
+  if (error) throw new Error(error.message);
+}
 export async function loadSchedule(
   from?: string,
   to?: string,
@@ -125,12 +188,19 @@ export async function loadSchedule(
   const { data: venueId } = await db.rpc("get_active_venue_id");
   if (!venueId) throw new Error("Выберите заведение");
   const permissions = await getCachedPermissions();
-  let sq = db
-    .from("schedule_shifts")
-    .select("*")
-    .eq("venue_id", venueId)
-    .order("starts_at");
-  if (from && to) sq = sq.gte("ends_at", from).lte("starts_at", to);
+  const loadShifts = async () => {
+    const rows: ScheduleData["shifts"] = [];
+    for (let start = 0; start < 20000; start += 1000) {
+      let query = db.from("schedule_shifts").select("*").eq("venue_id", venueId)
+        .order("starts_at").order("id");
+      if (from && to) query = query.gte("ends_at", from).lte("starts_at", to);
+      const { data, error } = await query.range(start, start + 999);
+      if (error) return { data: null, error };
+      rows.push(...(data ?? []));
+      if ((data?.length ?? 0) < 1000) return { data: rows, error: null };
+    }
+    return { data: null, error: { message: "Слишком большая история смен" } };
+  };
   const options = await db.rpc("schedule_payroll_options" as never);
   if (options.error) throw new Error(options.error.message);
   const payrollOptions = options.data as unknown as {
@@ -148,8 +218,9 @@ export async function loadSchedule(
     roles,
     venue,
     candidateTrials,
+    hiddenRoles,
   ] = await Promise.all([
-    sq,
+    loadShifts(),
     db
       .from("schedule_templates")
       .select("*")
@@ -181,6 +252,8 @@ export async function loadSchedule(
     permissions.includes("people.manage_candidates") && permissions.includes("schedule.view_all")
       ? asLooseDb(db).rpc("candidate_calendar_trials", {})
       : Promise.resolve({ data: [], error: null }),
+    asLooseDb(db).from<{ role_id: string }[]>("schedule_hidden_roles")
+      .select("role_id").eq("venue_id", venueId),
   ]);
   for (const r of [
     shifts,
@@ -193,9 +266,11 @@ export async function loadSchedule(
     roles,
     venue,
     candidateTrials,
+    hiddenRoles,
   ])
     if (r.error)
       throw new Error("Не удалось загрузить график: " + r.error.message);
+  const hidden = new Set(hiddenRoles.data?.map((entry) => entry.role_id));
   return {
     venueId,
     timezone: venue.data?.timezone || "Europe/Moscow",
@@ -213,6 +288,8 @@ export async function loadSchedule(
       user_id: s.user_id,
       first_name: s.first_name,
       last_name: s.last_name,
+      avatar_url: s.avatar_url,
+      show_in_schedule: !hidden.has(s.role_id),
       role_id: s.role_id,
       role_name: s.role_name,
       department_id: s.department_id,

@@ -1,6 +1,7 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getCachedPermissionChecker } from "@/lib/supabase/server";
+import { asLooseDb } from "@/lib/supabase/loose";
 import { revalidatePath } from "next/cache";
 
 export async function createRole(input: {
@@ -122,6 +123,26 @@ export async function updateRole(
   if (error) return { error: error.message };
 
   revalidatePath("/people/roles");
+  return { error: null };
+}
+
+export async function setRoleScheduleVisibility(roleId: string, visible: boolean) {
+  const db = await createClient();
+  const can = await getCachedPermissionChecker();
+  const { data: venueId } = await db.rpc("get_active_venue_id");
+  if (!venueId || !can("people.manage_roles") || typeof visible !== "boolean") {
+    return { error: "Нет доступа к настройке расписания" };
+  }
+  const table = asLooseDb(db).from("schedule_hidden_roles");
+  const { error } = visible
+    ? await table.delete().eq("venue_id", venueId).eq("role_id", roleId)
+    : await table.upsert({ venue_id: venueId, role_id: roleId }, {
+      onConflict: "venue_id,role_id",
+      ignoreDuplicates: true,
+    });
+  if (error) return { error: error.message };
+  revalidatePath("/schedule");
+  revalidatePath(`/people/roles/${roleId}`);
   return { error: null };
 }
 

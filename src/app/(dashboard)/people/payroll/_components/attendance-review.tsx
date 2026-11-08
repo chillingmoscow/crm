@@ -48,11 +48,13 @@ const search = (r: Row) => `${r.employee} ${r.role} ${r.date}`;
 export function AttendanceReview({
   data,
   month,
+  date,
   onRefresh,
   toolbarTargetId,
 }: {
   data: PayrollData;
   month: string;
+  date?: string;
   onRefresh: () => Promise<void>;
   toolbarTargetId: string;
 }) {
@@ -105,7 +107,9 @@ export function AttendanceReview({
       data.plannedShifts.map((shift) => [shift.id, shift]),
     );
     const linkedShifts = new Set(
-      data.attendance.map((record) => record.shift_id),
+      data.attendance
+        .filter((record) => record.status !== "ignored")
+        .map((record) => record.shift_id),
     );
     const sources = new Map(
       data.sources.map((source) => [source.business_date, source]),
@@ -114,7 +118,7 @@ export function AttendanceReview({
       data.scheduleReviews.map((review) => [review.shift_id, review]),
     );
     const actual = data.attendance
-      .filter((a) => a.business_date.startsWith(month))
+      .filter((a) => date ? a.business_date === date : a.business_date.startsWith(month))
       .map((a) => {
         const e = a.employee_id ? employees.get(a.employee_id) : undefined;
         const shift = a.shift_id ? shifts.get(a.shift_id) : undefined;
@@ -183,8 +187,16 @@ export function AttendanceReview({
           awaitingSource: !reviewed && source?.state !== "complete",
         };
       });
-    return [...actual, ...missing];
-  }, [data, month]);
+    return [
+      ...actual,
+      ...missing.filter((row) => {
+        if (date && row.date !== date) return false;
+        const source = sources.get(row.date);
+        return row.noShow || source?.state !== "complete" ||
+          source.missing_shifts?.includes(row.id);
+      }),
+    ];
+  }, [data, month, date]);
   const needsReview = allRows.filter(
     (record) =>
       !record.awaitingSource &&

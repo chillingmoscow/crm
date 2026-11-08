@@ -3,6 +3,11 @@ import { NotificationsHelp } from "@/app/(dashboard)/notifications/notifications
 import { PayrollHelp } from "@/app/(dashboard)/people/payroll/_components/payroll-help";
 import { StaffHelp } from "@/app/(dashboard)/people/staff/_components/staff-help";
 import { CandidatesHelp } from "@/app/(dashboard)/people/candidates/_components/candidates-help";
+import {
+  ScheduleHelp,
+  ScheduleTasksHelp,
+  ScheduleTemplatesHelp,
+} from "@/app/(dashboard)/schedule/_components/schedule-help";
 
 import { SalesShiftsHelp } from "@/app/(dashboard)/sales/shifts/_components/sales-shifts-help";
 
@@ -33,6 +38,9 @@ export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
   { match: p => p === "/people/staff", title: "Сотрудники", Content: StaffHelp },
   { match: p => p === "/people/candidates" || p.startsWith("/people/candidates/"), title: "Кандидаты", Content: CandidatesHelp },
   { match: p => p === "/notifications", title: "Уведомления", Content: NotificationsHelp },
+  { match: (p) => p === "/schedule", title: "Расписание", Content: ScheduleHelp },
+  { match: (p) => p === "/schedule/templates", title: "Шаблоны смен", Content: ScheduleTemplatesHelp },
+  { match: (p) => p === "/schedule/tasks", title: "Задачи", Content: ScheduleTasksHelp },
   {
     match: (p) => p === "/people/payroll" || p.startsWith("/people/payroll/"),
     title: "Зарплата",

@@ -2,11 +2,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
+import { format } from "date-fns";
+import { ru } from "date-fns/locale";
 import { shiftAssignee, assignmentFields } from "@/lib/schedule/types";
 import {
   CalendarDays,
-  ChevronLeft,
-  ChevronRight,
+  ChevronDown,
   Plus,
   Layers,
   Copy,
@@ -19,6 +20,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PersonAvatar } from "@/components/people/person-avatar";
+import { Calendar } from "@/components/ui/calendar";
+import { PeriodStepper, periodTriggerClass } from "@/components/shared/period-stepper";
 import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import { TableControls, TableIconButton, TablePageHeader } from "@/components/shared/table";
 import { TableFilterChip } from "@/components/shared/table/table-filter-chip";
@@ -63,7 +66,9 @@ import type {
   ShiftTemplate,
   ScheduleEvent,
 } from "@/lib/schedule/types";
-import { loadSchedule, scheduleCommand, scheduleHistory } from "../actions";
+import { loadShiftAttendance, loadSchedule, scheduleCommand, scheduleHistory } from "../actions";
+import { ShiftAttendancePopover } from "./shift-attendance-popover";
+import type { ShiftAttendanceMark } from "@/lib/payroll/types";
 import {
   ShiftEditor,
   TemplateEditor,
@@ -136,6 +141,7 @@ export function ScheduleClient({
   const [week, setWeek] = useState(
     weekStart(initialDate ?? dateInZone(new Date(), initial.timezone)),
   );
+  const [weekPickerOpen, setWeekPickerOpen] = useState(false);
   useEffect(() => {
     if (initialDate) setWeek(weekStart(initialDate));
   }, [initialDate]);
@@ -232,6 +238,39 @@ export function ScheduleClient({
     [data.permissions],
   );
   const canPlan = can("view_all");
+  const canViewAttendance = canPlan && data.permissions.includes("payroll.view");
+  const [attendance, setAttendance] = useState<{
+    week: string;
+    marks: Record<string, ShiftAttendanceMark>;
+  } | null>(null);
+  useEffect(() => {
+    if (tab !== "calendar" || !canViewAttendance) return;
+    let active = true;
+    const load = () => {
+      void loadShiftAttendance(week)
+        .then((marks) => {
+          if (active) setAttendance({ week, marks });
+        })
+        .catch(() => {
+          if (active) setAttendance(null);
+        });
+    };
+    load();
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") load();
+    }, 60000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [tab, canViewAttendance, week, data.shifts]);
+  const attendanceMark = (shift: Shift) => {
+    if (!canViewAttendance || !shift.published || !shiftAssignee(shift) || attendance?.week !== week) return;
+    const mark = attendance.marks[shift.id];
+    if (mark && (mark.shiftVersion !== undefined
+      ? mark.shiftVersion === shift.version
+      : mark.syncedAt && Date.parse(mark.syncedAt) >= Date.parse(shift.updated_at))) return mark;
+  };
   const pendingTaskReports = can("review")
     ? (calendarTasks?.occurrences ?? []).filter(
         (task) => task.status === "submitted" && task.user_id !== data.userId,
@@ -291,6 +330,8 @@ export function ScheduleClient({
       user_id: `payroll:${e.id}`,
       first_name: e.name,
       last_name: null,
+      avatar_url: null,
+      show_in_schedule: true,
       role_id: e.role_id,
       role_name: `${e.role_name} · разовый`,
       department_id:
@@ -312,7 +353,7 @@ export function ScheduleClient({
       (!search ||
         (shiftAssignee(s)
           ? matchingStaff.has(shiftAssignee(s)!)
-          : "открытые смены".includes(search))) &&
+          : "без сотрудника открытые смены".includes(search))) &&
       (department === "all" || s.department_id === department) &&
       (publication === "all" ||
         (publication === "draft" ? !s.published : s.published)),
@@ -337,6 +378,8 @@ export function ScheduleClient({
   const staff = roster.filter(
     (s) =>
       (canPlan || s.user_id === data.userId) &&
+      ((!s.user_id.startsWith("payroll:") && s.show_in_schedule) ||
+        weekShifts.some((shift) => shiftAssignee(shift) === s.user_id)) &&
       (department === "all" ||
         s.department_id === department ||
         weekShifts.some(
@@ -493,6 +536,11 @@ export function ScheduleClient({
         shiftAssignee(s) === id &&
         (!day || dateInZone(s.starts_at, data.timezone) === day),
     );
+  const occupied = (userId: string | null, day: string, except?: string) =>
+    !!userId && data.shifts.some((shift) =>
+      shift.id !== except && shiftAssignee(shift) === userId &&
+      dateInZone(shift.starts_at, data.timezone) === day,
+    );
   const publish = () =>
     setConfirmation({
       title: "Опубликовать смены?",
@@ -541,13 +589,14 @@ export function ScheduleClient({
       (t) => t.id === e.dataTransfer.getData("application/sheerly-template"),
     );
     if (template && can("shift_create")) {
+      if (occupied(userId, day)) return;
       create(day, userId, template);
       return;
     }
     const shift = data.shifts.find(
       (s) => s.id === e.dataTransfer.getData("application/sheerly-shift"),
     );
-    if (!shift || !can("shift_edit")) return;
+    if (!shift || !can("shift_edit") || occupied(userId, day, shift.id)) return;
     await save("shift.edit", {
       ...shift,
       date: day,
@@ -560,9 +609,11 @@ export function ScheduleClient({
         : null,
     });
   };
-  const card = (s: Shift, showAssignee = false) => (
+  const card = (s: Shift, showAssignee = false) => {
+    const mark = attendanceMark(s);
+    return (
+    <div key={s.id} className="relative min-w-0">
     <button
-      key={s.id}
       draggable={can("shift_edit")}
       onDragStart={(e) =>
         e.dataTransfer.setData("application/sheerly-shift", s.id)
@@ -574,7 +625,7 @@ export function ScheduleClient({
         paletteText(s.color),
       )}
     >
-      <span className="whitespace-nowrap text-[11px] font-semibold tabular-nums">
+      <span className={cn("whitespace-nowrap text-[11px] font-semibold tabular-nums", mark && "pr-5")}>
         {timeInZone(s.starts_at, data.timezone)}–
         {timeInZone(s.ends_at, data.timezone)}
       </span>
@@ -587,7 +638,10 @@ export function ScheduleClient({
         </span>
       )}
     </button>
-  );
+    {mark && <ShiftAttendancePopover shiftId={s.id} version={s.version} mark={mark} canReview={data.permissions.includes("payroll.review")} />}
+    </div>
+    );
+  };
   const noData = (
     icon: typeof CalendarDays,
     title: string,
@@ -696,26 +750,40 @@ export function ScheduleClient({
             <>
               <div className="flex flex-wrap justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <TableIconButton
-                    label="Предыдущая неделя"
-                    onClick={() => setWeek(addDays(week, -7))}
+                  <PeriodStepper
+                    previous="Предыдущая неделя"
+                    next="Следующая неделя"
+                    onPrevious={() => setWeek(addDays(week, -7))}
+                    onNext={() => setWeek(addDays(week, 7))}
                   >
-                    <ChevronLeft />
-                  </TableIconButton>
-                  <span className="px-1 text-center text-sm font-semibold tabular-nums">
-                    {dayLabel(days[0], { day: "numeric", month: "short" })} –{" "}
-                    {dayLabel(days[6], {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                    })}
-                  </span>
-                  <TableIconButton
-                    label="Следующая неделя"
-                    onClick={() => setWeek(addDays(week, 7))}
-                  >
-                    <ChevronRight />
-                  </TableIconButton>
+                    <Popover open={weekPickerOpen} onOpenChange={setWeekPickerOpen}>
+                      <PopoverTrigger asChild>
+                        <button type="button" className={periodTriggerClass} aria-label="Выбрать неделю расписания">
+                          <CalendarDays className="size-4 shrink-0" />
+                          <span className="whitespace-nowrap">
+                            {dayLabel(days[0], { day: "numeric", month: "short" })} –{" "}
+                            {dayLabel(days[6], { day: "numeric", month: "short", year: "numeric" })}
+                          </span>
+                          <ChevronDown className="size-3 shrink-0" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent align="start" className="w-auto p-0">
+                        <Calendar
+                          mode="single"
+                          locale={ru}
+                          weekStartsOn={1}
+                          defaultMonth={new Date(week + "T12:00:00")}
+                          selected={new Date(week + "T12:00:00")}
+                          captionLayout="dropdown"
+                          onSelect={(date) => {
+                            if (!date) return;
+                            setWeek(weekStart(format(date, "yyyy-MM-dd")));
+                            setWeekPickerOpen(false);
+                          }}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </PeriodStepper>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -839,26 +907,21 @@ export function ScheduleClient({
                 </div>
               )}
               {templatesOpen && (
-                <section aria-label="Шаблоны смен" className="space-y-3 rounded-lg border bg-card p-4">
-                  <div>
-                    <h2 className="text-sm font-medium">Шаблоны смен</h2>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Перетащите шаблон в ячейку или выберите его, чтобы создать смену.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
+                <section aria-label="Шаблоны смен" className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-muted/50 px-3 py-2.5">
+                  <h2 className="shrink-0 text-xs font-semibold text-muted-foreground">Шаблоны смен</h2>
+                  <div className="flex flex-wrap gap-1.5">
                     {data.templates.filter((t) => !t.archived).map((t) => (
                       <Button
                         key={t.id}
-                        variant="outline"
+                        variant="ghost"
                         size="sm"
                         draggable
+                        className={cn("h-8 cursor-grab gap-1.5 px-2 active:cursor-grabbing", paletteBg(t.color), paletteText(t.color))}
                         title={formatTemplateTimes(t)}
                         onDragStart={(e) => e.dataTransfer.setData("application/sheerly-template", t.id)}
                         onClick={() => create(days[0], null, t)}
                       >
-                        <GripVertical className="text-muted-foreground" />
-                        <span className={cn("size-2 shrink-0 rounded-full", paletteBg(t.color))} />
+                        <GripVertical className="size-3 opacity-60" />
                         {t.name}
                       </Button>
                     ))}
@@ -919,13 +982,15 @@ export function ScheduleClient({
                             id: s.user_id,
                             label: name(s.user_id),
                             role: s.role_name,
+                            avatar: s.avatar_url,
                           })),
-                          ...(canPlan
+                          ...(canPlan && (openShifts.length > 0 || weekTasks.some((task) => !taskRowId(task)))
                             ? [
                                 {
                                   id: null,
-                                  label: "Открытые смены",
-                                  role: "Без сотрудника",
+                                  label: "Без сотрудника",
+                                  role: "Требуется назначение",
+                                  avatar: null,
                                 },
                               ]
                             : []),
@@ -934,7 +999,7 @@ export function ScheduleClient({
                             <th scope="row" className="sticky left-0 z-10 border-b bg-card px-4 py-3 text-left font-normal group-hover:bg-muted">
                               <div className="flex items-center gap-3">
                                 {s.id ? (
-                                  <PersonAvatar name={s.label} />
+                                  <PersonAvatar name={s.label} src={s.avatar} />
                                 ) : (
                                   <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
                                     <Users className="size-4" />
@@ -975,7 +1040,7 @@ export function ScheduleClient({
                                         taskRowId(task) === s.id,
                                     )
                                     .map((task) => taskCard(task))}
-                                  {can("shift_create") && (
+                                  {can("shift_create") && !occupied(s.id, d) && (
                                     <Button
                                       variant="ghost"
                                       size="sm"
@@ -1369,7 +1434,7 @@ export function ScheduleClient({
                     {name(shiftAssignee(selected))}
                   </option>
                 )}
-                {data.staff.map((s) => (
+                {data.staff.filter((s) => s.show_in_schedule || s.user_id === selected.user_id).map((s) => (
                   <option key={s.user_id} value={s.user_id}>
                     {name(s.user_id)}
                   </option>

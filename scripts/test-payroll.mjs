@@ -26,7 +26,7 @@ try {
     await writeFile(join(dir, `${name}.mjs`), code);
   }
   const calc = await import(pathToFileURL(join(dir, "calculate.mjs")).href),
-    { reconcileAttendance,attendanceRuleAtDate,payrollFactRows } = await import(
+    { applyScheduleReviews,reconcileAttendance,reconcileBoundaryClocks,attendanceRuleAtDate,payrollFactRows } = await import(
       pathToFileURL(join(dir, "attendance.mjs")).href
     ),
     { businessDate, dayWindow } = await import(
@@ -190,6 +190,8 @@ try {
     venue_id: "v1",
     user_id: "u1",
     published: true,
+    version: 3,
+    payroll_fact_id: -101,
     starts_at: "2026-09-01T09:00:00Z",
     ends_at: "2026-09-02T00:00:00Z",
   };
@@ -204,6 +206,104 @@ try {
     ).items[0].status,
     "confirmed",
   );
+  for (const changed of [
+    { startTime: night.startTime - 30 * 60000 },
+    { startTime: night.startTime + 30 * 60000 },
+    { endTime: night.endTime - 30 * 60000 },
+  ]) {
+    const result = reconcileAttendance(
+      [{ ...night, ...changed }],
+      [employee],
+      [shift],
+      "2026-09-01",
+      "Europe/Moscow",
+      9,
+    );
+    assert.equal(result.items[0].status, "confirmed");
+    assert.equal(result.items[0].issue, null);
+    assert.equal(result.missing.length, 0);
+  }
+  assert.equal(
+    reconcileAttendance([], [employee], [shift], "2026-09-01", "Europe/Moscow", 9)
+      .missing[0].shift.id,
+    shift.id,
+  );
+  const workDay = "2026-09-01";
+  const missing = reconcileAttendance([], [employee], [shift], workDay, "Europe/Moscow", 9);
+  const fallback = applyScheduleReviews(missing, [shift], [], workDay, "2026-08-31T00:00:00Z");
+  assert.equal(fallback.items[0].external_id, -101);
+  assert.equal(fallback.marks.s1.state, "scheduled");
+  assert.equal(fallback.marks.s1.shiftVersion, shift.version);
+  assert.equal(fallback.missing.length, 0);
+  const former = reconcileAttendance([], [{ ...employee, active: false }], [shift], workDay, "Europe/Moscow", 9);
+  assert.equal(applyScheduleReviews(former, [shift], [], workDay, "2026-08-31T00:00:00Z").items.length, 0);
+  assert.equal(applyScheduleReviews(former, [shift], [], workDay, "2026-08-31T00:00:00Z", { prior: fallback.items }).items[0].external_id, -101);
+  const priorExcluded = [{ ...fallback.items[0], status: "ignored", starts_at: "2026-09-01T09:00:00+00:00",
+    reviewed_by: "manager", review_reason: "Смена отменена" }];
+  const replayExcluded = applyScheduleReviews(missing, [shift], [], workDay, "2026-08-31T00:00:00Z", { prior: priorExcluded });
+  assert.equal(replayExcluded.items[0].status, "ignored");
+  assert.equal(replayExcluded.marks.s1.state, "excluded");
+  assert.equal(replayExcluded.marks.s1.reason, "Смена отменена");
+  assert.equal(applyScheduleReviews(former, [shift], [], workDay, null, { prior: priorExcluded }).items[0].status, "ignored");
+  const unmatched = reconcileAttendance(
+    [{ ...night, startTime: Date.parse("2026-09-01T06:00:00Z"), endTime: Date.parse("2026-09-01T08:00:00Z") }],
+    [employee],
+    [shift],
+    workDay,
+    "Europe/Moscow",
+    9,
+  );
+  const ambiguous = applyScheduleReviews(unmatched, [shift], [], workDay, "2026-08-31T00:00:00Z");
+  assert.equal(ambiguous.items.length, 1);
+  assert.equal(ambiguous.marks.s1.state, "missing");
+  assert.equal(ambiguous.marks.s1.hasQuickResto, true);
+  const historical = applyScheduleReviews(missing, [shift], [], workDay, "2026-09-02T00:00:00Z");
+  assert.equal(historical.items.length, 0);
+  assert.equal(historical.marks.s1.state, "missing");
+  const reviewed = {
+    shift_id: shift.id,
+    employee_id: employee.id,
+    snapshot: shift,
+    reason: "Проверено управляющим",
+  };
+  const included = applyScheduleReviews(missing, [shift], [{ ...reviewed, decision: "include" }], workDay, null);
+  assert.equal(included.items[0].status, "confirmed");
+  assert.equal(included.marks.s1.state, "included");
+  const reincluded = applyScheduleReviews(
+    missing, [shift], [{ ...reviewed, decision: "include" }], workDay, null, { prior: priorExcluded },
+  );
+  assert.equal(reincluded.items[0].status, "confirmed");
+  assert.equal(reincluded.items[0].schedule_review_override, true);
+  const earlyShift = { ...shift, starts_at: "2026-09-01T06:05:00Z", ends_at: "2026-09-01T12:00:00Z" };
+  const earlyClock = { ...night, startTime: Date.parse("2026-09-01T05:55:00Z"), endTime: Date.parse(earlyShift.ends_at) };
+  const previous = {
+    ...fallback.items[0], external_id: earlyClock.id, business_date: "2026-08-31",
+    starts_at: "2026-09-01T05:55:00+00:00", ends_at: earlyShift.ends_at,
+    reviewed_by: "manager", status: "confirmed",
+  };
+  const boundary = reconcileBoundaryClocks([earlyClock], [previous], [employee]);
+  assert.equal(boundary.unresolved.length, 0);
+  assert.equal(boundary.countable.length, 1);
+  const earlyMissing = reconcileAttendance([], [employee], [earlyShift], workDay, "Europe/Moscow", 9);
+  const noDuplicate = applyScheduleReviews(earlyMissing, [earlyShift], [], workDay, "2026-08-31T00:00:00Z", {
+    boundaryClocks: boundary.countable, confirmedOnAnotherDay: [previous],
+  });
+  assert.equal(noDuplicate.items.length, 0);
+  assert.equal(noDuplicate.missing.length, 0);
+  const awaitingBoundary = applyScheduleReviews(earlyMissing, [earlyShift], [], workDay, "2026-08-31T00:00:00Z", {
+    boundaryClocks: [earlyClock],
+  });
+  assert.equal(awaitingBoundary.items.length, 0);
+  assert.equal(awaitingBoundary.marks.s1.crossBoundary, true);
+  assert.equal(reconcileBoundaryClocks([earlyClock], [{ ...previous, status: "ignored" }], [employee]).countable.length, 0);
+  const actual = reconcileAttendance([night], [employee], [shift], workDay, "Europe/Moscow", 9);
+  const excluded = applyScheduleReviews(actual, [shift], [{ ...reviewed, decision: "exclude" }], workDay, null);
+  assert.equal(excluded.items[0].status, "ignored");
+  assert.equal(excluded.marks.s1.state, "excluded");
+  const stale = applyScheduleReviews(missing, [shift], [
+    { ...reviewed, snapshot: { ...shift, user_id: "other" }, decision: "include" },
+  ], workDay, null);
+  assert.equal(stale.marks.s1.state, "missing");
   assert.equal(
     reconcileAttendance(
       [{ ...night, owner: { id: 175 } }],

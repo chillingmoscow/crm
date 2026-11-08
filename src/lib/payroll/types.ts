@@ -166,6 +166,7 @@ export type Allocation = {
   settled_amount: number;
 };
 export type PaySettings = {
+  schedule_fallback_from?: string | null;
   experience_starts_on?: string | null;
   experience_policy_version?: number;
   historical_through?: string | null;
@@ -186,6 +187,7 @@ export type SourceDay = {
   state: string;
   error: string | null;
   synced_at: string | null;
+  missing_shifts?: string[] | null;
 };
 export type LegacyPayment = {
   id: string;
@@ -209,8 +211,23 @@ export type ScheduleReview = {
   shift_id: string;
   business_date: string;
   employee_id: string | null;
-  snapshot: { starts_at: string; ends_at: string; user_id: string | null };
+  snapshot: { starts_at: string; ends_at: string; user_id: string | null; payroll_employee_id?: string | null };
+  decision?: "include" | "exclude" | null;
   reason: string;
+};
+
+export type ShiftAttendanceState = "missing" | "scheduled" | "included" | "excluded";
+export type ShiftAttendanceSnapshot = {
+  state: ShiftAttendanceState;
+  shiftVersion?: number;
+  reason?: string;
+  hasQuickResto?: boolean;
+  crossBoundary?: boolean;
+};
+export type ShiftAttendanceMark = ShiftAttendanceSnapshot & {
+  date: string;
+  syncedAt: string | null;
+  sourceState: string;
 };
 export type PayrollTransfer = {
   id: string;

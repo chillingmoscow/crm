@@ -1,5 +1,5 @@
 "use server";
-import { createClient, getCachedActiveAccountId, getCachedPermissions } from "@/lib/supabase/server";
+import { createClient, getCachedActiveAccountId, getCachedPermissions, getCachedUser } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Json } from "@/types/database";
@@ -181,13 +181,13 @@ export async function loadSchedule(
   to?: string,
 ): Promise<ScheduleData> {
   const db = await client();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+  const [user, { data: venueId }, permissions] = await Promise.all([
+    getCachedUser(),
+    db.rpc("get_active_venue_id"),
+    getCachedPermissions(),
+  ]);
   if (!user) throw new Error("Не авторизован");
-  const { data: venueId } = await db.rpc("get_active_venue_id");
   if (!venueId) throw new Error("Выберите заведение");
-  const permissions = await getCachedPermissions();
   const loadShifts = async () => {
     const rows: ScheduleData["shifts"] = [];
     for (let start = 0; start < 20000; start += 1000) {
@@ -201,12 +201,6 @@ export async function loadSchedule(
     }
     return { data: null, error: { message: "Слишком большая история смен" } };
   };
-  const options = await db.rpc("schedule_payroll_options" as never);
-  if (options.error) throw new Error(options.error.message);
-  const payrollOptions = options.data as unknown as {
-    employees: NonNullable<ScheduleData["casualEmployees"]>;
-    models: NonNullable<ScheduleData["payModels"]>;
-  };
   const [
     shifts,
     templates,
@@ -219,6 +213,7 @@ export async function loadSchedule(
     venue,
     candidateTrials,
     hiddenRoles,
+    options,
   ] = await Promise.all([
     loadShifts(),
     db
@@ -254,7 +249,13 @@ export async function loadSchedule(
       : Promise.resolve({ data: [], error: null }),
     asLooseDb(db).from<{ role_id: string }[]>("schedule_hidden_roles")
       .select("role_id").eq("venue_id", venueId),
+    db.rpc("schedule_payroll_options" as never),
   ]);
+  if (options.error) throw new Error(options.error.message);
+  const payrollOptions = options.data as unknown as {
+    employees: NonNullable<ScheduleData["casualEmployees"]>;
+    models: NonNullable<ScheduleData["payModels"]>;
+  };
   for (const r of [
     shifts,
     templates,

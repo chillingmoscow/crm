@@ -80,7 +80,6 @@ import {
 import { CandidateTrialCard } from "./candidate-trial-card";
 import { toast } from "sonner";
 import { TemplateList } from "./template-list";
-import { ScheduleTasksTab } from "./tasks-tab";
 import { TaskHeaderTarget, TaskTitleTarget } from "./task-header-actions";
 import {
   taskStatus,
@@ -121,14 +120,12 @@ const eventLabels: Record<string, string> = {
 export function ScheduleClient({
   initial,
   section = "calendar",
-  initialTasks = null,
   initialCalendarTasks = null,
   initialShowTasks,
   initialDate,
 }: {
   initial: ScheduleData;
-  section?: "calendar" | "tasks" | "templates";
-  initialTasks?: TaskData | null;
+  section?: "calendar" | "templates";
   initialCalendarTasks?: TaskData | null;
   initialShowTasks?: boolean;
   initialDate?: string;
@@ -179,15 +176,15 @@ export function ScheduleClient({
     else url.searchParams.delete("showTasks");
     window.history.replaceState(null, "", url);
   };
-  const refreshCalendarTasks = useCallback(async () => {
+  const refreshCalendarTasks = useCallback(async (refreshSchedule = false) => {
     const request = ++tasksRequest.current;
     try {
       const [next, schedule] = await Promise.all([
         loadTasks({ from: week, to: addDays(week, 6) }),
-        loadSchedule(),
+        refreshSchedule ? loadSchedule() : null,
       ]);
       if (request === tasksRequest.current) {
-        setData(schedule);
+        if (schedule) setData(schedule);
         setCalendarTasks(next);
         setCalendarTasksWeek(week);
         setTasksError(false);
@@ -208,7 +205,7 @@ export function ScheduleClient({
     void refreshCalendarTasks().catch(() => {});
     const timer = setInterval(() => {
       if (document.visibilityState === "visible")
-        void refreshCalendarTasks().catch(() => {});
+        void refreshCalendarTasks(true).catch(() => {});
     }, 60000);
     return () => {
       // This counter invalidates requests started by both the initial load and later polling.
@@ -719,7 +716,7 @@ export function ScheduleClient({
           />
         </>
       )}
-      {((tab === "calendar" && !calendarVisible) || (tab === "tasks" && screenTitle !== null)) && (
+      {tab === "calendar" && !calendarVisible && (
         <TablePageHeader
           title={screenTitle ?? "Расписание"}
           actions={<div ref={setTaskHeaderTarget} className="flex flex-wrap items-center gap-2" />}
@@ -1259,13 +1256,6 @@ export function ScheduleClient({
           )}
           </section>
             )}
-        {tab === "tasks" && (
-          <section>
-            <TaskHeaderTarget.Provider value={taskHeaderTarget}>
-              <ScheduleTasksTab initial={initialTasks} active />
-          </TaskHeaderTarget.Provider>
-          </section>
-        )}
         {tab === "templates" && (
           <TemplateList
             templates={data.templates}

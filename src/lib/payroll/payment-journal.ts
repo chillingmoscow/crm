@@ -14,6 +14,7 @@ export type PaymentJournalRow = {
   taxAmount?: number;
   status: string;
   posted: boolean;
+  bonus?: boolean;
   external?: boolean;
 };
 export function paymentJournalRows(
@@ -27,6 +28,7 @@ export function paymentJournalRows(
       id: payment.id,
       date: payment.occurred_at,
       transactionId: payment.transaction_id,
+      bonus: !!payment.bonus_adjustment_id,
       earningMonths: [
         ...new Set(
           data.allocations

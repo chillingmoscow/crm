@@ -148,6 +148,7 @@ export type Cashbox = {
 };
 export type Payment = {
   id: string;
+  bonus_adjustment_id?: string | null;
   transaction_id: string | null;
   cashbox_id: string | null;
   kind: "salary" | "advance" | "tips";

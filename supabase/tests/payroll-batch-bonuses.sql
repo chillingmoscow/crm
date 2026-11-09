@@ -20,6 +20,7 @@ declare
   unpaid_ids uuid[];
   paid_ids uuid[];
   payout uuid;
+  salary_ids uuid[];
   before_expenses bigint;
   before_entries bigint;
 begin
@@ -81,14 +82,16 @@ begin
     join public.transactions t on t.id=p.transaction_id
     join public.payroll_adjustments j on j.id=p.bonus_adjustment_id
     join public.payroll_allocations al on al.payment_id=p.id and al.employee_id=j.employee_id
-    join public.payroll_payment_accruals l on l.payment_id=p.id
-    join public.payroll_accruals c on c.id=l.accrual_id
     where j.id=any(paid_ids) and p.state='posted' and t.deleted_at is null
       and t.type='expense' and t.bank_account_id=bank and t.amount=j.amount
       and t.date=today::timestamp at time zone 'UTC' and al.month=earning_month
-      and al.opening_amount=0 and al.settled_amount=j.amount and l.amount=j.amount
-      and c.business_date=j.business_date
+      and al.opening_amount=0 and al.settled_amount=j.amount and al.accrual_id is null
   )<>2 then raise exception 'Incorrect expense, month or bonus linkage'; end if;
+  perform private.payroll_link_accruals(p.id) from public.payroll_payments p where p.bonus_adjustment_id=any(paid_ids);
+  if exists (
+    select 1 from public.payroll_payment_accruals l join public.payroll_payments p on p.id=l.payment_id
+    where p.bonus_adjustment_id=any(paid_ids)
+  ) then raise exception 'Bonus payout blocks review of daily attendance'; end if;
   if private.payroll_month_balance(first_employee,earning_month)<>first_balance then
     raise exception 'Immediate payout changed outstanding wages';
   end if;
@@ -109,6 +112,10 @@ begin
     or (select b.balance from public.bank_accounts b where b.id=bank)<>cash_balance-1700.50 then
     raise exception 'Cancellation did not restore the amount due';
   end if;
+  perform public.payroll_journal_command('delete',jsonb_build_object('id',paid_ids[1],'reason','Rollback fixture'));
+  perform public.payroll_journal_command('delete',jsonb_build_object('id',unpaid_ids[1],'reason','Rollback fixture'));
+  delete from public.payroll_accruals c where c.employee_id=first_employee and c.business_date=bonus_date;
+  if not found then raise exception 'Missing daily accrual to rebuild'; end if;
 
   select count(*) into before_expenses from public.transactions;
   select count(*) into before_entries from public.payroll_adjustments;
@@ -122,6 +129,15 @@ begin
   if (select count(*) from public.transactions)<>before_expenses
     or (select count(*) from public.payroll_adjustments)<>before_entries then
     raise exception 'Part of the rejected batch leaked';
+  end if;
+
+  update public.payroll_accruals set status='approved' where employee_id=second_employee and business_date=bonus_date;
+  salary_ids := public.payroll_record_payments(jsonb_build_object(
+    'request_key',gen_random_uuid(),'bank_account_id',bank,'date',now(),'month',earning_month,
+    'recipients',jsonb_build_array(jsonb_build_object('employee_id',second_employee,'amount',2000))
+  ));
+  if coalesce((select sum(amount) from public.payroll_payment_accruals where payment_id=any(salary_ids)),0)<>1700.50 then
+    raise exception 'Salary payout reused already settled bonus accrual';
   end if;
   if has_function_privilege('anon','public.payroll_record_bonuses(jsonb)','EXECUTE') then
     raise exception 'Anonymous users can access the bonus writer';

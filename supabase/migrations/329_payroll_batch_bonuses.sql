@@ -13,6 +13,66 @@ create table private.payroll_bonus_batches (
 );
 revoke all on private.payroll_bonus_batches from public, anon, authenticated;
 
+-- A separately paid bonus is already settled for the month. Keep its link to
+-- the journal entry so draft shifts and their accrual rows can still be rebuilt.
+create or replace function private.payroll_link_accruals(pay_id uuid) returns void
+language plpgsql security definer set search_path='' as $$
+declare
+  pay public.payroll_payments;
+  allocation public.payroll_allocations;
+  accrual public.payroll_accruals;
+  leftover numeric;
+  available numeric;
+  opening_left numeric;
+  portion numeric;
+begin
+  select * into pay from public.payroll_payments where id=pay_id;
+  if pay.id is null or pay.state<>'posted' or pay.kind='tips' or pay.bonus_adjustment_id is not null then return; end if;
+  for allocation in select * from public.payroll_allocations where payment_id=pay.id loop
+    leftover := allocation.settled_amount-allocation.opening_amount-coalesce((
+      select sum(l.amount) from public.payroll_payment_accruals l
+      where l.payment_id=pay.id and l.employee_id=allocation.employee_id
+    ),0);
+    opening_left := greatest(0,(
+      select case when opening_confirmed then opening_balance else 0 end
+      from public.payroll_employees where id=allocation.employee_id
+    )-coalesce((
+      select sum(x.opening_amount) from public.payroll_allocations x
+      join public.payroll_payments other on other.id=x.payment_id
+      where x.employee_id=allocation.employee_id and other.kind<>'tips' and other.state='posted'
+    ),0));
+    portion := least(leftover,opening_left);
+    if portion>0 then
+      update public.payroll_allocations set opening_amount=opening_amount+portion where id=allocation.id;
+      leftover := leftover-portion;
+    end if;
+    for accrual in
+      select * from public.payroll_accruals where employee_id=allocation.employee_id
+        and venue_id=pay.venue_id and status='approved' and salary>0
+        and business_date<allocation.month+interval '1 month' order by business_date,id
+    loop
+      exit when leftover<=0;
+      available := accrual.salary-coalesce((
+        select sum(l.amount) from public.payroll_payment_accruals l
+        join public.payroll_payments other on other.id=l.payment_id
+        where l.accrual_id=accrual.id and other.state='posted'
+      ),0)-coalesce((
+        select sum(bonus_payment.amount) from public.payroll_adjustments j
+        join public.payroll_payments bonus_payment on bonus_payment.bonus_adjustment_id=j.id
+        where j.employee_id=accrual.employee_id and j.venue_id=accrual.venue_id
+          and j.business_date=accrual.business_date and bonus_payment.state='posted'
+      ),0);
+      portion := least(leftover,available);
+      if portion<=0 then continue; end if;
+      insert into public.payroll_payment_accruals(payment_id,accrual_id,account_id,venue_id,employee_id,amount)
+      values(pay.id,accrual.id,pay.account_id,pay.venue_id,allocation.employee_id,portion)
+      on conflict(payment_id,accrual_id) do update set amount=payroll_payment_accruals.amount+excluded.amount;
+      leftover := leftover-portion;
+    end loop;
+  end loop;
+end $$;
+revoke all on function private.payroll_link_accruals(uuid) from public,anon,authenticated;
+
 create function public.payroll_record_bonuses(p_input jsonb) returns uuid[]
 language plpgsql security definer set search_path='' as $$
 declare
@@ -34,7 +94,6 @@ declare
   adjustment_id uuid;
   payment_id uuid;
   transaction_id uuid;
-  accrual_id uuid;
   category_id uuid;
   tz text;
   note text;
@@ -109,10 +168,11 @@ begin
         and c.account_id=a and c.archived_at is null and c.type='expense';
       if category_id is null then raise exception 'Проверьте статью ФОТ сотрудника %', employee.name; end if;
       -- The journal must have included this bonus in the actual statement.
-      select c.id into accrual_id from public.payroll_accruals c
-      where c.employee_id=employee.id and c.venue_id=v and c.business_date=bonus_date
-        and c.components @> jsonb_build_array(jsonb_build_object('source','payroll-entry:'||adjustment_id::text,'amount',amount));
-      if accrual_id is null then raise exception 'Премия сотрудника % не попала в начисления', employee.name; end if;
+      if not exists (
+        select 1 from public.payroll_accruals c
+        where c.employee_id=employee.id and c.venue_id=v and c.business_date=bonus_date
+          and c.components @> jsonb_build_array(jsonb_build_object('source','payroll-entry:'||adjustment_id::text,'amount',amount))
+      ) then raise exception 'Премия сотрудника % не попала в начисления', employee.name; end if;
 
       note := 'Выплата премии: '||employee.name;
       insert into public.transactions(
@@ -132,9 +192,6 @@ begin
 
       insert into public.payroll_allocations(account_id,venue_id,payment_id,employee_id,month,amount,settled_amount)
       values(a,v,payment_id,employee.id,month,amount,amount);
-      -- Attribute the money to this bonus date without settling older wages or opening debt.
-      insert into public.payroll_payment_accruals(payment_id,accrual_id,account_id,venue_id,employee_id,amount)
-      values(payment_id,accrual_id,a,v,employee.id,amount);
       insert into public.payroll_events(account_id,venue_id,entity_id,actor_id,action,details)
       values(a,v,payment_id,u,'payment',jsonb_build_object('amount',amount,'kind','salary','bonus_adjustment_id',adjustment_id));
     end if;

@@ -140,7 +140,7 @@ async function loadPayrollData(overview: boolean): Promise<PayrollData> {
     if (ids.length) {
       const r = await s.admin
         .from<Payment[]>("payroll_payments")
-        .select("id,kind,state,created_at,occurred_at")
+        .select("id,kind,state,created_at,occurred_at,bonus_adjustment_id")
         .eq("account_id", s.accountId)
         .eq("venue_id", s.venueId)
         .in("id", ids);

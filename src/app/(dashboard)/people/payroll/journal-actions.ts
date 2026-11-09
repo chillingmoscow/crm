@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { validDate } from "@/lib/sales/time";
 import { z } from "zod";
 
 async function db() {
@@ -32,6 +33,29 @@ export async function createPayrollEntry(input: z.infer<typeof createSchema>) {
   });
   if (r.error) throw new Error(r.error.message);
   return String(r.data);
+}
+
+const bonusBatchSchema = z.object({
+  request_key: uuid,
+  date: z.string().refine(validDate, "Проверьте дату начисления"),
+  medium: z.enum(["money", "bonus"]),
+  reason: z.string().trim().min(3).max(4000),
+  bank_account_id: uuid.optional(),
+  payout_date: z.string().refine(validDate, "Проверьте дату выплаты").optional(),
+  recipients: z.array(z.object({
+    employee_id: uuid,
+    amount: z.number().positive().max(1e9)
+      .refine((amount) => Math.abs(amount * 100 - Math.round(amount * 100)) < 0.00001,
+        "Не больше двух знаков после запятой"),
+  })).min(1).max(500),
+});
+
+export async function recordPayrollBonuses(input: z.infer<typeof bonusBatchSchema>) {
+  const value = bonusBatchSchema.parse(input);
+  const { database } = await db();
+  const result = await database.rpc("payroll_record_bonuses", { p_input: value });
+  if (result.error) throw new Error(result.error.message);
+  return result.data as string[];
 }
 const editSchema = z.object({
   id: uuid,

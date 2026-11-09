@@ -14,6 +14,7 @@ import {
   Coins,
   Pencil,
   MoreHorizontal,
+  X,
 } from "lucide-react";
 import Image from "next/image";
 import { toast } from "sonner";
@@ -22,6 +23,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { PayrollMonthPicker } from "@/app/(dashboard)/people/payroll/_components/payroll-month-picker";
 import { DatePicker } from "@/components/ui/date-picker";
 import {
@@ -38,6 +40,7 @@ import { PayrollEmployeeCell } from "@/app/(dashboard)/people/payroll/_component
 import { PayrollTable } from "@/app/(dashboard)/people/payroll/_components/payroll-table";
 import {
   createPayrollEntry,
+  recordPayrollBonuses,
   updatePayrollEntry,
   deletePayrollEntry,
   commentPayrollEntry,
@@ -46,6 +49,8 @@ import {
   type PayrollEntryDetail,
 } from "@/app/(dashboard)/people/payroll/journal-actions";
 import type { Adjustment, PayrollData } from "@/lib/payroll/types";
+import { runWithConcurrency } from "@/lib/run-with-concurrency";
+import { zonedParts } from "@/lib/sales/time";
 import style from "./payroll-journal.module.css";
 import formStyle from "./concept-payment-form.module.css";
 
@@ -135,6 +140,14 @@ export function PayrollJournal({
   const selection = useRef(selectedId);
   selection.current = selectedId;
   const selected = data.adjustments.find((a) => a.id === selectedId);
+  const paidBonuses = useMemo(() => new Set(
+    data.payments.flatMap((payment) =>
+      payment.state === "posted" && payment.bonus_adjustment_id
+        ? [payment.bonus_adjustment_id]
+        : [],
+    ),
+  ), [data.payments]);
+  const selectedPaid = !!selected && paidBonuses.has(selected.id);
   const canWrite = data.permissions.includes("payroll.review");
   const reloadDetail = async () => {
     if (!selectedId) return;
@@ -218,6 +231,7 @@ export function PayrollJournal({
                   <Coins size={14} />
                 )}{" "}
                 {kindLabels[r.kind] ?? r.kind}
+                {paidBonuses.has(r.id) && <span className="text-xs text-muted-foreground">· Выплачена</span>}
               </span>
             );
           if (id === "amount")
@@ -238,7 +252,7 @@ export function PayrollJournal({
           return <span className="line-clamp-2" title={r.reason}>{r.reason}</span>;
         },
       })),
-    [data.employees],
+    [data.employees, paidBonuses],
   );
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -330,9 +344,9 @@ export function PayrollJournal({
         data={data}
         month={month}
         employeeId={employeeId}
-        onCreated={async (id) => {
+        onCreated={async (ids) => {
           await onChange();
-          setSelectedId(id);
+          if (ids.length === 1) setSelectedId(ids[0]);
         }}
       />
       <PayrollDetailDialog
@@ -343,8 +357,9 @@ export function PayrollJournal({
         employee={selected ? (() => { const e = data.employees.find((e) => e.id === selected.employee_id); return {name:e?.name ?? "Сотрудник", role:e?.role_name, avatarUrl:e?.avatar_url}; })() : undefined}
         amount={selected ? entryAmount(selected) : undefined}
         amountLabel={selected?.kind === "warning" ? "Без денежного удержания" : selected?.kind === "allowance" ? "Надбавка за месяц" : selected?.kind === "bonus" ? "Сумма премии" : selected?.kind === "correction" ? "Сумма корректировки" : "Сумма удержания"}
-        status={selected && (selected.deleted_at || detail?.notification) ? <span className="flex flex-wrap items-center justify-end gap-2">
+        status={selected && (selected.deleted_at || selectedPaid || detail?.notification) ? <span className="flex flex-wrap items-center justify-end gap-2">
           {selected.deleted_at && <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">Удалено</span>}
+          {selectedPaid && <span className="rounded-full bg-muted px-2.5 py-1 text-xs">Выплачена</span>}
           {!selected.deleted_at && detail?.notification && <span
             className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-300"
             title={detail.notification.last_error ?? undefined}
@@ -359,7 +374,7 @@ export function PayrollJournal({
                 setEditAmount(String(Math.abs(Number(selected.amount)))); setEditReason(selected.reason);
                 setEditExpected({amount:Number(selected.amount),reason:selected.reason});
               }}><Pencil size={15} className="mr-2"/>Изменить</DropdownMenuItem>}
-              <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => {setEditing(false);setDeleting(true);setDetailTab("details");}}><Trash2 size={15} className="mr-2"/>Удалить</DropdownMenuItem>
+              {!selectedPaid && <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => {setEditing(false);setDeleting(true);setDetailTab("details");}}><Trash2 size={15} className="mr-2"/>Удалить</DropdownMenuItem>}
             </DropdownMenuContent>
           </DropdownMenu>
         ) : undefined}
@@ -408,8 +423,11 @@ export function PayrollJournal({
                 <p className="mt-4 text-sm text-muted-foreground">Загружаем…</p>
               )}
               <TabsContent value="details" className="space-y-4">
+                {selectedPaid && canWrite && <p className="text-xs text-muted-foreground">
+                  Чтобы изменить сумму или удалить премию, сначала отмените её в разделе «Выплаты».
+                </p>}
                 {editing ? <div className="space-y-4">
-                  {selected.kind !== "warning" && <div className="space-y-2"><Label htmlFor="edit-payroll-amount">Сумма, {selected.medium === "bonus" ? "б." : "₽"}</Label><Input id="edit-payroll-amount" inputMode="decimal" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} disabled={busy || selected.external_state === "done" && selected.medium === "bonus"}/></div>}
+                  {selected.kind !== "warning" && <div className="space-y-2"><Label htmlFor="edit-payroll-amount">Сумма, {selected.medium === "bonus" ? "б." : "₽"}</Label><Input id="edit-payroll-amount" inputMode="decimal" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} disabled={busy || selectedPaid || selected.external_state === "done" && selected.medium === "bonus"}/></div>}
                   <div className="space-y-2"><Label htmlFor="edit-payroll-reason">Основание</Label><Textarea id="edit-payroll-reason" value={editReason} onChange={(e) => setEditReason(e.target.value)} maxLength={4000} disabled={busy}/></div>
                   <div className="flex gap-2"><Button size="sm" disabled={busy || editReason.trim().length < 3 || (selected.kind !== "warning" && !(Number(editAmount.replace(/\s/g, "").replace(",", ".")) > 0))} onClick={() => void run(async () => {
                     await updatePayrollEntry({id:selected.id, amount:selected.kind === "warning" ? 0 : Number(editAmount.replace(/\s/g, "").replace(",", ".")), reason:editReason, expected_amount:editExpected.amount, expected_reason:editExpected.reason});
@@ -591,44 +609,86 @@ export function PayrollEntryForm({
   month: string;
   employeeId?: string;
   initialKind?: "deduction" | "allowance";
-  onCreated: (id: string) => Promise<void>;
+  onCreated: (ids: string[]) => Promise<void>;
 }) {
-  const [kind, setKind] = useState<string>(initialKind),
-    [medium, setMedium] = useState("money"),
+  const [kind, setKind] = useState<"bonus" | "deduction" | "warning" | "allowance">(initialKind),
+    [medium, setMedium] = useState<"money" | "bonus">("money"),
     [employee, setEmployee] = useState(employeeId ?? ""),
     [date, setDate] = useState(month),
     [amount, setAmount] = useState(""),
     [reason, setReason] = useState(""),
     [files, setFiles] = useState<File[]>([]),
     [busy, setBusy] = useState(false);
-  const [requestKey, setRequestKey] = useState("");
+  const [amounts, setAmounts] = useState<Record<string, string>>({});
+  const [payNow, setPayNow] = useState(false);
+  const [bank, setBank] = useState("");
+  const [payoutDate, setPayoutDate] = useState("");
+  const request = useRef<{ key: string; payload: string } | null>(null);
+  const submitting = useRef(false);
+  const employees = data.employees.filter((e) => e.active);
+  const isBonus = kind === "bonus";
+  const selected = employees.filter((e) => Object.hasOwn(amounts, e.id));
+  const total = selected.reduce((sum, e) => sum + (Number(amounts[e.id]) || 0), 0);
+  const canPayNow = isBonus && medium === "money"
+    && data.permissions.includes("payroll.pay")
+    && data.permissions.includes("finance.create_transaction");
+  const issuing = canPayNow && payNow;
+  const valid = !!date && reason.trim().length >= 3 && (isBonus
+    ? selected.length > 0 && selected.every((e) => {
+      const value = Number(amounts[e.id]);
+      return value > 0 && value <= 1e9
+        && Math.abs(value * 100 - Math.round(value * 100)) < 0.00001
+        && (!issuing || !!e.role_id);
+    }) && (!issuing || (!!bank && !!payoutDate))
+    : !!employee && (kind === "warning" || Number(amount) > 0));
+
   useEffect(() => {
     if (open) {
       setKind(initialKind);
       setMedium("money");
-      setRequestKey(crypto.randomUUID());
+      request.current = null;
       setDate(month);
       setEmployee(employeeId ?? "");
       setAmount("");
+      setAmounts(employeeId ? { [employeeId]: "" } : {});
       setReason("");
       setFiles([]);
+      setPayNow(false);
+      setBank("");
+      setPayoutDate(zonedParts(new Date(), data.timezone).date);
     }
-  }, [open, month, employeeId, initialKind]);
+  }, [open, month, employeeId, initialKind, data.timezone]);
+
+  const changeRecipients = (ids: string[]) =>
+    setAmounts((previous) =>
+      Object.fromEntries(ids.map((id) => [id, previous[id] ?? ""])),
+    );
   const submit = async () => {
+    if (submitting.current || !valid) return;
+    submitting.current = true;
     setBusy(true);
     try {
-      const id = await createPayrollEntry({
-        id: requestKey,
-        request_key: requestKey,
-        employee_id: employee,
-        date,
-        kind: kind as "bonus" | "deduction" | "warning" | "allowance",
-        medium: kind === "warning" ? "none" : kind === "allowance" ? "money" : (medium as "money" | "bonus"),
+      const shared = { date, reason: reason.trim() };
+      const bonus = {
+        ...shared,
+        medium,
+        recipients: selected.map((e) => ({ employee_id: e.id, amount: Number(amounts[e.id]) })),
+        ...(issuing ? { bank_account_id: bank, payout_date: payoutDate } : {}),
+      };
+      const single = {
+        ...shared, kind, employee_id: employee,
+        medium: kind === "warning" ? "none" as const : kind === "allowance" ? "money" as const : medium,
         amount: kind === "warning" ? 0 : Number(amount),
-        reason,
-      });
+      };
+      const payload = JSON.stringify(isBonus ? bonus : single);
+      if (request.current?.payload !== payload)
+        request.current = { key: crypto.randomUUID(), payload };
+      const key = request.current.key;
+      const ids = isBonus
+        ? await recordPayrollBonuses({ ...bonus, request_key: key })
+        : [await createPayrollEntry({ ...single, id: key, request_key: key })];
       let photoError = false;
-      for (const file of files) {
+      await runWithConcurrency(ids.flatMap((id) => files.map((file) => ({ id, file }))), 3, async ({ id, file }) => {
         try {
           const f = new FormData();
           f.set("file", file);
@@ -636,17 +696,24 @@ export function PayrollEntryForm({
         } catch {
           photoError = true;
         }
-      }
-      await onCreated(id);
+      });
       onOpenChange(false);
       if (photoError)
         toast.error(
-          "Запись сохранена. Часть фото не загрузилась — прикрепите их в карточке.",
+          "Данные сохранены. Часть фото не загрузилась. Их можно прикрепить в карточках.",
         );
-      else toast.success("Запись добавлена");
+      else toast.success(isBonus
+        ? issuing ? "Премии начислены и выплачены" : "Премии начислены"
+        : "Запись добавлена");
+      try {
+        await onCreated(ids);
+      } catch {
+        toast.error("Данные сохранены. Обновите страницу, чтобы увидеть изменения.");
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Не удалось сохранить");
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   };
@@ -659,19 +726,15 @@ export function PayrollEntryForm({
       title={kind === "allowance" ? "Надбавка за месяц" : kind === "bonus" ? "Добавить премию" : kind === "warning" ? "Добавить предупреждение" : "Добавить штраф"}
       description="Учитывается в расчёте зарплаты"
       footer={
-        <Button
-          className="ml-auto"
-          disabled={
-            busy ||
-            !employee ||
-            !date ||
-            reason.trim().length < 3 ||
-            (kind !== "warning" && !(Number(amount) > 0))
-          }
-          onClick={() => void submit()}
-        >
-          {busy ? "Сохраняем…" : "Добавить"}
-        </Button>
+        <div className={`${formStyle.footer} ${formStyle.totalRow}`}>
+          {isBonus && <div aria-live="polite">
+            <span>Итого</span>
+            <strong>{format(total)} <small>{medium === "money" ? "₽" : "б."}</small></strong>
+          </div>}
+          <Button className="ml-auto" disabled={busy || !valid} onClick={() => void submit()}>
+            {busy ? "Сохраняем…" : issuing ? "Начислить и выдать" : isBonus ? "Начислить" : "Добавить"}
+          </Button>
+        </div>
       }
     >
       <form
@@ -691,26 +754,64 @@ export function PayrollEntryForm({
               key={id}
               type="button"
               aria-pressed={kind === id}
-              onClick={() => setKind(id)}
+              disabled={busy}
+              onClick={() => {
+                if (id === kind) return;
+                setKind(id === "bonus" || id === "warning" ? id : "deduction");
+                setPayNow(false);
+                if (id === "bonus" && employee && !selected.length) changeRecipients([employee]);
+              }}
             >
               {label}
             </button>
           ))}
         </div>}
-        <div className="space-y-2">
-          <Label>Сотрудник</Label>
-          <PayrollEmployeePicker employees={data.employees.filter((e) => e.active)} selectedIds={employee ? [employee] : []} disabled={busy} onChange={(ids) => setEmployee(ids[0] ?? "")} />
-        </div>
+        {isBonus ? (
+          <section className={formStyle.recipients} aria-label="Получатели премии">
+            <div className={formStyle.recipientHeading}>
+              <h3>Кому начисляем {selected.length > 0 && <span>{selected.length}</span>}</h3>
+            </div>
+            <PayrollEmployeePicker employees={employees} selectedIds={Object.keys(amounts)} multiple disabled={busy} onChange={changeRecipients} />
+            {selected.length > 0 && <div className={formStyle.selectedPeople}>
+              {selected.map((e) => (
+                <div key={e.id} className={formStyle.person}>
+                  <div className={formStyle.identity}>
+                    <PayrollEmployeeCell name={e.name} role={e.role_name} avatarUrl={e.avatar_url} />
+                    {issuing && !e.role_id && <small className="text-destructive">Укажите должность сотрудника</small>}
+                  </div>
+                  <div className={formStyle.amountInput}>
+                    <Input type="number" inputMode="decimal" min="0.01" step="0.01" max="1000000000"
+                      aria-label={`Премия для ${e.name}`} placeholder="0" value={amounts[e.id]} disabled={busy}
+                      onChange={(event) => setAmounts((prev) => ({ ...prev, [e.id]: event.target.value }))} />
+                    <span>{medium === "money" ? "₽" : "б."}</span>
+                  </div>
+                  <button type="button" className={formStyle.removePerson} aria-label={`Убрать ${e.name}`}
+                    disabled={busy} onClick={() => changeRecipients(Object.keys(amounts).filter((id) => id !== e.id))}>
+                    <X size={15} />
+                  </button>
+                </div>
+              ))}
+            </div>}
+          </section>
+        ) : (
+          <div className="space-y-2">
+            <Label htmlFor="entry-employee">Сотрудник</Label>
+            <PayrollEmployeePicker id="entry-employee" employees={employees} selectedIds={employee ? [employee] : []} disabled={busy} onChange={(ids) => setEmployee(ids[0] ?? "")} />
+          </div>
+        )}
         <div className={formStyle.fields}>
           <div>
-            <Label htmlFor="entry-date">{kind === "allowance" ? "Месяц начисления" : "Дата"}</Label>
-            {kind === "allowance" ? <PayrollMonthPicker variant="field" ariaLabel="Месяц надбавки" prefix="" value={date} min={data.settings?.starts_on ?? month} disabled={busy} onChange={setDate}/> : <DatePicker id="entry-date" value={date} onChange={setDate} clearable={false}/>}
+            <Label htmlFor="entry-date">{kind === "allowance" ? "Месяц начисления" : isBonus ? "Дата начисления" : "Дата"}</Label>
+            {kind === "allowance" ? <PayrollMonthPicker variant="field" ariaLabel="Месяц надбавки" prefix="" value={date} min={data.settings?.starts_on ?? month} disabled={busy} onChange={setDate}/> : <DatePicker id="entry-date" value={date} onChange={setDate} clearable={false} disabled={busy}/>}
 
           </div>
           {kind !== "warning" && kind !== "allowance" && (
             <div>
               <Label htmlFor="entry-medium">Начисление</Label>
-              <Select value={medium} onValueChange={setMedium}>
+              <Select value={medium} disabled={busy} onValueChange={(value) => {
+                setMedium(value === "bonus" ? "bonus" : "money");
+                setPayNow(false);
+              }}>
                 <SelectTrigger id="entry-medium">
                   <SelectValue />
                 </SelectTrigger>
@@ -722,7 +823,33 @@ export function PayrollEntryForm({
             </div>
           )}
         </div>
-        {kind !== "warning" && (
+        {canPayNow && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Switch id="entry-pay-now" checked={payNow} disabled={busy} onCheckedChange={setPayNow} />
+              <Label htmlFor="entry-pay-now">Сразу выдать премию</Label>
+            </div>
+            {issuing && (
+              <div className={formStyle.fields}>
+                <div>
+                  <Label htmlFor="entry-bank">Счёт списания</Label>
+                  <Select value={bank} onValueChange={setBank} disabled={busy}>
+                    <SelectTrigger id="entry-bank" className={formStyle.select}><SelectValue placeholder="Выберите счёт" /></SelectTrigger>
+                    <SelectContent>
+                      {data.banks.map((account) => <SelectItem key={account.id} value={account.id}>{account.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  {!data.banks.length && <p className="text-xs text-muted-foreground">Нет доступных счетов</p>}
+                </div>
+                <div>
+                  <Label htmlFor="entry-payout-date">Дата выплаты</Label>
+                  <DatePicker id="entry-payout-date" value={payoutDate} onChange={setPayoutDate} clearable={false} disabled={busy} />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {kind !== "warning" && !isBonus && (
           <div className="space-y-2">
             <Label htmlFor="entry-amount">
               Сумма{medium === "money" ? ", ₽" : " бонусов"}
@@ -733,6 +860,7 @@ export function PayrollEntryForm({
               min="0.01"
               step="0.01"
               value={amount}
+              disabled={busy}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0"
             />
@@ -744,6 +872,7 @@ export function PayrollEntryForm({
             id="entry-reason"
             placeholder={kind === "allowance" ? "Например, KPI старшего мастера за месяц" : "Что произошло"}
             value={reason}
+            disabled={busy}
             onChange={(e) => setReason(e.target.value)}
             maxLength={4000}
           />
@@ -755,6 +884,7 @@ export function PayrollEntryForm({
             : "Прикрепить фотографии"}
           <input
             type="file"
+            disabled={busy}
             multiple
             accept="image/jpeg,image/png,image/webp"
             onChange={(e) =>
@@ -762,6 +892,9 @@ export function PayrollEntryForm({
             }
           />
         </label>
+        {isBonus && selected.length > 1 && files.length > 0 && (
+          <p className="text-xs text-muted-foreground">Фотографии будут приложены к каждой премии.</p>
+        )}
         {kind !== "warning" && medium === "bonus" && (
           <p className={style.parallel}>
             Состояние бонусной операции появится в карточке записи.

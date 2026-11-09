@@ -97,6 +97,8 @@ export function PayrollPaymentsTable({
             />
           ) : id === "status" ? (
             <PaymentStatus posted={row.original.posted} />
+          ) : id === "kind" && row.original.bonus ? (
+            <span>{row.original.kind} <small className="text-muted-foreground">· Премия</small></span>
           ) : (
             row.original[id as "employee" | "kind" | "status"]
           ),
@@ -189,7 +191,7 @@ function PaymentDetails({
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
-      title="Выплата"
+      title={row.bonus ? "Выплата премии" : "Выплата"}
       description={
         row.earningMonths.length
           ? `За ${row.earningMonths.map((m) => new Date(`${m}T12:00:00Z`).toLocaleDateString("ru-RU", { month: "long", year: "numeric", timeZone: "UTC" }).replace(" г.", "")).join(", ")}`

@@ -115,10 +115,8 @@ export async function POST(request: NextRequest) {
     } catch {
       supplyErrors++;
     }
-    // One provider workload per tick: a slow two-report day must not be appended
-    // to 25 seconds of order imports and a monthly report in the same request.
-    // Persist rotation: a once-per-minute scheduler would otherwise always pick
-    // the same lane with a clock modulo divisible by four.
+    // Give each queue its scheduled turn, with at most one active provider
+    // workload per tick. Shifts can use a turn whose assigned queue is idle.
     const rotation = await asLooseDb(createAdminClient()).rpc(
       "sales_next_worker_lane",
     );
@@ -130,8 +128,8 @@ export async function POST(request: NextRequest) {
     )
       throw new Error("Не удалось выбрать очередь");
     const lane = Number(rotation.data);
+    const started = Date.now();
     if (lane === 9) {
-      const started = Date.now();
       while (Date.now() - started < 25000 && supplySlices < 100) {
         try {
           const r = await processSupplyRead();
@@ -147,7 +145,6 @@ export async function POST(request: NextRequest) {
         }
       }
     } else if (lane === 8) {
-      const started = Date.now();
       while (Date.now() - started < 25000 && guestSlices < 100) {
         try {
           const r = await processGuestRead();
@@ -163,7 +160,6 @@ export async function POST(request: NextRequest) {
         }
       }
     } else if (lane === 7) {
-      const started = Date.now();
       while (Date.now() - started < 25000 && nativeFinanceSlices < 100) {
         try {
           const r = await processNativeFinance();
@@ -179,7 +175,6 @@ export async function POST(request: NextRequest) {
         }
       }
     } else if (lane === 6) {
-      const started = Date.now();
       while (Date.now() - started < 25000 && cashMovementSlices < 100) {
         try {
           const r = await processCashMovement();
@@ -195,7 +190,6 @@ export async function POST(request: NextRequest) {
         }
       }
     } else if (lane === 5) {
-      const started = Date.now();
       while (Date.now() - started < 25000 && cashControlSlices < 100) {
         try {
           const r = await processCashControl();
@@ -211,7 +205,6 @@ export async function POST(request: NextRequest) {
         }
       }
     } else if (lane === 4) {
-      const started = Date.now();
       while (Date.now() - started < 25000 && settlementSlices < 100) {
         try {
           const r = await processSettlement();
@@ -250,8 +243,19 @@ export async function POST(request: NextRequest) {
       } catch {
         monthReportErrors++;
       }
-    } else {
-      const started = Date.now();
+    }
+    const otherWork = [
+      monthReports, monthReportErrors,
+      additionalReports, additionalErrors,
+      stockSlices, stockErrors,
+      settlementSlices, settlementErrors,
+      cashControlSlices, cashControlErrors,
+      cashMovementSlices, cashMovementErrors,
+      nativeFinanceSlices, nativeFinanceErrors,
+      guestSlices, guestErrors,
+      supplySlices, supplyErrors,
+    ].some(Boolean);
+    if (lane === 0 || !otherWork) {
       while (Date.now() - started < 25000 && slices < 100) {
         const r = await runOneSlice();
         if (r.idle) break;

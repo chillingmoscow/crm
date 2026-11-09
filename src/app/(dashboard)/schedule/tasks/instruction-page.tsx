@@ -17,7 +17,7 @@ import {
 import type { TaskData, TaskInstruction } from "@/lib/schedule/tasks";
 import { createKbPage } from "@/lib/knowledge/pages";
 import { getKbAttachmentSignedUrl } from "@/lib/knowledge/attachments";
-import { loadTaskInstructionPage, taskInstructionFileUrl } from "./actions";
+import { loadTaskInstructionPage, loadTaskInstructionPages, taskInstructionFileUrl } from "./actions";
 import { toast } from "sonner";
 
 const Reader = dynamic(
@@ -69,12 +69,38 @@ export function InstructionPagePicker({
   name: string;
   disabled: boolean;
 }) {
-  const [pages, setPages] = useState(data.instructionPages ?? []),
+  const [pages, setPages] = useState<Awaited<ReturnType<typeof loadTaskInstructionPages>>>([]),
     [query, setQuery] = useState(""),
     [instruction, setInstruction] = useState<TaskInstruction | null>(null),
     [error, setError] = useState(""),
     [creating, setCreating] = useState(false);
   const canView = data.permissions.includes("kb.view_pages");
+  const [loadingPages, setLoadingPages] = useState(canView);
+  const [pagesError, setPagesError] = useState(false);
+  useEffect(() => {
+    if (!canView) return;
+    let alive = true;
+    void loadTaskInstructionPages()
+      .then((rows) => {
+        if (!alive) return;
+        setPages((current) => {
+          const byId = new Map(rows.map((page) => [page.id, page]));
+          for (const page of current) {
+            if (!byId.has(page.id)) byId.set(page.id, page);
+          }
+          return [...byId.values()];
+        });
+      })
+      .catch(() => {
+        if (alive) setPagesError(true);
+      })
+      .finally(() => {
+        if (alive) setLoadingPages(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [canView]);
   useEffect(() => {
     let alive = true;
     const refresh = () => {
@@ -168,16 +194,16 @@ export function InstructionPagePicker({
       {canView && (
         <Input
           aria-label="Найти инструкцию"
-          placeholder="Найти страницу"
+          placeholder={loadingPages ? "Загружаем страницы…" : "Найти страницу"}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          disabled={disabled}
+          disabled={disabled || loadingPages}
         />
       )}
       <Select
         value={value ?? "none"}
         onValueChange={(v) => onChange(v === "none" ? null : v)}
-        disabled={disabled || !canView}
+        disabled={disabled || !canView || loadingPages}
       >
         <SelectTrigger id="instruction-page" className="w-full">
           <SelectValue placeholder="Выберите страницу" />
@@ -235,6 +261,11 @@ export function InstructionPagePicker({
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
+        </p>
+      )}
+      {pagesError && (
+        <p role="alert" className="text-sm text-destructive">
+          Не удалось загрузить список страниц. Откройте редактор задачи ещё раз.
         </p>
       )}
       {instruction && (

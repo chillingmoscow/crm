@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import {
   createClient,
   getCachedUser,
@@ -20,7 +21,7 @@ import type {
   CandidatePage,
 } from "./types";
 import { uuid, normalizePhone } from "./schema";
-export async function candidateScope() {
+export const candidateScope = cache(async () => {
   const [user, accountId, can, client] = await Promise.all([
     getCachedUser(),
     getCachedActiveAccountId(),
@@ -49,7 +50,7 @@ export async function candidateScope() {
     admin: asLooseDb(createAdminClient()),
     permissions,
   };
-}
+});
 function check<T>(r: { data: T | null; error: { message: string } | null }): T {
   if (r.error) throw new Error(r.error.message);
   return r.data as T;

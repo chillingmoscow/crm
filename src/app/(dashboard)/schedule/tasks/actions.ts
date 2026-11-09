@@ -1,5 +1,5 @@
 "use server";
-import { createClient, getCachedPermissions } from "@/lib/supabase/server";
+import { createClient, getCachedPermissions, getCachedUser } from "@/lib/supabase/server";
 import { listKbPageTreeRows } from "@/lib/knowledge/pages";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { readTaskOccurrences } from "@/lib/schedule/task-occurrences";
@@ -18,12 +18,12 @@ import {
 
 async function context() {
   const client = await createClient();
-  const {
-    data: { user },
-  } = await client.auth.getUser();
-  if (!user) throw new Error("Войдите в аккаунт");
   const db = asLooseDb(client);
-  const venue = await db.rpc("get_active_venue_id");
+  const [user, venue] = await Promise.all([
+    getCachedUser(),
+    db.rpc("get_active_venue_id"),
+  ]);
+  if (!user) throw new Error("Войдите в аккаунт");
   if (venue.error || !venue.data) throw new Error("Выберите заведение");
   return { client, db, user, venueId: String(venue.data) };
 }
@@ -53,15 +53,16 @@ export async function loadTasks(range?: {
         .parse(range)
     : null;
   const { db, user, venueId } = await context();
-  const venue = await db
-    .from<{ timezone: string }>("venues")
-    .select("timezone")
-    .eq("id", venueId)
-    .single();
+  const [venue, permissions] = await Promise.all([
+    db.from<{ timezone: string }>("venues")
+      .select("timezone")
+      .eq("id", venueId)
+      .single(),
+    getCachedPermissions(),
+  ]);
   if (venue.error) throw new Error("Не удалось загрузить заведение");
   const timezone = venue.data?.timezone || "Europe/Moscow",
     today = dateInZone(new Date(), timezone);
-  const permissions = await getCachedPermissions();
   const occurrencesQuery = () => {
     const query = db
       .from<TaskOccurrence[]>("schedule_task_occurrences")
@@ -101,38 +102,20 @@ export async function loadTasks(range?: {
       .in("state", ["error", "review"])
       .order("business_date", { ascending: false })
       .limit(50),
+    period &&
+    (permissions.includes("schedule.view_all") ||
+      permissions.includes("schedule.checklist_edit"))
+      ? db.rpc("schedule_task_preview", { p_from: period.from, p_to: period.to })
+      : Promise.resolve({ data: [], error: null }),
   ]);
   for (const r of results)
     if (r.error)
       throw new Error("Не удалось загрузить задачи: " + r.error.message);
-  const occurrences = results[1].data ?? [];
-  const instructionPages =
-    permissions.includes("kb.view_pages") &&
-    [
-      "schedule.view_all",
-      "schedule.checklist_edit",
-      "schedule.checklist_create",
-    ].some((p) => permissions.includes(p))
-      ? await listKbPageTreeRows()
-      : null;
-  if (instructionPages?.error)
-    throw new Error("Не удалось загрузить инструкции");
-  const plans =
-    period &&
-    (permissions.includes("schedule.view_all") ||
-      permissions.includes("schedule.checklist_edit"))
-      ? await db.rpc("schedule_task_preview", {
-          p_from: period.from,
-          p_to: period.to,
-        })
-      : null;
-  if (plans?.error) throw new Error("Не удалось загрузить план задач");
   return {
     venueId,
-    instructionPages: instructionPages?.rows ?? [],
-    plans: (plans?.data ?? []) as TaskPreview[],
+    plans: (results[5].data ?? []) as TaskPreview[],
     definitions: results[0].data ?? [],
-    occurrences,
+    occurrences: results[1].data ?? [],
     settings: results[2].data,
     templates: results[3].data ?? [],
     messages: results[4].data ?? [],
@@ -141,6 +124,23 @@ export async function loadTasks(range?: {
     today,
     timezone,
   };
+}
+
+export async function loadTaskInstructionPages() {
+  const permissions = await getCachedPermissions();
+  if (
+    !permissions.includes("kb.view_pages") ||
+    ![
+      "schedule.view_all",
+      "schedule.checklist_edit",
+      "schedule.checklist_create",
+    ].some((permission) => permissions.includes(permission))
+  ) throw new Error("Нет доступа к списку инструкций");
+  const { rows, error } = await listKbPageTreeRows();
+  if (error) throw new Error("Не удалось загрузить список инструкций");
+  return rows.map(({ id, title, slug, parent_id }) => ({
+    id, title, slug, parent_id,
+  }));
 }
 export async function deleteTask(input: { id: string; version: number }) {
   try {

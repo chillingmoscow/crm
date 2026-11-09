@@ -1,27 +1,22 @@
 import { redirect } from "next/navigation";
-import { getCachedUser } from "@/lib/supabase/server";
-import { loadSchedule } from "../actions";
-import { ScheduleClient } from "../_components/schedule-client";
+import { getCachedPermissions, getCachedUser } from "@/lib/supabase/server";
+import { ScheduleTasksTab } from "../_components/tasks-tab";
 import { loadTasks } from "./actions";
 
 export default async function TasksPage() {
-  if (!(await getCachedUser())) redirect("/login");
-  const data = await loadSchedule();
+  const [user, permissions] = await Promise.all([
+    getCachedUser(),
+    getCachedPermissions(),
+  ]);
+  if (!user) redirect("/login");
   if (
     ![
       "schedule.view_all",
       "schedule.checklist_create",
       "schedule.checklist_edit",
-    ].some((p) => data.permissions.includes(p))
+    ].some((p) => permissions.includes(p))
   )
     redirect("/schedule?showTasks=1");
   const tasks = await loadTasks();
-  return (
-    <ScheduleClient
-      key={data.venueId}
-      initial={data}
-      section="tasks"
-      initialTasks={tasks}
-    />
-  );
+  return <ScheduleTasksTab key={tasks.venueId} initial={tasks} />;
 }

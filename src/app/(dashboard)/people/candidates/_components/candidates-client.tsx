@@ -93,10 +93,10 @@ export function CandidatesClient({
     [error, setError] = useState(""),
     [reload, setReload] = useState(0);
   const [photos, setPhotos] = useState<Record<string, CandidatePhotos>>({});
-  const photoIds = list.rows.map((row) => row.id).sort().join(",");
   const showPhotos = st.columnVisibility.photo !== false;
   useEffect(() => {
-    if (!photoIds || !showPhotos) return;
+    if (!list.rows.length || !showPhotos) return;
+    const photoIds = list.rows.map((row) => row.id).join(",");
     const controller = new AbortController();
     void fetch(`/api/people/candidate-photos?ids=${photoIds}`, { signal: controller.signal })
       .then(async (response) => {
@@ -106,7 +106,7 @@ export function CandidatesClient({
       })
       .catch(() => {}); // The table still has initials if a photo is unavailable.
     return () => controller.abort();
-  }, [photoIds, showPhotos]);
+  }, [list.rows, showPhotos]);
   const rowsWithPhotos = useMemo(
     () => list.rows.map((row) => ({ ...row, ...photos[row.id] })),
     [list.rows, photos],

@@ -29,6 +29,7 @@ import {
   selectRule,
   effectivePayModel,
   employeeAtDate,
+  shiftPayModelId,
   recognizeTipComment,
   tipMatch,
   tipBatch,
@@ -167,9 +168,15 @@ export async function processPayrollDay() {
         models,
         date,
       );
-    const roleRows=await admin.from<{id:string;name:string}[]>("roles").select("id,name").eq("venue_id",venueId);
-    if(roleRows.error) throw new Error(roleRows.error.message);
-    const positionName=(modelId:string|null)=>roleRows.data?.find(r=>r.id===models.find(m=>m.id===modelId)?.role_id)?.name;
+    const roleRows = await admin.from<{ id: string; name: string; department_id: string | null }[]>("roles")
+      .select("id,name,department_id").eq("venue_id", venueId);
+    if (roleRows.error) throw new Error(roleRows.error.message);
+    const rolesById = new Map((roleRows.data ?? []).map((role) => [role.id, role]));
+    const departmentsByRole = new Map((roleRows.data ?? []).map((role) => [role.id, role.department_id]));
+    const positionName = (modelId: string | null) => {
+      const roleId = models.find((model) => model.id === modelId)?.role_id;
+      return roleId ? rolesById.get(roleId)?.name : undefined;
+    };
     const attendanceRules=await admin.from<import("./types").AttendanceRule[]>("payroll_attendance_rules").select("*").eq("account_id",accountId).eq("venue_id",venueId);
     if(attendanceRules.error) throw new Error(attendanceRules.error.message);
     for(const employee of employees) employee.attendance_source=attendanceRuleAtDate(attendanceRules.data??[],employee.id,date)?.source??"quickresto";
@@ -320,8 +327,11 @@ export async function processPayrollDay() {
       { prior, boundaryClocks: boundary.countable, confirmedOnAnotherDay: previousFacts.data ?? [] },
     );
     const primaryEmployees = employees.map(e => ({...e}));
-    const positionIssues = new Map<string,string>();
-    // The planned duty changes shift earnings, never the primary monthly salary.
+    const positionIssues = new Map<string, string>();
+    const sameDepartmentRateFrom = settings.same_department_rate_from
+      ? Date.parse(settings.same_department_rate_from)
+      : Infinity;
+    // Select the shift pay model independently of the primary monthly salary.
     for (let i = 0; i < employees.length; i++) {
       const planned = shifts.filter(
         (s) =>
@@ -335,7 +345,13 @@ export async function processPayrollDay() {
             sales.day_start_hour,
           ) === date,
       );
-      const ids = [...new Set(planned.map((s) => s.payroll_model_id ?? (s.role_id ? models.find(m=>m.role_id===s.role_id && m.is_role_default)?.id ?? null : employees[i].model_id)))];
+      const ids = [...new Set(planned.map((shift) => shiftPayModelId(
+        shift,
+        employees[i],
+        models,
+        departmentsByRole,
+        Date.parse(shift.starts_at) >= sameDepartmentRateFrom,
+      )))];
       if (ids.length > 1) positionIssues.set(employees[i].id,"За рабочий день указаны разные должности. Уточните должность смены");
       if (planned.length && ids.includes(null)) positionIssues.set(employees[i].id,"Для должности смены не настроена оплата");
       if (ids.length) {

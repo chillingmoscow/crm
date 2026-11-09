@@ -105,20 +105,3 @@ test("неверное время → ошибка", () => {
       TEMPLATE_VARIANT_ERRORS.badTime,
     );
 });
-
-test("перерыв должен быть короче каждого варианта (с переходом через полночь)", () => {
-  const v = [
-    { days: [1], start_time: "23:00", end_time: "01:00" }, // 120 мин
-    { days: [2], start_time: "10:00", end_time: "18:00" },
-  ];
-  assert.equal(validateVariants(v, 119), null);
-  assert.equal(validateVariants(v, 120), TEMPLATE_VARIANT_ERRORS.breakTooLong);
-  // начало = концу — сутки
-  assert.equal(
-    validateVariants(
-      [{ days: [1], start_time: "09:00", end_time: "09:00" }],
-      1439,
-    ),
-    null,
-  );
-});

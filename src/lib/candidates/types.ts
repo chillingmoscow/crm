@@ -76,6 +76,9 @@ export type Candidate = {
   photo_thumb_url?: string | null;
   photo_preview_url?: string | null;
 };
+export type CandidatePhotos = Pick<
+  Candidate, "photo_url" | "photo_thumb_url" | "photo_preview_url"
+>;
 export type CandidateFile = {
   id: string;
   name: string;

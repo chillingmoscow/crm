@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { loadPayroll } from "@/app/(dashboard)/people/payroll/actions";
+import { loadPayrollOverview } from "@/app/(dashboard)/people/payroll/actions";
 import { validDate } from "@/lib/sales/time";
 import { PayrollConcept } from "@/app/payroll-concept/payroll-concept";
 
@@ -21,7 +21,7 @@ export default async function PayrollConceptPage({
           .toLocaleDateString("sv-SE", { timeZone: "Europe/Moscow" })
           .slice(0, 7);
   if (query.tab === "attendance") redirect(`/schedule?date=${month}-01`);
-  const data = await loadPayroll();
+  const data = await loadPayrollOverview();
   return (
     <PayrollConcept
       key={`${data.venueId}:${month}`}

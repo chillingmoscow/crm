@@ -9,7 +9,16 @@ begin
  v:=public.get_active_venue_id();
  select account_id into a from public.venues where id=v;
  select r.id,m.id into pos,model from public.roles r join public.payroll_models m on m.venue_id=r.venue_id and m.role_name=r.name and not m.archived and m.monthly_amount=0 where r.venue_id=v limit 1;
- if model is null then raise exception 'Нужны реальные должность и модель';end if;
+ if model is null then
+  select id into strict pos from public.roles where venue_id=v and archived_at is null order by id limit 1;
+  insert into public.payroll_models(account_id,venue_id,name,role_name,basis)
+  select a,v,'Тест разовой подмены',name,'none' from public.roles where id=pos returning id into model;
+ end if;
+ insert into public.sales_settings(venue_id,account_id,timezone,day_start_hour,enabled)
+ select id,account_id,timezone,9,false from public.venues where id=v
+ on conflict(venue_id) do update set timezone=excluded.timezone,day_start_hour=excluded.day_start_hour;
+ insert into public.payroll_settings(venue_id,account_id,starts_on,quickresto_venue_id)
+ values(v,a,'2025-09-01',1) on conflict(venue_id) do nothing;
  select count(*) into users_before from auth.users;
  select count(*) into profiles_before from public.profiles;
  body:=jsonb_build_object('date','2025-09-10','start_time','22:00','end_time','06:00','title','Разовая подмена','color','blue','user_id',null,'casual_name','Проверка подменного сотрудника','payroll_model_id',model,'role_id',pos,'department_id',(select department_id from public.roles where id=pos),'template_id',null,'break_minutes',0,'arrival_minutes',0,'checklist_ids','[]'::jsonb,'note','Тест с откатом');

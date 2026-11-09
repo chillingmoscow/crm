@@ -20,6 +20,7 @@ begin
  perform public.schedule_command('checklist.publish',jsonb_build_object('id',checklist,'version',1));
  body:=jsonb_build_object('date','2032-01-05','start_time','22:00','end_time','06:00','title','Ночная проверка','color','purple','user_id',owner_id,'role_id',null,'department_id',null,'template_id',null,'break_minutes',30,'arrival_minutes',15,'checklist_ids',jsonb_build_array(checklist),'note','');
  shift:=(public.schedule_command('shift.create',body)->>'id')::uuid;
+ if exists(select 1 from public.schedule_shifts where id=shift and (break_minutes<>0 or arrival_minutes<>0)) then raise exception 'Устаревшие поля смены применились';end if;
  if (select extract(epoch from ends_at-starts_at)/3600 from public.schedule_shifts where id=shift)<>8 then raise exception 'Ночная смена рассчитана неверно';end if;
  begin perform public.schedule_command('shift.create',body);raise exception 'Пересечение пропущено';exception when others then if sqlerrm='Пересечение пропущено' then raise;end if;end;
  second_shift:=(public.schedule_command('shift.create',body||jsonb_build_object('date','2032-01-06'))->>'id')::uuid;

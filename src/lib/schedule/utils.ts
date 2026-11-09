@@ -33,12 +33,8 @@ export function dayLabel(
     new Date(date + "T12:00:00Z"),
   );
 }
-export function shiftHours(start: string, end: string, pause: number) {
-  return Math.max(
-    0,
-    (new Date(end).getTime() - new Date(start).getTime()) / 3600000 -
-      pause / 60,
-  );
+export function shiftHours(start: string, end: string) {
+  return Math.max(0, (Date.parse(end) - Date.parse(start)) / 3600000);
 }
 export function complete(item: ChecklistItem, value: Answer | undefined) {
   if (item.kind === "info") return true;

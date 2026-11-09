@@ -148,6 +148,9 @@ export type TaskData = {
   today: string;
   timezone: string;
 };
+export type CalendarTaskData = Pick<
+  TaskData, "occurrences" | "plans" | "permissions" | "userId" | "today" | "timezone"
+>;
 export function missingItems(
   items: ChecklistItem[],
   answers: Record<string, Answer>,

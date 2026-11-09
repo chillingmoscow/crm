@@ -1004,7 +1004,7 @@ export function TaskReport({
   onSaved,
 }: {
   occurrence: TaskOccurrence;
-  data: TaskData;
+  data: Pick<TaskData, "userId" | "permissions" | "timezone">;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {

@@ -22,21 +22,9 @@ export const TEMPLATE_VARIANT_ERRORS = {
   badDay: "Неверный день недели в варианте шаблона",
   duplicateDays: "Дни недели в вариантах шаблона не должны повторяться",
   badTime: "Неверное время в варианте шаблона",
-  breakTooLong: "Перерыв должен быть короче каждого варианта шаблона",
 } as const;
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
-
-function minutesOf(time: string): number {
-  const [h, m] = time.split(":");
-  return Number(h) * 60 + Number(m);
-}
-
-/** Длительность в минутах; конец <= начала — переход через полночь. */
-export function variantMinutes(v: { start_time: string; end_time: string }) {
-  const diff = minutesOf(v.end_time) - minutesOf(v.start_time);
-  return diff <= 0 ? diff + 1440 : diff;
-}
 
 /** Время шаблона на день недели; null — в этот день шаблон не работает. */
 export function templateTimesFor(
@@ -49,11 +37,8 @@ export function templateTimesFor(
   return v ? { start_time: v.start_time, end_time: v.end_time } : null;
 }
 
-/** Текст первой ошибки или null. breakMinutes — перерыв шаблона. */
-export function validateVariants(
-  v: TemplateVariant[],
-  breakMinutes = 0,
-): string | null {
+/** Текст первой ошибки или null. */
+export function validateVariants(v: TemplateVariant[]): string | null {
   if (v.length > MAX_TEMPLATE_VARIANTS) return TEMPLATE_VARIANT_ERRORS.tooMany;
   const seen = new Set<number>();
   for (const x of v) {
@@ -66,8 +51,6 @@ export function validateVariants(
     }
     if (!TIME_RE.test(x.start_time) || !TIME_RE.test(x.end_time))
       return TEMPLATE_VARIANT_ERRORS.badTime;
-    if (breakMinutes >= variantMinutes(x))
-      return TEMPLATE_VARIANT_ERRORS.breakTooLong;
   }
   return null;
 }

@@ -123,7 +123,7 @@ const curated = JSON.parse(
 const templates = check(
   await db
     .from("schedule_templates")
-    .select("id,name")
+    .select("id,name,subtitle")
     .eq("venue_id", venue)
     .eq("archived", false),
 );
@@ -145,7 +145,7 @@ for (const s of source) {
     continue;
   const key = `notion:archive:${canonical(s.sourceId)}`;
   if (defs.some((d) => d.source_key === key)) continue;
-  const match = templates.filter((t) => t.name === roles[s.sourceRole]);
+  const match = templates.filter((t) => [t.name, t.subtitle].filter(Boolean).join(" · ") === roles[s.sourceRole]);
   if (s.sourceRole && match.length !== 1)
     throw Error("Нет однозначного шаблона смены для " + s.name);
   fresh.push({

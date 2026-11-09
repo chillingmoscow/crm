@@ -36,6 +36,7 @@ export type ShiftTemplate = {
   id: string;
   venue_id: string;
   name: string;
+  subtitle: string;
   color: string;
   start_time: string;
   end_time: string;
@@ -50,6 +51,10 @@ export type ShiftTemplate = {
   version: number;
   updated_at: string;
 };
+export function shiftTemplateLabel(template: Pick<ShiftTemplate, "name" | "subtitle">) {
+  return [template.name, template.subtitle].filter(Boolean).join(" · ");
+}
+
 export type Shift = {
   id: string;
   venue_id: string;

@@ -35,3 +35,5 @@
 
 - Server actions: `src/app/(dashboard)/people/roles/actions.ts`
 - Конвенция: [docs/CONVENTIONS.md](../../CONVENTIONS.md)
+
+Переключатель **Показывать в расписании** применяется после нажатия **Сохранить**. Уже назначенные смены остаются в графике.

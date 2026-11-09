@@ -174,17 +174,17 @@ export function ShiftsClient({
       );
     }
   }, []);
-  const running = data.jobs.some(
-    (j) => j.status === "queued" || j.status === "running",
+  const activeJobs = useMemo(
+    () =>
+      new Map(
+        data.jobs
+          .filter((job) => job.status === "queued" || job.status === "running")
+          .map((job) => [job.business_date, job.status]),
+      ),
+    [data.jobs],
   );
-  const currentRunning = data.jobs.some(
-    (j) =>
-      j.business_date === today &&
-      (j.status === "queued" || j.status === "running"),
-  );
-  const awaitingHistory = data.days.filter(
-    (d) => d.status === "imported",
-  ).length;
+  const running = activeJobs.size > 0;
+  const currentRunning = activeJobs.has(today);
   useEffect(() => {
     const timer = setInterval(
       () => {
@@ -240,34 +240,47 @@ export function ShiftsClient({
         header: "Дата",
         size: 158,
         minSize: 125,
-        cell: ({ row }) => (
-          <button
-            className="flex flex-col text-left hover:text-brand"
-            onClick={() => setDrawer({ day: row.original, tab: "values" })}
-          >
-            <span className="flex items-center gap-2 font-medium">
-              {compactDate(row.original.business_date)}
-              {row.original.business_date === today && (
-                <span
-                  title={`Текущая смена${row.original.synced_at ? ` · Обновлено ${new Date(row.original.synced_at).toLocaleString("ru-RU", { timeZone: data.timezone })}` : " · Ещё не обновлялась"}`}
-                  aria-label="Текущая смена"
-                  className="text-brand"
-                >
-                  {currentRunning ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <CircleDot className="size-3.5" />
-                  )}
-                </span>
-              )}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              {new Date(
-                `${row.original.business_date}T12:00:00`,
-              ).toLocaleDateString("ru-RU", { weekday: "long" })}
-            </span>
-          </button>
-        ),
+        cell: ({ row }) => {
+          const current = row.original.business_date === today;
+          const job = activeJobs.get(row.original.business_date);
+          const status = job === "queued"
+            ? "Ожидает обновления"
+            : job === "running"
+              ? "Обновляется"
+              : "Текущая смена";
+          const syncedAt = row.original.synced_at;
+          const lastUpdate = syncedAt
+            ? `Обновлено ${new Date(syncedAt).toLocaleString("ru-RU", { timeZone: data.timezone })}`
+            : "Ещё не обновлялась";
+          return (
+            <button
+              className="flex flex-col text-left hover:text-brand"
+              onClick={() => setDrawer({ day: row.original, tab: "values" })}
+            >
+              <span className="flex items-center gap-2 font-medium">
+                {compactDate(row.original.business_date)}
+                {(current || job) && (
+                  <span
+                    title={`${status} · ${lastUpdate}`}
+                    aria-label={status}
+                    className="text-brand"
+                  >
+                    {job ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <CircleDot className="size-3.5" />
+                    )}
+                  </span>
+                )}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {new Date(
+                  `${row.original.business_date}T12:00:00`,
+                ).toLocaleDateString("ru-RU", { weekday: "long" })}
+              </span>
+            </button>
+          );
+        },
       },
       ...metricKeys.map((k) => ({
         id: k,
@@ -349,7 +362,7 @@ export function ShiftsClient({
       sync,
       busy,
       running,
-      currentRunning,
+      activeJobs,
       today,
       data.connected,
       data.timezone,
@@ -486,17 +499,6 @@ export function ShiftsClient({
             </Button>
           )}
         </div>
-      )}
-      {running && (
-        <p
-          role="status"
-          className="flex items-center gap-2 text-sm text-muted-foreground"
-        >
-          <Loader2 className="size-4 shrink-0 animate-spin" />
-          {awaitingHistory
-            ? `Идёт пересчёт истории. Осталось дней: ${awaitingHistory}.`
-            : "Обновляем показатели смен."}
-        </p>
       )}
       <div className="flex flex-wrap items-center justify-end gap-3">
         <TableControls

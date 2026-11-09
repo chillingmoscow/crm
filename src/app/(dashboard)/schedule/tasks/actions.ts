@@ -21,7 +21,10 @@ import {
 async function context() {
   const client = await createClient();
   const db = asLooseDb(client);
-  const [user, venue] = await Promise.all([getCachedUser(), db.rpc("get_active_venue_id")]);
+  const [user, venue] = await Promise.all([
+    getCachedUser(),
+    db.rpc("get_active_venue_id"),
+  ]);
   if (!user) throw new Error("Войдите в аккаунт");
   if (venue.error || !venue.data) throw new Error("Выберите заведение");
   return { client, db, user, venueId: String(venue.data) };
@@ -68,15 +71,16 @@ export async function loadCalendarTasks(range?: { from: string; to: string }): P
 
 export async function loadTasks(): Promise<TaskData> {
   const { db, user, venueId } = await context();
-  const venue = await db
-    .from<{ timezone: string }>("venues")
-    .select("timezone")
-    .eq("id", venueId)
-    .single();
+  const [venue, permissions] = await Promise.all([
+    db.from<{ timezone: string }>("venues")
+      .select("timezone")
+      .eq("id", venueId)
+      .single(),
+    getCachedPermissions(),
+  ]);
   if (venue.error) throw new Error("Не удалось загрузить заведение");
   const timezone = venue.data?.timezone || "Europe/Moscow",
     today = dateInZone(new Date(), timezone);
-  const permissions = await getCachedPermissions();
   const occurrencesQuery = () => db
     .from<TaskOccurrence[]>("schedule_task_occurrences")
     .select("*")
@@ -113,23 +117,10 @@ export async function loadTasks(): Promise<TaskData> {
   for (const r of results)
     if (r.error)
       throw new Error("Не удалось загрузить задачи: " + r.error.message);
-  const occurrences = results[1].data ?? [];
-  const instructionPages =
-    permissions.includes("kb.view_pages") &&
-    [
-      "schedule.view_all",
-      "schedule.checklist_edit",
-      "schedule.checklist_create",
-    ].some((p) => permissions.includes(p))
-      ? await listKbPageTreeRows()
-      : null;
-  if (instructionPages?.error)
-    throw new Error("Не удалось загрузить инструкции");
   return {
     venueId,
-    instructionPages: instructionPages?.rows ?? [],
     definitions: results[0].data ?? [],
-    occurrences,
+    occurrences: results[1].data ?? [],
     settings: results[2].data,
     templates: (results[3].data ?? []).map((template) => ({
       id: template.id, name: shiftTemplateLabel(template),
@@ -140,6 +131,23 @@ export async function loadTasks(): Promise<TaskData> {
     today,
     timezone,
   };
+}
+
+export async function loadTaskInstructionPages() {
+  const permissions = await getCachedPermissions();
+  if (
+    !permissions.includes("kb.view_pages") ||
+    ![
+      "schedule.view_all",
+      "schedule.checklist_edit",
+      "schedule.checklist_create",
+    ].some((permission) => permissions.includes(permission))
+  ) throw new Error("Нет доступа к списку инструкций");
+  const { rows, error } = await listKbPageTreeRows();
+  if (error) throw new Error("Не удалось загрузить список инструкций");
+  return rows.map(({ id, title, slug, parent_id }) => ({
+    id, title, slug, parent_id,
+  }));
 }
 export async function deleteTask(input: { id: string; version: number }) {
   try {

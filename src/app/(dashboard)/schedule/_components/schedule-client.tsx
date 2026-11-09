@@ -82,12 +82,10 @@ import { toast } from "sonner";
 import { TemplateList } from "./template-list";
 import { TemplateWeek } from "./template-week";
 import { TemplateName } from "./template-name";
-import { ScheduleTasksTab } from "./tasks-tab";
 import { TaskHeaderTarget, TaskTitleTarget } from "./task-header-actions";
 import {
   taskStatus,
   type CalendarTaskData,
-  type TaskData,
   type TaskOccurrence,
 } from "@/lib/schedule/tasks";
 import { loadCalendarTasks } from "../tasks/actions";
@@ -125,15 +123,13 @@ const eventLabels: Record<string, string> = {
 export function ScheduleClient({
   initial,
   section = "calendar",
-  initialTasks = null,
   initialCalendarTasks = null,
   initialShowTasks,
   initialDate,
   initialView,
 }: {
   initial: ScheduleData;
-  section?: "calendar" | "tasks" | "templates";
-  initialTasks?: TaskData | null;
+  section?: "calendar" | "templates";
   initialCalendarTasks?: CalendarTaskData | null;
   initialShowTasks?: boolean;
   initialDate?: string;
@@ -186,11 +182,15 @@ export function ScheduleClient({
     else url.searchParams.delete("showTasks");
     window.history.replaceState(null, "", url);
   };
-  const refreshCalendarTasks = useCallback(async () => {
+  const refreshCalendarTasks = useCallback(async (refreshSchedule = false) => {
     const request = ++tasksRequest.current;
     try {
-      const next = await loadCalendarTasks({ from: week, to: addDays(week, 6) });
+      const [next, schedule] = await Promise.all([
+        loadCalendarTasks({ from: week, to: addDays(week, 6) }),
+        refreshSchedule ? loadSchedule() : null,
+      ]);
       if (request === tasksRequest.current) {
+        if (schedule) setData(schedule);
         setCalendarTasks(next);
         setCalendarTasksWeek(week);
         setTasksError(false);
@@ -209,16 +209,11 @@ export function ScheduleClient({
       serverTasksWeek.current = null;
       void refreshCalendarTasks().catch(() => {});
     }
-    let active = true;
     const timer = setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      void refreshCalendarTasks()
-        .then(() => active ? loadSchedule() : null)
-        .then((next) => { if (active && next) setData(next); })
-        .catch(() => {});
+      if (document.visibilityState === "visible")
+        void refreshCalendarTasks(true).catch(() => {});
     }, 60000);
     return () => {
-      active = false;
       // This counter invalidates requests started by both the initial load and later polling.
       // eslint-disable-next-line react-hooks/exhaustive-deps
       tasksRequest.current++;
@@ -766,7 +761,7 @@ export function ScheduleClient({
           />
         </>
       )}
-      {((tab === "calendar" && !calendarVisible) || (tab === "tasks" && screenTitle !== null)) && (
+      {tab === "calendar" && !calendarVisible && (
         <TablePageHeader
           title={screenTitle ?? "Расписание"}
           actions={<div ref={setTaskHeaderTarget} className="flex flex-wrap items-center gap-2" />}
@@ -1316,13 +1311,6 @@ export function ScheduleClient({
           )}
           </section>
             )}
-        {tab === "tasks" && (
-          <section>
-            <TaskHeaderTarget.Provider value={taskHeaderTarget}>
-              <ScheduleTasksTab initial={initialTasks} active />
-          </TaskHeaderTarget.Provider>
-          </section>
-        )}
         {tab === "templates" && (
           <TemplateList
             templates={data.templates}

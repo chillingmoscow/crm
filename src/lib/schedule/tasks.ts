@@ -138,12 +138,6 @@ export type TaskPreview = {
 export type TaskData = {
   venueId?: string;
   plans?: TaskPreview[];
-  instructionPages?: {
-    id: string;
-    title: string;
-    slug: string;
-    parent_id: string | null;
-  }[];
   definitions: TaskDefinition[];
   occurrences: TaskOccurrence[];
   settings: TaskSettings | null;

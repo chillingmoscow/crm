@@ -179,7 +179,9 @@ export async function loadSchedule(
 ): Promise<ScheduleData> {
   const db = await client();
   const [user, { data: venueId }, permissions] = await Promise.all([
-    getCachedUser(), db.rpc("get_active_venue_id"), getCachedPermissions(),
+    getCachedUser(),
+    db.rpc("get_active_venue_id"),
+    getCachedPermissions(),
   ]);
   if (!user) throw new Error("Не авторизован");
   if (!venueId) throw new Error("Выберите заведение");
@@ -246,6 +248,11 @@ export async function loadSchedule(
       .select("role_id").eq("venue_id", venueId),
     db.rpc("schedule_payroll_options" as never),
   ]);
+  if (options.error) throw new Error(options.error.message);
+  const payrollOptions = options.data as unknown as {
+    employees: NonNullable<ScheduleData["casualEmployees"]>;
+    models: NonNullable<ScheduleData["payModels"]>;
+  };
   for (const r of [
     shifts,
     templates,
@@ -261,11 +268,6 @@ export async function loadSchedule(
   ])
     if (r.error)
       throw new Error("Не удалось загрузить график: " + r.error.message);
-  if (options.error) throw new Error(options.error.message);
-  const payrollOptions = options.data as unknown as {
-    employees: NonNullable<ScheduleData["casualEmployees"]>;
-    models: NonNullable<ScheduleData["payModels"]>;
-  };
   const hidden = new Set(hiddenRoles.data?.map((entry) => entry.role_id));
   return {
     venueId,

@@ -22,11 +22,14 @@ export default async function StaffPage() {
 const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder };
   if (!user) redirect("/login");
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("active_venue_id")
-    .eq("id", user.id)
-    .maybeSingle();
+  const [{ data: profile }, can] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("active_venue_id")
+      .eq("id", user.id)
+      .maybeSingle(),
+    getCachedPermissionChecker(),
+  ]);
 
   if (!profile?.active_venue_id) redirect("/onboarding");
   const venueId = profile.active_venue_id;
@@ -34,14 +37,20 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
   // Гейт доступа к разделу «Сотрудники». Данные ниже тянутся через
   // service-role (getStaff и т.п., в обход RLS), поэтому страницу обязательно
   // закрываем правом people.view_staff — иначе её можно открыть по прямому URL.
-  const can = await getCachedPermissionChecker();
   if (!can("people.view_staff")) redirect("/dashboard");
 
   // Stage D: roles + departments теперь venue-scoped, фильтруем строго
   // по active venue. Owner — единственная system role (venue_id IS NULL),
   // в дроп фильтра по должностям на этой странице её не показываем —
   // она не имеет отдельного департамента и не выбирается как фильтр.
-  const [{ data: roles }, { data: departments }] = await Promise.all([
+  const [
+    { data: roles },
+    { data: departments },
+    { data: uvr },
+    staff,
+    invitations,
+    firedStaff,
+  ] = await Promise.all([
     supabase
       .from("roles")
       .select("id, name, code")
@@ -52,10 +61,6 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       .select("id, name")
       .eq("venue_id", venueId)
       .order("name"),
-  ]);
-
-  // Phase 3 — all four queries need venueId; run them all in parallel
-  const [{ data: uvr }, staff, invitations, firedStaff] = await Promise.all([
     supabase
       .from("user_venue_roles")
       .select("roles(code)")

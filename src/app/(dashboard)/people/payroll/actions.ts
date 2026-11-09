@@ -299,6 +299,14 @@ export async function payrollCommand(
     p_input: input,
   });
   if (r.error) throw new Error(r.error.message);
+  // The opening balance is used by the statement, not by daily accruals.
+  if (
+    action === "employee" &&
+    ("opening_balance" in input || "opening_confirmed" in input) &&
+    Object.keys(input).every((key) =>
+      ["id", "opening_balance", "opening_confirmed"].includes(key),
+    )
+  ) return r.data;
   if (
     [
       "attendance",

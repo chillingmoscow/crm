@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import dynamic from "next/dynamic";
-import { Button } from "@/components/ui/button";
+import { PageFrame } from "@/components/shared/page-frame";
+import { TablePageHeader } from "@/components/shared/table";
 import type { TaskData } from "@/lib/schedule/tasks";
-import { loadTasks } from "../tasks/actions";
+import { TaskHeaderTarget, TaskTitleTarget } from "./task-header-actions";
 
 function TaskLoading() {
   return (
@@ -24,55 +25,24 @@ const TasksClient = dynamic(
   { loading: TaskLoading },
 );
 
-export function ScheduleTasksTab({
-  initial,
-  active,
-}: {
-  initial: TaskData | null;
-  active: boolean;
-}) {
-  const [data, setData] = useState(initial);
-  const [error, setError] = useState(false);
-  const [loading, setLoading] = useState(!initial);
-  const retry = useCallback(async () => {
-    setLoading(true);
-    setError(false);
-    try {
-      setData(await loadTasks());
-    } catch {
-      setError(true);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-  useEffect(() => {
-    if (initial) return;
-    let alive = true;
-    loadTasks()
-      .then((next) => {
-        if (alive) setData(next);
-      })
-      .catch(() => {
-        if (alive) setError(true);
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [initial]);
-  if (loading) return <TaskLoading />;
-  if (error || !data)
-    return (
-      <div role="alert" className="space-y-3 py-8 text-center">
-        <p className="text-sm text-muted-foreground">
-          Не удалось загрузить задачи
-        </p>
-        <Button variant="outline" onClick={() => void retry()}>
-          Попробовать ещё раз
-        </Button>
-      </div>
-    );
-  return <TasksClient initial={data} active={active} />;
+export function ScheduleTasksTab({ initial }: { initial: TaskData }) {
+  const [title, setTitle] = useState<string | null>(null);
+  const [headerTarget, setHeaderTarget] = useState<HTMLDivElement | null>(null);
+  return (
+    <TaskTitleTarget.Provider value={setTitle}>
+      <PageFrame className="space-y-6">
+        {title !== null && (
+          <TablePageHeader
+            title={title}
+            actions={<div ref={setHeaderTarget} className="flex flex-wrap items-center gap-2" />}
+          />
+        )}
+        <section>
+          <TaskHeaderTarget.Provider value={headerTarget}>
+            <TasksClient initial={initial} />
+          </TaskHeaderTarget.Provider>
+        </section>
+      </PageFrame>
+    </TaskTitleTarget.Provider>
+  );
 }

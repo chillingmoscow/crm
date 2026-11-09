@@ -3,6 +3,7 @@ import {
   createClient,
   getCachedPermissions,
   getCachedActiveAccountId,
+  getCachedUser,
 } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
@@ -17,14 +18,14 @@ import type {
 } from "@/lib/payroll/types";
 import { z } from "zod";
 async function scope(permission?: string) {
-  const client = await createClient(),
-    {
-      data: { user },
-    } = await client.auth.getUser();
+  const client = await createClient();
+  const [user, permissions, accountId, venue] = await Promise.all([
+    getCachedUser(),
+    getCachedPermissions(),
+    getCachedActiveAccountId(),
+    client.rpc("get_active_venue_id"),
+  ]);
   if (!user) throw new Error("Войдите в аккаунт");
-  const permissions = await getCachedPermissions(),
-    accountId = await getCachedActiveAccountId(),
-    venue = await client.rpc("get_active_venue_id");
   if (!accountId || !venue.data) throw new Error("Выберите заведение");
   if (permission && !permissions.includes(permission))
     throw new Error("Нет доступа к этому действию");
@@ -39,18 +40,30 @@ async function scope(permission?: string) {
   };
 }
 export async function loadPayroll(): Promise<PayrollData> {
-  const s = await scope(),
-    manager = s.permissions.includes("payroll.view");
-  const { data: employees, error } = await s.db
-    .from<PayrollData["employees"]>("payroll_employees")
-    .select("*")
-    .eq("venue_id", s.venueId);
-  if (error) throw new Error(error.message);
-  const profileIds = [...new Set((employees ?? []).flatMap((e) => e.local_user_id ? [e.local_user_id] : []))];
-  const photosRequest = profileIds.length
-    ? s.client.from("profiles").select("id,avatar_url").in("id", profileIds).then((result) => result)
-    : null;
+  return loadPayrollData(false);
+}
 
+export async function loadPayrollOverview(): Promise<PayrollData> {
+  return loadPayrollData(true);
+}
+
+async function loadPayrollData(overview: boolean): Promise<PayrollData> {
+  const s = await scope();
+  const manager = s.permissions.includes("payroll.view");
+  const employeesRequest = (async () => {
+    const { data, error } = await s.db
+      .from<PayrollData["employees"]>("payroll_employees")
+      .select("*")
+      .eq("venue_id", s.venueId);
+    if (error) throw new Error(error.message);
+    const employees = data ?? [];
+    const profileIds = [...new Set(employees.flatMap((e) => e.local_user_id ? [e.local_user_id] : []))];
+    if (!profileIds.length) return employees;
+    const photos = await s.client.from("profiles").select("id,avatar_url").in("id", profileIds);
+    if (photos.error) throw new Error(photos.error.message);
+    const avatars = new Map((photos.data ?? []).map((p) => [p.id, p.avatar_url]));
+    return employees.map((e) => ({ ...e, avatar_url: avatars.get(e.local_user_id ?? "") ?? null }));
+  })();
 
   const tables = {
     attendanceRules: "payroll_attendance_rules",
@@ -71,8 +84,12 @@ export async function loadPayroll(): Promise<PayrollData> {
     allocations: "payroll_allocations",
     events: "payroll_events",
   } as const;
-  const entries = await Promise.all(
+  // The monthly overview uses accruals and payments, including history for opening balances.
+  // Raw attendance and rules are read by the detailed screens.
+  const overviewTables = new Set(["transfers", "legacyPayments", "accruals", "adjustments", "payments", "allocations"]);
+  const entriesRequest = Promise.all(
     Object.entries(tables).map(async ([key, table]) => {
+      if (overview && !overviewTables.has(key)) return [key, []];
       if (
         !manager &&
         [
@@ -101,6 +118,19 @@ export async function loadPayroll(): Promise<PayrollData> {
       throw new Error("Слишком большая история. Обратитесь к администратору");
     }),
   );
+  const metadataRequest = Promise.all([
+    s.admin.from<{ day_start_hour: number }>("sales_settings")
+      .select("day_start_hour").eq("account_id", s.accountId).eq("venue_id", s.venueId).maybeSingle(),
+    s.client.from("venues").select("timezone").eq("id", s.venueId).single(),
+    s.client.from("roles").select("id,name").eq("venue_id", s.venueId).is("archived_at", null),
+  ]);
+  const managerRequest = manager ? loadPayrollManagerData(s, overview) : null;
+
+  const [entries, employees, [hours, venue, roleRows], managerData] = await Promise.all([
+    entriesRequest, employeesRequest, metadataRequest, managerRequest,
+  ]);
+  if (hours.error) throw new Error(hours.error.message);
+  if (roleRows.error) throw new Error(roleRows.error.message);
   const result = Object.fromEntries(entries) as Pick<
     PayrollData,
     keyof typeof tables
@@ -126,130 +156,10 @@ export async function loadPayroll(): Promise<PayrollData> {
       }));
     }
   }
-  const hours = await s.admin
-    .from<{ day_start_hour: number }>("sales_settings")
-    .select("day_start_hour")
-    .eq("account_id", s.accountId)
-    .eq("venue_id", s.venueId)
-    .maybeSingle();
-  if (hours.error) throw new Error(hours.error.message);
-  const venue = await s.client
-    .from("venues")
-    .select("timezone")
-    .eq("id", s.venueId)
-    .single();
-  let settings: PaySettings | null = null,
-    sources: PayrollData["sources"] = [],
-    banks: PayrollData["banks"] = [],
-    categories: PayrollData["categories"] = [],
-    staff: PayrollData["staff"] = [];
-  const financeTransactions: NonNullable<PayrollData["financeTransactions"]> =
-    [];
-  if (manager) {
-    const results = await Promise.all([
-      s.db
-        .from<PaySettings>("payroll_settings")
-        .select("*")
-        .eq("venue_id", s.venueId)
-        .maybeSingle(),
-      s.admin
-        .from<PayrollData["sources"]>("payroll_source_days")
-        .select("business_date,state,error,synced_at,missing_shifts:source->missing_shifts")
-        .eq("account_id", s.accountId)
-        .eq("venue_id", s.venueId)
-        .order("business_date", { ascending: false }),
-      s.client
-        .from("bank_accounts")
-        .select("id,name,legal_entity_id")
-        .eq("account_id", s.accountId)
-        .eq("is_active", true)
-        .eq("currency", "RUB")
-        .or(`venue_id.is.null,venue_id.eq.${s.venueId}`),
-      s.client
-        .from("finance_categories")
-        .select("id,name")
-        .eq("account_id", s.accountId)
-        .eq("type", "expense")
-        .is("archived_at", null),
-    ]);
-    for (const r of results) if (r.error) throw new Error(r.error.message);
-    settings = results[0].data as PaySettings | null;
-    sources = results[1].data ?? [];
-    banks = (results[2].data ?? []) as PayrollData["banks"];
-    categories = (results[3].data ?? []) as PayrollData["categories"];
-    const groups = await s.db
-      .from<{ id: string }[]>("finance_category_groups")
-      .select("id")
-      .eq("account_id", s.accountId)
-      .eq("is_payroll", true);
-    if (groups.error) throw new Error(groups.error.message);
-    const groupIds = (groups.data ?? []).map((g) => g.id);
-    if (groupIds.length) {
-      const payrollCategories = await s.db
-        .from<{ id: string; name: string }[]>("finance_categories")
-        .select("id,name")
-        .eq("account_id", s.accountId)
-        .in("group_id", groupIds);
-      if (payrollCategories.error)
-        throw new Error(payrollCategories.error.message);
-      const categoryIds = (payrollCategories.data ?? []).map((c) => c.id);
-      if (categoryIds.length) {
-        for (let offset = 0; offset < 20000; offset += 1000) {
-          const transactions = await s.db
-            .from<NonNullable<PayrollData["financeTransactions"]>>(
-              "transactions",
-            )
-            .select("id,date,amount,description,deleted_at,category_id")
-            .eq("account_id", s.accountId)
-            .eq("venue_id", s.venueId)
-            .eq("type", "expense")
-            .in("category_id", categoryIds)
-            .order("id")
-            .range(offset, offset + 999);
-          if (transactions.error) throw new Error(transactions.error.message);
-          financeTransactions.push(
-            ...(transactions.data ?? []).map((t) => ({
-              ...t,
-              category_name:
-                payrollCategories.data?.find((c) => c.id === t.category_id)
-                  ?.name ?? "ФОТ",
-            })),
-          );
-          if ((transactions.data ?? []).length < 1000) break;
-          if (offset === 19000)
-            throw new Error("Слишком большая история финансовых операций");
-        }
-      }
-    }
-    if (s.permissions.includes("payroll.configure")) {
-      const members = await s.client
-        .from("user_venue_roles")
-        .select("user_id")
-        .eq("venue_id", s.venueId)
-        .eq("status", "active")
-        .is("fired_at", null);
-      const ids = (members.data ?? []).map((r) => r.user_id);
-      if (ids.length) {
-        const profiles = await s.client
-          .from("profiles")
-          .select("id,first_name,last_name")
-          .in("id", ids);
-        staff = (profiles.data ?? []).map((r) => ({
-          user_id: r.id,
-          name: `${r.first_name ?? ""} ${r.last_name ?? ""}`.trim(),
-        }));
-      }
-    }
-  }
-  const photos = await photosRequest;
-  if (photos?.error) throw new Error(photos.error.message);
-  const avatars = new Map((photos?.data ?? []).map((p) => [p.id, p.avatar_url]));
-  for (const employee of employees ?? []) employee.avatar_url = avatars.get(employee.local_user_id ?? "") ?? null;
-  const roleRows = await s.client.from("roles").select("id,name").eq("venue_id",s.venueId).is("archived_at",null);
-  if(roleRows.error) throw new Error(roleRows.error.message);
+  const settings = managerData?.settings ?? null;
   // Own-salary access needs only this public policy date, not finance settings.
   let experienceStartsOn = settings?.experience_starts_on ?? null;
-  if (!manager && employees?.length) {
+  if (!overview && !manager && employees.length) {
     const policy = await s.admin.from<{ experience_starts_on: string | null }>("payroll_settings")
       .select("experience_starts_on").eq("account_id",s.accountId).eq("venue_id",s.venueId).maybeSingle();
     if (policy.error) throw new Error(policy.error.message);
@@ -265,15 +175,79 @@ export async function loadPayroll(): Promise<PayrollData> {
     dayStartHour: hours.data?.day_start_hour ?? 9,
     permissions: s.permissions,
     settings,
-    employees: (employees??[]).map(e=>({...e,role_name:roleRows.data?.find(r=>r.id===e.role_id)?.name??e.role_name})),
+    employees: employees.map(e => ({ ...e, role_name: roleRows.data?.find(r => r.id === e.role_id)?.name ?? e.role_name })),
     ...result,
-    sources,
-    banks,
-    categories,
+    sources: managerData?.sources ?? [],
+    banks: managerData?.banks ?? [],
+    categories: managerData?.categories ?? [],
+    staff: managerData?.staff ?? [],
+    financeTransactions: managerData?.financeTransactions ?? [],
+  };
+}
+async function loadPayrollManagerData(s: Awaited<ReturnType<typeof scope>>, overview: boolean) {
+  const [settings, sources, banks, categories, staff, financeTransactions] = await Promise.all([
+    s.db.from<PaySettings>("payroll_settings").select("*").eq("venue_id", s.venueId).maybeSingle(),
+    overview ? null : s.admin.from<PayrollData["sources"]>("payroll_source_days")
+      .select("business_date,state,error,synced_at,missing_shifts:source->missing_shifts")
+      .eq("account_id", s.accountId).eq("venue_id", s.venueId).order("business_date", { ascending: false }),
+    s.client.from("bank_accounts").select("id,name,legal_entity_id")
+      .eq("account_id", s.accountId).eq("is_active", true).eq("currency", "RUB")
+      .or(`venue_id.is.null,venue_id.eq.${s.venueId}`),
+    overview ? null : s.client.from("finance_categories").select("id,name")
+      .eq("account_id", s.accountId).eq("type", "expense").is("archived_at", null),
+    !overview && s.permissions.includes("payroll.configure") ? loadPayrollStaff(s) : [],
+    loadPayrollFinanceTransactions(s),
+  ]);
+  for (const result of [settings, sources, banks, categories]) {
+    if (result?.error) throw new Error(result.error.message);
+  }
+  return {
+    settings: settings.data,
+    sources: sources?.data ?? [],
+    banks: banks.data ?? [],
+    categories: categories?.data ?? [],
     staff,
     financeTransactions,
   };
 }
+
+async function loadPayrollStaff(s: Awaited<ReturnType<typeof scope>>): Promise<PayrollData["staff"]> {
+  const members = await s.client
+    .from("user_venue_roles").select("user_id")
+    .eq("venue_id", s.venueId).eq("status", "active").is("fired_at", null);
+  const ids = (members.data ?? []).map((row) => row.user_id);
+  if (!ids.length) return [];
+  const profiles = await s.client.from("profiles").select("id,first_name,last_name").in("id", ids);
+  return (profiles.data ?? []).map((row) => ({
+    user_id: row.id,
+    name: `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim(),
+  }));
+}
+
+async function loadPayrollFinanceTransactions(s: Awaited<ReturnType<typeof scope>>): Promise<NonNullable<PayrollData["financeTransactions"]>> {
+  const categories = await s.db.from<{ id: string; name: string }[]>("finance_categories")
+    .select("id,name,finance_category_groups!inner()")
+    .eq("account_id", s.accountId).eq("finance_category_groups.account_id", s.accountId)
+    .eq("finance_category_groups.is_payroll", true);
+  if (categories.error) throw new Error(categories.error.message);
+  const names = new Map((categories.data ?? []).map((row) => [row.id, row.name]));
+  if (!names.size) return [];
+
+  const rows: NonNullable<PayrollData["financeTransactions"]> = [];
+  for (let offset = 0; offset < 20000; offset += 1000) {
+    const transactions = await s.db.from<Omit<(typeof rows)[number], "category_name">[]>("transactions")
+      .select("id,date,amount,description,deleted_at,category_id")
+      .eq("account_id", s.accountId).eq("venue_id", s.venueId).eq("type", "expense")
+      .in("category_id", [...names.keys()]).order("id").range(offset, offset + 999);
+    if (transactions.error) throw new Error(transactions.error.message);
+    rows.push(...(transactions.data ?? []).map((row) => ({
+      ...row, category_name: names.get(row.category_id ?? "") ?? "ФОТ",
+    })));
+    if ((transactions.data?.length ?? 0) < 1000) return rows;
+  }
+  throw new Error("Слишком большая история финансовых операций");
+}
+
 export async function saveExperienceStart(input: {
   startsOn: string;
   version: number;

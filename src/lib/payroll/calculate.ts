@@ -1,3 +1,4 @@
+import type { Shift } from "@/lib/schedule/types";
 import type {
   Accrual,
   Allocation,
@@ -388,6 +389,28 @@ export function effectivePayModel(
         monthly_amount: rule?.monthly_amount ?? model.monthly_amount,
       }
     : null;
+}
+
+export function shiftPayModelId(
+  shift: Pick<Shift, "role_id" | "department_id" | "payroll_model_id">,
+  employee: Pick<PayEmployee, "role_id" | "model_id">,
+  models: PayModel[],
+  departmentsByRole: ReadonlyMap<string, string | null>,
+  useSameDepartmentRate: boolean,
+): string | null {
+  if (shift.payroll_model_id || !shift.role_id)
+    return shift.payroll_model_id ?? employee.model_id;
+
+  const shiftDepartment = shift.department_id ?? departmentsByRole.get(shift.role_id);
+  const primaryDepartment = employee.role_id ? departmentsByRole.get(employee.role_id) : null;
+  const samePosition = employee.role_id === shift.role_id;
+  const sameDepartment = !!shiftDepartment && primaryDepartment === shiftDepartment;
+
+  if (useSameDepartmentRate && (samePosition || sameDepartment) &&
+      employee.model_id && models.some((model) => model.id === employee.model_id)) {
+    return employee.model_id;
+  }
+  return models.find((model) => model.role_id === shift.role_id && model.is_role_default)?.id ?? null;
 }
 
 export function employeeAtDate(

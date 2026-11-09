@@ -1,13 +1,15 @@
 "use server";
-import { createClient, getCachedPermissions } from "@/lib/supabase/server";
+import { createClient, getCachedPermissions, getCachedUser } from "@/lib/supabase/server";
 import { listKbPageTreeRows } from "@/lib/knowledge/pages";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { shiftTemplateLabel } from "@/lib/schedule/types";
 import { readTaskOccurrences } from "@/lib/schedule/task-occurrences";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { addDays, dateInZone } from "@/lib/schedule/utils";
+import { addDays, dateInZone, weekStart } from "@/lib/schedule/utils";
 import {
   taskDefinitionSchema,
+  type CalendarTaskData,
   type TaskData,
   type TaskDefinition,
   type TaskOccurrence,
@@ -18,40 +20,53 @@ import {
 
 async function context() {
   const client = await createClient();
-  const {
-    data: { user },
-  } = await client.auth.getUser();
-  if (!user) throw new Error("Войдите в аккаунт");
   const db = asLooseDb(client);
-  const venue = await db.rpc("get_active_venue_id");
+  const [user, venue] = await Promise.all([getCachedUser(), db.rpc("get_active_venue_id")]);
+  if (!user) throw new Error("Войдите в аккаунт");
   if (venue.error || !venue.data) throw new Error("Выберите заведение");
   return { client, db, user, venueId: String(venue.data) };
 }
-export async function loadTasks(range?: {
-  from: string;
-  to: string;
-}): Promise<TaskData> {
-  const date = z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .refine((value) => {
-      const parsed = new Date(value + "T00:00:00Z");
-      return (
-        Number.isFinite(parsed.getTime()) &&
-        parsed.toISOString().slice(0, 10) === value
-      );
-    });
-  const period = range
-    ? z
-        .object({ from: date, to: date })
-        .refine(
-          (value) =>
-            value.to >= value.from &&
-            new Date(value.to).getTime() - new Date(value.from).getTime() <=
-              31 * 86400000,
-        )
-        .parse(range)
-    : null;
+
+const taskDate = z.string().refine((value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(value + "T00:00:00Z");
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+});
+const taskWeek = z.object({ from: taskDate, to: taskDate })
+  .refine(({ from, to }) => to >= from && to <= addDays(from, 31));
+
+export async function loadCalendarTasks(range?: { from: string; to: string }): Promise<CalendarTaskData> {
+  const period = range ? taskWeek.parse(range) : null;
+  const [{ db, user, venueId }, permissions] = await Promise.all([context(), getCachedPermissions()]);
+  const venue = await db.from<{ timezone: string }>("venues").select("timezone").eq("id", venueId).single();
+  if (venue.error) throw new Error("Не удалось загрузить заведение");
+  const timezone = venue.data?.timezone || "Europe/Moscow";
+  const today = dateInZone(new Date(), timezone);
+  const from = period?.from ?? weekStart(today);
+  const to = period?.to ?? addDays(from, 6);
+
+  const [occurrences, plans] = await Promise.all([
+    readTaskOccurrences(() => {
+      const query = db.from<TaskOccurrence[]>("schedule_task_occurrences")
+        .select("*").eq("venue_id", venueId);
+      return permissions.includes("schedule.review")
+        ? query.or(`and(business_date.gte.${from},business_date.lte.${to}),and(status.eq.submitted,settled_at.is.null)`)
+        : query.gte("business_date", from).lte("business_date", to);
+    }),
+    permissions.includes("schedule.view_all") || permissions.includes("schedule.checklist_edit")
+      ? db.rpc("schedule_task_preview", { p_from: from, p_to: to })
+      : null,
+  ]);
+  if (occurrences.error) throw new Error("Не удалось загрузить задачи");
+  if (plans?.error) throw new Error("Не удалось загрузить план задач");
+  return {
+    occurrences: occurrences.data ?? [],
+    plans: (plans?.data ?? []) as TaskPreview[],
+    permissions, userId: user.id, today, timezone,
+  };
+}
+
+export async function loadTasks(): Promise<TaskData> {
   const { db, user, venueId } = await context();
   const venue = await db
     .from<{ timezone: string }>("venues")
@@ -62,19 +77,12 @@ export async function loadTasks(range?: {
   const timezone = venue.data?.timezone || "Europe/Moscow",
     today = dateInZone(new Date(), timezone);
   const permissions = await getCachedPermissions();
-  const occurrencesQuery = () => {
-    const query = db
-      .from<TaskOccurrence[]>("schedule_task_occurrences")
-      .select("*")
-      .eq("venue_id", venueId);
-    return period
-      ? query.or(
-          `and(business_date.gte.${period.from},business_date.lte.${period.to}),settled_at.is.null`,
-        )
-      : query
-          .or(`business_date.gte.${addDays(today, -31)},settled_at.is.null`)
-          .lte("business_date", addDays(today, 14));
-  };
+  const occurrencesQuery = () => db
+    .from<TaskOccurrence[]>("schedule_task_occurrences")
+    .select("*")
+    .eq("venue_id", venueId)
+    .or(`business_date.gte.${addDays(today, -31)},settled_at.is.null`)
+    .lte("business_date", addDays(today, 14));
   const results = await Promise.all([
     db
       .from<TaskDefinition[]>("schedule_task_definitions")
@@ -89,11 +97,11 @@ export async function loadTasks(range?: {
       .eq("venue_id", venueId)
       .maybeSingle(),
     db
-      .from<{ id: string; name: string }[]>("schedule_templates")
-      .select("id,name")
+      .from<{ id: string; name: string; subtitle: string }[]>("schedule_templates")
+      .select("id,name,subtitle")
       .eq("venue_id", venueId)
       .eq("archived", false)
-      .order("name"),
+      .order("name").order("subtitle"),
     db
       .from<TaskMessage[]>("schedule_task_messages")
       .select("id,kind,business_date,chat_id,state,error")
@@ -117,24 +125,15 @@ export async function loadTasks(range?: {
       : null;
   if (instructionPages?.error)
     throw new Error("Не удалось загрузить инструкции");
-  const plans =
-    period &&
-    (permissions.includes("schedule.view_all") ||
-      permissions.includes("schedule.checklist_edit"))
-      ? await db.rpc("schedule_task_preview", {
-          p_from: period.from,
-          p_to: period.to,
-        })
-      : null;
-  if (plans?.error) throw new Error("Не удалось загрузить план задач");
   return {
     venueId,
     instructionPages: instructionPages?.rows ?? [],
-    plans: (plans?.data ?? []) as TaskPreview[],
     definitions: results[0].data ?? [],
     occurrences,
     settings: results[2].data,
-    templates: results[3].data ?? [],
+    templates: (results[3].data ?? []).map((template) => ({
+      id: template.id, name: shiftTemplateLabel(template),
+    })),
     messages: results[4].data ?? [],
     permissions,
     userId: user.id,

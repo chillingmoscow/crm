@@ -1,8 +1,7 @@
 .scroll {
   width: 100%;
   min-width: 0;
-  max-height: 72dvh;
-  overflow: auto;
+  overflow-x: auto;
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   background: hsl(var(--card));

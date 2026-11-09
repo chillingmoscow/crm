@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { shiftAssignee, assignmentFields } from "@/lib/schedule/types";
 import { Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,8 @@ import { EditDrawer } from "@/components/ui/edit-drawer";
 import { ProfileSection } from "@/components/shared/profile-section";
 import { PALETTE_COLORS, paletteBg, paletteText } from "@/lib/palette";
 import { cn } from "@/lib/utils";
-import { addDays, dateInZone, timeInZone } from "@/lib/schedule/utils";
+import { shiftTemplateLabel } from "@/lib/schedule/types";
+import { addDays, dateInZone, dayLabel, timeInZone } from "@/lib/schedule/utils";
 import {
   MAX_TEMPLATE_VARIANTS,
   templateTimesFor,
@@ -45,8 +46,6 @@ const empty = {
   color: "blue",
   start_time: "09:00",
   end_time: "17:00",
-  break_minutes: 0,
-  arrival_minutes: 0,
   department_id: null as string | null,
   role_id: null as string | null,
   checklist_ids: [] as string[],
@@ -57,8 +56,6 @@ function timingValue(v: typeof empty): typeof empty {
     color: v.color,
     start_time: v.start_time,
     end_time: v.end_time,
-    break_minutes: v.break_minutes,
-    arrival_minutes: v.arrival_minutes,
     department_id: v.department_id,
     role_id: v.role_id,
     checklist_ids: v.checklist_ids,
@@ -107,40 +104,6 @@ function TimeRange({
     </div>
   );
 }
-function Extras({
-  value,
-  set,
-}: {
-  value: typeof empty;
-  set: (v: typeof empty) => void;
-}) {
-  return (
-    <div className="grid grid-cols-2 gap-4">
-      <Field label="Перерыв, мин">
-        <Input
-          type="number"
-          min={0}
-          max={1439}
-          value={value.break_minutes}
-          onChange={(e) =>
-            set({ ...value, break_minutes: Number(e.target.value) })
-          }
-        />
-      </Field>
-      <Field label="Прийти раньше, мин">
-        <Input
-          type="number"
-          min={0}
-          max={240}
-          value={value.arrival_minutes}
-          onChange={(e) =>
-            set({ ...value, arrival_minutes: Number(e.target.value) })
-          }
-        />
-      </Field>
-    </div>
-  );
-}
 function Timing({
   value,
   set,
@@ -151,17 +114,14 @@ function Timing({
   onTimeEdit?: () => void;
 }) {
   return (
-    <>
-      <TimeRange
-        start={value.start_time}
-        end={value.end_time}
-        onChange={(t) => {
-          onTimeEdit?.();
-          set({ ...value, ...t });
-        }}
-      />
-      <Extras value={value} set={set} />
-    </>
+    <TimeRange
+      start={value.start_time}
+      end={value.end_time}
+      onChange={(t) => {
+        onTimeEdit?.();
+        set({ ...value, ...t });
+      }}
+    />
   );
 }
 const WEEKDAYS = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"];
@@ -300,54 +260,55 @@ function Variants({
     </fieldset>
   );
 }
-function Assignments({
+function ShiftRoleField<T extends Pick<typeof empty, "department_id" | "role_id">>({
   data,
   value,
   set,
 }: {
   data: ScheduleData;
-  value: typeof empty;
-  set: (v: typeof empty) => void;
+  value: T;
+  set: (v: T) => void;
 }) {
+  const hintId = useId();
+  const role = data.roles.find((item) => item.id === value.role_id);
+  const department = data.departments.find((item) => item.id === role?.department_id);
   return (
-    <>
-      <Field label="Подразделение">
+    <div className="space-y-2">
+      <Field label="Должность на смене">
         <select
           className={selectClass}
-          value={value.department_id ?? ""}
-          onChange={(e) =>
+          aria-describedby={hintId}
+          value={value.role_id ?? ""}
+          onChange={(e) => {
+            const selected = data.roles.find((item) => item.id === e.target.value);
             set({
               ...value,
-              department_id: e.target.value || null,
-              role_id: null,
-            })
-          }
+              role_id: selected?.id ?? null,
+              department_id: selected?.department_id ?? null,
+            });
+          }}
         >
-          <option value="">Без подразделения</option>
-          {data.departments.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
+          <option value="">Без должности на смене</option>
+          {data.roles.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name}
             </option>
           ))}
         </select>
       </Field>
-      <Field label="Позиция">
-        <select
-          className={selectClass}
-          value={value.role_id ?? ""}
-          onChange={(e) => set({ ...value, role_id: e.target.value || null })}
-        >
-          <option value="">Без позиции</option>
-          {data.roles
-            .filter((r) => r.department_id === value.department_id)
-            .map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-        </select>
-      </Field>
-    </>
+      <p id={hintId} className="text-xs text-muted-foreground">
+        {department
+          ? `Подразделение — «${department.name}». `
+          : "Подразделение подставляется из выбранной должности. "}
+        Можно назначить любого свободного сотрудника заведения.
+        {department && (
+          <span className="mt-1 block">
+            В своём подразделении сотрудник получает свою ставку. Для подмены из другого
+            подразделения действует ставка должности на смене.
+          </span>
+        )}
+      </p>
+    </div>
   );
 }
 function Colors({
@@ -391,6 +352,7 @@ export function ShiftEditor({
   day,
   userId,
   template,
+  templateSlot = false,
   copy,
   onClose,
   save,
@@ -400,6 +362,7 @@ export function ShiftEditor({
   day: string;
   userId?: string | null;
   template?: ShiftTemplate;
+  templateSlot?: boolean;
   copy?: boolean;
   onClose: () => void;
   save: Save;
@@ -420,8 +383,6 @@ export function ShiftEditor({
       ? timeInZone(shift.starts_at, data.timezone)
       : seed.start_time,
     end_time: shift ? timeInZone(shift.ends_at, data.timezone) : seed.end_time,
-    break_minutes: shift?.break_minutes ?? seed.break_minutes,
-    arrival_minutes: shift?.arrival_minutes ?? seed.arrival_minutes,
     department_id: shift?.department_id ?? seed.department_id,
     role_id: shift?.role_id ?? seed.role_id,
     checklist_ids: shift?.checklist_ids ?? seed.checklist_ids,
@@ -481,25 +442,104 @@ export function ShiftEditor({
   };
   const [busy, setBusy] = useState(false);
   const started = shift && data.runs.some((r) => r.shift_id === shift.id);
+  const unavailable = new Set(templateSlot
+    ? data.shifts.filter((item) => item.id !== shift?.id &&
+        dateInZone(item.starts_at, data.timezone) === date).map(shiftAssignee)
+    : []);
+  const selectedEmployee = assignmentFields(who === "new-casual" ? null : who);
+  const payrollModelId = casual ? selectedPayModel || null : null;
   const commit = async () => {
     setBusy(true);
-    if (
-      await save(copy ? "shift.copy" : shift ? "shift.edit" : "shift.create", {
-        ...value,
-        title: value.name,
-        date,
-        ...assignmentFields(who === "new-casual" ? null : who),
-        payroll_model_id: casual ? selectedPayModel || null : null,
-        casual_name: who === "new-casual" ? casualName.trim() : "",
-        checklist_ids: casual ? [] : value.checklist_ids,
-        note,
-        template_id: templateId,
-        ...(shift ? { id: shift.id, version: shift.version } : {}),
-      })
-    )
-      onClose();
+    const assignment = { ...selectedEmployee, payroll_model_id: payrollModelId };
+    const saved = templateSlot
+      ? shift
+        ? await save("shift.assign", { ...assignment, id: shift.id, version: shift.version })
+        : await save("shift.create_template_slot", {
+            ...assignment, date, template_id: template?.id, template_version: template?.version,
+          })
+      : await save(copy ? "shift.copy" : shift ? "shift.edit" : "shift.create", {
+          ...value,
+          title: value.name,
+          date,
+          ...assignment,
+          casual_name: who === "new-casual" ? casualName.trim() : "",
+          checklist_ids: casual ? [] : value.checklist_ids,
+          note,
+          template_id: templateId,
+          ...(shift ? { id: shift.id, version: shift.version } : {}),
+        });
+    if (saved) onClose();
     setBusy(false);
   };
+  const employeeFields = (
+    <>
+      <Field label="Сотрудник">
+        <select
+          className={selectClass}
+          disabled={!canAssign}
+          value={who ?? ""}
+          onChange={(e) => {
+            setWho(e.target.value || null);
+            setPayModel("");
+          }}
+        >
+          <option value="">{templateSlot ? "Выберите сотрудника" : "Открытая смена, без сотрудника"}</option>
+          {data.staff.filter((s) => s.show_in_schedule || s.user_id === who).map((s) => (
+            <option key={s.user_id} value={s.user_id} disabled={unavailable.has(s.user_id)}>
+              {[s.first_name, s.last_name].filter(Boolean).join(" ") ||
+                s.role_name}{unavailable.has(s.user_id) ? " · уже в графике" : ""}
+            </option>
+          ))}
+          {(!templateSlot || data.permissions.includes("payroll.configure")) && (data.casualEmployees ?? []).map((e) => (
+            <option key={e.id} value={`payroll:${e.id}`} disabled={unavailable.has(`payroll:${e.id}`)}>
+              {e.name} · разовый{unavailable.has(`payroll:${e.id}`) ? " · уже в графике" : ""}
+            </option>
+          ))}
+          {!templateSlot && canAssign && data.permissions.includes("payroll.configure") && (
+            <option value="new-casual">＋ Новый разовый сотрудник</option>
+          )}
+        </select>
+      </Field>
+      {casual && (
+        <div className="rounded-lg border bg-muted/20 p-4 space-y-4">
+          {who === "new-casual" && (
+            <Field label="Имя и фамилия">
+              <Input
+                value={casualName}
+                maxLength={160}
+                placeholder="Например, Полина Вознесенская"
+                onChange={(e) => setCasualName(e.target.value)}
+              />
+            </Field>
+          )}
+          <Field label="Модель оплаты этой смены">
+            <select
+              className={selectClass}
+              value={selectedPayModel}
+              onChange={(e) => setPayModel(e.target.value)}
+            >
+              <option value="">Выберите модель</option>
+              {(data.payModels ?? [])
+                .filter(
+                  (m) =>
+                    m.role_name ===
+                    data.roles.find((r) => r.id === value.role_id)?.name,
+                )
+                .map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+            </select>
+          </Field>
+          <p className="text-xs text-muted-foreground">
+            Без аккаунта. Опубликованная смена учитывается в зарплате после
+            окончания, без отметки Quick Resto.
+          </p>
+        </div>
+      )}
+    </>
+  );
   return (
     <EditDrawer
       open
@@ -507,13 +547,15 @@ export function ShiftEditor({
         if (!o && !busy) onClose();
       }}
       title={
-        copy
+        templateSlot ? "Назначить сотрудника" : copy
           ? "Копировать смену"
           : shift
             ? "Редактирование смены"
             : "Новая смена"
       }
-      description={`${data.timezone}${shift?.published ? " · Опубликована, изменения будут видны сотруднику" : ""}`}
+      description={templateSlot
+        ? `${chosen && chosen.name === value.name ? shiftTemplateLabel(chosen) : value.name} · ${dayLabel(date)} · ${value.start_time.slice(0, 5)}–${value.end_time.slice(0, 5)}`
+        : `${data.timezone}${shift?.published ? " · Опубликована, изменения будут видны сотруднику" : ""}`}
       footer={
         <>
           <Button variant="outline" onClick={onClose} disabled={busy}>
@@ -522,6 +564,7 @@ export function ShiftEditor({
           <Button
             disabled={
               busy ||
+              (templateSlot && (!who || unavailable.has(who))) ||
               (casual &&
                 (!selectedPayModel ||
                   !value.role_id ||
@@ -531,6 +574,7 @@ export function ShiftEditor({
           >
             {busy
               ? "Сохранение…"
+              : templateSlot ? (shift ? "Назначить" : "Назначить в черновик")
               : copy
                 ? "Создать копию"
                 : shift
@@ -540,165 +584,105 @@ export function ShiftEditor({
         </>
       }
     >
-      {started && !copy && (
-        <p className="text-sm text-muted-foreground">
-          Отчёт смены уже начат. Время, должность и сотрудника менять нельзя.
-        </p>
-      )}
-      <Field label="Шаблон">
-        <select
-          disabled={!!started && !copy}
-          className={selectClass}
-          value={templateId ?? ""}
-          onChange={(e) => {
-            const t = data.templates.find((t) => t.id === e.target.value);
-            setTemplateId(t?.id ?? null);
-            if (t) {
-              set({
-                ...timingValue(t),
-                ...(templateTimesFor(t, isoWeekday(date)) ?? {}),
-              });
-              setManualTime(false);
-            }
-          }}
-        >
-          <option value="">Своя смена</option>
-          {data.templates
-            .filter(
-              (t) =>
-                t.id === templateId ||
-                (!t.archived && templateTimesFor(t, isoWeekday(date)) !== null),
-            )
-            .map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-        </select>
-        {chosen && !chosenTimes && (
-          <span className="text-xs font-normal text-muted-foreground">
-            Шаблон не работает в этот день
-          </span>
-        )}
-      </Field>
-      {chosenTimes &&
-        !(started && !copy) &&
-        (chosenTimes.start_time.slice(0, 5) !== value.start_time.slice(0, 5) ||
-          chosenTimes.end_time.slice(0, 5) !== value.end_time.slice(0, 5)) && (
-          <div className="-mt-2">
-            <Button
-              type="button"
-              variant="link"
-              size="sm"
-              className="h-auto p-0"
-              onClick={() => {
-                set({ ...value, ...chosenTimes });
-                setManualTime(false);
+      {templateSlot ? employeeFields : (
+        <>
+          {started && !copy && (
+            <p className="text-sm text-muted-foreground">
+              Отчёт смены уже начат. Время, должность и сотрудника менять нельзя.
+            </p>
+          )}
+          <Field label="Шаблон">
+            <select
+              disabled={!!started && !copy}
+              className={selectClass}
+              value={templateId ?? ""}
+              onChange={(e) => {
+                const t = data.templates.find((t) => t.id === e.target.value);
+                setTemplateId(t?.id ?? null);
+                if (t) {
+                  set({
+                    ...timingValue(t),
+                    ...(templateTimesFor(t, isoWeekday(date)) ?? {}),
+                  });
+                  setManualTime(false);
+                }
               }}
             >
-              Взять время из шаблона
-            </Button>
-          </div>
-        )}
-      <Field label="Название">
-        <Input
-          value={value.name}
-          maxLength={160}
-          onChange={(e) => set({ ...value, name: e.target.value })}
-        />
-      </Field>
-      <Field label="Дата">
-        <Input
-          type="date"
-          value={date}
-          onChange={(e) => changeDate(e.target.value)}
-          disabled={!!started && !copy}
-        />
-      </Field>
-      <fieldset disabled={!!started && !copy} className="grid gap-5">
-        <Timing
-          value={value}
-          set={set}
-          onTimeEdit={() => setManualTime(true)}
-        />
-        <Assignments data={data} value={value} set={set} />
-        <Field label="Сотрудник">
-          <select
-            className={selectClass}
-            disabled={!canAssign}
-            value={who ?? ""}
-            onChange={(e) => {
-              setWho(e.target.value || null);
-              setPayModel("");
-            }}
-          >
-            <option value="">Открытая смена, без сотрудника</option>
-            {data.staff.filter((s) => s.show_in_schedule || s.user_id === who).map((s) => (
-              <option key={s.user_id} value={s.user_id}>
-                {[s.first_name, s.last_name].filter(Boolean).join(" ") ||
-                  s.role_name}
-              </option>
-            ))}
-            {(data.casualEmployees ?? []).map((e) => (
-              <option key={e.id} value={`payroll:${e.id}`}>
-                {e.name} · разовый
-              </option>
-            ))}
-            {canAssign && data.permissions.includes("payroll.configure") && (
-              <option value="new-casual">＋ Новый разовый сотрудник</option>
+              <option value="">Своя смена</option>
+              {data.templates
+                .filter(
+                  (t) =>
+                    t.id === templateId ||
+                    (!t.archived && templateTimesFor(t, isoWeekday(date)) !== null),
+                )
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {shiftTemplateLabel(t)}
+                  </option>
+                ))}
+            </select>
+            {chosen && !chosenTimes && (
+              <span className="text-xs font-normal text-muted-foreground">
+                Шаблон не работает в этот день
+              </span>
             )}
-          </select>
-        </Field>
-        {casual && (
-          <div className="rounded-lg border bg-muted/20 p-4 space-y-4">
-            {who === "new-casual" && (
-              <Field label="Имя и фамилия">
-                <Input
-                  value={casualName}
-                  maxLength={160}
-                  placeholder="Например, Полина Вознесенская"
-                  onChange={(e) => setCasualName(e.target.value)}
-                />
-              </Field>
+          </Field>
+          {chosenTimes &&
+            !(started && !copy) &&
+            (chosenTimes.start_time.slice(0, 5) !== value.start_time.slice(0, 5) ||
+              chosenTimes.end_time.slice(0, 5) !== value.end_time.slice(0, 5)) && (
+              <div className="-mt-2">
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0"
+                  onClick={() => {
+                    set({ ...value, ...chosenTimes });
+                    setManualTime(false);
+                  }}
+                >
+                  Взять время из шаблона
+                </Button>
+              </div>
             )}
-            <Field label="Модель оплаты этой смены">
-              <select
-                className={selectClass}
-                value={selectedPayModel}
-                onChange={(e) => setPayModel(e.target.value)}
-              >
-                <option value="">Выберите модель</option>
-                {(data.payModels ?? [])
-                  .filter(
-                    (m) =>
-                      m.role_name ===
-                      data.roles.find((r) => r.id === value.role_id)?.name,
-                  )
-                  .map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-              </select>
-            </Field>
-            <p className="text-xs text-muted-foreground">
-              Без аккаунта. Опубликованная смена учитывается в зарплате после
-              окончания, без отметки Quick Resto.
-            </p>
-          </div>
-        )}
-      </fieldset>
-      <Colors
-        value={value.color}
-        onChange={(color) => set({ ...value, color })}
-      />
-      <Field label="Заметка">
-        <Textarea
-          value={note}
-          maxLength={5000}
-          onChange={(e) => setNote(e.target.value)}
-        />
-      </Field>
+          <Field label="Название">
+            <Input
+              value={value.name}
+              maxLength={160}
+              onChange={(e) => set({ ...value, name: e.target.value })}
+            />
+          </Field>
+          <Field label="Дата">
+            <Input
+              type="date"
+              value={date}
+              onChange={(e) => changeDate(e.target.value)}
+              disabled={!!started && !copy}
+            />
+          </Field>
+          <fieldset disabled={!!started && !copy} className="grid gap-5">
+            <Timing
+              value={value}
+              set={set}
+              onTimeEdit={() => setManualTime(true)}
+            />
+            <ShiftRoleField data={data} value={value} set={set} />
+            {employeeFields}
+          </fieldset>
+          <Colors
+            value={value.color}
+            onChange={(color) => set({ ...value, color })}
+          />
+          <Field label="Заметка">
+            <Textarea
+              value={note}
+              maxLength={5000}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </Field>
+        </>
+      )}
     </EditDrawer>
   );
 }
@@ -718,7 +702,7 @@ export function TemplateEditor({
   const [value, set] = useState(
     template
       ? { ...template, name: template.name + (copy ? " (копия)" : "") }
-      : { ...empty },
+      : { ...empty, subtitle: "" },
   );
   // Шаблон без вариантов показываем одним вариантом на все дни.
   const [variants, setVariants] = useState<TemplateVariant[]>(
@@ -735,7 +719,7 @@ export function TemplateEditor({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const commit = async () => {
-    const problem = validateVariants(variants, value.break_minutes);
+    const problem = validateVariants(variants);
     setError(problem);
     if (problem) return;
     // Один вариант на все дни — обычный шаблон без вариантов.
@@ -790,6 +774,14 @@ export function TemplateEditor({
             onChange={(e) => set({ ...value, name: e.target.value })}
           />
         </Field>
+        <Field label="Подзаголовок">
+          <Input
+            maxLength={80}
+            value={value.subtitle}
+            placeholder="Например, вечер или полная смена"
+            onChange={(e) => set({ ...value, subtitle: e.target.value })}
+          />
+        </Field>
         <Colors
           value={value.color}
           onChange={(color) => set({ ...value, color })}
@@ -803,13 +795,12 @@ export function TemplateEditor({
             setError(null);
           }}
         />
-        <Extras value={value} set={set} />
-        {error && (
+          {error && (
           <p role="alert" className="text-sm text-destructive">{error}</p>
         )}
       </ProfileSection>
       <ProfileSection title="Назначение">
-        <Assignments data={data} value={value} set={set} />
+        <ShiftRoleField data={data} value={value} set={set} />
       </ProfileSection>
     </EditDrawer>
   );

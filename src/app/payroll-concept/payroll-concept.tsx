@@ -38,7 +38,7 @@ import paymentStyle from "./concept-payment-form.module.css";
 import { paymentJournalRows } from "@/lib/payroll/payment-journal";
 import { PayrollPaymentsTable } from "@/app/(dashboard)/people/payroll/_components/payroll-payments-table";
 import {
-  loadPayroll,
+  loadPayrollOverview,
   cancelPayrollPayment,
 } from "@/app/(dashboard)/people/payroll/actions";
 import { PayrollJournal, PayrollEntryForm, PayrollEntryMenuItems } from "./payroll-journal";
@@ -112,12 +112,15 @@ export function PayrollConcept({
   const can = (action: string) =>
     data.permissions.includes(`payroll.${action}`);
   const reload = useCallback(async () => {
-    const next = await loadPayroll();
+    const next = await loadPayrollOverview();
     if (next.venueId === initial.venueId) setData(next);
   }, [initial.venueId]);
   useEffect(() => {
+    let refreshing = false;
     const timer = setInterval(() => {
-      void reload().catch(() => {});
+      if (refreshing || document.visibilityState !== "visible") return;
+      refreshing = true;
+      void reload().catch(() => {}).finally(() => { refreshing = false; });
     }, 15000);
     return () => clearInterval(timer);
   }, [reload]);

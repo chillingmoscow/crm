@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import {
   createClient,
   getCachedUser,
@@ -18,9 +19,10 @@ import type {
   HiringOptions,
   ListFilters,
   CandidatePage,
+  CandidatePhotos,
 } from "./types";
 import { uuid, normalizePhone } from "./schema";
-export async function candidateScope() {
+export const candidateScope = cache(async () => {
   const [user, accountId, can, client] = await Promise.all([
     getCachedUser(),
     getCachedActiveAccountId(),
@@ -49,7 +51,7 @@ export async function candidateScope() {
     admin: asLooseDb(createAdminClient()),
     permissions,
   };
-}
+});
 function check<T>(r: { data: T | null; error: { message: string } | null }): T {
   if (r.error) throw new Error(r.error.message);
   return r.data as T;
@@ -135,57 +137,43 @@ async function candidatePage(
   }
   return { rows, total, page, pageSize };
 }
-async function attachCandidatePhotos(s: CandidateScope, rows: Candidate[]) {
-  if (!rows.length) return;
-  const files =
-    check(
-      await s.db
-        .from<(CandidateFile & { candidate_id: string })[]>("candidate_files")
-        .select("candidate_id,storage_path")
-        .eq("state", "ready")
-        .in("mime_type", [
-          "image/jpeg",
-          "image/png",
-          "image/webp",
-          "image/avif",
-          "image/gif",
-        ])
-        .in(
-          "candidate_id",
-          rows.map((c) => c.id),
-        ),
-    ) ?? [];
-  const paths = [
-    ...new Set(
-      files.map((f) => f.storage_path).filter((p): p is string => !!p),
-    ),
-  ];
-  if (!paths.length) return;
-  // The list shows a 36px avatar: originals average 1.5 MB (up to 8 MB), so the
-  // browser gets server-resized copies; the original stays as a fallback.
+export async function candidatePhotos(ids: string[]): Promise<Record<string, CandidatePhotos>> {
+  const s = await candidateScope();
+  const files = check(await s.db
+    .from<{ candidate_id: string; storage_path: string }[]>("candidate_files")
+    .select("candidate_id,storage_path,candidates!inner()")
+    .eq("account_id", s.accountId)
+    .eq("state", "ready")
+    .neq("candidates.status", "hired")
+    .not("storage_path", "is", null)
+    .in("mime_type", ["image/jpeg", "image/png", "image/webp", "image/avif", "image/gif"])
+    .in("candidate_id", ids)
+    .order("created_at")
+    .order("id")) ?? [];
+  const avatarPaths = new Map<string, string>();
+  for (const file of files) {
+    if (!avatarPaths.has(file.candidate_id))
+      avatarPaths.set(file.candidate_id, file.storage_path);
+  }
+  if (!avatarPaths.size) return {};
+
   const bucket = s.client.storage.from("candidate-files");
   const sign = (path: string, transform: { width: number; height?: number; resize: "cover" | "contain" }) =>
     bucket.createSignedUrl(path, 1800, { transform }).then((r) => r.data?.signedUrl ?? null);
-  const [{ data: signed }, resized] = await Promise.all([
-    bucket.createSignedUrls(paths, 1800),
-    Promise.all(paths.map(async (path) => ({
-      path,
-      thumb: await sign(path, { width: 96, height: 96, resize: "cover" }),
-      preview: await sign(path, { width: 640, resize: "contain" }),
-    }))),
+  const [{ data: originals }, resized] = await Promise.all([
+    bucket.createSignedUrls([...avatarPaths.values()], 1800),
+    Promise.all([...avatarPaths].map(async ([id, path]) => {
+      const [photo_thumb_url, photo_preview_url] = await Promise.all([
+        sign(path, { width: 96, height: 96, resize: "cover" }),
+        sign(path, { width: 640, resize: "contain" }),
+      ]);
+      return { id, path, photo_thumb_url, photo_preview_url };
+    })),
   ]);
-  const urls = new Map(
-    (signed ?? [])
-      .filter((f) => !!f.path && !!f.signedUrl)
-      .map((f) => [f.path, f.signedUrl]),
-  );
-  const resizedByPath = new Map(resized.map((r) => [r.path, r]));
-  for (const row of rows) {
-    const path = files.find((f) => f.candidate_id === row.id)?.storage_path;
-    row.photo_url = path ? (urls.get(path) ?? null) : null;
-    row.photo_thumb_url = path ? (resizedByPath.get(path)?.thumb ?? null) : null;
-    row.photo_preview_url = path ? (resizedByPath.get(path)?.preview ?? null) : null;
-  }
+  const originalByPath = new Map(originals?.map((file) => [file.path, file.signedUrl]));
+  return Object.fromEntries(resized.map(({ id, path, ...photos }) => [
+    id, { ...photos, photo_url: originalByPath.get(path) ?? null },
+  ]));
 }
 export async function candidateList(
   filters: ListFilters = {},
@@ -193,9 +181,7 @@ export async function candidateList(
   const s = await candidateScope();
   if (filters.archive && !s.permissions.owner)
     throw new Error("Архив доступен владельцу");
-  const result = await candidatePage(s, filters);
-  await attachCandidatePhotos(s, result.rows);
-  return result;
+  return candidatePage(s, filters);
 }
 export async function candidateDetail(id: string): Promise<CandidateDetail> {
   const s = await candidateScope();

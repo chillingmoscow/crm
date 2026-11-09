@@ -70,6 +70,7 @@ import appearance from "@/components/shared/workspace-appearance.module.css";
 type NavItem = {
   title: string;
   href: string;
+  navigationHref?: string;
   icon: LucideIcon;
   exact?: boolean;
   /** Permission code, который нужен для видимости пункта (например
@@ -128,7 +129,7 @@ const NAV_SECTIONS: NavSection[] = [
         permission: "people.view_staff",
       },
       { title: "Кандидаты", href: "/people/candidates", icon: User, permission: "people.manage_candidates" },
-      { title: "Зарплата", href: "/people/payroll", icon: Wallet },
+      { title: "Зарплата", href: "/people/payroll", navigationHref: "/payroll-concept", icon: Wallet },
       {
         title: "Должности",
         href: "/people/roles",
@@ -897,7 +898,7 @@ function ExpandedSection({
               return (
                 <Link
                   key={item.href}
-                  href={item.href}
+                  href={item.navigationHref ?? item.href}
                   aria-current={isActive ? "page" : undefined}
                   className={cn(
                     // Sub-item: padding [7,10], gap 8, rounded 6, text 13/500
@@ -989,7 +990,7 @@ function CollapsedSectionFlyout({
             return (
               <Link
                 key={item.href}
-                href={item.href}
+                href={item.navigationHref ?? item.href}
                 aria-current={isActive ? "page" : undefined}
                 onClick={() => setOpen(false)}
                 className={cn(

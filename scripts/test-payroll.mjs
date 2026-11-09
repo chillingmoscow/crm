@@ -179,6 +179,47 @@ try {
     ).role_name,
     "Бармен",
   );
+  const barModel = {
+    ...model, id: "bar-pay", role_id: "bartender", role_name: "Бармен",
+    basis: "bar", is_role_default: true, experience: false, extras_enabled: false,
+  };
+  const seniorModel = { ...barModel, id: "senior-pay", role_id: "senior-bartender" };
+  const barShift = { role_id: "bartender", department_id: "bar", payroll_model_id: null };
+  const senior = { ...employee, model_id: seniorModel.id, role_id: seniorModel.role_id, role_name: "Бармен" };
+  const payModels = [barModel, seniorModel, { ...model, role_id: "master" }];
+  const departments = new Map([["bartender", "bar"], ["senior-bartender", "bar"], ["master", "lounge"]]);
+  const payModelFor = (shift, person, newRule = true) =>
+    calc.shiftPayModelId(shift, person, payModels, departments, newRule);
+
+  assert.equal(payModelFor(barShift, senior), seniorModel.id, "Same department keeps the primary pay model");
+  assert.equal(payModelFor({ ...barShift, department_id: null }, senior), seniorModel.id, "Legacy shift department can come from its position");
+  assert.equal(payModelFor(barShift, { ...employee, role_id: "master" }), barModel.id, "A substitute from another department uses the shift default");
+  assert.equal(payModelFor(barShift, senior, false), barModel.id, "Existing shifts keep the previous policy");
+  assert.equal(payModelFor({ ...barShift, payroll_model_id: barModel.id }, senior), barModel.id, "An explicit shift model takes precedence");
+  assert.equal(payModelFor({ ...barShift, role_id: null }, senior), seniorModel.id, "An unspecified shift position keeps the personal model");
+  assert.equal(payModelFor(barShift, { ...senior, model_id: null }), barModel.id, "The position default covers an employee with no own model");
+
+  const barRules = [barModel, seniorModel].map((payModel) => ({
+    ...rule,
+    model_id: payModel.id,
+    rates: { 1: { 1: { base: 2500, percent: payModel === seniorModel ? 7.5 : 6 } } },
+  }));
+  const barPayFor = (person) => {
+    const modelId = payModelFor(barShift, person);
+    const resolved = { ...person, model_id: modelId, role_name: "Бармен" };
+    return calc.computeAccrual({
+      ...input,
+      employee: resolved,
+      model: payModels.find((payModel) => payModel.id === modelId),
+      rule: calc.selectRule(barRules, resolved, "2026-11-09"),
+      date: "2026-11-09",
+      roleCount: 1,
+      metrics: { bar: 100000, tips_total: 0 },
+    }).salary;
+  };
+  assert.equal(barPayFor(senior), 10000);
+  assert.equal(barPayFor({ ...employee, role_id: "master" }), 8500);
+
   const night = {
     id: 9127,
     owner: { id: 174 },

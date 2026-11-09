@@ -1,5 +1,5 @@
 "use server";
-import { createClient, getCachedActiveAccountId, getCachedPermissions } from "@/lib/supabase/server";
+import { createClient, getCachedActiveAccountId, getCachedPermissions, getCachedUser } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Json } from "@/types/database";
@@ -42,11 +42,10 @@ const base = z.object({
 const template = base
   .extend({
     name: z.string().trim().min(1).max(160),
+    subtitle: z.string().trim().max(80).optional(),
     color,
     start_time: time,
     end_time: time,
-    break_minutes: z.number().int().min(0).max(1439),
-    arrival_minutes: z.number().int().min(0).max(240),
     department_id: nullable,
     role_id: nullable,
     checklist_ids: z.array(uuid).max(30),
@@ -62,7 +61,7 @@ const template = base
       .optional(),
   })
   .superRefine((x, ctx) => {
-    const error = x.variants && validateVariants(x.variants, x.break_minutes);
+    const error = x.variants && validateVariants(x.variants);
     if (error)
       ctx.addIssue({ code: "custom", message: error, path: ["variants"] });
   });
@@ -72,8 +71,6 @@ const shift = base.extend({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   start_time: time,
   end_time: time,
-  break_minutes: z.number().int().min(0).max(1439),
-  arrival_minutes: z.number().int().min(0).max(240),
   department_id: nullable,
   role_id: nullable,
   template_id: nullable,
@@ -181,13 +178,11 @@ export async function loadSchedule(
   to?: string,
 ): Promise<ScheduleData> {
   const db = await client();
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+  const [user, { data: venueId }, permissions] = await Promise.all([
+    getCachedUser(), db.rpc("get_active_venue_id"), getCachedPermissions(),
+  ]);
   if (!user) throw new Error("Не авторизован");
-  const { data: venueId } = await db.rpc("get_active_venue_id");
   if (!venueId) throw new Error("Выберите заведение");
-  const permissions = await getCachedPermissions();
   const loadShifts = async () => {
     const rows: ScheduleData["shifts"] = [];
     for (let start = 0; start < 20000; start += 1000) {
@@ -201,12 +196,6 @@ export async function loadSchedule(
     }
     return { data: null, error: { message: "Слишком большая история смен" } };
   };
-  const options = await db.rpc("schedule_payroll_options" as never);
-  if (options.error) throw new Error(options.error.message);
-  const payrollOptions = options.data as unknown as {
-    employees: NonNullable<ScheduleData["casualEmployees"]>;
-    models: NonNullable<ScheduleData["payModels"]>;
-  };
   const [
     shifts,
     templates,
@@ -219,13 +208,14 @@ export async function loadSchedule(
     venue,
     candidateTrials,
     hiddenRoles,
+    options,
   ] = await Promise.all([
     loadShifts(),
     db
       .from("schedule_templates")
       .select("*")
       .eq("venue_id", venueId)
-      .order("name"),
+      .order("name").order("subtitle"),
     db
       .from("schedule_checklists")
       .select("*")
@@ -254,6 +244,7 @@ export async function loadSchedule(
       : Promise.resolve({ data: [], error: null }),
     asLooseDb(db).from<{ role_id: string }[]>("schedule_hidden_roles")
       .select("role_id").eq("venue_id", venueId),
+    db.rpc("schedule_payroll_options" as never),
   ]);
   for (const r of [
     shifts,
@@ -270,6 +261,11 @@ export async function loadSchedule(
   ])
     if (r.error)
       throw new Error("Не удалось загрузить график: " + r.error.message);
+  if (options.error) throw new Error(options.error.message);
+  const payrollOptions = options.data as unknown as {
+    employees: NonNullable<ScheduleData["casualEmployees"]>;
+    models: NonNullable<ScheduleData["payModels"]>;
+  };
   const hidden = new Set(hiddenRoles.data?.map((entry) => entry.role_id));
   return {
     venueId,
@@ -304,7 +300,16 @@ export async function scheduleCommand(
 ): Promise<{ id?: string; error?: string }> {
   try {
     let parsed: unknown;
-    if (["shift.create", "shift.edit", "shift.copy"].includes(action))
+    if (action === "shift.create_template_slot")
+      parsed = z.object({
+        template_id: uuid,
+        template_version: z.number().int().positive(),
+        date: z.string().refine(validDate),
+        user_id: nullable,
+        payroll_employee_id: nullable,
+        payroll_model_id: nullable,
+      }).parse(input);
+    else if (["shift.create", "shift.edit", "shift.copy"].includes(action))
       parsed = shift.parse(input);
     else if (
       ["template.create", "template.edit", "template.copy"].includes(action)
@@ -366,10 +371,9 @@ export async function scheduleCommand(
         .extend({ id: uuid, version: z.number().int().positive() })
         .parse(input);
     const db = await client();
-    const { data, error } = await db.rpc("schedule_command", {
-      p_action: action,
-      p_input: parsed as Json,
-    });
+    const { data, error } = action === "shift.create_template_slot"
+      ? await asLooseDb(db).rpc("schedule_create_template_slot", { p_input: parsed })
+      : await db.rpc("schedule_command", { p_action: action, p_input: parsed as Json });
     if (error) return { error: error.message };
     revalidatePath("/schedule");
     return data as { id: string };

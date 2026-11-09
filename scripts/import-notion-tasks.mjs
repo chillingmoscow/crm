@@ -92,7 +92,7 @@ if (venue.error) throw new Error(venue.error.message);
 const [templates, existing] = await Promise.all([
   db
     .from("schedule_templates")
-    .select("id,name")
+    .select("id,name,subtitle")
     .eq("venue_id", venueId)
     .eq("archived", false),
   db
@@ -105,7 +105,7 @@ if (templates.error || existing.error)
 const planned = [],
   problems = [];
 for (const task of manifest.tasks) {
-  const matches = templates.data.filter((t) => t.name === task.shiftTemplate);
+  const matches = templates.data.filter((t) => [t.name, t.subtitle].filter(Boolean).join(" · ") === task.shiftTemplate);
   if (matches.length !== 1) {
     problems.push(
       `${task.name}: нет однозначного шаблона «${task.shiftTemplate}»`,

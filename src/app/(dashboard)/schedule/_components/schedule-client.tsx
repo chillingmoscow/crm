@@ -4,7 +4,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
-import { shiftAssignee, assignmentFields } from "@/lib/schedule/types";
+import { shiftAssignee, assignmentFields, shiftTemplateLabel } from "@/lib/schedule/types";
 import {
   CalendarDays,
   ChevronDown,
@@ -80,14 +80,17 @@ import {
 import { CandidateTrialCard } from "./candidate-trial-card";
 import { toast } from "sonner";
 import { TemplateList } from "./template-list";
+import { TemplateWeek } from "./template-week";
+import { TemplateName } from "./template-name";
 import { ScheduleTasksTab } from "./tasks-tab";
 import { TaskHeaderTarget, TaskTitleTarget } from "./task-header-actions";
 import {
   taskStatus,
+  type CalendarTaskData,
   type TaskData,
   type TaskOccurrence,
 } from "@/lib/schedule/tasks";
-import { loadTasks } from "../tasks/actions";
+import { loadCalendarTasks } from "../tasks/actions";
 const CalendarTaskReport = dynamic(
   () => import("../tasks/tasks-client").then((module) => module.TaskReport),
   {
@@ -107,6 +110,7 @@ type Editor =
       day: string;
       userId?: string | null;
       template?: ShiftTemplate;
+      templateSlot?: boolean;
       copy?: boolean;
     }
   | { type: "template"; template?: ShiftTemplate; copy?: boolean };
@@ -125,13 +129,15 @@ export function ScheduleClient({
   initialCalendarTasks = null,
   initialShowTasks,
   initialDate,
+  initialView,
 }: {
   initial: ScheduleData;
   section?: "calendar" | "tasks" | "templates";
   initialTasks?: TaskData | null;
-  initialCalendarTasks?: TaskData | null;
+  initialCalendarTasks?: CalendarTaskData | null;
   initialShowTasks?: boolean;
   initialDate?: string;
+  initialView?: "templates";
 }) {
   const [data, setData] = useState(initial);
   const tab = section;
@@ -150,7 +156,7 @@ export function ScheduleClient({
   );
   const [calendarTasks, setCalendarTasks] = useState(initialCalendarTasks);
   const [calendarTasksWeek, setCalendarTasksWeek] = useState(week);
-  const [tasksLoading, setTasksLoading] = useState(false);
+  const serverTasksWeek = useRef(initialCalendarTasks ? week : null);
   const [tasksError, setTasksError] = useState(false);
   const [selectedTask, setSelectedTask] = useState<TaskOccurrence | null>(null);
   const tasksRequest = useRef(0);
@@ -167,6 +173,7 @@ export function ScheduleClient({
     } catch {}
   }, [initialShowTasks, initial.venueId, initial.userId]);
   const toggleTasks = (enabled: boolean) => {
+    if (!enabled) serverTasksWeek.current = null;
     setShowTasks(enabled);
     try {
       localStorage.setItem(
@@ -182,48 +189,58 @@ export function ScheduleClient({
   const refreshCalendarTasks = useCallback(async () => {
     const request = ++tasksRequest.current;
     try {
-      const [next, schedule] = await Promise.all([
-        loadTasks({ from: week, to: addDays(week, 6) }),
-        loadSchedule(),
-      ]);
+      const next = await loadCalendarTasks({ from: week, to: addDays(week, 6) });
       if (request === tasksRequest.current) {
-        setData(schedule);
         setCalendarTasks(next);
         setCalendarTasksWeek(week);
         setTasksError(false);
-        setTasksLoading(false);
       }
       return next;
     } catch (error) {
       if (request === tasksRequest.current) {
         setTasksError(true);
-        setTasksLoading(false);
       }
       throw error;
     }
   }, [week]);
   useEffect(() => {
     if (!showTasks || tab !== "calendar") return;
-    setTasksLoading(true);
-    void refreshCalendarTasks().catch(() => {});
+    if (serverTasksWeek.current !== week) {
+      serverTasksWeek.current = null;
+      void refreshCalendarTasks().catch(() => {});
+    }
+    let active = true;
     const timer = setInterval(() => {
-      if (document.visibilityState === "visible")
-        void refreshCalendarTasks().catch(() => {});
+      if (document.visibilityState !== "visible") return;
+      void refreshCalendarTasks()
+        .then(() => active ? loadSchedule() : null)
+        .then((next) => { if (active && next) setData(next); })
+        .catch(() => {});
     }, 60000);
     return () => {
+      active = false;
       // This counter invalidates requests started by both the initial load and later polling.
       // eslint-disable-next-line react-hooks/exhaustive-deps
       tasksRequest.current++;
       clearInterval(timer);
     };
-  }, [showTasks, tab, refreshCalendarTasks]);
+  }, [showTasks, tab, week, refreshCalendarTasks]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [filters, setFilters] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [department, setDepartment] = useState("all");
   const [publication, setPublication] = useState("all");
-  const [view, setView] = useState("week");
+  const [view, setView] = useState(
+    initial.permissions.includes("schedule.view_all") ? initialView ?? "week" : "week",
+  );
+  const changeView = (next: string) => {
+    setView(next);
+    const url = new URL(window.location.href);
+    if (next === "templates") url.searchParams.set("view", next);
+    else url.searchParams.delete("view");
+    window.history.replaceState(null, "", url);
+  };
   const [editor, setEditor] = useState<Editor | null>(null);
   const [selected, setSelected] = useState<Shift | null>(null);
   const [confirmation, setConfirmation] = useState<{
@@ -238,6 +255,7 @@ export function ScheduleClient({
     [data.permissions],
   );
   const canPlan = can("view_all");
+  const templateView = canPlan && view === "templates";
   const canViewAttendance = canPlan && data.permissions.includes("payroll.view");
   const [attendance, setAttendance] = useState<{
     week: string;
@@ -347,9 +365,11 @@ export function ScheduleClient({
       )
       .map((s) => s.user_id),
   );
-  const weekShifts = data.shifts.filter(
+  const weekDateShifts = data.shifts.filter((shift) =>
+    days.includes(dateInZone(shift.starts_at, data.timezone)),
+  );
+  const weekShifts = weekDateShifts.filter(
     (s) =>
-      days.includes(dateInZone(s.starts_at, data.timezone)) &&
       (!search ||
         (shiftAssignee(s)
           ? matchingStaff.has(shiftAssignee(s)!)
@@ -572,12 +592,14 @@ export function ScheduleClient({
     day = days[0],
     userId: string | null = null,
     template?: ShiftTemplate,
+    templateSlot = false,
   ) =>
     setEditor({
       type: "shift",
       day,
       userId: can("shift_assign") ? userId : null,
       template,
+      templateSlot,
     });
   const drop = async (
     e: React.DragEvent,
@@ -609,8 +631,20 @@ export function ScheduleClient({
         : null,
     });
   };
-  const card = (s: Shift, showAssignee = false) => {
+  const templatesById = new Map(data.templates.map((template) => [template.id, template]));
+  const shiftTemplate = (shift: Shift) => {
+    const template = shift.template_id ? templatesById.get(shift.template_id) : undefined;
+    return template?.subtitle && (shift.title === template.name || shift.title === shiftTemplateLabel(template))
+      ? template
+      : undefined;
+  };
+  const selectedTemplate = selected ? shiftTemplate(selected) : undefined;
+  const card = (s: Shift, mode: "shift" | "full" | "template" = "shift") => {
     const mark = attendanceMark(s);
+    const template = shiftTemplate(s);
+    const assignee = shiftAssignee(s);
+    const assignOpenShift = mode === "template" && !assignee && can("shift_assign");
+    const assigneeLabel = assignOpenShift ? "Назначить" : name(assignee);
     return (
     <div key={s.id} className="relative min-w-0">
     <button
@@ -618,7 +652,16 @@ export function ScheduleClient({
       onDragStart={(e) =>
         e.dataTransfer.setData("application/sheerly-shift", s.id)
       }
-      onClick={() => setSelected(s)}
+      onClick={() => {
+        if (assignOpenShift) {
+          setEditor({ type: "shift", shift: s, day: dateInZone(s.starts_at, data.timezone), templateSlot: true });
+        } else {
+          setSelected(s);
+        }
+      }}
+      aria-label={mode === "template"
+        ? `${assigneeLabel}: ${template ? shiftTemplateLabel(template) : s.title}, ${dayLabel(dateInZone(s.starts_at, data.timezone))}`
+        : undefined}
       className={cn(
         "w-full rounded-md px-1.5 py-2 text-left grid gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-opacity hover:opacity-80",
         paletteBg(s.color),
@@ -629,8 +672,12 @@ export function ScheduleClient({
         {timeInZone(s.starts_at, data.timezone)}–
         {timeInZone(s.ends_at, data.timezone)}
       </span>
-      <span className={cn("text-xs", !showAssignee && "truncate")}>{s.title}</span>
-      {showAssignee && <span className="text-xs">{name(shiftAssignee(s))}</span>}
+      {mode !== "template" && (
+        template
+          ? <span className="text-xs"><TemplateName {...template} /></span>
+          : <span className={cn("text-xs", mode === "shift" && "truncate")}>{s.title}</span>
+      )}
+      {mode !== "shift" && <span className={cn("break-words text-xs", mode === "template" && "font-medium")}>{assigneeLabel}</span>}
       {!s.published && (
         <span className="flex gap-1 items-center text-[10px]">
           <span className="size-1.5 rounded-full bg-current" />
@@ -688,7 +735,7 @@ export function ScheduleClient({
                   onClick: () => setFilters(!filters),
                 }}
                 secondaryActions={
-                  can("shift_create") ? (
+                  can("shift_create") && !templateView ? (
                     <TableIconButton
                       label={templatesOpen ? "Скрыть шаблоны смен" : "Показать шаблоны смен"}
                       active={templatesOpen}
@@ -840,22 +887,18 @@ export function ScheduleClient({
                       </PopoverContent>
                     </Popover>
                   )}
-                  <Select value={view} onValueChange={setView}>
-                    <SelectTrigger aria-label="Вид расписания" className="hidden w-[128px] md:flex">
+                  <Select value={templateView ? "templates" : view === "list" ? "list" : "week"} onValueChange={changeView}>
+                    <SelectTrigger aria-label="Вид расписания" className="w-[160px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="week">Неделя</SelectItem>
+                      <SelectItem value="week">По сотрудникам</SelectItem>
+                      {canPlan && <SelectItem value="templates">По шаблонам</SelectItem>}
                       <SelectItem value="list">Список</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
               </div>
-              {showTasks && tasksLoading && !calendarTasks && (
-                <p role="status" className="text-sm text-muted-foreground">
-                  Загружаем задачи…
-                </p>
-              )}
               {showTasks && tasksError && (
                 <div
                   role="alert"
@@ -874,7 +917,8 @@ export function ScheduleClient({
                 </div>
               )}
               {showTasks &&
-                !tasksLoading &&
+                calendarTasks &&
+                calendarTasksWeek === week &&
                 !tasksError &&
                 !weekTasks.length && (
                   <p className="text-sm text-muted-foreground">
@@ -906,7 +950,7 @@ export function ScheduleClient({
                   )}
                 </div>
               )}
-              {templatesOpen && (
+              {templatesOpen && !templateView && (
                 <section aria-label="Шаблоны смен" className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-muted/50 px-3 py-2.5">
                   <h2 className="shrink-0 text-xs font-semibold text-muted-foreground">Шаблоны смен</h2>
                   <div className="flex flex-wrap gap-1.5">
@@ -922,7 +966,7 @@ export function ScheduleClient({
                         onClick={() => create(days[0], null, t)}
                       >
                         <GripVertical className="size-3 opacity-60" />
-                        {t.name}
+                        {shiftTemplateLabel(t)}
                       </Button>
                     ))}
                     {!data.templates.some((t) => !t.archived) && (
@@ -931,7 +975,25 @@ export function ScheduleClient({
                   </div>
                 </section>
               )}
-              {!staff.length &&
+              {templateView ? (
+                <TemplateWeek
+                  days={days}
+                  today={today}
+                  timezone={data.timezone}
+                  templates={data.templates.filter((template) => !template.archived &&
+                    (department === "all" || template.department_id === department))}
+                  shifts={weekDateShifts}
+                  visibleShifts={weekShifts}
+                  tasks={weekTasks}
+                  showVacancies={!search && publication === "all"}
+                  onAssign={can("shift_create") && can("shift_assign")
+                    ? (day, template) => create(day, null, template, true)
+                    : undefined}
+                  renderShift={(shift, showTitle) => card(shift, showTitle ? "full" : "template")}
+                  renderTask={(task) => taskCard(task)}
+                  empty={noData(Layers, "Нет смен по выбранным условиям", "Проверьте шаблоны смен или сбросьте фильтры.")}
+                />
+              ) : !staff.length &&
               !openShifts.length &&
               !weekTrials.length &&
               !weekTasks.length ? (
@@ -1062,7 +1124,6 @@ export function ScheduleClient({
                                     shiftHours(
                                       s.starts_at,
                                       s.ends_at,
-                                      s.break_minutes,
                                     ),
                                   0,
                                 )
@@ -1153,7 +1214,6 @@ export function ScheduleClient({
                                     shiftHours(
                                       s.starts_at,
                                       s.ends_at,
-                                      s.break_minutes,
                                     ),
                                   0,
                                 )
@@ -1170,7 +1230,6 @@ export function ScheduleClient({
                                   shiftHours(
                                     s.starts_at,
                                     s.ends_at,
-                                    s.break_minutes,
                                   ),
                                 0,
                               )
@@ -1203,7 +1262,7 @@ export function ScheduleClient({
                               (s) =>
                                 dateInZone(s.starts_at, data.timezone) === d,
                             )
-                            .map((shift) => card(shift, canPlan))}
+                            .map((shift) => card(shift, canPlan ? "full" : "shift"))}
                           {weekTasks
                             .filter((task) => task.business_date === d)
                             .map((task) => taskCard(task, false))}
@@ -1249,11 +1308,9 @@ export function ScheduleClient({
               )}
               <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
                 <span>Часовой пояс: {data.timezone}</span>
-                <span>Часы указаны за вычетом перерывов</span>
-                  {showTasks && (
-                    <span>Задач на неделе: {weekTasks.length}</span>
-                  )}
-                {canPlan && <span>Черновики видны только планировщикам</span>}
+                {showTasks && calendarTasks && calendarTasksWeek === week && (
+                  <span>Задач на неделе: {weekTasks.length}</span>
+                )}
               </div>
             </>
           )}
@@ -1308,7 +1365,7 @@ export function ScheduleClient({
           onOpenChange={(o) => {
             if (!o) setSelected(null);
           }}
-          title={selected.title}
+          title={selectedTemplate ? shiftTemplateLabel(selectedTemplate) : selected.title}
           description={`${dayLabel(dateInZone(selected.starts_at, data.timezone))} · ${timeInZone(selected.starts_at, data.timezone)}–${timeInZone(selected.ends_at, data.timezone)} · ${selected.published ? "Опубликована" : "Черновик"}`}
           footer={
             <>
@@ -1387,10 +1444,6 @@ export function ScheduleClient({
               ·{" "}
               {data.departments.find((d) => d.id === selected.department_id)
                 ?.name ?? "Без подразделения"}
-            </p>
-            <p>
-              Перерыв {selected.break_minutes} мин · прийти за{" "}
-              {selected.arrival_minutes} мин
             </p>
             {selected.note && (
               <p className="whitespace-pre-wrap pt-2">{selected.note}</p>

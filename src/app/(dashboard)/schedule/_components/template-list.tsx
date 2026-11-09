@@ -42,23 +42,20 @@ import { useTableColumnResize } from "@/components/shared/table/use-table-column
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { paletteBg } from "@/lib/palette";
-import type { ShiftTemplate } from "@/lib/schedule/types";
+import { shiftTemplateLabel, type ShiftTemplate } from "@/lib/schedule/types";
 import { cn } from "@/lib/utils";
 import { formatTemplateTimes } from "./editors";
+import { TemplateName } from "./template-name";
 
 const labels: Record<string, string> = {
   name: "Название",
   timing: "Время по дням недели",
-  break: "Перерыв",
-  arrival: "Ранний приход",
 };
 const config = [
   { id: "name", defaultSize: 260 },
   { id: "timing", defaultSize: 400 },
-  { id: "break", defaultSize: 105 },
-  { id: "arrival", defaultSize: 150 },
 ];
-const sortable = new Set(["name", "break", "arrival"]);
+const sortable = new Set(["name"]);
 const collator = new Intl.Collator("ru", {
   numeric: true,
   sensitivity: "base",
@@ -91,7 +88,7 @@ export function TemplateList({
   const rows = templates.filter(
     (template) =>
       template.archived === archived &&
-      template.name.toLocaleLowerCase("ru").includes(query),
+      shiftTemplateLabel(template).toLocaleLowerCase("ru").includes(query),
   );
   const firstPage = () =>
     state.setPagination((page) => ({ ...page, pageIndex: 0 }));
@@ -132,23 +129,23 @@ export function TemplateList({
       size: 260,
       minSize: 144,
       enableHiding: false,
-      sortingFn: (a, b) => collator.compare(a.original.name, b.original.name),
+      sortingFn: (a, b) => collator.compare(shiftTemplateLabel(a.original), shiftTemplateLabel(b.original)),
       cell: ({ row }) => {
         const template = row.original;
         return (
           <button
             type="button"
-            className="max-w-full break-words text-left font-medium hover:text-brand"
+            className="flex max-w-full items-start gap-2 text-left hover:text-brand"
             onClick={() => onEdit(template)}
           >
             <span
               aria-hidden="true"
               className={cn(
-                "mr-2 inline-block size-2.5 rounded-full align-middle",
+                "mt-1.5 size-2.5 shrink-0 rounded-full",
                 paletteBg(template.color),
               )}
             />
-            {template.name}
+            <TemplateName {...template} />
           </button>
         );
       },
@@ -163,26 +160,6 @@ export function TemplateList({
         <span className="text-muted-foreground tabular-nums">
           {formatTemplateTimes(row.original)}
         </span>
-      ),
-    },
-    {
-      id: "break",
-      accessorKey: "break_minutes",
-      header: labels.break,
-      size: 105,
-      minSize: 80,
-      cell: ({ row }) => (
-        <span className="tabular-nums">{row.original.break_minutes} мин</span>
-      ),
-    },
-    {
-      id: "arrival",
-      accessorKey: "arrival_minutes",
-      header: labels.arrival,
-      size: 150,
-      minSize: 122,
-      cell: ({ row }) => (
-        <span className="tabular-nums">{row.original.arrival_minutes} мин</span>
       ),
     },
     {

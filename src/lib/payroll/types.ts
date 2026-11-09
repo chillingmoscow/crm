@@ -167,6 +167,7 @@ export type Allocation = {
 };
 export type PaySettings = {
   schedule_fallback_from?: string | null;
+  same_department_rate_from?: string | null;
   experience_starts_on?: string | null;
   experience_policy_version?: number;
   historical_through?: string | null;

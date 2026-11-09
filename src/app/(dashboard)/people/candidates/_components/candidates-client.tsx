@@ -29,6 +29,7 @@ import {
   CANDIDATE_STAGES,
   CANDIDATE_SORT_FIELDS,
   type CandidatePage,
+  type CandidatePhotos,
   type CandidatePermissions,
   type CandidateSortField,
   type HiringOptions,
@@ -91,6 +92,25 @@ export function CandidatesClient({
     [loading, setLoading] = useState(false),
     [error, setError] = useState(""),
     [reload, setReload] = useState(0);
+  const [photos, setPhotos] = useState<Record<string, CandidatePhotos>>({});
+  const photoIds = list.rows.map((row) => row.id).sort().join(",");
+  const showPhotos = st.columnVisibility.photo !== false;
+  useEffect(() => {
+    if (!photoIds || !showPhotos) return;
+    const controller = new AbortController();
+    void fetch(`/api/people/candidate-photos?ids=${photoIds}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const next: Record<string, CandidatePhotos> = await response.json();
+        if (!controller.signal.aborted) setPhotos(next);
+      })
+      .catch(() => {}); // The table still has initials if a photo is unavailable.
+    return () => controller.abort();
+  }, [photoIds, showPhotos]);
+  const rowsWithPhotos = useMemo(
+    () => list.rows.map((row) => ({ ...row, ...photos[row.id] })),
+    [list.rows, photos],
+  );
   const [deleting, setDeleting] = useState<
     { id: string; full_name: string }[] | null
   >(null);
@@ -220,7 +240,7 @@ export function CandidatesClient({
     [statusSaved, refreshList, options, permissions.owner],
   );
   const table = useReactTable({
-    data: list.rows,
+    data: rowsWithPhotos,
     columns,
     state: {
       sorting: st.sorting,

@@ -134,7 +134,7 @@ export function RoleDetailPage({
   // Settings tab state
   const [nameValue, setNameValue] = useState(role.name);
   const [commentValue, setCommentValue] = useState(role.comment ?? "");
-  const [schedulePending, saveScheduleVisibility] = useTransition();
+  const [scheduleVisible, setScheduleVisible] = useState(showInSchedule);
   const [iconValue, setIconValue] = useState<string | null>(role.icon);
   const [iconColorValue, setIconColorValue] = useState<string | null>(
     role.icon_color ?? null,
@@ -142,7 +142,7 @@ export function RoleDetailPage({
   const [departmentId, setDepartmentId] = useState<string | null>(
     role.department_id,
   );
-  const dirty =
+  const detailsDirty =
     nameValue.trim() !== role.name ||
     (commentValue || null) !== role.comment ||
     iconValue !== role.icon ||
@@ -157,6 +157,10 @@ export function RoleDetailPage({
   // (Управляющий/Администратор/Бухгалтер/…) — кастомные per-account.
   const isSystem = role.venue_id === null;
   const canEdit = !isOwner;
+  const saveDetails = canEdit && detailsDirty;
+  const saveVisibility = canEditSchedule && scheduleVisible !== showInSchedule;
+  const isSaveActive = (saveDetails || saveVisibility) &&
+    (!saveDetails || nameValue.trim().length > 0);
   // Owner и системные роли (после миграции — только owner) не удаляются.
   // Кастомка — физический DELETE.
   const canDelete = !isOwner && !isSystem && accountId !== null;
@@ -218,38 +222,35 @@ export function RoleDetailPage({
   }
 
   function handleSave() {
+    if (!isSaveActive) return;
     startTransition(async () => {
-      // Codex P1 на #299: если updateRole удачно сохранил поля, а
-      // setRoleDepartment упал (RLS/trigger/RPC) — оставался partial
-      // write без refresh'а, UI расходился с БД.
-      //
-      // Реордер: сначала меняем привязку к подразделению (отдельная
-      // транзакция в Postgres через RPC), потом — основные поля.
-      // Подразделение валится чаще (триггеры на department_id,
-      // dep_select_member RLS), поэтому ставим его первым: если упало
-      // — основные поля даже не трогали, БД консистентна, ничего
-      // refresh'ить не надо. Если повалился второй UPDATE (роль)
-      // после успешного первого — делаем router.refresh(), чтобы UI
-      // увидел уже изменённый department_id.
-      if (departmentId !== role.department_id) {
-        const depResult = await setRoleDepartment(role.id, departmentId);
-        if (depResult.error) {
-          toast.error(depResult.error);
-          setDepartmentId(role.department_id);
+      if (saveDetails) {
+        if (departmentId !== role.department_id) {
+          const result = await setRoleDepartment(role.id, departmentId);
+          if (result.error) {
+            toast.error(result.error);
+            return;
+          }
+        }
+        const result = await updateRole(role.id, {
+          name: nameValue,
+          comment: commentValue || null,
+          icon: iconValue,
+          iconColor: iconColorValue,
+        });
+        if (result.error) {
+          toast.error(result.error);
+          router.refresh();
           return;
         }
       }
-
-      const result = await updateRole(role.id, {
-        name: nameValue,
-        comment: commentValue || null,
-        icon: iconValue,
-        iconColor: iconColorValue,
-      });
-      if (result.error) {
-        toast.error(result.error);
-        router.refresh(); // sync UI с уже применённым изменением department
-        return;
+      if (saveVisibility) {
+        const result = await setRoleScheduleVisibility(role.id, scheduleVisible);
+        if (result.error) {
+          toast.error(result.error);
+          router.refresh();
+          return;
+        }
       }
       toast.success("Изменения сохранены");
       router.refresh();
@@ -686,45 +687,32 @@ export function RoleDetailPage({
                   </div>
                   <Switch
                     id="role-show-in-schedule"
-                    checked={showInSchedule}
-                    onCheckedChange={(visible) => saveScheduleVisibility(async () => {
-                      const result = await setRoleScheduleVisibility(role.id, visible);
-                      if (result.error) toast.error(result.error);
-                      else {
-                        toast.success("Видимость в расписании сохранена");
-                        router.refresh();
-                      }
-                    })}
-                    disabled={!canEditSchedule || schedulePending}
+                    checked={scheduleVisible}
+                    onCheckedChange={setScheduleVisible}
+                    disabled={!canEditSchedule || isPending}
                   />
                 </div>
 
                 {/* Form footer — Save виден всегда, статус меняется:
                     активен (brand) когда есть что сохранять, иначе secondary
                     (#f5f5f5) с приглушённым текстом и без hover. */}
-                {(() => {
-                  const isSaveActive =
-                    canEdit && dirty && nameValue.trim().length > 0;
-                  return (
-                    <div className="flex justify-end pt-1">
-                      <Button
-                        onClick={handleSave}
-                        variant={isSaveActive ? "default" : "secondary"}
-                        disabled={!isSaveActive || isPending}
-                        className={
-                          isSaveActive
-                            ? ""
-                            : "disabled:opacity-100 text-muted-foreground hover:bg-secondary cursor-default"
-                        }
-                      >
-                        {isPending && (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        )}
-                        Сохранить
-                      </Button>
-                    </div>
-                  );
-                })()}
+                <div className="flex justify-end pt-1">
+                  <Button
+                    onClick={handleSave}
+                    variant={isSaveActive ? "default" : "secondary"}
+                    disabled={!isSaveActive || isPending}
+                    className={
+                      isSaveActive
+                        ? ""
+                        : "disabled:opacity-100 text-muted-foreground hover:bg-secondary cursor-default"
+                    }
+                  >
+                    {isPending && (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    )}
+                    Сохранить
+                  </Button>
+                </div>
               </div>
             </div>
           </TabsContent>

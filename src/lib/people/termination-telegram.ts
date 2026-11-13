@@ -125,6 +125,7 @@ export function terminationReport(name: string, outcomes: ChatOutcome[], written
     `Сотрудник уволен: ${name}`,
     ...(telegramId ? [`Telegram ID: ${telegramId}`] : []),
     outcomes.length ? "Чаты:\n" + outcomes.map(o => "• " + line(o)).join("\n") : "Чаты: нет чатов организации",
-    bonus > 0 ? `Списано бонусов: ${bonus.toLocaleString("ru-RU")}` : "Бонусы: остатка не было",
+    // Only dismissals started before the write-off was removed can carry an amount.
+    ...(bonus > 0 ? [`Списано бонусов: ${bonus.toLocaleString("ru-RU")}`] : []),
   ].join("\n");
 }

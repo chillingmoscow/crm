@@ -397,6 +397,7 @@ export function shiftPayModelId(
   models: PayModel[],
   departmentsByRole: ReadonlyMap<string, string | null>,
   useSameDepartmentRate: boolean,
+  paysShift: (modelId: string) => boolean = () => true,
 ): string | null {
   if (shift.payroll_model_id || !shift.role_id)
     return shift.payroll_model_id ?? employee.model_id;
@@ -406,11 +407,28 @@ export function shiftPayModelId(
   const samePosition = employee.role_id === shift.role_id;
   const sameDepartment = !!shiftDepartment && primaryDepartment === shiftDepartment;
 
+  // A salary-only primary position has no shift rate to carry over.
   if (useSameDepartmentRate && (samePosition || sameDepartment) &&
-      employee.model_id && models.some((model) => model.id === employee.model_id)) {
+      employee.model_id && models.some((model) => model.id === employee.model_id) &&
+      paysShift(employee.model_id)) {
     return employee.model_id;
   }
   return models.find((model) => model.role_id === shift.role_id && model.is_role_default)?.id ?? null;
+}
+
+// The rate may follow the employee, but the duty performed is the shift position:
+// it decides who shares the shift rate, bar/master extras and the cleaner check.
+export function shiftDutyRoleName(
+  shift: Pick<Shift, "role_id" | "payroll_model_id">,
+  models: PayModel[],
+  modelId: string | null,
+  positionName: string | null | undefined,
+  fallback: string,
+): string {
+  const duty = !shift.payroll_model_id && shift.role_id
+    ? models.find((model) => model.role_id === shift.role_id && model.is_role_default)?.role_name ?? positionName
+    : null;
+  return duty ?? models.find((model) => model.id === modelId)?.role_name ?? fallback;
 }
 
 export function employeeAtDate(

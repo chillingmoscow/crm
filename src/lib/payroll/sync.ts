@@ -30,6 +30,7 @@ import {
   effectivePayModel,
   employeeAtDate,
   shiftPayModelId,
+  shiftDutyRoleName,
   recognizeTipComment,
   tipMatch,
   tipBatch,
@@ -345,22 +346,34 @@ export async function processPayrollDay() {
             sales.day_start_hour,
           ) === date,
       );
-      const ids = [...new Set(planned.map((shift) => shiftPayModelId(
-        shift,
-        employees[i],
-        models,
-        departmentsByRole,
-        Date.parse(shift.starts_at) >= sameDepartmentRateFrom,
-      )))];
-      if (ids.length > 1) positionIssues.set(employees[i].id,"За рабочий день указаны разные должности. Уточните должность смены");
-      if (planned.length && ids.includes(null)) positionIssues.set(employees[i].id,"Для должности смены не настроена оплата");
+      const person = employees[i];
+      const paysShift = (modelId: string) => hasShiftPay(
+        models.find((m) => m.id === modelId) ?? null,
+        selectRule(rules, { ...person, model_id: modelId }, date),
+      );
+      const choices = planned.map((shift) => {
+        const modelId = shiftPayModelId(
+          shift,
+          person,
+          models,
+          departmentsByRole,
+          Date.parse(shift.starts_at) >= sameDepartmentRateFrom,
+          paysShift,
+        );
+        const positionName = shift.role_id ? rolesById.get(shift.role_id)?.name : null;
+        return { modelId, duty: shiftDutyRoleName(shift, models, modelId, positionName, person.role_name) };
+      });
+      const ids = [...new Set(choices.map((choice) => choice.modelId))];
+      const duties = [...new Set(choices.map((choice) => choice.duty))];
+      if (ids.length > 1 || duties.length > 1) positionIssues.set(person.id,"За рабочий день указаны разные должности. Уточните должность смены");
+      if (planned.length && ids.includes(null)) positionIssues.set(person.id,"Для должности смены не настроена оплата");
       if (ids.length) {
         const modelId = ids.length === 1 ? (ids[0] ?? null) : null;
         const selectedModel = models.find((m) => m.id === modelId);
         employees[i] = {
-          ...employees[i],
+          ...person,
           model_id: modelId,
-          role_name: selectedModel?.role_name ?? employees[i].role_name,
+          role_name: duties.length === 1 ? duties[0] : selectedModel?.role_name ?? person.role_name,
         };
       }
     }

@@ -220,6 +220,39 @@ try {
   assert.equal(barPayFor(senior), 10000);
   assert.equal(barPayFor({ ...employee, role_id: "master" }), 8500);
 
+  // Same-department substitute: own rate, but the duty is the shift position.
+  const leadModel = { ...barModel, id: "lead-pay", role_id: "bar-lead", role_name: "Старший смены", is_role_default: true };
+  const lead = { ...employee, model_id: leadModel.id, role_id: "bar-lead", role_name: "Старший смены" };
+  const dutyModels = [barModel, leadModel];
+  const dutyDepartments = new Map([["bartender", "bar"], ["bar-lead", "bar"]]);
+  const leadModelId = calc.shiftPayModelId(barShift, lead, dutyModels, dutyDepartments, true);
+  assert.equal(leadModelId, leadModel.id, "A same-department substitute keeps the own rate");
+  assert.equal(
+    calc.shiftDutyRoleName(barShift, dutyModels, leadModelId, "Бармен", lead.role_name),
+    "Бармен",
+    "The shift position decides who shares the bar rate and extras",
+  );
+  assert.equal(
+    calc.shiftDutyRoleName({ ...barShift, role_id: "no-default" }, dutyModels, leadModelId, "Бармен-стажёр", lead.role_name),
+    "Бармен-стажёр",
+    "A position without a default model still names the duty",
+  );
+  assert.equal(
+    calc.shiftDutyRoleName({ ...barShift, payroll_model_id: leadModel.id }, dutyModels, leadModel.id, "Бармен", lead.role_name),
+    "Старший смены",
+    "An explicit shift model keeps its own duty",
+  );
+  assert.equal(
+    calc.shiftDutyRoleName({ ...barShift, role_id: null }, dutyModels, leadModelId, null, lead.role_name),
+    "Старший смены",
+    "A shift without a position keeps the personal duty",
+  );
+  assert.equal(
+    calc.shiftPayModelId(barShift, lead, dutyModels, dutyDepartments, true, (id) => id !== leadModel.id),
+    barModel.id,
+    "A salary-only primary position does not leave the substitute shift unpaid",
+  );
+
   const night = {
     id: 9127,
     owner: { id: 174 },

@@ -10,6 +10,15 @@ export function createAdminClient() {
   return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { global: internalGlobalOptions() }
+    {
+      // Service-role clients do not own a session. A refresh timer would retain
+      // the client and the async context of the request that created it.
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+        detectSessionInUrl: false,
+      },
+      global: internalGlobalOptions(),
+    }
   );
 }

@@ -709,7 +709,6 @@ export function ScheduleClient({
       date: day,
       ...assignmentFields(userId),
       payroll_model_id: payModel,
-      casual_name: "",
       note: "",
       template_id: template.id,
     });

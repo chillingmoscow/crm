@@ -8,7 +8,11 @@ import { StaffClient } from "./_components/staff-client";
 import { getStaff, getPendingInvitations, getFiredStaff } from "./actions";
 import { getCasualStaff } from "@/lib/payroll/casual-list";
 
-export default async function StaffPage() {
+export default async function StaffPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ add?: string }>;
+}) {
   // Phase 1 — auth + DB client in parallel (independent async operations)
   const [user, supabase] = await Promise.all([
     getCachedUser(),
@@ -127,6 +131,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       currentUserId={user.id}
       activeRoleCode={activeRoleCode}
       casual={casual}
+      openAddCasual={(await searchParams).add === "casual" && canEdit && !!casual}
     />
   );
 }

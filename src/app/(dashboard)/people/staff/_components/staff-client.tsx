@@ -93,6 +93,8 @@ type Props = {
   activeRoleCode: string | null;
   /** null when casual workers are unavailable (e.g. before the database update). */
   casual: { employees: CasualStaffRow[]; roles: { id: string; name: string }[] } | null;
+  /** Opened from the schedule: «Добавить → Разовый» is shown right away. */
+  openAddCasual?: boolean;
 };
 
 function formatDate(iso: string | null | undefined) {
@@ -249,14 +251,17 @@ export function StaffClient({
   currentUserId,
   activeRoleCode,
   casual,
+  openAddCasual = false,
 }: Props) {
   const router = useRouter();
 
   const [staff, setStaff] = useState(initialStaff);
   const [invitations, setInvitations] = useState(initialInvitations);
   const [fired, setFired] = useState(initialFired);
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const [addMode, setAddMode] = useState<"email" | "manual" | "casual">("manual");
+  const [inviteOpen, setInviteOpen] = useState(openAddCasual);
+  const [addMode, setAddMode] = useState<"email" | "manual" | "casual">(
+    openAddCasual ? "casual" : "manual",
+  );
   const [issued, setIssued] = useState<CasualIssued | null>(null);
   const closeAdd = (open: boolean) => {
     setInviteOpen(open);

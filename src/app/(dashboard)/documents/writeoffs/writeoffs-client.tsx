@@ -10,7 +10,6 @@ import {
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
-  Banknote,
   ClipboardList,
   RefreshCw,
   Loader2,
@@ -42,7 +41,7 @@ import {
   DrawerSection,
   DrawerStatus,
   DrawerSummary,
-  DrawerSummaryItem,
+  DrawerSummaryTotal,
   DrawerTimeline,
   DrawerTimelineItem,
 } from "@/components/ui/drawer-blocks";
@@ -212,14 +211,9 @@ function Detail({
       onOpenChange={(v) => !v && onClose()}
     >
       <DrawerSummary label={d ? "Сумма акта" : "Сумма записи"}>
-        <DrawerSummaryItem
-          icon={<Banknote />}
-          label={`Сумма ${d ? "акта" : "записи"}`}
-        >
-          <span className="font-semibold tabular-nums">
-            {amount(row.total)}
-          </span>
-        </DrawerSummaryItem>
+        <DrawerSummaryTotal label={`Сумма ${d ? "акта" : "записи"}`}>
+          {amount(row.total)}
+        </DrawerSummaryTotal>
       </DrawerSummary>
       <Tabs defaultValue="details">
         <TabsList>

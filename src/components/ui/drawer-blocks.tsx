@@ -9,7 +9,8 @@ import { cn } from "@/lib/utils";
  * - DrawerSection — плоский раздел: заголовок и тонкая линия сверху
  *   (у первого раздела линии нет). Без рамок и фона.
  * - DrawerSummary / DrawerSummaryItem — единственная сводная плашка в
- *   панели просмотра: главное о сущности.
+ *   панели просмотра: главное о сущности. DrawerSummaryTotal — крупная
+ *   ключевая сумма первой строкой сводки.
  * - DrawerStatus — статус рядом с заголовком панели (titleAccessory).
  * - DrawerTimeline / DrawerTimelineItem — история изменений и события.
  */
@@ -95,6 +96,30 @@ export function DrawerSummaryItem({
         <dd className="break-words text-sm">{children}</dd>
       </div>
       {action}
+    </div>
+  );
+}
+
+/**
+ * Ключевая сумма сущности (итог акта, сумма накладной, прибавка за день) —
+ * крупно, первой строкой сводки. Одна на панель; остальные суммы — обычными
+ * строками DrawerSummaryItem.
+ */
+export function DrawerSummaryTotal({
+  label,
+  children,
+  hint,
+}: {
+  label: string;
+  children: ReactNode;
+  /** Короткое пояснение под суммой, например «без НДС». */
+  hint?: ReactNode;
+}) {
+  return (
+    <div className="min-w-0 space-y-1 [&:not(:last-child)]:border-b [&:not(:last-child)]:pb-3">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="break-words text-3xl font-semibold tabular-nums">{children}</dd>
+      {hint ? <dd className="text-xs text-muted-foreground">{hint}</dd> : null}
     </div>
   );
 }

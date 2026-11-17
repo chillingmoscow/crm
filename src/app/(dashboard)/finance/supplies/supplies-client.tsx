@@ -10,7 +10,6 @@ import {
 import {
   ArrowDown,
   ArrowUp,
-  Banknote,
   CalendarDays,
   ChevronRight,
   RefreshCw,
@@ -37,6 +36,7 @@ import {
   DrawerStatus,
   DrawerSummary,
   DrawerSummaryItem,
+  DrawerSummaryTotal,
   DrawerTimeline,
   DrawerTimelineItem,
 } from "@/components/ui/drawer-blocks";
@@ -923,11 +923,9 @@ export function SuppliesClient({
         ) : (
           <div className="space-y-5 text-sm">
             <DrawerSummary label="Данные накладной">
-              <DrawerSummaryItem icon={<Banknote />} label="Сумма">
-                <span className="font-semibold tabular-nums">
-                  {money(detail.data.amountCents)}
-                </span>
-              </DrawerSummaryItem>
+              <DrawerSummaryTotal label="Сумма накладной">
+                {money(detail.data.amountCents)}
+              </DrawerSummaryTotal>
               <DrawerSummaryItem icon={<CalendarDays />} label="Дата и склад">
                 {day(detail.data.invoiceDate)} · {detail.data.storeTitle}
               </DrawerSummaryItem>

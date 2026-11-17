@@ -15,7 +15,6 @@ import {
   RefreshCw,
   Settings2,
   ChartNoAxesCombined,
-  Coins,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -24,7 +23,7 @@ import { EditDrawer } from "@/components/ui/edit-drawer";
 import {
   DrawerSection,
   DrawerSummary,
-  DrawerSummaryItem,
+  DrawerSummaryTotal,
 } from "@/components/ui/drawer-blocks";
 import {
   Select,
@@ -140,11 +139,9 @@ function Detail({
       }
     >
       <DrawerSummary label="Прибавка за день">
-        <DrawerSummaryItem icon={<Coins />} label="Общая прибавка за день">
-          <span className="font-semibold tabular-nums">
-            {money(row.metrics?.bonus ?? null)} {row.metrics && "₽"}
-          </span>
-        </DrawerSummaryItem>
+        <DrawerSummaryTotal label="Общая прибавка за день">
+          {money(row.metrics?.bonus ?? null)} {row.metrics && "₽"}
+        </DrawerSummaryTotal>
       </DrawerSummary>
       <Tabs defaultValue="details">
         <TabsList className="w-full justify-start overflow-x-auto">

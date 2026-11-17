@@ -165,6 +165,7 @@ Lucide (`lucide-react`). Штрих 1.5px. Размеры:
 **Б. Просмотр** — карточка сущности (смена, назначение кандидата, день продаж).
 - Шапка: название сущности; статус — `DrawerStatus` в `titleAccessory` рядом с названием; подзаголовок — ключевые факты одной строкой («Среда, 18 ноября · 14:00–00:00 · 10 ч»).
 - Тело: сверху **одна** `DrawerSummary` — главное о сущности строками `DrawerSummaryItem` (плитка-иконка или `DrawerAvatar` 32px, подпись сверху, значение). Пустые значения не показываем строкой «Без …» — строку просто опускаем.
+- Если у сущности есть ключевая сумма (итог акта списания, сумма накладной, прибавка за день) — она первой строкой сводки через `DrawerSummaryTotal`: подпись `text-xs` сверху, сумма `text-3xl font-semibold tabular-nums`, под ней тонкая линия до остальных строк. Крупная сумма — **одна** на панель; прочие суммы — обычными `DrawerSummaryItem`. ❌ Без отдельных цветных плашек `bg-brand/5` под сумму.
 - Дальше — плоские `DrawerSection`: «История изменений», «Итоги», «Наблюдения». История — `DrawerTimeline`: кто (аватар), что произошло, когда, и что именно поменялось («Время: 13:00–00:00 → 14:00–00:00»).
 - Все действия — только в подвале, не внутри тела: слева удаление, справа второстепенные (`outline`) и одна главная (`default`). Главная зависит от состояния: у черновика — «Опубликовать», у опубликованного — «Изменить».
 - Редкие действия (копировать, архивировать) — в меню ⋯ или по правому клику, не отдельной кнопкой в подвале.
@@ -214,7 +215,7 @@ import { Button } from "@/components/ui/button";
 |---|---|---|
 | `<Tabs>` `<TabsList>` `<TabsTrigger>` `<TabsContent>` | `src/components/ui/tabs.tsx` | Underlined tab strip с active border-bottom 2px foreground |
 | `<EditDrawer>` | `src/components/ui/edit-drawer.tsx` | 520px правый drawer, header/body/footer слоты |
-| `DrawerSection`, `DrawerSummary`, `DrawerSummaryItem`, `DrawerStatus`, `DrawerTimeline`, `DrawerAvatar` | `src/components/ui/drawer-blocks.tsx` | Содержимое боковой панели: разделы формы, сводка и история в панели просмотра. См. «Боковая панель» |
+| `DrawerSection`, `DrawerSummary`, `DrawerSummaryItem`, `DrawerSummaryTotal`, `DrawerStatus`, `DrawerTimeline`, `DrawerAvatar` | `src/components/ui/drawer-blocks.tsx` | Содержимое боковой панели: разделы формы, сводка и история в панели просмотра. См. «Боковая панель» |
 | `<EmptyState>` | `src/components/ui/empty-state.tsx` | Bg-muted блок с круглой иконкой + title + subtitle + CTA |
 | `<TableControlPin>` | `src/components/shared/table/table-control-pin.tsx` | **Единственный** валидный «пин» под list-таблицами (фильтр/сортировка/поиск). Pill 32px, `rounded-full`. Active = `bg-brand/10 text-brand` + закрывающий ×. Inactive = `bg-muted/60 text-muted-foreground` + chevron. **Не копируй стили вручную — переиспользуй компонент**, иначе расходится визуал между разделами. |
 | `<TablePageHeader>` / `<TableControls>` / `<TablePagination>` | `src/components/shared/table/*.tsx` | Слоты для list-страницы. Кнопка фильтров `active`-подсветка должна включаться **только когда выбран хотя бы один фильтр** (открытое состояние pin-row — отдельный visual-bit, не подсветка кнопки). |

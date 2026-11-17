@@ -44,7 +44,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { paletteDot } from "@/lib/palette";
 import { shiftTemplateLabel, type ShiftTemplate } from "@/lib/schedule/types";
 import { cn } from "@/lib/utils";
-import { formatTemplateTimes } from "./editors";
+import { TemplateWeekTimes } from "./template-week-times";
 import { TemplateName } from "./template-name";
 
 const labels: Record<string, string> = {
@@ -156,11 +156,7 @@ export function TemplateList({
       size: 400,
       minSize: 150,
       enableSorting: false,
-      cell: ({ row }) => (
-        <span className="text-muted-foreground tabular-nums">
-          {formatTemplateTimes(row.original)}
-        </span>
-      ),
+      cell: ({ row }) => <TemplateWeekTimes template={row.original} />,
     },
     {
       id: "actions",

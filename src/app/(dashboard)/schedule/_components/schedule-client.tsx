@@ -1548,7 +1548,6 @@ export function ScheduleClient({
                                         trial={trial}
                                         timezone={data.timezone}
                                         linked={data.permissions.includes("people.manage_candidates")}
-                                venueName={data.venueName}
                                       />
                                     ))}
                                 </div>
@@ -1669,7 +1668,6 @@ export function ScheduleClient({
                                 timezone={data.timezone}
                                 showName
                                 linked={data.permissions.includes("people.manage_candidates")}
-                                venueName={data.venueName}
                               />
                             ))}
                           {!weekShifts.some(

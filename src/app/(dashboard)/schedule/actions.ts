@@ -239,7 +239,7 @@ export async function loadSchedule(
       .select("id,name,department_id")
       .eq("venue_id", venueId)
       .order("name"),
-    db.from("venues").select("timezone,name").eq("id", venueId).single(),
+    db.from("venues").select("timezone").eq("id", venueId).single(),
     permissions.includes("schedule.view_all")
       ? asLooseDb(db).rpc("candidate_calendar_trials", {})
       : Promise.resolve({ data: [], error: null }),
@@ -272,7 +272,6 @@ export async function loadSchedule(
   return {
     venueId,
     timezone: venue.data?.timezone || "Europe/Moscow",
-    venueName: venue.data?.name ?? null,
     userId: user.id,
     permissions,
     shifts: shifts.data ?? [],

@@ -148,8 +148,6 @@ export type ScheduleStaff = {
 export type ScheduleData = {
   venueId: string;
   timezone: string;
-  /** Название текущего заведения — чтобы не повторять его в карточках. */
-  venueName?: string | null;
   userId: string;
   permissions: string[];
   shifts: Shift[];

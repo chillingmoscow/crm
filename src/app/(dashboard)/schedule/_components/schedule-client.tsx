@@ -642,6 +642,36 @@ export function ScheduleClient({
       template,
       templateSlot,
     });
+  /**
+   * Шаблон в ячейку сотрудника — сразу черновик смены, без формы: сотрудник,
+   * день, время, должность и цвет уже известны. Форма открывается, только если
+   * назначать сотрудников нельзя.
+   */
+  const placeTemplate = async (template: ShiftTemplate, day: string, userId: string | null) => {
+    const times = templateTimesFor(template, isoWeekday(day));
+    if (!times || occupied(userId, day)) return;
+    if (!userId || !can("shift_assign")) {
+      create(day, userId, template);
+      return;
+    }
+    const casual = data.casualEmployees?.find((e) => `payroll:${e.id}` === userId);
+    await save("shift.create", {
+      name: template.name,
+      title: template.name,
+      color: template.color,
+      start_time: times.start_time,
+      end_time: times.end_time,
+      department_id: template.department_id,
+      role_id: template.role_id,
+      checklist_ids: casual ? [] : template.checklist_ids,
+      date: day,
+      ...assignmentFields(userId),
+      payroll_model_id: casual?.model_id ?? null,
+      casual_name: "",
+      note: "",
+      template_id: template.id,
+    });
+  };
   /** Смена вернулась в свою же ячейку — сохранять нечего. */
   const sameCell = (item: DragItem, day: string, userId: string | null) =>
     item.kind === "shift" &&
@@ -649,7 +679,9 @@ export function ScheduleClient({
     shiftAssignee(item.shift) === userId;
   const canDrop = (item: DragItem, day: string, userId: string | null) =>
     item.kind === "template"
-      ? can("shift_create") && !occupied(userId, day)
+      ? can("shift_create") &&
+        !occupied(userId, day) &&
+        templateTimesFor(item.template, isoWeekday(day)) !== null
       : can("shift_edit") && !occupied(userId, day, item.shift.id);
   const dragOver = (e: React.DragEvent, day: string, userId: string | null) => {
     if (!dragItem) return;
@@ -697,8 +729,7 @@ export function ScheduleClient({
       (t) => t.id === e.dataTransfer.getData("application/sheerly-template"),
     );
     if (template && can("shift_create")) {
-      if (occupied(userId, day)) return;
-      create(day, userId, template);
+      await placeTemplate(template, day, userId);
       return;
     }
     const shift = data.shifts.find(
@@ -827,6 +858,12 @@ export function ScheduleClient({
           Назначить сотрудника
         </ContextMenuItem>
       )}
+      {can("shift_assign") && assignee && (
+        <ContextMenuItem onSelect={assignSlot}>
+          <UserPlus />
+          Заменить сотрудника
+        </ContextMenuItem>
+      )}
       {can("shift_delete") && (
         <>
           <ContextMenuSeparator />
@@ -840,13 +877,23 @@ export function ScheduleClient({
     </ContextMenu>
     );
   };
-  /** Полупрозрачная «тень» смены в ячейке, куда она упадёт. */
+  /**
+   * «Тень» смены в ячейке, куда она упадёт. Лежит поверх ячейки (absolute),
+   * а не в потоке — иначе строка растягивается и сетка дёргается.
+   */
   const dropGhost = (day: string, userId: string | null) => {
     if (!dragItem || dropTarget?.day !== day || dropTarget.userId !== userId) return null;
     if (!dropTarget.ok)
       return (
-        <div className="rounded-md border border-dashed border-destructive/50 bg-destructive/5 px-1.5 py-2 text-[11px] text-destructive">
-          {dragItem.kind === "shift" && !can("shift_edit") ? "Нет права переносить" : "Уже есть смена в этот день"}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-1.5 z-[1] flex items-center justify-center rounded-md border border-dashed border-destructive/60 bg-background/85 px-1 text-center text-[11px] font-medium leading-tight text-destructive"
+        >
+          {dragItem.kind === "shift" && !can("shift_edit")
+            ? "Нет права"
+            : dragItem.kind === "template" && !templateTimesFor(dragItem.template, isoWeekday(day))
+              ? "Шаблон не работает в этот день"
+              : "Уже есть смена"}
         </div>
       );
     if (sameCell(dragItem, day, userId)) return null;
@@ -864,12 +911,12 @@ export function ScheduleClient({
       <div
         aria-hidden
         className={cn(
-          "pointer-events-none grid gap-1 rounded-md border-2 border-dashed border-current px-1.5 py-2 opacity-70",
+          "pointer-events-none absolute inset-1.5 z-[1] flex flex-col gap-0.5 overflow-hidden rounded-md border-2 border-dashed border-current px-1.5 py-1.5",
           paletteBg(color),
           paletteText(color),
         )}
       >
-        <span className="whitespace-nowrap text-[11px] font-semibold tabular-nums">{times}</span>
+        <span className="truncate text-[11px] font-semibold tabular-nums">{times}</span>
         <span className="truncate text-xs">{title}</span>
       </div>
     );
@@ -1257,14 +1304,14 @@ export function ScheduleClient({
                                 onDragLeave={(e) => dragLeave(e, d, s.id)}
                                 onDrop={(e) => void drop(e, d, s.id)}
                                 className={cn(
-                                  "h-16 border-b border-l p-1.5 align-top transition-colors",
+                                  "relative h-16 border-b border-l p-1.5 align-top transition-colors",
                                   d === today && "bg-brand/[0.025]",
                                   dropTarget?.day === d && dropTarget.userId === s.id &&
                                     (dropTarget.ok ? "bg-brand/[0.06]" : "bg-destructive/[0.04]"),
                                 )}
                               >
+                                {dropGhost(d, s.id)}
                                 <div className="grid gap-1.5">
-                                  {dropGhost(d, s.id)}
                                   {personShifts(s.id, d).map((shift) => card(shift))}
                                   {weekTasks
                                     .filter(
@@ -1273,13 +1320,17 @@ export function ScheduleClient({
                                         taskRowId(task) === s.id,
                                     )
                                     .map((task) => taskCard(task))}
-                                  {can("shift_create") && !occupied(s.id, d) && !(dropTarget?.day === d && dropTarget.userId === s.id) && (
+                                  {can("shift_create") && !occupied(s.id, d) && (
                                     <Button
                                       variant="ghost"
                                       size="sm"
                                       aria-label={`Добавить смену: ${s.label}, ${dayLabel(d)}`}
                                       onClick={() => create(d, s.id)}
-                                      className="h-8 w-full text-muted-foreground/70"
+                                      className={cn(
+                                        "h-8 w-full text-muted-foreground/70",
+                                        // Под «тенью» кнопку прячем, но место оставляем.
+                                        dropTarget?.day === d && dropTarget.userId === s.id && "invisible",
+                                      )}
                                     >
                                       <Plus className="size-3.5" />
                                     </Button>
@@ -1307,7 +1358,7 @@ export function ScheduleClient({
                                         </ContextMenuSubTrigger>
                                         <ContextMenuSubContent>
                                           {cellTemplates(d).map((t) => (
-                                            <ContextMenuItem key={t.id} onSelect={() => create(d, s.id, t)}>
+                                            <ContextMenuItem key={t.id} onSelect={() => void placeTemplate(t, d, s.id)}>
                                               <span className={cn("size-2.5 shrink-0 rounded-full", paletteDot(t.color))} />
                                               <span className="flex-1 truncate">{shiftTemplateLabel(t)}</span>
                                               <span className="text-xs tabular-nums text-muted-foreground">

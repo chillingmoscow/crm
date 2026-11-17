@@ -14,6 +14,7 @@ import {
   PartyPopper,
   RotateCcw,
   UserCheck,
+  UserMinus,
   UserPlus,
   type LucideIcon,
 } from "lucide-react";
@@ -171,9 +172,22 @@ const REGISTRY: Record<string, NotificationTypeSpec> = {
     verb: null,
   },
 
+  // График: замена сотрудника на опубликованной смене (миграция 332).
+  "schedule.shift_assigned": {
+    category: "schedule",
+    icon: UserCheck,
+    iconColor: "text-emerald-600",
+    verb: null,
+  },
+  "schedule.shift_unassigned": {
+    category: "schedule",
+    icon: UserMinus,
+    iconColor: "text-amber-600",
+    verb: null,
+  },
+
   // Future cross-module emit'еры добавляются здесь:
   // "finance.transaction_pending_approval": {...},
-  // "schedule.shift_assigned": {...},
 };
 
 export function getNotificationTypeSpec(type: string): NotificationTypeSpec {

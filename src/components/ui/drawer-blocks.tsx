@@ -6,8 +6,8 @@ import { cn } from "@/lib/utils";
  * Блоки содержимого боковой панели (EditDrawer). Правила — в
  * docs/design-system.md § «Боковая панель».
  *
- * - DrawerSection — плоский раздел: заголовок и тонкая линия сверху
- *   (у первого раздела линии нет). Без рамок и фона.
+ * - DrawerSection — плоский раздел: крупный заголовок и воздух сверху,
+ *   без линий, рамок и фона.
  * - DrawerSummary / DrawerSummaryItem — единственная сводная плашка в
  *   панели просмотра: главное о сущности. DrawerSummaryTotal — крупная
  *   ключевая сумма первой строкой сводки.
@@ -32,8 +32,9 @@ export function DrawerSection({
     <section
       aria-label={title}
       className={cn(
-        // Раздел заметно отделён от соседнего: 32px до линии, 28px после.
-        "mt-3 space-y-4 border-t pt-7 first:mt-0 first:border-t-0 first:pt-0",
+        // Разделы разводим воздухом и крупным заголовком, без линий:
+        // линии между каждым блоком шумят (решение 2026-11-17).
+        "mt-4 space-y-4 first:mt-0",
         className,
       )}
     >

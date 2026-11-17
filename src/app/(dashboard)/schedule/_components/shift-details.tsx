@@ -131,12 +131,19 @@ export function ShiftDetails({
               };
               const who = actor(event.actor_id);
               const changes = describeShiftChange(event.action, details.before, details.after, ctx);
+              const assignee = (x?: ShiftSnapshot | null) =>
+                x?.user_id ?? (x?.payroll_employee_id ? `payroll:${x.payroll_employee_id}` : null);
+              // Один сотрудник сменил другого — это замена, а не просто правка.
+              const replaced =
+                !!assignee(details.before) &&
+                !!assignee(details.after) &&
+                assignee(details.before) !== assignee(details.after);
               return (
                 <DrawerTimelineItem
                   key={event.id}
                   last={index === history.length - 1}
                   avatar={<DrawerAvatar name={who.label} src={who.avatar} />}
-                  title={actionLabels[event.action] ?? event.action}
+                  title={replaced ? "Замена сотрудника" : actionLabels[event.action] ?? event.action}
                   meta={`${who.label} · ${when.format(new Date(event.created_at))}`}
                 >
                   {changes.length === 0 && event.action === "shift.edit" ? (

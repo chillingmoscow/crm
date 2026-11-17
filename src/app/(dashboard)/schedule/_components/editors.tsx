@@ -180,7 +180,8 @@ function Variants({
     <fieldset className="grid gap-3">
       <legend className="text-sm font-medium mb-2">Время по дням недели</legend>
       {variants.map((v, index) => (
-        <div key={index} className="grid gap-3 border-b pb-3">
+        // Линия — только между вариантами; у единственного её нет.
+        <div key={index} className={cn("grid gap-3", index > 0 && "border-t pt-4")}>
           <div className="flex items-center justify-between gap-2">
             <div
               role="group"
@@ -205,16 +206,17 @@ function Variants({
                 );
               })}
             </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={`Удалить вариант ${index + 1}`}
-              disabled={variants.length === 1}
-              onClick={() => set(variants.filter((_, i) => i !== index))}
-            >
-              <Trash2 className="size-4" />
-            </Button>
+            {variants.length > 1 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={`Удалить вариант ${index + 1}`}
+                onClick={() => set(variants.filter((_, i) => i !== index))}
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            )}
           </div>
           <TimeRange
             start={v.start_time}
@@ -543,14 +545,15 @@ export function ShiftEditor({
         if (!o && !busy) onClose();
       }}
       title={
-        templateSlot ? "Назначить сотрудника" : copy
+        templateSlot ? (shift && shiftAssignee(shift) ? "Замена сотрудника" : "Назначить сотрудника") : copy
           ? "Копировать смену"
           : shift
             ? "Редактирование смены"
             : "Новая смена"
       }
       description={templateSlot
-        ? `${chosen && chosen.name === value.name ? shiftTemplateLabel(chosen) : value.name} · ${dayLabel(date)} · ${value.start_time.slice(0, 5)}–${value.end_time.slice(0, 5)}`
+        ? `${chosen && chosen.name === value.name ? shiftTemplateLabel(chosen) : value.name} · ${dayLabel(date)} · ${value.start_time.slice(0, 5)}–${value.end_time.slice(0, 5)}${
+            shift?.published && shiftAssignee(shift) ? ". Оба сотрудника получат уведомление" : ""}`
         : shift?.published && !copy ? "Смена опубликована — изменения сразу увидит сотрудник" : undefined}
       footer={
         <>
@@ -564,6 +567,8 @@ export function ShiftEditor({
               (!templateSlot && canAssign && !who) ||
               (!templateSlot && !chosen && !value.name.trim()) ||
               (templateSlot && (!who || unavailable.has(who))) ||
+              // Замена на того же сотрудника ничего не меняет.
+              (templateSlot && !!shift && who === shiftAssignee(shift)) ||
               (casual &&
                 (!selectedPayModel ||
                   !templateValue.role_id ||
@@ -573,7 +578,7 @@ export function ShiftEditor({
           >
             {busy
               ? "Сохранение…"
-              : templateSlot ? (shift ? "Назначить" : "Назначить в черновик")
+              : templateSlot ? (shift ? (shiftAssignee(shift) ? "Заменить" : "Назначить") : "Назначить в черновик")
               : copy
                 ? "Создать копию"
                 : shift
@@ -590,6 +595,7 @@ export function ShiftEditor({
               Отчёт смены уже начат. Время, должность и сотрудника менять нельзя.
             </p>
           )}
+          <DrawerSection title="Смена">
           <div className="grid gap-2">
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm font-medium">Шаблон</span>
@@ -677,28 +683,33 @@ export function ShiftEditor({
               disabled={!!started && !copy}
             />
           </Field>
-          <fieldset disabled={!!started && !copy} className="grid gap-5">
-            {!chosen && (
-              <>
-                <Timing value={value} set={set} />
-                <ShiftRoleField data={data} value={value} set={set} />
-              </>
-            )}
-            {employeeFields}
-          </fieldset>
           {!chosen && (
-            <Colors
-              value={value.color}
-              onChange={(color) => set({ ...value, color })}
-            />
+            <fieldset disabled={!!started && !copy} className="grid gap-5">
+              <Timing value={value} set={set} />
+            </fieldset>
           )}
-          <Field label="Заметка">
-            <Textarea
-              value={note}
-              maxLength={5000}
-              onChange={(e) => setNote(e.target.value)}
-            />
-          </Field>
+          </DrawerSection>
+          <DrawerSection title="Кто работает">
+            <fieldset disabled={!!started && !copy} className="grid gap-5">
+              {!chosen && <ShiftRoleField data={data} value={value} set={set} />}
+              {employeeFields}
+            </fieldset>
+          </DrawerSection>
+          <DrawerSection title="Дополнительно">
+            {!chosen && (
+              <Colors
+                value={value.color}
+                onChange={(color) => set({ ...value, color })}
+              />
+            )}
+            <Field label="Заметка">
+              <Textarea
+                value={note}
+                maxLength={5000}
+                onChange={(e) => setNote(e.target.value)}
+              />
+            </Field>
+          </DrawerSection>
         </>
       )}
     </EditDrawer>

@@ -4,12 +4,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { HelpCircle } from "lucide-react";
 
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { EditDrawer } from "@/components/ui/edit-drawer";
 import { resolvePageHelp } from "./page-help-registry";
 
 /**
@@ -41,16 +36,11 @@ export function PageHelpButton() {
         <HelpCircle className="h-[18px] w-[18px]" />
       </button>
 
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent className="w-full overflow-y-auto sm:max-w-md">
-          <SheetHeader>
-            <SheetTitle>{title}</SheetTitle>
-          </SheetHeader>
-          <div className="mt-4 space-y-5 text-sm leading-relaxed">
-            <Content />
-          </div>
-        </SheetContent>
-      </Sheet>
+      <EditDrawer open={open} onOpenChange={setOpen} title={title}>
+        <div className="space-y-5 text-sm leading-relaxed">
+          <Content />
+        </div>
+      </EditDrawer>
     </>
   );
 }

@@ -26,12 +26,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { EditDrawer } from "@/components/ui/edit-drawer";
+import { DrawerSection } from "@/components/ui/drawer-blocks";
 import { VENUE_TYPES, CURRENCIES, TIMEZONES, DAYS_OF_WEEK, type DayKey } from "@/lib/constants";
 import { createVenue } from "../actions";
 import type { VenueRow } from "../page";
@@ -485,110 +481,106 @@ export function VenuesClient({ venues: initialVenues, archivedCount }: Props) {
       )}
 
       {/* Create Sheet */}
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>Новое заведение</SheetTitle>
-          </SheetHeader>
+      <EditDrawer
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        title="Новое заведение"
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>
+              Отмена
+            </Button>
+            <Button type="submit" form="new-venue-form" disabled={isPending}>
+              Создать
+            </Button>
+          </>
+        }
+      >
+        <form id="new-venue-form" onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+          <div className="space-y-2">
+            <Label htmlFor="name">Название *</Label>
+            <Input id="name" placeholder="Ресторан «Берёзка»" {...register("name")} />
+            {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+          </div>
 
-          <form onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-5">
+          <div className="space-y-2">
+            <Label>Тип заведения *</Label>
+            <Select defaultValue="restaurant" onValueChange={(v) => setValue("type", v as Form["type"])}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {VENUE_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Название *</Label>
-              <Input id="name" placeholder="Ресторан «Берёзка»" {...register("name")} />
-              {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+              <Label htmlFor="address">Адрес</Label>
+              <Input id="address" placeholder="г. Москва, ул. Пушкина, 1" {...register("address")} />
             </div>
-
             <div className="space-y-2">
-              <Label>Тип заведения *</Label>
-              <Select defaultValue="restaurant" onValueChange={(v) => setValue("type", v as Form["type"])}>
+              <Label htmlFor="phone">Телефон</Label>
+              <Controller
+                control={control}
+                name="phone"
+                render={({ field }) => (
+                  <PhoneInput
+                    id="phone"
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                  />
+                )}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Валюта *</Label>
+              <Select defaultValue="RUB" onValueChange={(v) => setValue("currency", v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {VENUE_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                  {CURRENCIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-
-            <div className="grid grid-cols-1 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="address">Адрес</Label>
-                <Input id="address" placeholder="г. Москва, ул. Пушкина, 1" {...register("address")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="phone">Телефон</Label>
-                <Controller
-                  control={control}
-                  name="phone"
-                  render={({ field }) => (
-                    <PhoneInput
-                      id="phone"
-                      value={field.value ?? ""}
-                      onChange={field.onChange}
-                      onBlur={field.onBlur}
-                    />
-                  )}
-                />
-              </div>
+            <div className="space-y-2">
+              <Label>Часовой пояс *</Label>
+              <Select defaultValue="Europe/Moscow" onValueChange={(v) => setValue("timezone", v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {TIMEZONES.map((tz) => <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
+          </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Валюта *</Label>
-                <Select defaultValue="RUB" onValueChange={(v) => setValue("currency", v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {CURRENCIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Часовой пояс *</Label>
-                <Select defaultValue="Europe/Moscow" onValueChange={(v) => setValue("timezone", v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {TIMEZONES.map((tz) => <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
+          <DrawerSection title="Часы работы">
+            <div className="space-y-2">
+              {DAYS_OF_WEEK.map(({ key, label }) => {
+                const day = workingHours[key];
+                const isClosed = day?.closed ?? false;
+                return (
+                  <div key={key} className="flex items-center gap-3">
+                    <span className="w-7 text-sm font-medium text-muted-foreground">{label}</span>
+                    <Switch checked={!isClosed} onCheckedChange={() => toggleDay(key)} />
+                    {isClosed ? (
+                      <span className="text-sm text-muted-foreground">Выходной</span>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <TimePicker value={day?.open ?? "10:00"} onChange={(v) => setTime(key, "open", v)} className="w-28 h-8 text-sm" />
+                        <span className="text-muted-foreground text-sm">—</span>
+                        <TimePicker value={day?.close ?? "22:00"} onChange={(v) => setTime(key, "close", v)} className="w-28 h-8 text-sm" />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-
-            <Separator />
-
-            <div className="space-y-3">
-              <Label>Часы работы</Label>
-              <div className="space-y-2">
-                {DAYS_OF_WEEK.map(({ key, label }) => {
-                  const day = workingHours[key];
-                  const isClosed = day?.closed ?? false;
-                  return (
-                    <div key={key} className="flex items-center gap-3">
-                      <span className="w-7 text-sm font-medium text-muted-foreground">{label}</span>
-                      <Switch checked={!isClosed} onCheckedChange={() => toggleDay(key)} />
-                      {isClosed ? (
-                        <span className="text-sm text-muted-foreground">Выходной</span>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <TimePicker value={day?.open ?? "10:00"} onChange={(v) => setTime(key, "open", v)} className="w-28 h-8 text-sm" />
-                          <span className="text-muted-foreground text-sm">—</span>
-                          <TimePicker value={day?.close ?? "22:00"} onChange={(v) => setTime(key, "close", v)} className="w-28 h-8 text-sm" />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="flex gap-3 pt-2">
-              <Button type="button" variant="outline" className="flex-1" onClick={() => setSheetOpen(false)}>
-                Отмена
-              </Button>
-              <Button type="submit" className="flex-1" disabled={isPending}>
-                Создать
-              </Button>
-            </div>
-          </form>
-        </SheetContent>
-      </Sheet>
+          </DrawerSection>
+        </form>
+      </EditDrawer>
     </div>
   );
 }

@@ -34,6 +34,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import {
+  DrawerAvatar,
+  DrawerSection,
+  DrawerStatus,
+  DrawerTimeline,
+  DrawerTimelineItem,
+} from "@/components/ui/drawer-blocks";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -130,6 +137,33 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       <span className="font-medium">{label}</span>
       {children}
     </label>
+  );
+}
+function CollapsibleSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <DrawerSection
+      title={title}
+      actions={
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? "Скрыть" : "Показать"}
+        </Button>
+      }
+    >
+      {open && children}
+    </DrawerSection>
   );
 }
 function Value({ label, children }: { label: string; children: ReactNode }) {
@@ -264,6 +298,19 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
     setEditing(false);
     setConfirm(null);
     if (linked) router.replace("/crm/guests", { scroll: false });
+  }
+  function settingsOpenChange(o: boolean) {
+    if (saving) return;
+    if (
+      !o &&
+      config &&
+      JSON.stringify(rules) !==
+        JSON.stringify(config.versions[0]?.config ?? defaultGuestRules)
+    ) {
+      setConfirm("close-settings");
+      return;
+    }
+    setSettingsOpen(o);
   }
   function change(p: Partial<GuestFilters>) {
     setFilters((old) => ({ ...old, ...p, page: p.page ?? 0 }));
@@ -693,7 +740,9 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
               : "Новый гость"
             : (detail?.data.name ?? "Гость")
         }
-        description={detail?.archived ? "В архиве" : undefined}
+        titleAccessory={
+          detail?.archived ? <DrawerStatus label="В архиве" /> : undefined
+        }
         footer={
           editing ? (
             <>
@@ -723,6 +772,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
             <>
               <Button
                 variant="ghost"
+                className="mr-auto"
                 onClick={() => {
                   setReason("");
                   setConfirm(detail.archived ? "restore" : "archive");
@@ -877,11 +927,27 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                 />
               </div>
             ))}
-            <details className="rounded-lg border p-4">
-              <summary className="cursor-pointer text-sm font-medium">
-                Предпочтения и подробности
-              </summary>
-              <div className="mt-4 space-y-4">
+            <Field label="Заметки">
+              <Textarea
+                rows={4}
+                maxLength={4000}
+                value={draft.note ?? ""}
+                onChange={(e) =>
+                  setDraft((d) => ({ ...d, note: e.target.value || null }))
+                }
+              />
+            </Field>
+            {detail && (
+              <Field label="Основание изменения">
+                <Input
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  maxLength={1000}
+                />
+              </Field>
+            )}
+            <CollapsibleSection title="Предпочтения и подробности">
+              <div className="space-y-4">
                 {(
                   [
                     "instagram",
@@ -918,26 +984,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                   </Field>
                 ))}
               </div>
-            </details>
-            <Field label="Заметки">
-              <Textarea
-                rows={4}
-                maxLength={4000}
-                value={draft.note ?? ""}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, note: e.target.value || null }))
-                }
-              />
-            </Field>
-            {detail && (
-              <Field label="Основание изменения">
-                <Input
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  maxLength={1000}
-                />
-              </Field>
-            )}
+            </CollapsibleSection>
           </fieldset>
         ) : detail ? (
           <>
@@ -1008,23 +1055,22 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                 )}
               </TabsContent>
               <TabsContent value="history" className="mt-5">
-                <ol className="space-y-5">
-                  {detail.history.map((h) => (
-                    <li
+                <DrawerTimeline>
+                  {detail.history.map((h, index) => (
+                    <DrawerTimelineItem
                       key={h.id}
-                      className="border-b pb-5 text-sm last:border-0"
+                      last={index === detail.history.length - 1}
+                      avatar={<DrawerAvatar name={h.actor_name} />}
+                      title={
+                        guestHistoryActions[h.action] ?? "Карточка обновлена"
+                      }
+                      meta={`${h.actor_name} · ${dateTime(h.created_at)}`}
                     >
-                      <p className="font-medium">
-                        {guestHistoryActions[h.action] ?? "Карточка обновлена"}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {h.actor_name} · {dateTime(h.created_at)}
-                      </p>
                       {h.reason && (
-                        <p className="mt-2 text-muted-foreground">{h.reason}</p>
+                        <p className="text-muted-foreground">{h.reason}</p>
                       )}
                       {h.before_data && (
-                        <details className="mt-3 text-xs">
+                        <details className="mt-2 text-xs">
                           <summary className="cursor-pointer text-muted-foreground">
                             Изменённые поля
                           </summary>
@@ -1052,9 +1098,9 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                           </div>
                         </details>
                       )}
-                    </li>
+                    </DrawerTimelineItem>
                   ))}
-                </ol>
+                </DrawerTimeline>
                 {historyMore && (
                   <Button
                     variant="outline"
@@ -1149,156 +1195,150 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
       </Dialog>
       <EditDrawer
         open={settingsOpen}
-        onOpenChange={(o) => {
-          if (saving) return;
-          if (
-            !o &&
-            config &&
-            JSON.stringify(rules) !==
-              JSON.stringify(config.versions[0]?.config ?? defaultGuestRules)
-          ) {
-            setConfirm("close-settings");
-            return;
-          }
-          setSettingsOpen(o);
-        }}
+        onOpenChange={settingsOpenChange}
         title="Настройки гостей"
         footer={
           config ? (
-            <Button
-              disabled={saving || !rulesReason.trim()}
-              onClick={async () => {
-                setSaving(true);
-                try {
-                  await saveGuestRules(
-                    initial.venueId,
-                    config.versions[0]?.version ?? 0,
-                    rules,
-                    rulesReason,
-                  );
-                  setConfig(await guestConfiguration(initial.venueId));
-                  setRulesReason("");
-                  toast.success("Настройки сохранены");
-                } catch (e) {
-                  toast.error(
-                    e instanceof Error ? e.message : "Не удалось сохранить",
-                  );
-                } finally {
-                  setSaving(false);
-                }
-              }}
-            >
-              Сохранить настройки
-            </Button>
-          ) : undefined
-        }
-      >
-        {config ? (
-          <>
-            <div className="rounded-lg border p-4 text-sm">
-              <p className="font-medium">Quick Resto</p>
-              <p className="mt-1 text-muted-foreground">
-                {config.checkedAt
-                  ? `${config.rows.toLocaleString("ru-RU")} гостей · ${dateTime(config.checkedAt)}`
-                  : "База ещё не загружена"}
-              </p>
-              <p className="mt-2 text-muted-foreground">
-                {config.job?.state === "error"
-                  ? config.job.error
-                  : config.job?.state === "pending" ||
-                      config.job?.state === "running"
-                    ? `Обновление: ${config.job.phase === "verify" ? "проверка" : "чтение"}, ${config.job.cursor} гостей`
-                    : "Группа и скидка обновляются из Quick Resto."}
-              </p>
+            <>
               <Button
-                className="mt-3"
                 variant="outline"
-                disabled={
-                  saving ||
-                  ["pending", "running"].includes(config.job?.state ?? "")
-                }
+                disabled={saving}
+                onClick={() => settingsOpenChange(false)}
+              >
+                Отмена
+              </Button>
+              <Button
+                disabled={saving || !rulesReason.trim()}
                 onClick={async () => {
                   setSaving(true);
                   try {
-                    await readGuests(initial.venueId);
+                    await saveGuestRules(
+                      initial.venueId,
+                      config.versions[0]?.version ?? 0,
+                      rules,
+                      rulesReason,
+                    );
                     setConfig(await guestConfiguration(initial.venueId));
-                    toast.success("Обновление запущено");
+                    setRulesReason("");
+                    toast.success("Настройки сохранены");
                   } catch (e) {
                     toast.error(
-                      e instanceof Error ? e.message : "Не удалось запустить",
+                      e instanceof Error ? e.message : "Не удалось сохранить",
                     );
                   } finally {
                     setSaving(false);
                   }
                 }}
               >
-                <RefreshCw className="mr-2 size-4" />
-                Обновить базу
+                Сохранить настройки
               </Button>
-              <Button
-                className="mt-3 ml-2"
-                variant="ghost"
-                onClick={() =>
-                  void guestConfiguration(initial.venueId)
-                    .then((next) => {
-                      setConfig((old) =>
-                        old
-                          ? {
-                              ...old,
-                              job: next.job,
-                              checkedAt: next.checkedAt,
-                              rows: next.rows,
-                              groups: next.groups,
-                            }
-                          : old,
+            </>
+          ) : undefined
+        }
+      >
+        {config ? (
+          <>
+            <DrawerSection title="Quick Resto">
+              <div className="text-sm">
+                <p className="text-muted-foreground">
+                  {config.checkedAt
+                    ? `${config.rows.toLocaleString("ru-RU")} гостей · ${dateTime(config.checkedAt)}`
+                    : "База ещё не загружена"}
+                </p>
+                <p className="mt-2 text-muted-foreground">
+                  {config.job?.state === "error"
+                    ? config.job.error
+                    : config.job?.state === "pending" ||
+                        config.job?.state === "running"
+                      ? `Обновление: ${config.job.phase === "verify" ? "проверка" : "чтение"}, ${config.job.cursor} гостей`
+                      : "Группа и скидка обновляются из Quick Resto."}
+                </p>
+                <Button
+                  className="mt-3"
+                  variant="outline"
+                  disabled={
+                    saving ||
+                    ["pending", "running"].includes(config.job?.state ?? "")
+                  }
+                  onClick={async () => {
+                    setSaving(true);
+                    try {
+                      await readGuests(initial.venueId);
+                      setConfig(await guestConfiguration(initial.venueId));
+                      toast.success("Обновление запущено");
+                    } catch (e) {
+                      toast.error(
+                        e instanceof Error ? e.message : "Не удалось запустить",
                       );
-                      void refresh(filters);
-                    })
-                    .catch(() => toast.error("Не удалось проверить обновление"))
-                }
-              >
-                Проверить
-              </Button>
-            </div>
-            <div className="flex items-center justify-between">
-              <Label htmlFor="guest-auto">Обновлять автоматически</Label>
-              <Switch
-                id="guest-auto"
-                checked={rules.autoRead}
-                onCheckedChange={(autoRead) =>
-                  setRules((r) => ({
-                    ...r,
-                    autoRead,
-                    ...(!autoRead
-                      ? {
-                          birthdayToday: false,
-                          birthdayUpcoming: false,
-                          groupTransitions: false,
-                        }
-                      : {}),
-                  }))
-                }
-              />
-            </div>
-            <Field label="Интервал обновления, минут">
-              <Input
-                type="number"
-                min={15}
-                max={1440}
-                value={rules.intervalMinutes}
-                onChange={(e) =>
-                  setRules((r) => ({
-                    ...r,
-                    intervalMinutes: Number(e.target.value),
-                  }))
-                }
-              />
-            </Field>
-            <section className="space-y-4 border-t pt-5">
-              <h3 className="flex items-center gap-2 text-sm font-medium">
-                <Cake className="size-4" />
-                Дни рождения
-              </h3>
+                    } finally {
+                      setSaving(false);
+                    }
+                  }}
+                >
+                  <RefreshCw className="mr-2 size-4" />
+                  Обновить базу
+                </Button>
+                <Button
+                  className="mt-3 ml-2"
+                  variant="ghost"
+                  onClick={() =>
+                    void guestConfiguration(initial.venueId)
+                      .then((next) => {
+                        setConfig((old) =>
+                          old
+                            ? {
+                                ...old,
+                                job: next.job,
+                                checkedAt: next.checkedAt,
+                                rows: next.rows,
+                                groups: next.groups,
+                              }
+                            : old,
+                        );
+                        void refresh(filters);
+                      })
+                      .catch(() => toast.error("Не удалось проверить обновление"))
+                  }
+                >
+                  Проверить
+                </Button>
+              </div>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="guest-auto">Обновлять автоматически</Label>
+                <Switch
+                  id="guest-auto"
+                  checked={rules.autoRead}
+                  onCheckedChange={(autoRead) =>
+                    setRules((r) => ({
+                      ...r,
+                      autoRead,
+                      ...(!autoRead
+                        ? {
+                            birthdayToday: false,
+                            birthdayUpcoming: false,
+                            groupTransitions: false,
+                          }
+                        : {}),
+                    }))
+                  }
+                />
+              </div>
+              <Field label="Интервал обновления, минут">
+                <Input
+                  type="number"
+                  min={15}
+                  max={1440}
+                  value={rules.intervalMinutes}
+                  onChange={(e) =>
+                    setRules((r) => ({
+                      ...r,
+                      intervalMinutes: Number(e.target.value),
+                    }))
+                  }
+                />
+              </Field>
+            </DrawerSection>
+            <DrawerSection title="Дни рождения">
               {(["birthdayToday", "birthdayUpcoming"] as const).map((k, i) => (
                 <div key={k} className="flex items-center justify-between">
                   <Label htmlFor={k}>
@@ -1342,19 +1382,21 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                   }))
                 }
               />
-            </section>
-            <section className="space-y-4 border-t pt-5">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="guest-group">Новые гости в группе</Label>
+            </DrawerSection>
+            <DrawerSection
+              title="Новые гости в группе"
+              actions={
                 <Switch
                   id="guest-group"
+                  aria-label="Новые гости в группе"
                   disabled={!rules.autoRead}
                   checked={rules.groupTransitions}
                   onCheckedChange={(groupTransitions) =>
                     setRules((r) => ({ ...r, groupTransitions }))
                   }
                 />
-              </div>
+              }
+            >
               <Select
                 value={String(rules.groupId)}
                 onValueChange={(v) =>
@@ -1385,31 +1427,31 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                 заведения. Получатели — владелец и пользователи с доступом к
                 гостям.
               </p>
-            </section>
-            <Field label="Основание изменения">
+            </DrawerSection>
+            <DrawerSection title="Основание изменения">
               <Textarea
+                aria-label="Основание изменения"
                 value={rulesReason}
                 onChange={(e) => setRulesReason(e.target.value)}
                 maxLength={1000}
               />
-            </Field>
+            </DrawerSection>
             {config.versions.length > 0 && (
-              <details className="border-t pt-5">
-                <summary className="cursor-pointer text-sm font-medium">
-                  История настроек
-                </summary>
-                <ol className="mt-4 space-y-4">
-                  {config.versions.map((v) => (
-                    <li key={v.id} className="text-sm">
+              <DrawerSection title="История настроек">
+                <DrawerTimeline>
+                  {config.versions.map((v, index) => (
+                    <DrawerTimelineItem
+                      key={v.id}
+                      last={index === config.versions.length - 1}
+                      avatar={<DrawerAvatar name={v.actor_name} />}
+                      title={`Версия ${v.version}`}
+                      meta={`${v.actor_name} · ${dateTime(v.created_at)}`}
+                    >
                       <p>{v.reason}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {v.actor_name} · {dateTime(v.created_at)} · версия{" "}
-                        {v.version}
-                      </p>
-                    </li>
+                    </DrawerTimelineItem>
                   ))}
-                </ol>
-              </details>
+                </DrawerTimeline>
+              </DrawerSection>
             )}
           </>
         ) : (

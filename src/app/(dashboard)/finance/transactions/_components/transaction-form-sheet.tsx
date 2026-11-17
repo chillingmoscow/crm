@@ -35,6 +35,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import { DrawerSection } from "@/components/ui/drawer-blocks";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { BankAccountPicker } from "@/components/finance/bank-account-picker";
@@ -434,13 +435,14 @@ export function TransactionFormSheet({
           <>
             {isEditing && canDelete && (
               <Button
-                variant="destructive"
-                className="mr-auto"
+                variant="ghost"
+                size="icon"
+                className="mr-auto text-destructive hover:text-destructive"
+                aria-label="Удалить операцию"
                 onClick={() => setConfirmDelete(true)}
                 disabled={saving}
               >
-                <Trash2 />
-                Удалить
+                <Trash2 className="size-4" />
               </Button>
             )}
             <Button variant="outline" onClick={requestClose} disabled={saving}>
@@ -496,10 +498,9 @@ export function TransactionFormSheet({
         )}
 
         {isEditing && tx && (
-          <section className="mt-2 space-y-3 border-t pt-5">
-            <h3 className="text-sm font-medium">История транзакции</h3>
+          <DrawerSection title="История транзакции">
             <TransactionHistory key={tx.id} transactionId={tx.id} />
-          </section>
+          </DrawerSection>
         )}
       </EditDrawer>
 
@@ -559,7 +560,7 @@ export function TransactionFormSheet({
               <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-destructive/10 text-destructive">
                 <Trash2 className="h-4 w-4" />
               </span>
-              Удалить операцию
+              Удалить операцию?
             </AlertDialogTitle>
             <AlertDialogDescription>
               Операция будет удалена из текущего журнала. Восстановить её можно
@@ -573,7 +574,7 @@ export function TransactionFormSheet({
               className={buttonVariants({ variant: "destructive" })}
             >
               <Trash2 />
-              Удалить
+              Удалить операцию
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

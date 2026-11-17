@@ -4,6 +4,7 @@ import { Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import { DrawerSection } from "@/components/ui/drawer-blocks";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -36,18 +37,18 @@ function Form({ data, onClose, onSaved }: {
     };
     return <EditDrawer open onOpenChange={v => { if (!v && !busy)
         onClose(); }} title="Финансовые операции" description="Поступления и движения денег по сменам" footer={<><Button variant="outline" disabled={busy} onClick={onClose}>Отмена</Button><Button disabled={busy || !reason.trim() || (enabled && (!from || !stopped || (!settlement && !movements)))} onClick={() => void save()}>{busy ? "Сохраняем…" : "Сохранить правила"}</Button></>}>
-  <fieldset disabled={busy} className="min-w-0 space-y-6">
+  <fieldset disabled={busy} className="min-w-0 space-y-5">
    <div className="flex items-center justify-between gap-4"><div><Label htmlFor="finance-auto">Автоматическое проведение</Label><p className="mt-1 text-xs text-muted-foreground">Создавать и корректировать связанные операции в финансах.</p></div><Switch id="finance-auto" checked={enabled} onCheckedChange={setEnabled}/></div>
-   <div className="space-y-4 border-t pt-5">
+   <DrawerSection title="Что проводить">
     <label className="flex items-start gap-3"><Checkbox checked={settlement} onCheckedChange={v => setSettlement(v === true)}/><span className="text-sm">Выручка и личное потребление</span></label>
     <label className="flex items-start gap-3"><Checkbox checked={movements} onCheckedChange={v => setMovements(v === true)}/><span className="text-sm">Инкассации, внесения, такси и выдача чаевых</span></label>
-   </div>
-   {enabled && <>
+    <p className="text-xs text-muted-foreground">Изменённые чеки корректируют связанные операции с историей. Ручные правки сохраняются и требуют проверки.</p>
+   </DrawerSection>
+   {enabled && <DrawerSection title="Запуск">
     <div className="space-y-2"><Label htmlFor="finance-from">Начиная с рабочего дня</Label><DatePicker id="finance-from" value={from} onChange={setFrom} clearable={false}/></div>
-    <label className="flex items-start gap-3 rounded-xl border p-4"><Checkbox checked={stopped} onCheckedChange={v => setStopped(v === true)}/><span className="text-sm">Подтверждаю: прежняя автоматика этих денежных операций остановлена, остатки и связи проверены.</span></label>
-   </>}
-   <p className="border-t pt-5 text-xs text-muted-foreground">Изменённые чеки корректируют связанные операции с историей. Ручные правки сохраняются и требуют проверки.</p>
-   <div className="space-y-2"><Label htmlFor="finance-mode-reason">Основание изменения</Label><Textarea id="finance-mode-reason" value={reason} onChange={e => setReason(e.target.value)} maxLength={1000} placeholder="Что изменили и почему"/></div>
+    <label className="flex items-start gap-3"><Checkbox checked={stopped} onCheckedChange={v => setStopped(v === true)}/><span className="text-sm">Подтверждаю: прежняя автоматика этих денежных операций остановлена, остатки и связи проверены.</span></label>
+   </DrawerSection>}
+   <DrawerSection title="Основание изменения"><Label htmlFor="finance-mode-reason" className="sr-only">Основание изменения</Label><Textarea id="finance-mode-reason" value={reason} onChange={e => setReason(e.target.value)} maxLength={1000} placeholder="Что изменили и почему"/></DrawerSection>
    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
   </fieldset>
  </EditDrawer>;

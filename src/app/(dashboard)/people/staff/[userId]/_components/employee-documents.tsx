@@ -541,13 +541,23 @@ function UniformCard({
         description={data.employee.name}
         focusContentOnOpen
         footer={
-          <Button
-            type="button"
-            disabled={busy || !valid}
-            onClick={() => void save()}
-          >
-            Записать покупку
-          </Button>
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => setOpen(false)}
+            >
+              Отмена
+            </Button>
+            <Button
+              type="button"
+              disabled={busy || !valid}
+              onClick={() => void save()}
+            >
+              Записать покупку
+            </Button>
+          </>
         }
       >
         <Field id={`${id}-title`} label="Что приобретено">
@@ -612,13 +622,23 @@ function UniformCard({
         title="Остановить удержания за форму"
         description="Уже учтённые суммы и расход на покупку сохранятся."
         footer={
-          <Button
-            type="button"
-            disabled={busy || reason.trim().length < 3}
-            onClick={() => void stop()}
-          >
-            Остановить удержания
-          </Button>
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => setCancel(null)}
+            >
+              Отмена
+            </Button>
+            <Button
+              type="button"
+              disabled={busy || reason.trim().length < 3}
+              onClick={() => void stop()}
+            >
+              Остановить удержания
+            </Button>
+          </>
         }
       >
         <Field id={`${id}-cancel`} label="Причина">

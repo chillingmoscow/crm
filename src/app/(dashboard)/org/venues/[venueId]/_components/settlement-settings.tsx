@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Plus, Settings2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import { DrawerSection } from "@/components/ui/drawer-blocks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -172,7 +173,7 @@ function Form({
         </>
       }
     >
-      <fieldset disabled={busy} className="min-w-0 space-y-7">
+      <fieldset disabled={busy} className="min-w-0 space-y-5">
         <p className="rounded-lg bg-brand/5 p-3 text-sm text-muted-foreground">
           Пока работает сверка: денежные операции продолжает создавать n8n.
         </p>
@@ -186,104 +187,107 @@ function Form({
             placeholder="Выберите статью"
           />
         </div>
-        <section className="space-y-4">
-          <h3 className="font-medium">Способы оплаты</h3>
+        <DrawerSection title="Способы оплаты">
           {config.methods.length === 0 && (
             <p className="text-sm text-muted-foreground">
               Прочитайте завершённый день в продажах, чтобы получить список
               способов оплаты.
             </p>
           )}
-          {config.methods.map((m) => (
-            <div
-              key={m.paymentTypeId}
-              className="space-y-3 rounded-xl border p-4"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <h4 className="min-w-0 text-sm font-medium">
-                  {data.methods.find((x) => x.id === m.paymentTypeId)?.title ??
-                    `Способ №${m.paymentTypeId}`}
-                </h4>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Убрать способ №${m.paymentTypeId}`}
-                  onClick={() =>
-                    setConfig((c) => ({
-                      ...c,
-                      methods: c.methods.filter(
-                        (x) => x.paymentTypeId !== m.paymentTypeId,
-                      ),
-                    }))
-                  }
+          {config.methods.length > 0 && (
+            <div className="divide-y">
+              {config.methods.map((m) => (
+                <div
+                  key={m.paymentTypeId}
+                  className="space-y-3 py-4 first:pt-0"
                 >
-                  <Trash2 className="size-4" />
-                </Button>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor={`settlement-bank-${m.paymentTypeId}`}>
-                  Куда учитывать
-                </Label>
-                <Picker
-                  id={`settlement-bank-${m.paymentTypeId}`}
-                  value={m.excluded ?? m.bankAccountId ?? ""}
-                  onChange={(v) =>
-                    setMethod(
-                      m.paymentTypeId,
-                      v === "bonus" || v === "no_payment"
-                        ? { excluded: v, bankAccountId: null, feePercent: 0 }
-                        : { excluded: null, bankAccountId: v },
-                    )
-                  }
-                  items={[
-                    ...data.banks,
-                    { id: "bonus", name: "Бонусы · без поступления" },
-                    { id: "no_payment", name: "Без оплаты · без поступления" },
-                  ]}
-                  placeholder="Выберите счёт или исключение"
-                />
-              </div>
-              {!m.excluded && (
-                <div className="grid gap-3 sm:grid-cols-[110px_1fr]">
-                  <div className="space-y-2">
-                    <Label htmlFor={`settlement-fee-${m.paymentTypeId}`}>
-                      Комиссия, %
-                    </Label>
-                    <Input
-                      id={`settlement-fee-${m.paymentTypeId}`}
-                      inputMode="decimal"
-                      value={fees[m.paymentTypeId] ?? "0"}
-                      onChange={(e) =>
-                        setFees((f) => ({
-                          ...f,
-                          [m.paymentTypeId]: e.target.value,
+                  <div className="flex items-center justify-between gap-3">
+                    <h4 className="min-w-0 text-sm font-medium">
+                      {data.methods.find((x) => x.id === m.paymentTypeId)?.title ??
+                        `Способ №${m.paymentTypeId}`}
+                    </h4>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Убрать способ №${m.paymentTypeId}`}
+                      onClick={() =>
+                        setConfig((c) => ({
+                          ...c,
+                          methods: c.methods.filter(
+                            (x) => x.paymentTypeId !== m.paymentTypeId,
+                          ),
                         }))
                       }
-                    />
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor={`settlement-fee-mode-${m.paymentTypeId}`}>
-                      Учёт комиссии
+                    <Label htmlFor={`settlement-bank-${m.paymentTypeId}`}>
+                      Куда учитывать
                     </Label>
                     <Picker
-                      id={`settlement-fee-mode-${m.paymentTypeId}`}
-                      value={m.feeAccounting}
+                      id={`settlement-bank-${m.paymentTypeId}`}
+                      value={m.excluded ?? m.bankAccountId ?? ""}
                       onChange={(v) =>
-                        setMethod(m.paymentTypeId, {
-                          feeAccounting: v as "net" | "separate",
-                        })
+                        setMethod(
+                          m.paymentTypeId,
+                          v === "bonus" || v === "no_payment"
+                            ? { excluded: v, bankAccountId: null, feePercent: 0 }
+                            : { excluded: null, bankAccountId: v },
+                        )
                       }
                       items={[
-                        { id: "net", name: "Уменьшает поступление" },
-                        { id: "separate", name: "Отдельным расходом банка" },
+                        ...data.banks,
+                        { id: "bonus", name: "Бонусы · без поступления" },
+                        { id: "no_payment", name: "Без оплаты · без поступления" },
                       ]}
-                      placeholder="Выберите способ"
+                      placeholder="Выберите счёт или исключение"
                     />
                   </div>
+                  {!m.excluded && (
+                    <div className="grid gap-3 sm:grid-cols-[110px_1fr]">
+                      <div className="space-y-2">
+                        <Label htmlFor={`settlement-fee-${m.paymentTypeId}`}>
+                          Комиссия, %
+                        </Label>
+                        <Input
+                          id={`settlement-fee-${m.paymentTypeId}`}
+                          inputMode="decimal"
+                          value={fees[m.paymentTypeId] ?? "0"}
+                          onChange={(e) =>
+                            setFees((f) => ({
+                              ...f,
+                              [m.paymentTypeId]: e.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`settlement-fee-mode-${m.paymentTypeId}`}>
+                          Учёт комиссии
+                        </Label>
+                        <Picker
+                          id={`settlement-fee-mode-${m.paymentTypeId}`}
+                          value={m.feeAccounting}
+                          onChange={(v) =>
+                            setMethod(m.paymentTypeId, {
+                              feeAccounting: v as "net" | "separate",
+                            })
+                          }
+                          items={[
+                            { id: "net", name: "Уменьшает поступление" },
+                            { id: "separate", name: "Отдельным расходом банка" },
+                          ]}
+                          placeholder="Выберите способ"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
+              ))}
             </div>
-          ))}
+          )}
           <div className="flex gap-2">
             <Input
               aria-label="Номер способа оплаты Quick Resto"
@@ -325,21 +329,19 @@ function Form({
               <Plus className="size-4" />
             </Button>
           </div>
-        </section>
-        <section className="space-y-4 border-t pt-5">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <Label htmlFor="settlement-personal">Личное потребление</Label>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Пара прихода и расхода по себестоимости чеков.
-              </p>
-            </div>
+        </DrawerSection>
+        <DrawerSection
+          title="Личное потребление"
+          description="Пара прихода и расхода по себестоимости чеков."
+          actions={
             <Switch
               id="settlement-personal"
+              aria-label="Личное потребление"
               checked={personalEnabled}
               onCheckedChange={setPersonalEnabled}
             />
-          </div>
+          }
+        >
           {personalEnabled && (
             <>
               <div className="space-y-2">
@@ -379,22 +381,25 @@ function Form({
               ))}
             </>
           )}
-        </section>
-        <div className="flex items-center justify-between gap-4 border-t pt-5">
-          <div>
-            <Label htmlFor="settlement-auto">Сверять каждый день</Label>
-            <p className="mt-1 text-xs text-muted-foreground">
-              После завершения рабочего дня.
-            </p>
-          </div>
-          <Switch
-            id="settlement-auto"
-            checked={auto}
-            onCheckedChange={setAuto}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="settlement-reason">Основание изменения</Label>
+        </DrawerSection>
+        <DrawerSection
+          title="Сверять каждый день"
+          description="После завершения рабочего дня."
+          actions={
+            <Switch
+              id="settlement-auto"
+              aria-label="Сверять каждый день"
+              checked={auto}
+              onCheckedChange={setAuto}
+            />
+          }
+        >
+          {null}
+        </DrawerSection>
+        <DrawerSection title="Основание изменения">
+          <Label htmlFor="settlement-reason" className="sr-only">
+            Основание изменения
+          </Label>
           <Textarea
             id="settlement-reason"
             value={reason}
@@ -402,7 +407,7 @@ function Form({
             placeholder="Что изменили и почему"
             maxLength={1000}
           />
-        </div>
+        </DrawerSection>
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}

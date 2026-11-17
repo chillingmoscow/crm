@@ -29,7 +29,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Sparkles } from "lucide-react";
 import { createRole } from "../actions";
 
 // ── Types ────────────────────────────────────────────────────
@@ -766,20 +765,10 @@ export function RolesClient({
               ))}
             </SelectContent>
           </Select>
-        </div>
-
-        {/* Hint card per design (sparkles + tip) */}
-        <div className="flex items-start gap-2.5 rounded-[10px] bg-secondary border border-border p-3.5">
-          <Sparkles className="w-4 h-4 text-brand shrink-0 mt-0.5" />
-          <div className="flex flex-col gap-0.5 min-w-0">
-            <p className="text-[12px] font-semibold text-secondary-foreground leading-tight">
-              Совет
-            </p>
-            <p className="text-[12px] text-muted-foreground leading-relaxed">
-              Скопируйте «Хостес» или «Официант», если новая роль похожа —
-              настроить только разницу прав быстрее, чем 48 чекбоксов с нуля.
-            </p>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            Скопируйте «Хостес» или «Официант», если новая роль похожа —
+            настроить только разницу прав быстрее, чем 48 чекбоксов с нуля.
+          </p>
         </div>
       </EditDrawer>
     </div>

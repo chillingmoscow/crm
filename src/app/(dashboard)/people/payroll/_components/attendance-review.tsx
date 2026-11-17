@@ -1,6 +1,12 @@
 "use client";
 import { useCallback, useMemo, useState } from "react";
-import { ClipboardCheck, RefreshCw, SearchX } from "lucide-react";
+import {
+  CalendarClock,
+  ClipboardCheck,
+  Clock,
+  RefreshCw,
+  SearchX,
+} from "lucide-react";
 import { toast } from "sonner";
 import type { ColumnDef } from "@tanstack/react-table";
 import { PersonAvatar } from "@/components/people/person-avatar";
@@ -9,6 +15,7 @@ import { TableIconButton } from "@/components/shared/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import { DrawerSummary, DrawerSummaryItem } from "@/components/ui/drawer-blocks";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -402,16 +409,14 @@ export function AttendanceReview({
         }
       >
         <div className="space-y-5">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-xs text-muted-foreground">План</p>
-              <p className="mt-2 font-medium">{row?.plan}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Факт</p>
-              <p className="mt-2 font-medium">{row?.actual}</p>
-            </div>
-          </div>
+          <DrawerSummary label="План и факт">
+            <DrawerSummaryItem icon={<CalendarClock />} label="План">
+              <span className="font-medium">{row?.plan}</span>
+            </DrawerSummaryItem>
+            <DrawerSummaryItem icon={<Clock />} label="Факт">
+              <span className="font-medium">{row?.actual}</span>
+            </DrawerSummaryItem>
+          </DrawerSummary>
           <p className="rounded-lg bg-muted p-3 text-sm">
             {row?.issue ?? "Выход соответствует графику"}
           </p>

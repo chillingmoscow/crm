@@ -28,13 +28,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { EditDrawer } from "@/components/ui/edit-drawer";
+import { DrawerSection, DrawerStatus } from "@/components/ui/drawer-blocks";
 import {
   Popover,
   PopoverContent,
@@ -730,91 +725,86 @@ export function IngredientDetail({
         </Tabs>
       </div>
 
-      <Sheet
+      <EditDrawer
         open={sheetSupplier !== null}
         onOpenChange={(open) => {
           if (!open) setSheetSupplier(null);
         }}
+        title={sheetSupplier?.counterpartyName ?? "Поставщик"}
+        titleAccessory={
+          sheetSupplier?.isPreferred ? (
+            <DrawerStatus label="Предпочтительный" tone="info" />
+          ) : undefined
+        }
+        description="Контрагент-поставщик"
+        footer={
+          sheetSupplier ? (
+            <Button variant="outline" asChild>
+              <Link
+                href={`/finance/counterparties/${sheetSupplier.counterpartyId}`}
+              >
+                <ExternalLink className="h-4 w-4" />
+                Открыть полную карточку контрагента
+              </Link>
+            </Button>
+          ) : undefined
+        }
       >
-        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
-          {sheetSupplier ? (
-            <>
-              <SheetHeader>
-                <SheetTitle className="flex items-center gap-2">
-                  {sheetSupplier.counterpartyName}
-                  {sheetSupplier.isPreferred ? (
-                    <Badge variant="secondary">Предпочтительный</Badge>
-                  ) : null}
-                </SheetTitle>
-                <SheetDescription>Контрагент-поставщик</SheetDescription>
-              </SheetHeader>
-
-              <div className="mt-6 flex flex-col gap-4">
-                <CounterpartyField
-                  label="Контактное лицо"
-                  value={sheetSupplier.counterpartyContactPerson}
-                />
-                <CounterpartyField
-                  label="Телефон"
-                  value={
-                    sheetSupplier.counterpartyPhone ? (
-                      <a
-                        href={`tel:${sheetSupplier.counterpartyPhone}`}
-                        className="text-foreground underline-offset-2 hover:underline"
-                      >
-                        {sheetSupplier.counterpartyPhone}
-                      </a>
-                    ) : null
-                  }
-                />
-                <CounterpartyField
-                  label="Email"
-                  value={
-                    sheetSupplier.counterpartyEmail ? (
-                      <a
-                        href={`mailto:${sheetSupplier.counterpartyEmail}`}
-                        className="text-foreground underline-offset-2 hover:underline"
-                      >
-                        {sheetSupplier.counterpartyEmail}
-                      </a>
-                    ) : null
-                  }
-                />
-                <CounterpartyField label="ИНН" value={sheetSupplier.counterpartyInn} />
-                <CounterpartyField label="КПП" value={sheetSupplier.counterpartyKpp} />
-                <CounterpartyField
-                  label="Адрес"
-                  value={sheetSupplier.counterpartyAddress}
-                />
-                <CounterpartyField
-                  label="Описание"
-                  value={sheetSupplier.counterpartyDescription}
-                />
-
-                <div className="mt-2 rounded-lg border bg-muted/20 p-3">
-                  <div className="text-xs text-muted-foreground">
-                    Условия поставки этого ингредиента
-                  </div>
-                  <div className="mt-1 text-sm">
-                    Артикул у поставщика: {sheetSupplier.supplierArticle ?? "—"}
-                  </div>
-                  <div className="text-sm">
-                    Заметка: {sheetSupplier.note ?? "—"}
-                  </div>
-                </div>
-
-                <Link
-                  href={`/finance/counterparties/${sheetSupplier.counterpartyId}`}
-                  className="inline-flex items-center gap-1.5 text-sm text-foreground underline-offset-2 hover:underline"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  Открыть полную карточку контрагента
-                </Link>
+        {sheetSupplier ? (
+          <>
+            <div className="flex flex-col gap-4">
+              <CounterpartyField
+                label="Контактное лицо"
+                value={sheetSupplier.counterpartyContactPerson}
+              />
+              <CounterpartyField
+                label="Телефон"
+                value={
+                  sheetSupplier.counterpartyPhone ? (
+                    <a
+                      href={`tel:${sheetSupplier.counterpartyPhone}`}
+                      className="text-foreground underline-offset-2 hover:underline"
+                    >
+                      {sheetSupplier.counterpartyPhone}
+                    </a>
+                  ) : null
+                }
+              />
+              <CounterpartyField
+                label="Email"
+                value={
+                  sheetSupplier.counterpartyEmail ? (
+                    <a
+                      href={`mailto:${sheetSupplier.counterpartyEmail}`}
+                      className="text-foreground underline-offset-2 hover:underline"
+                    >
+                      {sheetSupplier.counterpartyEmail}
+                    </a>
+                  ) : null
+                }
+              />
+              <CounterpartyField label="ИНН" value={sheetSupplier.counterpartyInn} />
+              <CounterpartyField label="КПП" value={sheetSupplier.counterpartyKpp} />
+              <CounterpartyField
+                label="Адрес"
+                value={sheetSupplier.counterpartyAddress}
+              />
+              <CounterpartyField
+                label="Описание"
+                value={sheetSupplier.counterpartyDescription}
+              />
+            </div>
+            <DrawerSection title="Условия поставки этого ингредиента">
+              <div className="text-sm">
+                Артикул у поставщика: {sheetSupplier.supplierArticle ?? "—"}
               </div>
-            </>
-          ) : null}
-        </SheetContent>
-      </Sheet>
+              <div className="text-sm">
+                Заметка: {sheetSupplier.note ?? "—"}
+              </div>
+            </DrawerSection>
+          </>
+        ) : null}
+      </EditDrawer>
     </div>
   );
 }

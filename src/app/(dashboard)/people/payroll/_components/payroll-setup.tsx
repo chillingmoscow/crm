@@ -95,8 +95,19 @@ export function PayrollSetup({
         onOpenChange={(v) => !v && setOpen(null)}
         title={open === "model" ? "Новая модель оплаты" : "Оплата сотрудника"}
         description="Все условия хранятся в Sheerly"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setOpen(null)}>
+              Отмена
+            </Button>
+            <Button type="submit" form="payroll-setup-form" disabled={busy}>
+              Сохранить
+            </Button>
+          </>
+        }
       >
         <form
+          id="payroll-setup-form"
           className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
@@ -116,45 +127,53 @@ export function PayrollSetup({
         >
           {open === "model" ? (
             <>
-              <Label htmlFor="new-model-name">Название</Label>
-              <Input
-                id="new-model-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-                minLength={2}
-              />
-              <Label htmlFor="new-model-role">Должность</Label>
-              <Input
-                id="new-model-role"
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                required
-              />
-              <Label htmlFor="new-model-basis">База процента</Label>
-              <OptionSelect
-                id="new-model-basis"
-                className={selectClass}
-                value={basis}
-                onValueChange={setBasis}
-                options={[
-                  { value: "none", label: "Без процента" },
-                  { value: "turnover", label: "Оборот" },
-                  { value: "hookah", label: "Кальяны" },
-                  { value: "bar", label: "Бар" },
-                ]}
-              />
-              <Label htmlFor="new-model-monthly">
-                Оклад за месяц · 0 для оплаты по выходам
-              </Label>
-              <Input
-                id="new-model-monthly"
-                type="number"
-                min="0"
-                step="0.01"
-                value={monthly}
-                onChange={(e) => setMonthly(e.target.value)}
-              />
+              <div className="space-y-2">
+                <Label htmlFor="new-model-name">Название</Label>
+                <Input
+                  id="new-model-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                  minLength={2}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-model-role">Должность</Label>
+                <Input
+                  id="new-model-role"
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-model-basis">База процента</Label>
+                <OptionSelect
+                  id="new-model-basis"
+                  className={selectClass}
+                  value={basis}
+                  onValueChange={setBasis}
+                  options={[
+                    { value: "none", label: "Без процента" },
+                    { value: "turnover", label: "Оборот" },
+                    { value: "hookah", label: "Кальяны" },
+                    { value: "bar", label: "Бар" },
+                  ]}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-model-monthly">
+                  Оклад за месяц · 0 для оплаты по выходам
+                </Label>
+                <Input
+                  id="new-model-monthly"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={monthly}
+                  onChange={(e) => setMonthly(e.target.value)}
+                />
+              </div>
               <p className="text-xs text-muted-foreground">
                 После создания задайте дневные ставки, проценты и надбавки в
                 правилах модели.
@@ -162,46 +181,51 @@ export function PayrollSetup({
             </>
           ) : (
             <>
-              <Label htmlFor="new-pay-staff">Сотрудник Sheerly</Label>
-              <OptionSelect
-                id="new-pay-staff"
-                className={selectClass}
-                value={staff}
-                onValueChange={setStaff}
-                required
-                options={[
-                  { value: "", label: "Выберите сотрудника" },
-                  ...data.staff
-                    .filter(
-                      (s) =>
-                        !data.employees.some(
-                          (e) => e.local_user_id === s.user_id,
-                        ),
-                    )
-                    .map((s) => ({ value: s.user_id, label: s.name })),
-                ]}
-              />
-              <Label htmlFor="new-pay-model">Модель оплаты</Label>
-              <OptionSelect
-                id="new-pay-model"
-                className={selectClass}
-                value={model}
-                onValueChange={setModel}
-                required
-                options={[
-                  { value: "", label: "Выберите модель" },
-                  ...data.models.map((m) => ({ value: m.id, label: m.name })),
-                ]}
-              />
-              <Label htmlFor="new-pay-hired">Дата трудоустройства</Label>
-              <DatePicker
-                id="new-pay-hired"
-                value={hired}
-                onChange={setHired}
-              />
+              <div className="space-y-2">
+                <Label htmlFor="new-pay-staff">Сотрудник Sheerly</Label>
+                <OptionSelect
+                  id="new-pay-staff"
+                  className={selectClass}
+                  value={staff}
+                  onValueChange={setStaff}
+                  required
+                  options={[
+                    { value: "", label: "Выберите сотрудника" },
+                    ...data.staff
+                      .filter(
+                        (s) =>
+                          !data.employees.some(
+                            (e) => e.local_user_id === s.user_id,
+                          ),
+                      )
+                      .map((s) => ({ value: s.user_id, label: s.name })),
+                  ]}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-pay-model">Модель оплаты</Label>
+                <OptionSelect
+                  id="new-pay-model"
+                  className={selectClass}
+                  value={model}
+                  onValueChange={setModel}
+                  required
+                  options={[
+                    { value: "", label: "Выберите модель" },
+                    ...data.models.map((m) => ({ value: m.id, label: m.name })),
+                  ]}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-pay-hired">Дата трудоустройства</Label>
+                <DatePicker
+                  id="new-pay-hired"
+                  value={hired}
+                  onChange={setHired}
+                />
+              </div>
             </>
           )}
-          <Button disabled={busy}>Сохранить</Button>
         </form>
       </EditDrawer>
     </>

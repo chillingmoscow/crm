@@ -12,24 +12,19 @@ import {
 import {
   ArrowDown,
   ArrowUp,
-  Camera,
   ListChecks,
   Pencil,
   Plus,
+  Repeat,
   SearchX,
   Settings,
   Trash2,
+  UserCheck,
   X,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/ui/empty-state";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   ROW_MENU_COLUMN_SIZE,
   TableColumnManager,
@@ -47,14 +42,16 @@ import { useTableColumnResize } from "@/components/shared/table/use-table-column
 import { PeopleMobileCards } from "@/components/people/people-mobile-cards";
 import styles from "@/components/people/people-table.module.css";
 import type { TaskData, TaskDefinition } from "@/lib/schedule/tasks";
-import { cn } from "@/lib/utils";
+import { ColorDot } from "@/components/ui/color-dot";
+import { DrawerStatus } from "@/components/ui/drawer-blocks";
+import { taskRecurrenceLabel } from "@/lib/schedule/task-recurrence";
 import { DeleteTaskDialog } from "./delete-task-dialog";
 
 const definitions = [
   { id: "name", label: "Задача", size: 400, min: 260 },
   { id: "assignee", label: "Шаблон смены", size: 220, min: 150 },
-  { id: "recurrence", label: "Повторение", size: 190, min: 150 },
-  { id: "review", label: "Приёмка", size: 110, min: 100 },
+  { id: "recurrence", label: "Повторение", size: 240, min: 170 },
+  { id: "review", label: "Проверка", size: 150, min: 120 },
   { id: "status", label: "Статус", size: 140, min: 110 },
 ];
 const config = definitions.map((c) => ({
@@ -68,20 +65,6 @@ const collator = new Intl.Collator("ru", {
   numeric: true,
   sensitivity: "base",
 });
-function Hint({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Tooltip delayDuration={450}>
-      <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent sideOffset={6}>{label}</TooltipContent>
-    </Tooltip>
-  );
-}
 export function TaskList({
   data,
   onOpen,
@@ -107,10 +90,16 @@ export function TaskList({
   const manage = data.permissions.includes("schedule.checklist_edit");
   const assignee = (t: TaskDefinition) =>
     data.templates.find((x) => x.id === t.template_id)?.name ?? "Не назначено";
-  const recurrence = (t: TaskDefinition) =>
-    t.recurrence
-      ? `Раз в ${t.recurrence.interval} ${t.recurrence.unit === "week" ? "нед." : "мес."}`
-      : "Не настроено";
+  const recurrence = (t: TaskDefinition) => taskRecurrenceLabel(t.recurrence) ?? "Не настроено";
+  /** Чего не хватает, чтобы задачу можно было включить. */
+  const missing = (t: TaskDefinition) =>
+    [
+      !t.template_id && "шаблона смены",
+      !t.recurrence && "повтора",
+      !t.items.some((i) => i.kind !== "info") && "пунктов чек-листа",
+    ].filter(Boolean) as string[];
+  const statusOf = (t: TaskDefinition) =>
+    t.enabled ? "Работает" : missing(t).length ? "Не настроена" : "Черновик";
   const q = st.search.trim().toLocaleLowerCase("ru"),
     active = !!shift || !!status;
   const rows = data.definitions.filter(
@@ -143,49 +132,11 @@ export function TaskList({
       minSize: 260,
       enableHiding: false,
       sortingFn: (a, b) => collator.compare(a.original.name, b.original.name),
-      cell: ({ row }) => {
-        const task = row.original,
-          count = task.items.filter((i) => i.kind !== "info").length,
-          photos = task.items.filter((i) => i.kind === "photo").length;
-        return (
-          <div className="min-w-0 space-y-0.5">
-            <button
-              className="block max-w-full truncate text-left font-medium hover:text-brand focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={() => onOpen(task)}
-            >
-              {task.name}
-            </button>
-            <div className="flex items-center gap-3 text-xs leading-3 text-muted-foreground">
-              {count ? (
-                <>
-                  <Hint label="Пункты чек-листа">
-                    <span
-                      className="inline-flex items-center gap-1"
-                      aria-label={`Пунктов чек-листа: ${count}`}
-                    >
-                      <ListChecks className="size-3" />
-                      {count}
-                    </span>
-                  </Hint>
-                  {photos > 0 && (
-                    <Hint label="Пункты фотоотчёта">
-                      <span
-                        className="inline-flex items-center gap-1"
-                        aria-label={`Пунктов фотоотчёта: ${photos}`}
-                      >
-                        <Camera className="size-3" />
-                        {photos}
-                      </span>
-                    </Hint>
-                  )}
-                </>
-              ) : (
-                <span>Чек-лист не настроен</span>
-              )}
-            </div>
-          </div>
-        );
-      },
+      // Только название: счётчики пунктов и фото — шум; чего не хватает —
+      // в статусе «Не настроена».
+      cell: ({ row }) => (
+        <span className="block max-w-full truncate font-medium">{row.original.name}</span>
+      ),
     },
     {
       id: "assignee",
@@ -193,16 +144,17 @@ export function TaskList({
       accessorFn: assignee,
       size: 220,
       minSize: 150,
-      cell: ({ row }) => (
-        <span
-          className={cn(
-            "block truncate",
-            !row.original.template_id && "text-muted-foreground",
-          )}
-        >
-          {assignee(row.original)}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const template = data.templates.find((x) => x.id === row.original.template_id);
+        return template ? (
+          <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[13px]">
+            <ColorDot color={template.color} size="md" />
+            <span className="truncate">{template.name}</span>
+          </span>
+        ) : (
+          <span className="text-muted-foreground">Не назначена</span>
+        );
+      },
     },
     {
       id: "recurrence",
@@ -211,8 +163,9 @@ export function TaskList({
       size: 190,
       minSize: 150,
       cell: ({ row }) => (
-        <span className="block truncate text-muted-foreground">
-          {recurrence(row.original)}
+        <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+          {row.original.recurrence && <Repeat className="size-3.5 shrink-0" />}
+          <span className="truncate">{recurrence(row.original)}</span>
         </span>
       ),
     },
@@ -222,47 +175,40 @@ export function TaskList({
       accessorFn: (t) => t.review_mode === "manager",
       size: 110,
       minSize: 100,
-      cell: ({ row }) => (
-        <Hint
-          label={
-            row.original.review_mode === "manager"
-              ? "Требуется приёмка"
-              : "Приёмка не требуется"
-          }
-        >
-          <span className="inline-flex items-center">
-            <Checkbox
-              checked={row.original.review_mode === "manager"}
-              disabled
-              className="disabled:cursor-default disabled:opacity-100"
-              aria-label={
-                row.original.review_mode === "manager"
-                  ? "Требуется приёмка"
-                  : "Приёмка не требуется"
-              }
-            />
+      // Словами вместо «серой галочки», которая выглядела как переключатель.
+      cell: ({ row }) =>
+        row.original.review_mode === "manager" ? (
+          <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+            <UserCheck className="size-3.5" />
+            Управляющий
           </span>
-        </Hint>
-      ),
+        ) : (
+          <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+            <Zap className="size-3.5" />
+            Автоматически
+          </span>
+        ),
     },
     {
       id: "status",
       header: labels.status,
-      accessorFn: (t) => (t.enabled ? "Включена" : "Черновик"),
+      accessorFn: statusOf,
       size: 140,
       minSize: 110,
-      cell: ({ row }) => (
-        <Badge
-          variant="secondary"
-          className={cn(
-            "whitespace-nowrap font-medium",
-            row.original.enabled &&
-              "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-          )}
-        >
-          {row.original.enabled ? "Включена" : "Черновик"}
-        </Badge>
-      ),
+      cell: ({ row }) => {
+        const status = statusOf(row.original);
+        return (
+          <span
+            data-tip={status === "Не настроена" ? `Не хватает: ${missing(row.original).join(", ")}` : undefined}
+            className="inline-flex"
+          >
+            <DrawerStatus
+              label={status}
+              tone={status === "Работает" ? "success" : status === "Не настроена" ? "warning" : "neutral"}
+            />
+          </span>
+        );
+      },
     },
     {
       id: "actions",

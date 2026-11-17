@@ -1,5 +1,5 @@
 "use server";
-import { createClient, getCachedPermissions, getCachedUser } from "@/lib/supabase/server";
+import { createClient, getCachedActiveAccountId, getCachedPermissions, getCachedUser } from "@/lib/supabase/server";
 import { listKbPageTreeRows } from "@/lib/knowledge/pages";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { shiftTemplateLabel } from "@/lib/schedule/types";
@@ -102,8 +102,8 @@ export async function loadTasks(): Promise<TaskData> {
       .eq("venue_id", venueId)
       .maybeSingle(),
     db
-      .from<{ id: string; name: string; subtitle: string }[]>("schedule_templates")
-      .select("id,name,subtitle")
+      .from<{ id: string; name: string; subtitle: string; color: string }[]>("schedule_templates")
+      .select("id,name,subtitle,color")
       .eq("venue_id", venueId)
       .eq("archived", false)
       .order("name").order("subtitle"),
@@ -124,7 +124,7 @@ export async function loadTasks(): Promise<TaskData> {
     occurrences: results[1].data ?? [],
     settings: results[2].data,
     templates: (results[3].data ?? []).map((template) => ({
-      id: template.id, name: shiftTemplateLabel(template),
+      id: template.id, name: shiftTemplateLabel(template), color: template.color,
     })),
     messages: results[4].data ?? [],
     permissions,
@@ -150,6 +150,24 @@ export async function loadTaskInstructionPages() {
     id, title, slug, parent_id,
   }));
 }
+/**
+ * Чаты Telegram для настроек задач — из «Интеграции → Telegram», только
+ * название и ID. Список интеграции закрыт правом на интеграции, поэтому
+ * читаем служебным клиентом, но отдаём лишь тем, кто настраивает задачи.
+ */
+export async function loadTaskChats(): Promise<{ chat_id: string; title: string }[]> {
+  const [permissions, accountId] = await Promise.all([getCachedPermissions(), getCachedActiveAccountId()]);
+  if (!permissions.includes("schedule.checklist_edit") || !accountId) return [];
+  const r = await asLooseDb(createAdminClient())
+    .from<{ chat_id: string; title: string }[]>("telegram_chats")
+    .select("chat_id,title")
+    .eq("account_id", accountId)
+    .is("archived_at", null)
+    .order("title");
+  if (r.error) throw new Error(r.error.message);
+  return r.data ?? [];
+}
+
 /** Задачи для быстрого назначения из графика: только названия. */
 export async function loadTaskChoices(): Promise<{
   enabled: boolean;

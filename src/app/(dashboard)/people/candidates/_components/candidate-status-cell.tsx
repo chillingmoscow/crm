@@ -79,7 +79,7 @@ export function CandidateStatusCell({
         <button
           type="button"
           aria-label={`Изменить статус: ${candidate.full_name}`}
-          title={STATUSES[status]}
+          data-tip={STATUSES[status]}
           disabled={!!pending}
           aria-busy={!!pending}
           className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full text-left outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-default"

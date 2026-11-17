@@ -1074,7 +1074,7 @@ function CollectionScopedPropertyRow({
       <span
         className="size-5 -ml-1 inline-flex shrink-0 items-center justify-center"
         aria-hidden="true"
-        title="Поле коллекции"
+        data-tip="Поле коллекции"
       >
         <span className="size-1.5 rounded-full bg-brand/70 ring-4 ring-brand/10" />
       </span>

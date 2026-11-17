@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { OptionSelect } from "@/components/ui/option-select";
 import { previewLateness } from "@/lib/payroll/discipline";
 import {
   loadDisciplineSettings,
@@ -171,19 +172,19 @@ export function DisciplineSettings() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="late-payment-medium">Как учитывать штраф</Label>
-                <select
+                <OptionSelect
                   id="late-payment-medium"
-                  className="h-10 w-full rounded-md border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="w-full"
                   value={data.late_bonus ? "bonus" : "money"}
-                  onChange={(e) =>
-                    change({ late_bonus: e.target.value === "bonus" })
-                  }
-                >
-                  <option value="bonus">
-                    Сначала бонусами, иначе целиком деньгами
-                  </option>
-                  <option value="money">Всегда деньгами</option>
-                </select>
+                  onValueChange={(v) => change({ late_bonus: v === "bonus" })}
+                  options={[
+                    {
+                      value: "bonus",
+                      label: "Сначала бонусами, иначе целиком деньгами",
+                    },
+                    { value: "money", label: "Всегда деньгами" },
+                  ]}
+                />
               </div>
             </fieldset>
             <div className="min-w-0 rounded-lg border bg-muted/20 p-4">

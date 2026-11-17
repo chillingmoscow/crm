@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { OptionSelect } from "@/components/ui/option-select";
 import { PayrollExperiencePolicy } from "./payroll-experience-policy";
 import type { PayrollData } from "@/lib/payroll/types";
 import { loadPayrollRules, payrollCommand } from "../actions";
@@ -113,7 +114,7 @@ export function PayrollSettings({ venueId }: { venueId: string }) {
           ].map((id) => (
             <div className="space-y-2" key={id}>
               <Label htmlFor={`tip-bank-${id}`}>Касса {id} · счёт выдачи</Label>
-              <select
+              <OptionSelect
                 id={`tip-bank-${id}`}
                 className={selectClass}
                 value={cashAccounts[id] ?? ""}
@@ -121,20 +122,18 @@ export function PayrollSettings({ venueId }: { venueId: string }) {
                   !data.permissions.includes("payroll.pay") ||
                   !data.permissions.includes("finance.create_transaction")
                 }
-                onChange={(e) =>
+                onValueChange={(v) =>
                   setCashAccounts((current) => ({
                     ...current,
-                    [id]: e.target.value,
+                    [id]: v,
                   }))
                 }
-              >
-                <option value="">Не настроен</option>
-                {data.banks.map((b) => (
-                  <option value={b.id} key={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
+                placeholder="Не настроен"
+                options={[
+                  { value: "", label: "Не настроен" },
+                  ...data.banks.map((b) => ({ value: b.id, label: b.name })),
+                ]}
+              />
             </div>
           ))}
           {!data.cashbox.length && !Object.keys(cashAccounts).length && (
@@ -144,35 +143,31 @@ export function PayrollSettings({ venueId }: { venueId: string }) {
           )}
           <div className="space-y-2">
             <Label htmlFor="tip-category">Статья чаевых</Label>
-            <select
+            <OptionSelect
               id="tip-category"
               className={selectClass}
               value={category}
-              onChange={(e) => setCategory(e.target.value)}
-            >
-              <option value="">Выберите статью</option>
-              {data.categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+              onValueChange={setCategory}
+              placeholder="Выберите статью"
+              options={[
+                { value: "", label: "Выберите статью" },
+                ...data.categories.map((c) => ({ value: c.id, label: c.name })),
+              ]}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="salary-category">Статья зарплаты</Label>
-            <select
+            <OptionSelect
               id="salary-category"
               className={selectClass}
               value={salaryCategory}
-              onChange={(e) => setSalaryCategory(e.target.value)}
-            >
-              <option value="">Выберите статью</option>
-              {data.categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+              onValueChange={setSalaryCategory}
+              placeholder="Выберите статью"
+              options={[
+                { value: "", label: "Выберите статью" },
+                ...data.categories.map((c) => ({ value: c.id, label: c.name })),
+              ]}
+            />
           </div>
         </div>
         <Button

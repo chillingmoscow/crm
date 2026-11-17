@@ -11,6 +11,8 @@ import { Plus, Building2, X, Settings2, Search, Filter, Archive } from "lucide-r
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
+import { OptionSelect } from "@/components/ui/option-select";
+import { TimePicker } from "@/components/ui/time-picker";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { formatPhoneDisplay } from "@/lib/format/phone";
 import { Label } from "@/components/ui/label";
@@ -24,12 +26,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { EditDrawer } from "@/components/ui/edit-drawer";
+import { DrawerSection } from "@/components/ui/drawer-blocks";
 import { VENUE_TYPES, CURRENCIES, TIMEZONES, DAYS_OF_WEEK, type DayKey } from "@/lib/constants";
 import { createVenue } from "../actions";
 import type { VenueRow } from "../page";
@@ -161,6 +159,9 @@ function FilterPanel({ filter, onChange }: {
   useEffect(() => {
     if (!open) return;
     const h = (e: MouseEvent) => {
+      // Список селекта рендерится в портал вне панели — клик по пункту
+      // не должен закрывать фильтры.
+      if ((e.target as Element).closest?.("[data-radix-popper-content-wrapper]")) return;
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", h);
@@ -188,33 +189,35 @@ function FilterPanel({ filter, onChange }: {
           </p>
           <div className="space-y-1.5">
             <Label className="text-xs">Тип заведения</Label>
-            <select
-              className="w-full h-8 rounded-md border border-input bg-background text-sm px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+            <OptionSelect
+              aria-label="Тип заведения"
+              className="h-8 w-full px-2"
               value={filter.type ?? ""}
-              onChange={(e) => onChange({ ...filter, type: e.target.value || null })}
-            >
-              <option value="">Все типы</option>
-              {VENUE_TYPES.map((t) => (
-                <option key={t.value} value={t.value}>{t.label}</option>
-              ))}
-            </select>
+              onValueChange={(v) => onChange({ ...filter, type: v || null })}
+              options={[
+                { value: "", label: "Все типы" },
+                ...VENUE_TYPES.map((t) => ({ value: t.value, label: t.label })),
+              ]}
+            />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Импорт из QR</Label>
-            <select
-              className="w-full h-8 rounded-md border border-input bg-background text-sm px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+            <OptionSelect
+              aria-label="Импорт из QR"
+              className="h-8 w-full px-2"
               value={filter.importedFromQr}
-              onChange={(e) =>
+              onValueChange={(v) =>
                 onChange({
                   ...filter,
-                  importedFromQr: e.target.value as VenueFilter["importedFromQr"],
+                  importedFromQr: v as VenueFilter["importedFromQr"],
                 })
               }
-            >
-              <option value="all">Все</option>
-              <option value="yes">Только импортированные</option>
-              <option value="no">Только созданные вручную</option>
-            </select>
+              options={[
+                { value: "all", label: "Все" },
+                { value: "yes", label: "Только импортированные" },
+                { value: "no", label: "Только созданные вручную" },
+              ]}
+            />
           </div>
           {isActive && (
             <button
@@ -478,110 +481,106 @@ export function VenuesClient({ venues: initialVenues, archivedCount }: Props) {
       )}
 
       {/* Create Sheet */}
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>Новое заведение</SheetTitle>
-          </SheetHeader>
+      <EditDrawer
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        title="Новое заведение"
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>
+              Отмена
+            </Button>
+            <Button type="submit" form="new-venue-form" disabled={isPending}>
+              Создать
+            </Button>
+          </>
+        }
+      >
+        <form id="new-venue-form" onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+          <div className="space-y-2">
+            <Label htmlFor="name">Название *</Label>
+            <Input id="name" placeholder="Ресторан «Берёзка»" {...register("name")} />
+            {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+          </div>
 
-          <form onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-5">
+          <div className="space-y-2">
+            <Label>Тип заведения *</Label>
+            <Select defaultValue="restaurant" onValueChange={(v) => setValue("type", v as Form["type"])}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {VENUE_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Название *</Label>
-              <Input id="name" placeholder="Ресторан «Берёзка»" {...register("name")} />
-              {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+              <Label htmlFor="address">Адрес</Label>
+              <Input id="address" placeholder="г. Москва, ул. Пушкина, 1" {...register("address")} />
             </div>
-
             <div className="space-y-2">
-              <Label>Тип заведения *</Label>
-              <Select defaultValue="restaurant" onValueChange={(v) => setValue("type", v as Form["type"])}>
+              <Label htmlFor="phone">Телефон</Label>
+              <Controller
+                control={control}
+                name="phone"
+                render={({ field }) => (
+                  <PhoneInput
+                    id="phone"
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                  />
+                )}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Валюта *</Label>
+              <Select defaultValue="RUB" onValueChange={(v) => setValue("currency", v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {VENUE_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                  {CURRENCIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-
-            <div className="grid grid-cols-1 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="address">Адрес</Label>
-                <Input id="address" placeholder="г. Москва, ул. Пушкина, 1" {...register("address")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="phone">Телефон</Label>
-                <Controller
-                  control={control}
-                  name="phone"
-                  render={({ field }) => (
-                    <PhoneInput
-                      id="phone"
-                      value={field.value ?? ""}
-                      onChange={field.onChange}
-                      onBlur={field.onBlur}
-                    />
-                  )}
-                />
-              </div>
+            <div className="space-y-2">
+              <Label>Часовой пояс *</Label>
+              <Select defaultValue="Europe/Moscow" onValueChange={(v) => setValue("timezone", v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {TIMEZONES.map((tz) => <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
+          </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Валюта *</Label>
-                <Select defaultValue="RUB" onValueChange={(v) => setValue("currency", v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {CURRENCIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Часовой пояс *</Label>
-                <Select defaultValue="Europe/Moscow" onValueChange={(v) => setValue("timezone", v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {TIMEZONES.map((tz) => <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
+          <DrawerSection title="Часы работы">
+            <div className="space-y-2">
+              {DAYS_OF_WEEK.map(({ key, label }) => {
+                const day = workingHours[key];
+                const isClosed = day?.closed ?? false;
+                return (
+                  <div key={key} className="flex items-center gap-3">
+                    <span className="w-7 text-sm font-medium text-muted-foreground">{label}</span>
+                    <Switch checked={!isClosed} onCheckedChange={() => toggleDay(key)} />
+                    {isClosed ? (
+                      <span className="text-sm text-muted-foreground">Выходной</span>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <TimePicker value={day?.open ?? "10:00"} onChange={(v) => setTime(key, "open", v)} className="w-28 h-8 text-sm" />
+                        <span className="text-muted-foreground text-sm">—</span>
+                        <TimePicker value={day?.close ?? "22:00"} onChange={(v) => setTime(key, "close", v)} className="w-28 h-8 text-sm" />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-
-            <Separator />
-
-            <div className="space-y-3">
-              <Label>Часы работы</Label>
-              <div className="space-y-2">
-                {DAYS_OF_WEEK.map(({ key, label }) => {
-                  const day = workingHours[key];
-                  const isClosed = day?.closed ?? false;
-                  return (
-                    <div key={key} className="flex items-center gap-3">
-                      <span className="w-7 text-sm font-medium text-muted-foreground">{label}</span>
-                      <Switch checked={!isClosed} onCheckedChange={() => toggleDay(key)} />
-                      {isClosed ? (
-                        <span className="text-sm text-muted-foreground">Выходной</span>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <Input type="time" value={day?.open ?? "10:00"} onChange={(e) => setTime(key, "open", e.target.value)} className="w-28 h-8 text-sm" />
-                          <span className="text-muted-foreground text-sm">—</span>
-                          <Input type="time" value={day?.close ?? "22:00"} onChange={(e) => setTime(key, "close", e.target.value)} className="w-28 h-8 text-sm" />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="flex gap-3 pt-2">
-              <Button type="button" variant="outline" className="flex-1" onClick={() => setSheetOpen(false)}>
-                Отмена
-              </Button>
-              <Button type="submit" className="flex-1" disabled={isPending}>
-                Создать
-              </Button>
-            </div>
-          </form>
-        </SheetContent>
-      </Sheet>
+          </DrawerSection>
+        </form>
+      </EditDrawer>
     </div>
   );
 }

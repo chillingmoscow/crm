@@ -78,7 +78,7 @@ export function PayrollLedger({
             return (
               <span
                 className="text-muted-foreground"
-                title="Сумма появится после уточнения выплат и переносов"
+                data-tip="Сумма появится после уточнения выплат и переносов"
               >
                 —
               </span>

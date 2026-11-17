@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
+import { OptionSelect } from "@/components/ui/option-select";
 import { WARNING_BADGE_CLASS } from "@/components/shared/inventory-status-badge";
 import {
   updateInventoryStoreDepartment,
@@ -107,9 +108,9 @@ export function StoresClient({
 
   /**
    * Опции для конкретного склада. Текущая привязка обязана быть среди них,
-   * иначе нативный <select> со значением, которого нет в списке, выберет
-   * первую опцию — «Не привязан» — и покажет, что склад не привязан, хотя он
-   * привязан.
+   * иначе селект со значением, которого нет в списке, покажет пустую
+   * подпись вместо привязки — и будет выглядеть так, будто склад не
+   * привязан, хотя он привязан.
    *
    * Два случая, когда текущего заведения нет в общем списке:
    *  - оно архивное (мы сами их отфильтровали) — показываем с пометкой;
@@ -143,7 +144,7 @@ export function StoresClient({
   const departmentById = new Map(departments.map((department) => [department.id, department]));
 
   /**
-   * Три состояния привязки в одном значении <select>: «unset» (ещё не
+   * Три состояния привязки в одном значении селекта: «unset» (ещё не
    * настроено), «shared» (платит общий пул) и «department:<id>». «Не задано»
    * — рабочее состояние: владелец настраивает склады по ходу, и оно должно
    * быть видно в списке, а не выглядеть как «общий склад».
@@ -180,8 +181,7 @@ export function StoresClient({
     );
   };
 
-  const selectClass =
-    "h-9 w-full min-w-0 rounded-md border bg-background px-2 text-base disabled:opacity-60 sm:text-sm";
+  const selectClass = "h-9 w-full min-w-0 px-2 text-base sm:text-sm";
 
   return (
     <div className="overflow-hidden rounded-lg border bg-background">
@@ -199,9 +199,8 @@ export function StoresClient({
         stores.map((store) => {
           const storeDepartments = store.local_venue_id ? (departmentsByVenue.get(store.local_venue_id) ?? []) : [];
           const value = departmentValue(store);
-          // Текущее подразделение обязано быть среди опций, иначе нативный
-          // <select> молча выбрал бы первую («Не задано») и соврал бы про
-          // привязку. Не попадает в список оно в двух случаях: подразделение
+          // Текущее подразделение обязано быть среди опций, иначе селект
+          // показал бы пустую подпись вместо привязки и соврал бы про неё. Не попадает в список оно в двух случаях: подразделение
           // в архиве (мы его отфильтровали) или не видно среди загруженных.
           const currentDepartment = store.department_id ? departmentById.get(store.department_id) : undefined;
           const extraDepartment =
@@ -240,46 +239,50 @@ export function StoresClient({
               <div className="min-w-0">
                 <div className="mb-1 text-xs text-muted-foreground md:hidden">Заведение</div>
                 <div className="flex items-center gap-2">
-                  <select
+                  <OptionSelect
+                    aria-label="Заведение"
                     className={selectClass}
                     value={store.local_venue_id ?? ""}
                     disabled={!canManage}
-                    onChange={(event) => void updateVenue(store, event.target.value)}
-                  >
-                    <option value="">Не привязан</option>
-                    {optionsFor(store.local_venue_id).map((venue) => (
-                      <option key={venue.id} value={venue.id}>
-                        {venue.name}
-                        {venue.archived_at ? " (в архиве)" : ""}
-                      </option>
-                    ))}
-                  </select>
+                    onValueChange={(next) => void updateVenue(store, next)}
+                    options={[
+                      { value: "", label: "Не привязан" },
+                      ...optionsFor(store.local_venue_id).map((venue) => ({
+                        value: venue.id,
+                        label: `${venue.name}${venue.archived_at ? " (в архиве)" : ""}`,
+                      })),
+                    ]}
+                  />
                 </div>
               </div>
               <div className="min-w-0">
                 <div className="mb-1 text-xs text-muted-foreground md:hidden">Подразделение</div>
                 <div className="flex items-center gap-2">
-                  <select
+                  <OptionSelect
+                    aria-label="Подразделение"
                     className={selectClass}
                     value={value}
                     disabled={!canManage}
-                    onChange={(event) => void updateDepartment(store, event.target.value)}
-                  >
-                    <option value="unset">Не задано</option>
-                    <option value="shared">Общий склад</option>
-                    {storeDepartments.length > 0 || extraDepartment ? (
-                      <optgroup label="Подразделения">
-                        {storeDepartments.map((department) => (
-                          <option key={department.id} value={`department:${department.id}`}>
-                            {department.name}
-                          </option>
-                        ))}
-                        {extraDepartment ? (
-                          <option value={`department:${store.department_id}`}>{extraDepartment}</option>
-                        ) : null}
-                      </optgroup>
-                    ) : null}
-                  </select>
+                    onValueChange={(next) => void updateDepartment(store, next)}
+                    options={[
+                      { value: "unset", label: "Не задано" },
+                      { value: "shared", label: "Общий склад" },
+                    ]}
+                    groups={[
+                      {
+                        label: "Подразделения",
+                        options: [
+                          ...storeDepartments.map((department) => ({
+                            value: `department:${department.id}`,
+                            label: department.name,
+                          })),
+                          ...(extraDepartment
+                            ? [{ value: `department:${store.department_id}`, label: extraDepartment }]
+                            : []),
+                        ],
+                      },
+                    ]}
+                  />
                 </div>
                 {!store.local_venue_id ? (
                   <div className="mt-1 text-xs text-muted-foreground">

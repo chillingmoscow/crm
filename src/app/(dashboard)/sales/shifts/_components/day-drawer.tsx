@@ -3,6 +3,11 @@ import { useEffect, useState } from "react";
 import { AlertCircle, Loader2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import {
+  DrawerAvatar,
+  DrawerTimeline,
+  DrawerTimelineItem,
+} from "@/components/ui/drawer-blocks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -205,7 +210,7 @@ export function DayDrawer({
               {metricKeys.map((k) => (
                 <div key={k} className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
-                    <Label htmlFor={`metric-${k}`} title={metricHints[k]}>
+                    <Label htmlFor={`metric-${k}`} data-tip={metricHints[k]}>
                       {metricLabels[k]}
                     </Label>
                     {k in day.overrides && !resets.includes(k) && canAdjust && (
@@ -300,48 +305,47 @@ export function DayDrawer({
                 Изменений пока нет.
               </p>
             ) : (
-              events.map((event) => (
-                <div key={event.id} className="border-b pb-4 last:border-0">
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="text-sm font-medium">
-                      {event.kind === "adjustment"
-                        ? event.actor_name || "Пользователь"
-                        : event.kind === "import"
-                          ? "Первичная загрузка"
-                          : "Обновление Quick Resto"}
-                    </p>
-                    <time className="text-xs text-muted-foreground whitespace-nowrap">
-                      {time(event.created_at)}
-                    </time>
-                  </div>
-                  {event.reason && (
-                    <p className="mt-1 text-sm">{event.reason}</p>
-                  )}
-                  {event.kind === "adjustment" && (
-                    <div className="mt-3 space-y-1 text-xs text-muted-foreground">
-                      {Object.entries(event.changes).map(([k, raw]) => {
-                        const change = raw as {
-                          before: unknown;
-                          after: unknown;
-                          reset?: boolean;
-                        };
-                        return (
-                          <p key={k}>
-                            {k === "note"
-                              ? "Комментарий"
-                              : (metricLabels[k as MetricKey] ?? k)}
-                            :{" "}
-                            {k === "note"
-                              ? `${change.before || "—"} → ${change.after || "—"}`
-                              : `${money(change.before as number | null)} → ${money(change.after as number | null)}`}
-                            {change.reset ? " · Возвращено исходное" : ""}
-                          </p>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              ))
+              <DrawerTimeline>
+                {events.map((event, index) => {
+                  const who =
+                    event.kind === "adjustment"
+                      ? event.actor_name || "Пользователь"
+                      : event.kind === "import"
+                        ? "Первичная загрузка"
+                        : "Обновление Quick Resto";
+                  return (
+                    <DrawerTimelineItem
+                      key={event.id}
+                      last={index === events.length - 1}
+                      avatar={<DrawerAvatar name={who} />}
+                      title={who}
+                      meta={time(event.created_at)}
+                    >
+                      {event.reason && <p>{event.reason}</p>}
+                      {event.kind === "adjustment" &&
+                        Object.entries(event.changes).map(([k, raw]) => {
+                          const change = raw as {
+                            before: unknown;
+                            after: unknown;
+                            reset?: boolean;
+                          };
+                          return (
+                            <p key={k} className="text-muted-foreground">
+                              {k === "note"
+                                ? "Комментарий"
+                                : (metricLabels[k as MetricKey] ?? k)}
+                              :{" "}
+                              {k === "note"
+                                ? `${change.before || "—"} → ${change.after || "—"}`
+                                : `${money(change.before as number | null)} → ${money(change.after as number | null)}`}
+                              {change.reset ? " · Возвращено исходное" : ""}
+                            </p>
+                          );
+                        })}
+                    </DrawerTimelineItem>
+                  );
+                })}
+              </DrawerTimeline>
             )}
             <CashControlHistory venueId={day.venue_id} date={day.business_date}/>
             <CashMovementHistory venueId={day.venue_id} date={day.business_date}/>

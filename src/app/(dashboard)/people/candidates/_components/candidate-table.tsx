@@ -81,7 +81,7 @@ export function candidateColumns(
           return (
             <Link
               className="block truncate font-medium hover:text-brand"
-              title={c.full_name}
+              data-tip={c.full_name}
               href={`/people/candidates/${c.id}`}
             >
               {c.full_name}
@@ -116,7 +116,7 @@ export function candidateColumns(
         return (
           <span
             className="block truncate"
-            title={value == null ? undefined : String(value)}
+            data-tip={value == null ? undefined : String(value)}
           >
             {value == null || value === "" ? "Не указано" : String(value)}
           </span>

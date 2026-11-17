@@ -41,7 +41,7 @@ import { TableSortPicker } from "@/components/shared/table/table-sort-settings";
 import { useTableColumnResize } from "@/components/shared/table/use-table-column-resize";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { paletteBg } from "@/lib/palette";
+import { paletteDot } from "@/lib/palette";
 import { shiftTemplateLabel, type ShiftTemplate } from "@/lib/schedule/types";
 import { cn } from "@/lib/utils";
 import { formatTemplateTimes } from "./editors";
@@ -142,7 +142,7 @@ export function TemplateList({
               aria-hidden="true"
               className={cn(
                 "mt-1.5 size-2.5 shrink-0 rounded-full",
-                paletteBg(template.color),
+                paletteDot(template.color),
               )}
             />
             <TemplateName {...template} />

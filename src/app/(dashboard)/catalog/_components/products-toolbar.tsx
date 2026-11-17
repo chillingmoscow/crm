@@ -6,6 +6,7 @@ import { Filter, Search, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { OptionSelect } from "@/components/ui/option-select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 type GroupOption = {
@@ -117,20 +118,19 @@ export function ProductsToolbar({
           <label className="text-sm font-medium" htmlFor="products-group-filter">
             Группа ингредиентов
           </label>
-          <select
+          <OptionSelect
             id="products-group-filter"
             value={draftGroupId}
-            onChange={(event) => setDraftGroupId(event.target.value)}
-            className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
-            <option value="">Все группы ингредиентов</option>
-            {groups.map((group) => (
-              <option key={group.id} value={group.id}>
-                {"\u00A0".repeat(Math.min(group.depth, 8) * 2)}
-                {group.path}
-              </option>
-            ))}
-          </select>
+            onValueChange={setDraftGroupId}
+            className="mt-2 w-full"
+            options={[
+              { value: "", label: "Все группы ингредиентов" },
+              ...groups.map((group) => ({
+                value: group.id,
+                label: `${"\u00A0".repeat(Math.min(group.depth, 8) * 2)}${group.path}`,
+              })),
+            ]}
+          />
           <div className="mt-3 flex gap-2">
             <Button type="button" className="flex-1" onClick={() => apply()}>
               Применить

@@ -11,11 +11,20 @@ import {
   type ColumnDef,
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
-import { RefreshCw, Settings2, ChartNoAxesCombined } from "lucide-react";
+import {
+  RefreshCw,
+  Settings2,
+  ChartNoAxesCombined,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import {
+  DrawerSection,
+  DrawerSummary,
+  DrawerSummaryTotal,
+} from "@/components/ui/drawer-blocks";
 import {
   Select,
   SelectContent,
@@ -119,13 +128,21 @@ function Detail({
       onOpenChange={(v) => !v && onClose()}
       title={dayLabel(row.date)}
       description={`${row.kind === "bar" ? "Бар" : "Кальяны"} · ${row.archive ? "Архив Glide" : "Sheerly"}`}
+      footer={
+        <Button variant="outline" asChild>
+          <Link
+            href={`/sales/shifts?from=${row.date}&to=${row.date}&day=${row.date}&tab=values${row.archive ? "&source=archive" : ""}`}
+          >
+            Общая смена
+          </Link>
+        </Button>
+      }
     >
-      <div className="rounded-xl bg-brand/5 p-5">
-        <p className="text-sm text-muted-foreground">Общая прибавка за день</p>
-        <p className="mt-2 text-3xl font-semibold tabular-nums">
+      <DrawerSummary label="Прибавка за день">
+        <DrawerSummaryTotal label="Общая прибавка за день">
           {money(row.metrics?.bonus ?? null)} {row.metrics && "₽"}
-        </p>
-      </div>
+        </DrawerSummaryTotal>
+      </DrawerSummary>
       <Tabs defaultValue="details">
         <TabsList className="w-full justify-start overflow-x-auto">
           <TabsTrigger value="details" className="px-2 text-[13px]">
@@ -168,9 +185,8 @@ function Detail({
               </div>
             ))}
           </dl>
-          <section>
-            <h3 className="font-semibold">Продажи по категориям</h3>
-            <dl className="mt-2 divide-y">
+          <DrawerSection title="Продажи по категориям">
+            <dl className="divide-y">
               {row.rules[row.kind].map((g) => (
                 <div
                   key={g.id}
@@ -191,7 +207,7 @@ function Detail({
                 </div>
               ))}
             </dl>
-          </section>
+          </DrawerSection>
           {row.kind === "masters" && row.native && (
             <div className="rounded-lg bg-muted/50 p-3 text-sm">
               {row.rules.tiers
@@ -261,12 +277,6 @@ function Detail({
           )}
         </TabsContent>
       </Tabs>
-      <Link
-        href={`/sales/shifts?from=${row.date}&to=${row.date}&day=${row.date}&tab=values${row.archive ? "&source=archive" : ""}`}
-        className="text-sm text-brand hover:underline"
-      >
-        Общая смена →
-      </Link>
       <p className="text-xs text-muted-foreground">
         {row.archive
           ? "Архивные суммы сохранены без пересчёта."

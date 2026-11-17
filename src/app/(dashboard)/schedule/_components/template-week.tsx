@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { paletteBg } from "@/lib/palette";
+import { paletteDot } from "@/lib/palette";
 import { cn } from "@/lib/utils";
 import { templateTimesFor } from "@/lib/schedule/template-times";
 import { shiftTemplateLabel, type Shift, type ShiftTemplate } from "@/lib/schedule/types";
@@ -114,7 +114,7 @@ export function TemplateWeek({
             <tr key={template.id} className="group hover:bg-muted/30">
               <th scope="row" className="sticky left-0 z-10 border-b bg-card px-3 py-3 text-left align-top font-normal group-hover:bg-muted sm:px-4">
                 <span className="flex items-start gap-2.5 text-[13px]">
-                  <span className={cn("mt-1 size-2 shrink-0 rounded-full", paletteBg(template.color))} aria-hidden />
+                  <span className={cn("mt-1 size-2 shrink-0 rounded-full", paletteDot(template.color))} aria-hidden />
                   <TemplateName {...template} />
                 </span>
               </th>
@@ -128,24 +128,22 @@ export function TemplateWeek({
                   <td key={day} className={cellClass(day)}>
                     <div className="grid gap-1.5">
                       {shift && visibleIds.has(shift.id) && shiftWithTasks(shift)}
-                      {!shift && showVacancies && (
-                        onAssign ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onAssign(day, template)}
-                            aria-label={`Назначить: ${shiftTemplateLabel(template)}, ${dayLabel(day)}, ${time}`}
-                            className="h-auto min-h-12 w-full flex-col items-start gap-0.5 bg-muted/30 px-2 py-1.5 text-left"
-                          >
-                            <span className="text-[11px] font-normal tabular-nums text-muted-foreground">{time}</span>
-                            <span className="flex items-center gap-1 text-xs"><Plus className="size-3.5" />Назначить</span>
-                          </Button>
-                        ) : (
-                          <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                            <span className="block text-[11px] tabular-nums">{time}</span>
-                            Без сотрудника
-                          </div>
-                        )
+                      {/* Пустой слот: тихое время слота; при наведении — «+». */}
+                      {!shift && showVacancies && onAssign && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onAssign(day, template)}
+                          aria-label={`Назначить: ${shiftTemplateLabel(template)}, ${dayLabel(day)}, ${time}`}
+                          data-tip="Назначить сотрудника"
+                          className="group/slot relative h-8 w-full px-1 text-[11px] font-normal tabular-nums text-muted-foreground/70 hover:text-foreground"
+                        >
+                          {time}
+                          <Plus
+                            aria-hidden
+                            className="absolute right-1 size-3.5 opacity-0 transition-opacity group-hover/slot:opacity-100 group-focus-visible/slot:opacity-100"
+                          />
+                        </Button>
                       )}
                       {(tasksBySlot.get(key) ?? []).map(renderTask)}
                     </div>

@@ -18,6 +18,7 @@ import { KbIconPickerBody } from "@/components/knowledge/kb-icon-picker";
 import { KB_PROPERTY_UI_ICONS } from "@/components/knowledge/property-ui-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { OptionSelect } from "@/components/ui/option-select";
 import { useCoarsePointer } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import {
@@ -37,6 +38,15 @@ import {
   stopBlockInteraction,
   stopBlockMenuAction,
 } from "./shared";
+
+// Компактный селект в строке меню колонки: без рамки, текст справа,
+// вид задаёт `.kb-collection-column-menu-select`.
+const COLUMN_MENU_SELECT_CLASS =
+  "kb-collection-column-menu-select h-8 w-auto gap-1 px-1.5 shadow-none";
+// Маркер выпадающего списка: он рендерится в портал вне меню колонки, и
+// обработчик «клик снаружи» в table-view не должен закрывать меню по нему.
+export const COLUMN_MENU_SELECT_CONTENT_CLASS =
+  "kb-collection-column-menu-select-content";
 
 export function CollectionTitleColumnMenu({
   name,
@@ -389,93 +399,87 @@ export function CollectionColumnMenu({
       <label className="kb-collection-column-menu-row">
         <KB_PROPERTY_UI_ICONS.type className="size-4" />
         <span>Тип</span>
-        <select
-          className="kb-collection-column-menu-select"
+        <OptionSelect
+          className={COLUMN_MENU_SELECT_CLASS}
+          contentClassName={COLUMN_MENU_SELECT_CONTENT_CLASS}
           value={field.type}
           aria-label="Тип свойства"
-          onChange={(event) =>
-            onUpdate({ type: event.currentTarget.value as KbPropertyType })
-          }
-        >
-          {collectionFieldTypeOptions(field.type).map((type) => (
-            <option key={type} value={type}>
-              {KB_COLLECTION_FIELD_LABELS[type]}
-            </option>
-          ))}
-        </select>
+          onValueChange={(value) => onUpdate({ type: value as KbPropertyType })}
+          options={collectionFieldTypeOptions(field.type).map((type) => ({
+            value: type,
+            label: KB_COLLECTION_FIELD_LABELS[type],
+          }))}
+        />
       </label>
       {field.type === "number" && (
         <>
           <label className="kb-collection-column-menu-row">
             <KB_PROPERTY_UI_ICONS.display className="size-4" />
             <span>Вид</span>
-            <select
-              className="kb-collection-column-menu-select"
+            <OptionSelect
+              className={COLUMN_MENU_SELECT_CLASS}
+              contentClassName={COLUMN_MENU_SELECT_CONTENT_CLASS}
               value={field.displayVariant === "rating" ? "rating" : "number"}
               aria-label="Вид числа"
-              onChange={(event) =>
+              onValueChange={(value) =>
                 onUpdate({
-                  displayVariant:
-                    event.currentTarget.value === "rating"
-                      ? "rating"
-                      : undefined,
+                  displayVariant: value === "rating" ? "rating" : undefined,
                   ratingVariant:
-                    event.currentTarget.value === "rating"
+                    value === "rating"
                       ? field.ratingVariant ?? "stars"
                       : undefined,
                   ratingShowValue:
-                    event.currentTarget.value === "rating"
+                    value === "rating"
                       ? field.ratingShowValue ?? true
                       : undefined,
-                  max:
-                    event.currentTarget.value === "rating"
-                      ? field.max ?? 5
-                      : undefined,
+                  max: value === "rating" ? field.max ?? 5 : undefined,
                 })
               }
-            >
-              <option value="number">Число</option>
-              <option value="rating">Рейтинг</option>
-            </select>
+              options={[
+                { value: "number", label: "Число" },
+                { value: "rating", label: "Рейтинг" },
+              ]}
+            />
           </label>
           {field.displayVariant === "rating" && (
             <>
               <label className="kb-collection-column-menu-row">
                 <KB_PROPERTY_UI_ICONS.scale className="size-4" />
                 <span>Максимум</span>
-                <select
-                  className="kb-collection-column-menu-select"
-                  value={field.max ?? 5}
+                <OptionSelect
+                  className={COLUMN_MENU_SELECT_CLASS}
+                  contentClassName={COLUMN_MENU_SELECT_CONTENT_CLASS}
+                  value={String(field.max ?? 5)}
                   aria-label="Максимум рейтинга"
-                  onChange={(event) =>
+                  onValueChange={(value) =>
                     onUpdate({
-                      max: Number(event.currentTarget.value) as 3 | 5 | 10,
+                      max: Number(value) as 3 | 5 | 10,
                     })
                   }
-                >
-                  {[3, 5, 10].map((max) => (
-                    <option key={max} value={max}>
-                      {max}
-                    </option>
-                  ))}
-                </select>
+                  options={[3, 5, 10].map((max) => ({
+                    value: String(max),
+                    label: String(max),
+                  }))}
+                />
               </label>
               <label className="kb-collection-column-menu-row">
                 <KB_PROPERTY_UI_ICONS.rating className="size-4" />
                 <span>Рейтинг</span>
-                <select
-                  className="kb-collection-column-menu-select"
+                <OptionSelect
+                  className={COLUMN_MENU_SELECT_CLASS}
+                  contentClassName={COLUMN_MENU_SELECT_CONTENT_CLASS}
                   value={field.ratingVariant ?? "stars"}
                   aria-label="Вид рейтинга"
-                  onChange={(event) =>
+                  onValueChange={(value) =>
                     onUpdate({
-                      ratingVariant: event.currentTarget.value as "stars" | "slider",
+                      ratingVariant: value as "stars" | "slider",
                     })
                   }
-                >
-                  <option value="stars">Звёзды</option>
-                  <option value="slider">Слайдер</option>
-                </select>
+                  options={[
+                    { value: "stars", label: "Звёзды" },
+                    { value: "slider", label: "Слайдер" },
+                  ]}
+                />
               </label>
               {field.ratingVariant === "slider" && (
                 <button
@@ -503,22 +507,21 @@ export function CollectionColumnMenu({
         <label className="kb-collection-column-menu-row">
           <KB_PROPERTY_UI_ICONS.display className="size-4" />
           <span>Вид</span>
-          <select
-            className="kb-collection-column-menu-select"
+          <OptionSelect
+            className={COLUMN_MENU_SELECT_CLASS}
+            contentClassName={COLUMN_MENU_SELECT_CONTENT_CLASS}
             value={field.displayVariant === "switch" ? "switch" : "checkbox"}
             aria-label="Вид чекбокса"
-            onChange={(event) =>
+            onValueChange={(value) =>
               onUpdate({
-                displayVariant:
-                  event.currentTarget.value === "switch"
-                    ? "switch"
-                    : undefined,
+                displayVariant: value === "switch" ? "switch" : undefined,
               })
             }
-          >
-            <option value="checkbox">Чекбокс</option>
-            <option value="switch">Триггер</option>
-          </select>
+            options={[
+              { value: "checkbox", label: "Чекбокс" },
+              { value: "switch", label: "Триггер" },
+            ]}
+          />
         </label>
       )}
       {field.type === "text" && (

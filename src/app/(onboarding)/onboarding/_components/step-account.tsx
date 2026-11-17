@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { uploadLogo } from "../actions";
 import type { WizardData } from "./wizard";
 import { InnInput } from "@/components/org/inn-input";
+import { OptionSelect } from "@/components/ui/option-select";
 import type { ResolvedParty } from "@/lib/dadata/party";
 
 const schema = z.object({
@@ -246,18 +247,13 @@ export function StepAccount({
                 <label htmlFor="legalForm" className="text-xs font-medium text-gray-600">
                   Форма
                 </label>
-                <select
+                <OptionSelect
                   id="legalForm"
                   value={data.legalForm}
-                  onChange={(e) => onUpdate({ legalForm: e.target.value as LegalForm })}
-                  className="h-10 w-full rounded-xl border border-gray-200 hover:border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 px-3 text-sm bg-white outline-none transition-colors duration-150"
-                >
-                  {LEGAL_FORM_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+                  onValueChange={(v) => onUpdate({ legalForm: v as LegalForm })}
+                  options={LEGAL_FORM_OPTIONS}
+                  className="h-10 w-full rounded-xl border-gray-200 hover:border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 bg-white"
+                />
               </div>
             </div>
           </div>

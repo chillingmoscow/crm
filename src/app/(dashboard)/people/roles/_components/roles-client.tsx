@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { OptionSelect } from "@/components/ui/option-select";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import {
   Select,
@@ -28,7 +29,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Sparkles } from "lucide-react";
 import { createRole } from "../actions";
 
 // ── Types ────────────────────────────────────────────────────
@@ -173,6 +173,9 @@ function RoleFilterPanel({
   useEffect(() => {
     if (!open) return;
     const h = (e: MouseEvent) => {
+      // Список селекта рендерится в портал вне панели — клик по пункту
+      // не должен закрывать фильтры.
+      if ((e.target as Element).closest?.("[data-radix-popper-content-wrapper]")) return;
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", h);
@@ -201,41 +204,41 @@ function RoleFilterPanel({
           </p>
           <div className="space-y-1.5">
             <Label className="text-xs">Подразделение</Label>
-            <select
-              className="w-full h-8 rounded-md border border-input bg-background text-sm px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+            <OptionSelect
+              aria-label="Подразделение"
+              className="h-8 w-full px-2"
               value={filter.departmentId}
-              onChange={(e) =>
+              onValueChange={(v) =>
                 onChange({
                   ...filter,
-                  departmentId: e.target.value,
+                  departmentId: v,
                 })
               }
-            >
-              <option value="all">Все</option>
-              <option value="__none__">Без подразделения</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: "all", label: "Все" },
+                { value: "__none__", label: "Без подразделения" },
+                ...departments.map((d) => ({ value: d.id, label: d.name })),
+              ]}
+            />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Импорт из QR</Label>
-            <select
-              className="w-full h-8 rounded-md border border-input bg-background text-sm px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+            <OptionSelect
+              aria-label="Импорт из QR"
+              className="h-8 w-full px-2"
               value={filter.importedFromQr}
-              onChange={(e) =>
+              onValueChange={(v) =>
                 onChange({
                   ...filter,
-                  importedFromQr: e.target.value as RoleFilter["importedFromQr"],
+                  importedFromQr: v as RoleFilter["importedFromQr"],
                 })
               }
-            >
-              <option value="all">Все</option>
-              <option value="yes">Только импортированные</option>
-              <option value="no">Только созданные вручную</option>
-            </select>
+              options={[
+                { value: "all", label: "Все" },
+                { value: "yes", label: "Только импортированные" },
+                { value: "no", label: "Только созданные вручную" },
+              ]}
+            />
           </div>
           {isActive ? (
             <button
@@ -762,20 +765,10 @@ export function RolesClient({
               ))}
             </SelectContent>
           </Select>
-        </div>
-
-        {/* Hint card per design (sparkles + tip) */}
-        <div className="flex items-start gap-2.5 rounded-[10px] bg-secondary border border-border p-3.5">
-          <Sparkles className="w-4 h-4 text-brand shrink-0 mt-0.5" />
-          <div className="flex flex-col gap-0.5 min-w-0">
-            <p className="text-[12px] font-semibold text-secondary-foreground leading-tight">
-              Совет
-            </p>
-            <p className="text-[12px] text-muted-foreground leading-relaxed">
-              Скопируйте «Хостес» или «Официант», если новая роль похожа —
-              настроить только разницу прав быстрее, чем 48 чекбоксов с нуля.
-            </p>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            Скопируйте «Хостес» или «Официант», если новая роль похожа —
+            настроить только разницу прав быстрее, чем 48 чекбоксов с нуля.
+          </p>
         </div>
       </EditDrawer>
     </div>

@@ -4,6 +4,7 @@ import { Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { OptionSelect } from "@/components/ui/option-select";
 import {
   createCollectionFilter,
   type KbCollectionField,
@@ -93,22 +94,20 @@ export function CollectionFiltersEditor({
                   });
                 }}
               />
-              <select
-                className="kb-collection-filter-select"
+              <OptionSelect
+                className="kb-collection-filter-select shadow-none"
                 value={operator}
                 aria-label="Оператор фильтра"
-                onChange={(event) =>
+                onValueChange={(value) =>
                   updateFilter(filter.id, {
-                    operator: event.currentTarget.value as KbCollectionFilterOperator,
+                    operator: value as KbCollectionFilterOperator,
                   })
                 }
-              >
-                {operators.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
+                options={operators.map((item) => ({
+                  value: item.value,
+                  label: item.label,
+                }))}
+              />
               {needsValue ? (
                 <Input
                   value={filter.value == null ? "" : String(filter.value)}

@@ -241,7 +241,7 @@ export async function loadSchedule(
       .eq("venue_id", venueId)
       .order("name"),
     db.from("venues").select("timezone").eq("id", venueId).single(),
-    permissions.includes("people.manage_candidates") && permissions.includes("schedule.view_all")
+    permissions.includes("schedule.view_all")
       ? asLooseDb(db).rpc("candidate_calendar_trials", {})
       : Promise.resolve({ data: [], error: null }),
     asLooseDb(db).from<{ role_id: string }[]>("schedule_hidden_roles")
@@ -252,6 +252,7 @@ export async function loadSchedule(
   const payrollOptions = options.data as unknown as {
     employees: NonNullable<ScheduleData["casualEmployees"]>;
     models: NonNullable<ScheduleData["payModels"]>;
+    same_department_rate_from?: string | null;
   };
   for (const r of [
     shifts,
@@ -282,6 +283,7 @@ export async function loadSchedule(
     qualifications: qualifications.data ?? [],
     casualEmployees: payrollOptions.employees,
     payModels: payrollOptions.models,
+    sameDepartmentRateFrom: payrollOptions.same_department_rate_from ?? null,
     staff: (staff.data ?? []).map((s) => ({
       user_id: s.user_id,
       first_name: s.first_name,
@@ -390,6 +392,38 @@ export async function scheduleCommand(
     };
   }
 }
+export type ApplyTemplateResult = {
+  updated: number;
+  unchanged: number;
+  skipped: { date: string; reason: string }[];
+};
+/** Переносит текущие значения шаблона в смены по нему, начиная с даты `from`. */
+export async function applyTemplateToShifts(input: {
+  id: string;
+  from: string;
+  previousTitle?: string;
+}): Promise<ApplyTemplateResult | { error: string }> {
+  const parsed = z
+    .object({
+      id: uuid,
+      from: z.string().refine(validDate, "Укажите дату"),
+      previousTitle: z.string().max(160).optional(),
+    })
+    .safeParse(input);
+  if (!parsed.success) return { error: "Проверьте шаблон и дату" };
+  const db = await client();
+  const { data, error } = await asLooseDb(db).rpc(
+    "schedule_apply_template",
+    {
+      p_template: parsed.data.id,
+      p_from: parsed.data.from,
+      p_previous_title: parsed.data.previousTitle ?? null,
+    },
+  );
+  if (error || !data) return { error: error?.message ?? "Не удалось обновить смены" };
+  revalidatePath("/schedule");
+  return data as ApplyTemplateResult;
+}
 export async function scheduleHistory(id: string) {
   const db = await client();
   const { data, error } = await db
@@ -400,6 +434,33 @@ export async function scheduleHistory(id: string) {
     .limit(50);
   if (error) throw new Error(error.message);
   return data ?? [];
+}
+/**
+ * История смены по страницам: от новых к старым. Курсор — (created_at, id)
+ * последней загруженной записи: события одной транзакции делят created_at,
+ * и курсор только по времени терял бы их на границе страниц.
+ */
+export async function shiftHistoryPage(id: string, before?: { created_at: string; id: string }) {
+  if (!uuid.safeParse(id).success) throw new Error("Смена не найдена");
+  if (before && (!uuid.safeParse(before.id).success || Number.isNaN(Date.parse(before.created_at))))
+    throw new Error("Некорректная страница истории");
+  const pageSize = 20;
+  const db = await client();
+  let query = db
+    .from("schedule_events")
+    .select("*")
+    .eq("entity_id", id)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(pageSize + 1);
+  if (before)
+    query = query.or(
+      `created_at.lt."${before.created_at}",and(created_at.eq."${before.created_at}",id.lt.${before.id})`,
+    );
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  const rows = data ?? [];
+  return { events: rows.slice(0, pageSize), hasMore: rows.length > pageSize };
 }
 export async function uploadEvidence(runId: string, form: FormData) {
   const parsed = uuid.safeParse(runId);

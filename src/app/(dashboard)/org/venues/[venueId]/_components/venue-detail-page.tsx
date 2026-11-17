@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { TimePicker } from "@/components/ui/time-picker";
 import {
   Select,
   SelectContent,
@@ -386,17 +387,15 @@ export function VenueDetailPage({
                       <span className="text-sm text-muted-foreground">Выходной</span>
                     ) : (
                       <div className="flex items-center gap-2">
-                        <Input
-                          type="time"
+                        <TimePicker
                           value={day?.open ?? "10:00"}
-                          onChange={(e) => setTime(key, "open", e.target.value)}
+                          onChange={(v) => setTime(key, "open", v)}
                           className="w-28 h-8 text-sm"
                         />
                         <span className="text-muted-foreground text-sm">—</span>
-                        <Input
-                          type="time"
+                        <TimePicker
                           value={day?.close ?? "22:00"}
-                          onChange={(e) => setTime(key, "close", e.target.value)}
+                          onChange={(v) => setTime(key, "close", v)}
                           className="w-28 h-8 text-sm"
                         />
                       </div>

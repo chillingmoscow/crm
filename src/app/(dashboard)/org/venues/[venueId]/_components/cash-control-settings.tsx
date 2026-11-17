@@ -4,6 +4,7 @@ import { Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import { DrawerSection } from "@/components/ui/drawer-blocks";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -87,90 +88,94 @@ function Form({
     >
       <fieldset
         disabled={busy || !data.canManage}
-        className="min-w-0 space-y-6"
+        className="min-w-0 space-y-5"
       >
-        <div className="space-y-2">
-          <Label htmlFor="cash-threshold">Порог расхождения, ₽</Label>
-          <Input
-            id="cash-threshold"
-            inputMode="decimal"
-            value={threshold}
-            onChange={(e) => setThreshold(e.target.value)}
-          />
-          <p className="text-xs text-muted-foreground">
-            0 — показывать любое ненулевое расхождение. Недостача и излишек
-            сравниваются с одним порогом.
-          </p>
-        </div>
-        {(
-          [
-            ["opening", "Проверять открытие"],
-            ["closing", "Проверять закрытие"],
-          ] as const
-        ).map(([key, label]) => (
-          <div key={key} className="flex items-center justify-between gap-4">
-            <Label htmlFor={`cash-${key}`}>{label}</Label>
-            <Switch
-              id={`cash-${key}`}
-              checked={rules[key]}
-              onCheckedChange={(v) => setRules((r) => ({ ...r, [key]: v }))}
-            />
-          </div>
-        ))}
-        <div className="flex items-center justify-between gap-4 border-t pt-5">
-          <div>
-            <Label htmlFor="cash-notify">Уведомления в приложении</Label>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Для новых открытий и закрытий кассы.
-            </p>
-          </div>
-          <Switch
-            id="cash-notify"
-            checked={rules.notifyFinance}
-            onCheckedChange={(v) => setRules((r) => ({ ...r, notifyFinance: v }))}
-          />
-        </div>
-        {rules.notifyFinance && (
+        <DrawerSection title="Расхождения">
           <div className="space-y-2">
-            <Label htmlFor="cash-audience">Получатели</Label>
-            <Select value={rules.notificationAudience} onValueChange={(v) => setRules((r) => ({ ...r, notificationAudience: v as CashControlRules["notificationAudience"] }))}>
-              <SelectTrigger id="cash-audience"><SelectValue /></SelectTrigger>
-              <SelectContent className="w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-2rem)]">
-                <SelectItem value="owner_finance">Владелец и пользователи с доступом к финансам</SelectItem>
-                <SelectItem value="owner">Только владелец</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-        <div className="flex items-center justify-between gap-4 border-t pt-5">
-          <div>
-            <Label htmlFor="cash-auto">Автоматическая проверка</Label>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Текущий и предыдущий рабочий день.
-            </p>
-          </div>
-          <Switch
-            id="cash-auto"
-            checked={rules.autoRead}
-            onCheckedChange={(v) => setRules((r) => ({ ...r, autoRead: v }))}
-          />
-        </div>
-        {rules.autoRead && (
-          <div className="space-y-2">
-            <Label htmlFor="cash-interval">Интервал проверки, минут</Label>
+            <Label htmlFor="cash-threshold">Порог расхождения, ₽</Label>
             <Input
-              id="cash-interval"
-              inputMode="numeric"
-              value={interval}
-              onChange={(e) => setIntervalMinutes(e.target.value)}
+              id="cash-threshold"
+              inputMode="decimal"
+              value={threshold}
+              onChange={(e) => setThreshold(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              От 15 минут до суток.
+              0 — показывать любое ненулевое расхождение. Недостача и излишек
+              сравниваются с одним порогом.
             </p>
           </div>
-        )}
-        <div className="space-y-2">
-          <Label htmlFor="cash-reason">Основание изменения</Label>
+          {(
+            [
+              ["opening", "Проверять открытие"],
+              ["closing", "Проверять закрытие"],
+            ] as const
+          ).map(([key, label]) => (
+            <div key={key} className="flex items-center justify-between gap-4">
+              <Label htmlFor={`cash-${key}`}>{label}</Label>
+              <Switch
+                id={`cash-${key}`}
+                checked={rules[key]}
+                onCheckedChange={(v) => setRules((r) => ({ ...r, [key]: v }))}
+              />
+            </div>
+          ))}
+        </DrawerSection>
+        <DrawerSection
+          title="Уведомления в приложении"
+          description="Для новых открытий и закрытий кассы."
+          actions={
+            <Switch
+              id="cash-notify"
+              aria-label="Уведомления в приложении"
+              checked={rules.notifyFinance}
+              onCheckedChange={(v) => setRules((r) => ({ ...r, notifyFinance: v }))}
+            />
+          }
+        >
+          {rules.notifyFinance && (
+            <div className="space-y-2">
+              <Label htmlFor="cash-audience">Получатели</Label>
+              <Select value={rules.notificationAudience} onValueChange={(v) => setRules((r) => ({ ...r, notificationAudience: v as CashControlRules["notificationAudience"] }))}>
+                <SelectTrigger id="cash-audience"><SelectValue /></SelectTrigger>
+                <SelectContent className="w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-2rem)]">
+                  <SelectItem value="owner_finance">Владелец и пользователи с доступом к финансам</SelectItem>
+                  <SelectItem value="owner">Только владелец</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </DrawerSection>
+        <DrawerSection
+          title="Автоматическая проверка"
+          description="Текущий и предыдущий рабочий день."
+          actions={
+            <Switch
+              id="cash-auto"
+              aria-label="Автоматическая проверка"
+              checked={rules.autoRead}
+              onCheckedChange={(v) => setRules((r) => ({ ...r, autoRead: v }))}
+            />
+          }
+        >
+          {rules.autoRead && (
+            <div className="space-y-2">
+              <Label htmlFor="cash-interval">Интервал проверки, минут</Label>
+              <Input
+                id="cash-interval"
+                inputMode="numeric"
+                value={interval}
+                onChange={(e) => setIntervalMinutes(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                От 15 минут до суток.
+              </p>
+            </div>
+          )}
+        </DrawerSection>
+        <DrawerSection title="Основание изменения">
+          <Label htmlFor="cash-reason" className="sr-only">
+            Основание изменения
+          </Label>
           <Textarea
             id="cash-reason"
             value={reason}
@@ -178,7 +183,7 @@ function Form({
             maxLength={1000}
             placeholder="Что изменили и почему"
           />
-        </div>
+        </DrawerSection>
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}

@@ -58,7 +58,7 @@ export function StatusBadge({
         className,
       )}
     >
-      <span className="truncate" title={label}>
+      <span className="truncate" data-tip={label}>
         {label}
       </span>
     </span>

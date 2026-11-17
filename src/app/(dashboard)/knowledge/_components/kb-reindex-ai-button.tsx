@@ -50,7 +50,7 @@ export function KbReindexAiButton() {
       size="sm"
       onClick={onClick}
       disabled={pending}
-      title="Проиндексировать все страницы для ИИ-поиска. Можно жать повторно."
+      data-tip="Проиндексировать все страницы для ИИ-поиска. Можно жать повторно."
     >
       {pending ? <Loader2 className="animate-spin" /> : <Sparkles />}
       {pending ? "Индексируем…" : "Переиндексировать для ИИ"}

@@ -5,6 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import {
+  DrawerAvatar,
+  DrawerSection,
+  DrawerStatus,
+  DrawerTimeline,
+  DrawerTimelineItem,
+} from "@/components/ui/drawer-blocks";
 import { complete } from "@/lib/schedule/utils";
 import { cn } from "@/lib/utils";
 import type { Answer, ChecklistRun, ScheduleData } from "@/lib/schedule/types";
@@ -20,6 +27,18 @@ const statusText = {
   submitted: "Ожидает проверки",
   returned: "На доработке",
   approved: "Утверждено",
+};
+const statusTone = {
+  in_progress: "info",
+  submitted: "warning",
+  returned: "danger",
+  approved: "success",
+} as const;
+const historyLabels: Record<string, string> = {
+  "run.start": "Начато",
+  "run.submit": "Отправлено на проверку",
+  "run.approve": "Утверждено",
+  "run.return": "Возвращено на доработку",
 };
 export function RunPanel({
   run,
@@ -213,6 +232,17 @@ export function RunPanel({
     (i) => i.kind !== "info" && complete(i, answers[i.id]),
   ).length;
   const total = items.filter((i) => i.kind !== "info").length;
+  const actor = (id: string | null) => {
+    const person = data.staff.find((s) => s.user_id === id);
+    const label = person
+      ? [person.first_name, person.last_name].filter(Boolean).join(" ") ||
+        person.role_name
+      : "Система";
+    return {
+      label: id === data.userId ? `${label} (вы)` : label,
+      avatar: person?.avatar_url,
+    };
+  };
   return (
     <EditDrawer
       open
@@ -220,7 +250,10 @@ export function RunPanel({
         if (!o) void close();
       }}
       title={run.snapshot.name}
-      description={`${statusText[status]} · версия ${run.snapshot.version}`}
+      titleAccessory={
+        <DrawerStatus label={statusText[status]} tone={statusTone[status]} />
+      }
+      description={`Версия ${run.snapshot.version}`}
       footer={
         <>
           <span
@@ -304,180 +337,183 @@ export function RunPanel({
           {comment}
         </div>
       )}
-      {items.map((item, index) => (
-        <div
-          key={item.id}
-          className={cn("space-y-2 border-b pb-5", item.parent_id && "ml-5")}
-        >
-          <div className="flex gap-2">
-            <span className="text-xs text-muted-foreground pt-0.5">
-              {index + 1}
-            </span>
-            <p className="text-sm font-medium">
-              {item.title}
-              {item.required && item.kind !== "info" && (
-                <span className="text-muted-foreground"> *</span>
-              )}
-            </p>
-          </div>
-          {item.hint && (
-            <p className="text-xs text-muted-foreground">{item.hint}</p>
-          )}
-          {item.kind === "check" && (
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                disabled={!editable || busy}
-                checked={answers[item.id] === true}
-                onChange={(e) => change(item.id, e.target.checked)}
-              />
-              Выполнено
-            </label>
-          )}
-          {item.kind === "info" && (
-            <p className="text-xs text-muted-foreground">
-              Информация, подтверждение не требуется
-            </p>
-          )}
-          {item.kind === "text" && (
-            <Textarea
-              aria-label={item.title}
-              disabled={!editable || busy}
-              maxLength={item.max_length}
-              value={String(answers[item.id] ?? "")}
-              onChange={(e) => change(item.id, e.target.value)}
-            />
-          )}
-          {item.kind === "number" && (
-            <div className="flex items-center gap-2">
-              <Input
+      <DrawerSection title="Пункты">
+        {items.map((item, index) => (
+          <div
+            key={item.id}
+            className={cn(
+              "space-y-2 border-b pb-5 last:border-b-0 last:pb-0",
+              item.parent_id && "ml-5",
+            )}
+          >
+            <div className="flex gap-2">
+              <span className="text-xs text-muted-foreground pt-0.5">
+                {index + 1}
+              </span>
+              <p className="text-sm font-medium">
+                {item.title}
+                {item.required && item.kind !== "info" && (
+                  <span className="text-muted-foreground"> *</span>
+                )}
+              </p>
+            </div>
+            {item.hint && (
+              <p className="text-xs text-muted-foreground">{item.hint}</p>
+            )}
+            {item.kind === "check" && (
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  disabled={!editable || busy}
+                  checked={answers[item.id] === true}
+                  onChange={(e) => change(item.id, e.target.checked)}
+                />
+                Выполнено
+              </label>
+            )}
+            {item.kind === "info" && (
+              <p className="text-xs text-muted-foreground">
+                Информация, подтверждение не требуется
+              </p>
+            )}
+            {item.kind === "text" && (
+              <Textarea
                 aria-label={item.title}
                 disabled={!editable || busy}
-                type="number"
-                step="any"
-                min={item.min ?? undefined}
-                max={item.max ?? undefined}
-                value={answers[item.id] == null ? "" : String(answers[item.id])}
-                onChange={(e) =>
-                  change(
-                    item.id,
-                    e.target.value === "" ? null : Number(e.target.value),
-                  )
-                }
+                maxLength={item.max_length}
+                value={String(answers[item.id] ?? "")}
+                onChange={(e) => change(item.id, e.target.value)}
               />
-              <span className="text-sm">{item.unit}</span>
-            </div>
-          )}
-          {item.kind === "photo" && (
-            <>
-              {typeof answers[item.id] === "string" &&
-                urls[answers[item.id] as string] && (
-                  <a
-                    href={urls[answers[item.id] as string]}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block"
-                  >
-                    <Image
-                      unoptimized
-                      width={440}
-                      height={280}
-                      className="rounded-lg w-full h-auto max-h-64 object-contain"
-                      src={urls[answers[item.id] as string]}
-                      alt={item.title}
-                    />
-                  </a>
-                )}
-              {editable && (
+            )}
+            {item.kind === "number" && (
+              <div className="flex items-center gap-2">
                 <Input
                   aria-label={item.title}
-                  disabled={busy}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    setBusy(true);
-                    try {
-                      const f = new FormData();
-                      f.set("file", file);
-                      const r = await uploadEvidence(run.id, f);
-                      if (r.error) toast.error(r.error);
-                      else if (r.path) change(item.id, r.path);
-                    } catch {
-                      toast.error(
-                        "Не удалось загрузить фотографию. Попробуйте ещё раз.",
-                      );
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}
+                  disabled={!editable || busy}
+                  type="number"
+                  step="any"
+                  min={item.min ?? undefined}
+                  max={item.max ?? undefined}
+                  value={
+                    answers[item.id] == null ? "" : String(answers[item.id])
+                  }
+                  onChange={(e) =>
+                    change(
+                      item.id,
+                      e.target.value === "" ? null : Number(e.target.value),
+                    )
+                  }
                 />
-              )}
-              {!answers[item.id] && !editable && (
-                <p className="text-xs text-muted-foreground">
-                  Фотография не приложена
-                </p>
-              )}
-            </>
-          )}
-          {notes[item.id] && status !== "submitted" && (
-            <p className="text-xs rounded-md bg-muted p-2">
-              Замечание: {notes[item.id]}
-            </p>
-          )}
-          {review && (
-            <Textarea
-              aria-label={`Замечание к пункту ${index + 1}`}
-              value={notes[item.id] ?? ""}
-              maxLength={2000}
-              placeholder="Замечание к пункту"
-              onChange={(e) =>
-                setNotes({ ...notes, [item.id]: e.target.value })
-              }
-            />
-          )}
-        </div>
-      ))}
+                <span className="text-sm">{item.unit}</span>
+              </div>
+            )}
+            {item.kind === "photo" && (
+              <>
+                {typeof answers[item.id] === "string" &&
+                  urls[answers[item.id] as string] && (
+                    <a
+                      href={urls[answers[item.id] as string]}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block"
+                    >
+                      <Image
+                        unoptimized
+                        width={440}
+                        height={280}
+                        className="rounded-lg w-full h-auto max-h-64 object-contain"
+                        src={urls[answers[item.id] as string]}
+                        alt={item.title}
+                      />
+                    </a>
+                  )}
+                {editable && (
+                  <Input
+                    aria-label={item.title}
+                    disabled={busy}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setBusy(true);
+                      try {
+                        const f = new FormData();
+                        f.set("file", file);
+                        const r = await uploadEvidence(run.id, f);
+                        if (r.error) toast.error(r.error);
+                        else if (r.path) change(item.id, r.path);
+                      } catch {
+                        toast.error(
+                          "Не удалось загрузить фотографию. Попробуйте ещё раз.",
+                        );
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  />
+                )}
+                {!answers[item.id] && !editable && (
+                  <p className="text-xs text-muted-foreground">
+                    Фотография не приложена
+                  </p>
+                )}
+              </>
+            )}
+            {notes[item.id] && status !== "submitted" && (
+              <p className="text-xs rounded-md bg-muted p-2">
+                Замечание: {notes[item.id]}
+              </p>
+            )}
+            {review && (
+              <Textarea
+                aria-label={`Замечание к пункту ${index + 1}`}
+                value={notes[item.id] ?? ""}
+                maxLength={2000}
+                placeholder="Замечание к пункту"
+                onChange={(e) =>
+                  setNotes({ ...notes, [item.id]: e.target.value })
+                }
+              />
+            )}
+          </div>
+        ))}
+      </DrawerSection>
       {review && (
-        <label className="grid gap-2 text-sm font-medium">
-          Комментарий проверки
+        <DrawerSection title="Комментарий проверки">
           <Textarea
+            aria-label="Комментарий проверки"
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             placeholder="Укажите, что нужно исправить при возврате"
             maxLength={5000}
           />
-        </label>
+        </DrawerSection>
       )}
-      <details className="text-sm">
-        <summary className="cursor-pointer font-medium">
-          История выполнения
-        </summary>
-        <div className="grid gap-3 mt-3">
-          {history.map((e) => (
-            <div key={e.id}>
-              <span>
-                {(
-                  {
-                    "run.start": "Начато",
-                    "run.submit": "Отправлено на проверку",
-                    "run.approve": "Утверждено",
-                    "run.return": "Возвращено на доработку",
-                  } as Record<string, string>
-                )[e.action] ?? e.action}
-              </span>
-              <p className="text-xs text-muted-foreground">
-                {new Intl.DateTimeFormat("ru", {
-                  timeZone: data.timezone,
-                  dateStyle: "short",
-                  timeStyle: "short",
-                }).format(new Date(e.created_at))}
-              </p>
-            </div>
-          ))}
-        </div>
-      </details>
+      <DrawerSection title="История выполнения">
+        {history.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Событий пока нет.</p>
+        ) : (
+          <DrawerTimeline>
+            {history.map((e, index) => {
+              const who = actor(e.actor_id);
+              return (
+                <DrawerTimelineItem
+                  key={e.id}
+                  last={index === history.length - 1}
+                  avatar={<DrawerAvatar name={who.label} src={who.avatar} />}
+                  title={historyLabels[e.action] ?? e.action}
+                  meta={`${who.label} · ${new Intl.DateTimeFormat("ru", {
+                    timeZone: data.timezone,
+                    dateStyle: "short",
+                    timeStyle: "short",
+                  }).format(new Date(e.created_at))}`}
+                />
+              );
+            })}
+          </DrawerTimeline>
+        )}
+      </DrawerSection>
     </EditDrawer>
   );
 }

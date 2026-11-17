@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { OptionSelect } from "@/components/ui/option-select";
 import { Switch } from "@/components/ui/switch";
 import {
   automationSettingsSchema,
@@ -458,19 +459,20 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="task-kind">При невыполнении</Label>
-              <select
+              <OptionSelect
                 id="task-kind"
                 className={selectClass}
                 value={t.missing_kind}
-                onChange={(e) =>
+                onValueChange={(v) =>
                   change("tasks", {
-                    missing_kind: e.target.value as typeof t.missing_kind,
+                    missing_kind: v as typeof t.missing_kind,
                   })
                 }
-              >
-                <option value="deduction">Штраф</option>
-                <option value="warning">Предупреждение</option>
-              </select>
+                options={[
+                  { value: "deduction", label: "Штраф" },
+                  { value: "warning", label: "Предупреждение" },
+                ]}
+              />
             </div>
             {t.missing_kind === "deduction" && (
               <NumberField
@@ -493,20 +495,20 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
             />
             <div className="space-y-2">
               <Label htmlFor="task-reward-medium">Начислять премию</Label>
-              <select
+              <OptionSelect
                 id="task-reward-medium"
                 className={selectClass}
                 value={t.extra_reward_medium}
-                onChange={(e) =>
+                onValueChange={(v) =>
                   change("tasks", {
-                    extra_reward_medium: e.target
-                      .value as typeof t.extra_reward_medium,
+                    extra_reward_medium: v as typeof t.extra_reward_medium,
                   })
                 }
-              >
-                <option value="bonus">Бонусами</option>
-                <option value="money">Деньгами</option>
-              </select>
+                options={[
+                  { value: "bonus", label: "Бонусами" },
+                  { value: "money", label: "Деньгами" },
+                ]}
+              />
             </div>
             <p className="text-sm text-muted-foreground">
               Сумма берётся из самой задачи. Выполнение должно быть
@@ -592,20 +594,21 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor={`gift-gender-${row.id}`}>Получатели</Label>
-                    <select
+                    <OptionSelect
                       id={`gift-gender-${row.id}`}
                       className={selectClass}
                       value={row.gender}
-                      onChange={(e) =>
+                      onValueChange={(v) =>
                         holidays(i, {
-                          gender: e.target.value as typeof row.gender,
+                          gender: v as typeof row.gender,
                         })
                       }
-                    >
-                      <option value="all">Все</option>
-                      <option value="male">Мужчины</option>
-                      <option value="female">Женщины</option>
-                    </select>
+                      options={[
+                        { value: "all", label: "Все" },
+                        { value: "male", label: "Мужчины" },
+                        { value: "female", label: "Женщины" },
+                      ]}
+                    />
                   </div>
                 </div>
                 <RolesField

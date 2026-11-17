@@ -8,6 +8,7 @@ import { Loader2, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { TimePicker } from "@/components/ui/time-picker";
 import { VENUE_TYPES, CURRENCIES, TIMEZONES, DAYS_OF_WEEK, type DayKey } from "@/lib/constants";
 import { createAccountAndVenue } from "../actions";
 import type { WizardData } from "./wizard";
@@ -301,22 +302,18 @@ export function StepVenue({ data, onUpdate, onNext, onBack, stepLabel = "Шаг 
                       <span className="text-sm text-gray-400">Выходной</span>
                     ) : (
                       <div className="flex items-center gap-2">
-                        <input
-                          type="time"
+                        <TimePicker
                           value={day?.open ?? "10:00"}
-                          onChange={(e) => setTime(key, "open", e.target.value)}
-                          className="h-9 w-[100px] rounded-lg border border-gray-200 px-2 text-sm
-                                     outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100
-                                     transition-colors duration-150 text-gray-700"
+                          onChange={(v) => setTime(key, "open", v)}
+                          className="h-9 w-[100px] rounded-lg border-gray-200 px-2 text-gray-700
+                                     focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-100"
                         />
                         <span className="text-gray-400 text-sm">—</span>
-                        <input
-                          type="time"
+                        <TimePicker
                           value={day?.close ?? "22:00"}
-                          onChange={(e) => setTime(key, "close", e.target.value)}
-                          className="h-9 w-[100px] rounded-lg border border-gray-200 px-2 text-sm
-                                     outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100
-                                     transition-colors duration-150 text-gray-700"
+                          onChange={(v) => setTime(key, "close", v)}
+                          className="h-9 w-[100px] rounded-lg border-gray-200 px-2 text-gray-700
+                                     focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-100"
                         />
                       </div>
                     )}

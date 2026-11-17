@@ -4,6 +4,7 @@ import { Plus, Settings2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import { DrawerSection } from "@/components/ui/drawer-blocks";
 import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
@@ -81,7 +82,9 @@ function Form({
     ),
     [reason, setReason] = useState(""),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState<string | null>(null);
+    [error, setError] = useState<string | null>(null),
+    [patternsOpen, setPatternsOpen] = useState(false),
+    [overridesOpen, setOverridesOpen] = useState(false);
   const set = <K extends keyof CashMovementRules>(
     k: K,
     v: CashMovementRules[K],
@@ -138,9 +141,8 @@ function Form({
         </>
       }
     >
-      <fieldset disabled={busy} className="min-w-0 space-y-6">
-        <div className="space-y-4">
-          <h3 className="text-sm font-semibold">Счета</h3>
+      <fieldset disabled={busy} className="min-w-0 space-y-5">
+        <DrawerSection title="Счета">
           {(
             [
               ["cashAccountId", "Касса"],
@@ -157,9 +159,8 @@ function Form({
               onChange={(v) => set(key, v)}
             />
           ))}
-        </div>
-        <div className="space-y-4 border-t pt-5">
-          <h3 className="text-sm font-semibold">Внесения в кассу</h3>
+        </DrawerSection>
+        <DrawerSection title="Внесения в кассу">
           <Choice
             name="movement-cash-in-mode"
             label="Обработка новых внесений"
@@ -183,9 +184,8 @@ function Form({
               onChange={(v) => set("incomeCategoryId", v)}
             />
           )}
-        </div>
-        <div className="space-y-4 border-t pt-5">
-          <h3 className="text-sm font-semibold">Статьи</h3>
+        </DrawerSection>
+        <DrawerSection title="Статьи">
           {(
             [
               ["taxiCategoryId", "Такси", "expense"],
@@ -201,16 +201,18 @@ function Form({
               onChange={(v) => set(key, v)}
             />
           ))}
-        </div>
-        <div className="space-y-4 border-t pt-5">
-          <div className="flex items-center justify-between gap-4">
-            <Label htmlFor="movement-auto">Автоматическая сверка</Label>
+        </DrawerSection>
+        <DrawerSection
+          title="Автоматическая сверка"
+          actions={
             <Switch
               id="movement-auto"
+              aria-label="Автоматическая сверка"
               checked={rules.autoRead}
               onCheckedChange={(v) => set("autoRead", v)}
             />
-          </div>
+          }
+        >
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="movement-lookback">
@@ -240,191 +242,221 @@ function Form({
           <p className="text-xs text-muted-foreground">
             Поздние выгрузки относятся к дате исходной кассовой смены.
           </p>
-        </div>
-        <details className="border-t pt-5 text-sm">
-          <summary className="cursor-pointer text-muted-foreground">
-            Распознавание комментариев
-          </summary>
-          <div className="mt-4 space-y-4">
-            {(
-              [
-                ["safePattern", "Инкассация в сейф"],
-                ["taxiPattern", "Такси"],
-                ["tipsPattern", "Чаевые"],
-              ] as const
-            ).map(([key, label]) => (
-              <div key={key} className="space-y-2">
-                <Label htmlFor={`movement-${key}`}>{label}</Label>
-                <Input
-                  id={`movement-${key}`}
-                  value={rules[key]}
-                  maxLength={200}
-                  onChange={(e) => set(key, e.target.value)}
-                />
-              </div>
-            ))}
-          </div>
-        </details>
-        <details className="border-t pt-5 text-sm">
-          <summary className="cursor-pointer text-muted-foreground">
-            Ручные решения · {rules.overrides.length}
-          </summary>
-          <div className="mt-4 space-y-4">
-            {rules.overrides.map((o, i) => (
-              <div key={i} className="space-y-3 rounded-xl border p-4">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">
-                    Операция {o.sourceId ? `#${o.sourceId}` : ""}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Убрать решение"
-                    onClick={() =>
-                      set(
-                        "overrides",
-                        rules.overrides.filter((_, index) => i !== index),
-                      )
-                    }
-                  >
-                    <X className="size-4" />
-                  </Button>
-                </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor={`movement-id-${i}`}>
-                      Номер Quick Resto
-                    </Label>
-                    <Input
-                      id={`movement-id-${i}`}
-                      inputMode="numeric"
-                      value={o.sourceId || ""}
-                      onChange={(e) =>
-                        patch(i, { sourceId: Number(e.target.value) })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor={`movement-date-${i}`}>Дата смены</Label>
-                    <DatePicker
-                      id={`movement-date-${i}`}
-                      value={o.date}
-                      disabled={busy}
-                      onChange={(date) => patch(i, { date })}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor={`movement-amount-${i}`}>Сумма, ₽</Label>
-                  <Input
-                    id={`movement-amount-${i}`}
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    value={o.amountCents ? o.amountCents / 100 : ""}
-                    onChange={(e) =>
-                      patch(i, {
-                        amountCents: Math.round(Number(e.target.value) * 100),
-                      })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor={`movement-comment-${i}`}>
-                    Исходный комментарий
-                  </Label>
-                  <Input
-                    id={`movement-comment-${i}`}
-                    value={o.comment}
-                    onChange={(e) => patch(i, { comment: e.target.value })}
-                  />
-                </div>
-                <Choice
-                  name={`movement-type-${i}`}
-                  label="Тип кассовой операции"
-                  value={o.sourceType ?? "cashOut"}
-                  options={[
-                    { id: "cashOut", name: "Изъятие из кассы" },
-                    { id: "cashIn", name: "Внесение в кассу" },
-                  ]}
-                  onChange={(v) => patch(i, {
-                    sourceType: v as "cashIn" | "cashOut",
-                    route: "hold",
-                    categoryId: undefined,
-                  })}
-                />
-                <Choice
-                  name={`movement-route-${i}`}
-                  label="Решение"
-                  value={o.route}
-                  options={[
-                    { id: "hold", name: "Оставить на проверке" },
-                    ...((o.sourceType ?? "cashOut") === "cashIn" ? [
-                      { id: "income", name: "Поступление по статье" },
-                      { id: "safe", name: "Из сейфа в кассу" },
-                      { id: "operating", name: "С операционного счёта в кассу" },
-                    ] : [
-                      { id: "safe", name: "Перевод в сейф" },
-                      { id: "operating", name: "Перевод на операционный счёт" },
-                    ]),
-                  ]}
-                  onChange={(v) => patch(i, {
-                    route: v as typeof o.route,
-                    categoryId: v === "income" ? o.categoryId : undefined,
-                  })}
-                />
-                {o.route === "income" && (
-                  <Choice
-                    name={`movement-category-${i}`}
-                    label="Статья поступления"
-                    value={o.categoryId ?? ""}
-                    options={data.categories.filter((c) => c.type === "income")}
-                    onChange={(categoryId) => patch(i, { categoryId })}
-                  />
-                )}
-                <div className="space-y-2">
-                  <Label htmlFor={`movement-reason-${i}`}>
-                    Основание решения
-                  </Label>
-                  <Textarea
-                    id={`movement-reason-${i}`}
-                    value={o.reason}
-                    maxLength={1000}
-                    onChange={(e) => patch(i, { reason: e.target.value })}
-                  />
-                </div>
-              </div>
-            ))}
+        </DrawerSection>
+        <DrawerSection
+          title="Распознавание комментариев"
+          actions={
             <Button
               type="button"
-              variant="outline"
-              onClick={() =>
-                set("overrides", [
-                  ...rules.overrides,
-                  {
-                    sourceId: 0,
-                    date: "",
-                    amountCents: 0,
-                    comment: "",
-                    sourceType: "cashOut",
-                    route: "hold",
-                    reason: "",
-                  },
-                ])
-              }
+              variant="ghost"
+              size="sm"
+              aria-expanded={patternsOpen}
+              onClick={() => setPatternsOpen(!patternsOpen)}
             >
-              <Plus className="mr-2 size-4" />
-              Добавить решение
+              {patternsOpen ? "Скрыть" : "Показать"}
             </Button>
-            <p className="text-xs text-muted-foreground">
-              Решение действует только для указанного типа, суммы, даты и комментария.
-              Изменившаяся операция требует новой проверки.
-            </p>
-          </div>
-        </details>
-        <div className="space-y-2">
-          <Label htmlFor="movement-reason">Основание изменения правил</Label>
+          }
+        >
+          {patternsOpen && (
+            <div className="space-y-4">
+              {(
+                [
+                  ["safePattern", "Инкассация в сейф"],
+                  ["taxiPattern", "Такси"],
+                  ["tipsPattern", "Чаевые"],
+                ] as const
+              ).map(([key, label]) => (
+                <div key={key} className="space-y-2">
+                  <Label htmlFor={`movement-${key}`}>{label}</Label>
+                  <Input
+                    id={`movement-${key}`}
+                    value={rules[key]}
+                    maxLength={200}
+                    onChange={(e) => set(key, e.target.value)}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </DrawerSection>
+        <DrawerSection
+          title={`Ручные решения · ${rules.overrides.length}`}
+          actions={
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-expanded={overridesOpen}
+              onClick={() => setOverridesOpen(!overridesOpen)}
+            >
+              {overridesOpen ? "Скрыть" : "Показать"}
+            </Button>
+          }
+        >
+          {overridesOpen && (
+            <div className="space-y-4">
+              {rules.overrides.length > 0 && (
+                <div className="divide-y">
+                  {rules.overrides.map((o, i) => (
+                    <div key={i} className="space-y-3 py-4 first:pt-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">
+                          Операция {o.sourceId ? `#${o.sourceId}` : ""}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          aria-label="Убрать решение"
+                          onClick={() =>
+                            set(
+                              "overrides",
+                              rules.overrides.filter((_, index) => i !== index),
+                            )
+                          }
+                        >
+                          <X className="size-4" />
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor={`movement-id-${i}`}>
+                            Номер Quick Resto
+                          </Label>
+                          <Input
+                            id={`movement-id-${i}`}
+                            inputMode="numeric"
+                            value={o.sourceId || ""}
+                            onChange={(e) =>
+                              patch(i, { sourceId: Number(e.target.value) })
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`movement-date-${i}`}>Дата смены</Label>
+                          <DatePicker
+                            id={`movement-date-${i}`}
+                            value={o.date}
+                            disabled={busy}
+                            onChange={(date) => patch(i, { date })}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`movement-amount-${i}`}>Сумма, ₽</Label>
+                        <Input
+                          id={`movement-amount-${i}`}
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={o.amountCents ? o.amountCents / 100 : ""}
+                          onChange={(e) =>
+                            patch(i, {
+                              amountCents: Math.round(Number(e.target.value) * 100),
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`movement-comment-${i}`}>
+                          Исходный комментарий
+                        </Label>
+                        <Input
+                          id={`movement-comment-${i}`}
+                          value={o.comment}
+                          onChange={(e) => patch(i, { comment: e.target.value })}
+                        />
+                      </div>
+                      <Choice
+                        name={`movement-type-${i}`}
+                        label="Тип кассовой операции"
+                        value={o.sourceType ?? "cashOut"}
+                        options={[
+                          { id: "cashOut", name: "Изъятие из кассы" },
+                          { id: "cashIn", name: "Внесение в кассу" },
+                        ]}
+                        onChange={(v) => patch(i, {
+                          sourceType: v as "cashIn" | "cashOut",
+                          route: "hold",
+                          categoryId: undefined,
+                        })}
+                      />
+                      <Choice
+                        name={`movement-route-${i}`}
+                        label="Решение"
+                        value={o.route}
+                        options={[
+                          { id: "hold", name: "Оставить на проверке" },
+                          ...((o.sourceType ?? "cashOut") === "cashIn" ? [
+                            { id: "income", name: "Поступление по статье" },
+                            { id: "safe", name: "Из сейфа в кассу" },
+                            { id: "operating", name: "С операционного счёта в кассу" },
+                          ] : [
+                            { id: "safe", name: "Перевод в сейф" },
+                            { id: "operating", name: "Перевод на операционный счёт" },
+                          ]),
+                        ]}
+                        onChange={(v) => patch(i, {
+                          route: v as typeof o.route,
+                          categoryId: v === "income" ? o.categoryId : undefined,
+                        })}
+                      />
+                      {o.route === "income" && (
+                        <Choice
+                          name={`movement-category-${i}`}
+                          label="Статья поступления"
+                          value={o.categoryId ?? ""}
+                          options={data.categories.filter((c) => c.type === "income")}
+                          onChange={(categoryId) => patch(i, { categoryId })}
+                        />
+                      )}
+                      <div className="space-y-2">
+                        <Label htmlFor={`movement-reason-${i}`}>
+                          Основание решения
+                        </Label>
+                        <Textarea
+                          id={`movement-reason-${i}`}
+                          value={o.reason}
+                          maxLength={1000}
+                          onChange={(e) => patch(i, { reason: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  set("overrides", [
+                    ...rules.overrides,
+                    {
+                      sourceId: 0,
+                      date: "",
+                      amountCents: 0,
+                      comment: "",
+                      sourceType: "cashOut",
+                      route: "hold",
+                      reason: "",
+                    },
+                  ])
+                }
+              >
+                <Plus className="mr-2 size-4" />
+                Добавить решение
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Решение действует только для указанного типа, суммы, даты и комментария.
+                Изменившаяся операция требует новой проверки.
+              </p>
+            </div>
+          )}
+        </DrawerSection>
+        <DrawerSection title="Основание изменения правил">
+          <Label htmlFor="movement-reason" className="sr-only">
+            Основание изменения правил
+          </Label>
           <Textarea
             id="movement-reason"
             value={reason}
@@ -432,7 +464,7 @@ function Form({
             onChange={(e) => setReason(e.target.value)}
             placeholder="Что изменили и почему"
           />
-        </div>
+        </DrawerSection>
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}

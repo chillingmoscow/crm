@@ -10,6 +10,14 @@ import { Label } from "@/components/ui/label";
 import { DatePicker } from "@/components/ui/date-picker";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -541,13 +549,23 @@ function UniformCard({
         description={data.employee.name}
         focusContentOnOpen
         footer={
-          <Button
-            type="button"
-            disabled={busy || !valid}
-            onClick={() => void save()}
-          >
-            Записать покупку
-          </Button>
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => setOpen(false)}
+            >
+              Отмена
+            </Button>
+            <Button
+              type="button"
+              disabled={busy || !valid}
+              onClick={() => void save()}
+            >
+              Записать покупку
+            </Button>
+          </>
         }
       >
         <Field id={`${id}-title`} label="Что приобретено">
@@ -604,32 +622,48 @@ function UniformCard({
         </Field>
         {!!parts.length && <Installments items={parts} />}
       </EditDrawer>
-      <EditDrawer
+      <Dialog
         open={!!cancel}
         onOpenChange={(v) => {
           if (!v && !busy) setCancel(null);
         }}
-        title="Остановить удержания за форму"
-        description="Уже учтённые суммы и расход на покупку сохранятся."
-        footer={
-          <Button
-            type="button"
-            disabled={busy || reason.trim().length < 3}
-            onClick={() => void stop()}
-          >
-            Остановить удержания
-          </Button>
-        }
       >
-        <Field id={`${id}-cancel`} label="Причина">
-          <Input
-            id={`${id}-cancel`}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            maxLength={1000}
-          />
-        </Field>
-      </EditDrawer>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Остановить удержания за форму?</DialogTitle>
+            <DialogDescription>
+              Уже учтённые суммы и расход на покупку сохранятся.
+            </DialogDescription>
+          </DialogHeader>
+          <Field id={`${id}-cancel`} label="Причина">
+            <Input
+              id={`${id}-cancel`}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              maxLength={1000}
+              placeholder="Например, сотрудник вернул форму"
+            />
+          </Field>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => setCancel(null)}
+            >
+              Отмена
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={busy || reason.trim().length < 3}
+              onClick={() => void stop()}
+            >
+              Остановить удержания
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

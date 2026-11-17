@@ -1,5 +1,5 @@
 "use server";
-import { createClient, getCachedActiveAccountId, getCachedPermissions, getCachedUser } from "@/lib/supabase/server";
+import { createClient, getCachedPermissions, getCachedUser } from "@/lib/supabase/server";
 import { listKbPageTreeRows } from "@/lib/knowledge/pages";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { shiftTemplateLabel } from "@/lib/schedule/types";
@@ -152,20 +152,13 @@ export async function loadTaskInstructionPages() {
 }
 /**
  * Чаты Telegram для настроек задач — из «Интеграции → Telegram», только
- * название и ID. Список интеграции закрыт правом на интеграции, поэтому
- * читаем служебным клиентом, но отдаём лишь тем, кто настраивает задачи.
+ * название и ID. Права проверяет база (schedule_task_chat_choices, миграция 344).
  */
 export async function loadTaskChats(): Promise<{ chat_id: string; title: string }[]> {
-  const [permissions, accountId] = await Promise.all([getCachedPermissions(), getCachedActiveAccountId()]);
-  if (!permissions.includes("schedule.checklist_edit") || !accountId) return [];
-  const r = await asLooseDb(createAdminClient())
-    .from<{ chat_id: string; title: string }[]>("telegram_chats")
-    .select("chat_id,title")
-    .eq("account_id", accountId)
-    .is("archived_at", null)
-    .order("title");
+  const { db } = await context();
+  const r = await db.rpc("schedule_task_chat_choices");
   if (r.error) throw new Error(r.error.message);
-  return r.data ?? [];
+  return (r.data as { chat_id: string; title: string }[] | null) ?? [];
 }
 
 /** Задачи для быстрого назначения из графика: только названия. */

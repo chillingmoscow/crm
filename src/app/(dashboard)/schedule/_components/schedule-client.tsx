@@ -62,6 +62,7 @@ import {
   addDays,
   dateInZone,
   dayLabel,
+  instantInZone,
   shiftHours,
   timeInZone,
   weekStart,
@@ -675,7 +676,7 @@ export function ScheduleClient({
     const payModel = casualPayModel(userId, {
       role_id: template.role_id,
       department_id: template.department_id,
-      starts_at: `${day}T${times.start_time}`,
+      starts_at: instantInZone(day, times.start_time, data.timezone),
     });
     if (casual && !payModel) {
       create(day, userId, template);

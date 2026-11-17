@@ -16,6 +16,30 @@ export function timeInZone(value: string, timezone: string) {
     hourCycle: "h23",
   }).format(new Date(value));
 }
+/**
+ * Момент времени (ISO, UTC) для даты и времени по часам заведения:
+ * «2026-11-18», «14:00», «Europe/Moscow» → «2026-11-18T11:00:00.000Z».
+ */
+export function instantInZone(date: string, time: string, timezone: string) {
+  const naive = Date.parse(`${date}T${time.slice(0, 5)}:00Z`);
+  const offset = (at: number) => {
+    const p = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date(at));
+    const v = (t: string) => Number(p.find((x) => x.type === t)?.value);
+    return Date.UTC(v("year"), v("month") - 1, v("day"), v("hour"), v("minute"), v("second")) - at;
+  };
+  // Две итерации — на случай перехода на летнее/зимнее время между догадками.
+  const first = naive - offset(naive);
+  return new Date(naive - offset(first)).toISOString();
+}
 export function addDays(date: string, days: number) {
   const d = new Date(date + "T12:00:00Z");
   d.setUTCDate(d.getUTCDate() + days);

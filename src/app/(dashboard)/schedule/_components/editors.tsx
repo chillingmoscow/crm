@@ -16,7 +16,7 @@ import { DrawerSection } from "@/components/ui/drawer-blocks";
 import { PALETTE_COLORS, paletteDot } from "@/lib/palette";
 import { cn } from "@/lib/utils";
 import { shiftTemplateLabel } from "@/lib/schedule/types";
-import { addDays, dateInZone, dayLabel, timeInZone } from "@/lib/schedule/utils";
+import { addDays, dateInZone, dayLabel, instantInZone, timeInZone } from "@/lib/schedule/utils";
 import {
   MAX_TEMPLATE_VARIANTS,
   templateTimesFor,
@@ -459,7 +459,7 @@ export function ShiftEditor({
         shift: {
           role_id: templateValue.role_id,
           department_id: templateValue.department_id,
-          starts_at: `${date}T${templateValue.start_time}`,
+          starts_at: instantInZone(date, templateValue.start_time, data.timezone),
         },
         models: data.payModels ?? [],
         roles: data.roles,

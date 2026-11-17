@@ -23,8 +23,9 @@ as $$
       'id', m.id, 'name', m.name, 'role_name', m.role_name, 'role_id', m.role_id, 'is_role_default', m.is_role_default)), '[]')
     from public.payroll_models m
     where m.venue_id = public.get_active_venue_id() and not m.archived and m.monthly_amount = 0) else '[]'::jsonb end,
-  'same_department_rate_from', (select s.same_department_rate_from from public.payroll_settings s
-    where s.venue_id = public.get_active_venue_id())
+  'same_department_rate_from', case when public.has_permission('payroll.configure') then (
+    select s.same_department_rate_from from public.payroll_settings s
+    where s.venue_id = public.get_active_venue_id()) end
  ) else '{"employees":[],"models":[]}'::jsonb end;
 $$;
 revoke all on function public.schedule_payroll_options() from public, anon;

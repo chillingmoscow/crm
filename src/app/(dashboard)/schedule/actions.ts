@@ -252,6 +252,7 @@ export async function loadSchedule(
   const payrollOptions = options.data as unknown as {
     employees: NonNullable<ScheduleData["casualEmployees"]>;
     models: NonNullable<ScheduleData["payModels"]>;
+    same_department_rate_from?: string | null;
   };
   for (const r of [
     shifts,
@@ -282,6 +283,7 @@ export async function loadSchedule(
     qualifications: qualifications.data ?? [],
     casualEmployees: payrollOptions.employees,
     payModels: payrollOptions.models,
+    sameDepartmentRateFrom: payrollOptions.same_department_rate_from ?? null,
     staff: (staff.data ?? []).map((s) => ({
       user_id: s.user_id,
       first_name: s.first_name,

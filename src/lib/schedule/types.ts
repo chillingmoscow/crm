@@ -164,7 +164,15 @@ export type ScheduleData = {
     role_name: string;
     model_id: string | null;
   }[];
-  payModels?: { id: string; name: string; role_name: string }[];
+  payModels?: {
+    id: string;
+    name: string;
+    role_name: string;
+    role_id: string | null;
+    is_role_default: boolean;
+  }[];
+  /** С этой даты в своём подразделении сотрудник получает свою ставку. */
+  sameDepartmentRateFrom?: string | null;
   departments: { id: string; name: string }[];
   roles: { id: string; name: string; department_id: string | null }[];
 };

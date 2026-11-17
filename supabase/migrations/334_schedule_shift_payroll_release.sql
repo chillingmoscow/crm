@@ -8,11 +8,9 @@
 --     корректировкой, деньги уже ушли);
 --   • иначе при удалении выход по графику (external_id < 0) помечается
 --     «не учитывается», связь выходов со сменой снимается, решения
---     «засчитать/не засчитывать» по смене удаляются, день ставится в
---     очередь пересчёта зарплаты;
---   • при изменении времени, сотрудника, должности или публикации такой
---     смены день тоже ставится в очередь пересчёта, чтобы начисления не
---     остались по старому графику.
+--     «засчитать/не засчитывать» по смене удаляются.
+-- Пересчёт дня после изменения прошедшей смены уже делает существующий
+-- триггер schedule_queue_payroll — здесь его не дублируем.
 -- Сделано триггерами: сотрудника и время меняют несколько путей (форма,
 -- перенос мышью, замена, обновление по шаблону).
 begin;
@@ -44,43 +42,6 @@ as $$
 $$;
 revoke all on function private.schedule_shift_payroll_locked(uuid) from public, anon, authenticated;
 
--- Поставить рабочий день в очередь пересчёта зарплаты (как queuePayroll в
--- приложении: только при включённой зарплате, не раньше старта и не в
--- историческом периоде, не трогая день, который сейчас считается).
-create or replace function private.schedule_queue_payroll_day(p_venue uuid, p_day date)
-returns void
-language sql
-security definer
-set search_path = public, pg_catalog
-as $$
-  insert into public.payroll_source_days(account_id, venue_id, business_date, state, error)
-  select s.account_id, s.venue_id, p_day, 'pending', null
-  from public.payroll_settings s
-  where s.venue_id = p_venue and s.enabled and p_day >= s.starts_on
-    and (s.historical_through is null or p_day > s.historical_through)
-  on conflict (venue_id, business_date) do update
-    set state = 'pending', error = null
-    where public.payroll_source_days.state <> 'loading'
-$$;
-revoke all on function private.schedule_queue_payroll_day(uuid, date) from public, anon, authenticated;
-
--- Рабочий день смены по настройкам продаж (как в расчёте зарплаты).
-create or replace function private.schedule_shift_business_day(p_venue uuid, p_starts timestamptz)
-returns date
-language sql
-stable
-security definer
-set search_path = public, pg_catalog
-as $$
-  select coalesce(
-    ((p_starts at time zone cfg.timezone) - make_interval(hours => cfg.day_start_hour))::date,
-    (p_starts at time zone 'Europe/Moscow')::date
-  )
-  from (select 1) one
-  left join public.sales_settings cfg on cfg.venue_id = p_venue
-$$;
-revoke all on function private.schedule_shift_business_day(uuid, timestamptz) from public, anon, authenticated;
-
 create or replace function private.schedule_shift_release_payroll()
 returns trigger
 language plpgsql
@@ -89,7 +50,6 @@ set search_path = public, pg_catalog
 as $$
 declare
   shift public.schedule_shifts := case when tg_op = 'DELETE' then old else new end;
-  d date;
 begin
   if not exists (select 1 from public.payroll_attendance where shift_id = old.id) then
     return shift;
@@ -97,10 +57,6 @@ begin
   if private.schedule_shift_payroll_locked(old.id) then
     raise exception 'Зарплата за эту смену уже выплачена или месяц закрыт. Исправьте начисление корректировкой в зарплате';
   end if;
-
-  for d in select distinct business_date from public.payroll_attendance where shift_id = old.id loop
-    perform private.schedule_queue_payroll_day(old.venue_id, d);
-  end loop;
 
   if tg_op = 'DELETE' then
     update public.payroll_attendance
@@ -110,10 +66,6 @@ begin
            version = version + 1
      where shift_id = old.id;
     delete from public.payroll_schedule_reviews where shift_id = old.id;
-  else
-    -- Новый день смены тоже пересчитываем: она могла переехать на другую дату.
-    perform private.schedule_queue_payroll_day(new.venue_id,
-      private.schedule_shift_business_day(new.venue_id, new.starts_at));
   end if;
   return shift;
 end

@@ -394,7 +394,7 @@ export function effectivePayModel(
 export function shiftPayModelId(
   shift: Pick<Shift, "role_id" | "department_id" | "payroll_model_id">,
   employee: Pick<PayEmployee, "role_id" | "model_id">,
-  models: PayModel[],
+  models: Pick<PayModel, "id" | "role_id" | "is_role_default">[],
   departmentsByRole: ReadonlyMap<string, string | null>,
   useSameDepartmentRate: boolean,
   paysShift: (modelId: string) => boolean = () => true,

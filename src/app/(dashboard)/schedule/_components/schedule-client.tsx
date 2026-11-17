@@ -643,18 +643,20 @@ export function ScheduleClient({
       template,
       templateSlot,
     });
-  /**
-   * Модель оплаты разового сотрудника по должности смены (как в форме):
-   * его модель, если она этой должности, иначе единственная модель должности.
-   */
-  const casualPayModel = (userId: string | null, roleId: string | null) => {
+  /** Модель оплаты разового — по правилу расчёта зарплаты (как в форме). */
+  const casualPayModel = (
+    userId: string | null,
+    shift: { role_id: string | null; department_id?: string | null; starts_at?: string | null },
+  ) => {
     const casual = data.casualEmployees?.find((e) => `payroll:${e.id}` === userId);
     if (!casual) return null;
     return pickCasualPayModel({
-      employeeModelId: casual.model_id,
-      roleName: data.roles.find((r) => r.id === roleId)?.name,
+      employee: casual,
+      shift,
       models: data.payModels ?? [],
-    }).id;
+      roles: data.roles,
+      sameDepartmentRateFrom: data.sameDepartmentRateFrom,
+    });
   };
   /**
    * Шаблон в ячейку сотрудника — сразу черновик смены, без формы: сотрудник,
@@ -670,7 +672,11 @@ export function ScheduleClient({
     }
     const casual = data.casualEmployees?.find((e) => `payroll:${e.id}` === userId);
     // Если модель оплаты разового нельзя подобрать однозначно — открываем форму.
-    const payModel = casualPayModel(userId, template.role_id);
+    const payModel = casualPayModel(userId, {
+      role_id: template.role_id,
+      department_id: template.department_id,
+      starts_at: `${day}T${times.start_time}`,
+    });
     if (casual && !payModel) {
       create(day, userId, template);
       return;
@@ -768,7 +774,7 @@ export function ScheduleClient({
       start_time: timeInZone(shift.starts_at, data.timezone),
       end_time: timeInZone(shift.ends_at, data.timezone),
       ...assignmentFields(userId),
-      payroll_model_id: casualPayModel(userId, shift.role_id),
+      payroll_model_id: casualPayModel(userId, shift),
     });
   };
   const cellTemplates = (day: string) =>
@@ -1763,7 +1769,7 @@ export function ScheduleClient({
                       id: selected.id,
                       version: selected.version,
                       ...assignmentFields(next),
-                      payroll_model_id: casualPayModel(next, selected.role_id),
+                      payroll_model_id: casualPayModel(next, selected),
                     })
                   )
                     setSelected(null);

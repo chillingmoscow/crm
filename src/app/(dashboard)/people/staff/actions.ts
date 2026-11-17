@@ -64,7 +64,8 @@ export type StaffMember = {
    *  daily-cron notification (см. миграцию 135). */
   medical_book_date: string | null;
   joined_at:         string;
-  imported_from_quickresto?: boolean;
+  /** PIN кассы из карточки сотрудника; только для тех, кто может его видеть. */
+  terminal_pin?: string | null;
   /** Есть ли неотозванное приглашение на email сотрудника (выставляется на
    *  странице списка). Признак «приглашён, но не активировал». */
   has_pending_invite?: boolean;

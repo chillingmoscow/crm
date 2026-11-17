@@ -172,7 +172,7 @@ const REGISTRY: Record<string, NotificationTypeSpec> = {
     verb: null,
   },
 
-  // График: замена сотрудника на опубликованной смене (миграция 332).
+  // График: замена сотрудника на опубликованной смене (миграция 338).
   "schedule.shift_assigned": {
     category: "schedule",
     icon: UserCheck,

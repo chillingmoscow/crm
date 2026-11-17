@@ -714,6 +714,8 @@ export function ScheduleClient({
       template_id: template.id,
     });
   };
+  /** В списке перенос — на другой день у того же сотрудника. */
+  const listDropUser = dragItem?.kind === "shift" ? shiftAssignee(dragItem.shift) : null;
   /** Смена вернулась в свою же ячейку — сохранять нечего. */
   const sameCell = (item: DragItem, day: string, userId: string | null) =>
     item.kind === "shift" &&
@@ -1549,7 +1551,19 @@ export function ScheduleClient({
                       )}
                   >
                     {days.map((d) => (
-                      <section key={d} className="overflow-hidden rounded-lg border bg-card">
+                      <section
+                        key={d}
+                        // В списке смену переносят на другой день у того же
+                        // сотрудника; шаблоны сюда не бросают — нет сотрудника.
+                        onDragOver={(e) => dragItem?.kind === "shift" && dragOver(e, d, listDropUser)}
+                        onDragLeave={(e) => dragLeave(e, d, listDropUser)}
+                        onDrop={(e) => dragItem?.kind === "shift" && void drop(e, d, listDropUser)}
+                        className={cn(
+                          "overflow-hidden rounded-lg border bg-card transition-colors",
+                          dropTarget?.day === d && dropTarget.userId === listDropUser &&
+                            (dropTarget.ok ? "border-brand/40" : "border-destructive/40"),
+                        )}
+                      >
                         <div className="flex items-center justify-between gap-2 border-b bg-muted/50 py-1.5 pl-4 pr-2">
                           <h3 className={cn("py-1.5 text-sm font-medium first-letter:uppercase", d === today && "text-brand")}>
                             {dayLabel(d, {
@@ -1606,6 +1620,14 @@ export function ScheduleClient({
                                 Смен нет
                               </p>
                             )}
+                          {/* Место под тень: появляется у всех дней сразу при
+                              начале переноса, поэтому при движении ничего не
+                              прыгает; тень — в дне под курсором. */}
+                          {dragItem?.kind === "shift" && (
+                            <div aria-hidden className="relative h-14">
+                              {dropGhost(d, listDropUser)}
+                            </div>
+                          )}
                         </div>
                       </section>
                     ))}

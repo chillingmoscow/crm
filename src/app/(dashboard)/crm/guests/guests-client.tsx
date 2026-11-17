@@ -28,6 +28,7 @@ import {
 } from "@/components/shared/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TimePicker } from "@/components/ui/time-picker";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -1431,11 +1432,11 @@ function TimeField({
 }) {
   return (
     <Field label={label}>
-      <Input
-        type="time"
+      <TimePicker
         value={`${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`}
-        onChange={(e) => {
-          const [h, m] = e.target.value.split(":").map(Number);
+        clearable={false}
+        onChange={(value) => {
+          const [h, m] = value.split(":").map(Number);
           if (Number.isInteger(h) && Number.isInteger(m)) onChange(h, m);
         }}
       />

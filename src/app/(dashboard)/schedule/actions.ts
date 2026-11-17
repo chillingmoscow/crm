@@ -390,6 +390,38 @@ export async function scheduleCommand(
     };
   }
 }
+export type ApplyTemplateResult = {
+  updated: number;
+  unchanged: number;
+  skipped: { date: string; reason: string }[];
+};
+/** Переносит текущие значения шаблона в смены по нему, начиная с даты `from`. */
+export async function applyTemplateToShifts(input: {
+  id: string;
+  from: string;
+  previousTitle?: string;
+}): Promise<ApplyTemplateResult | { error: string }> {
+  const parsed = z
+    .object({
+      id: uuid,
+      from: z.string().refine(validDate, "Укажите дату"),
+      previousTitle: z.string().max(160).optional(),
+    })
+    .safeParse(input);
+  if (!parsed.success) return { error: "Проверьте шаблон и дату" };
+  const db = await client();
+  const { data, error } = await asLooseDb(db).rpc(
+    "schedule_apply_template",
+    {
+      p_template: parsed.data.id,
+      p_from: parsed.data.from,
+      p_previous_title: parsed.data.previousTitle ?? null,
+    },
+  );
+  if (error || !data) return { error: error?.message ?? "Не удалось обновить смены" };
+  revalidatePath("/schedule");
+  return data as ApplyTemplateResult;
+}
 export async function scheduleHistory(id: string) {
   const db = await client();
   const { data, error } = await db

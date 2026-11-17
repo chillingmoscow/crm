@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { DatePicker } from "@/components/ui/date-picker";
+import { TimePicker } from "@/components/ui/time-picker";
 import {
   Select,
   SelectContent,
@@ -1322,11 +1323,10 @@ export function TaskReport({
               />
             </Field>
             <Field label="Срок исправления при возврате">
-              <Input
-                type="datetime-local"
+              <DateTimeField
                 value={correctUntil}
-                onChange={(e) => {
-                  setCorrectUntil(e.target.value);
+                onChange={(next) => {
+                  setCorrectUntil(next);
                   setDirty(true);
                 }}
               />
@@ -1528,5 +1528,32 @@ function TaskMessageErrors({
         </div>
       ))}
     </ProfileSection>
+  );
+}
+
+/**
+ * Дата и время вместо нативного `datetime-local`: отдаёт ту же строку
+ * `YYYY-MM-DDTHH:mm` (локальное время устройства), а пока не выбрана
+ * одна из частей — пустую строку, как нативное поле с неполным значением.
+ */
+function DateTimeField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [date, setDate] = useState(value.slice(0, 10));
+  const [time, setTime] = useState(value.slice(11, 16));
+  const update = (nextDate: string, nextTime: string) => {
+    setDate(nextDate);
+    setTime(nextTime);
+    onChange(nextDate && nextTime ? `${nextDate}T${nextTime}` : "");
+  };
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_8rem] gap-2">
+      <DatePicker value={date} onChange={(next) => update(next, time)} />
+      <TimePicker value={time} onChange={(next) => update(date, next)} />
+    </div>
   );
 }

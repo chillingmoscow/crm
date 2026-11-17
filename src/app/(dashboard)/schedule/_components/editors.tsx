@@ -5,6 +5,11 @@ import { Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DatePicker } from "@/components/ui/date-picker";
+import { TimePicker } from "@/components/ui/time-picker";
+import { OptionSelect } from "@/components/ui/option-select";
+import { EmployeePicker } from "./employee-picker";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { ProfileSection } from "@/components/shared/profile-section";
 import { PALETTE_COLORS, paletteBg, paletteText } from "@/lib/palette";
@@ -24,8 +29,6 @@ import type {
   Shift,
   ShiftTemplate,
 } from "@/lib/schedule/types";
-export const selectClass =
-  "h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 export function Field({
   label,
   children,
@@ -74,25 +77,17 @@ function TimeRange({
     <div className="grid gap-2">
       <div className="grid grid-cols-2 gap-4">
         <Field label="Начало">
-          <Input
-            aria-label="Начало"
-            type="time"
-            required
+          <TimePicker
+            clearable={false}
             value={start.slice(0, 5)}
-            onChange={(e) =>
-              onChange({ start_time: e.target.value, end_time: end })
-            }
+            onChange={(v) => onChange({ start_time: v, end_time: end })}
           />
         </Field>
         <Field label="Окончание">
-          <Input
-            aria-label="Окончание"
-            type="time"
-            required
+          <TimePicker
+            clearable={false}
             value={end.slice(0, 5)}
-            onChange={(e) =>
-              onChange({ start_time: start, end_time: e.target.value })
-            }
+            onChange={(v) => onChange({ start_time: start, end_time: v })}
           />
         </Field>
       </div>
@@ -275,26 +270,23 @@ function ShiftRoleField<T extends Pick<typeof empty, "department_id" | "role_id"
   return (
     <div className="space-y-2">
       <Field label="Должность на смене">
-        <select
-          className={selectClass}
+        <OptionSelect
+          aria-label="Должность на смене"
           aria-describedby={hintId}
           value={value.role_id ?? ""}
-          onChange={(e) => {
-            const selected = data.roles.find((item) => item.id === e.target.value);
+          onValueChange={(id) => {
+            const selected = data.roles.find((item) => item.id === id);
             set({
               ...value,
               role_id: selected?.id ?? null,
               department_id: selected?.department_id ?? null,
             });
           }}
-        >
-          <option value="">Без должности на смене</option>
-          {data.roles.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.name}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: "", label: "Без должности на смене" },
+            ...data.roles.map((item) => ({ value: item.id, label: item.name })),
+          ]}
+        />
       </Field>
       <p id={hintId} className="text-xs text-muted-foreground">
         {department
@@ -474,31 +466,19 @@ export function ShiftEditor({
   const employeeFields = (
     <>
       <Field label="Сотрудник">
-        <select
-          className={selectClass}
+        <EmployeePicker
+          data={data}
           disabled={!canAssign}
-          value={who ?? ""}
-          onChange={(e) => {
-            setWho(e.target.value || null);
+          value={who}
+          onChange={(next) => {
+            setWho(next);
             setPayModel("");
           }}
-        >
-          <option value="">{templateSlot ? "Выберите сотрудника" : "Открытая смена, без сотрудника"}</option>
-          {data.staff.filter((s) => s.show_in_schedule || s.user_id === who).map((s) => (
-            <option key={s.user_id} value={s.user_id} disabled={unavailable.has(s.user_id)}>
-              {[s.first_name, s.last_name].filter(Boolean).join(" ") ||
-                s.role_name}{unavailable.has(s.user_id) ? " · уже в графике" : ""}
-            </option>
-          ))}
-          {(!templateSlot || data.permissions.includes("payroll.configure")) && (data.casualEmployees ?? []).map((e) => (
-            <option key={e.id} value={`payroll:${e.id}`} disabled={unavailable.has(`payroll:${e.id}`)}>
-              {e.name} · разовый{unavailable.has(`payroll:${e.id}`) ? " · уже в графике" : ""}
-            </option>
-          ))}
-          {!templateSlot && canAssign && data.permissions.includes("payroll.configure") && (
-            <option value="new-casual">＋ Новый разовый сотрудник</option>
-          )}
-        </select>
+          unavailable={unavailable}
+          emptyLabel={templateSlot ? undefined : "Открытая смена, без сотрудника"}
+          includeCasual={!templateSlot || data.permissions.includes("payroll.configure")}
+          allowNewCasual={!templateSlot && canAssign && data.permissions.includes("payroll.configure")}
+        />
       </Field>
       {casual && (
         <div className="rounded-lg border bg-muted/20 p-4 space-y-4">
@@ -513,24 +493,19 @@ export function ShiftEditor({
             </Field>
           )}
           <Field label="Модель оплаты этой смены">
-            <select
-              className={selectClass}
+            <OptionSelect
+              aria-label="Модель оплаты этой смены"
+              placeholder="Выберите модель"
               value={selectedPayModel}
-              onChange={(e) => setPayModel(e.target.value)}
-            >
-              <option value="">Выберите модель</option>
-              {(data.payModels ?? [])
+              onValueChange={setPayModel}
+              options={(data.payModels ?? [])
                 .filter(
                   (m) =>
                     m.role_name ===
                     data.roles.find((r) => r.id === value.role_id)?.name,
                 )
-                .map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-            </select>
+                .map((m) => ({ value: m.id, label: m.name }))}
+            />
           </Field>
           <p className="text-xs text-muted-foreground">
             Без аккаунта. Опубликованная смена учитывается в зарплате после
@@ -592,12 +567,12 @@ export function ShiftEditor({
             </p>
           )}
           <Field label="Шаблон">
-            <select
+            <OptionSelect
+              aria-label="Шаблон"
               disabled={!!started && !copy}
-              className={selectClass}
               value={templateId ?? ""}
-              onChange={(e) => {
-                const t = data.templates.find((t) => t.id === e.target.value);
+              onValueChange={(id) => {
+                const t = data.templates.find((t) => t.id === id);
                 setTemplateId(t?.id ?? null);
                 if (t) {
                   set({
@@ -607,20 +582,17 @@ export function ShiftEditor({
                   setManualTime(false);
                 }
               }}
-            >
-              <option value="">Своя смена</option>
-              {data.templates
-                .filter(
-                  (t) =>
-                    t.id === templateId ||
-                    (!t.archived && templateTimesFor(t, isoWeekday(date)) !== null),
-                )
-                .map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {shiftTemplateLabel(t)}
-                  </option>
-                ))}
-            </select>
+              options={[
+                { value: "", label: "Своя смена" },
+                ...data.templates
+                  .filter(
+                    (t) =>
+                      t.id === templateId ||
+                      (!t.archived && templateTimesFor(t, isoWeekday(date)) !== null),
+                  )
+                  .map((t) => ({ value: t.id, label: shiftTemplateLabel(t) })),
+              ]}
+            />
             {chosen && !chosenTimes && (
               <span className="text-xs font-normal text-muted-foreground">
                 Шаблон не работает в этот день
@@ -654,10 +626,10 @@ export function ShiftEditor({
             />
           </Field>
           <Field label="Дата">
-            <Input
-              type="date"
+            <DatePicker
+              clearable={false}
               value={date}
-              onChange={(e) => changeDate(e.target.value)}
+              onChange={(next) => next && changeDate(next)}
               disabled={!!started && !copy}
             />
           </Field>
@@ -899,15 +871,16 @@ export function ChecklistEditor({
       </Field>
       <div className="grid grid-cols-2 gap-4">
         <Field label="Тип">
-          <select
-            className={selectClass}
+          <OptionSelect
+            aria-label="Тип"
             value={value.kind}
-            onChange={(e) => set({ ...value, kind: e.target.value })}
-          >
-            <option value="opening">Открытие</option>
-            <option value="closing">Закрытие</option>
-            <option value="other">Другой</option>
-          </select>
+            onValueChange={(kind) => set({ ...value, kind })}
+            options={[
+              { value: "opening", label: "Открытие" },
+              { value: "closing", label: "Закрытие" },
+              { value: "other", label: "Другой" },
+            ]}
+          />
         </Field>
         <Field label="Длительность, мин">
           <Input
@@ -922,31 +895,27 @@ export function ChecklistEditor({
         </Field>
       </div>
       <Field label="Подразделение">
-        <select
-          className={selectClass}
+        <OptionSelect
+          aria-label="Подразделение"
           value={value.department_id ?? ""}
-          onChange={(e) =>
-            set({ ...value, department_id: e.target.value || null })
-          }
-        >
-          <option value="">Все подразделения</option>
-          {data.departments.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
-        </select>
+          onValueChange={(id) => set({ ...value, department_id: id || null })}
+          options={[
+            { value: "", label: "Все подразделения" },
+            ...data.departments.map((d) => ({ value: d.id, label: d.name })),
+          ]}
+        />
       </Field>
       <Field label="Приоритет">
-        <select
-          className={selectClass}
+        <OptionSelect
+          aria-label="Приоритет"
           value={value.priority}
-          onChange={(e) => set({ ...value, priority: e.target.value })}
-        >
-          <option value="low">Низкий</option>
-          <option value="medium">Средний</option>
-          <option value="high">Высокий</option>
-        </select>
+          onValueChange={(priority) => set({ ...value, priority })}
+          options={[
+            { value: "low", label: "Низкий" },
+            { value: "medium", label: "Средний" },
+            { value: "high", label: "Высокий" },
+          ]}
+        />
       </Field>
       <div className="flex items-center justify-between">
         <h3 className="text-base font-semibold">
@@ -1014,26 +983,25 @@ export function ChecklistEditor({
             </Button>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <select
+            <OptionSelect
               aria-label="Тип пункта"
-              className={selectClass}
               value={i.kind}
-              onChange={(e) =>
-                update(i.id, { kind: e.target.value as ChecklistItem["kind"] })
+              onValueChange={(kind) =>
+                update(i.id, { kind: kind as ChecklistItem["kind"] })
               }
-            >
-              <option value="check">Чекбокс</option>
-              <option value="photo">Фотография</option>
-              <option value="number">Число</option>
-              <option value="text">Текст</option>
-              <option value="info">Информация</option>
-            </select>
+              options={[
+                { value: "check", label: "Чекбокс" },
+                { value: "photo", label: "Фотография" },
+                { value: "number", label: "Число" },
+                { value: "text", label: "Текст" },
+                { value: "info", label: "Информация" },
+              ]}
+            />
             <label className="flex items-center gap-2 text-xs">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={i.required}
                 disabled={i.kind === "info"}
-                onChange={(e) => update(i.id, { required: e.target.checked })}
+                onCheckedChange={(checked) => update(i.id, { required: checked === true })}
               />
               Обязательный пункт
             </label>

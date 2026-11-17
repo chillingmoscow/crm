@@ -17,7 +17,22 @@ import {
   GripVertical,
   ListChecks,
   CheckCircle2,
+  Eye,
+  Pencil,
+  UserMinus,
+  UserPlus,
 } from "lucide-react";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Button } from "@/components/ui/button";
 import { PersonAvatar } from "@/components/people/person-avatar";
 import { Calendar } from "@/components/ui/calendar";
@@ -73,10 +88,13 @@ import {
   ShiftEditor,
   TemplateEditor,
   Field,
-  selectClass,
   type Save,
   formatTemplateTimes,
+  isoWeekday,
 } from "./editors";
+import { EmployeePicker } from "./employee-picker";
+import { ApplyTemplateDialog } from "./apply-template-dialog";
+import { templateTimesFor } from "@/lib/schedule/template-times";
 import { CandidateTrialCard } from "./candidate-trial-card";
 import { toast } from "sonner";
 import { TemplateList } from "./template-list";
@@ -112,6 +130,10 @@ type Editor =
       copy?: boolean;
     }
   | { type: "template"; template?: ShiftTemplate; copy?: boolean };
+type DragItem =
+  | { kind: "shift"; shift: Shift }
+  | { kind: "template"; template: ShiftTemplate };
+type DropTarget = { day: string; userId: string | null; ok: boolean };
 const eventLabels: Record<string, string> = {
   "shift.create": "Создана смена",
   "shift.copy": "Создана копия",
@@ -237,6 +259,28 @@ export function ScheduleClient({
     window.history.replaceState(null, "", url);
   };
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [applyTemplate, setApplyTemplate] = useState<{
+    id: string;
+    previousTitle: string;
+  } | null>(null);
+  const [dragItem, setDragItem] = useState<DragItem | null>(null);
+  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
+  const [overTrash, setOverTrash] = useState(false);
+  const dragActive = useRef(false);
+  // Состояние меняем после dragstart: правка DOM внутри обработчика
+  // портит снимок перетаскиваемой карточки в Chrome.
+  const startDrag = (item: DragItem) => {
+    dragActive.current = true;
+    setTimeout(() => {
+      if (dragActive.current) setDragItem(item);
+    }, 0);
+  };
+  const endDrag = () => {
+    dragActive.current = false;
+    setDragItem(null);
+    setDropTarget(null);
+    setOverTrash(false);
+  };
   const [selected, setSelected] = useState<Shift | null>(null);
   const [confirmation, setConfirmation] = useState<{
     title: string;
@@ -596,12 +640,62 @@ export function ScheduleClient({
       template,
       templateSlot,
     });
+  /** Смена вернулась в свою же ячейку — сохранять нечего. */
+  const sameCell = (item: DragItem, day: string, userId: string | null) =>
+    item.kind === "shift" &&
+    dateInZone(item.shift.starts_at, data.timezone) === day &&
+    shiftAssignee(item.shift) === userId;
+  const canDrop = (item: DragItem, day: string, userId: string | null) =>
+    item.kind === "template"
+      ? can("shift_create") && !occupied(userId, day)
+      : can("shift_edit") && !occupied(userId, day, item.shift.id);
+  const dragOver = (e: React.DragEvent, day: string, userId: string | null) => {
+    if (!dragItem) return;
+    const ok = sameCell(dragItem, day, userId) || canDrop(dragItem, day, userId);
+    if (ok) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = dragItem.kind === "template" ? "copy" : "move";
+    }
+    if (dropTarget?.day !== day || dropTarget.userId !== userId || dropTarget.ok !== ok)
+      setDropTarget({ day, userId, ok });
+  };
+  const dragLeave = (e: React.DragEvent, day: string, userId: string | null) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setDropTarget((current) =>
+      current?.day === day && current.userId === userId ? null : current,
+    );
+  };
+  const confirmDelete = (shift: Shift) =>
+    setConfirmation({
+      title: "Удалить смену?",
+      description:
+        "Смена будет удалена из расписания. Смену с начатым выполнением удалить нельзя.",
+      action: async () => {
+        if (
+          await save("shift.delete", {
+            id: shift.id,
+            version: shift.version,
+          })
+        )
+          setSelected((current) => (current?.id === shift.id ? null : current));
+      },
+    });
+  const unassign = (shift: Shift) =>
+    void save("shift.assign", {
+      id: shift.id,
+      version: shift.version,
+      user_id: null,
+      payroll_employee_id: null,
+      payroll_model_id: null,
+    });
   const drop = async (
     e: React.DragEvent,
     day: string,
     userId: string | null,
   ) => {
     e.preventDefault();
+    const item = dragItem;
+    endDrag();
     const template = data.templates.find(
       (t) => t.id === e.dataTransfer.getData("application/sheerly-template"),
     );
@@ -613,7 +707,13 @@ export function ScheduleClient({
     const shift = data.shifts.find(
       (s) => s.id === e.dataTransfer.getData("application/sheerly-shift"),
     );
-    if (!shift || !can("shift_edit") || occupied(userId, day, shift.id)) return;
+    if (!shift || (item && sameCell(item, day, userId))) return;
+    if (
+      dateInZone(shift.starts_at, data.timezone) === day &&
+      shiftAssignee(shift) === userId
+    )
+      return;
+    if (!can("shift_edit") || occupied(userId, day, shift.id)) return;
     await save("shift.edit", {
       ...shift,
       date: day,
@@ -626,6 +726,10 @@ export function ScheduleClient({
         : null,
     });
   };
+  const cellTemplates = (day: string) =>
+    data.templates.filter(
+      (t) => !t.archived && templateTimesFor(t, isoWeekday(day)) !== null,
+    );
   const templatesById = new Map(data.templates.map((template) => [template.id, template]));
   const shiftTemplate = (shift: Shift) => {
     const template = shift.template_id ? templatesById.get(shift.template_id) : undefined;
@@ -640,16 +744,25 @@ export function ScheduleClient({
     const assignee = shiftAssignee(s);
     const assignOpenShift = mode === "template" && !assignee && can("shift_assign");
     const assigneeLabel = assignOpenShift ? "Назначить" : name(assignee);
+    const day = dateInZone(s.starts_at, data.timezone);
+    const assignSlot = () =>
+      setEditor({ type: "shift", shift: s, day, templateSlot: true });
+    const dragged = dragItem?.kind === "shift" && dragItem.shift.id === s.id;
     return (
-    <div key={s.id} className="relative min-w-0">
+    <ContextMenu key={s.id} modal={false}>
+    <ContextMenuTrigger asChild>
+    <div className="relative min-w-0">
     <button
       draggable={can("shift_edit")}
-      onDragStart={(e) =>
-        e.dataTransfer.setData("application/sheerly-shift", s.id)
-      }
+      onDragStart={(e) => {
+        e.dataTransfer.setData("application/sheerly-shift", s.id);
+        e.dataTransfer.effectAllowed = "move";
+        startDrag({ kind: "shift", shift: s });
+      }}
+      onDragEnd={endDrag}
       onClick={() => {
         if (assignOpenShift) {
-          setEditor({ type: "shift", shift: s, day: dateInZone(s.starts_at, data.timezone), templateSlot: true });
+          assignSlot();
         } else {
           setSelected(s);
         }
@@ -659,6 +772,8 @@ export function ScheduleClient({
         : undefined}
       className={cn(
         "w-full rounded-md px-1.5 py-2 text-left grid gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-opacity hover:opacity-80",
+        can("shift_edit") && "cursor-grab active:cursor-grabbing",
+        dragged && "opacity-40",
         paletteBg(s.color),
         paletteText(s.color),
       )}
@@ -682,6 +797,89 @@ export function ScheduleClient({
     </button>
     {mark && <ShiftAttendancePopover shiftId={s.id} version={s.version} mark={mark} canReview={data.permissions.includes("payroll.review")} />}
     </div>
+    </ContextMenuTrigger>
+    <ContextMenuContent>
+      <ContextMenuLabel>
+        {timeInZone(s.starts_at, data.timezone)}–{timeInZone(s.ends_at, data.timezone)} · {name(assignee)}
+      </ContextMenuLabel>
+      <ContextMenuItem onSelect={() => setSelected(s)}>
+        <Eye />
+        Открыть
+      </ContextMenuItem>
+      {can("shift_edit") && (
+        <ContextMenuItem onSelect={() => setEditor({ type: "shift", shift: s, day })}>
+          <Pencil />
+          Изменить
+        </ContextMenuItem>
+      )}
+      {can("shift_copy") && (
+        <ContextMenuItem onSelect={() => setEditor({ type: "shift", shift: s, day, copy: true })}>
+          <Copy />
+          Копировать на другой день
+        </ContextMenuItem>
+      )}
+      {!s.published && can("shift_publish") && (
+        <ContextMenuItem disabled={busy} onSelect={() => void publishShifts([s]).then((ok) => ok && toast.success("Смена опубликована"))}>
+          <Send />
+          Опубликовать
+        </ContextMenuItem>
+      )}
+      {can("shift_assign") && (assignee ? (
+        <ContextMenuItem onSelect={() => unassign(s)}>
+          <UserMinus />
+          Снять сотрудника
+        </ContextMenuItem>
+      ) : s.template_id && can("shift_create") ? (
+        <ContextMenuItem onSelect={assignSlot}>
+          <UserPlus />
+          Назначить сотрудника
+        </ContextMenuItem>
+      ) : null)}
+      {can("shift_delete") && (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem destructive onSelect={() => confirmDelete(s)}>
+            <Trash2 />
+            Удалить
+          </ContextMenuItem>
+        </>
+      )}
+    </ContextMenuContent>
+    </ContextMenu>
+    );
+  };
+  /** Полупрозрачная «тень» смены в ячейке, куда она упадёт. */
+  const dropGhost = (day: string, userId: string | null) => {
+    if (!dragItem || dropTarget?.day !== day || dropTarget.userId !== userId) return null;
+    if (!dropTarget.ok)
+      return (
+        <div className="rounded-md border border-dashed border-destructive/50 bg-destructive/5 px-1.5 py-2 text-[11px] text-destructive">
+          {dragItem.kind === "shift" && !can("shift_edit") ? "Нет права переносить" : "Уже есть смена в этот день"}
+        </div>
+      );
+    if (sameCell(dragItem, day, userId)) return null;
+    const color = dragItem.kind === "shift" ? dragItem.shift.color : dragItem.template.color;
+    const times = dragItem.kind === "shift"
+      ? `${timeInZone(dragItem.shift.starts_at, data.timezone)}–${timeInZone(dragItem.shift.ends_at, data.timezone)}`
+      : (() => {
+          const t = templateTimesFor(dragItem.template, isoWeekday(day));
+          return t ? `${t.start_time.slice(0, 5)}–${t.end_time.slice(0, 5)}` : "Шаблон не действует в этот день";
+        })();
+    const title = dragItem.kind === "shift"
+      ? (shiftTemplate(dragItem.shift) ? shiftTemplateLabel(shiftTemplate(dragItem.shift)!) : dragItem.shift.title)
+      : shiftTemplateLabel(dragItem.template);
+    return (
+      <div
+        aria-hidden
+        className={cn(
+          "pointer-events-none grid gap-1 rounded-md border-2 border-dashed border-current px-1.5 py-2 opacity-70",
+          paletteBg(color),
+          paletteText(color),
+        )}
+      >
+        <span className="whitespace-nowrap text-[11px] font-semibold tabular-nums">{times}</span>
+        <span className="truncate text-xs">{title}</span>
+      </div>
     );
   };
   const noData = (
@@ -957,7 +1155,12 @@ export function ScheduleClient({
                         draggable
                         className={cn("h-8 cursor-grab gap-1.5 px-2 active:cursor-grabbing", paletteBg(t.color), paletteText(t.color))}
                         title={formatTemplateTimes(t)}
-                        onDragStart={(e) => e.dataTransfer.setData("application/sheerly-template", t.id)}
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("application/sheerly-template", t.id);
+                          e.dataTransfer.effectAllowed = "copy";
+                          startDrag({ kind: "template", template: t });
+                        }}
+                        onDragEnd={endDrag}
                         onClick={() => create(days[0], null, t)}
                       >
                         <GripVertical className="size-3 opacity-60" />
@@ -1073,22 +1276,21 @@ export function ScheduleClient({
                               </div>
                             </th>
                             {days.map((d) => (
+                              <ContextMenu key={d} modal={false}>
+                              <ContextMenuTrigger asChild disabled={!can("shift_create")}>
                               <td
-                                key={d}
-                                onDragOver={(e) => {
-                                    if (
-                                      can("shift_edit") ||
-                                      can("shift_create")
-                                    )
-                                    e.preventDefault();
-                                }}
+                                onDragOver={(e) => dragOver(e, d, s.id)}
+                                onDragLeave={(e) => dragLeave(e, d, s.id)}
                                 onDrop={(e) => void drop(e, d, s.id)}
                                 className={cn(
-                                  "h-16 border-b border-l p-1.5 align-top",
+                                  "h-16 border-b border-l p-1.5 align-top transition-colors",
                                   d === today && "bg-brand/[0.025]",
+                                  dropTarget?.day === d && dropTarget.userId === s.id &&
+                                    (dropTarget.ok ? "bg-brand/[0.06]" : "bg-destructive/[0.04]"),
                                 )}
                               >
                                 <div className="grid gap-1.5">
+                                  {dropGhost(d, s.id)}
                                   {personShifts(s.id, d).map((shift) => card(shift))}
                                   {weekTasks
                                     .filter(
@@ -1097,7 +1299,7 @@ export function ScheduleClient({
                                         taskRowId(task) === s.id,
                                     )
                                     .map((task) => taskCard(task))}
-                                  {can("shift_create") && !occupied(s.id, d) && (
+                                  {can("shift_create") && !occupied(s.id, d) && !(dropTarget?.day === d && dropTarget.userId === s.id) && (
                                     <Button
                                       variant="ghost"
                                       size="sm"
@@ -1110,6 +1312,45 @@ export function ScheduleClient({
                                   )}
                                 </div>
                               </td>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent>
+                                <ContextMenuLabel>
+                                  {s.label} · {dayLabel(d, { weekday: "short", day: "numeric", month: "short" })}
+                                </ContextMenuLabel>
+                                {occupied(s.id, d) ? (
+                                  <ContextMenuItem disabled>У сотрудника уже есть смена в этот день</ContextMenuItem>
+                                ) : (
+                                  <>
+                                    <ContextMenuItem onSelect={() => create(d, s.id)}>
+                                      <Plus />
+                                      Новая смена
+                                    </ContextMenuItem>
+                                    {cellTemplates(d).length > 0 && (
+                                      <ContextMenuSub>
+                                        <ContextMenuSubTrigger>
+                                          <Layers />
+                                          По шаблону
+                                        </ContextMenuSubTrigger>
+                                        <ContextMenuSubContent>
+                                          {cellTemplates(d).map((t) => (
+                                            <ContextMenuItem key={t.id} onSelect={() => create(d, s.id, t)}>
+                                              <span className={cn("size-2.5 shrink-0 rounded-full", paletteBg(t.color))} />
+                                              <span className="flex-1 truncate">{shiftTemplateLabel(t)}</span>
+                                              <span className="text-xs tabular-nums text-muted-foreground">
+                                                {(() => {
+                                                  const times = templateTimesFor(t, isoWeekday(d));
+                                                  return times ? `${times.start_time.slice(0, 5)}–${times.end_time.slice(0, 5)}` : "";
+                                                })()}
+                                              </span>
+                                            </ContextMenuItem>
+                                          ))}
+                                        </ContextMenuSubContent>
+                                      </ContextMenuSub>
+                                    )}
+                                  </>
+                                )}
+                              </ContextMenuContent>
+                              </ContextMenu>
                             ))}
                             <td className="border-b border-l text-center text-xs font-medium tabular-nums">
                               {personShifts(s.id)
@@ -1344,8 +1585,63 @@ export function ScheduleClient({
           data={data}
           {...editor}
           onClose={() => setEditor(null)}
-          save={save}
+          save={async (action, input) => {
+            const saved = await save(action, input);
+            const before = editor.template;
+            // Смены хранят копию полей шаблона — предлагаем обновить их.
+            if (
+              saved &&
+              action === "template.edit" &&
+              before &&
+              can("shift_edit") &&
+              data.shifts.some((shift) => shift.template_id === before.id)
+            )
+              setApplyTemplate({ id: before.id, previousTitle: before.name });
+            return saved;
+          }}
         />
+      )}
+      {applyTemplate && !editor && (() => {
+        const template = data.templates.find((t) => t.id === applyTemplate.id);
+        return template ? (
+          <ApplyTemplateDialog
+            template={template}
+            previousTitle={applyTemplate.previousTitle}
+            shifts={data.shifts}
+            timezone={data.timezone}
+            onClose={() => setApplyTemplate(null)}
+            onApplied={refresh}
+          />
+        ) : null;
+      })()}
+      {dragItem?.kind === "shift" && can("shift_delete") && (
+        <div
+          role="region"
+          aria-label="Удалить смену"
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            if (!overTrash) setOverTrash(true);
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOverTrash(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            const shift = dragItem.shift;
+            endDrag();
+            confirmDelete(shift);
+          }}
+          className={cn(
+            "fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border-2 border-dashed px-5 py-3 text-sm font-medium shadow-lg transition-all animate-in fade-in-0 slide-in-from-bottom-4",
+            overTrash
+              ? "scale-105 border-destructive bg-destructive text-destructive-foreground"
+              : "border-destructive/40 bg-background text-destructive",
+          )}
+        >
+          <Trash2 className="size-4" />
+          {overTrash ? "Отпустите, чтобы удалить" : "Перетащите сюда, чтобы удалить"}
+        </div>
       )}
       {selected && (
         <EditDrawer
@@ -1362,22 +1658,7 @@ export function ScheduleClient({
                   variant="ghost"
                   className="text-destructive mr-auto"
                   aria-label="Удалить смену"
-                  onClick={() =>
-                    setConfirmation({
-                      title: "Удалить смену?",
-                      description:
-                        "Смена будет удалена из расписания. Смену с начатым выполнением удалить нельзя.",
-                      action: async () => {
-                        if (
-                          await save("shift.delete", {
-                            id: selected.id,
-                            version: selected.version,
-                          })
-                        )
-                          setSelected(null);
-                      },
-                    })
-                  }
+                  onClick={() => confirmDelete(selected)}
                 >
                   <Trash2 className="size-4" />
                 </Button>
@@ -1450,37 +1731,27 @@ export function ScheduleClient({
           )}
           {can("shift_assign") && !can("shift_edit") && (
             <Field label="Назначить сотрудника">
-              <select
-                className={selectClass}
-                value={shiftAssignee(selected) ?? ""}
-                onChange={async (e) => {
+              <EmployeePicker
+                data={data}
+                value={shiftAssignee(selected)}
+                emptyLabel="Без сотрудника"
+                includeCasual={data.permissions.includes("payroll.configure")}
+                onChange={async (next) => {
                   if (
                     await save("shift.assign", {
                       id: selected.id,
                       version: selected.version,
-                      ...assignmentFields(e.target.value || null),
-                      payroll_model_id: e.target.value.startsWith("payroll:")
+                      ...assignmentFields(next),
+                      payroll_model_id: next?.startsWith("payroll:")
                         ? (data.casualEmployees?.find(
-                            (p) => p.id === e.target.value.slice(8),
+                            (p) => p.id === next.slice(8),
                           )?.model_id ?? null)
                         : null,
                     })
                   )
                     setSelected(null);
                 }}
-              >
-                <option value="">Без сотрудника</option>
-                {selected.payroll_employee_id && (
-                  <option value={shiftAssignee(selected)!}>
-                    {name(shiftAssignee(selected))}
-                  </option>
-                )}
-                {data.staff.filter((s) => s.show_in_schedule || s.user_id === selected.user_id).map((s) => (
-                  <option key={s.user_id} value={s.user_id}>
-                    {name(s.user_id)}
-                  </option>
-                ))}
-              </select>
+              />
             </Field>
           )}
           <details>

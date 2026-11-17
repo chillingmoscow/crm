@@ -11,6 +11,8 @@ import { Plus, Building2, X, Settings2, Search, Filter, Archive } from "lucide-r
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
+import { OptionSelect } from "@/components/ui/option-select";
+import { TimePicker } from "@/components/ui/time-picker";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { formatPhoneDisplay } from "@/lib/format/phone";
 import { Label } from "@/components/ui/label";
@@ -161,6 +163,9 @@ function FilterPanel({ filter, onChange }: {
   useEffect(() => {
     if (!open) return;
     const h = (e: MouseEvent) => {
+      // Список селекта рендерится в портал вне панели — клик по пункту
+      // не должен закрывать фильтры.
+      if ((e.target as Element).closest?.("[data-radix-popper-content-wrapper]")) return;
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", h);
@@ -188,33 +193,35 @@ function FilterPanel({ filter, onChange }: {
           </p>
           <div className="space-y-1.5">
             <Label className="text-xs">Тип заведения</Label>
-            <select
-              className="w-full h-8 rounded-md border border-input bg-background text-sm px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+            <OptionSelect
+              aria-label="Тип заведения"
+              className="h-8 w-full px-2"
               value={filter.type ?? ""}
-              onChange={(e) => onChange({ ...filter, type: e.target.value || null })}
-            >
-              <option value="">Все типы</option>
-              {VENUE_TYPES.map((t) => (
-                <option key={t.value} value={t.value}>{t.label}</option>
-              ))}
-            </select>
+              onValueChange={(v) => onChange({ ...filter, type: v || null })}
+              options={[
+                { value: "", label: "Все типы" },
+                ...VENUE_TYPES.map((t) => ({ value: t.value, label: t.label })),
+              ]}
+            />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Импорт из QR</Label>
-            <select
-              className="w-full h-8 rounded-md border border-input bg-background text-sm px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+            <OptionSelect
+              aria-label="Импорт из QR"
+              className="h-8 w-full px-2"
               value={filter.importedFromQr}
-              onChange={(e) =>
+              onValueChange={(v) =>
                 onChange({
                   ...filter,
-                  importedFromQr: e.target.value as VenueFilter["importedFromQr"],
+                  importedFromQr: v as VenueFilter["importedFromQr"],
                 })
               }
-            >
-              <option value="all">Все</option>
-              <option value="yes">Только импортированные</option>
-              <option value="no">Только созданные вручную</option>
-            </select>
+              options={[
+                { value: "all", label: "Все" },
+                { value: "yes", label: "Только импортированные" },
+                { value: "no", label: "Только созданные вручную" },
+              ]}
+            />
           </div>
           {isActive && (
             <button
@@ -560,9 +567,9 @@ export function VenuesClient({ venues: initialVenues, archivedCount }: Props) {
                         <span className="text-sm text-muted-foreground">Выходной</span>
                       ) : (
                         <div className="flex items-center gap-2">
-                          <Input type="time" value={day?.open ?? "10:00"} onChange={(e) => setTime(key, "open", e.target.value)} className="w-28 h-8 text-sm" />
+                          <TimePicker value={day?.open ?? "10:00"} onChange={(v) => setTime(key, "open", v)} className="w-28 h-8 text-sm" />
                           <span className="text-muted-foreground text-sm">—</span>
-                          <Input type="time" value={day?.close ?? "22:00"} onChange={(e) => setTime(key, "close", e.target.value)} className="w-28 h-8 text-sm" />
+                          <TimePicker value={day?.close ?? "22:00"} onChange={(v) => setTime(key, "close", v)} className="w-28 h-8 text-sm" />
                         </div>
                       )}
                     </div>

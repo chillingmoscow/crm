@@ -15,7 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { pluralRu } from "@/lib/format/plural";
@@ -129,34 +129,39 @@ export function RecountSplitDialog({ documentId, documentInvoiceDate, flaggedCou
             </div>
           </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setMode("split");
-              setError(null);
-            }}
+          {/* Пикер даты — кнопка, а кнопку нельзя вкладывать в кнопку карточки,
+              поэтому строка с датой лежит рядом с ней внутри общей рамки. */}
+          <div
             className={cn(
-              "w-full rounded-lg border p-3 text-left transition-colors",
+              "rounded-lg border transition-colors",
               mode === "split" ? "border-primary bg-muted/40" : "border-border hover:bg-muted/30",
             )}
           >
-            <div className="text-sm font-medium">Пересчитают другим днём</div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              Отмеченные позиции переезжают в отдельный акт пересчёта с датой пересчёта — Quick
-              Resto посчитает по ним остаток на эту дату. Из текущего акта они удаляются, и его
-              можно проводить сразу.
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setMode("split");
+                setError(null);
+              }}
+              className="w-full p-3 text-left"
+            >
+              <div className="text-sm font-medium">Пересчитают другим днём</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                Отмеченные позиции переезжают в отдельный акт пересчёта с датой пересчёта — Quick
+                Resto посчитает по ним остаток на эту дату. Из текущего акта они удаляются, и его
+                можно проводить сразу.
+              </div>
+            </button>
             {mode === "split" ? (
-              <div className="mt-3 flex flex-wrap items-center gap-2" onClick={(event) => event.stopPropagation()}>
+              <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
                 <Label htmlFor="recount-date" className="text-xs">
                   Дата пересчёта
                 </Label>
-                <Input
+                <DatePicker
                   id="recount-date"
-                  type="date"
                   value={recountDate}
-                  min={actDay ?? undefined}
-                  onChange={(event) => setRecountDate(event.target.value)}
+                  fromDate={actDay ? new Date(`${actDay}T00:00:00`) : undefined}
+                  onChange={setRecountDate}
                   className="h-8 w-40"
                 />
                 {gapDays !== null && gapDays > 0 ? (
@@ -166,7 +171,7 @@ export function RecountSplitDialog({ documentId, documentInvoiceDate, flaggedCou
                 ) : null}
               </div>
             ) : null}
-          </button>
+          </div>
         </div>
 
         {error ? (

@@ -3,6 +3,9 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
+import { OptionSelect } from "@/components/ui/option-select";
+import { MonthPicker } from "@/components/shared/month-picker";
 import { Label } from "@/components/ui/label";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import type { PayrollData } from "@/lib/payroll/types";
@@ -56,13 +59,14 @@ export function PayrollSetup({
           Модели и правила настраиваются в Sheerly. Для фактических выходов
           используется подключение Quick Resto заведения.
         </p>
-        <Label htmlFor="pay-starts">Первый расчётный месяц</Label>
-        <Input
-          id="pay-starts"
-          type="month"
-          value={starts.slice(0, 7)}
-          onChange={(e) => setStarts(`${e.target.value}-01`)}
-          required
+        <Label>Первый расчётный месяц</Label>
+        <MonthPicker
+          value={starts}
+          min="2000-01-01"
+          onChange={setStarts}
+          variant="field"
+          prefix=""
+          ariaLabel="Первый расчётный месяц"
         />
         <Label htmlFor="pay-qr-venue">ID заведения Quick Resto</Label>
         <Input
@@ -128,23 +132,18 @@ export function PayrollSetup({
                 required
               />
               <Label htmlFor="new-model-basis">База процента</Label>
-              <select
+              <OptionSelect
                 id="new-model-basis"
                 className={selectClass}
                 value={basis}
-                onChange={(e) => setBasis(e.target.value)}
-              >
-                {[
-                  ["none", "Без процента"],
-                  ["turnover", "Оборот"],
-                  ["hookah", "Кальяны"],
-                  ["bar", "Бар"],
-                ].map(([id, label]) => (
-                  <option key={id} value={id}>
-                    {label}
-                  </option>
-                ))}
-              </select>
+                onValueChange={setBasis}
+                options={[
+                  { value: "none", label: "Без процента" },
+                  { value: "turnover", label: "Оборот" },
+                  { value: "hookah", label: "Кальяны" },
+                  { value: "bar", label: "Бар" },
+                ]}
+              />
               <Label htmlFor="new-model-monthly">
                 Оклад за месяц · 0 для оплаты по выходам
               </Label>
@@ -164,48 +163,41 @@ export function PayrollSetup({
           ) : (
             <>
               <Label htmlFor="new-pay-staff">Сотрудник Sheerly</Label>
-              <select
+              <OptionSelect
                 id="new-pay-staff"
                 className={selectClass}
                 value={staff}
-                onChange={(e) => setStaff(e.target.value)}
+                onValueChange={setStaff}
                 required
-              >
-                <option value="">Выберите сотрудника</option>
-                {data.staff
-                  .filter(
-                    (s) =>
-                      !data.employees.some(
-                        (e) => e.local_user_id === s.user_id,
-                      ),
-                  )
-                  .map((s) => (
-                    <option key={s.user_id} value={s.user_id}>
-                      {s.name}
-                    </option>
-                  ))}
-              </select>
+                options={[
+                  { value: "", label: "Выберите сотрудника" },
+                  ...data.staff
+                    .filter(
+                      (s) =>
+                        !data.employees.some(
+                          (e) => e.local_user_id === s.user_id,
+                        ),
+                    )
+                    .map((s) => ({ value: s.user_id, label: s.name })),
+                ]}
+              />
               <Label htmlFor="new-pay-model">Модель оплаты</Label>
-              <select
+              <OptionSelect
                 id="new-pay-model"
                 className={selectClass}
                 value={model}
-                onChange={(e) => setModel(e.target.value)}
+                onValueChange={setModel}
                 required
-              >
-                <option value="">Выберите модель</option>
-                {data.models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: "", label: "Выберите модель" },
+                  ...data.models.map((m) => ({ value: m.id, label: m.name })),
+                ]}
+              />
               <Label htmlFor="new-pay-hired">Дата трудоустройства</Label>
-              <Input
+              <DatePicker
                 id="new-pay-hired"
-                type="date"
                 value={hired}
-                onChange={(e) => setHired(e.target.value)}
+                onChange={setHired}
               />
             </>
           )}

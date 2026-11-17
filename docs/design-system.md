@@ -211,7 +211,17 @@ import { Button } from "@/components/ui/button";
 
 И базовые shadcn-примитивы: `Button`, `Input`, `Label`, `Textarea`, `Select`,
 `Switch`, `Checkbox`, `Card`, `Sheet`, `Dialog`, `Popover`, `Tooltip`, `Badge`,
-`Separator`.
+`Separator`, `ContextMenu` (правый клик, оформление как у `DropdownMenu`).
+
+**Нативные системные контролы не используем**: `<select>`, `<input type="date|time|month|datetime-local">`
+рисуются стилем ОС и выбиваются из DS. Вместо них:
+
+| Нативный | Замена |
+|---|---|
+| `<select>` | `<OptionSelect>` (`src/components/ui/option-select.tsx`) — тот же контракт строкового значения, `""` = «не выбрано»; для длинных списков с поиском — `Combobox` (`src/components/finance/combobox.tsx`) |
+| `type="date"` | `<DatePicker>` (`src/components/ui/date-picker.tsx`) |
+| `type="time"` | `<TimePicker>` (`src/components/ui/time-picker.tsx`) |
+| `type="month"` | `<MonthPicker>` (`src/components/shared/month-picker.tsx`) |
 
 ### Radix-обёртки: id из `useId` не отдаём в SSR-разметку
 

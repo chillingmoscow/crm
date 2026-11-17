@@ -21,6 +21,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { OptionSelect } from "@/components/ui/option-select";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -878,19 +879,19 @@ function SupplierForm({
       {supplier ? (
         <div className="md:col-span-2 text-sm font-medium">{supplier.counterpartyName}</div>
       ) : (
-        <select
+        <OptionSelect
+          aria-label="Контрагент-поставщик"
           value={counterpartyId}
-          onChange={(event) => setCounterpartyId(event.target.value)}
-          className="h-10 rounded-md border border-input bg-background px-3 text-sm md:col-span-2"
-        >
-          <option value="">Выберите контрагента-поставщика…</option>
-          {counterparties.map((cp) => (
-            <option key={cp.id} value={cp.id}>
-              {cp.name}
-              {cp.inn ? ` · ИНН ${cp.inn}` : ""}
-            </option>
-          ))}
-        </select>
+          onValueChange={setCounterpartyId}
+          className="md:col-span-2"
+          options={[
+            { value: "", label: "Выберите контрагента-поставщика…" },
+            ...counterparties.map((cp) => ({
+              value: cp.id,
+              label: `${cp.name}${cp.inn ? ` · ИНН ${cp.inn}` : ""}`,
+            })),
+          ]}
+        />
       )}
       <div className="flex flex-col gap-1">
         <Input

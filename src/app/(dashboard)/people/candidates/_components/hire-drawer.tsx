@@ -3,6 +3,7 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { CandidateDetail, HiringOptions } from "@/lib/candidates/types";
@@ -212,11 +213,10 @@ export function HireDrawer({
         ]}
       />
       <Field label="Дата приёма *">
-        <Input
-          type="date"
+        <DatePicker
           value={date}
           disabled={busy || locked}
-          onChange={(e) => setDate(e.target.value)}
+          onChange={setDate}
         />
       </Field>
       {selected ? (

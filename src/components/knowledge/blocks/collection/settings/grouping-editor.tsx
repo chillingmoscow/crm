@@ -3,6 +3,7 @@
 import { ArrowDownAZ, Trash2 } from "lucide-react";
 
 import { KB_PROPERTY_UI_ICONS } from "@/components/knowledge/property-ui-icons";
+import { OptionSelect } from "@/components/ui/option-select";
 import type { KbCollectionField } from "@/lib/knowledge/collection";
 import { sortDirectionLabel } from "@/lib/knowledge/collection-format";
 import {
@@ -53,26 +54,23 @@ export function CollectionGroupingEditor({
         <>
           <div className="kb-collection-grouping-row">
             <ArrowDownAZ className="size-4 text-muted-foreground" />
-            <select
-              className="kb-collection-grouping-select"
+            <OptionSelect
+              className="kb-collection-grouping-select shadow-none"
               value={direction}
               aria-label="Направление группировки"
-              onChange={(event) =>
+              onValueChange={(value) =>
                 onChange(
                   createCollectionGrouping(
                     currentField.id,
-                    event.currentTarget.value as KbCollectionSortDirection,
+                    value as KbCollectionSortDirection,
                   ),
                 )
               }
-            >
-              <option value="asc">
-                {sortDirectionLabel(currentField, "asc")}
-              </option>
-              <option value="desc">
-                {sortDirectionLabel(currentField, "desc")}
-              </option>
-            </select>
+              options={[
+                { value: "asc", label: sortDirectionLabel(currentField, "asc") },
+                { value: "desc", label: sortDirectionLabel(currentField, "desc") },
+              ]}
+            />
           </div>
           <button
             type="button"

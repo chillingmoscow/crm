@@ -20,6 +20,7 @@ import {
 import { createPortal } from "react-dom";
 import { PeopleMobileCards } from "@/components/people/people-mobile-cards";
 import { cn } from "@/lib/utils";
+import { OptionSelect } from "@/components/ui/option-select";
 const noHiddenColumns: string[] = [];
 export function PayrollTable<T>({
   id,
@@ -216,26 +217,21 @@ export function PayrollTable<T>({
                   </button>
                 </div>
               ))}
-              <select
+              <OptionSelect
                 aria-label="Добавить уровень сортировки"
-                className="w-full rounded-md border bg-background p-2 text-sm"
+                className="h-9 w-full px-2"
                 value=""
-                onChange={(e) => {
-                  if (e.target.value) sort(e.target.value, true);
+                placeholder="Добавить уровень…"
+                onValueChange={(v) => {
+                  if (v) sort(v, true);
                 }}
-              >
-                <option value="">Добавить уровень…</option>
-                {Object.entries(labels)
+                options={Object.entries(labels)
                   .filter(
                     ([id]) =>
                       id !== "actions" && !st.sorting.some((s) => s.id === id),
                   )
-                  .map(([id, label]) => (
-                    <option key={id} value={id}>
-                      {label}
-                    </option>
-                  ))}
-              </select>
+                  .map(([id, label]) => ({ value: id, label }))}
+              />
               <p className="text-xs text-muted-foreground">
                 Клик по заголовку задаёт основной порядок. Shift + клик
                 добавляет уровень.

@@ -19,6 +19,7 @@ import { EditDrawer } from "@/components/ui/edit-drawer";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { OptionSelect } from "@/components/ui/option-select";
 import { Textarea } from "@/components/ui/textarea";
 import { paletteText, type PaletteColor } from "@/lib/palette";
 
@@ -124,6 +125,9 @@ function DepartmentFilterPanel({
   useEffect(() => {
     if (!open) return;
     const h = (e: MouseEvent) => {
+      // Список селекта рендерится в портал вне панели — клик по пункту
+      // не должен закрывать фильтры.
+      if ((e.target as Element).closest?.("[data-radix-popper-content-wrapper]")) return;
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", h);
@@ -151,17 +155,17 @@ function DepartmentFilterPanel({
           </p>
           <div className="space-y-1.5">
             <Label className="text-xs">Руководящая должность</Label>
-            <select
-              className="w-full h-8 rounded-md border border-input bg-background text-sm px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+            <OptionSelect
+              aria-label="Руководящая должность"
+              className="h-8 w-full px-2"
               value={filter.head}
-              onChange={(e) =>
-                onChange({ head: e.target.value as DepartmentFilter["head"] })
-              }
-            >
-              <option value="all">Все</option>
-              <option value="assigned">Назначена</option>
-              <option value="missing">Не назначена</option>
-            </select>
+              onValueChange={(v) => onChange({ head: v as DepartmentFilter["head"] })}
+              options={[
+                { value: "all", label: "Все" },
+                { value: "assigned", label: "Назначена" },
+                { value: "missing", label: "Не назначена" },
+              ]}
+            />
           </div>
           {isActive && (
             <button

@@ -5,6 +5,7 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import { shiftTemplateLabel } from "@/lib/schedule/types";
 import { readTaskOccurrences } from "@/lib/schedule/task-occurrences";
 import { revalidatePath } from "next/cache";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { z } from "zod";
 import { addDays, dateInZone, weekStart } from "@/lib/schedule/utils";
 import {
@@ -101,8 +102,8 @@ export async function loadTasks(): Promise<TaskData> {
       .eq("venue_id", venueId)
       .maybeSingle(),
     db
-      .from<{ id: string; name: string; subtitle: string }[]>("schedule_templates")
-      .select("id,name,subtitle")
+      .from<{ id: string; name: string; subtitle: string; color: string }[]>("schedule_templates")
+      .select("id,name,subtitle,color")
       .eq("venue_id", venueId)
       .eq("archived", false)
       .order("name").order("subtitle"),
@@ -123,7 +124,7 @@ export async function loadTasks(): Promise<TaskData> {
     occurrences: results[1].data ?? [],
     settings: results[2].data,
     templates: (results[3].data ?? []).map((template) => ({
-      id: template.id, name: shiftTemplateLabel(template),
+      id: template.id, name: shiftTemplateLabel(template), color: template.color,
     })),
     messages: results[4].data ?? [],
     permissions,
@@ -149,6 +150,93 @@ export async function loadTaskInstructionPages() {
     id, title, slug, parent_id,
   }));
 }
+/**
+ * Чаты Telegram для настроек задач — из «Интеграции → Telegram», только
+ * название и ID. Права проверяет база (schedule_task_chat_choices, миграция 344).
+ */
+export async function loadTaskChats(): Promise<{ chat_id: string; title: string }[]> {
+  const { db } = await context();
+  const r = await db.rpc("schedule_task_chat_choices");
+  if (r.error) throw new Error(r.error.message);
+  return (r.data as { chat_id: string; title: string }[] | null) ?? [];
+}
+
+/** Задачи для быстрого назначения из графика: только названия. */
+export async function loadTaskChoices(): Promise<{
+  enabled: boolean;
+  tasks: { id: string; name: string }[];
+}> {
+  const { db, venueId } = await context();
+  const [definitions, settings] = await Promise.all([
+    db
+      .from<{ id: string; name: string }[]>("schedule_task_definitions")
+      .select("id,name")
+      .eq("venue_id", venueId)
+      .is("deleted_at", null)
+      .order("name"),
+    db
+      .from<{ enabled_from: string | null; legacy_stopped: boolean; paused: boolean }>("schedule_task_settings")
+      .select("enabled_from,legacy_stopped,paused")
+      .eq("venue_id", venueId)
+      .maybeSingle(),
+  ]);
+  if (definitions.error) throw new Error(definitions.error.message);
+  const st = settings.data;
+  return {
+    enabled: !!st?.enabled_from && st.legacy_stopped && !st.paused,
+    tasks: definitions.data ?? [],
+  };
+}
+
+/**
+ * Разово поставить задачу на день: по шаблону смены или по должности.
+ * Задание сразу привязывается к смене обычным обработчиком задач; если он
+ * недоступен, привязка случится на следующем запуске по расписанию.
+ */
+export async function assignTaskOnce(input: {
+  definitionId: string;
+  date: string;
+  templateId?: string | null;
+  roleId?: string | null;
+}) {
+  try {
+    const value = z
+      .object({
+        definitionId: z.string().uuid(),
+        date: taskDate,
+        templateId: z.string().uuid().nullable().optional(),
+        roleId: z.string().uuid().nullable().optional(),
+      })
+      .refine((v) => !!v.templateId !== !!v.roleId, "Выберите шаблон смены или должность")
+      .parse(input);
+    const { db } = await context();
+    const r = await db.rpc("schedule_task_assign_once", {
+      p_definition: value.definitionId,
+      p_date: value.date,
+      p_template: value.templateId ?? null,
+      p_role: value.roleId ?? null,
+    });
+    if (r.error) throw new Error(r.error.message);
+    // Сразу привязываем задание к смене — тем же обработчиком, что и крон
+    // (без рассылки сообщений). Если не вышло, привяжет следующий запуск.
+    await asLooseDb(createAdminClient()).rpc("schedule_process_tasks").then(
+      () => undefined,
+      () => undefined,
+    );
+    revalidatePath("/schedule");
+    return { ok: true as const };
+  } catch (e) {
+    return {
+      error:
+        e instanceof z.ZodError
+          ? (e.issues[0]?.message ?? "Проверьте поля")
+          : e instanceof Error
+            ? e.message
+            : "Не удалось назначить задачу",
+    };
+  }
+}
+
 export async function deleteTask(input: { id: string; version: number }) {
   try {
     const value = z

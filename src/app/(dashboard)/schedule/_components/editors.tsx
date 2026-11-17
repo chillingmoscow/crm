@@ -1,4 +1,5 @@
 "use client";
+import { ColorDot } from "@/components/ui/color-dot";
 import { useId, useState } from "react";
 import { shiftAssignee, assignmentFields } from "@/lib/schedule/types";
 import { casualPayModel } from "@/lib/schedule/casual-pay-model";
@@ -617,7 +618,7 @@ export function ShiftEditor({
                         value: t.id,
                         label: (
                           <span className="flex items-center gap-2">
-                            <span className={cn("size-2.5 shrink-0 rounded-full", paletteDot(t.color))} />
+                            <ColorDot color={t.color} size="md" />
                             <span className="truncate">{shiftTemplateLabel(t)}</span>
                             {times && (
                               <span className="text-xs tabular-nums text-muted-foreground">

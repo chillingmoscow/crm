@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
+import { ColorDot } from "@/components/ui/color-dot";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { paletteDot } from "@/lib/palette";
 import { cn } from "@/lib/utils";
 import { templateTimesFor } from "@/lib/schedule/template-times";
 import { shiftTemplateLabel, type Shift, type ShiftTemplate } from "@/lib/schedule/types";
@@ -113,8 +113,8 @@ export function TemplateWeek({
           {rows.map((template) => (
             <tr key={template.id} className="group hover:bg-muted/30">
               <th scope="row" className="sticky left-0 z-10 border-b bg-card px-3 py-3 text-left align-top font-normal group-hover:bg-muted sm:px-4">
-                <span className="flex items-start gap-2.5 text-[13px]">
-                  <span className={cn("mt-1 size-2 shrink-0 rounded-full", paletteDot(template.color))} aria-hidden />
+                <span className="flex items-center gap-2.5 text-[13px]">
+                  <ColorDot color={template.color} />
                   <TemplateName {...template} />
                 </span>
               </th>

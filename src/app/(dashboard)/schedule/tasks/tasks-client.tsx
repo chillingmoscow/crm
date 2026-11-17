@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, ArrowLeft, Camera, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,8 @@ import {
   TabsContent,
 } from "@/components/ui/tabs";
 import { ProfileSection } from "@/components/shared/profile-section";
+import { MultiOptionPicker } from "@/components/shared/multi-option-picker";
+import { OptionSelect } from "@/components/ui/option-select";
 import {
   TaskHeaderActions,
   TaskPageTitle,
@@ -69,6 +71,7 @@ import {
   taskPhotoUrl,
   taskHistory,
   retryTaskMessage,
+  loadTaskChats,
 } from "./actions";
 
 const actionLabels: Record<string, string> = {
@@ -396,7 +399,9 @@ export function TasksClient({
 }) {
   const [data, setData] = useState(initial);
   const [editor, setEditor] = useState<TaskDefinition | "new" | null>(null);
-  const [settings, setSettings] = useState(false);
+  // ?settings=1 — сразу открыть настройки (ссылка из графика «Задачи не включены»).
+  const params = useSearchParams();
+  const [settings, setSettings] = useState(params.get("settings") === "1");
   const wasActive = useRef(active);
   useEffect(() => {
     const returning = active && !wasActive.current;
@@ -1372,24 +1377,44 @@ function SettingsEditor({
   onRefresh: () => Promise<void>;
   onSaved: () => Promise<void>;
 }) {
-  const [from, setFrom] = useState(data.settings?.enabled_from ?? ""),
-    [paused, setPaused] = useState(data.settings?.paused ?? false),
-    [stopped, setStopped] = useState(data.settings?.legacy_stopped ?? false),
+  const started = Boolean(data.settings?.enabled_from);
+  const [from, setFrom] = useState(data.settings?.enabled_from ?? data.today),
+    [working, setWorking] = useState(started && !(data.settings?.paused ?? false)),
     [chat, setChat] = useState(data.settings?.chat_id ?? ""),
-    [reminders, setReminders] = useState(
-      data.settings?.reminder_chat_ids?.join(", ") ?? "",
-    ),
+    [reminders, setReminders] = useState<string[]>(data.settings?.reminder_chat_ids ?? []),
+    [chats, setChats] = useState<{ chat_id: string; title: string }[] | null>(null),
     [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    loadTaskChats()
+      .then((c) => alive && setChats(c))
+      .catch(() => alive && setChats([]));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  // Чаты — из «Интеграции → Telegram». Если в настройках уже есть ID, которого
+  // нет в интеграции, показываем его, чтобы не потерять при сохранении.
+  const chatOptions = [
+    ...(chats ?? []).map((c) => ({ id: c.chat_id, label: c.title })),
+    ...[chat, ...reminders]
+      .filter((id) => id && !(chats ?? []).some((c) => c.chat_id === id))
+      .filter((id, i, all) => all.indexOf(id) === i)
+      .map((id) => ({ id, label: `Чат ${id} · нет в интеграции` })),
+  ];
+  // Включение: дата начала + работа без паузы. «Прежние сценарии отключены» —
+  // внутреннее условие сервера; интерфейс отмечает его сам при включении.
+  const enabledFrom = started ? data.settings!.enabled_from : working ? from || null : null;
   async function submit() {
     setBusy(true);
     try {
       const r = await saveTaskSettings({
         version: data.settings?.version,
-        enabled_from: from || null,
-        paused,
-        legacy_stopped: stopped,
+        enabled_from: enabledFrom,
+        paused: !working,
+        legacy_stopped: enabledFrom ? true : (data.settings?.legacy_stopped ?? false),
         chat_id: chat || null,
-        reminder_chat_ids: reminders.split(/[,;\s]+/).filter(Boolean),
+        reminder_chat_ids: reminders,
       });
       if (r.error) toast.error(r.error);
       else {
@@ -1402,72 +1427,76 @@ function SettingsEditor({
       setBusy(false);
     }
   }
+  const dirty =
+    working !== (started && !(data.settings?.paused ?? false)) ||
+    (!started && working && from !== data.today) ||
+    chat !== (data.settings?.chat_id ?? "") ||
+    reminders.join(",") !== (data.settings?.reminder_chat_ids ?? []).join(",");
   return (
     <TaskScreen
       title="Настройки задач"
       onBack={onClose}
       busy={busy}
-      dirty={
-        from !== (data.settings?.enabled_from ?? "") ||
-        paused !== (data.settings?.paused ?? false) ||
-        stopped !== (data.settings?.legacy_stopped ?? false) ||
-        chat !== (data.settings?.chat_id ?? "") ||
-        reminders !== (data.settings?.reminder_chat_ids?.join(", ") ?? "")
-      }
+      dirty={dirty}
+      showFooterActions={false}
       actions={
-        <Button disabled={busy} onClick={() => void submit()}>
-          {busy ? "Сохранение…" : "Сохранить настройки"}
+        <Button disabled={busy || !dirty} onClick={() => void submit()}>
+          {busy ? "Сохранение…" : "Сохранить"}
         </Button>
       }
     >
       <fieldset disabled={busy} className="min-w-0 space-y-5">
-        <ProfileSection
-          title="Автоматическая обработка"
-          description="Перед включением сверьте переходный период и отключите прежние сценарии задач и напоминаний."
-        >
-          <Field label="Дата перехода">
-            <DatePicker
-              disabled={busy || Boolean(data.settings?.enabled_from)}
-              fromDate={new Date(data.today + "T00:00:00")}
-              value={from}
-              onChange={setFrom}
-              clearable={!data.settings?.enabled_from}
-            />
-          </Field>
-          <Check checked={stopped} onChange={setStopped} disabled={busy}>
-            Прежние сценарии задач, начислений и напоминаний отключены
-          </Check>
-          {from && (
-            <div className="border-t pt-4">
-              <SwitchRow
-                label="Обрабатывать задачи автоматически"
-                description="Пауза сохраняет дату перехода и существующие отчёты. Изменения применятся после сохранения."
-                checked={!paused}
-                disabled={busy}
-                onChange={(enabled) => setPaused(!enabled)}
+        <ProfileSection title="Работа задач">
+          <SwitchRow
+            label="Задачи работают"
+            description="Задачи назначаются сотрудникам по графику, проверяются и учитываются в зарплате. Выключение ставит работу на паузу — задачи и отчёты сохраняются."
+            checked={working}
+            disabled={busy}
+            onChange={setWorking}
+          />
+          {(working || started) && (
+            <Field label="С какого дня">
+              <DatePicker
+                disabled={busy || started}
+                fromDate={new Date(data.today + "T00:00:00")}
+                value={started ? (data.settings?.enabled_from ?? "") : from}
+                onChange={setFrom}
+                clearable={false}
               />
-            </div>
+            </Field>
+          )}
+          {started && (
+            <p className="text-[13px] text-muted-foreground">
+              День начала уже задан и не меняется — так сохраняется история назначений.
+            </p>
           )}
         </ProfileSection>
-        <ProfileSection title="Уведомления">
-          <Field label="ID чата для списка задач">
-            <Input
+        <ProfileSection title="Сообщения в Telegram">
+          <Field label="Список задач на день · ежедневно в 12:00">
+            <OptionSelect
+              aria-label="Чат для списка задач"
+              placeholder={chats ? "Не отправлять" : "Загрузка…"}
               value={chat}
-              onChange={(e) => setChat(e.target.value)}
-              placeholder="−100…"
+              onValueChange={setChat}
+              options={[{ value: "", label: "Не отправлять" }, ...chatOptions.map((c) => ({ value: c.id, label: c.label }))]}
             />
           </Field>
-          <Field label="Чаты напоминаний о сдаче графика">
-            <Textarea
-              rows={3}
-              value={reminders}
-              onChange={(e) => setReminders(e.target.value)}
-              placeholder="ID чатов через запятую"
+          <Field label="Напоминание сдать график · пн и ср, 14:00">
+            <MultiOptionPicker
+              label="Чаты для напоминания сдать график"
+              options={chatOptions}
+              selectedIds={reminders}
+              disabled={busy}
+              placeholder="Не отправлять"
+              onChange={setReminders}
             />
           </Field>
           <p className="text-[13px] leading-snug text-muted-foreground">
-            Список задач: ежедневно в 12:00. Напоминания: понедельник и среда в
-            14:00 по времени заведения.
+            Нужного чата нет в списке? Добавьте его в{" "}
+            <a href="/settings/integrations/telegram" className="text-brand hover:underline">
+              Интеграции → Telegram
+            </a>
+            . Время — по часам заведения.
           </p>
         </ProfileSection>
       </fieldset>

@@ -142,7 +142,7 @@ export type TaskData = {
   occurrences: TaskOccurrence[];
   settings: TaskSettings | null;
   messages: TaskMessage[];
-  templates: { id: string; name: string }[];
+  templates: { id: string; name: string; color?: string }[];
   permissions: string[];
   userId: string;
   today: string;

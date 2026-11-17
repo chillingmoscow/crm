@@ -1,5 +1,6 @@
 "use client";
 
+import { ColorDot } from "@/components/ui/color-dot";
 import { useEffect, useState } from "react";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
@@ -26,6 +27,7 @@ import {
 import { PeopleMobileCards } from "@/components/people/people-mobile-cards";
 import styles from "@/components/people/people-table.module.css";
 import {
+  ROW_MENU_COLUMN_SIZE,
   ResizableTableHead,
   TableColumnManager,
   TableControls,
@@ -41,19 +43,20 @@ import { TableSortPicker } from "@/components/shared/table/table-sort-settings";
 import { useTableColumnResize } from "@/components/shared/table/use-table-column-resize";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { paletteDot } from "@/lib/palette";
 import { shiftTemplateLabel, type ShiftTemplate } from "@/lib/schedule/types";
-import { cn } from "@/lib/utils";
-import { TemplateWeekTimes } from "./template-week-times";
+import { templateTimesFor } from "@/lib/schedule/template-times";
 import { TemplateName } from "./template-name";
 
+// Время — семь колонок ПН…ВС: в заголовке день, в ячейке начало и конец.
+const DAYS = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"] as const;
+const dayId = (i: number) => `day${i + 1}`;
 const labels: Record<string, string> = {
   name: "Название",
-  timing: "Время по дням недели",
+  ...Object.fromEntries(DAYS.map((d, i) => [dayId(i), d])),
 };
 const config = [
   { id: "name", defaultSize: 260 },
-  { id: "timing", defaultSize: 400 },
+  ...DAYS.map((_, i) => ({ id: dayId(i), defaultSize: 76 })),
 ];
 const sortable = new Set(["name"]);
 const collator = new Intl.Collator("ru", {
@@ -133,36 +136,38 @@ export function TemplateList({
       cell: ({ row }) => {
         const template = row.original;
         return (
-          <button
-            type="button"
-            className="flex max-w-full items-start gap-2 text-left hover:text-brand"
-            onClick={() => onEdit(template)}
-          >
-            <span
-              aria-hidden="true"
-              className={cn(
-                "mt-1.5 size-2.5 shrink-0 rounded-full",
-                paletteDot(template.color),
-              )}
-            />
+          <span className="flex max-w-full items-center gap-2.5">
+            <ColorDot color={template.color} />
             <TemplateName {...template} />
-          </button>
+          </span>
         );
       },
     },
-    {
-      id: "timing",
-      header: labels.timing,
-      size: 400,
-      minSize: 150,
-      enableSorting: false,
-      cell: ({ row }) => <TemplateWeekTimes template={row.original} />,
-    },
+    ...DAYS.map(
+      (label, i): ColumnDef<ShiftTemplate> => ({
+        id: dayId(i),
+        header: label,
+        size: 76,
+        minSize: 56,
+        enableSorting: false,
+        cell: ({ row }) => {
+          const times = templateTimesFor(row.original, i + 1);
+          return times ? (
+            <span className="block text-[13px] leading-tight tabular-nums">
+              <span className="block">{times.start_time.slice(0, 5)}</span>
+              <span className="block text-muted-foreground">{times.end_time.slice(0, 5)}</span>
+            </span>
+          ) : (
+            <span className="text-muted-foreground/60" aria-label="Не работает">—</span>
+          );
+        },
+      }),
+    ),
     {
       id: "actions",
-      size: 56,
-      minSize: 56,
-      maxSize: 56,
+      size: ROW_MENU_COLUMN_SIZE,
+      minSize: ROW_MENU_COLUMN_SIZE,
+      maxSize: ROW_MENU_COLUMN_SIZE,
       enableHiding: false,
       enableResizing: false,
       cell: ({ row }) => {
@@ -342,13 +347,15 @@ export function TemplateList({
           <TemplateTable
             table={table}
             onColumnSizingChange={state.setColumnSizing}
+            onOpen={canEdit ? onEdit : undefined}
           />
           <PeopleMobileCards
             table={table}
             label="Карточки шаблонов смен"
             nameColumn="name"
             photoColumn="__none"
-            roleColumn="timing"
+            roleColumn="__none"
+            onOpen={canEdit ? (row) => onEdit(row.original) : undefined}
             labels={labels}
             empty={null}
           />
@@ -372,9 +379,12 @@ export function TemplateList({
 function TemplateTable({
   table,
   onColumnSizingChange,
+  onOpen,
 }: {
   table: Table<ShiftTemplate>;
   onColumnSizingChange: OnChangeFn<ColumnSizingState>;
+  /** Клик по строке целиком открывает шаблон (кроме кнопок в строке). */
+  onOpen?: (template: ShiftTemplate) => void;
 }) {
   const { tableRef, onResizeStart, columnWidths, minTableWidth } =
     useTableColumnResize(table, onColumnSizingChange);
@@ -421,7 +431,14 @@ function TemplateTable({
         />
         <tbody>
           {table.getRowModel().rows.map((row) => (
-            <tr key={row.id}>
+            <tr
+              key={row.id}
+              className={onOpen ? "cursor-pointer" : undefined}
+              onClick={(event) => {
+                if (onOpen && !(event.target as HTMLElement).closest("button,a,input,[role=menu]"))
+                  onOpen(row.original);
+              }}
+            >
               {row.getVisibleCells().map((cell) => (
                 <td key={cell.id}>
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}

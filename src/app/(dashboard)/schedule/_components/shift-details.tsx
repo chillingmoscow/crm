@@ -1,4 +1,5 @@
 "use client";
+import { ColorDot } from "@/components/ui/color-dot";
 import { useState, type ReactNode } from "react";
 import { BriefcaseBusiness, StickyNote } from "lucide-react";
 import {
@@ -9,8 +10,6 @@ import {
   DrawerTimeline,
   DrawerTimelineItem,
 } from "@/components/ui/drawer-blocks";
-import { cn } from "@/lib/utils";
-import { paletteDot } from "@/lib/palette";
 import { dateInZone, dayLabel, timeInZone } from "@/lib/schedule/utils";
 import {
   collapseHistory,
@@ -129,7 +128,7 @@ export function ShiftDetails({
         </DrawerSummaryItem>
         {template ? (
           <DrawerSummaryItem
-            icon={<span className={cn("size-3 rounded-full", paletteDot(template.color))} />}
+            icon={<ColorDot color={template.color} />}
             label={["Шаблон", role?.name, department?.name].filter(Boolean).join(" · ")}
           >
             {shiftTemplateLabel(template)}

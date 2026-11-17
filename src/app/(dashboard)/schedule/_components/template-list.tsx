@@ -44,16 +44,19 @@ import { useTableColumnResize } from "@/components/shared/table/use-table-column
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { shiftTemplateLabel, type ShiftTemplate } from "@/lib/schedule/types";
-import { TemplateWeekTimes } from "./template-week-times";
+import { templateTimesFor } from "@/lib/schedule/template-times";
 import { TemplateName } from "./template-name";
 
+// Время — семь колонок ПН…ВС: в заголовке день, в ячейке начало и конец.
+const DAYS = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"] as const;
+const dayId = (i: number) => `day${i + 1}`;
 const labels: Record<string, string> = {
   name: "Название",
-  timing: "Время по дням недели",
+  ...Object.fromEntries(DAYS.map((d, i) => [dayId(i), d])),
 };
 const config = [
   { id: "name", defaultSize: 260 },
-  { id: "timing", defaultSize: 400 },
+  ...DAYS.map((_, i) => ({ id: dayId(i), defaultSize: 76 })),
 ];
 const sortable = new Set(["name"]);
 const collator = new Intl.Collator("ru", {
@@ -140,14 +143,26 @@ export function TemplateList({
         );
       },
     },
-    {
-      id: "timing",
-      header: labels.timing,
-      size: 400,
-      minSize: 150,
-      enableSorting: false,
-      cell: ({ row }) => <TemplateWeekTimes template={row.original} />,
-    },
+    ...DAYS.map(
+      (label, i): ColumnDef<ShiftTemplate> => ({
+        id: dayId(i),
+        header: label,
+        size: 76,
+        minSize: 56,
+        enableSorting: false,
+        cell: ({ row }) => {
+          const times = templateTimesFor(row.original, i + 1);
+          return times ? (
+            <span className="block text-[13px] leading-tight tabular-nums">
+              <span className="block">{times.start_time.slice(0, 5)}</span>
+              <span className="block text-muted-foreground">{times.end_time.slice(0, 5)}</span>
+            </span>
+          ) : (
+            <span className="text-muted-foreground/60" aria-label="Не работает">—</span>
+          );
+        },
+      }),
+    ),
     {
       id: "actions",
       size: ROW_MENU_COLUMN_SIZE,
@@ -339,7 +354,8 @@ export function TemplateList({
             label="Карточки шаблонов смен"
             nameColumn="name"
             photoColumn="__none"
-            roleColumn="timing"
+            roleColumn="__none"
+            onOpen={canEdit ? (row) => onEdit(row.original) : undefined}
             labels={labels}
             empty={null}
           />

@@ -1,6 +1,7 @@
 "use client";
 import { ColorDot } from "@/components/ui/color-dot";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -126,9 +127,15 @@ export function TaskAssignDrawer({
       }
     >
       {choices && !choices.enabled ? (
-        <p className="text-sm text-muted-foreground">
-          Задачи в заведении не включены. Включите их в настройках раздела «Задачи».
-        </p>
+        <div className="space-y-3 text-sm">
+          <p className="text-muted-foreground">
+            Автоматическая работа задач в заведении ещё не включена — назначенная задача никому
+            не придёт. Включается в настройках задач.
+          </p>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/schedule/tasks?settings=1">Открыть настройки задач</Link>
+          </Button>
+        </div>
       ) : (
         <>
           <DrawerSection title="Что и когда">

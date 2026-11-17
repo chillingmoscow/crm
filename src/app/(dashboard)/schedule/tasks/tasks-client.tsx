@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, ArrowLeft, Camera, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -396,7 +396,9 @@ export function TasksClient({
 }) {
   const [data, setData] = useState(initial);
   const [editor, setEditor] = useState<TaskDefinition | "new" | null>(null);
-  const [settings, setSettings] = useState(false);
+  // ?settings=1 — сразу открыть настройки (ссылка из графика «Задачи не включены»).
+  const params = useSearchParams();
+  const [settings, setSettings] = useState(params.get("settings") === "1");
   const wasActive = useRef(active);
   useEffect(() => {
     const returning = active && !wasActive.current;

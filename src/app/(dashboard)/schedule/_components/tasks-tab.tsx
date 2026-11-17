@@ -3,6 +3,7 @@
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import { PageFrame } from "@/components/shared/page-frame";
+import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import { TablePageHeader } from "@/components/shared/table";
 import type { TaskData } from "@/lib/schedule/tasks";
 import { TaskHeaderTarget, TaskTitleTarget } from "./task-header-actions";
@@ -30,6 +31,14 @@ export function ScheduleTasksTab({ initial }: { initial: TaskData }) {
   const [headerTarget, setHeaderTarget] = useState<HTMLDivElement | null>(null);
   return (
     <TaskTitleTarget.Provider value={setTitle}>
+      {/* Как у «Расписания» и «Шаблонов смен»: путь раздела в верхней панели. */}
+      <PageBreadcrumb>
+        <nav aria-label="Навигация по разделам" className="flex min-w-0 items-center gap-2 text-sm">
+          <span className="text-muted-foreground">График работы</span>
+          <span aria-hidden="true" className="text-muted-foreground">/</span>
+          <span className="truncate">{title && title !== "Задачи" ? `Задачи / ${title}` : "Задачи"}</span>
+        </nav>
+      </PageBreadcrumb>
       <PageFrame className="space-y-6">
         {title !== null && (
           <TablePageHeader

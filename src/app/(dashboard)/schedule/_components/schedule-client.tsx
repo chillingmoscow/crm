@@ -19,7 +19,6 @@ import {
   CheckCircle2,
   Eye,
   Pencil,
-  UserMinus,
   UserPlus,
 } from "lucide-react";
 import {
@@ -85,6 +84,7 @@ import {
 import { EmployeePicker } from "./employee-picker";
 import { ApplyTemplateDialog } from "./apply-template-dialog";
 import { ShiftDetails } from "./shift-details";
+import { DrawerStatus } from "@/components/ui/drawer-blocks";
 import { templateTimesFor } from "@/lib/schedule/template-times";
 import { CandidateTrialCard } from "./candidate-trial-card";
 import { toast } from "sonner";
@@ -243,6 +243,7 @@ export function ScheduleClient({
     window.history.replaceState(null, "", url);
   };
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [templateOverlay, setTemplateOverlay] = useState<ShiftTemplate | null>(null);
   const [applyTemplate, setApplyTemplate] = useState<{
     id: string;
     previousTitle: string;
@@ -350,6 +351,19 @@ export function ScheduleClient({
       toast.error(e instanceof Error ? e.message : "Не удалось сохранить");
       return false;
     }
+  };
+  /** Сохранение шаблона; после правки предлагаем обновить смены по нему. */
+  const saveTemplate = (before?: ShiftTemplate): Save => async (action, input) => {
+    const saved = await save(action, input);
+    if (
+      saved &&
+      action === "template.edit" &&
+      before &&
+      can("shift_edit") &&
+      data.shifts.some((shift) => shift.template_id === before.id)
+    )
+      setApplyTemplate({ id: before.id, previousTitle: before.name });
+    return saved;
   };
   useEffect(() => {
     let alive = true;
@@ -671,14 +685,6 @@ export function ScheduleClient({
           setSelected((current) => (current?.id === shift.id ? null : current));
       },
     });
-  const unassign = (shift: Shift) =>
-    void save("shift.assign", {
-      id: shift.id,
-      version: shift.version,
-      user_id: null,
-      payroll_employee_id: null,
-      payroll_model_id: null,
-    });
   const drop = async (
     e: React.DragEvent,
     day: string,
@@ -815,17 +821,12 @@ export function ScheduleClient({
           Опубликовать
         </ContextMenuItem>
       )}
-      {can("shift_assign") && (assignee ? (
-        <ContextMenuItem onSelect={() => unassign(s)}>
-          <UserMinus />
-          Снять сотрудника
-        </ContextMenuItem>
-      ) : s.template_id && can("shift_create") ? (
+      {can("shift_assign") && !assignee && s.template_id && can("shift_create") && (
         <ContextMenuItem onSelect={assignSlot}>
           <UserPlus />
           Назначить сотрудника
         </ContextMenuItem>
-      ) : null)}
+      )}
       {can("shift_delete") && (
         <>
           <ContextMenuSeparator />
@@ -1550,6 +1551,7 @@ export function ScheduleClient({
           {...editor}
           onClose={() => setEditor(null)}
           save={save}
+          onEditTemplate={setTemplateOverlay}
         />
       )}
       {editor?.type === "template" && (
@@ -1558,23 +1560,19 @@ export function ScheduleClient({
           data={data}
           {...editor}
           onClose={() => setEditor(null)}
-          save={async (action, input) => {
-            const saved = await save(action, input);
-            const before = editor.template;
-            // Смены хранят копию полей шаблона — предлагаем обновить их.
-            if (
-              saved &&
-              action === "template.edit" &&
-              before &&
-              can("shift_edit") &&
-              data.shifts.some((shift) => shift.template_id === before.id)
-            )
-              setApplyTemplate({ id: before.id, previousTitle: before.name });
-            return saved;
-          }}
+          save={saveTemplate(editor.template)}
         />
       )}
-      {applyTemplate && !editor && (() => {
+      {templateOverlay && (
+        <TemplateEditor
+          key={`overlay-${templateOverlay.id}`}
+          data={data}
+          template={templateOverlay}
+          onClose={() => setTemplateOverlay(null)}
+          save={saveTemplate(templateOverlay)}
+        />
+      )}
+      {applyTemplate && editor?.type !== "template" && !templateOverlay && (() => {
         const template = data.templates.find((t) => t.id === applyTemplate.id);
         return template ? (
           <ApplyTemplateDialog
@@ -1623,38 +1621,33 @@ export function ScheduleClient({
             if (!o) setSelected(null);
           }}
           title={selectedTemplate ? shiftTemplateLabel(selectedTemplate) : selected.title}
-          description={`${dayLabel(dateInZone(selected.starts_at, data.timezone))} · ${timeInZone(selected.starts_at, data.timezone)}–${timeInZone(selected.ends_at, data.timezone)}`}
+          titleAccessory={
+            <DrawerStatus
+              label={selected.published ? "Опубликована" : "Черновик"}
+              tone={selected.published ? "success" : "warning"}
+            />
+          }
+          description={[
+            dayLabel(dateInZone(selected.starts_at, data.timezone), { weekday: "long", day: "numeric", month: "long" }).replace(/^./, (c) => c.toUpperCase()),
+            `${timeInZone(selected.starts_at, data.timezone)}–${timeInZone(selected.ends_at, data.timezone)}`,
+            `${shiftHours(selected.starts_at, selected.ends_at).toLocaleString("ru", { maximumFractionDigits: 1 })} ч`,
+          ].join(" · ")}
           footer={
             <>
               {can("shift_delete") && (
                 <Button
                   variant="ghost"
-                  className="text-destructive mr-auto"
+                  size="icon"
+                  className="mr-auto text-destructive hover:text-destructive"
                   aria-label={selected.published ? "Удалить смену" : "Удалить черновик"}
                   onClick={() => confirmDelete(selected)}
                 >
                   <Trash2 className="size-4" />
                 </Button>
               )}
-              {can("shift_copy") && (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setEditor({
-                      type: "shift",
-                      shift: selected,
-                      day: dateInZone(selected.starts_at, data.timezone),
-                      copy: true,
-                    });
-                    setSelected(null);
-                  }}
-                >
-                  <Copy className="size-4 mr-2" />
-                  Копировать
-                </Button>
-              )}
               {can("shift_edit") && (
                 <Button
+                  variant={!selected.published && can("shift_publish") ? "outline" : "default"}
                   onClick={() => {
                     setEditor({
                       type: "shift",
@@ -1667,25 +1660,32 @@ export function ScheduleClient({
                   Изменить
                 </Button>
               )}
+              {!selected.published && can("shift_publish") && (
+                <Button
+                  disabled={busy}
+                  onClick={async () => {
+                    if (await publishShifts([selected])) {
+                      toast.success("Смена опубликована");
+                      setSelected(null);
+                    }
+                  }}
+                >
+                  <Send />
+                  Опубликовать
+                </Button>
+              )}
             </>
           }
         >
           <ShiftDetails
             data={data}
             shift={selected}
-            template={selectedTemplate}
             history={history}
             personName={name}
-            canPublish={can("shift_publish")}
-            busy={busy}
-            onPublish={async () => {
-              if (await publishShifts([selected])) setSelected(null);
-            }}
             assignControl={can("shift_assign") && !can("shift_edit") ? (
               <EmployeePicker
                 data={data}
                 value={shiftAssignee(selected)}
-                emptyLabel="Без сотрудника"
                 includeCasual={data.permissions.includes("payroll.configure")}
                 onChange={async (next) => {
                   if (

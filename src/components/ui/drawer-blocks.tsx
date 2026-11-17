@@ -66,11 +66,14 @@ export function DrawerSummary({
 /** Строка сводки: плитка-иконка (или аватар) 32px, подпись сверху, значение. */
 export function DrawerSummaryItem({
   icon,
+  avatar,
   label,
   children,
   action,
 }: {
   icon: ReactNode;
+  /** icon — это DrawerAvatar: без плитки под ним. */
+  avatar?: boolean;
   label?: string;
   children: ReactNode;
   action?: ReactNode;
@@ -79,7 +82,11 @@ export function DrawerSummaryItem({
     <div className="flex min-w-0 items-start gap-3">
       <span
         aria-hidden="true"
-        className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted/60 text-muted-foreground [&_svg]:size-4"
+        className={cn(
+          "flex size-8 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-4",
+          // Аватар человека показываем как есть, без плитки.
+          !avatar && "rounded-lg bg-muted/60",
+        )}
       >
         {icon}
       </span>

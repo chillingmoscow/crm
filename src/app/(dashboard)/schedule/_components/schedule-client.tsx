@@ -41,15 +41,6 @@ import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import { TableControls, TableIconButton, TablePageHeader } from "@/components/shared/table";
 import { TableFilterChip } from "@/components/shared/table/table-filter-chip";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -98,6 +89,7 @@ import { templateTimesFor } from "@/lib/schedule/template-times";
 import { CandidateTrialCard } from "./candidate-trial-card";
 import { toast } from "sonner";
 import { TemplateList } from "./template-list";
+import { ViewMenu } from "./view-menu";
 import { TemplateWeek } from "./template-week";
 import { TemplateName } from "./template-name";
 import { TaskHeaderTarget, TaskTitleTarget } from "./task-header-actions";
@@ -789,7 +781,7 @@ export function ScheduleClient({
       )}
       {mode !== "shift" && <span className={cn("break-words text-xs", mode === "template" && "font-medium")}>{assigneeLabel}</span>}
       {!s.published && (
-        <span className="flex gap-1 items-center text-[10px]" title="Черновик: сотрудник не видит смену, пока её не опубликуют">
+        <span className="flex gap-1 items-center text-[10px]">
           <span className="size-1.5 rounded-full bg-current" />
           Черновик
         </span>
@@ -928,15 +920,29 @@ export function ScheduleClient({
                   onClick: () => setFilters(!filters),
                 }}
                 secondaryActions={
-                  can("shift_create") && !templateView ? (
+                  <>
+                    {can("shift_create") && !templateView && (
+                      <TableIconButton
+                        label={templatesOpen ? "Скрыть шаблоны смен" : "Показать шаблоны смен"}
+                        active={templatesOpen}
+                        onClick={() => setTemplatesOpen(!templatesOpen)}
+                      >
+                        <Layers />
+                      </TableIconButton>
+                    )}
                     <TableIconButton
-                      label={templatesOpen ? "Скрыть шаблоны смен" : "Показать шаблоны смен"}
-                      active={templatesOpen}
-                      onClick={() => setTemplatesOpen(!templatesOpen)}
+                      label={showTasks ? "Скрыть задачи" : "Показать задачи"}
+                      active={showTasks}
+                      onClick={() => toggleTasks(!showTasks)}
                     >
-                      <Layers />
+                      <ListChecks />
                     </TableIconButton>
-                  ) : null
+                    <ViewMenu
+                      value={templateView ? "templates" : view === "list" ? "list" : "week"}
+                      onChange={changeView}
+                      canPlan={canPlan}
+                    />
+                  </>
                 }
                 primaryActions={
                   <>
@@ -989,7 +995,7 @@ export function ScheduleClient({
           ) : (
             <>
               <div className="flex flex-wrap justify-between gap-3">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <PeriodStepper
                     previous="Предыдущая неделя"
                     next="Следующая неделя"
@@ -1035,21 +1041,33 @@ export function ScheduleClient({
                   >
                     Сегодня
                   </Button>
+                  {(filters || filtersActive) && (
+                    <div className="flex flex-wrap items-center gap-2 sm:ml-2" aria-label="Фильтры расписания">
+                      <TableFilterChip
+                        label="Подразделение"
+                        value={department === "all" ? "" : department}
+                        options={[
+                          { value: "", label: "Все подразделения" },
+                          ...data.departments.map(({ id, name }) => ({ value: id, label: name })),
+                        ]}
+                        onChange={(value) => setDepartment(value || "all")}
+                      />
+                      {canPlan && (
+                        <TableFilterChip
+                          label="Публикация"
+                          value={publication === "all" ? "" : publication}
+                          options={[
+                            { value: "", label: "Все смены" },
+                            { value: "draft", label: "Черновики" },
+                            { value: "published", label: "Опубликованные" },
+                          ]}
+                          onChange={(value) => setPublication(value || "all")}
+                        />
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2 items-center">
-                  <div className="mr-2 flex items-center gap-2">
-                    <Switch
-                      id="calendar-show-tasks"
-                      checked={showTasks}
-                      onCheckedChange={toggleTasks}
-                    />
-                    <Label
-                      htmlFor="calendar-show-tasks"
-                      className="cursor-pointer whitespace-nowrap text-sm"
-                    >
-                      Показать задачи
-                    </Label>
-                  </div>
                   {showTasks && pendingTaskReports.length > 0 && (
                     <Popover>
                       <PopoverTrigger asChild>
@@ -1080,16 +1098,6 @@ export function ScheduleClient({
                       </PopoverContent>
                     </Popover>
                   )}
-                  <Select value={templateView ? "templates" : view === "list" ? "list" : "week"} onValueChange={changeView}>
-                    <SelectTrigger aria-label="Вид расписания" className="w-[160px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="week">По сотрудникам</SelectItem>
-                      {canPlan && <SelectItem value="templates">По шаблонам</SelectItem>}
-                      <SelectItem value="list">Список</SelectItem>
-                    </SelectContent>
-                  </Select>
                 </div>
               </div>
               {showTasks && tasksError && (
@@ -1109,33 +1117,8 @@ export function ScheduleClient({
                   </Button>
                 </div>
               )}
-              {(filters || filtersActive) && (
-                <div className="flex flex-wrap items-center gap-2" aria-label="Фильтры расписания">
-                  <TableFilterChip
-                    label="Подразделение"
-                    value={department === "all" ? "" : department}
-                    options={[
-                      { value: "", label: "Все подразделения" },
-                      ...data.departments.map(({ id, name }) => ({ value: id, label: name })),
-                    ]}
-                    onChange={(value) => setDepartment(value || "all")}
-                  />
-                  {canPlan && (
-                    <TableFilterChip
-                      label="Публикация"
-                      value={publication === "all" ? "" : publication}
-                      options={[
-                        { value: "", label: "Все смены" },
-                        { value: "draft", label: "Черновики · не видны сотрудникам" },
-                        { value: "published", label: "Опубликованные · видны сотрудникам" },
-                      ]}
-                      onChange={(value) => setPublication(value || "all")}
-                    />
-                  )}
-                </div>
-              )}
               {templatesOpen && !templateView && (
-                <section aria-label="Шаблоны смен" className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-muted/50 px-3 py-2.5">
+                <section aria-label="Шаблоны смен" className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-muted/30 px-3 py-2.5">
                   <h2 className="shrink-0 text-xs font-semibold text-muted-foreground">Шаблоны смен</h2>
                   <div className="flex flex-wrap gap-1.5">
                     {data.templates.filter((t) => !t.archived).map((t) => (

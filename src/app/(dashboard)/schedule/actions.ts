@@ -241,7 +241,7 @@ export async function loadSchedule(
       .eq("venue_id", venueId)
       .order("name"),
     db.from("venues").select("timezone").eq("id", venueId).single(),
-    permissions.includes("people.manage_candidates") && permissions.includes("schedule.view_all")
+    permissions.includes("schedule.view_all")
       ? asLooseDb(db).rpc("candidate_calendar_trials", {})
       : Promise.resolve({ data: [], error: null }),
     asLooseDb(db).from<{ role_id: string }[]>("schedule_hidden_roles")

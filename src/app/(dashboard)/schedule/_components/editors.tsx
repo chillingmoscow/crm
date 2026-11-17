@@ -1,6 +1,7 @@
 "use client";
 import { useId, useState } from "react";
 import { shiftAssignee, assignmentFields } from "@/lib/schedule/types";
+import { casualPayModel } from "@/lib/schedule/casual-pay-model";
 import { Plus, Trash2, ArrowUp, ArrowDown, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -405,7 +406,6 @@ export function ShiftEditor({
   const casualEmployee = data.casualEmployees?.find(
     (e) => `payroll:${e.id}` === who,
   );
-  const candidatePayModel = payModel || casualEmployee?.model_id || "";
   const [note, setNote] = useState(shift?.note ?? "");
   const [templateId, setTemplateId] = useState(
     shift?.template_id ?? template?.id ?? null,
@@ -447,14 +447,23 @@ export function ShiftEditor({
     if (deviation.length === 0) set(templateValue);
     setTemplateId(null);
   };
-  const selectedPayModel = data.payModels?.some(
-    (model) =>
-      model.id === candidatePayModel &&
-      model.role_name ===
-        data.roles.find((role) => role.id === templateValue.role_id)?.name,
-  )
-    ? candidatePayModel
-    : "";
+  // Модель оплаты разового — по должности смены, без выбора: своя модель
+  // сотрудника, если она этой должности, иначе единственная модель должности.
+  // Спрашиваем, только если у должности несколько моделей.
+  const shiftRole = data.roles.find((role) => role.id === templateValue.role_id);
+  const payModelPick = casualPayModel({
+    employeeModelId: casualEmployee?.model_id,
+    roleName: shiftRole?.name,
+    models: data.payModels ?? [],
+  });
+  const roleModels = (data.payModels ?? []).filter((m) =>
+    payModelPick.options.some((o) => o.id === m.id),
+  );
+  const autoPayModel = payModelPick.id ?? "";
+  const selectedPayModel = roleModels.some((model) => model.id === payModel)
+    ? payModel
+    : autoPayModel;
+  const selectedPayModelName = roleModels.find((model) => model.id === selectedPayModel)?.name;
   const [busy, setBusy] = useState(false);
   const started = shift && data.runs.some((r) => r.shift_id === shift.id);
   const unavailable = new Set(templateSlot
@@ -504,7 +513,7 @@ export function ShiftEditor({
         />
       </Field>
       {casual && (
-        <div className="rounded-lg border bg-muted/20 p-4 space-y-4">
+        <>
           {who === "new-casual" && (
             <Field label="Имя и фамилия">
               <Input
@@ -515,26 +524,25 @@ export function ShiftEditor({
               />
             </Field>
           )}
-          <Field label="Модель оплаты этой смены">
-            <OptionSelect
-              aria-label="Модель оплаты этой смены"
-              placeholder="Выберите модель"
-              value={selectedPayModel}
-              onValueChange={setPayModel}
-              options={(data.payModels ?? [])
-                .filter(
-                  (m) =>
-                    m.role_name ===
-                    data.roles.find((r) => r.id === templateValue.role_id)?.name,
-                )
-                .map((m) => ({ value: m.id, label: m.name }))}
-            />
-          </Field>
-          <p className="text-xs text-muted-foreground">
-            Без аккаунта. Опубликованная смена учитывается в зарплате после
-            окончания, без отметки Quick Resto.
+          {!autoPayModel && roleModels.length > 1 && (
+            <Field label="Модель оплаты">
+              <OptionSelect
+                aria-label="Модель оплаты"
+                placeholder="Выберите модель"
+                value={selectedPayModel}
+                onValueChange={setPayModel}
+                options={roleModels.map((m) => ({ value: m.id, label: m.name }))}
+              />
+            </Field>
+          )}
+          <p className={cn("-mt-3 text-xs", shiftRole && roleModels.length > 0 ? "text-muted-foreground" : "text-destructive")}>
+            {!shiftRole
+              ? "У смены нет должности — модель оплаты разового сотрудника подбирается по должности. Выберите шаблон с должностью."
+              : roleModels.length === 0
+                ? `Для должности «${shiftRole.name}» нет модели оплаты разовых сотрудников. Добавьте её в настройках зарплаты.`
+                : `${selectedPayModelName ? `Оплата по модели «${selectedPayModelName}». ` : ""}Смена учитывается в зарплате после окончания, без отметки Quick Resto.`}
           </p>
-        </div>
+        </>
       )}
     </>
   );

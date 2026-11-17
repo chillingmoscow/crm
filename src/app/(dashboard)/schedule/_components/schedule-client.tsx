@@ -56,6 +56,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { paletteBg, paletteDot, paletteText } from "@/lib/palette";
+import { casualPayModel as pickCasualPayModel } from "@/lib/schedule/casual-pay-model";
 import { cn } from "@/lib/utils";
 import {
   addDays,
@@ -643,6 +644,19 @@ export function ScheduleClient({
       templateSlot,
     });
   /**
+   * Модель оплаты разового сотрудника по должности смены (как в форме):
+   * его модель, если она этой должности, иначе единственная модель должности.
+   */
+  const casualPayModel = (userId: string | null, roleId: string | null) => {
+    const casual = data.casualEmployees?.find((e) => `payroll:${e.id}` === userId);
+    if (!casual) return null;
+    return pickCasualPayModel({
+      employeeModelId: casual.model_id,
+      roleName: data.roles.find((r) => r.id === roleId)?.name,
+      models: data.payModels ?? [],
+    }).id;
+  };
+  /**
    * Шаблон в ячейку сотрудника — сразу черновик смены, без формы: сотрудник,
    * день, время, должность и цвет уже известны. Форма открывается, только если
    * назначать сотрудников нельзя.
@@ -655,6 +669,12 @@ export function ScheduleClient({
       return;
     }
     const casual = data.casualEmployees?.find((e) => `payroll:${e.id}` === userId);
+    // Если модель оплаты разового нельзя подобрать однозначно — открываем форму.
+    const payModel = casualPayModel(userId, template.role_id);
+    if (casual && !payModel) {
+      create(day, userId, template);
+      return;
+    }
     await save("shift.create", {
       name: template.name,
       title: template.name,
@@ -666,7 +686,7 @@ export function ScheduleClient({
       checklist_ids: casual ? [] : template.checklist_ids,
       date: day,
       ...assignmentFields(userId),
-      payroll_model_id: casual?.model_id ?? null,
+      payroll_model_id: payModel,
       casual_name: "",
       note: "",
       template_id: template.id,
@@ -748,10 +768,7 @@ export function ScheduleClient({
       start_time: timeInZone(shift.starts_at, data.timezone),
       end_time: timeInZone(shift.ends_at, data.timezone),
       ...assignmentFields(userId),
-      payroll_model_id: userId?.startsWith("payroll:")
-        ? (data.casualEmployees?.find((e) => e.id === userId.slice(8))
-            ?.model_id ?? null)
-        : null,
+      payroll_model_id: casualPayModel(userId, shift.role_id),
     });
   };
   const cellTemplates = (day: string) =>
@@ -1442,6 +1459,7 @@ export function ScheduleClient({
                                         key={trial.id}
                                         trial={trial}
                                         timezone={data.timezone}
+                                        linked={data.permissions.includes("people.manage_candidates")}
                                       />
                                     ))}
                                 </div>
@@ -1535,6 +1553,7 @@ export function ScheduleClient({
                                 trial={trial}
                                 timezone={data.timezone}
                                 showName
+                                linked={data.permissions.includes("people.manage_candidates")}
                               />
                             ))}
                           {!weekShifts.some(
@@ -1744,11 +1763,7 @@ export function ScheduleClient({
                       id: selected.id,
                       version: selected.version,
                       ...assignmentFields(next),
-                      payroll_model_id: next?.startsWith("payroll:")
-                        ? (data.casualEmployees?.find(
-                            (p) => p.id === next.slice(8),
-                          )?.model_id ?? null)
-                        : null,
+                      payroll_model_id: casualPayModel(next, selected.role_id),
                     })
                   )
                     setSelected(null);

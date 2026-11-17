@@ -5,10 +5,12 @@ import { timeInZone } from "@/lib/schedule/utils";
 import type { CandidateCalendarTrial } from "@/lib/schedule/types";
 import { cn } from "@/lib/utils";
 
-export function CandidateTrialCard({ trial, timezone, showName = false, linked = true }: {
+export function CandidateTrialCard({ trial, timezone, showName = false, linked = true, venueName }: {
   trial: CandidateCalendarTrial;
   timezone: string;
   showName?: boolean;
+  /** Текущее заведение: если стажировка в нём же, место не повторяем. */
+  venueName?: string | null;
   /** Ссылка на карточку кандидата — только с правом работы с кандидатами. */
   linked?: boolean;
 }) {
@@ -28,7 +30,9 @@ export function CandidateTrialCard({ trial, timezone, showName = false, linked =
         {trial.starts_at ? timeInZone(trial.starts_at, timezone) : "Время не указано"}
         {trial.outcome === "passed" ? " · Пройдена" : ""}
       </span>
-      {trial.location && <span className="block break-words opacity-80">{trial.location}</span>}
+      {trial.location && trial.location.trim() !== venueName?.trim() && (
+        <span className="block break-words opacity-80">{trial.location}</span>
+      )}
     </>
   );
   const label = `Стажировка: ${trial.full_name}`;

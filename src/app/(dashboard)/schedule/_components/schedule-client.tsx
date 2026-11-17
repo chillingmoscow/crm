@@ -811,12 +811,14 @@ export function ScheduleClient({
       (t) => !t.archived && templateTimesFor(t, isoWeekday(day)) !== null && !templateTaken(t.id, day),
     );
   const templatesById = new Map(data.templates.map((template) => [template.id, template]));
-  const shiftTemplate = (shift: Shift) => {
-    const template = shift.template_id ? templatesById.get(shift.template_id) : undefined;
-    return template?.subtitle && (shift.title === template.name || shift.title === shiftTemplateLabel(template))
-      ? template
-      : undefined;
-  };
+  /**
+   * Шаблон смены для показа. Смена по шаблону всегда называется как шаблон
+   * сейчас: её собственное название — копия на момент создания, оно
+   * устаревает при переименовании шаблона и у смен из переноса старого
+   * графика («Менеджер №1» при шаблоне «Менеджер · день»).
+   */
+  const shiftTemplate = (shift: Shift) =>
+    shift.template_id ? templatesById.get(shift.template_id) : undefined;
   const selectedTemplate = selected ? shiftTemplate(selected) : undefined;
   /**
    * Смена в виде «Список» — как в календаре: время колонкой слева, полоска
@@ -824,9 +826,9 @@ export function ScheduleClient({
    * (опубликованная — обычное состояние, её не подписываем).
    */
   const listCardBody = (s: Shift, assignee: string | null, mark: unknown) => {
-    const template = s.template_id ? templatesById.get(s.template_id) : undefined;
-    const title = template && (s.title === template.name || s.title === shiftTemplateLabel(template)) ? template.name : s.title;
-    const subtitle = template && title === template.name ? template.subtitle : null;
+    const template = shiftTemplate(s);
+    const title = template ? template.name : s.title;
+    const subtitle = template?.subtitle ?? null;
     const avatar = data.staff.find((p) => p.user_id === assignee)?.avatar_url;
     const person = assignee ? name(assignee) : "Сотрудник не назначен";
     const hours = Math.round(shiftHours(s.starts_at, s.ends_at) * 10) / 10;
@@ -1546,6 +1548,7 @@ export function ScheduleClient({
                                         trial={trial}
                                         timezone={data.timezone}
                                         linked={data.permissions.includes("people.manage_candidates")}
+                                venueName={data.venueName}
                                       />
                                     ))}
                                 </div>
@@ -1666,6 +1669,7 @@ export function ScheduleClient({
                                 timezone={data.timezone}
                                 showName
                                 linked={data.permissions.includes("people.manage_candidates")}
+                                venueName={data.venueName}
                               />
                             ))}
                           {!weekShifts.some(

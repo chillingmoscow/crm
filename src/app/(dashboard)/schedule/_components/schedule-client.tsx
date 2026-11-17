@@ -73,7 +73,7 @@ import type {
   ShiftTemplate,
   ScheduleEvent,
 } from "@/lib/schedule/types";
-import { loadShiftAttendance, loadSchedule, scheduleCommand, scheduleHistory } from "../actions";
+import { loadShiftAttendance, loadSchedule, scheduleCommand, shiftHistoryPage } from "../actions";
 import { ShiftAttendancePopover } from "./shift-attendance-popover";
 import type { ShiftAttendanceMark } from "@/lib/payroll/types";
 import {
@@ -278,6 +278,7 @@ export function ScheduleClient({
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<ScheduleEvent[] | null>(null);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
   const can = useCallback(
     (p: string) => data.permissions.includes("schedule." + p),
     [data.permissions],
@@ -370,10 +371,13 @@ export function ScheduleClient({
   useEffect(() => {
     let alive = true;
     setHistory(null);
+    setHistoryHasMore(false);
     if (selected)
-      scheduleHistory(selected.id)
-        .then((h) => {
-          if (alive) setHistory(h);
+      shiftHistoryPage(selected.id)
+        .then((page) => {
+          if (!alive) return;
+          setHistory(page.events);
+          setHistoryHasMore(page.hasMore);
         })
         .catch(() => {
           if (alive) setHistory([]);
@@ -382,6 +386,17 @@ export function ScheduleClient({
       alive = false;
     };
   }, [selected]);
+  /** Следующая страница истории (старее последней загруженной записи). */
+  const loadMoreHistory = async () => {
+    if (!selected || !history?.length) return;
+    try {
+      const page = await shiftHistoryPage(selected.id, history[history.length - 1].created_at);
+      setHistory((current) => [...(current ?? []), ...page.events]);
+      setHistoryHasMore(page.hasMore);
+    } catch {
+      toast.error("Не удалось загрузить историю");
+    }
+  };
   const days = Array.from({ length: 7 }, (_, i) => addDays(week, i));
   const search = query.trim().toLowerCase();
   const roster = [
@@ -1535,13 +1550,27 @@ export function ScheduleClient({
                   >
                     {days.map((d) => (
                       <section key={d} className="overflow-hidden rounded-lg border bg-card">
-                        <h3 className={cn("border-b bg-muted/50 px-4 py-3 text-sm font-medium first-letter:uppercase", d === today && "text-brand")}>
-                          {dayLabel(d, {
-                            weekday: "long",
-                            day: "numeric",
-                            month: "long",
-                          })}
-                        </h3>
+                        <div className="flex items-center justify-between gap-2 border-b bg-muted/50 py-1.5 pl-4 pr-2">
+                          <h3 className={cn("py-1.5 text-sm font-medium first-letter:uppercase", d === today && "text-brand")}>
+                            {dayLabel(d, {
+                              weekday: "long",
+                              day: "numeric",
+                              month: "long",
+                            })}
+                          </h3>
+                          {can("shift_create") && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 text-muted-foreground"
+                              aria-label={`Добавить смену: ${dayLabel(d)}`}
+                              title="Добавить смену"
+                              onClick={() => create(d)}
+                            >
+                              <Plus className="size-4" />
+                            </Button>
+                          )}
+                        </div>
                         <div className="space-y-2 p-3">
                           {weekShifts
                             .filter(
@@ -1577,16 +1606,6 @@ export function ScheduleClient({
                                 Смен нет
                               </p>
                             )}
-                          {can("shift_create") && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => create(d)}
-                            >
-                              <Plus className="size-4 mr-2" />
-                              Добавить смену
-                            </Button>
-                          )}
                         </div>
                       </section>
                     ))}
@@ -1755,9 +1774,12 @@ export function ScheduleClient({
           }
         >
           <ShiftDetails
+            key={selected.id}
             data={data}
             shift={selected}
             history={history}
+            historyHasMore={historyHasMore}
+            onLoadMoreHistory={loadMoreHistory}
             personName={name}
             assignControl={can("shift_assign") && !can("shift_edit") ? (
               <EmployeePicker

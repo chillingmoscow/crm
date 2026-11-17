@@ -7,7 +7,7 @@ import { templateTimesFor } from "@/lib/schedule/template-times";
 import { shiftTemplateLabel, type Shift, type ShiftTemplate } from "@/lib/schedule/types";
 import type { TaskOccurrence } from "@/lib/schedule/tasks";
 import { dateInZone, dayLabel } from "@/lib/schedule/utils";
-import { isoWeekday } from "./editors";
+import { formatDays, isoWeekday } from "./editors";
 import { TemplateName } from "./template-name";
 
 export function TemplateWeek({
@@ -115,7 +115,16 @@ export function TemplateWeek({
               <th scope="row" className="sticky left-0 z-10 border-b bg-card px-3 py-3 text-left align-top font-normal group-hover:bg-muted sm:px-4">
                 <span className="flex items-start gap-2.5 text-[13px]">
                   <span className={cn("mt-1 size-2 shrink-0 rounded-full", paletteDot(template.color))} aria-hidden />
-                  <TemplateName {...template} />
+                  <span className="min-w-0">
+                    <TemplateName {...template} />
+                    {/* Время шаблона: по варианту на строку, без «· ·». */}
+                    {(template.variants?.length ? template.variants : [template]).map((v, i) => (
+                      <span key={i} className="mt-0.5 block text-[11px] tabular-nums text-muted-foreground">
+                        {"days" in v && template.variants?.length ? `${formatDays(v.days)} ` : ""}
+                        {v.start_time.slice(0, 5)}–{v.end_time.slice(0, 5)}
+                      </span>
+                    ))}
+                  </span>
                 </span>
               </th>
               {days.map((day) => {
@@ -128,24 +137,19 @@ export function TemplateWeek({
                   <td key={day} className={cellClass(day)}>
                     <div className="grid gap-1.5">
                       {shift && visibleIds.has(shift.id) && shiftWithTasks(shift)}
-                      {!shift && showVacancies && (
-                        onAssign ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onAssign(day, template)}
-                            aria-label={`Назначить: ${shiftTemplateLabel(template)}, ${dayLabel(day)}, ${time}`}
-                            className="h-auto min-h-12 w-full flex-col items-start gap-0.5 bg-muted/30 px-2 py-1.5 text-left"
-                          >
-                            <span className="text-[11px] font-normal tabular-nums text-muted-foreground">{time}</span>
-                            <span className="flex items-center gap-1 text-xs"><Plus className="size-3.5" />Назначить</span>
-                          </Button>
-                        ) : (
-                          <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                            <span className="block text-[11px] tabular-nums">{time}</span>
-                            Без сотрудника
-                          </div>
-                        )
+                      {/* Пустой слот — тихий «+», как в виде по сотрудникам;
+                          время шаблона — в подсказке и под названием строки. */}
+                      {!shift && showVacancies && onAssign && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onAssign(day, template)}
+                          aria-label={`Назначить: ${shiftTemplateLabel(template)}, ${dayLabel(day)}, ${time}`}
+                          title={`Назначить · ${time}`}
+                          className="h-8 w-full text-muted-foreground/70"
+                        >
+                          <Plus className="size-3.5" />
+                        </Button>
                       )}
                       {(tasksBySlot.get(key) ?? []).map(renderTask)}
                     </div>

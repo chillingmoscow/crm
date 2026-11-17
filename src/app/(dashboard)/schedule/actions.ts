@@ -435,6 +435,23 @@ export async function scheduleHistory(id: string) {
   if (error) throw new Error(error.message);
   return data ?? [];
 }
+/** История смены по страницам: от новых к старым, `before` — курсор. */
+export async function shiftHistoryPage(id: string, before?: string) {
+  if (!uuid.safeParse(id).success) throw new Error("Смена не найдена");
+  const pageSize = 20;
+  const db = await client();
+  let query = db
+    .from("schedule_events")
+    .select("*")
+    .eq("entity_id", id)
+    .order("created_at", { ascending: false })
+    .limit(pageSize + 1);
+  if (before) query = query.lt("created_at", before);
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  const rows = data ?? [];
+  return { events: rows.slice(0, pageSize), hasMore: rows.length > pageSize };
+}
 export async function uploadEvidence(runId: string, form: FormData) {
   const parsed = uuid.safeParse(runId);
   const file = form.get("file");

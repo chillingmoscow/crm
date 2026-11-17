@@ -54,3 +54,43 @@ test("смена шаблона не дублирует строку про на
 test("публикация отдельным действием не повторяется в описании", () => {
   assert.deepEqual(describeShiftChange("shift.publish", base, { ...base, published: true }, ctx), []);
 });
+
+import { collapseHistory, shiftChangeTitle } from "./shift-history.ts";
+
+test("заголовок называет конкретное изменение", () => {
+  const moved = { ...base, starts_at: "2026-11-19T09:00", ends_at: "2026-11-19T17:00" };
+  assert.equal(shiftChangeTitle("shift.edit", base, moved, ctx), "Перенесена на другой день");
+  assert.equal(shiftChangeTitle("shift.assign", base, { ...base, user_id: "u2" }, ctx), "Замена сотрудника");
+  assert.equal(shiftChangeTitle("shift.assign", { ...base, user_id: null }, base, ctx), "Назначен сотрудник");
+  assert.equal(
+    shiftChangeTitle("shift.edit", base, { ...moved, starts_at: "2026-11-19T10:00" }, ctx),
+    "Изменены дата и время",
+  );
+  assert.equal(shiftChangeTitle("shift.create", null, base, ctx), "Смена создана");
+});
+
+test("сохранение без изменений не показываем", () => {
+  assert.equal(shiftChangeTitle("shift.edit", base, { ...base }, ctx), null);
+});
+
+test("быстрые правки одного человека склеиваются; туда-обратно — без изменений", () => {
+  const d17 = { ...base, starts_at: "2026-11-17T09:00", ends_at: "2026-11-17T17:00" };
+  const d18 = { ...base, starts_at: "2026-11-18T09:00", ends_at: "2026-11-18T17:00" };
+  const ev = (id: string, at: string, before: object, after: object, actor = "a") => ({
+    id, action: "shift.edit", actor_id: actor, created_at: at, details: { before, after },
+  });
+  const events = [
+    ev("4", "2026-11-17T22:35:40Z", d17, d18),
+    ev("3", "2026-11-17T22:35:30Z", d18, d17),
+    ev("2", "2026-11-17T22:35:20Z", d17, d18),
+    ev("1", "2026-11-17T22:35:10Z", d18, d17),
+    ev("0", "2026-11-17T16:37:00Z", d17, d17),
+  ];
+  const collapsed = collapseHistory(events);
+  assert.equal(collapsed.length, 2);
+  assert.equal(collapsed[0].id, "4");
+  const merged = collapsed[0].details as { before: typeof base; after: typeof base };
+  assert.equal(shiftChangeTitle("shift.edit", merged.before, merged.after, ctx), null);
+  // Другой человек — отдельная запись.
+  assert.equal(collapseHistory([ev("b", "2026-11-17T22:36:00Z", d18, d17, "b"), ...events]).length, 3);
+});

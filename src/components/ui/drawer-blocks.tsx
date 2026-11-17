@@ -130,11 +130,24 @@ export function DrawerSummaryTotal({
 }
 
 /** Аватар человека для DrawerSummaryItem и DrawerTimelineItem. */
-export function DrawerAvatar({ name, src }: { name: string; src?: string | null }) {
+export function DrawerAvatar({
+  name,
+  src,
+  size = "md",
+}: {
+  name: string;
+  src?: string | null;
+  /** md — 32px (сводка, история), sm — 20px (строка списка). */
+  size?: "sm" | "md";
+}) {
+  const box = size === "sm" ? "size-5 text-[10px]" : "size-8 text-xs";
   return src ? (
-    <img src={src} alt="" className="size-8 shrink-0 rounded-full object-cover" />
+    <img src={src} alt="" className={cn("shrink-0 rounded-full object-cover", box)} />
   ) : (
-    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
+    <span
+      aria-hidden
+      className={cn("flex shrink-0 items-center justify-center rounded-full bg-muted font-medium text-muted-foreground", box)}
+    >
       {name.trim().charAt(0).toUpperCase() || "?"}
     </span>
   );

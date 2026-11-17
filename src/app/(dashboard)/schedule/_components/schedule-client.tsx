@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { format } from "date-fns";
@@ -85,7 +85,7 @@ import {
 import { EmployeePicker } from "./employee-picker";
 import { ApplyTemplateDialog } from "./apply-template-dialog";
 import { ShiftDetails } from "./shift-details";
-import { DrawerStatus } from "@/components/ui/drawer-blocks";
+import { DrawerAvatar, DrawerStatus } from "@/components/ui/drawer-blocks";
 import { templateTimesFor } from "@/lib/schedule/template-times";
 import { CandidateTrialCard } from "./candidate-trial-card";
 import { toast } from "sonner";
@@ -389,7 +389,8 @@ export function ScheduleClient({
   const loadMoreHistory = async () => {
     if (!selected || !history?.length) return;
     try {
-      const page = await shiftHistoryPage(selected.id, history[history.length - 1].created_at);
+      const last = history[history.length - 1];
+      const page = await shiftHistoryPage(selected.id, { created_at: last.created_at, id: last.id });
       setHistory((current) => [...(current ?? []), ...page.events]);
       setHistoryHasMore(page.hasMore);
     } catch {
@@ -721,10 +722,16 @@ export function ScheduleClient({
     dateInZone(item.shift.starts_at, data.timezone) === day &&
     shiftAssignee(item.shift) === userId;
   /** По шаблону в день может быть только одна смена (правило сервера). */
-  const templateTaken = (templateId: string, day: string) =>
-    data.shifts.some(
-      (shift) => shift.template_id === templateId && dateInZone(shift.starts_at, data.timezone) === day,
-    );
+  const takenTemplateSlots = useMemo(
+    () =>
+      new Set(
+        data.shifts
+          .filter((shift) => shift.template_id)
+          .map((shift) => `${shift.template_id}:${dateInZone(shift.starts_at, data.timezone)}`),
+      ),
+    [data.shifts, data.timezone],
+  );
+  const templateTaken = (templateId: string, day: string) => takenTemplateSlots.has(`${templateId}:${day}`);
   const canDrop = (item: DragItem, day: string, userId: string | null) =>
     item.kind === "template"
       ? can("shift_create") &&
@@ -834,14 +841,7 @@ export function ScheduleClient({
         <span className="min-w-0 flex-1">
           {/* Главное — кто работает: сотрудник жирным, ниже смена и часы. */}
           <span className="flex min-w-0 items-center gap-1.5">
-            {avatar ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={avatar} alt="" className="size-5 shrink-0 rounded-full object-cover" />
-            ) : (
-              <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
-                {person.trim().charAt(0).toUpperCase()}
-              </span>
-            )}
+            <DrawerAvatar name={person} src={avatar} size="sm" />
             <span className={cn("truncate text-sm font-semibold", !assignee && "font-normal text-muted-foreground")}>
               {person}
             </span>

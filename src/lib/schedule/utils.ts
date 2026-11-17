@@ -19,9 +19,12 @@ export function timeInZone(value: string, timezone: string) {
 /**
  * Момент времени (ISO, UTC) для даты и времени по часам заведения:
  * «2026-11-18», «14:00», «Europe/Moscow» → «2026-11-18T11:00:00.000Z».
+ * null — если дата или время не заданы.
  */
-export function instantInZone(date: string, time: string, timezone: string) {
+export function instantInZone(date: string, time: string, timezone: string): string | null {
   const naive = Date.parse(`${date}T${time.slice(0, 5)}:00Z`);
+  // Пустая или неполная дата/время — момента нет; не роняем рендер.
+  if (Number.isNaN(naive)) return null;
   const offset = (at: number) => {
     const p = new Intl.DateTimeFormat("en-CA", {
       timeZone: timezone,

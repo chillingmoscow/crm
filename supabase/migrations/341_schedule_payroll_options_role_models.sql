@@ -12,7 +12,7 @@ returns jsonb
 language sql
 stable
 security definer
-set search_path = ''
+set search_path = public, pg_catalog
 as $$
  select case when public.has_permission('schedule.view_all') then jsonb_build_object(
   'employees', (select coalesce(jsonb_agg(jsonb_build_object(

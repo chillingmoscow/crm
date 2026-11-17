@@ -435,9 +435,15 @@ export async function scheduleHistory(id: string) {
   if (error) throw new Error(error.message);
   return data ?? [];
 }
-/** История смены по страницам: от новых к старым, `before` — курсор. */
-export async function shiftHistoryPage(id: string, before?: string) {
+/**
+ * История смены по страницам: от новых к старым. Курсор — (created_at, id)
+ * последней загруженной записи: события одной транзакции делят created_at,
+ * и курсор только по времени терял бы их на границе страниц.
+ */
+export async function shiftHistoryPage(id: string, before?: { created_at: string; id: string }) {
   if (!uuid.safeParse(id).success) throw new Error("Смена не найдена");
+  if (before && (!uuid.safeParse(before.id).success || Number.isNaN(Date.parse(before.created_at))))
+    throw new Error("Некорректная страница истории");
   const pageSize = 20;
   const db = await client();
   let query = db
@@ -445,8 +451,12 @@ export async function shiftHistoryPage(id: string, before?: string) {
     .select("*")
     .eq("entity_id", id)
     .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
     .limit(pageSize + 1);
-  if (before) query = query.lt("created_at", before);
+  if (before)
+    query = query.or(
+      `created_at.lt."${before.created_at}",and(created_at.eq."${before.created_at}",id.lt.${before.id})`,
+    );
   const { data, error } = await query;
   if (error) throw new Error(error.message);
   const rows = data ?? [];

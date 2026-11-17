@@ -78,13 +78,13 @@ import type { ShiftAttendanceMark } from "@/lib/payroll/types";
 import {
   ShiftEditor,
   TemplateEditor,
-  Field,
   type Save,
   formatTemplateTimes,
   isoWeekday,
 } from "./editors";
 import { EmployeePicker } from "./employee-picker";
 import { ApplyTemplateDialog } from "./apply-template-dialog";
+import { ShiftDetails } from "./shift-details";
 import { templateTimesFor } from "@/lib/schedule/template-times";
 import { CandidateTrialCard } from "./candidate-trial-card";
 import { toast } from "sonner";
@@ -126,14 +126,6 @@ type DragItem =
   | { kind: "shift"; shift: Shift }
   | { kind: "template"; template: ShiftTemplate };
 type DropTarget = { day: string; userId: string | null; ok: boolean };
-const eventLabels: Record<string, string> = {
-  "shift.create": "Создана смена",
-  "shift.copy": "Создана копия",
-  "shift.edit": "Изменена смена",
-  "shift.assign": "Назначен сотрудник",
-  "shift.publish": "Опубликована смена",
-  "shift.delete": "Удалена смена",
-};
 export function ScheduleClient({
   initial,
   section = "calendar",
@@ -277,10 +269,12 @@ export function ScheduleClient({
   const [confirmation, setConfirmation] = useState<{
     title: string;
     description: string;
+    confirmLabel: string;
+    destructive?: boolean;
     action: () => Promise<void>;
   } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [history, setHistory] = useState<ScheduleEvent[]>([]);
+  const [history, setHistory] = useState<ScheduleEvent[] | null>(null);
   const can = useCallback(
     (p: string) => data.permissions.includes("schedule." + p),
     [data.permissions],
@@ -359,6 +353,7 @@ export function ScheduleClient({
   };
   useEffect(() => {
     let alive = true;
+    setHistory(null);
     if (selected)
       scheduleHistory(selected.id)
         .then((h) => {
@@ -596,6 +591,7 @@ export function ScheduleClient({
     setConfirmation({
       title: "Опубликовать смены?",
       description: `Количество смен для публикации: ${draftShifts.length}. Будут опубликованы черновики выбранной недели с учётом фильтров.`,
+      confirmLabel: "Опубликовать смены",
       action: async () => {
         const r = await publishShifts(draftShifts);
         if (r) toast.success("Смены опубликованы");
@@ -659,9 +655,12 @@ export function ScheduleClient({
   };
   const confirmDelete = (shift: Shift) =>
     setConfirmation({
-      title: "Удалить смену?",
-      description:
-        "Смена будет удалена из расписания. Смену с начатым выполнением удалить нельзя.",
+      title: shift.published ? "Удалить смену?" : "Удалить черновик смены?",
+      description: shift.published
+        ? `${name(shiftAssignee(shift))} больше не увидит эту смену в графике. Смену с начатым чек-листом или уже учтённую в зарплате удалить нельзя.`
+        : "Черновик ещё не видели сотрудники — он просто исчезнет из расписания.",
+      confirmLabel: shift.published ? "Удалить смену" : "Удалить черновик",
+      destructive: true,
       action: async () => {
         if (
           await save("shift.delete", {
@@ -832,7 +831,7 @@ export function ScheduleClient({
           <ContextMenuSeparator />
           <ContextMenuItem destructive onSelect={() => confirmDelete(s)}>
             <Trash2 />
-            Удалить
+            {s.published ? "Удалить смену" : "Удалить черновик"}
           </ContextMenuItem>
         </>
       )}
@@ -1624,14 +1623,14 @@ export function ScheduleClient({
             if (!o) setSelected(null);
           }}
           title={selectedTemplate ? shiftTemplateLabel(selectedTemplate) : selected.title}
-          description={`${dayLabel(dateInZone(selected.starts_at, data.timezone))} · ${timeInZone(selected.starts_at, data.timezone)}–${timeInZone(selected.ends_at, data.timezone)} · ${selected.published ? "Опубликована" : "Черновик"}`}
+          description={`${dayLabel(dateInZone(selected.starts_at, data.timezone))} · ${timeInZone(selected.starts_at, data.timezone)}–${timeInZone(selected.ends_at, data.timezone)}`}
           footer={
             <>
               {can("shift_delete") && (
                 <Button
                   variant="ghost"
                   className="text-destructive mr-auto"
-                  aria-label="Удалить смену"
+                  aria-label={selected.published ? "Удалить смену" : "Удалить черновик"}
                   onClick={() => confirmDelete(selected)}
                 >
                   <Trash2 className="size-4" />
@@ -1671,40 +1670,18 @@ export function ScheduleClient({
             </>
           }
         >
-          <div className="space-y-2 text-sm">
-            <p>
-              {name(shiftAssignee(selected))}
-              {selected.payroll_employee_id && (
-                <span className="text-muted-foreground">
-                  {" "}
-                  · начисление по графику
-                </span>
-              )}
-            </p>
-            <p className="text-muted-foreground">
-              {data.roles.find((r) => r.id === selected.role_id)?.name ??
-                "Без позиции"}{" "}
-              ·{" "}
-              {data.departments.find((d) => d.id === selected.department_id)
-                ?.name ?? "Без подразделения"}
-            </p>
-            {selected.note && (
-              <p className="whitespace-pre-wrap pt-2">{selected.note}</p>
-            )}
-          </div>
-          {!selected.published && can("shift_publish") && (
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={async () => {
-                if (await publishShifts([selected])) setSelected(null);
-              }}
-            >
-              Опубликовать смену
-            </Button>
-          )}
-          {can("shift_assign") && !can("shift_edit") && (
-            <Field label="Назначить сотрудника">
+          <ShiftDetails
+            data={data}
+            shift={selected}
+            template={selectedTemplate}
+            history={history}
+            personName={name}
+            canPublish={can("shift_publish")}
+            busy={busy}
+            onPublish={async () => {
+              if (await publishShifts([selected])) setSelected(null);
+            }}
+            assignControl={can("shift_assign") && !can("shift_edit") ? (
               <EmployeePicker
                 data={data}
                 value={shiftAssignee(selected)}
@@ -1726,27 +1703,8 @@ export function ScheduleClient({
                     setSelected(null);
                 }}
               />
-            </Field>
-          )}
-          <details>
-            <summary className="cursor-pointer text-sm font-medium">
-              История изменений
-            </summary>
-            <div className="mt-4 space-y-3">
-              {history.map((e) => (
-                <div key={e.id} className="text-sm">
-                  <p>{eventLabels[e.action] ?? e.action}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {new Intl.DateTimeFormat("ru", {
-                      timeZone: data.timezone,
-                      dateStyle: "short",
-                      timeStyle: "short",
-                    }).format(new Date(e.created_at))}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </details>
+            ) : undefined}
+          />
         </EditDrawer>
       )}
       <Dialog
@@ -1769,6 +1727,7 @@ export function ScheduleClient({
               Отмена
             </Button>
             <Button
+              variant={confirmation?.destructive ? "destructive" : "default"}
               disabled={busy}
               onClick={async () => {
                 setBusy(true);
@@ -1780,9 +1739,7 @@ export function ScheduleClient({
                 }
               }}
             >
-              {confirmation?.title === "Удалить смену?"
-                ? "Удалить смену"
-                : "Опубликовать смены"}
+              {confirmation?.confirmLabel}
             </Button>
           </DialogFooter>
         </DialogContent>

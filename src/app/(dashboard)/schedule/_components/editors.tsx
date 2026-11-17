@@ -402,14 +402,6 @@ export function ShiftEditor({
     (e) => `payroll:${e.id}` === who,
   );
   const candidatePayModel = payModel || casualEmployee?.model_id || "";
-  const selectedPayModel = data.payModels?.some(
-    (model) =>
-      model.id === candidatePayModel &&
-      model.role_name ===
-        data.roles.find((role) => role.id === value.role_id)?.name,
-  )
-    ? candidatePayModel
-    : "";
   const [note, setNote] = useState(shift?.note ?? "");
   const [templateId, setTemplateId] = useState(
     shift?.template_id ?? template?.id ?? null,
@@ -418,20 +410,47 @@ export function ShiftEditor({
   const chosenTimes = chosen
     ? templateTimesFor(chosen, isoWeekday(date))
     : null;
-  // Время подставляется из шаблона при выборе шаблона и при смене даты, пока
-  // его не поправили руками. Для существующей смены — только если её время
-  // совпадает со временем шаблона на эту дату.
-  const [manualTime, setManualTime] = useState(
-    !!shift &&
-      (!chosenTimes ||
-        chosenTimes.start_time.slice(0, 5) !== value.start_time.slice(0, 5) ||
-        chosenTimes.end_time.slice(0, 5) !== value.end_time.slice(0, 5)),
-  );
-  const changeDate = (next: string) => {
-    setDate(next);
-    const times = chosen ? templateTimesFor(chosen, isoWeekday(next)) : null;
-    if (times && !manualTime) set({ ...value, ...times });
+  // Смена по шаблону берёт из шаблона название, цвет, должность и время на
+  // день недели даты. Если что-то нужно поменять — это уже своя смена.
+  const templateValue = chosen
+    ? {
+        ...value,
+        name: chosen.name,
+        color: chosen.color,
+        role_id: chosen.role_id,
+        department_id: chosen.department_id,
+        ...(chosenTimes ?? {}),
+      }
+    : value;
+  const hhmm = (t: string) => t.slice(0, 5);
+  // Существующая смена по шаблону, у которой сейчас свои значения.
+  const deviation = shift && chosen && shift.template_id === chosen.id
+    ? [
+        hhmm(value.start_time) !== hhmm(templateValue.start_time) ||
+        hhmm(value.end_time) !== hhmm(templateValue.end_time)
+          ? `время ${hhmm(value.start_time)}–${hhmm(value.end_time)}`
+          : null,
+        value.role_id !== templateValue.role_id
+          ? `должность «${data.roles.find((r) => r.id === value.role_id)?.name ?? "без должности"}»`
+          : null,
+        value.name !== chosen.name && value.name !== shiftTemplateLabel(chosen)
+          ? `название «${value.name}»`
+          : null,
+      ].filter(Boolean)
+    : [];
+  const detachFromTemplate = () => {
+    // Своя смена стартует с текущих значений шаблона.
+    if (deviation.length === 0) set(templateValue);
+    setTemplateId(null);
   };
+  const selectedPayModel = data.payModels?.some(
+    (model) =>
+      model.id === candidatePayModel &&
+      model.role_name ===
+        data.roles.find((role) => role.id === templateValue.role_id)?.name,
+  )
+    ? candidatePayModel
+    : "";
   const [busy, setBusy] = useState(false);
   const started = shift && data.runs.some((r) => r.shift_id === shift.id);
   const unavailable = new Set(templateSlot
@@ -450,8 +469,8 @@ export function ShiftEditor({
             ...assignment, date, template_id: template?.id, template_version: template?.version,
           })
       : await save(copy ? "shift.copy" : shift ? "shift.edit" : "shift.create", {
-          ...value,
-          title: value.name,
+          ...templateValue,
+          title: templateValue.name,
           date,
           ...assignment,
           casual_name: who === "new-casual" ? casualName.trim() : "",
@@ -502,7 +521,7 @@ export function ShiftEditor({
                 .filter(
                   (m) =>
                     m.role_name ===
-                    data.roles.find((r) => r.id === value.role_id)?.name,
+                    data.roles.find((r) => r.id === templateValue.role_id)?.name,
                 )
                 .map((m) => ({ value: m.id, label: m.name }))}
             />
@@ -530,7 +549,7 @@ export function ShiftEditor({
       }
       description={templateSlot
         ? `${chosen && chosen.name === value.name ? shiftTemplateLabel(chosen) : value.name} · ${dayLabel(date)} · ${value.start_time.slice(0, 5)}–${value.end_time.slice(0, 5)}`
-        : `${data.timezone}${shift?.published ? " · Опубликована, изменения будут видны сотруднику" : ""}`}
+        : shift?.published && !copy ? "Смена опубликована — изменения сразу увидит сотрудник" : undefined}
       footer={
         <>
           <Button variant="outline" onClick={onClose} disabled={busy}>
@@ -539,10 +558,11 @@ export function ShiftEditor({
           <Button
             disabled={
               busy ||
+              (!templateSlot && !!chosen && !chosenTimes) ||
               (templateSlot && (!who || unavailable.has(who))) ||
               (casual &&
                 (!selectedPayModel ||
-                  !value.role_id ||
+                  !templateValue.role_id ||
                   (who === "new-casual" && !casualName.trim())))
             }
             onClick={commit}
@@ -574,16 +594,10 @@ export function ShiftEditor({
               onValueChange={(id) => {
                 const t = data.templates.find((t) => t.id === id);
                 setTemplateId(t?.id ?? null);
-                if (t) {
-                  set({
-                    ...timingValue(t),
-                    ...(templateTimesFor(t, isoWeekday(date)) ?? {}),
-                  });
-                  setManualTime(false);
-                }
+                if (t) set({ ...value, ...timingValue(t), name: t.name });
               }}
               options={[
-                { value: "", label: "Своя смена" },
+                { value: "", label: "Своя смена — время и должность вручную" },
                 ...data.templates
                   .filter(
                     (t) =>
@@ -593,59 +607,76 @@ export function ShiftEditor({
                   .map((t) => ({ value: t.id, label: shiftTemplateLabel(t) })),
               ]}
             />
-            {chosen && !chosenTimes && (
-              <span className="text-xs font-normal text-muted-foreground">
-                Шаблон не работает в этот день
-              </span>
-            )}
           </Field>
-          {chosenTimes &&
-            !(started && !copy) &&
-            (chosenTimes.start_time.slice(0, 5) !== value.start_time.slice(0, 5) ||
-              chosenTimes.end_time.slice(0, 5) !== value.end_time.slice(0, 5)) && (
-              <div className="-mt-2">
+          {chosen ? (
+            <div className="-mt-2 rounded-lg border bg-muted/30 p-3.5 text-sm">
+              <div className="flex items-center gap-2 font-medium">
+                <span className={cn("size-2.5 shrink-0 rounded-full", paletteBg(chosen.color))} />
+                {shiftTemplateLabel(chosen)}
+              </div>
+              <p className="mt-1 text-muted-foreground">
+                {chosenTimes ? (
+                  <span className="tabular-nums">
+                    {hhmm(chosenTimes.start_time)}–{hhmm(chosenTimes.end_time)}
+                  </span>
+                ) : (
+                  <span className="text-destructive">Шаблон не работает в этот день недели</span>
+                )}
+                {" · "}
+                {data.roles.find((r) => r.id === chosen.role_id)?.name ?? "без должности"}
+              </p>
+              {deviation.length > 0 && (
+                <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                  Сейчас у смены {deviation.join(", ")}. При сохранении она станет как в шаблоне.
+                </p>
+              )}
+              {!(started && !copy) && (
                 <Button
                   type="button"
                   variant="link"
                   size="sm"
-                  className="h-auto p-0"
-                  onClick={() => {
-                    set({ ...value, ...chosenTimes });
-                    setManualTime(false);
-                  }}
+                  className="mt-1.5 h-auto p-0 text-xs"
+                  onClick={detachFromTemplate}
                 >
-                  Взять время из шаблона
+                  {deviation.length > 0
+                    ? "Оставить свои значения — сделать своей сменой"
+                    : "Изменить время или должность — сделать своей сменой"}
                 </Button>
-              </div>
-            )}
-          <Field label="Название">
-            <Input
-              value={value.name}
-              maxLength={160}
-              onChange={(e) => set({ ...value, name: e.target.value })}
-            />
-          </Field>
+              )}
+            </div>
+          ) : (
+            <Field label="Название">
+              <Input
+                value={value.name}
+                maxLength={160}
+                placeholder="Например, Инвентаризация или Банкет"
+                onChange={(e) => set({ ...value, name: e.target.value })}
+              />
+            </Field>
+          )}
           <Field label="Дата">
             <DatePicker
               clearable={false}
               value={date}
-              onChange={(next) => next && changeDate(next)}
+              onChange={(next) => next && setDate(next)}
               disabled={!!started && !copy}
             />
           </Field>
           <fieldset disabled={!!started && !copy} className="grid gap-5">
-            <Timing
-              value={value}
-              set={set}
-              onTimeEdit={() => setManualTime(true)}
-            />
-            <ShiftRoleField data={data} value={value} set={set} />
+            {!chosen && (
+              <>
+                <Timing value={value} set={set} />
+                <ShiftRoleField data={data} value={value} set={set} />
+              </>
+            )}
             {employeeFields}
           </fieldset>
-          <Colors
-            value={value.color}
-            onChange={(color) => set({ ...value, color })}
-          />
+          {!chosen && (
+            <Colors
+              value={value.color}
+              onChange={(color) => set({ ...value, color })}
+            />
+          )}
           <Field label="Заметка">
             <Textarea
               value={note}

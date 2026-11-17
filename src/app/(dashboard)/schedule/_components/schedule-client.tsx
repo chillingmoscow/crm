@@ -807,7 +807,60 @@ export function ScheduleClient({
       : undefined;
   };
   const selectedTemplate = selected ? shiftTemplate(selected) : undefined;
-  const card = (s: Shift, mode: "shift" | "full" | "template" = "shift") => {
+  /**
+   * Смена в виде «Список» — как в календаре: время колонкой слева, полоска
+   * цвета шаблона, название и сотрудник; статус — только у черновика
+   * (опубликованная — обычное состояние, её не подписываем).
+   */
+  const listCardBody = (s: Shift, assignee: string | null, mark: unknown) => {
+    const template = s.template_id ? templatesById.get(s.template_id) : undefined;
+    const title = template && (s.title === template.name || s.title === shiftTemplateLabel(template)) ? template.name : s.title;
+    const subtitle = template && title === template.name ? template.subtitle : null;
+    const avatar = data.staff.find((p) => p.user_id === assignee)?.avatar_url;
+    const person = assignee ? name(assignee) : "Сотрудник не назначен";
+    const hours = Math.round(shiftHours(s.starts_at, s.ends_at) * 10) / 10;
+    return (
+      <>
+        <span className="w-11 shrink-0 text-right text-xs leading-snug tabular-nums">
+          <span className="block font-semibold">{timeInZone(s.starts_at, data.timezone)}</span>
+          <span className="block text-muted-foreground">{timeInZone(s.ends_at, data.timezone)}</span>
+        </span>
+        <span aria-hidden className={cn("w-[3px] shrink-0 rounded-full", paletteDot(s.color))} />
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-sm font-medium">
+              {title}
+              {subtitle && <span className="ml-1.5 font-normal text-muted-foreground">{subtitle}</span>}
+            </span>
+            {/* На телефоне бейдж — в строке названия, чтобы имя не резалось. */}
+            {!s.published && (
+              <span className="shrink-0 sm:hidden">
+                <DrawerStatus label="Черновик" tone="warning" />
+              </span>
+            )}
+          </span>
+          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            {avatar ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={avatar} alt="" className="size-[18px] shrink-0 rounded-full object-cover" />
+            ) : (
+              <span aria-hidden className="flex size-[18px] shrink-0 items-center justify-center rounded-full bg-muted text-[9px] font-medium">
+                {person.trim().charAt(0).toUpperCase()}
+              </span>
+            )}
+            <span className="truncate">{person}</span>
+            <span className="shrink-0 tabular-nums">· {hours.toLocaleString("ru")} ч</span>
+          </span>
+        </span>
+        {!s.published && (
+          <span className={cn("hidden self-center sm:block", mark ? "mr-6" : undefined)}>
+            <DrawerStatus label="Черновик" tone="warning" />
+          </span>
+        )}
+      </>
+    );
+  };
+  const card = (s: Shift, mode: "shift" | "full" | "template" | "list" = "shift") => {
     const mark = attendanceMark(s);
     const template = shiftTemplate(s);
     const assignee = shiftAssignee(s);
@@ -840,13 +893,16 @@ export function ScheduleClient({
         ? `${assigneeLabel}: ${template ? shiftTemplateLabel(template) : s.title}, ${dayLabel(dateInZone(s.starts_at, data.timezone))}`
         : undefined}
       className={cn(
-        "w-full rounded-md px-1.5 py-2 text-left grid gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-opacity hover:opacity-80",
+        "w-full rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         can("shift_edit") && "cursor-grab active:cursor-grabbing",
         dragged && "opacity-40",
-        paletteBg(s.color),
-        paletteText(s.color),
+        mode === "list"
+          ? "flex items-stretch gap-3 px-2 py-1.5 transition-colors hover:bg-muted/60"
+          : cn("grid gap-1 px-1.5 py-2 transition-opacity hover:opacity-80", paletteBg(s.color), paletteText(s.color)),
       )}
     >
+      {mode === "list" ? listCardBody(s, assignee, mark) : (
+      <>
       <span className={cn("whitespace-nowrap text-[11px] font-semibold tabular-nums", mark && "pr-5")}>
         {timeInZone(s.starts_at, data.timezone)}–
         {timeInZone(s.ends_at, data.timezone)}
@@ -862,6 +918,8 @@ export function ScheduleClient({
           <span className="size-1.5 rounded-full bg-current" />
           Черновик
         </span>
+      )}
+      </>
       )}
     </button>
     {mark && <ShiftAttendancePopover shiftId={s.id} version={s.version} mark={mark} canReview={data.permissions.includes("payroll.review")} />}
@@ -1591,7 +1649,7 @@ export function ScheduleClient({
                               (s) =>
                                 dateInZone(s.starts_at, data.timezone) === d,
                             )
-                            .map((shift) => card(shift, canPlan ? "full" : "shift"))}
+                            .map((shift) => card(shift, "list"))}
                           {weekTasks
                             .filter((task) => task.business_date === d)
                             .map((task) => taskCard(task, false))}

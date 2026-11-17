@@ -213,6 +213,16 @@ import { Button } from "@/components/ui/button";
 `Switch`, `Checkbox`, `Card`, `Sheet`, `Dialog`, `Popover`, `Tooltip`, `Badge`,
 `Separator`, `ContextMenu` (правый клик, оформление как у `DropdownMenu`).
 
+### Выпадающий список вариантов (меню выбора)
+
+Один формат для любых «выберите один вариант» из кнопки или чипа: чипы фильтров (`TableFilterChip`), меню «Вид» расписания и подобные. Эталон — список в `src/components/shared/table/table-filter-chip.tsx`.
+
+- Контейнер — `PopoverContent` с `p-1`, ширина `w-56`–`w-64`, `max-w-[calc(100vw-24px)]`.
+- Пункт — `flex w-full items-center justify-between gap-2 rounded-sm px-3 py-2 text-left text-sm hover:bg-accent focus-visible:bg-accent`.
+- Выбранный пункт — фон `bg-accent` и галочка `Check` (`size-3.5`) справа.
+- ❌ Без заголовка внутри списка, без radio-точек слева, без `DropdownMenuRadioGroup` для выбора значения.
+- Список **действий** (⋯ у строки, правый клик) — это `DropdownMenu` / `ContextMenu`: иконка слева, разрушительное действие красным внизу через разделитель.
+
 **Нативные системные контролы не используем**: `<select>`, `<input type="date|time|month|datetime-local">`
 рисуются стилем ОС и выбиваются из DS. Вместо них:
 

@@ -57,6 +57,13 @@ import { PageFrame } from "@/components/shared/page-frame";
 import { usePeopleOverview } from "@/components/people/people-overview";
 import { PersonAvatar } from "@/components/people/person-avatar";
 import { StaffTable, type StaffColKey as ColKey } from "./staff-table";
+import type { CasualStaffRow } from "@/lib/payroll/casual-list";
+import {
+  CasualCreateForm,
+  CasualPinPanel,
+  CasualStaffList,
+  type CasualIssued,
+} from "./casual-staff";
 
 // ── Helpers ──────────────────────────────────────────────────
 const inviteSchema = z.object({
@@ -86,6 +93,8 @@ type Props = {
   venueId: string;
   currentUserId: string;
   activeRoleCode: string | null;
+  /** null when casual workers are unavailable (e.g. before the database update). */
+  casual: { employees: CasualStaffRow[]; roles: { id: string; name: string }[] } | null;
 };
 
 function formatDate(iso: string | null | undefined) {
@@ -241,6 +250,7 @@ export function StaffClient({
   venueId,
   currentUserId,
   activeRoleCode,
+  casual,
 }: Props) {
   const router = useRouter();
 
@@ -248,7 +258,18 @@ export function StaffClient({
   const [invitations, setInvitations] = useState(initialInvitations);
   const [fired, setFired] = useState(initialFired);
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [addMode, setAddMode] = useState<"email" | "manual">("manual");
+  const [addMode, setAddMode] = useState<"email" | "manual" | "casual">("manual");
+  const [view, setView] = useState<"staff" | "casual">("staff");
+  const [issued, setIssued] = useState<CasualIssued | null>(null);
+  const showIssued = (value: CasualIssued) => {
+    setIssued(value);
+    setView("casual");
+    setInviteOpen(true);
+  };
+  const closeAdd = (open: boolean) => {
+    setInviteOpen(open);
+    if (!open) setIssued(null);
+  };
   const [isPending, startTransition] = useTransition();
   const [firedOpen, setFiredOpen] = useState(false);
   const overview = usePeopleOverview(
@@ -676,8 +697,36 @@ export function StaffClient({
   };
 
   // ── Render ─────────────────────────────────────────────────
+  const addButton = canEdit ? (
+    <Button onClick={() => setInviteOpen(true)} size="sm" className="h-9 gap-2">
+      <UserPlus className="size-4" />
+      Добавить
+    </Button>
+  ) : null;
+  const viewToggle = casual ? (
+    <Tabs value={view} onValueChange={(v) => setView(v as "staff" | "casual")}>
+      <TabsList className="h-9">
+        <TabsTrigger value="staff">Штатные</TabsTrigger>
+        <TabsTrigger value="casual">Разовые · {casual.employees.length}</TabsTrigger>
+      </TabsList>
+    </Tabs>
+  ) : null;
+
   return (
     <PageFrame className="space-y-4">
+      {view === "casual" && casual ? (
+        <CasualStaffList
+          employees={casual.employees}
+          canEdit={canEdit}
+          onIssued={showIssued}
+          actions={
+            <>
+              {viewToggle}
+              {addButton}
+            </>
+          }
+        />
+      ) : (
       <StaffTable
         key={`${venueId}:${currentUserId}:${firedOpen}`}
         preferenceKey={`${venueId}.${currentUserId}`}
@@ -694,6 +743,7 @@ export function StaffClient({
         overviewPanel={overview.panel}
         secondaryActions={
           <>
+            {viewToggle}
             <IconTooltip
               label={
                 firedOpen
@@ -722,37 +772,47 @@ export function StaffClient({
         canEdit={canEdit}
         isPending={isPending}
         onCancelInvitation={onCancelInvitation}
-        primaryAction={
-          canEdit ? (
-            <Button
-              onClick={() => setInviteOpen(true)}
-              size="sm"
-              className="h-9 gap-2"
-            >
-              <UserPlus className="size-4" />
-              Добавить
-            </Button>
-          ) : null
-        }
+        primaryAction={addButton}
       />
+      )}
 
       {/* Add staff sheet — два режима: «По email» (отсылает invite, юзер
           логинится сам) и «Без email» (placeholder-аккаунт, админ ведёт карточку). */}
-      <Sheet open={inviteOpen} onOpenChange={setInviteOpen}>
+      <Sheet open={inviteOpen} onOpenChange={closeAdd}>
         <SheetContent className="w-full sm:max-w-md">
           <SheetHeader>
-            <SheetTitle>Добавить сотрудника</SheetTitle>
+            <SheetTitle>{issued ? "Код для кассы" : "Добавить сотрудника"}</SheetTitle>
           </SheetHeader>
 
+          {issued ? (
+            <div className="mt-6">
+              <CasualPinPanel issued={issued} onDone={() => closeAdd(false)} />
+            </div>
+          ) : (
           <Tabs
             value={addMode}
-            onValueChange={(v) => setAddMode(v as "email" | "manual")}
+            onValueChange={(v) => setAddMode(v as "email" | "manual" | "casual")}
             className="mt-6"
           >
-            <TabsList className="grid grid-cols-2">
+            <TabsList className={`grid ${casual ? "grid-cols-3" : "grid-cols-2"}`}>
               <TabsTrigger value="manual">Создать</TabsTrigger>
               <TabsTrigger value="email">Пригласить</TabsTrigger>
+              {casual && <TabsTrigger value="casual">Разовый</TabsTrigger>}
             </TabsList>
+
+            {casual && (
+              <TabsContent value="casual" className="mt-5">
+                <CasualCreateForm
+                  roles={casual.roles}
+                  onCancel={() => closeAdd(false)}
+                  onSaved={() => {
+                    setView("casual");
+                    closeAdd(false);
+                  }}
+                  onIssued={showIssued}
+                />
+              </TabsContent>
+            )}
 
             <TabsContent value="manual" className="mt-5">
               <form
@@ -929,6 +989,7 @@ export function StaffClient({
               </form>
             </TabsContent>
           </Tabs>
+          )}
         </SheetContent>
       </Sheet>
     </PageFrame>

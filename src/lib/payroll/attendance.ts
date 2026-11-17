@@ -1,4 +1,4 @@
-import { businessDate, dayWindow } from "@/lib/sales/time";
+import { businessDate, dayWindow } from "../sales/time.ts";
 import type { Shift } from "@/lib/schedule/types";
 import type { PayEmployee, Attendance, AttendanceRule, ScheduleReview, ShiftAttendanceSnapshot } from "./types";
 type AttendanceDraft = Pick<Attendance, "external_id" | "employee_id" | "business_date" |
@@ -45,8 +45,18 @@ export function reconcileBoundaryClocks(
 export function attendanceRuleAtDate(rules:AttendanceRule[],employeeId:string,date:string) {
  return rules.filter(r=>r.employee_id===employeeId&&r.valid_from<=date).sort((a,b)=>b.valid_from.localeCompare(a.valid_from)||b.created_at.localeCompare(a.created_at)||b.id.localeCompare(a.id))[0]??null;
 }
+// A casual worker with a personal Quick Resto code clocks in like staff: the
+// mark is the fact, the schedule is only a fallback when there is no mark.
+export function casualWithQuickResto(e:PayEmployee|undefined) {
+ return !!e?.casual&&e.quickresto_id!==null&&e.attendance_source!=="excluded";
+}
+// The employee a shift belongs to in payroll, regardless of the fact source.
+function shiftEmployee(shift:Shift,employees:PayEmployee[]) {
+ return shift.payroll_employee_id?employees.find(e=>e.id===shift.payroll_employee_id):shift.user_id?employees.find(e=>e.local_user_id===shift.user_id):undefined;
+}
+// The employee whose fact for this shift comes from the published schedule.
 function plannedEmployee(shift:Shift,employees:PayEmployee[]) {
- return shift.payroll_employee_id?employees.find(e=>e.id===shift.payroll_employee_id&&e.attendance_source!=="excluded"):employees.find(e=>e.local_user_id&&e.local_user_id===shift.user_id&&e.attendance_source==="schedule");
+ return shift.payroll_employee_id?employees.find(e=>e.id===shift.payroll_employee_id&&e.attendance_source!=="excluded"&&!casualWithQuickResto(e)):employees.find(e=>e.local_user_id&&e.local_user_id===shift.user_id&&e.attendance_source==="schedule");
 }
 function scheduledAttendance(shift: Shift, employee: PayEmployee | undefined, date: string): AttendanceDraft {
   if (!Number.isSafeInteger(shift.payroll_fact_id) || shift.payroll_fact_id! >= 0)
@@ -96,10 +106,10 @@ export function reconcileAttendance(
       const e = employees.find(
         (e) => Number(e.quickresto_id) === Number(r.owner?.id),
       );
-      const candidates = e?.local_user_id
+      const candidates = e?.local_user_id || casualWithQuickResto(e)
         ? shifts.filter(
             (s) =>
-              s.user_id === e.local_user_id &&
+              (casualWithQuickResto(e) ? s.payroll_employee_id === e!.id : s.user_id === e!.local_user_id) &&
               s.published &&
               Date.parse(s.starts_at) < (r.endTime ?? r.startTime + 86400000) &&
               Date.parse(s.ends_at) > r.startTime,
@@ -151,17 +161,19 @@ export function reconcileAttendance(
     ? []
     : shifts
         .filter(
-          (s) =>
-            s.published &&
-            s.user_id &&
+          (s) => {
+            const owner = shiftEmployee(s, employees);
+            return s.published &&
+            (s.payroll_employee_id ? casualWithQuickResto(owner) : !!s.user_id &&
+              !employees.some(e=>e.local_user_id===s.user_id&&(e.attendance_source==="schedule"||e.attendance_source==="excluded"))) &&
             Date.parse(s.ends_at) <= Date.now() &&
             !matched.has(s.id) &&
-            !employees.some(e=>e.local_user_id===s.user_id&&(e.attendance_source==="schedule"||e.attendance_source==="excluded")) &&
-            businessDate(new Date(s.starts_at), timezone, hour) === date,
+            businessDate(new Date(s.starts_at), timezone, hour) === date;
+          },
         )
         .map((s) => ({
           shift: s,
-          employee: employees.find((e) => e.local_user_id === s.user_id),
+          employee: shiftEmployee(s, employees),
         }));
   return { items: [...items, ...scheduleItems], missing };
 }
@@ -238,8 +250,12 @@ export function applyScheduleReviews(
       !!fact.ends_at && Date.parse(fact.ends_at) === Date.parse(shift.ends_at),
     );
     const reviewedExclusion = previousFact?.status === "ignored" && !!previousFact.reviewed_by;
-    const automatic = fallbackFrom && Date.parse(shift.starts_at) >= Date.parse(fallbackFrom) &&
-      (employee?.active || previousFact?.status === "confirmed") && !hasQuickResto;
+    // A casual worker without a mark is still paid by the schedule, as before
+    // the worker had a Quick Resto code.
+    const automatic = casualWithQuickResto(employee)
+      ? !hasQuickResto
+      : fallbackFrom && Date.parse(shift.starts_at) >= Date.parse(fallbackFrom) &&
+        (employee?.active || previousFact?.status === "confirmed") && !hasQuickResto;
     if (employee && (reviewedExclusion || (!crossBoundary && (review?.decision === "include" || automatic)))) {
       const scheduled = scheduledAttendance(shift, employee, date);
       const included = !crossBoundary && review?.decision === "include";

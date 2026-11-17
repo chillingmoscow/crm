@@ -31,6 +31,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  ROW_MENU_COLUMN_SIZE,
   TableColumnManager,
   TableIconButton,
   TableControls,
@@ -265,9 +266,9 @@ export function TaskList({
     },
     {
       id: "actions",
-      size: 44,
-      minSize: 44,
-      maxSize: 44,
+      size: ROW_MENU_COLUMN_SIZE,
+      minSize: ROW_MENU_COLUMN_SIZE,
+      maxSize: ROW_MENU_COLUMN_SIZE,
       enableHiding: false,
       enableResizing: false,
       cell: ({ row }) => <TableRowMenu actions={actions(row.original)} />,

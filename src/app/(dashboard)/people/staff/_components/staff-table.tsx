@@ -19,6 +19,7 @@ import type {
 } from "../actions";
 import { Button } from "@/components/ui/button";
 import {
+  ROW_MENU_COLUMN_SIZE,
   TableControls,
   TableColumnManager,
   TablePagination,
@@ -332,9 +333,9 @@ export function StaffTable({
     ),
     {
       id: "actions",
-      size: showFired ? 152 : 44,
-      minSize: showFired ? 152 : 44,
-      maxSize: showFired ? 152 : 44,
+      size: showFired ? 152 : ROW_MENU_COLUMN_SIZE,
+      minSize: showFired ? 152 : ROW_MENU_COLUMN_SIZE,
+      maxSize: showFired ? 152 : ROW_MENU_COLUMN_SIZE,
       enableHiding: false,
       enableResizing: false,
       cell: ({ row }) =>

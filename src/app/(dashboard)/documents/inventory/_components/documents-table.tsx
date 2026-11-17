@@ -52,6 +52,7 @@ import {
   hasCountedResults,
 } from "@/lib/inventory/act-status";
 import {
+  ROW_MENU_COLUMN_SIZE,
   TableBulkBar,
   TableColumnManager,
   TableControlPin,
@@ -685,7 +686,7 @@ export function DocumentsTable({
       {
         id: "actions",
         label: "",
-        size: 56,
+        size: ROW_MENU_COLUMN_SIZE,
         canHide: false,
         cell: (row: DocumentListRow) => (
           <DesktopRowMenu doc={row} canManage={canManage} canViewResults={canViewResults} />

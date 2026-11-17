@@ -5,7 +5,7 @@ export { TableControlPin } from "./table-control-pin";
 export { TableControls, TooltipIconButton as TableIconButton } from "./table-controls";
 export { TablePageHeader } from "./table-page-header";
 export { TablePagination } from "./table-pagination";
-export { TableRowMenu, type TableRowMenuAction } from "./table-row-menu";
+export { ROW_MENU_COLUMN_SIZE, TableRowMenu, type TableRowMenuAction } from "./table-row-menu";
 export { TableSplitButton, type TableSplitButtonOption } from "./table-split-button";
 export { useTableState, type TableStateColumn } from "./use-table-state";
 export { useMultiSort, type MultiSort, type SortCodec, type SortDirection } from "./use-multi-sort";

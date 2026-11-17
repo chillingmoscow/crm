@@ -1,4 +1,5 @@
 "use client";
+import { ColorDot } from "@/components/ui/color-dot";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -20,7 +21,10 @@ import {
   Eye,
   Pencil,
   UserPlus,
+  CalendarPlus,
+  Clock,
 } from "lucide-react";
+import { TaskAssignDrawer } from "./task-assign-drawer";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -244,6 +248,9 @@ export function ScheduleClient({
     window.history.replaceState(null, "", url);
   };
   const [editor, setEditor] = useState<Editor | null>(null);
+  /** «Задача на день»: день и, из меню смены, её шаблон. */
+  const [taskAssign, setTaskAssign] = useState<{ day: string; template?: string | null } | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
   const [templateOverlay, setTemplateOverlay] = useState<ShiftTemplate | null>(null);
   const [applyTemplate, setApplyTemplate] = useState<{
     id: string;
@@ -565,31 +572,32 @@ export function ScheduleClient({
     <button
       key={task.id}
       onClick={() => setSelectedTask(task)}
-      aria-label={`Задача: ${task.snapshot.name}, ${task.planned ? "План" : taskStatus[task.status]}`}
-      data-tip={`${task.snapshot.name} · ${task.employee_name || "Без назначения"} · ${taskStatus[task.status]}`}
+      aria-label={`Задача: ${task.snapshot.name}, ${task.planned ? "запланирована" : taskStatus[task.status]}`}
+      // Будущая регулярная задача ещё не создана — пунктир и часы вместо
+      // непонятного «План»; кто получит — в подсказке.
+      data-tip={
+        task.planned
+          ? `Появится у сотрудника в день смены · ${task.employee_name || "смена ещё не назначена"}`
+          : `${task.employee_name || "Без назначения"} · ${taskStatus[task.status]}`
+      }
       className={cn(
         "flex w-full items-start gap-1.5 rounded-md border bg-background px-2 py-2 text-left text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        task.planned && "border-dashed text-muted-foreground",
         task.status === "completed" && "text-muted-foreground",
         task.status === "missed" && "border-destructive/30",
       )}
     >
-      {task.status === "completed" ? (
+      {task.planned ? (
+        <Clock className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      ) : task.status === "completed" ? (
         <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
       ) : (
         <ListChecks className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
       )}
       <span className="min-w-0 flex-1">
-        <span
-          className={
-            compact ? "line-clamp-2 leading-4" : "block text-sm font-medium"
-          }
-        >
+        {/* Название целиком — без обрезки. */}
+        <span className={cn("break-words", compact ? "leading-4" : "block text-sm font-medium")}>
           {task.snapshot.name}
-          {task.planned && (
-            <span className="ml-1 text-[10px] font-normal text-muted-foreground">
-              План
-            </span>
-          )}
         </span>
         {!compact && (
           <span className="mt-1 block text-[13px] text-muted-foreground">
@@ -968,6 +976,12 @@ export function ScheduleClient({
           Заменить сотрудника
         </ContextMenuItem>
       )}
+      {can("checklist_edit") && s.template_id && (
+        <ContextMenuItem onSelect={() => setTaskAssign({ day, template: s.template_id })}>
+          <ListChecks />
+          Добавить задачу
+        </ContextMenuItem>
+      )}
       {can("shift_delete") && (
         <>
           <ContextMenuSeparator />
@@ -1099,12 +1113,53 @@ export function ScheduleClient({
                 }
                 primaryActions={
                   <>
-                    {can("shift_create") && (
+                    {can("shift_create") && can("checklist_edit") ? (
+                      // Как «Добавить операцию» в финансах: что добавить — по стрелке.
+                      <Popover open={addOpen} onOpenChange={setAddOpen}>
+                        <PopoverTrigger asChild>
+                          <Button size="sm" className="h-8 gap-1.5 sm:h-9" variant={canPublish ? "outline" : "default"}>
+                            <Plus />
+                            Добавить
+                            <ChevronDown className="opacity-80" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent align="end" className="w-60 p-1">
+                          {[
+                            { key: "shift", icon: CalendarPlus, label: "Смена", hint: "Сотруднику на день" },
+                            { key: "task", icon: ListChecks, label: "Задача", hint: "Разово на день — кто будет на смене" },
+                          ].map((item) => (
+                            <button
+                              key={item.key}
+                              type="button"
+                              onClick={() => {
+                                setAddOpen(false);
+                                if (item.key === "shift") create(today);
+                                else setTaskAssign({ day: today });
+                              }}
+                              className="flex w-full items-start gap-2.5 rounded-sm px-3 py-2 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+                            >
+                              <span className="mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
+                                <item.icon className="size-3.5" />
+                              </span>
+                              <span>
+                                <span className="block">{item.label}</span>
+                                <span className="block text-xs text-muted-foreground">{item.hint}</span>
+                              </span>
+                            </button>
+                          ))}
+                        </PopoverContent>
+                      </Popover>
+                    ) : can("shift_create") ? (
                       <Button size="sm" className="h-8 sm:h-9" variant={canPublish ? "outline" : "default"} onClick={() => create(today)}>
                         <Plus />
                         Новая смена
                       </Button>
-                    )}
+                    ) : can("checklist_edit") ? (
+                      <Button size="sm" className="h-8 sm:h-9" variant={canPublish ? "outline" : "default"} onClick={() => setTaskAssign({ day: today })}>
+                        <Plus />
+                        Задача на день
+                      </Button>
+                    ) : null}
                     {canPublish && (
                       <Button size="sm" className="h-8 sm:h-9" disabled={busy} onClick={publish}>
                         <Send />
@@ -1403,7 +1458,7 @@ export function ScheduleClient({
                             </th>
                             {days.map((d) => (
                               <ContextMenu key={d} modal={false}>
-                              <ContextMenuTrigger asChild disabled={!can("shift_create")}>
+                              <ContextMenuTrigger asChild disabled={!can("shift_create") && !can("checklist_edit")}>
                               <td
                                 onDragOver={(e) => dragOver(e, d, s.id)}
                                 onDragLeave={(e) => dragLeave(e, d, s.id)}
@@ -1464,7 +1519,7 @@ export function ScheduleClient({
                                         <ContextMenuSubContent>
                                           {cellTemplates(d).map((t) => (
                                             <ContextMenuItem key={t.id} onSelect={() => void placeTemplate(t, d, s.id)}>
-                                              <span className={cn("size-2.5 shrink-0 rounded-full", paletteDot(t.color))} />
+                                              <ColorDot color={t.color} size="md" />
                                               <span className="flex-1 truncate">{shiftTemplateLabel(t)}</span>
                                               <span className="text-xs tabular-nums text-muted-foreground">
                                                 {(() => {
@@ -1478,6 +1533,12 @@ export function ScheduleClient({
                                       </ContextMenuSub>
                                     )}
                                   </>
+                                )}
+                                {can("checklist_edit") && (
+                                  <ContextMenuItem onSelect={() => setTaskAssign({ day: d })}>
+                                    <ListChecks />
+                                    Задача на день
+                                  </ContextMenuItem>
                                 )}
                               </ContextMenuContent>
                               </ContextMenu>
@@ -1718,14 +1779,38 @@ export function ScheduleClient({
             onCopy={(template) =>
               setEditor({ type: "template", template, copy: true })
             }
-            onArchive={(template) =>
-              void save("template.archive", {
-                id: template.id,
-                version: template.version,
-              })
-            }
+            onArchive={(template) => {
+              const run = () =>
+                save("template.archive", { id: template.id, version: template.version });
+              // Восстановление — сразу; архив — с объяснением, что это не удаление.
+              if (template.archived) return void run();
+              setConfirmation({
+                title: `Убрать шаблон «${shiftTemplateLabel(template)}» в архив?`,
+                description:
+                  "Это не удаление. Шаблон пропадёт из выбора при создании смен, а уже созданные по нему смены останутся в графике как есть. Вернуть шаблон можно в любой момент: фильтр «Статус → Архив», затем «Восстановить».",
+                confirmLabel: "В архив",
+                action: async () => {
+                  await run();
+                },
+              });
+            }}
           />
         )}
+      {taskAssign && (
+        <TaskAssignDrawer
+          data={data}
+          day={taskAssign.day}
+          template={taskAssign.template}
+          personName={name}
+          onClose={() => setTaskAssign(null)}
+          onDone={() => {
+            setTaskAssign(null);
+            // Назначенную задачу сразу видно в графике.
+            if (!showTasks) toggleTasks(true);
+            else void refreshCalendarTasks(true);
+          }}
+        />
+      )}
       {editor?.type === "shift" && (
         <ShiftEditor
           key={`${editor.shift?.id ?? "new"}-${editor.copy}`}

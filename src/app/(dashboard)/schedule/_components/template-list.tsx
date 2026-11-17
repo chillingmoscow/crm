@@ -1,5 +1,6 @@
 "use client";
 
+import { ColorDot } from "@/components/ui/color-dot";
 import { useEffect, useState } from "react";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
@@ -26,6 +27,7 @@ import {
 import { PeopleMobileCards } from "@/components/people/people-mobile-cards";
 import styles from "@/components/people/people-table.module.css";
 import {
+  ROW_MENU_COLUMN_SIZE,
   ResizableTableHead,
   TableColumnManager,
   TableControls,
@@ -41,9 +43,7 @@ import { TableSortPicker } from "@/components/shared/table/table-sort-settings";
 import { useTableColumnResize } from "@/components/shared/table/use-table-column-resize";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { paletteDot } from "@/lib/palette";
 import { shiftTemplateLabel, type ShiftTemplate } from "@/lib/schedule/types";
-import { cn } from "@/lib/utils";
 import { TemplateWeekTimes } from "./template-week-times";
 import { TemplateName } from "./template-name";
 
@@ -133,20 +133,10 @@ export function TemplateList({
       cell: ({ row }) => {
         const template = row.original;
         return (
-          <button
-            type="button"
-            className="flex max-w-full items-start gap-2 text-left hover:text-brand"
-            onClick={() => onEdit(template)}
-          >
-            <span
-              aria-hidden="true"
-              className={cn(
-                "mt-1.5 size-2.5 shrink-0 rounded-full",
-                paletteDot(template.color),
-              )}
-            />
+          <span className="flex max-w-full items-center gap-2.5">
+            <ColorDot color={template.color} />
             <TemplateName {...template} />
-          </button>
+          </span>
         );
       },
     },
@@ -160,9 +150,9 @@ export function TemplateList({
     },
     {
       id: "actions",
-      size: 56,
-      minSize: 56,
-      maxSize: 56,
+      size: ROW_MENU_COLUMN_SIZE,
+      minSize: ROW_MENU_COLUMN_SIZE,
+      maxSize: ROW_MENU_COLUMN_SIZE,
       enableHiding: false,
       enableResizing: false,
       cell: ({ row }) => {
@@ -342,6 +332,7 @@ export function TemplateList({
           <TemplateTable
             table={table}
             onColumnSizingChange={state.setColumnSizing}
+            onOpen={canEdit ? onEdit : undefined}
           />
           <PeopleMobileCards
             table={table}
@@ -372,9 +363,12 @@ export function TemplateList({
 function TemplateTable({
   table,
   onColumnSizingChange,
+  onOpen,
 }: {
   table: Table<ShiftTemplate>;
   onColumnSizingChange: OnChangeFn<ColumnSizingState>;
+  /** Клик по строке целиком открывает шаблон (кроме кнопок в строке). */
+  onOpen?: (template: ShiftTemplate) => void;
 }) {
   const { tableRef, onResizeStart, columnWidths, minTableWidth } =
     useTableColumnResize(table, onColumnSizingChange);
@@ -421,7 +415,14 @@ function TemplateTable({
         />
         <tbody>
           {table.getRowModel().rows.map((row) => (
-            <tr key={row.id}>
+            <tr
+              key={row.id}
+              className={onOpen ? "cursor-pointer" : undefined}
+              onClick={(event) => {
+                if (onOpen && !(event.target as HTMLElement).closest("button,a,input,[role=menu]"))
+                  onOpen(row.original);
+              }}
+            >
               {row.getVisibleCells().map((cell) => (
                 <td key={cell.id}>
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}

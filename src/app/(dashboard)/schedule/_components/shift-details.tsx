@@ -10,7 +10,7 @@ import {
   DrawerTimelineItem,
 } from "@/components/ui/drawer-blocks";
 import { cn } from "@/lib/utils";
-import { paletteBg } from "@/lib/palette";
+import { paletteDot } from "@/lib/palette";
 import { dateInZone, dayLabel, timeInZone } from "@/lib/schedule/utils";
 import { describeShiftChange, type ShiftSnapshot } from "@/lib/schedule/shift-history";
 import {
@@ -94,7 +94,7 @@ export function ShiftDetails({
         </DrawerSummaryItem>
         {template ? (
           <DrawerSummaryItem
-            icon={<span className={cn("size-3 rounded-full", paletteBg(template.color))} />}
+            icon={<span className={cn("size-3 rounded-full", paletteDot(template.color))} />}
             label={["Шаблон", role?.name, department?.name].filter(Boolean).join(" · ")}
           >
             {shiftTemplateLabel(template)}

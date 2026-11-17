@@ -55,7 +55,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { paletteBg, paletteText } from "@/lib/palette";
+import { paletteBg, paletteDot, paletteText } from "@/lib/palette";
 import { cn } from "@/lib/utils";
 import {
   addDays,
@@ -1308,7 +1308,7 @@ export function ScheduleClient({
                                         <ContextMenuSubContent>
                                           {cellTemplates(d).map((t) => (
                                             <ContextMenuItem key={t.id} onSelect={() => create(d, s.id, t)}>
-                                              <span className={cn("size-2.5 shrink-0 rounded-full", paletteBg(t.color))} />
+                                              <span className={cn("size-2.5 shrink-0 rounded-full", paletteDot(t.color))} />
                                               <span className="flex-1 truncate">{shiftTemplateLabel(t)}</span>
                                               <span className="text-xs tabular-nums text-muted-foreground">
                                                 {(() => {

@@ -31,12 +31,16 @@ export function DrawerSection({
   return (
     <section
       aria-label={title}
-      className={cn("space-y-4 border-t pt-5 first:border-t-0 first:pt-0", className)}
+      className={cn(
+        // Раздел заметно отделён от соседнего: 32px до линии, 28px после.
+        "mt-3 space-y-4 border-t pt-7 first:mt-0 first:border-t-0 first:pt-0",
+        className,
+      )}
     >
       {(title || actions) && (
         <header className="flex items-start justify-between gap-3">
           <div className="min-w-0 space-y-1">
-            {title && <h3 className="text-sm font-semibold">{title}</h3>}
+            {title && <h3 className="text-base font-semibold leading-snug">{title}</h3>}
             {description && <p className="text-[13px] text-muted-foreground">{description}</p>}
           </div>
           {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}

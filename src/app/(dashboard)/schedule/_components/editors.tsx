@@ -1,7 +1,7 @@
 "use client";
 import { useId, useState } from "react";
 import { shiftAssignee, assignmentFields } from "@/lib/schedule/types";
-import { Plus, Trash2, ArrowUp, ArrowDown, Pencil } from "lucide-react";
+import { Plus, Trash2, ArrowUp, ArrowDown, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,7 +12,7 @@ import { OptionSelect } from "@/components/ui/option-select";
 import { EmployeePicker } from "./employee-picker";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { DrawerSection } from "@/components/ui/drawer-blocks";
-import { PALETTE_COLORS, paletteBg, paletteText } from "@/lib/palette";
+import { PALETTE_COLORS, paletteDot } from "@/lib/palette";
 import { cn } from "@/lib/utils";
 import { shiftTemplateLabel } from "@/lib/schedule/types";
 import { addDays, dateInZone, dayLabel, timeInZone } from "@/lib/schedule/utils";
@@ -269,10 +269,10 @@ function ShiftRoleField<T extends Pick<typeof empty, "department_id" | "role_id"
   const department = data.departments.find((item) => item.id === role?.department_id);
   return (
     <div className="space-y-2">
-      <Field label="Должность на смене">
+      <Field label="Кто может выйти на смену">
         <OptionSelect
-          aria-label="Должность на смене"
-          aria-describedby={hintId}
+          aria-label="Кто может выйти на смену"
+          aria-describedby={role ? hintId : undefined}
           value={value.role_id ?? ""}
           onValueChange={(id) => {
             const selected = data.roles.find((item) => item.id === id);
@@ -283,23 +283,21 @@ function ShiftRoleField<T extends Pick<typeof empty, "department_id" | "role_id"
             });
           }}
           options={[
-            { value: "", label: "Без должности на смене" },
+            { value: "", label: "Любой сотрудник" },
             ...data.roles.map((item) => ({ value: item.id, label: item.name })),
           ]}
         />
       </Field>
-      <p id={hintId} className="text-xs text-muted-foreground">
-        {department
-          ? `Подразделение — «${department.name}». `
-          : "Подразделение подставляется из выбранной должности. "}
-        Можно назначить любого свободного сотрудника заведения.
-        {department && (
-          <span className="mt-1 block">
-            В своём подразделении сотрудник получает свою ставку. Для подмены из другого
-            подразделения действует ставка должности на смене.
-          </span>
-        )}
-      </p>
+      {role && (
+        // Должность задаёт ставку, а не запрет: подмена из другой
+        // должности разрешена (миграция 319).
+        <p id={hintId} className="text-xs text-muted-foreground">
+          Может выйти и сотрудник другой должности.
+          {department
+            ? ` Из подразделения «${department.name}» — по своей ставке, из другого — по ставке должности «${role.name}».`
+            : ` Подмена получает ставку должности «${role.name}».`}
+        </p>
+      )}
     </div>
   );
 }
@@ -313,9 +311,11 @@ function Colors({
   return (
     <fieldset>
       <legend className="text-sm font-medium mb-2">Цвет смены</legend>
-      <div className="flex flex-wrap gap-1 sm:gap-2">
+      {/* Яркие образцы; серый не предлагаем — в сетке его почти не видно.
+          Старые серые смены и шаблоны остаются серыми, пока не выбрать цвет. */}
+      <div className="flex flex-wrap gap-2 p-0.5">
         {PALETTE_COLORS.filter(
-          (c) => !["default", "brown"].includes(c.name),
+          (c) => !["default", "brown", "gray"].includes(c.name),
         ).map((c) => (
           <button
             key={c.name}
@@ -324,13 +324,12 @@ function Colors({
             aria-pressed={c.name === value}
             onClick={() => onChange(c.name)}
             className={cn(
-              "size-8 rounded-full border-2 flex items-center justify-center focus-visible:ring-2 focus-visible:ring-ring",
-              paletteBg(c.name),
-              paletteText(c.name),
-              value === c.name ? "border-foreground" : "border-transparent",
+              "flex size-7 items-center justify-center rounded-full text-white ring-offset-2 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              paletteDot(c.name),
+              value === c.name && "ring-2 ring-foreground",
             )}
           >
-            {value === c.name ? "✓" : ""}
+            {value === c.name && <Check className="size-4" strokeWidth={3} />}
           </button>
         ))}
       </div>
@@ -441,7 +440,6 @@ export function ShiftEditor({
           : null,
       ].filter(Boolean)
     : [];
-  const chosenRole = data.roles.find((r) => r.id === chosen?.role_id);
   const detachFromTemplate = () => {
     // Своя смена стартует с текущих значений шаблона.
     if (deviation.length === 0) set(templateValue);
@@ -592,7 +590,20 @@ export function ShiftEditor({
               Отчёт смены уже начат. Время, должность и сотрудника менять нельзя.
             </p>
           )}
-          <Field label="Шаблон">
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-medium">Шаблон</span>
+              {chosen && onEditTemplate && data.permissions.includes("schedule.template_edit") && (
+                <button
+                  type="button"
+                  className="rounded-sm text-[13px] text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label={`Изменить шаблон «${shiftTemplateLabel(chosen)}»`}
+                  onClick={() => onEditTemplate(chosen)}
+                >
+                  Изменить
+                </button>
+              )}
+            </div>
             <OptionSelect
               aria-label="Шаблон"
               placeholder="Выберите шаблон"
@@ -618,7 +629,7 @@ export function ShiftEditor({
                         value: t.id,
                         label: (
                           <span className="flex items-center gap-2">
-                            <span className={cn("size-2.5 shrink-0 rounded-full", paletteBg(t.color))} />
+                            <span className={cn("size-2.5 shrink-0 rounded-full", paletteDot(t.color))} />
                             <span className="truncate">{shiftTemplateLabel(t)}</span>
                             {times && (
                               <span className="text-xs tabular-nums text-muted-foreground">
@@ -633,32 +644,16 @@ export function ShiftEditor({
                 { options: [{ value: "", label: "Нестандартная смена" }] },
               ]}
             />
-          </Field>
-          {chosen && (
-            <div className="-mt-3 space-y-1">
-              <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                {!chosenTimes ? (
-                  <span className="text-destructive">Шаблон не работает в этот день недели</span>
-                ) : chosenRole ? (
-                  <span>Должность — {chosenRole.name}</span>
-                ) : (
-                  <span className="text-amber-700 dark:text-amber-400">У шаблона не указана должность</span>
-                )}
-                {onEditTemplate && data.permissions.includes("schedule.template_edit") && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-6 text-muted-foreground"
-                    aria-label={`Изменить шаблон «${shiftTemplateLabel(chosen)}»`}
-                    onClick={() => onEditTemplate(chosen)}
-                  >
-                    <Pencil className="size-3.5" />
-                  </Button>
-                )}
-              </div>
+          </div>
+          {/* Пояснения под шаблоном — только когда без них сохранить нельзя
+              или сохранение изменит смену. */}
+          {chosen && (!chosenTimes || deviation.length > 0) && (
+            <div className="-mt-3 space-y-1 text-xs">
+              {!chosenTimes && (
+                <p className="text-destructive">Шаблон не работает в этот день недели</p>
+              )}
               {deviation.length > 0 && (
-                <p className="text-xs text-amber-700 dark:text-amber-400">
+                <p className="text-amber-700 dark:text-amber-400">
                   Сейчас у смены {deviation.join(", ")}. При сохранении она станет как в шаблоне — или выберите «Нестандартная смена».
                 </p>
               )}

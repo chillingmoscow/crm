@@ -32,6 +32,8 @@ export type PayEmployee = {
   hired_on: string | null;
   experience_offset_months: number;
   casual?: boolean;
+  /** PIN кассы разового, выданный при заведении в Quick Resto. */
+  quickresto_pin?: string | null;
   attendance_source?: "quickresto" | "schedule" | "excluded";
   active: boolean;
   opening_balance: number;

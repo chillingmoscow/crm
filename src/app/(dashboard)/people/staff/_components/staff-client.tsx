@@ -12,13 +12,12 @@ import {
   UserPlus,
   Calendar,
   Clock,
-  X,
-  Check,
   Archive,
   Loader2,
   Lock,
   HeartPulse,
   Cake,
+  CalendarClock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
@@ -57,6 +56,12 @@ import { PageFrame } from "@/components/shared/page-frame";
 import { usePeopleOverview } from "@/components/people/people-overview";
 import { PersonAvatar } from "@/components/people/person-avatar";
 import { StaffTable, type StaffColKey as ColKey } from "./staff-table";
+import type { CasualStaffRow } from "@/lib/payroll/casual-list";
+import {
+  CasualCreateForm,
+  CasualPinPanel,
+  type CasualIssued,
+} from "./casual-staff";
 
 // ── Helpers ──────────────────────────────────────────────────
 const inviteSchema = z.object({
@@ -86,6 +91,8 @@ type Props = {
   venueId: string;
   currentUserId: string;
   activeRoleCode: string | null;
+  /** null when casual workers are unavailable (e.g. before the database update). */
+  casual: { employees: CasualStaffRow[]; roles: { id: string; name: string }[] } | null;
 };
 
 function formatDate(iso: string | null | undefined) {
@@ -241,6 +248,7 @@ export function StaffClient({
   venueId,
   currentUserId,
   activeRoleCode,
+  casual,
 }: Props) {
   const router = useRouter();
 
@@ -248,7 +256,12 @@ export function StaffClient({
   const [invitations, setInvitations] = useState(initialInvitations);
   const [fired, setFired] = useState(initialFired);
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [addMode, setAddMode] = useState<"email" | "manual">("manual");
+  const [addMode, setAddMode] = useState<"email" | "manual" | "casual">("manual");
+  const [issued, setIssued] = useState<CasualIssued | null>(null);
+  const closeAdd = (open: boolean) => {
+    setInviteOpen(open);
+    if (!open) setIssued(null);
+  };
   const [isPending, startTransition] = useTransition();
   const [firedOpen, setFiredOpen] = useState(false);
   const overview = usePeopleOverview(
@@ -316,7 +329,7 @@ export function StaffClient({
       // Оптимистично добавляем нового сотрудника в список, чтобы не ждать
       // полного refresh от сервера.
       if (result.member) {
-        const member = { ...result.member, imported_from_quickresto: false };
+        const member = result.member;
         setStaff((prev) => [...prev, member]);
       }
       toast.success(
@@ -553,18 +566,11 @@ export function StaffClient({
           </button>
         );
       }
-      case "qr_import":
-        return (
-          <div
-            className="flex items-center justify-center"
-            aria-label={member.imported_from_quickresto ? "Да" : "Нет"}
-          >
-            {member.imported_from_quickresto ? (
-              <Check className="w-4 h-4 text-brand" />
-            ) : (
-              <X className="w-4 h-4 text-muted-foreground" />
-            )}
-          </div>
+      case "pin":
+        return member.terminal_pin ? (
+          <span className="font-mono text-sm tabular-nums">{member.terminal_pin}</span>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
         );
       case "employment_date":
         return (
@@ -609,12 +615,8 @@ export function StaffClient({
             {inv.role_name}
           </Badge>
         );
-      case "qr_import":
-        return (
-          <div className="flex items-center justify-center text-sm text-muted-foreground">
-            —
-          </div>
-        );
+      case "pin":
+        return <span className="text-sm text-muted-foreground">—</span>;
       case "employment_date":
         return (
           <div className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
@@ -675,13 +677,71 @@ export function StaffClient({
     }
   };
 
+  // Casual workers: payroll card instead of a staff profile, no account.
+  const renderCasualCell = (key: ColKey, c: CasualStaffRow) => {
+    switch (key) {
+      case "avatar":
+        return (
+          <div className="flex items-center justify-center">
+            <PersonAvatar name={c.name} />
+          </div>
+        );
+      case "name":
+        return (
+          <div className="min-w-0 flex items-center gap-2">
+            <Link
+              href={`/people/payroll/${c.id}`}
+              title={c.name}
+              className="font-medium text-sm truncate min-w-0 hover:text-brand"
+            >
+              {c.name}
+            </Link>
+            <span
+              className="inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground"
+              data-tip="Выходит на смены по графику без входа в Sheerly. Отмечается в кассе своим PIN."
+            >
+              <CalendarClock className="w-2.5 h-2.5" />
+              <span className="text-[10px] font-medium leading-none">Разовый</span>
+            </span>
+          </div>
+        );
+      case "role":
+        return (
+          <Badge variant="secondary" className="max-w-full truncate whitespace-nowrap text-xs">
+            {c.roleName}
+          </Badge>
+        );
+      case "department":
+        return c.departmentName ? (
+          <Badge variant="secondary" className="max-w-full truncate whitespace-nowrap text-xs">
+            {c.departmentName}
+          </Badge>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        );
+      case "pin":
+        return <span className="font-mono text-sm tabular-nums">{c.pin}</span>;
+      default:
+        return <span className="text-sm text-muted-foreground">—</span>;
+    }
+  };
+
   // ── Render ─────────────────────────────────────────────────
+  const addButton = canEdit ? (
+    <Button onClick={() => setInviteOpen(true)} size="sm" className="h-9 gap-2">
+      <UserPlus className="size-4" />
+      Добавить
+    </Button>
+  ) : null;
+
   return (
     <PageFrame className="space-y-4">
       <StaffTable
         key={`${venueId}:${currentUserId}:${firedOpen}`}
         preferenceKey={`${venueId}.${currentUserId}`}
         staff={staff}
+        casual={casual?.employees ?? []}
+        renderCasualCell={renderCasualCell}
         fired={fired}
         showFired={firedOpen}
         invitations={invitations}
@@ -722,37 +782,42 @@ export function StaffClient({
         canEdit={canEdit}
         isPending={isPending}
         onCancelInvitation={onCancelInvitation}
-        primaryAction={
-          canEdit ? (
-            <Button
-              onClick={() => setInviteOpen(true)}
-              size="sm"
-              className="h-9 gap-2"
-            >
-              <UserPlus className="size-4" />
-              Добавить
-            </Button>
-          ) : null
-        }
+        primaryAction={addButton}
       />
 
       {/* Add staff sheet — два режима: «По email» (отсылает invite, юзер
           логинится сам) и «Без email» (placeholder-аккаунт, админ ведёт карточку). */}
-      <Sheet open={inviteOpen} onOpenChange={setInviteOpen}>
+      <Sheet open={inviteOpen} onOpenChange={closeAdd}>
         <SheetContent className="w-full sm:max-w-md">
           <SheetHeader>
-            <SheetTitle>Добавить сотрудника</SheetTitle>
+            <SheetTitle>{issued ? "Код для кассы" : "Добавить сотрудника"}</SheetTitle>
           </SheetHeader>
 
+          {issued ? (
+            <div className="mt-6">
+              <CasualPinPanel issued={issued} onDone={() => closeAdd(false)} />
+            </div>
+          ) : (
           <Tabs
             value={addMode}
-            onValueChange={(v) => setAddMode(v as "email" | "manual")}
+            onValueChange={(v) => setAddMode(v as "email" | "manual" | "casual")}
             className="mt-6"
           >
-            <TabsList className="grid grid-cols-2">
+            <TabsList className={`grid ${casual ? "grid-cols-3" : "grid-cols-2"}`}>
               <TabsTrigger value="manual">Создать</TabsTrigger>
               <TabsTrigger value="email">Пригласить</TabsTrigger>
+              {casual && <TabsTrigger value="casual">Разовый</TabsTrigger>}
             </TabsList>
+
+            {casual && (
+              <TabsContent value="casual" className="mt-5">
+                <CasualCreateForm
+                  roles={casual.roles}
+                  onCancel={() => closeAdd(false)}
+                  onIssued={setIssued}
+                />
+              </TabsContent>
+            )}
 
             <TabsContent value="manual" className="mt-5">
               <form
@@ -929,6 +994,7 @@ export function StaffClient({
               </form>
             </TabsContent>
           </Tabs>
+          )}
         </SheetContent>
       </Sheet>
     </PageFrame>

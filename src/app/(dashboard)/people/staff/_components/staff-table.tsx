@@ -35,11 +35,13 @@ import { useTableColumnResize } from "@/components/shared/table/use-table-column
 import { PeopleListHeader } from "@/components/people/people-list-header";
 import { PeopleMobileCards } from "@/components/people/people-mobile-cards";
 import styles from "@/components/people/people-table.module.css";
+import type { CasualStaffRow } from "@/lib/payroll/casual-list";
 
 type Row =
   | { kind: "staff"; id: string; member: StaffMember }
   | { kind: "fired"; id: string; member: FiredStaffMember }
-  | { kind: "invitation"; id: string; invitation: PendingInvitation };
+  | { kind: "invitation"; id: string; invitation: PendingInvitation }
+  | { kind: "casual"; id: string; casual: CasualStaffRow };
 export type StaffColKey =
   | "avatar"
   | "name"
@@ -50,7 +52,7 @@ export type StaffColKey =
   | "birth_date"
   | "role"
   | "department"
-  | "qr_import"
+  | "pin"
   | "employment_date"
   | "fired_at"
   | "fired_reason";
@@ -83,13 +85,7 @@ const activeDefinitions: StaffColumn[] = [
     min: 156,
     visible: true,
   },
-  {
-    id: "qr_import",
-    label: "Импорт из QR",
-    size: 156,
-    min: 144,
-    visible: true,
-  },
+  { id: "pin", label: "PIN кассы", size: 132, min: 112, visible: true },
   {
     id: "employment_date",
     label: "Трудоустройство",
@@ -142,6 +138,13 @@ const name = (m: StaffMember | FiredStaffMember) =>
   [m.first_name, m.last_name].filter(Boolean).join(" ") ||
   m.email.split("@")[0];
 function value(row: Row, id: StaffColKey): string | undefined {
+  if (row.kind === "casual") {
+    const c = row.casual;
+    return (
+      ({ name: c.name, role: c.roleName, department: c.departmentName, pin: c.pin } as Record<string, string | null>)[id] ||
+      undefined
+    );
+  }
   if (row.kind === "invitation")
     return id === "name" || id === "email"
       ? row.invitation.email
@@ -176,14 +179,20 @@ function value(row: Row, id: StaffColKey): string | undefined {
         birth_date: m.birth_date,
         role: m.role_name,
         department: m.department_name,
-        qr_import: m.imported_from_quickresto ? "Да" : "Нет",
+        pin: m.terminal_pin,
         employment_date: m.employment_date ?? m.joined_at,
       } as Record<string, string | null | undefined>
     )[id] || undefined
   );
 }
+const rowHref = (row: Exclude<Row, { kind: "invitation" }>) =>
+  row.kind === "casual"
+    ? `/people/payroll/${row.casual.id}`
+    : `/people/staff/${row.member.user_id}`;
+
 export function StaffTable({
   staff,
+  casual,
   fired,
   showFired,
   invitations,
@@ -193,6 +202,7 @@ export function StaffTable({
   renderCell,
   renderInvCell,
   renderFiredCell,
+  renderCasualCell,
   primaryAction,
   secondaryActions,
   overviewPanel,
@@ -202,6 +212,7 @@ export function StaffTable({
   onRestore,
 }: {
   staff: StaffMember[];
+  casual: CasualStaffRow[];
   fired: FiredStaffMember[];
   showFired: boolean;
   invitations: PendingInvitation[];
@@ -211,6 +222,7 @@ export function StaffTable({
   renderCell: (key: StaffColKey, m: StaffMember) => ReactNode;
   renderInvCell: (key: StaffColKey, i: PendingInvitation) => ReactNode;
   renderFiredCell: (key: StaffColKey, m: FiredStaffMember) => ReactNode;
+  renderCasualCell: (key: StaffColKey, c: CasualStaffRow) => ReactNode;
   primaryAction: ReactNode;
   secondaryActions: ReactNode;
   overviewPanel: ReactNode;
@@ -237,7 +249,7 @@ export function StaffTable({
     role: "",
     department: "",
     gender: "",
-    imported: "",
+    kind: "",
   });
   const q = st.search.trim().toLocaleLowerCase("ru");
   const active = Object.values(filter).some(Boolean);
@@ -254,6 +266,7 @@ export function StaffTable({
           id: invitation.inv_id,
           invitation,
         })),
+        ...casual.map((c) => ({ kind: "casual" as const, id: c.id, casual: c })),
       ];
   const rows = source.filter((row) => {
     if (
@@ -261,12 +274,22 @@ export function StaffTable({
       !fields.some((id) => value(row, id)?.toLocaleLowerCase("ru").includes(q))
     )
       return false;
+    if (filter.kind && (filter.kind === "casual") !== (row.kind === "casual"))
+      return false;
+    if (row.kind === "casual")
+      return (
+        (!filter.role || row.casual.roleId === filter.role) &&
+        !filter.gender &&
+        (!filter.department ||
+          (filter.department === "__none__"
+            ? !row.casual.departmentId
+            : row.casual.departmentId === filter.department))
+      );
     if (row.kind === "invitation")
       return (
         (!filter.role || row.invitation.role_id === filter.role) &&
         !filter.department &&
-        !filter.gender &&
-        !filter.imported
+        !filter.gender
       );
     if (row.kind === "fired")
       return !filter.role || row.member.role_id === filter.role;
@@ -277,9 +300,7 @@ export function StaffTable({
       (!filter.department ||
         (filter.department === "__none__"
           ? !m.department_id
-          : m.department_id === filter.department)) &&
-      (!filter.imported ||
-        (filter.imported === "yes") === !!m.imported_from_quickresto)
+          : m.department_id === filter.department))
     );
   });
   const columns: ColumnDef<Row>[] = [
@@ -304,7 +325,9 @@ export function StaffTable({
               ? renderCell(c.id, row.original.member)
               : row.original.kind === "fired"
                 ? renderFiredCell(c.id, row.original.member)
-                : renderInvCell(c.id, row.original.invitation),
+                : row.original.kind === "casual"
+                  ? renderCasualCell(c.id, row.original.casual)
+                  : renderInvCell(c.id, row.original.invitation),
         }) satisfies ColumnDef<Row>,
     ),
     {
@@ -381,7 +404,7 @@ export function StaffTable({
     firstPage();
   };
   const reset = () => {
-    setFilter({ role: "", department: "", gender: "", imported: "" });
+    setFilter({ role: "", department: "", gender: "", kind: "" });
     st.setSearch("");
     st.setSorting([]);
     firstPage();
@@ -531,15 +554,15 @@ export function StaffTable({
               ]}
             />
           )}
-          {!showFired && (filtersVisible || !!filter.imported) && (
+          {!showFired && (filtersVisible || !!filter.kind) && (
             <TableFilterChip
-              label="Импорт из QR"
-              value={filter.imported}
-              onChange={(v) => set("imported", v)}
+              label="Тип"
+              value={filter.kind}
+              onChange={(v) => set("kind", v)}
               options={[
                 { value: "", label: "Все сотрудники" },
-                { value: "yes", label: "Из Quick Resto" },
-                { value: "no", label: "Созданы в Sheerly" },
+                { value: "staff", label: "Штатные" },
+                { value: "casual", label: "Разовые" },
               ]}
             />
           )}
@@ -632,7 +655,7 @@ export function StaffTable({
                     row.original.kind !== "invitation" &&
                     !(e.target as HTMLElement).closest("button,a,input")
                   )
-                    router.push(`/people/staff/${row.original.member.user_id}`);
+                    router.push(rowHref(row.original));
                 }}
               >
                 {row.getVisibleCells().map((cell) => (
@@ -671,7 +694,7 @@ export function StaffTable({
         labels={labels}
         onOpen={(row) => {
           if (row.original.kind !== "invitation")
-            router.push(`/people/staff/${row.original.member.user_id}`);
+            router.push(rowHref(row.original));
         }}
         empty={
           active || q

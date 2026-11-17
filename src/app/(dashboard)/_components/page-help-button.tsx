@@ -29,7 +29,7 @@ export function PageHelpButton() {
       <button
         type="button"
         aria-label={`Справка: ${title}`}
-        title={`Справка: ${title}`}
+        data-tip={`Справка: ${title}`}
         onClick={() => setOpen(true)}
         className="relative inline-flex size-9 items-center justify-center rounded-lg bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
       >

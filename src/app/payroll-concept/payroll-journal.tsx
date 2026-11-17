@@ -248,8 +248,8 @@ export function PayrollJournal({
                 {entryAmount(r)}
               </span>
             );
-          if (r.deleted_at) return <span className="line-clamp-2 text-muted-foreground line-through" title={r.reason}>{r.reason} · Удалено</span>;
-          return <span className="line-clamp-2" title={r.reason}>{r.reason}</span>;
+          if (r.deleted_at) return <span className="line-clamp-2 text-muted-foreground line-through" data-tip={r.reason}>{r.reason} · Удалено</span>;
+          return <span className="line-clamp-2" data-tip={r.reason}>{r.reason}</span>;
         },
       })),
     [data.employees, paidBonuses],
@@ -362,7 +362,7 @@ export function PayrollJournal({
           {selectedPaid && <span className="rounded-full bg-muted px-2.5 py-1 text-xs">Выплачена</span>}
           {!selected.deleted_at && detail?.notification && <span
             className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-300"
-            title={detail.notification.last_error ?? undefined}
+            data-tip={detail.notification.last_error ?? undefined}
           >{detail.notification.final ? "Не будет отправлено" : "Не отправлено в чат"}</span>}
         </span> : undefined}
         actions={canWrite && selected && !selected.deleted_at ? (

@@ -319,7 +319,7 @@ export function IngredientDetail({
               <button
                 type="button"
                 aria-label="Сведения о карточке"
-                title="Сведения о карточке"
+                data-tip="Сведения о карточке"
                 className="relative inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               >
                 <Info className="h-[18px] w-[18px]" />

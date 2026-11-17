@@ -166,7 +166,7 @@ export function PayrollClient({
                   ) ? (
                   <span
                     className="text-muted-foreground"
-                    title="Прежние выплаты ещё не внесены: откройте вкладку Выплаты"
+                    data-tip="Прежние выплаты ещё не внесены: откройте вкладку Выплаты"
                   >
                     —
                   </span>
@@ -178,7 +178,7 @@ export function PayrollClient({
                         !row.original.employee.opening_confirmed &&
                         "text-muted-foreground",
                     )}
-                    title={
+                    data-tip={
                       id === "opening" &&
                       !row.original.employee.opening_confirmed
                         ? "Нужно подтвердить долг или переплату на начало учёта: сотрудник → Оплата"
@@ -267,7 +267,6 @@ export function PayrollClient({
             <TooltipTrigger asChild>
               <Button
                 disabled={busy}
-                title="Ручное обновление: повторно получить данные Quick Resto за выбранный месяц. Данные также обновляются автоматически."
                 onClick={() =>
                   void run(
                     () => refreshPayroll(month, until),
@@ -388,7 +387,7 @@ export function PayrollClient({
               )}
             >
               <span
-                title={
+                data-tip={
                   value === null
                     ? label === "Выплачено" || !unconfirmed.length
                       ? "Прежние выплаты требуют сверки в настройках заведения → Оплата труда → Первоначальные данные по зарплате"

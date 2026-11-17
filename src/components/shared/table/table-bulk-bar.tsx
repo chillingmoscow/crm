@@ -23,7 +23,7 @@ export function TableBulkBar({ selectedCount, onClear, actions, summary, colSpan
           type="button"
           onClick={onClear}
           aria-label="Снять выбор"
-          title="Снять выбор"
+          data-tip="Снять выбор"
           className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           <X className="h-4 w-4" />

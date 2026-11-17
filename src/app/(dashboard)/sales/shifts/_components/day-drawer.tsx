@@ -210,7 +210,7 @@ export function DayDrawer({
               {metricKeys.map((k) => (
                 <div key={k} className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
-                    <Label htmlFor={`metric-${k}`} title={metricHints[k]}>
+                    <Label htmlFor={`metric-${k}`} data-tip={metricHints[k]}>
                       {metricLabels[k]}
                     </Label>
                     {k in day.overrides && !resets.includes(k) && canAdjust && (

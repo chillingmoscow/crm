@@ -566,7 +566,7 @@ export function ScheduleClient({
       key={task.id}
       onClick={() => setSelectedTask(task)}
       aria-label={`Задача: ${task.snapshot.name}, ${task.planned ? "План" : taskStatus[task.status]}`}
-      title={`${task.snapshot.name} · ${task.employee_name || "Без назначения"} · ${taskStatus[task.status]}`}
+      data-tip={`${task.snapshot.name} · ${task.employee_name || "Без назначения"} · ${taskStatus[task.status]}`}
       className={cn(
         "flex w-full items-start gap-1.5 rounded-md border bg-background px-2 py-2 text-left text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         task.status === "completed" && "text-muted-foreground",
@@ -1214,7 +1214,7 @@ export function ScheduleClient({
                         size="sm"
                         draggable
                         className={cn("h-8 cursor-grab gap-1.5 px-2 active:cursor-grabbing", paletteBg(t.color), paletteText(t.color))}
-                        title={formatTemplateTimes(t)}
+                        data-tip={formatTemplateTimes(t)}
                         onDragStart={(e) => {
                           e.dataTransfer.setData("application/sheerly-template", t.id);
                           e.dataTransfer.effectAllowed = "copy";
@@ -1564,7 +1564,7 @@ export function ScheduleClient({
                               size="icon"
                               className="size-8 text-muted-foreground"
                               aria-label={`Добавить смену: ${dayLabel(d)}`}
-                              title="Добавить смену"
+                              data-tip="Добавить смену"
                               onClick={() => create(d)}
                             >
                               <Plus className="size-4" />

@@ -171,7 +171,7 @@ export function CandidateDetailClient({
           <span aria-hidden="true" className="text-muted-foreground">/</span>
           <Link href="/people/candidates" className="shrink-0 text-muted-foreground hover:text-foreground">Кандидаты</Link>
           <span aria-hidden="true" className="text-muted-foreground">/</span>
-          <span aria-current="page" className="min-w-0 truncate" title={c.full_name}>{c.full_name}</span>
+          <span aria-current="page" className="min-w-0 truncate" data-tip={c.full_name}>{c.full_name}</span>
         </nav>
       </PageBreadcrumb>
       <div className="mx-auto flex w-full min-w-0 max-w-[1120px] flex-col gap-6 px-6 pb-8 pt-4 md:px-8">
@@ -189,16 +189,17 @@ export function CandidateDetailClient({
                 </Link>
               </Button>
             ) : permissions.hire && options.venues.some(v => v.can_hire) && !c.archived_at && (c.status === "trial" || data.hire?.state === "reserved") ? (
-              <Button
-                disabled={c.status !== "trial" && data.hire?.state !== "reserved"}
-                title={c.status !== "trial" ? "Приём на работу доступен на этапе «Стажировка»" : undefined}
-                onClick={() => setHiring(true)}
-              >
-                <UserCheck className="mr-2 h-4 w-4" />
-                {data.hire?.state === "reserved"
-                  ? "Продолжить оформление"
-                  : "Принять на работу"}
-              </Button>
+              <span data-tip={c.status !== "trial" ? "Приём на работу доступен на этапе «Стажировка»" : undefined} className="inline-flex">
+                <Button
+                  disabled={c.status !== "trial" && data.hire?.state !== "reserved"}
+                  onClick={() => setHiring(true)}
+                >
+                  <UserCheck className="mr-2 h-4 w-4" />
+                  {data.hire?.state === "reserved"
+                    ? "Продолжить оформление"
+                    : "Принять на работу"}
+                </Button>
+              </span>
             ) : null}
             {canEdit || permissions.owner ? (
               <DropdownMenu>

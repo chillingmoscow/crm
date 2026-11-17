@@ -133,7 +133,7 @@ export function KbRequiredReadingBanner({
             {readingMinutes !== null && (
               <span
                 className="inline-flex items-center gap-1 rounded-full bg-yellow-100 px-2 py-0.5 text-[11px] font-medium text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
-                title={`Примерное время чтения: ${readingMinutes} мин`}
+                data-tip={`Примерное время чтения: ${readingMinutes} мин`}
               >
                 ≈ {readingMinutes} мин
               </span>
@@ -143,24 +143,24 @@ export function KbRequiredReadingBanner({
             {description}
           </div>
         </div>
-        <Button
-          size="sm"
-          onClick={onConfirm}
-          disabled={pending || !gateReady}
-          title={
-            gateReady
-              ? undefined
-              : "Ознакомьтесь со страницей, прежде чем подтверждать прочтение"
-          }
-          className="shrink-0 bg-yellow-600 hover:bg-yellow-700 text-white"
+        <span
+          data-tip={gateReady ? undefined : "Ознакомьтесь со страницей, прежде чем подтверждать прочтение"}
+          className="inline-flex shrink-0"
         >
-          {pending ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <CheckCircle2 className="size-4" />
-          )}
-          Прочитано
-        </Button>
+          <Button
+            size="sm"
+            onClick={onConfirm}
+            disabled={pending || !gateReady}
+            className="shrink-0 bg-yellow-600 hover:bg-yellow-700 text-white"
+          >
+            {pending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="size-4" />
+            )}
+            Прочитано
+          </Button>
+        </span>
       </div>
     </div>
   );

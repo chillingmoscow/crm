@@ -476,7 +476,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
               type="button"
               className="block w-full truncate text-left font-medium hover:text-brand"
               onClick={() => setDetail(row.original)}
-              title={row.original.name}
+              data-tip={row.original.name}
             >
               {row.original.name}
               {row.original.issues.length > 0 && (
@@ -496,7 +496,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
                 Не разнесён
               </Badge>
             ) : (
-              <span className="block truncate" title={row.original.pool}>
+              <span className="block truncate" data-tip={row.original.pool}>
                 {row.original.pool}
               </span>
             )
@@ -509,7 +509,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
           ) : (
             <span
               className="block truncate"
-              title={String(row.original[id as keyof WriteoffRow] ?? "")}
+              data-tip={String(row.original[id as keyof WriteoffRow] ?? "")}
             >
               {String(row.original[id as keyof WriteoffRow] ?? "—")}
             </span>

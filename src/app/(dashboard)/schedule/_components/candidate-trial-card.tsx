@@ -33,11 +33,11 @@ export function CandidateTrialCard({ trial, timezone, showName = false, linked =
   );
   const label = `Стажировка: ${trial.full_name}`;
   return linked ? (
-    <Link href={`/people/candidates/${trial.candidate_id}`} aria-label={label} title={label} className={className}>
+    <Link href={`/people/candidates/${trial.candidate_id}`} aria-label={label} data-tip={label} className={className}>
       {body}
     </Link>
   ) : (
-    <div aria-label={label} title={label} className={className}>
+    <div aria-label={label} data-tip={label} className={className}>
       {body}
     </div>
   );

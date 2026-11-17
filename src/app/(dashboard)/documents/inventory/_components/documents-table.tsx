@@ -538,7 +538,7 @@ export function DocumentsTable({
             {row.results_reopened_after_processed ? (
               <span
                 className="text-amber-600 dark:text-amber-400"
-                title="Итоги правились после проведения — управленческие суммы могут расходиться с Quick Resto."
+                data-tip="Итоги правились после проведения — управленческие суммы могут расходиться с Quick Resto."
               >
                 <AlertTriangle className="h-4 w-4" />
               </span>
@@ -557,7 +557,7 @@ export function DocumentsTable({
         label: "Комментарий",
         size: 240,
         cell: (row: DocumentListRow) => (
-          <span className="block truncate text-sm text-muted-foreground" title={row.comment ?? undefined}>
+          <span className="block truncate text-sm text-muted-foreground" data-tip={row.comment ?? undefined}>
             {row.comment ?? "—"}
           </span>
         ),
@@ -579,7 +579,7 @@ export function DocumentsTable({
           // прочерк, а не 0 ₽ — иначе акт с расхождением выглядит сошедшимся.
           if (row.totals_unavailable) {
             return (
-              <span className="text-sm text-muted-foreground" title="Не удалось посчитать итоги — обновите страницу">
+              <span className="text-sm text-muted-foreground" data-tip="Не удалось посчитать итоги — обновите страницу">
                 —
               </span>
             );
@@ -617,7 +617,7 @@ export function DocumentsTable({
                 "text-sm font-medium tabular-nums",
               signedAmountClass(net),
               )}
-              title="Сумма, которую записал в акт сам Quick Resto при проведении. Исключения из итогов и пересорты на неё не влияют."
+              data-tip="Сумма, которую записал в акт сам Quick Resto при проведении. Исключения из итогов и пересорты на неё не влияют."
             >
               {formatSignedMoney(net, "RUB", amountRoundingScale)}
             </span>
@@ -1261,7 +1261,7 @@ export function DocumentsTable({
             selectedTotals.unavailable ? (
               <span
                 className="whitespace-nowrap text-sm font-medium text-muted-foreground"
-                title="По части выделенных актов итог посчитать не удалось — обновите страницу"
+                data-tip="По части выделенных актов итог посчитать не удалось — обновите страницу"
               >
                 Итог: —
               </span>

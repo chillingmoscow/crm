@@ -410,7 +410,7 @@ export function StaffClient({
           <div className="min-w-0 flex items-center gap-2">
             <Link
               href={`/people/staff/${member.user_id}`}
-              title={displayName(member)}
+              data-tip={displayName(member)}
               className="font-medium text-sm truncate min-w-0 hover:text-brand"
             >
               {displayName(member)}
@@ -635,7 +635,7 @@ export function StaffClient({
         return (
           <Link
             href={`/people/staff/${member.user_id}`}
-            title={displayName(member)}
+            data-tip={displayName(member)}
             className="block truncate text-sm font-medium hover:text-brand"
           >
             {displayName(member)}
@@ -665,7 +665,7 @@ export function StaffClient({
         return (
           <span
             className="block truncate text-muted-foreground"
-            title={member.fired_reason ?? undefined}
+            data-tip={member.fired_reason ?? undefined}
           >
             {member.fired_reason || "Не указана"}
           </span>

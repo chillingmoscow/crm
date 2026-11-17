@@ -147,7 +147,7 @@ function Amount({
   return (
     <span
       className="inline-flex flex-col items-end tabular-nums"
-      title={value?.hint}
+      data-tip={value?.hint}
     >
       <span>
         {money(value?.value ?? null)}

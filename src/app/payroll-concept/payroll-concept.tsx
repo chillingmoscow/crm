@@ -564,7 +564,7 @@ export function PayrollConcept({
                 <strong>
                   <span
                     className={s.metricValue}
-                    title={
+                    data-tip={
                       historyPending
                         ? "Прежние выплаты пока не учтены в этом расчёте"
                         : undefined
@@ -583,7 +583,7 @@ export function PayrollConcept({
                 <strong>
                   <span
                     className={s.metricValue}
-                    title={
+                    data-tip={
                       !knownBalance
                         ? "Остаток появится после уточнения выплат и переносов"
                         : undefined

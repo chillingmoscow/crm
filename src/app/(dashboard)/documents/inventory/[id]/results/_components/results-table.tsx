@@ -859,7 +859,7 @@ export function InventoryResultsTable({
             // сравнил исходный факт с пересчитанным (см. recount_previous_amount).
             <span
               className="text-[11px] text-rose-700 dark:text-rose-300"
-              title={
+              data-tip={
                 recountUnchanged
                   ? "Строку пересчитали — значение подтвердилось"
                   : "Строка была отправлена на пересчёт"
@@ -1252,7 +1252,7 @@ export function InventoryResultsTable({
           <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Недостача</div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
-              <div className="text-xs text-muted-foreground" title={QR_TILE_HINT}>
+              <div className="text-xs text-muted-foreground" data-tip={QR_TILE_HINT}>
                 Уйдёт в Quick Resto
               </div>
               <div className="mt-1 text-xl font-semibold text-red-700 dark:text-red-400 sm:text-2xl">
@@ -1260,7 +1260,7 @@ export function InventoryResultsTable({
               </div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground" title={MANAGEMENT_TILE_HINT}>
+              <div className="text-xs text-muted-foreground" data-tip={MANAGEMENT_TILE_HINT}>
                 Управленческая оценка
               </div>
               <div className="mt-1 text-xl font-semibold text-red-700 dark:text-red-400 sm:text-2xl">
@@ -1281,7 +1281,7 @@ export function InventoryResultsTable({
           </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
-              <div className="text-xs text-muted-foreground" title={QR_TILE_HINT}>
+              <div className="text-xs text-muted-foreground" data-tip={QR_TILE_HINT}>
                 Уйдёт в Quick Resto
               </div>
               <div className="mt-1 text-xl font-semibold text-green-700 dark:text-green-400 sm:text-2xl">
@@ -1289,7 +1289,7 @@ export function InventoryResultsTable({
               </div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground" title={MANAGEMENT_TILE_HINT}>
+              <div className="text-xs text-muted-foreground" data-tip={MANAGEMENT_TILE_HINT}>
                 Управленческая оценка
               </div>
               <div className="mt-1 text-xl font-semibold text-green-700 dark:text-green-400 sm:text-2xl">

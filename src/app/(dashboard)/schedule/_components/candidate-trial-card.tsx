@@ -28,7 +28,8 @@ export function CandidateTrialCard({ trial, timezone, showName = false, linked =
         {trial.starts_at ? timeInZone(trial.starts_at, timezone) : "Время не указано"}
         {trial.outcome === "passed" ? " · Пройдена" : ""}
       </span>
-      {trial.location && <span className="block break-words opacity-80">{trial.location}</span>}
+      {/* Место не показываем: график — по одному заведению, и стажировки
+          здесь только его; стажировки другого заведения — в его графике. */}
     </>
   );
   const label = `Стажировка: ${trial.full_name}`;

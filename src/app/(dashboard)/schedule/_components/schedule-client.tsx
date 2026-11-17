@@ -80,7 +80,6 @@ import {
   ShiftEditor,
   TemplateEditor,
   type Save,
-  formatTemplateTimes,
   isoWeekday,
 } from "./editors";
 import { EmployeePicker } from "./employee-picker";
@@ -681,7 +680,7 @@ export function ScheduleClient({
    */
   const placeTemplate = async (template: ShiftTemplate, day: string, userId: string | null) => {
     const times = templateTimesFor(template, isoWeekday(day));
-    if (!times || occupied(userId, day)) return;
+    if (!times || occupied(userId, day) || templateTaken(template.id, day)) return;
     if (!userId || !can("shift_assign")) {
       create(day, userId, template);
       return;
@@ -721,10 +720,16 @@ export function ScheduleClient({
     item.kind === "shift" &&
     dateInZone(item.shift.starts_at, data.timezone) === day &&
     shiftAssignee(item.shift) === userId;
+  /** По шаблону в день может быть только одна смена (правило сервера). */
+  const templateTaken = (templateId: string, day: string) =>
+    data.shifts.some(
+      (shift) => shift.template_id === templateId && dateInZone(shift.starts_at, data.timezone) === day,
+    );
   const canDrop = (item: DragItem, day: string, userId: string | null) =>
     item.kind === "template"
       ? can("shift_create") &&
         !occupied(userId, day) &&
+        !templateTaken(item.template.id, day) &&
         templateTimesFor(item.template, isoWeekday(day)) !== null
       : can("shift_edit") && !occupied(userId, day, item.shift.id);
   const dragOver = (e: React.DragEvent, day: string, userId: string | null) => {
@@ -797,7 +802,7 @@ export function ScheduleClient({
   };
   const cellTemplates = (day: string) =>
     data.templates.filter(
-      (t) => !t.archived && templateTimesFor(t, isoWeekday(day)) !== null,
+      (t) => !t.archived && templateTimesFor(t, isoWeekday(day)) !== null && !templateTaken(t.id, day),
     );
   const templatesById = new Map(data.templates.map((template) => [template.id, template]));
   const shiftTemplate = (shift: Shift) => {
@@ -827,29 +832,28 @@ export function ScheduleClient({
         </span>
         <span aria-hidden className={cn("w-[3px] shrink-0 rounded-full", paletteDot(s.color))} />
         <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-sm font-medium">
-              {title}
-              {subtitle && <span className="ml-1.5 font-normal text-muted-foreground">{subtitle}</span>}
+          {/* Главное — кто работает: сотрудник жирным, ниже смена и часы. */}
+          <span className="flex min-w-0 items-center gap-1.5">
+            {avatar ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={avatar} alt="" className="size-5 shrink-0 rounded-full object-cover" />
+            ) : (
+              <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
+                {person.trim().charAt(0).toUpperCase()}
+              </span>
+            )}
+            <span className={cn("truncate text-sm font-semibold", !assignee && "font-normal text-muted-foreground")}>
+              {person}
             </span>
-            {/* На телефоне бейдж — в строке названия, чтобы имя не резалось. */}
+            {/* На телефоне бейдж — в этой строке, справа он резал бы имя. */}
             {!s.published && (
               <span className="shrink-0 sm:hidden">
                 <DrawerStatus label="Черновик" tone="warning" />
               </span>
             )}
           </span>
-          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-            {avatar ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={avatar} alt="" className="size-[18px] shrink-0 rounded-full object-cover" />
-            ) : (
-              <span aria-hidden className="flex size-[18px] shrink-0 items-center justify-center rounded-full bg-muted text-[9px] font-medium">
-                {person.trim().charAt(0).toUpperCase()}
-              </span>
-            )}
-            <span className="truncate">{person}</span>
-            <span className="shrink-0 tabular-nums">· {hours.toLocaleString("ru")} ч</span>
+          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+            {[title, subtitle, `${hours.toLocaleString("ru")} ч`].filter(Boolean).join(" · ")}
           </span>
         </span>
         {!s.published && (
@@ -992,7 +996,9 @@ export function ScheduleClient({
             ? "Нет права"
             : dragItem.kind === "template" && !templateTimesFor(dragItem.template, isoWeekday(day))
               ? "Шаблон не работает в этот день"
-              : "Уже есть смена"}
+              : dragItem.kind === "template" && templateTaken(dragItem.template.id, day)
+                ? "Шаблон уже занят"
+                : "Уже есть смена"}
         </div>
       );
     if (sameCell(dragItem, day, userId)) return null;
@@ -1274,7 +1280,6 @@ export function ScheduleClient({
                         size="sm"
                         draggable
                         className={cn("h-8 cursor-grab gap-1.5 px-2 active:cursor-grabbing", paletteBg(t.color), paletteText(t.color))}
-                        data-tip={formatTemplateTimes(t)}
                         onDragStart={(e) => {
                           e.dataTransfer.setData("application/sheerly-template", t.id);
                           e.dataTransfer.effectAllowed = "copy";

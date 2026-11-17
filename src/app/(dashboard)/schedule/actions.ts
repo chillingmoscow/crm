@@ -77,7 +77,6 @@ const shift = base.extend({
   user_id: nullable,
   payroll_employee_id: nullable.optional(),
   payroll_model_id: nullable.optional(),
-  casual_name: z.string().trim().max(160).optional(),
   note: z.string().max(5000),
   checklist_ids: z.array(uuid).max(30),
 });

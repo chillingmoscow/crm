@@ -400,8 +400,7 @@ export function ShiftEditor({
           : (userId ?? null)
         : null,
   );
-  const [casualName, setCasualName] = useState("");
-  const casual = who === "new-casual" || !!who?.startsWith("payroll:");
+  const casual = !!who?.startsWith("payroll:");
   const casualEmployee = data.casualEmployees?.find(
     (e) => `payroll:${e.id}` === who,
   );
@@ -473,7 +472,7 @@ export function ShiftEditor({
     ? data.shifts.filter((item) => item.id !== shift?.id &&
         dateInZone(item.starts_at, data.timezone) === date).map(shiftAssignee)
     : []);
-  const selectedEmployee = assignmentFields(who === "new-casual" ? null : who);
+  const selectedEmployee = assignmentFields(who);
   const payrollModelId = casual ? selectedPayModel : null;
   const commit = async () => {
     setBusy(true);
@@ -489,7 +488,6 @@ export function ShiftEditor({
           title: templateValue.name,
           date,
           ...assignment,
-          casual_name: who === "new-casual" ? casualName.trim() : "",
           checklist_ids: casual ? [] : value.checklist_ids,
           note,
           template_id: templateId,
@@ -509,27 +507,17 @@ export function ShiftEditor({
           unavailable={unavailable}
           emptyLabel={undefined}
           includeCasual={!templateSlot || data.permissions.includes("payroll.configure")}
-          allowNewCasual={!templateSlot && canAssign && data.permissions.includes("payroll.configure")}
+          addCasualLink={!templateSlot && canAssign && data.permissions.includes("payroll.configure")}
         />
       </Field>
       {casual && (
         <>
-          {who === "new-casual" && (
-            <Field label="Имя и фамилия">
-              <Input
-                value={casualName}
-                maxLength={160}
-                placeholder="Например, Полина Вознесенская"
-                onChange={(e) => setCasualName(e.target.value)}
-              />
-            </Field>
-          )}
           <p className={cn("-mt-3 text-xs", selectedPayModel ? "text-muted-foreground" : "text-destructive")}>
             {!shiftRole
               ? "У смены нет должности — оплата разового сотрудника берётся из настроек должности. Выберите шаблон с должностью."
               : !selectedPayModel
                 ? `У должности «${shiftRole.name}» не настроена оплата. Настройте её в должности.`
-                : `Оплата по модели «${selectedPayModelName}». Смена учитывается в зарплате после окончания, без отметки Quick Resto.`}
+                : `Оплата по модели «${selectedPayModelName}». Смена учитывается по отметке Quick Resto, а без отметки — по графику после окончания.`}
           </p>
         </>
       )}
@@ -566,10 +554,7 @@ export function ShiftEditor({
               (templateSlot && (!who || unavailable.has(who))) ||
               // Замена на того же сотрудника ничего не меняет.
               (templateSlot && !!shift && who === shiftAssignee(shift)) ||
-              (casual &&
-                (!selectedPayModel ||
-                  !templateValue.role_id ||
-                  (who === "new-casual" && !casualName.trim())))
+              (casual && (!selectedPayModel || !templateValue.role_id))
             }
             onClick={commit}
           >

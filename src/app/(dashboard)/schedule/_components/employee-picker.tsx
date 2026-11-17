@@ -1,7 +1,8 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 import { useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, History, Plus, Users } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Check, ChevronDown, History, UserPlus, Users } from "lucide-react";
 import {
   Command,
   CommandEmpty,
@@ -12,7 +13,6 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
 import { dateInZone } from "@/lib/schedule/utils";
 import { CASUAL_RECENT_DAYS, splitCasualEmployees } from "@/lib/schedule/casual-recency";
 import type { ScheduleData } from "@/lib/schedule/types";
@@ -41,7 +41,8 @@ function Avatar({ name, src }: { name: string; src?: string | null }) {
  * поиску или по кнопке) бывшие разовые — те, у кого не было смен
  * последние CASUAL_RECENT_DAYS дней.
  *
- * value: user_id штатного, `payroll:<id>` разового, `new-casual` или null.
+ * value: user_id штатного, `payroll:<id>` разового или null. Нового разового
+ * сначала добавляют в «Сотрудниках» (там он получает PIN Quick Resto).
  */
 export function EmployeePicker({
   data,
@@ -51,7 +52,7 @@ export function EmployeePicker({
   unavailable,
   emptyLabel,
   includeCasual = true,
-  allowNewCasual = false,
+  addCasualLink = false,
   id,
 }: {
   data: ScheduleData;
@@ -63,9 +64,11 @@ export function EmployeePicker({
   /** Подпись пункта «без сотрудника»; без неё такого пункта нет. */
   emptyLabel?: string;
   includeCasual?: boolean;
-  allowNewCasual?: boolean;
+  /** Ведёт в «Сотрудники → Добавить → Разовый». */
+  addCasualLink?: boolean;
   id?: string;
 }) {
+  const router = useRouter();
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -163,9 +166,7 @@ export function EmployeePicker({
           disabled={disabled}
           className="flex h-10 w-full min-w-0 items-center gap-2 rounded-md border border-input bg-background px-3 text-left text-sm font-normal outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {value === "new-casual" ? (
-            <span className="flex-1 truncate">Новый разовый сотрудник</span>
-          ) : selected ? (
+          {selected ? (
             <>
               <Avatar name={selected.name} src={selected.avatar} />
               <span className="min-w-0 flex-1 truncate">
@@ -215,7 +216,7 @@ export function EmployeePicker({
                 {former.map(item)}
               </CommandGroup>
             )}
-            {((!formerVisible && former.length > 0) || allowNewCasual) && <CommandSeparator />}
+            {((!formerVisible && former.length > 0) || addCasualLink) && <CommandSeparator />}
             {!formerVisible && former.length > 0 && (
               <CommandGroup>
                 <CommandItem
@@ -228,16 +229,19 @@ export function EmployeePicker({
                 </CommandItem>
               </CommandGroup>
             )}
-            {allowNewCasual && (
+            {addCasualLink && (
               <CommandGroup>
                 <CommandItem
-                  value="__new_casual__"
+                  value="__add_casual__"
                   keywords={["новый разовый сотрудник", "добавить"]}
-                  onSelect={() => pick("new-casual")}
-                  className={cn("gap-2.5 px-2 py-2")}
+                  onSelect={() => router.push("/people/staff?add=casual")}
+                  className="gap-2.5 px-2 py-2 text-muted-foreground"
                 >
-                  <Plus className="size-4" />
-                  Новый разовый сотрудник
+                  <UserPlus className="size-4" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm text-foreground">Добавить разового</span>
+                    <span className="block text-xs">В «Сотрудниках» он получит PIN Quick Resto</span>
+                  </span>
                 </CommandItem>
               </CommandGroup>
             )}

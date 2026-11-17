@@ -789,7 +789,7 @@ export function ScheduleClient({
       )}
       {mode !== "shift" && <span className={cn("break-words text-xs", mode === "template" && "font-medium")}>{assigneeLabel}</span>}
       {!s.published && (
-        <span className="flex gap-1 items-center text-[10px]">
+        <span className="flex gap-1 items-center text-[10px]" title="Черновик: сотрудник не видит смену, пока её не опубликуют">
           <span className="size-1.5 rounded-full bg-current" />
           Черновик
         </span>
@@ -1109,15 +1109,6 @@ export function ScheduleClient({
                   </Button>
                 </div>
               )}
-              {showTasks &&
-                calendarTasks &&
-                calendarTasksWeek === week &&
-                !tasksError &&
-                !weekTasks.length && (
-                  <p className="text-sm text-muted-foreground">
-                    На этой неделе назначенных задач нет
-                  </p>
-                )}
               {(filters || filtersActive) && (
                 <div className="flex flex-wrap items-center gap-2" aria-label="Фильтры расписания">
                   <TableFilterChip
@@ -1135,8 +1126,8 @@ export function ScheduleClient({
                       value={publication === "all" ? "" : publication}
                       options={[
                         { value: "", label: "Все смены" },
-                        { value: "draft", label: "Черновики" },
-                        { value: "published", label: "Опубликованные" },
+                        { value: "draft", label: "Черновики · не видны сотрудникам" },
+                        { value: "published", label: "Опубликованные · видны сотрудникам" },
                       ]}
                       onChange={(value) => setPublication(value || "all")}
                     />

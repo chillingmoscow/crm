@@ -76,27 +76,20 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
   const activeRoleCode =
     (uvr?.roles as { code: string } | null)?.code ?? null;
   const canEdit = ["owner", "manager", "admin"].includes(activeRoleCode ?? "");
+  // The till PIN column: codes are shown only to those who add staff.
+  const pinResult = canEdit
+    ? ((await db
+        .from("user_venue_roles")
+        .select("id, terminal_pin")
+        .eq("venue_id", venueId)) as unknown as { data: { id: string; terminal_pin: string | null }[] | null })
+    : { data: null };
+  const pins = new Map((pinResult.data ?? []).map((row) => [row.id, row.terminal_pin]));
   // Unavailable until the database update for casual workers is applied.
   const casual = await getCasualStaff(venueId, canEdit).catch((error: unknown) => {
     console.error("casual staff unavailable:", error instanceof Error ? error.message : error);
     return null;
   });
 
-  const userIds = staff.map((member) => member.user_id);
-  let importedLinks: { local_id: string }[] = [];
-
-  if (userIds.length > 0) {
-    const importedResult = (await db
-      .from("external_entity_links")
-      .select("local_id")
-      .eq("provider", "quickresto")
-      .eq("entity_type", "staff")
-      .in("local_id", userIds)) as unknown as { data: { local_id: string }[] | null };
-
-    importedLinks = importedResult.data ?? [];
-  }
-
-  const importedIds = new Set(importedLinks.map((row) => row.local_id));
   // Email'ы с неотозванным приглашением — надёжный признак «приглашён, но ещё
   // не активировал» для сотрудника, который уже в списке staff (импортированный
   // с выданным email). Бейдж «Ожидает» и переотправку ведём по этому признаку,
@@ -106,7 +99,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
   );
   const enrichedStaff = staff.map((member) => ({
     ...member,
-    imported_from_quickresto: importedIds.has(member.user_id),
+    terminal_pin: pins.get(member.uvr_id) ?? null,
     has_pending_invite: member.email
       ? pendingInviteEmails.has(member.email.toLowerCase())
       : false,

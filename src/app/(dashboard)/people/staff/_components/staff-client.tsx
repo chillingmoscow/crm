@@ -12,13 +12,12 @@ import {
   UserPlus,
   Calendar,
   Clock,
-  X,
-  Check,
   Archive,
   Loader2,
   Lock,
   HeartPulse,
   Cake,
+  CalendarClock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
@@ -61,7 +60,6 @@ import type { CasualStaffRow } from "@/lib/payroll/casual-list";
 import {
   CasualCreateForm,
   CasualPinPanel,
-  CasualStaffList,
   type CasualIssued,
 } from "./casual-staff";
 
@@ -259,13 +257,7 @@ export function StaffClient({
   const [fired, setFired] = useState(initialFired);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [addMode, setAddMode] = useState<"email" | "manual" | "casual">("manual");
-  const [view, setView] = useState<"staff" | "casual">("staff");
   const [issued, setIssued] = useState<CasualIssued | null>(null);
-  const showIssued = (value: CasualIssued) => {
-    setIssued(value);
-    setView("casual");
-    setInviteOpen(true);
-  };
   const closeAdd = (open: boolean) => {
     setInviteOpen(open);
     if (!open) setIssued(null);
@@ -337,7 +329,7 @@ export function StaffClient({
       // Оптимистично добавляем нового сотрудника в список, чтобы не ждать
       // полного refresh от сервера.
       if (result.member) {
-        const member = { ...result.member, imported_from_quickresto: false };
+        const member = result.member;
         setStaff((prev) => [...prev, member]);
       }
       toast.success(
@@ -574,18 +566,11 @@ export function StaffClient({
           </button>
         );
       }
-      case "qr_import":
-        return (
-          <div
-            className="flex items-center justify-center"
-            aria-label={member.imported_from_quickresto ? "Да" : "Нет"}
-          >
-            {member.imported_from_quickresto ? (
-              <Check className="w-4 h-4 text-brand" />
-            ) : (
-              <X className="w-4 h-4 text-muted-foreground" />
-            )}
-          </div>
+      case "pin":
+        return member.terminal_pin ? (
+          <span className="font-mono text-sm tabular-nums">{member.terminal_pin}</span>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
         );
       case "employment_date":
         return (
@@ -630,12 +615,8 @@ export function StaffClient({
             {inv.role_name}
           </Badge>
         );
-      case "qr_import":
-        return (
-          <div className="flex items-center justify-center text-sm text-muted-foreground">
-            —
-          </div>
-        );
+      case "pin":
+        return <span className="text-sm text-muted-foreground">—</span>;
       case "employment_date":
         return (
           <div className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
@@ -696,6 +677,55 @@ export function StaffClient({
     }
   };
 
+  // Casual workers: payroll card instead of a staff profile, no account.
+  const renderCasualCell = (key: ColKey, c: CasualStaffRow) => {
+    switch (key) {
+      case "avatar":
+        return (
+          <div className="flex items-center justify-center">
+            <PersonAvatar name={c.name} />
+          </div>
+        );
+      case "name":
+        return (
+          <div className="min-w-0 flex items-center gap-2">
+            <Link
+              href={`/people/payroll/${c.id}`}
+              title={c.name}
+              className="font-medium text-sm truncate min-w-0 hover:text-brand"
+            >
+              {c.name}
+            </Link>
+            <span
+              className="inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground"
+              data-tip="Выходит на смены по графику без входа в Sheerly. Отмечается в кассе своим PIN."
+            >
+              <CalendarClock className="w-2.5 h-2.5" />
+              <span className="text-[10px] font-medium leading-none">Разовый</span>
+            </span>
+          </div>
+        );
+      case "role":
+        return (
+          <Badge variant="secondary" className="max-w-full truncate whitespace-nowrap text-xs">
+            {c.roleName}
+          </Badge>
+        );
+      case "department":
+        return c.departmentName ? (
+          <Badge variant="secondary" className="max-w-full truncate whitespace-nowrap text-xs">
+            {c.departmentName}
+          </Badge>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        );
+      case "pin":
+        return <span className="font-mono text-sm tabular-nums">{c.pin}</span>;
+      default:
+        return <span className="text-sm text-muted-foreground">—</span>;
+    }
+  };
+
   // ── Render ─────────────────────────────────────────────────
   const addButton = canEdit ? (
     <Button onClick={() => setInviteOpen(true)} size="sm" className="h-9 gap-2">
@@ -703,34 +733,15 @@ export function StaffClient({
       Добавить
     </Button>
   ) : null;
-  const viewToggle = casual ? (
-    <Tabs value={view} onValueChange={(v) => setView(v as "staff" | "casual")}>
-      <TabsList className="h-9">
-        <TabsTrigger value="staff">Штатные</TabsTrigger>
-        <TabsTrigger value="casual">Разовые · {casual.employees.length}</TabsTrigger>
-      </TabsList>
-    </Tabs>
-  ) : null;
 
   return (
     <PageFrame className="space-y-4">
-      {view === "casual" && casual ? (
-        <CasualStaffList
-          employees={casual.employees}
-          canEdit={canEdit}
-          onIssued={showIssued}
-          actions={
-            <>
-              {viewToggle}
-              {addButton}
-            </>
-          }
-        />
-      ) : (
       <StaffTable
         key={`${venueId}:${currentUserId}:${firedOpen}`}
         preferenceKey={`${venueId}.${currentUserId}`}
         staff={staff}
+        casual={casual?.employees ?? []}
+        renderCasualCell={renderCasualCell}
         fired={fired}
         showFired={firedOpen}
         invitations={invitations}
@@ -743,7 +754,6 @@ export function StaffClient({
         overviewPanel={overview.panel}
         secondaryActions={
           <>
-            {viewToggle}
             <IconTooltip
               label={
                 firedOpen
@@ -774,7 +784,6 @@ export function StaffClient({
         onCancelInvitation={onCancelInvitation}
         primaryAction={addButton}
       />
-      )}
 
       {/* Add staff sheet — два режима: «По email» (отсылает invite, юзер
           логинится сам) и «Без email» (placeholder-аккаунт, админ ведёт карточку). */}
@@ -805,11 +814,7 @@ export function StaffClient({
                 <CasualCreateForm
                   roles={casual.roles}
                   onCancel={() => closeAdd(false)}
-                  onSaved={() => {
-                    setView("casual");
-                    closeAdd(false);
-                  }}
-                  onIssued={showIssued}
+                  onIssued={setIssued}
                 />
               </TabsContent>
             )}

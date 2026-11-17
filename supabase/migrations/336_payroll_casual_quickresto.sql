@@ -75,9 +75,25 @@ begin
   end if;
   model := private.payroll_casual_role_model(venue, p_role_id);
   perform pg_advisory_xact_lock(hashtextextended(venue::text, 0));
-  if exists(select 1 from public.payroll_employees
-             where venue_id = venue and casual and lower(name) = lower(full_name)) then
-    raise exception 'Этот разовый сотрудник уже есть в списке';
+  select id into created from public.payroll_employees
+   where venue_id = venue and casual and lower(name) = lower(full_name);
+  if created is not null then
+    -- A worker with a code is already in the staff list. One without a code
+    -- (created in the schedule or after a failed attempt) is reused, so the
+    -- shifts and payroll history stay with the same person.
+    if exists(select 1 from public.payroll_employees where id = created and quickresto_pin is not null) then
+      raise exception 'Этот разовый сотрудник уже есть в списке';
+    end if;
+    update public.payroll_employees e
+       set role_id = p_role_id, role_name = r.name, model_id = model, active = true,
+           quickresto_provisioning = case
+             when coalesce(e.quickresto_provisioning #>> '{steps,employee,state}', 'prepared') = 'prepared'
+              and e.quickresto_id is null
+             then e.quickresto_provisioning || jsonb_build_object('first_name', first_name, 'last_name', last_name)
+             else e.quickresto_provisioning end
+      from public.roles r
+     where e.id = created and r.id = p_role_id;
+    return created;
   end if;
   insert into public.payroll_employees(account_id, venue_id, name, role_id, role_name, model_id, casual,
                                        opening_confirmed, quickresto_provisioning)

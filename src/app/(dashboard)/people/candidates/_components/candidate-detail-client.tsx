@@ -51,7 +51,6 @@ import { CandidateAppointmentDetails } from "./candidate-appointment-details";
 import { appointmentOutcomeLabel } from "@/lib/candidates/appointment-labels";
 import { CandidateAppointmentDrawer } from "./candidate-appointment-drawer";
 import { CandidateStatusCell } from "./candidate-status-cell";
-import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import { ProfileHeader } from "@/components/shared/profile-header";
 import { ProfileSection } from "@/components/shared/profile-section";
 import {
@@ -59,6 +58,7 @@ import {
   safeLink,
   wallTime,
 } from "./fields";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 const labels: Record<string, string> = {
   full_name: "ФИО",
   phone: "Телефон",
@@ -165,15 +165,13 @@ export function CandidateDetailClient({
   const ageLabel = c.age === null ? null : `${c.age} ${ageForm === "one" ? "год" : ageForm === "few" ? "года" : "лет"}`;
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      <PageBreadcrumb>
-        <nav aria-label="Навигация по разделам" className="flex min-w-0 items-center gap-2 text-sm">
-          <span className="shrink-0 text-muted-foreground">Люди</span>
-          <span aria-hidden="true" className="text-muted-foreground">/</span>
-          <Link href="/people/candidates" className="shrink-0 text-muted-foreground hover:text-foreground">Кандидаты</Link>
-          <span aria-hidden="true" className="text-muted-foreground">/</span>
-          <span aria-current="page" className="min-w-0 truncate" data-tip={c.full_name} data-tip-overflow>{c.full_name}</span>
-        </nav>
-      </PageBreadcrumb>
+      <Breadcrumbs
+        items={[
+          { label: "Люди" },
+          { label: "Кандидаты", href: "/people/candidates" },
+          { label: c.full_name },
+        ]}
+      />
       <div className="mx-auto flex w-full min-w-0 max-w-[1120px] flex-col gap-6 px-6 pb-8 pt-4 md:px-8">
         <ProfileHeader name={c.full_name} avatarUrl={photo} wrapName actions={
           <>

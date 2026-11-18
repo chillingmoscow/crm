@@ -3,10 +3,10 @@
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import { PageFrame } from "@/components/shared/page-frame";
-import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import { TablePageHeader } from "@/components/shared/table";
 import type { TaskData } from "@/lib/schedule/tasks";
 import { TaskHeaderTarget, TaskTitleTarget } from "./task-header-actions";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 
 function TaskLoading() {
   return (
@@ -34,13 +34,9 @@ export function ScheduleTasksTab({ initial }: { initial: TaskData }) {
       {/* Как у «Расписания» и «Шаблонов смен»: путь раздела в верхней панели.
           Экраны задачи и настроек ставят свою «← К задачам» — тогда не дублируем. */}
       {title === null && (
-        <PageBreadcrumb>
-          <nav aria-label="Навигация по разделам" className="flex min-w-0 items-center gap-2 text-sm">
-            <span className="text-muted-foreground">График работы</span>
-            <span aria-hidden="true" className="text-muted-foreground">/</span>
-            <span className="truncate">Задачи</span>
-          </nav>
-        </PageBreadcrumb>
+        <Breadcrumbs
+          items={[{ label: "График работы" }, { label: "Задачи" }]}
+        />
       )}
       <PageFrame className="space-y-6">
         {title !== null && (

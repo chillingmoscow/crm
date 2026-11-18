@@ -296,7 +296,6 @@ export function CandidatesClient({
       <PeopleListHeader
         title="Кандидаты"
         count={list.total}
-        description="Анкеты с сайта и этапы приёма на работу"
         actions={
           <>
             <TableControls

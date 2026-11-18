@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Boxes,
-  ChevronLeft,
   Crown,
   Loader2,
   Plus,
@@ -38,7 +37,6 @@ import { paletteText, type PaletteColor } from "@/lib/palette";
 import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
 import type { AuditEvent } from "@/lib/audit/list";
 import {
-  PageBreadcrumb,
   PageHeaderActions,
 } from "@/components/shared/page-header-actions";
 import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
@@ -55,6 +53,7 @@ import {
   type DepartmentHead,
   type DepartmentRole,
 } from "../../actions";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 
 type AllRole = {
   id: string;
@@ -237,15 +236,13 @@ export function DepartmentDetailPage({
   return (
     <div className="flex-1 flex flex-col">
       {/* Breadcrumb in layout's top bar (left side) — паттерн из role detail */}
-      <PageBreadcrumb>
-        <Link
-          href="/people/departments"
-          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          Подразделения
-        </Link>
-      </PageBreadcrumb>
+      <Breadcrumbs
+        items={[
+          { label: "Люди" },
+          { label: "Подразделения", href: "/people/departments" },
+          { label: department.name },
+        ]}
+      />
 
       {/* Info popover в top bar справа от bell */}
       <PageHeaderActions>

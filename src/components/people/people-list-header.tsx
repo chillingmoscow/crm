@@ -1,39 +1,24 @@
 import type { ReactNode } from "react";
 import { TablePageHeader } from "@/components/shared/table";
-import { PageBreadcrumb } from "@/components/shared/page-header-actions";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 
+/** Шапка списка раздела «Люди»: крошки «Люди / Страница» и общая шапка списка. */
 export function PeopleListHeader({
   title,
-  description,
+  crumb = title,
   count,
   actions,
 }: {
   title: string;
-  description: string;
-  count: number;
+  /** Название страницы в крошках, если оно отличается от заголовка. */
+  crumb?: string;
+  count: number | string;
   actions: ReactNode;
 }) {
   return (
     <>
-      <PageBreadcrumb>
-        <nav
-          aria-label="Навигация по разделам"
-          className="flex min-w-0 items-center gap-2 text-sm"
-        >
-          <span className="text-muted-foreground">Люди</span>
-          <span className="text-muted-foreground" aria-hidden="true">
-            /
-          </span>
-          <span className="truncate">{title}</span>
-        </nav>
-      </PageBreadcrumb>
-      <TablePageHeader
-        className="md:flex-wrap md:items-center [&>div:last-child]:max-w-full"
-        title={title}
-        count={count}
-        subtitle={description}
-        actions={actions}
-      />
+      <Breadcrumbs items={[{ label: "Люди" }, { label: crumb }]} />
+      <TablePageHeader title={title} count={count} actions={actions} />
     </>
   );
 }

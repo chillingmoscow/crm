@@ -44,6 +44,7 @@ import { ColorDot } from "@/components/ui/color-dot";
 import { DrawerStatus } from "@/components/ui/drawer-blocks";
 import { taskRecurrenceLabel } from "@/lib/schedule/task-recurrence";
 import { DeleteTaskDialog } from "./delete-task-dialog";
+import { cn } from "@/lib/utils";
 
 const definitions = [
   { id: "name", label: "Задача", size: 400, min: 260 },
@@ -236,7 +237,7 @@ export function TaskList({
     getPaginationRowModel: getPaginationRowModel(),
     autoResetPageIndex: false,
   });
-  const { tableRef, onResizeStart, columnWidths, minTableWidth } =
+  const { tableRef, onResizeStart, columnWidths, minTableWidth, overflowing } =
     useTableColumnResize(table, st.setColumnSizing);
   const firstPage = () => st.setPagination((p) => ({ ...p, pageIndex: 0 }));
   const changeSorting = (sorting: typeof st.sorting) => {
@@ -262,7 +263,6 @@ export function TaskList({
   return (
     <div className="space-y-4">
       <TablePageHeader
-        className="md:flex-wrap md:items-center [&>div:last-child]:max-w-full"
         title="Задачи"
         count={rows.length}
         actions={
@@ -411,7 +411,7 @@ export function TaskList({
         />
       ) : (
         <>
-          <div className={styles.scroll}>
+          <div className={cn(styles.scroll, overflowing && styles.scrollX)}>
             <table
               ref={tableRef}
               className={styles.table}

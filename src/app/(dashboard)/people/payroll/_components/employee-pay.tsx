@@ -19,6 +19,8 @@ import { ConceptPaymentForm } from "@/app/payroll-concept/concept-payment-form";
 import paymentStyle from "@/app/payroll-concept/concept-payment-form.module.css";
 import s from "./employee-pay.module.css";
 import tabStyle from "@/components/shared/workspace-tabs.module.css";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { toast } from "sonner";
 export const selectClass = "h-10 w-full rounded-md border bg-background px-3 text-base md:text-sm";
 const rub = (n: number | null) => n === null ? "Нет данных" : `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(n)} ₽`;
 const dateLabel = (date: string) => new Date(`${date}T12:00:00Z`).toLocaleDateString("ru-RU", { timeZone: "UTC" });
@@ -45,6 +47,23 @@ export function EmployeePay({ data, employee, month, onChange, fullPage = false,
     const [entryKind, setEntryKind] = useState<"deduction" | "allowance">("deduction");
     const [entryOpen, setEntryOpen] = useState(false);
     const [query, setQuery] = useState("");
+    // Удаление выплаты удаляет и финансовую операцию: только через подтверждение.
+    const [cancelId, setCancelId] = useState<string | null>(null);
+    const [cancelBusy, setCancelBusy] = useState(false);
+    const confirmCancel = async () => {
+        if (!cancelId) return;
+        setCancelBusy(true);
+        try {
+            await cancelPayrollPayment(cancelId);
+            await onChange();
+            setCancelId(null);
+            toast.success("Выплата удалена");
+        } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Не удалось удалить выплату");
+        } finally {
+            setCancelBusy(false);
+        }
+    };
     const accruals = useMemo(() => data.accruals.filter(a => a.employee_id === employee.id && a.business_date.startsWith(month.slice(0, 7))), [data.accruals, employee.id, month]);
     const shifts = useMemo(() => accruals.filter(isShiftAccrual), [accruals]);
     const row = statementRows([employee], data.accruals, data.adjustments, data.payments, data.allocations, month, data.transfers, data.settings?.starts_on)[0];
@@ -89,7 +108,7 @@ export function EmployeePay({ data, employee, month, onChange, fullPage = false,
    <TabsList aria-label="Расчёт сотрудника"><TabsTrigger value="shifts">Смены</TabsTrigger><TabsTrigger value="entries">Начисления и удержания</TabsTrigger><TabsTrigger value="payments">Выплаты</TabsTrigger>{documentsAvailable && <TabsTrigger value="documents">Документы</TabsTrigger>}</TabsList>
    <TabsContent value="shifts"><PayrollTable id={`employee-shifts-v2-${employee.id}`} rows={shifts} columns={columns} labels={labels} numeric={numeric} hiddenColumns={hidden} defaultSort="date" defaultSortDesc scrollMode="page" minWidth={880} searchText={a => `${a.business_date} ${accrualRole(a, employee.role_name, data)}`} onRow={setDetail} toolbarTargetId={controlsId} actions={actions}/>{!shifts.length && accruals.length > 0 && <Button variant="link" onClick={() => setBreakdown(true)}>Посмотреть начисления за месяц</Button>}</TabsContent>
    <TabsContent value="entries"><PayrollJournal data={data} month={month} employeeId={employee.id} query={query} onQuery={setQuery} onChange={onChange} toolbarTargetId={controlsId}/></TabsContent>
-   <TabsContent value="payments"><PayrollPaymentsTable data={paymentData} payments={payments} busy={false} actions={canPay ? <Button onClick={() => setPayOpen(true)}><Plus />Добавить выплату</Button> : null} toolbarTargetId={controlsId} tableId={`employee-payments-${employee.id}`} scrollMode="page" onCancel={async (id) => { await cancelPayrollPayment(id); await onChange(); }}/></TabsContent>
+   <TabsContent value="payments"><PayrollPaymentsTable data={paymentData} payments={payments} busy={false} actions={canPay ? <Button onClick={() => setPayOpen(true)}><Plus />Добавить выплату</Button> : null} toolbarTargetId={controlsId} tableId={`employee-payments-${employee.id}`} scrollMode="page" onCancel={async (id) => { setCancelId(id); }}/></TabsContent>
    {documentsAvailable && <TabsContent value="documents"><div className="mx-auto w-full max-w-[720px]"><EmployeeDocuments target={{employeeId:employee.id}} /></div></TabsContent>}
   </Tabs>
   <PayrollDetailDialog open={breakdown} onOpenChange={setBreakdown} title="Начисления за месяц" description={new Date(`${month}T12:00:00Z`).toLocaleDateString("ru-RU", { month: "long", year: "numeric", timeZone: "UTC" })} employee={{ name: employee.name, role: employee.role_name, avatarUrl: employee.avatar_url }} amount={rub(row?.earned ?? 0)} amountLabel="Всего начислено">
@@ -106,6 +125,7 @@ export function EmployeePay({ data, employee, month, onChange, fullPage = false,
    {Boolean(detail?.issues.length) && <details className={s.issue}><summary>Данные, требующие внимания</summary>{detail?.issues.map(i => <p key={i}>{i}</p>)}</details>}
   </PayrollDetailDialog>
   <PayrollDetailDialog open={conditionsOpen ?? ownConditions} onOpenChange={setConditions} title="Условия сотрудника" description={employee.name}><EmployeePayConditions data={data} employee={employee} month={month} onChange={onChange}/></PayrollDetailDialog>
+  <ConfirmDialog open={Boolean(cancelId)} onOpenChange={open => { if (!open) setCancelId(null); }} title="Удалить выплату?" description="Финансовая операция будет помечена удалённой, а сумма вернётся в остаток к выплате сотруднику." confirmLabel="Удалить выплату" pendingLabel="Удаляем…" destructive busy={cancelBusy} onConfirm={() => void confirmCancel()}/>
   <PayrollEntryForm initialKind={entryKind} employeeId={employee.id} open={entryOpen} onOpenChange={setEntryOpen} data={data} month={month} onCreated={async () => { await onChange(); setTab("entries"); }}/>
   <PayrollDetailDialog open={payOpen} onOpenChange={setPayOpen} title="Добавить выплату" description="Запись выданной зарплаты" footer={<div id="concept-payment-footer" className={paymentStyle.footerSlot}/>}><ConceptPaymentForm data={data} month={month} initialEmployeeId={employee.id} onDone={async () => { setPayOpen(false); await onChange(); setTab("payments"); }}/></PayrollDetailDialog>
  </div>;

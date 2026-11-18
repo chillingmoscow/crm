@@ -10,10 +10,12 @@ const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
 const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
 
 /** Shared styled HH:mm control, including the compact knowledge property view. */
-export function TimePicker({ value, onChange, id, className, clearable = true, disabled = false }: {
+export function TimePicker({ value, onChange, id, label, className, clearable = true, disabled = false }: {
   value: string;
   onChange: (value: string) => void;
   id?: string;
+  /** Доступное имя поля («Начало», «Окончание»). С `id` и связанным `<Label htmlFor>` не нужно. */
+  label?: string;
   className?: string;
   clearable?: boolean;
   disabled?: boolean;
@@ -24,7 +26,7 @@ export function TimePicker({ value, onChange, id, className, clearable = true, d
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button ref={trigger} id={id} type="button" disabled={disabled} aria-label="Время" className={cn(
+        <button ref={trigger} id={id} type="button" disabled={disabled} aria-label={label ?? (id ? undefined : "Время")} className={cn(
           "flex h-10 w-full min-w-0 items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
           className,
         )}>

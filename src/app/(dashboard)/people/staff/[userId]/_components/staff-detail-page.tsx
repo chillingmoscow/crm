@@ -21,7 +21,6 @@ import { z } from "zod";
 import { toast } from "sonner";
 import {
   Camera,
-  ChevronLeft,
   FileText,
   Loader2,
   Lock,
@@ -54,7 +53,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  PageBreadcrumb,
   PageHeaderActions,
 } from "@/components/shared/page-header-actions";
 import { ProfileHeader } from "@/components/shared/profile-header";
@@ -103,6 +101,8 @@ type FormValues = z.infer<typeof schema>;
 type Role = { id: string; name: string; code: string };
 
 import { StaffPayPanel } from "@/app/(dashboard)/people/payroll/_components/payroll-context";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 
 type TabKey = "pay" | "main" | "documents" | "history" | "activity" | "danger";
 
@@ -152,6 +152,8 @@ interface Props {
    *  conditional render'а. */
   canViewAudit: boolean;
   canConfigurePayroll: boolean;
+  /** Показывать ли вкладку «Оплата»: право на зарплату или своя карточка. */
+  canViewPay: boolean;
   initialTab?: "main" | "documents" | "pay";
   initialAuditEvents: AuditEvent[];
   initialAuditHasMore: boolean;
@@ -199,6 +201,7 @@ export function StaffDetailPage({
   needsPasswordSetup,
   canViewAudit,
   canConfigurePayroll,
+  canViewPay,
   initialTab = "main",
   initialAuditEvents,
   initialAuditHasMore,
@@ -208,7 +211,9 @@ export function StaffDetailPage({
   backLabel = "Сотрудники",
 }: Props) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
+  const [activeTab, setActiveTab] = useState<TabKey>(
+    initialTab === "pay" && !canViewPay ? "main" : initialTab,
+  );
   const [documentAudit, setDocumentAudit] = useState<{
     events: AuditEvent[];
     hasMore: boolean;
@@ -583,16 +588,28 @@ export function StaffDetailPage({
     }
   };
 
+  // Удаление документа необратимо: сначала спрашиваем, какой именно удаляем.
+  const [docToDelete, setDocToDelete] = useState<{
+    path: string;
+    name: string;
+  } | null>(null);
+  const [deletingDoc, setDeletingDoc] = useState(false);
   const handleDeletePassportPhoto = async (path: string) => {
-    const result = await changeStaffDocument({
-      userId: profile.id, accountId, expectedPaths: passportPhotos, removePath: path,
-    });
-    if (result.error) {
-      toast.error(result.error);
-      return;
+    setDeletingDoc(true);
+    try {
+      const result = await changeStaffDocument({
+        userId: profile.id, accountId, expectedPaths: passportPhotos, removePath: path,
+      });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      setPassportPhotos(result.paths ?? passportPhotos.filter((p) => p !== path));
+      setDocToDelete(null);
+      toast.success("Документ удалён");
+    } finally {
+      setDeletingDoc(false);
     }
-    setPassportPhotos(result.paths ?? passportPhotos.filter((p) => p !== path));
-    toast.success("Документ удалён");
   };
 
   const handleFire = () => {
@@ -685,15 +702,18 @@ export function StaffDetailPage({
 
   return (
     <div className="flex-1 flex flex-col">
-      <PageBreadcrumb>
-        <Link
-          href={backHref}
-          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          {backLabel}
-        </Link>
-      </PageBreadcrumb>
+      <Breadcrumbs
+        back={
+          backHref === "/people/staff"
+            ? undefined
+            : { href: backHref, label: backLabel }
+        }
+        items={[
+          { label: "Люди" },
+          { label: "Сотрудники", href: "/people/staff" },
+          { label: displayName },
+        ]}
+      />
 
       <PageHeaderActions>
         {isFired && canManageStaff && (
@@ -795,7 +815,7 @@ export function StaffDetailPage({
           <ProfileTabsList>
             <TabsTrigger value="main">Основное</TabsTrigger>
             <TabsTrigger value="documents">Документы</TabsTrigger>
-            <TabsTrigger value="pay">Оплата</TabsTrigger>
+            {canViewPay && <TabsTrigger value="pay">Оплата</TabsTrigger>}
             {canViewAudit && (
               <>
                 <TabsTrigger value="history">Журнал</TabsTrigger>
@@ -898,7 +918,7 @@ export function StaffDetailPage({
                   )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label
                       htmlFor="first_name"
@@ -1014,7 +1034,7 @@ export function StaffDetailPage({
                 description="Телефон, мессенджер, email и адрес проживания"
                 locked={{ tone: canEditPersonal ? "info" : "locked" }}
               >
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label htmlFor="phone" className="text-[13px] font-medium">
                       Телефон
@@ -1196,7 +1216,7 @@ export function StaffDetailPage({
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label
                       htmlFor="employment_date"
@@ -1278,10 +1298,14 @@ export function StaffDetailPage({
             </form>
           </TabsContent>
 
+          {/* ── Оплата ───────────────────────────────────────── */}
+          {canViewPay && (
+            <TabsContent value="pay">
+              <StaffPayPanel userId={profile.id} />
+            </TabsContent>
+          )}
+
           {/* ── Документы ────────────────────────────────────── */}
-          <TabsContent value="pay">
-            <StaffPayPanel userId={profile.id} />
-          </TabsContent>
           <TabsContent value="documents">
             <div className="mx-auto w-full max-w-[720px] flex flex-col gap-5">
               {candidateId && (
@@ -1404,9 +1428,9 @@ export function StaffDetailPage({
                           {canEdit && (
                             <button
                               type="button"
-                              onClick={() => handleDeletePassportPhoto(path)}
-                              className="absolute top-2 right-2 size-6 rounded-md bg-background/90 border border-border text-muted-foreground hover:text-destructive flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                              aria-label="Удалить документ"
+                              onClick={() => setDocToDelete({ path, name })}
+                              className="absolute top-2 right-2 size-6 rounded-md bg-background/90 border border-border text-muted-foreground hover:text-destructive flex items-center justify-center opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
+                              aria-label={`Удалить документ: ${name}`}
                             >
                               <X className="w-3.5 h-3.5" />
                             </button>
@@ -1492,6 +1516,22 @@ export function StaffDetailPage({
           </TabsContent>
         </Tabs>
       </div>
+
+      <ConfirmDialog
+        open={Boolean(docToDelete)}
+        onOpenChange={(open) => {
+          if (!open) setDocToDelete(null);
+        }}
+        title={`Удалить документ «${docToDelete?.name ?? ""}»?`}
+        description="Файл удалится из карточки сотрудника. Вернуть его можно будет только повторной загрузкой."
+        confirmLabel="Удалить документ"
+        pendingLabel="Удаляем…"
+        destructive
+        busy={deletingDoc}
+        onConfirm={() => {
+          if (docToDelete) void handleDeletePassportPhoto(docToDelete.path);
+        }}
+      />
 
       {/* Confirm fire dialog */}
       <Dialog

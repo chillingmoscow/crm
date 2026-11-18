@@ -37,7 +37,6 @@ import {
   useTableState,
   type TableRowMenuAction,
 } from "@/components/shared/table";
-import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import { TableFilterChip } from "@/components/shared/table/table-filter-chip";
 import { TableSortPicker } from "@/components/shared/table/table-sort-settings";
 import { useTableColumnResize } from "@/components/shared/table/use-table-column-resize";
@@ -46,6 +45,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { shiftTemplateLabel, type ShiftTemplate } from "@/lib/schedule/types";
 import { templateTimesFor } from "@/lib/schedule/template-times";
 import { TemplateName } from "./template-name";
+import { cn } from "@/lib/utils";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 
 // Время — семь колонок ПН…ВС: в заголовке день, в ячейке начало и конец.
 const DAYS = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"] as const;
@@ -219,22 +220,12 @@ export function TemplateList({
 
   return (
     <div className="space-y-4">
-      <PageBreadcrumb>
-        <nav
-          aria-label="Навигация по разделам"
-          className="flex min-w-0 items-center gap-2 text-sm"
-        >
-          <span className="text-muted-foreground">График работы</span>
-          <span aria-hidden="true" className="text-muted-foreground">
-            /
-          </span>
-          <span className="truncate">Шаблоны смен</span>
-        </nav>
-      </PageBreadcrumb>
+      <Breadcrumbs
+        items={[{ label: "График работы" }, { label: "Шаблоны смен" }]}
+      />
       <TablePageHeader
         title="Шаблоны смен"
         count={rows.length}
-        className="md:flex-wrap md:items-center [&>div:last-child]:max-w-full"
         actions={
           <TableControls
             search={{
@@ -386,10 +377,10 @@ function TemplateTable({
   /** Клик по строке целиком открывает шаблон (кроме кнопок в строке). */
   onOpen?: (template: ShiftTemplate) => void;
 }) {
-  const { tableRef, onResizeStart, columnWidths, minTableWidth } =
+  const { tableRef, onResizeStart, columnWidths, minTableWidth, overflowing } =
     useTableColumnResize(table, onColumnSizingChange);
   return (
-    <div className={styles.scroll}>
+    <div className={cn(styles.scroll, overflowing && styles.scrollX)}>
       <table
         ref={tableRef}
         className={styles.table}

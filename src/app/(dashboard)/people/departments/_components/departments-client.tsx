@@ -25,6 +25,9 @@ import { paletteText, type PaletteColor } from "@/lib/palette";
 import { ICON_REGISTRY } from "../../roles/_components/role-icons";
 import { createDepartment, type DepartmentSummary } from "../actions";
 import { DepartmentIconPicker } from "./department-icon-picker";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { PageFrame } from "@/components/shared/page-frame";
+import { TablePageHeader } from "@/components/shared/table";
 
 // ── Column definitions ────────────────────────────────────────
 
@@ -366,24 +369,15 @@ export function DepartmentsClient({
   };
 
   return (
-    <div className="p-6 md:p-8 w-full">
-      {/* Header */}
-      <div className="flex items-end justify-between mb-6 gap-6 flex-wrap">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-3xl font-bold tracking-tight">Подразделения</h1>
-            <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-muted px-2 text-[12px] font-medium text-muted-foreground/80 tabular-nums">
-              {departments.length}
-            </span>
-          </div>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Группировка должностей в орг-структуре и руководители подразделений
-            {isFiltered && ` · показано ${filteredDepartments.length}`}
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Search */}
+    <PageFrame>
+      <Breadcrumbs items={[{ label: "Люди" }, { label: "Подразделения" }]} />
+      <TablePageHeader
+        className="mb-4"
+        title="Подразделения"
+        count={isFiltered ? `${filteredDepartments.length} из ${departments.length}` : departments.length}
+        actions={
+          <>
+            {/* Search */}
           <div className="flex items-center gap-1">
             {searchOpen && (
               <div className="relative">
@@ -436,8 +430,9 @@ export function DepartmentsClient({
               Добавить
             </Button>
           )}
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Empty state */}
       {departments.length === 0 && (
@@ -604,6 +599,6 @@ export function DepartmentsClient({
           «Бар-менеджер» для «Бара».
         </p>
       </EditDrawer>
-    </div>
+    </PageFrame>
   );
 }

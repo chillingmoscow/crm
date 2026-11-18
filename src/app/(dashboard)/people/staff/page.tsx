@@ -79,9 +79,13 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
 
   const activeRoleCode =
     (uvr?.roles as { code: string } | null)?.code ?? null;
-  const canEdit = ["owner", "manager", "admin"].includes(activeRoleCode ?? "");
-  // The till PIN column: codes are shown only to those who add staff.
-  const pinResult = canEdit
+  // То же право, что проверяют карточка сотрудника и серверные действия:
+  // раньше здесь сверялся код должности, и человек с правом на своей должности
+  // не видел «Добавить» в списке.
+  const canEdit = can("people.edit_staff");
+  // The till PIN column: codes are shown only to the venue's senior roles.
+  const canSeePins = ["owner", "manager", "admin"].includes(activeRoleCode ?? "");
+  const pinResult = canSeePins
     ? ((await db
         .from("user_venue_roles")
         .select("id, terminal_pin")

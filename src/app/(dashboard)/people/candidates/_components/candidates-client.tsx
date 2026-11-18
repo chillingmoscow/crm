@@ -269,7 +269,7 @@ export function CandidatesClient({
   const selectedRows = table
     .getSelectedRowModel()
     .rows.map((row) => row.original);
-  const { tableRef, onResizeStart, columnWidths, minTableWidth } =
+  const { tableRef, onResizeStart, columnWidths, minTableWidth, overflowing } =
     useCandidateColumnResize(table, st.setColumnSizing);
   const hasFilters = !!(status.length || position || from || to);
   const reset = () => {
@@ -296,7 +296,6 @@ export function CandidatesClient({
       <PeopleListHeader
         title="Кандидаты"
         count={list.total}
-        description="Анкеты с сайта и этапы приёма на работу"
         actions={
           <>
             <TableControls
@@ -381,10 +380,12 @@ export function CandidatesClient({
               {sortSettings}
             </TableControlPin>
           ) : null}
-          {st.sorting.length > 0 && filtersVisible ? (
+          {st.sorting.length > 0 && (filtersVisible || hasFilters) ? (
             <span className="mx-1 h-5 w-px bg-border" />
           ) : null}
-          {filtersVisible ? (
+          {/* Выбранный фильтр виден всегда, даже если ряд фильтров свёрнут:
+              иначе список отфильтрован, а чем — не видно. */}
+          {filtersVisible || hasFilters ? (
             <>
               <DateRangeFilter
                 ariaLabel="Дата заявки"
@@ -477,7 +478,7 @@ export function CandidatesClient({
             </Button>
           </div>
         ) : null}
-        <div className={peopleTable.scroll}>
+        <div className={cn(peopleTable.scroll, overflowing && peopleTable.scrollX)}>
           <table
             ref={tableRef}
             className={peopleTable.table}

@@ -62,6 +62,7 @@ import {
   CasualPinPanel,
   type CasualIssued,
 } from "./casual-staff";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 
 // ── Helpers ──────────────────────────────────────────────────
 const inviteSchema = z.object({
@@ -345,9 +346,17 @@ export function StaffClient({
     });
   };
 
+  // Оба действия трудно откатить (восстановление создаёт записи в Quick Resto
+  // и выдаёт код замка), поэтому сначала подтверждение.
+  const [confirmAction, setConfirmAction] = useState<
+    | { kind: "restore"; id: string; label: string }
+    | { kind: "cancelInvitation"; id: string; label: string }
+    | null
+  >(null);
   const onRestore = (uvrId: string) => {
     startTransition(async () => {
       const result = await restoreStaff(uvrId);
+      setConfirmAction(null);
       if (result.error) {
         toast.error(result.error);
         return;
@@ -390,6 +399,7 @@ export function StaffClient({
   const onCancelInvitation = (invId: string) => {
     startTransition(async () => {
       const result = await cancelInvitation(invId);
+      setConfirmAction(null);
       if (result.error) {
         toast.error(result.error);
         return;
@@ -758,7 +768,17 @@ export function StaffClient({
         renderCell={renderCell}
         renderInvCell={renderInvCell}
         renderFiredCell={renderFiredCell}
-        onRestore={onRestore}
+        onRestore={(uvrId) => {
+          const member = fired.find((m) => m.uvr_id === uvrId);
+          setConfirmAction({
+            kind: "restore",
+            id: uvrId,
+            label:
+              [member?.first_name, member?.last_name].filter(Boolean).join(" ") ||
+              member?.email ||
+              "сотрудника",
+          });
+        }}
         overviewPanel={overview.panel}
         secondaryActions={
           <>
@@ -789,7 +809,14 @@ export function StaffClient({
         }
         canEdit={canEdit}
         isPending={isPending}
-        onCancelInvitation={onCancelInvitation}
+        onCancelInvitation={(invId) =>
+          setConfirmAction({
+            kind: "cancelInvitation",
+            id: invId,
+            label:
+              invitations.find((inv) => inv.inv_id === invId)?.email ?? "",
+          })
+        }
         primaryAction={addButton}
       />
 
@@ -1005,6 +1032,36 @@ export function StaffClient({
           )}
         </SheetContent>
       </Sheet>
+      <ConfirmDialog
+        open={Boolean(confirmAction)}
+        onOpenChange={(open) => {
+          if (!open) setConfirmAction(null);
+        }}
+        title={
+          confirmAction?.kind === "restore"
+            ? `Восстановить «${confirmAction.label}»?`
+            : `Отменить приглашение ${confirmAction?.label ?? ""}?`
+        }
+        description={
+          confirmAction?.kind === "restore"
+            ? "Сотрудник вернётся в список действующих и снова получит доступ к заведению. Для него будут созданы записи в Quick Resto и выдан код замка."
+            : "Ссылка из письма перестанет работать. Чтобы пригласить человека снова, приглашение нужно будет отправить заново."
+        }
+        confirmLabel={
+          confirmAction?.kind === "restore"
+            ? "Восстановить сотрудника"
+            : "Отменить приглашение"
+        }
+        pendingLabel={
+          confirmAction?.kind === "restore" ? "Восстанавливаем…" : "Отменяем…"
+        }
+        destructive={confirmAction?.kind === "cancelInvitation"}
+        busy={isPending}
+        onConfirm={() => {
+          if (confirmAction?.kind === "restore") onRestore(confirmAction.id);
+          else if (confirmAction) onCancelInvitation(confirmAction.id);
+        }}
+      />
     </PageFrame>
   );
 }

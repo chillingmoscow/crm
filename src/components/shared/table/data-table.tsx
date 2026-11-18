@@ -13,6 +13,7 @@ import {
 import { ArrowDown, ArrowUp } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { isRowNavigationClick } from "./row-click";
 import { ResizableTableHead } from "./table-head";
 import { TableMobileCards } from "./table-mobile-cards";
 import { useTableColumnResize } from "./use-table-column-resize";
@@ -153,11 +154,7 @@ export function DataTable<T>({
                 onClick={
                   onRowClick
                     ? (e) => {
-                        if (
-                          !(e.target as HTMLElement).closest(
-                            "button,a,input,[role=checkbox],[role=menuitem]",
-                          )
-                        )
+                        if (isRowNavigationClick(e))
                           onRowClick(row);
                       }
                     : undefined
@@ -166,6 +163,9 @@ export function DataTable<T>({
                 {row.getVisibleCells().map((cell) => (
                   <td
                     key={cell.id}
+                    data-control-cell={
+                      controlColumns.includes(cell.column.id) || undefined
+                    }
                     className={
                       isNumeric(cell.column.id)
                         ? "text-right tabular-nums"

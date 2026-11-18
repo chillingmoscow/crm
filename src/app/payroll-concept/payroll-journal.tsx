@@ -294,7 +294,6 @@ export function PayrollJournal({
             {actions}
           </>
         }
-        hiddenColumns={employeeId ? ["employee"] : undefined}
         filters={{
           active: kind !== "all" || employee !== "all" || showDeleted,
           onReset: () => {

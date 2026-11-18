@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useEffect, useState } from "react";
+import { useMemo, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   getCoreRowModel,
@@ -113,9 +113,18 @@ export function PayrollTable<T>({
   );
   const sortable = Object.keys(labels).filter((id) => id !== "actions");
   const nameColumn = labels.employee ? "employee" : Object.keys(labels)[0];
+  // onRow и searchText вызывающие передают стрелками прямо в JSX. Через ref
+  // ячейка остаётся той же функцией между рендерами: иначе flexRender
+  // монтирует её заново (кнопка теряет фокус, аватары перерисовываются
+  // на каждый символ поиска).
+  const onRowRef = useRef(onRow);
+  onRowRef.current = onRow;
+  const searchTextRef = useRef(searchText);
+  searchTextRef.current = searchText;
+  const clickable = !!onRow;
   const tableColumns = useMemo(
     () =>
-      onRow
+      clickable
         ? columns.map((column) =>
             column.id === "employee" && column.cell
               ? ({
@@ -126,8 +135,8 @@ export function PayrollTable<T>({
                       <button
                         type="button"
                         className="w-full min-w-0 text-left"
-                        onClick={() => onRow(ctx.row.original)}
-                        aria-label={`Открыть: ${searchText(ctx.row.original)}`}
+                        onClick={() => onRowRef.current?.(ctx.row.original)}
+                        aria-label={`Открыть: ${searchTextRef.current(ctx.row.original)}`}
                       >
                         {typeof render === "function" ? render(ctx) : render}
                       </button>
@@ -137,7 +146,7 @@ export function PayrollTable<T>({
               : column,
           )
         : columns,
-    [columns, onRow, searchText],
+    [columns, clickable],
   );
   const changeSorting = (next: SortingState) => {
     st.setSorting(next);

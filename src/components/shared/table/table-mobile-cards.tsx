@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { flexRender, type Table, type Row } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
+import { isRowNavigationClick } from "./row-click";
 import styles from "./data-table.module.css";
 
 /** Mobile presentation of the same rows, selection, fields and ordering as the desktop table. */
@@ -65,12 +66,7 @@ export function TableMobileCards<T>({
               row.getIsSelected() && styles.mobileCardSelected,
             )}
             onClick={(event) => {
-              if (
-                !(event.target as HTMLElement).closest(
-                  "button,a,input,[role=checkbox]",
-                )
-              )
-                onOpen?.(row);
+              if (isRowNavigationClick(event)) onOpen?.(row);
             }}
           >
             <div className="flex items-start gap-3">
@@ -88,7 +84,7 @@ export function TableMobileCards<T>({
                   {render("select")}
                 </label>
               ) : actionsPlacement === "header" ? (
-                <div className="flex h-9 shrink-0 items-center">
+                <div data-control-cell className="flex h-9 shrink-0 items-center">
                   {render("actions")}
                 </div>
               ) : null}
@@ -111,7 +107,9 @@ export function TableMobileCards<T>({
             )}
             {actionsPlacement === "footer" &&
               cells.some((cell) => cell.column.id === "actions") && (
-                <div className="mt-4 flex justify-end">{render("actions")}</div>
+                <div data-control-cell className="mt-4 flex justify-end">
+                  {render("actions")}
+                </div>
               )}
           </article>
         );

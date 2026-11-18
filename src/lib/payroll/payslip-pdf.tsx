@@ -75,7 +75,7 @@ type Link = { label: string; value: number; op: "+" | "−" | "" };
 /** The month as one sum: what was earned, what was carried and paid, what is left. */
 function formula(p: Payslip): Link[] {
   const links: Link[] = [];
-  if (p.shifts.length) links.push({ label: "смены", value: p.shiftTotal ?? 0, op: "" });
+  if (p.shifts.length && p.shiftTotal !== null) links.push({ label: "смены", value: p.shiftTotal, op: "" });
   if (p.additions.length) links.push({ label: "премии", value: p.additionsTotal, op: links.length ? "+" : "" });
   if (p.deductions.length) links.push({ label: "удержания", value: -p.deductionsTotal, op: "−" });
   if (p.opening) links.push({ label: p.opening < 0 ? "переплата" : "долг", value: Math.abs(p.opening), op: p.opening < 0 ? "−" : "+" });
@@ -169,7 +169,9 @@ export function PayslipDocument({ p, generatedAt }: { p: Payslip; generatedAt: D
           </View>
           <View style={{ alignItems: "flex-end" }}>
             <Text style={s.muted}>{resultLabel}</Text>
-            <Text style={s.total}>{p.remainingKnown ? money(Math.abs(p.remaining)) : "уточняется"}</Text>
+            <Text style={s.total}>
+              {p.remainingKnown && p.shiftTotal !== null ? money(Math.abs(p.remaining)) : "уточняется"}
+            </Text>
           </View>
         </View>
 
@@ -179,7 +181,8 @@ export function PayslipDocument({ p, generatedAt }: { p: Payslip; generatedAt: D
           </View>
         )}
 
-        {p.remainingKnown ? (
+        {/* An unknown shift total must not turn into 0 inside the sum. */}
+        {p.remainingKnown && (p.shiftTotal !== null || !p.shifts.length) ? (
           <View style={s.chain} wrap={false}>
             {links.map((link, i) => (
               <View key={i} style={{ flexDirection: "row", alignItems: "center" }}>
@@ -199,8 +202,9 @@ export function PayslipDocument({ p, generatedAt }: { p: Payslip; generatedAt: D
         ) : (
           <View style={s.chain}>
             <Text>
-              Начислено за месяц {money(p.earned)}, выплачено {money(p.paid)}. Остаток с прошлых периодов ещё
-              сверяется, поэтому сумма к выплате появится позже.
+              {p.remainingKnown
+                ? `По части смен ещё нет данных, поэтому итог за смены не посчитан. Выплачено ${money(p.paid)}.`
+                : `Начислено за месяц ${money(p.earned)}, выплачено ${money(p.paid)}. Остаток с прошлых периодов ещё сверяется, поэтому сумма к выплате появится позже.`}
             </Text>
           </View>
         )}

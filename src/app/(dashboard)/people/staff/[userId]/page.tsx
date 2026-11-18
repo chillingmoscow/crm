@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { StaffDoorCode } from "../../candidates/_components/staff-door-code";
 import { StaffTerminationStatus } from "../_components/staff-termination-status";
 import { StaffRestoreStatus } from "../_components/staff-restore-status";
@@ -13,6 +14,8 @@ import { StaffDetailPage } from "./_components/staff-detail-page";
 import { listAuditEvents } from "@/lib/audit/list";
 import type { StaffProfile, StaffAccountDetails } from "../actions";
 import { staffProfileIdentitySchema } from "@/lib/people/staff-identity";
+
+export const metadata: Metadata = { title: "Сотрудник" };
 
 // force-dynamic: Next 15 может статически закэшировать RSC payload для
 // dynamic-сегмента при определённых условиях (особенно после

@@ -60,7 +60,7 @@ export function EmployeePayrollPage({
           { label: "Люди" },
           {
             label: "Зарплата",
-            href: `/payroll-concept?month=${month.slice(0, 7)}`,
+            href: `/people/payroll?month=${month.slice(0, 7)}`,
           },
           { label: employee.name },
         ]}

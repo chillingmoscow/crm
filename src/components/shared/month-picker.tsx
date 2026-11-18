@@ -8,6 +8,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { periodTriggerClass } from "@/components/shared/period-stepper";
+import { fieldFocusClass, fieldInvalidClass } from "@/components/ui/field-styles";
+import { cn } from "@/lib/utils";
 
 const months = Array.from({ length: 12 }, (_, i) =>
   new Intl.DateTimeFormat("ru-RU", { month: "short", timeZone: "UTC" })
@@ -24,6 +26,9 @@ export function MonthPicker({
   prefix = "За ",
   ariaLabel,
   variant = "inline",
+  id,
+  "aria-describedby": ariaDescribedBy,
+  "aria-invalid": invalid,
 }: {
   value: string;
   onChange: (month: string) => void;
@@ -35,6 +40,11 @@ export function MonthPicker({
   ariaLabel?: string;
   /** "period" — середина `PeriodStepper`: месяц между стрелками. */
   variant?: "inline" | "field" | "toolbar" | "period";
+  /** id триггера — для `<Label htmlFor>` / `<Field>`. С ним `ariaLabel` не нужен. */
+  id?: string;
+  "aria-describedby"?: string;
+  "aria-invalid"?: boolean;
+  "aria-required"?: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -50,20 +60,36 @@ export function MonthPicker({
       <PopoverTrigger asChild>
         <button
           type="button"
+          id={id}
           disabled={disabled}
-          aria-label={ariaLabel ?? `За какой месяц: ${employee}`}
+          // С `id` имя берётся из связанной подписи поля — своё aria-label
+          // с ней бы спорило.
+          aria-label={
+            ariaLabel ?? (id ? undefined : `За какой месяц: ${employee}`)
+          }
+          aria-describedby={ariaDescribedBy}
+          // Роль button не поддерживает aria-invalid — признак ошибки для
+          // рамки идёт data-атрибутом (см. field-styles).
+          data-invalid={invalid || undefined}
           className={
             variant === "period"
               ? periodTriggerClass
               : variant === "toolbar"
               ? "inline-flex h-8 items-center gap-2 rounded-md px-2 text-sm font-normal text-foreground hover:bg-muted disabled:opacity-50"
               : variant === "field"
-                ? "inline-flex h-10 w-full items-center gap-2 rounded-lg border bg-background px-3 text-[13px] font-normal text-foreground hover:bg-muted disabled:opacity-50"
+                ? // Поле формы: радиус, кегль, иконка и фокус — как у DatePicker.
+                  cn(
+                    "inline-flex h-10 w-full items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm font-normal text-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                    fieldFocusClass,
+                    fieldInvalidClass,
+                  )
                 : "mt-2 inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1.5 text-xs font-normal text-foreground hover:bg-muted disabled:opacity-50"
           }
         >
           {variant === "period" ? (
             <CalendarDays size={15} />
+          ) : variant === "field" ? (
+            <CalendarDays className="size-4 shrink-0 text-muted-foreground" />
           ) : (
             <CalendarDays size={12} className="text-muted-foreground" />
           )}

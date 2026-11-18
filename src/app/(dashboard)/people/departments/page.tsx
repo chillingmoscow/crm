@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import {
   createClient,
@@ -6,6 +7,8 @@ import {
 } from "@/lib/supabase/server";
 import { DepartmentsClient } from "./_components/departments-client";
 import { listDepartments } from "./actions";
+
+export const metadata: Metadata = { title: "Подразделения" };
 
 export default async function DepartmentsPage() {
   const [user, supabase] = await Promise.all([getCachedUser(), createClient()]);

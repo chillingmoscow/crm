@@ -1,9 +1,12 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getCachedUser } from "@/lib/supabase/server";
 import { loadSchedule } from "./actions";
 import { ScheduleClient } from "./_components/schedule-client";
 import { loadCalendarTasks } from "./tasks/actions";
 import { addDays, weekStart } from "@/lib/schedule/utils";
+
+export const metadata: Metadata = { title: "Расписание" };
 export default async function SchedulePage({
   searchParams,
 }: {

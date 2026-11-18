@@ -85,12 +85,8 @@ function legacyDetail(legacy: Record<string, unknown>): ShiftDetail {
     if (hit) Object.assign(out, { sales: num(hit[1]), rate: pct, salesSource: hit[0] });
   }
   const same = num(legacy["Сотрудники на смене / Одной должности"]);
-  if (same && same > 1) {
-    out.sharedWith = same;
-    // Glide kept only the share; it split the pool evenly, so the pool is share × people.
-    const share = num(legacy["Дополнительные продажи"]);
-    if (share) out.extraPool = share * same;
-  }
+  // Glide kept only the rounded share, not the pool: the statement says «÷ N» without inventing a total.
+  if (same && same > 1) out.sharedWith = same;
   return out;
 }
 

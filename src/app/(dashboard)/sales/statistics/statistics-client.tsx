@@ -407,7 +407,7 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
               setDetail(null);
             }}
           >
-            <SelectTrigger className="w-44" aria-label="Источник статистики">
+            <SelectTrigger className="h-9 w-44" aria-label="Источник статистики">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -416,7 +416,7 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
             </SelectContent>
           </Select>
           <Select value={year} onValueChange={setYear}>
-            <SelectTrigger className="w-36" aria-label="Год статистики">
+            <SelectTrigger className="h-9 w-36" aria-label="Год статистики">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

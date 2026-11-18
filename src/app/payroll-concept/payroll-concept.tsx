@@ -558,37 +558,30 @@ export function PayrollConcept({
               <div className={s.metric}>
                 <span className={s.metricLabel}>Выплачено</span>
                 <strong>
-                  <span
-                    className={s.metricValue}
-                    data-tip={
-                      historyPending
-                        ? "Прежние выплаты пока не учтены в этом расчёте"
-                        : undefined
-                    }
-                  >
+                  <span className={s.metricValue}>
                     {historyPending ? "—" : rub(paid)}
                   </span>{" "}
                   <span>₽</span>
                 </strong>
-                {!historyPending && (
+                {/* Причина прочерка написана текстом: подсказку по наведению
+                    не увидеть с клавиатуры и с телефона. */}
+                {historyPending ? (
+                  <small>Прежние выплаты ещё не сверены</small>
+                ) : (
                   <small>{payments.length} операций за месяц</small>
                 )}
               </div>
               <div className={s.metric}>
                 <span className={s.metricLabel}>К выплате</span>
                 <strong>
-                  <span
-                    className={s.metricValue}
-                    data-tip={
-                      !knownBalance
-                        ? "Остаток появится после уточнения выплат и переносов"
-                        : undefined
-                    }
-                  >
+                  <span className={s.metricValue}>
                     {knownBalance ? rub(remaining) : "—"}
                   </span>{" "}
                   <span>₽</span>
                 </strong>
+                {!knownBalance && (
+                  <small>Появится после сверки выплат и переносов</small>
+                )}
               </div>
               <div className={s.metric}>
                 <span className={s.metricLabel}>Чаевые</span>

@@ -828,6 +828,8 @@ export function ScheduleClient({
    * устаревает при переименовании шаблона и у смен из переноса старого
    * графика («Менеджер №1» при шаблоне «Менеджер · день»).
    */
+  // Цвет и название смены берём у её шаблона: у смены хранится копия на
+  // момент создания, и после перекраски шаблона она устаревает.
   const shiftTemplate = (shift: Shift) =>
     shift.template_id ? templatesById.get(shift.template_id) : undefined;
   const selectedTemplate = selected ? shiftTemplate(selected) : undefined;
@@ -849,7 +851,7 @@ export function ScheduleClient({
           <span className="block font-semibold">{timeInZone(s.starts_at, data.timezone)}</span>
           <span className="block text-muted-foreground">{timeInZone(s.ends_at, data.timezone)}</span>
         </span>
-        <span aria-hidden className={cn("w-[3px] shrink-0 rounded-full", paletteDot(s.color))} />
+        <span aria-hidden className={cn("w-[3px] shrink-0 rounded-full", paletteDot(template?.color ?? s.color))} />
         <span className="min-w-0 flex-1">
           {/* Главное — кто работает: сотрудник жирным, ниже смена и часы. */}
           <span className="flex min-w-0 items-center gap-1.5">
@@ -914,7 +916,7 @@ export function ScheduleClient({
         dragged && "opacity-40",
         mode === "list"
           ? "flex items-stretch gap-3 px-2 py-1.5 transition-colors hover:bg-muted/60"
-          : cn("grid gap-1 px-1.5 py-2 transition-opacity hover:opacity-80", paletteBg(s.color), paletteText(s.color)),
+          : cn("grid gap-1 px-1.5 py-2 transition-opacity hover:opacity-80", paletteBg(template?.color ?? s.color), paletteText(template?.color ?? s.color)),
       )}
     >
       {mode === "list" ? listCardBody(s, assignee, mark) : (

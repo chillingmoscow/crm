@@ -80,6 +80,7 @@ function TimeRange({
       <div className="grid grid-cols-2 gap-4">
         <Field label="Начало">
           <TimePicker
+            label="Начало"
             clearable={false}
             value={start.slice(0, 5)}
             onChange={(v) => onChange({ start_time: v, end_time: end })}
@@ -87,6 +88,7 @@ function TimeRange({
         </Field>
         <Field label="Окончание">
           <TimePicker
+            label="Окончание"
             clearable={false}
             value={end.slice(0, 5)}
             onChange={(v) => onChange({ start_time: start, end_time: v })}

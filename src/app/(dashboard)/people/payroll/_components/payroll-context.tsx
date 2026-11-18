@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { loadPayroll, reconcileTips } from "../actions";
+import { loadEmployeePayroll, loadPayroll, reconcileTips } from "../actions";
 import type { PayrollData } from "@/lib/payroll/types";
 import { money } from "@/lib/sales/format";
 import { selectClass } from "./employee-pay";
@@ -19,9 +19,11 @@ export function StaffPayPanel({ userId }: { userId: string }) {
   const [data, setData] = useState<PayrollData | null>(null),
     [error, setError] = useState(""),
     [picked, setPicked] = useState<string | null>(null);
+  // Только зарплата этого сотрудника: полную ведомость заведения ради одной
+  // вкладки не читаем.
   const reload = useCallback(async () => {
-    setData(await loadPayroll());
-  }, []);
+    setData(await loadEmployeePayroll(userId));
+  }, [userId]);
   const load = useCallback(() => {
     setError("");
     void reload().catch((e) =>

@@ -2,7 +2,8 @@
 
 import { useId, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowUpRight, ChevronDown, Pencil, Plus } from "lucide-react";
+import { ArrowUpRight, ChevronDown, Download, Loader2, Pencil, Plus } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -27,6 +28,7 @@ import {
   type PaySheetItem,
 } from "@/lib/payroll/pay-sheet";
 import type { PayEmployee, PayrollData } from "@/lib/payroll/types";
+import { buildPayslip, payslipFileName } from "@/lib/payroll/payslip";
 import { cn } from "@/lib/utils";
 import { PayrollEntryForm } from "@/app/payroll-concept/payroll-journal";
 import { ConceptPaymentForm } from "@/app/payroll-concept/concept-payment-form";
@@ -88,6 +90,27 @@ export function StaffPaySheet({
   const [payOpen, setPayOpen] = useState(false);
   const [entryOpen, setEntryOpen] = useState(false);
   const [entryKind, setEntryKind] = useState<"deduction" | "allowance">("deduction");
+  const [downloading, setDownloading] = useState(false);
+
+  async function downloadPayslip() {
+    setDownloading(true);
+    try {
+      const payslip = buildPayslip(data, employee, month, (a) => accrualRole(a, employee.role_name, data));
+      // The PDF renderer is heavy: it is loaded only when a statement is requested.
+      const { renderPayslip } = await import("@/lib/payroll/payslip-pdf");
+      const blob = await renderPayslip(payslip, `${window.location.origin}/fonts/inter`);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = payslipFileName(payslip);
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch {
+      toast.error("Не удалось сформировать выписку. Попробуйте ещё раз");
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   const mine = useMemo(
     () => data.accruals.filter((a) => a.employee_id === employee.id),
@@ -246,7 +269,20 @@ export function StaffPaySheet({
               {unknownReason ? "—" : rub(Math.abs(remaining))}
             </p>
           </div>
-          {addMenu}
+          <div className="flex gap-2">
+            {!empty && (
+              <Button
+                variant="outline"
+                className="h-9"
+                disabled={downloading}
+                onClick={downloadPayslip}
+              >
+                {downloading ? <Loader2 className="animate-spin" /> : <Download />}
+                Выписка
+              </Button>
+            )}
+            {addMenu}
+          </div>
         </div>
         {unknownReason ? (
           <p className="text-[13px] text-muted-foreground">

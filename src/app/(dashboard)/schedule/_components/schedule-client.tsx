@@ -342,7 +342,7 @@ export function ScheduleClient({
       throw e;
     }
   }, []);
-  const save: Save = async (action, input) => {
+  const save: Save = async (action, input, success) => {
     try {
       const r = await scheduleCommand(action, input);
       if (r.error) {
@@ -357,7 +357,7 @@ export function ScheduleClient({
         );
         return true;
       }
-      toast.success("Изменения сохранены");
+      toast.success(success ?? "Изменения сохранены");
       return true;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Не удалось сохранить");
@@ -1798,15 +1798,22 @@ export function ScheduleClient({
               setEditor({ type: "template", template, copy: true })
             }
             onArchive={(template) => {
+              const label = shiftTemplateLabel(template);
               const run = () =>
-                save("template.archive", { id: template.id, version: template.version });
+                save(
+                  "template.archive",
+                  { id: template.id, version: template.version },
+                  template.archived
+                    ? `Шаблон «${label}» восстановлен`
+                    : `Шаблон «${label}» в архиве`,
+                );
               // Восстановление — сразу; архив — с объяснением, что это не удаление.
               if (template.archived) return void run();
               setConfirmation({
-                title: `Убрать шаблон «${shiftTemplateLabel(template)}» в архив?`,
+                title: `Убрать шаблон «${label}» в архив?`,
                 description:
                   "Это не удаление. Шаблон пропадёт из выбора при создании смен, а уже созданные по нему смены останутся в графике как есть. Вернуть шаблон можно в любой момент: фильтр «Статус → Архив», затем «Восстановить».",
-                confirmLabel: "В архив",
+                confirmLabel: "Убрать в архив",
                 action: async () => {
                   await run();
                 },

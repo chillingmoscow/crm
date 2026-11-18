@@ -2,6 +2,7 @@
 
 import { ColorDot } from "@/components/ui/color-dot";
 import { useEffect, useState } from "react";
+import { ArchiveRestore } from "lucide-react";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
   getCoreRowModel,
@@ -110,7 +111,7 @@ export function TemplateList({
       ? [
           {
             label: template.archived ? "Восстановить" : "В архив",
-            icon: <Archive />,
+            icon: template.archived ? <ArchiveRestore /> : <Archive />,
             onSelect: () => onArchive(template),
             separatorBefore: true,
           },

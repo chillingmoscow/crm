@@ -46,7 +46,12 @@ export function Field({
     </label>
   );
 }
-export type Save = (action: string, input: unknown) => Promise<boolean>;
+/** `success` — текст тоста вместо общего «Изменения сохранены». */
+export type Save = (
+  action: string,
+  input: unknown,
+  success?: string,
+) => Promise<boolean>;
 const empty = {
   name: "",
   color: "blue",
@@ -486,6 +491,29 @@ export function ShiftEditor({
     : []);
   const selectedEmployee = assignmentFields(who);
   const payrollModelId = casual ? selectedPayModel : null;
+  // Почему главная кнопка неактивна — пишем текстом в подвале: подсказка на
+  // выключенной кнопке не появляется, а без причины непонятно, чего не хватает.
+  const blockedReason =
+    (templateSlot
+    ? !who
+      ? "Выберите сотрудника"
+      : unavailable.has(who)
+        ? "У сотрудника уже есть смена в этот день"
+        : shift && who === shiftAssignee(shift)
+          ? "Выберите другого сотрудника"
+          : null
+    : chosen && !chosenTimes
+      ? "Шаблон не работает в этот день недели"
+      : !chosen && !value.name.trim()
+        ? "Укажите название смены"
+        : canAssign && !who
+          ? "Выберите сотрудника"
+          : null) ??
+    (casual && !templateValue.role_id
+      ? "У смены нет должности"
+      : casual && !selectedPayModel
+        ? "У должности не настроена оплата"
+        : null);
   const commit = async () => {
     setBusy(true);
     const assignment = { ...selectedEmployee, payroll_model_id: payrollModelId };
@@ -558,17 +586,13 @@ export function ShiftEditor({
           <Button variant="outline" onClick={requestClose} disabled={busy}>
             Отмена
           </Button>
+          {blockedReason && !busy ? (
+            <p className="order-first mr-auto text-xs text-muted-foreground">
+              {blockedReason}
+            </p>
+          ) : null}
           <Button
-            disabled={
-              busy ||
-              (!templateSlot && !!chosen && !chosenTimes) ||
-              (!templateSlot && canAssign && !who) ||
-              (!templateSlot && !chosen && !value.name.trim()) ||
-              (templateSlot && (!who || unavailable.has(who))) ||
-              // Замена на того же сотрудника ничего не меняет.
-              (templateSlot && !!shift && who === shiftAssignee(shift)) ||
-              (casual && (!selectedPayModel || !templateValue.role_id))
-            }
+            disabled={busy || !!blockedReason}
             onClick={commit}
           >
             {busy

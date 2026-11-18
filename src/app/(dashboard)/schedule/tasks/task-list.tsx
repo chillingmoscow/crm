@@ -2,7 +2,6 @@
 import { useEffect, useState } from "react";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
-  flexRender,
   getCoreRowModel,
   getPaginationRowModel,
   getSortedRowModel,
@@ -10,8 +9,6 @@ import {
   type ColumnDef,
 } from "@tanstack/react-table";
 import {
-  ArrowDown,
-  ArrowUp,
   ListChecks,
   Pencil,
   Plus,
@@ -19,7 +16,6 @@ import {
   SearchX,
   Trash2,
   UserCheck,
-  X,
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -31,20 +27,17 @@ import {
   TablePageHeader,
   TablePagination,
   TableRowMenu,
-  ResizableTableHead,
+  DataTable,
+  TableConditions,
+  TableFilterChip,
+  TableSortPicker,
   useTableState,
 } from "@/components/shared/table";
-import { TableFilterChip } from "@/components/shared/table/table-filter-chip";
-import { TableSortPicker } from "@/components/shared/table/table-sort-settings";
-import { useTableColumnResize } from "@/components/shared/table/use-table-column-resize";
-import { PeopleMobileCards } from "@/components/people/people-mobile-cards";
-import styles from "@/components/people/people-table.module.css";
 import type { TaskData, TaskDefinition } from "@/lib/schedule/tasks";
 import { ColorDot } from "@/components/ui/color-dot";
 import { DrawerStatus } from "@/components/ui/drawer-blocks";
 import { taskRecurrenceLabel } from "@/lib/schedule/task-recurrence";
 import { DeleteTaskDialog } from "./delete-task-dialog";
-import { cn } from "@/lib/utils";
 
 const definitions = [
   { id: "name", label: "Задача", size: 400, min: 260 },
@@ -237,8 +230,6 @@ export function TaskList({
     getPaginationRowModel: getPaginationRowModel(),
     autoResetPageIndex: false,
   });
-  const { tableRef, onResizeStart, columnWidths, minTableWidth, overflowing } =
-    useTableColumnResize(table, st.setColumnSizing);
   const firstPage = () => st.setPagination((p) => ({ ...p, pageIndex: 0 }));
   const changeSorting = (sorting: typeof st.sorting) => {
     st.setSorting(sorting);
@@ -278,7 +269,7 @@ export function TaskList({
               placeholder: "Название задачи или шаблон смены",
             }}
             filters={{
-              active: filtersVisible || active,
+              active,
               onClick: () => setFiltersVisible((v) => !v),
             }}
             sort={{
@@ -327,66 +318,51 @@ export function TaskList({
           />
         }
       />
-      {(filtersVisible || active || q) && (
-        <div
-          className="flex flex-wrap items-center gap-2"
-          aria-label="Условия списка задач"
-        >
-          {(filtersVisible || shift) && (
-            <TableFilterChip
-              label="Шаблон смены"
-              value={shift}
-              onChange={(v) => {
-                setShift(v);
-                firstPage();
-              }}
-              options={[
-                { value: "", label: "Все смены" },
-                ...data.templates.map((t) => ({ value: t.id, label: t.name })),
-              ]}
-            />
-          )}
-          {(filtersVisible || status) && (
-            <TableFilterChip
-              label="Статус"
-              value={status}
-              onChange={(v) => {
-                setStatus(v);
-                firstPage();
-              }}
-              options={[
-                { value: "", label: "Все задачи" },
-                { value: "enabled", label: "Включённые" },
-                { value: "draft", label: "Черновики" },
-              ]}
-            />
-          )}
-          {q && (
-            <span className="inline-flex h-8 max-w-64 items-center gap-2 rounded-full border border-brand/20 bg-brand/10 pl-3 pr-2 text-sm text-brand">
-              <span className="truncate">Поиск: «{st.search}»</span>
-              <button
-                aria-label="Сбросить поиск"
-                onClick={() => {
-                  st.setSearch("");
-                  firstPage();
-                }}
-              >
-                <X className="size-3.5" />
-              </button>
-            </span>
-          )}
-          {(active || q) && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
-              onClick={reset}
-            >
-              Очистить все
-            </Button>
-          )}
-        </div>
-      )}
+      <TableConditions
+        label="Условия списка задач"
+        open={filtersVisible}
+        hasFilters={active}
+        sorting={st.sorting}
+        onSortingChange={changeSorting}
+        sortFields={[...sortable]}
+        sortLabels={labels}
+        search={st.search}
+        onSearchClear={() => {
+          st.setSearch("");
+          firstPage();
+        }}
+        onReset={reset}
+      >
+        {(filtersVisible || shift) && (
+          <TableFilterChip
+            label="Шаблон смены"
+            value={shift}
+            onChange={(v) => {
+              setShift(v);
+              firstPage();
+            }}
+            options={[
+              { value: "", label: "Все смены" },
+              ...data.templates.map((t) => ({ value: t.id, label: t.name })),
+            ]}
+          />
+        )}
+        {(filtersVisible || status) && (
+          <TableFilterChip
+            label="Статус"
+            value={status}
+            onChange={(v) => {
+              setStatus(v);
+              firstPage();
+            }}
+            options={[
+              { value: "", label: "Все задачи" },
+              { value: "enabled", label: "Включённые" },
+              { value: "draft", label: "Черновики" },
+            ]}
+          />
+        )}
+      </TableConditions>
       {!rows.length ? (
         <EmptyState
           icon={q || active ? SearchX : ListChecks}
@@ -411,96 +387,22 @@ export function TaskList({
         />
       ) : (
         <>
-          <div className={cn(styles.scroll, overflowing && styles.scrollX)}>
-            <table
-              ref={tableRef}
-              className={styles.table}
-              style={{ minWidth: minTableWidth }}
-              aria-label="Задачи"
-            >
-              <ResizableTableHead
-                table={table}
-                columnWidths={columnWidths}
-                onResizeStart={onResizeStart}
-                isControlColumn={(id) => id === "actions"}
-                sortableColumnIds={sortable}
-                onSort={(id) => {
-                  const current = st.sorting.find((s) => s.id === id);
-                  changeSorting(
-                    !current
-                      ? [...st.sorting, { id, desc: false }]
-                      : !current.desc
-                        ? st.sorting.map((s) =>
-                            s.id === id ? { ...s, desc: true } : s,
-                          )
-                        : st.sorting.filter((s) => s.id !== id),
-                  );
-                }}
-                headerAriaSort={(id) => {
-                  if (!sortable.has(id)) return undefined;
-                  const s = st.sorting.find((s) => s.id === id);
-                  return s ? (s.desc ? "descending" : "ascending") : "none";
-                }}
-                headerIndicator={(id) => {
-                  const i = st.sorting.findIndex((s) => s.id === id);
-                  return i < 0 ? null : (
-                    <span className="inline-flex items-center gap-0.5">
-                      {st.sorting[i].desc ? (
-                        <ArrowDown className="size-3" />
-                      ) : (
-                        <ArrowUp className="size-3" />
-                      )}
-                      {st.sorting.length > 1 && (
-                        <span className="text-[10px]">{i + 1}</span>
-                      )}
-                    </span>
-                  );
-                }}
-              />
-              <tbody>
-                {table.getRowModel().rows.map((row) => (
-                  <tr
-                    key={row.id}
-                    className="cursor-pointer"
-                    onClick={(event) => {
-                      if (
-                        !(event.target as HTMLElement).closest(
-                          "button,a,input,[role=checkbox]",
-                        )
-                      )
-                        onOpen(row.original);
-                    }}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <td
-                        key={cell.id}
-                        onClick={
-                          cell.column.id === "actions"
-                            ? (event) => event.stopPropagation()
-                            : undefined
-                        }
-                      >
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext(),
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <PeopleMobileCards
+          <DataTable
             table={table}
-            label="Карточки задач"
-            nameColumn="name"
-            photoColumn="__none"
-            roleColumn="assignee"
-            statusColumn="status"
+            label="Задачи"
             labels={labels}
-            onOpen={(row) => onOpen(row.original)}
+            onColumnSizingChange={st.setColumnSizing}
+            sorting={st.sorting}
+            onSortingChange={changeSorting}
+            sortable={sortable}
+            onRowClick={(row) => onOpen(row.original)}
             empty={null}
+            mobile={{
+              label: "Карточки задач",
+              nameColumn: "name",
+              roleColumn: "assignee",
+              statusColumn: "status",
+            }}
           />
           <TablePagination
             pageIndex={Math.min(st.pagination.pageIndex, pageCount - 1)}

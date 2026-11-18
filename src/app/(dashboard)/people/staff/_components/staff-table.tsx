@@ -4,14 +4,13 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
-  flexRender,
   getCoreRowModel,
   getSortedRowModel,
   getPaginationRowModel,
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table";
-import { ArrowUp, ArrowDown, ArrowUpDown, RotateCcw, X } from "lucide-react";
+import { RotateCcw, X } from "lucide-react";
 import type {
   StaffMember,
   PendingInvitation,
@@ -19,25 +18,18 @@ import type {
 } from "../actions";
 import { Button } from "@/components/ui/button";
 import {
+  DataTable,
   ROW_MENU_COLUMN_SIZE,
-  TableControls,
   TableColumnManager,
+  TableConditions,
+  TableControls,
+  TableFilterChip,
   TablePagination,
-  TableControlPin,
-  ResizableTableHead,
+  TableSortPicker,
   useTableState,
 } from "@/components/shared/table";
-import { TableFilterChip } from "@/components/shared/table/table-filter-chip";
-import {
-  TableSortPicker,
-  TableSortSettings,
-} from "@/components/shared/table/table-sort-settings";
-import { useTableColumnResize } from "@/components/shared/table/use-table-column-resize";
 import { PeopleListHeader } from "@/components/people/people-list-header";
-import { PeopleMobileCards } from "@/components/people/people-mobile-cards";
-import styles from "@/components/people/people-table.module.css";
 import type { CasualStaffRow } from "@/lib/payroll/casual-list";
-import { cn } from "@/lib/utils";
 
 type Row =
   | { kind: "staff"; id: string; member: StaffMember }
@@ -394,8 +386,6 @@ export function StaffTable({
     getPaginationRowModel: getPaginationRowModel(),
     autoResetPageIndex: false,
   });
-  const { tableRef, onResizeStart, columnWidths, minTableWidth, overflowing } =
-    useTableColumnResize(table, st.setColumnSizing);
   const firstPage = () => st.setPagination((p) => ({ ...p, pageIndex: 0 }));
   const changeSorting = (sorting: typeof st.sorting) => {
     st.setSorting(sorting);
@@ -439,7 +429,7 @@ export function StaffTable({
               placeholder: "Имя, телефон, email или должность",
             }}
             filters={{
-              active: filtersVisible || active,
+              active,
               onClick: () => setFiltersVisible((v) => !v),
             }}
             sort={{
@@ -483,224 +473,110 @@ export function StaffTable({
         }
       />
       {overviewPanel}
-      {(filtersVisible || active || q || st.sorting.length > 0) && (
-        <div
-          className="flex flex-wrap items-center gap-2"
-          aria-label="Условия списка сотрудников"
-        >
-          {st.sorting.length > 0 && (
-            <TableControlPin
-              active
-              label={
-                st.sorting.length === 1
-                  ? labels[st.sorting[0].id]
-                  : `${st.sorting.length} сортировки`
-              }
-              icon={<ArrowUpDown />}
-              contentClassName="w-auto p-3"
-            >
-              <TableSortSettings
-                sorting={st.sorting}
-                onChange={changeSorting}
-                fields={fields}
-                labels={labels}
-              />
-            </TableControlPin>
-          )}
-          {(filtersVisible || !!filter.role) && (
-            <TableFilterChip
-              label="Должность"
-              value={filter.role}
-              onChange={(v) => set("role", v)}
-              options={[
-                { value: "", label: "Все должности" },
-                ...(showFired
-                  ? [
-                      ...new Map(
-                        fired.map((m) => [
-                          m.role_id,
-                          { id: m.role_id, name: m.role_name },
-                        ]),
-                      ).values(),
-                    ]
-                  : roles
-                ).map((r) => ({ value: r.id, label: r.name })),
-              ]}
-            />
-          )}
-          {!showFired && (filtersVisible || !!filter.department) && (
-            <TableFilterChip
-              label="Подразделение"
-              value={filter.department}
-              onChange={(v) => set("department", v)}
-              options={[
-                { value: "", label: "Все подразделения" },
-                { value: "__none__", label: "Без подразделения" },
-                ...departments.map((r) => ({ value: r.id, label: r.name })),
-              ]}
-            />
-          )}
-          {!showFired && (filtersVisible || !!filter.gender) && (
-            <TableFilterChip
-              label="Пол"
-              value={filter.gender}
-              onChange={(v) => set("gender", v)}
-              options={[
-                { value: "", label: "Любой пол" },
-                { value: "male", label: "Мужской" },
-                { value: "female", label: "Женский" },
-              ]}
-            />
-          )}
-          {!showFired && (filtersVisible || !!filter.kind) && (
-            <TableFilterChip
-              label="Тип"
-              value={filter.kind}
-              onChange={(v) => set("kind", v)}
-              options={[
-                { value: "", label: "Все сотрудники" },
-                { value: "staff", label: "Штатные" },
-                { value: "casual", label: "Разовые" },
-              ]}
-            />
-          )}
-          {q && (
-            <span className="inline-flex h-8 max-w-64 items-center gap-2 rounded-full border border-brand/20 bg-brand/10 pl-3 pr-2 text-sm text-brand">
-              <span className="truncate">Поиск: «{st.search}»</span>
-              <button
-                type="button"
-                aria-label="Сбросить поиск"
-                onClick={() => {
-                  st.setSearch("");
-                  firstPage();
-                }}
-              >
-                <X className="size-3.5" />
-              </button>
-            </span>
-          )}
-          {(active || q || st.sorting.length > 0) && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
-              onClick={reset}
-            >
-              Очистить все
-            </Button>
-          )}
-        </div>
-      )}
-      <div className={cn(styles.scroll, overflowing && styles.scrollX)}>
-        <table
-          ref={tableRef}
-          className={styles.table}
-          style={{
-            minWidth: minTableWidth,
-          }}
-          aria-label="Сотрудники"
-        >
-          <ResizableTableHead
-            table={table}
-            onResizeStart={onResizeStart}
-            columnWidths={columnWidths}
-            isControlColumn={(id) => id === "actions"}
-            sortableColumnIds={sortable}
-            onSort={(id) => {
-              const current = st.sorting.find((s) => s.id === id);
-              changeSorting(
-                !current
-                  ? [...st.sorting, { id, desc: false }]
-                  : !current.desc
-                    ? st.sorting.map((s) =>
-                        s.id === id ? { ...s, desc: true } : s,
-                      )
-                    : st.sorting.filter((s) => s.id !== id),
-              );
-            }}
-            headerAriaSort={(id) => {
-              if (!sortable.has(id as StaffColKey)) return undefined;
-              const s = st.sorting.find((s) => s.id === id);
-              return s ? (s.desc ? "descending" : "ascending") : "none";
-            }}
-            headerIndicator={(id) => {
-              const i = st.sorting.findIndex((s) => s.id === id);
-              return i < 0 ? null : (
-                <span className="inline-flex items-center gap-0.5">
-                  {st.sorting[i].desc ? (
-                    <ArrowDown className="size-3" />
-                  ) : (
-                    <ArrowUp className="size-3" />
-                  )}
-                  {st.sorting.length > 1 && (
-                    <span className="text-[10px]">{i + 1}</span>
-                  )}
-                </span>
-              );
-            }}
+      <TableConditions
+        label="Условия списка сотрудников"
+        open={filtersVisible}
+        hasFilters={active}
+        sorting={st.sorting}
+        onSortingChange={changeSorting}
+        sortFields={fields}
+        sortLabels={labels}
+        search={st.search}
+        onSearchClear={() => {
+          st.setSearch("");
+          firstPage();
+        }}
+        onReset={reset}
+      >
+        {(filtersVisible || !!filter.role) && (
+          <TableFilterChip
+            label="Должность"
+            value={filter.role}
+            onChange={(v) => set("role", v)}
+            options={[
+              { value: "", label: "Все должности" },
+              ...(showFired
+                ? [
+                    ...new Map(
+                      fired.map((m) => [
+                        m.role_id,
+                        { id: m.role_id, name: m.role_name },
+                      ]),
+                    ).values(),
+                  ]
+                : roles
+              ).map((r) => ({ value: r.id, label: r.name })),
+            ]}
           />
-          <tbody>
-            {table.getRowModel().rows.map((row) => (
-              <tr
-                key={row.id}
-                className={
-                  row.original.kind !== "invitation"
-                    ? "cursor-pointer"
-                    : undefined
-                }
-                onClick={(e) => {
-                  if (
-                    row.original.kind !== "invitation" &&
-                    !(e.target as HTMLElement).closest("button,a,input")
-                  )
-                    router.push(rowHref(row.original));
-                }}
-              >
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id}>
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
-              </tr>
-            ))}
-            {!rows.length && (
-              <tr>
-                <td
-                  colSpan={table.getVisibleLeafColumns().length}
-                  className="!h-32 text-center text-muted-foreground"
-                >
-                  {active || q
-                    ? "По этим условиям сотрудников нет"
-                    : showFired
-                      ? "Уволенных сотрудников нет."
-                      : "Добавьте первого сотрудника или отправьте приглашение."}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <PeopleMobileCards
+        )}
+        {!showFired && (filtersVisible || !!filter.department) && (
+          <TableFilterChip
+            label="Подразделение"
+            value={filter.department}
+            onChange={(v) => set("department", v)}
+            options={[
+              { value: "", label: "Все подразделения" },
+              { value: "__none__", label: "Без подразделения" },
+              ...departments.map((r) => ({ value: r.id, label: r.name })),
+            ]}
+          />
+        )}
+        {!showFired && (filtersVisible || !!filter.gender) && (
+          <TableFilterChip
+            label="Пол"
+            value={filter.gender}
+            onChange={(v) => set("gender", v)}
+            options={[
+              { value: "", label: "Любой пол" },
+              { value: "male", label: "Мужской" },
+              { value: "female", label: "Женский" },
+            ]}
+          />
+        )}
+        {!showFired && (filtersVisible || !!filter.kind) && (
+          <TableFilterChip
+            label="Тип"
+            value={filter.kind}
+            onChange={(v) => set("kind", v)}
+            options={[
+              { value: "", label: "Все сотрудники" },
+              { value: "staff", label: "Штатные" },
+              { value: "casual", label: "Разовые" },
+            ]}
+          />
+        )}
+      </TableConditions>
+      <DataTable
         table={table}
-        label={
-          showFired ? "Карточки уволенных сотрудников" : "Карточки сотрудников"
-        }
-        actionsPlacement={showFired ? "footer" : "header"}
-        nameColumn="name"
-        photoColumn="avatar"
-        roleColumn="role"
+        label={showFired ? "Уволенные сотрудники" : "Сотрудники"}
         labels={labels}
-        onOpen={(row) => {
+        onColumnSizingChange={st.setColumnSizing}
+        sorting={st.sorting}
+        onSortingChange={changeSorting}
+        sortable={sortable}
+        onRowClick={(row) => {
           if (row.original.kind !== "invitation")
             router.push(rowHref(row.original));
         }}
+        rowClassName={(row) =>
+          row.original.kind === "invitation" ? "!cursor-default" : undefined
+        }
         empty={
           active || q
             ? "По этим условиям сотрудников нет"
             : showFired
-              ? "Уволенных сотрудников нет."
-              : "Добавьте первого сотрудника или отправьте приглашение."
+              ? "Уволенных сотрудников нет"
+              : "Добавьте первого сотрудника или отправьте приглашение"
         }
+        mobile={{
+          label: showFired
+            ? "Карточки уволенных сотрудников"
+            : "Карточки сотрудников",
+          nameColumn: "name",
+          photoColumn: "avatar",
+          roleColumn: "role",
+          actionsPlacement: showFired ? "footer" : "header",
+        }}
       />
       <TablePagination
         pageIndex={Math.min(st.pagination.pageIndex, pageCount - 1)}

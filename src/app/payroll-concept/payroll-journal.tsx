@@ -38,6 +38,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { PayrollDetailDialog } from "@/app/(dashboard)/people/payroll/_components/payroll-detail-dialog";
 import { PayrollEmployeeCell } from "@/app/(dashboard)/people/payroll/_components/payroll-employee-cell";
 import { PayrollTable } from "@/app/(dashboard)/people/payroll/_components/payroll-table";
+import { TableFilterChip } from "@/components/shared/table";
 import {
   createPayrollEntry,
   recordPayrollBonuses,
@@ -272,13 +273,13 @@ export function PayrollJournal({
             ? `payroll-employee-journal-${employeeId}`
             : "payroll-concept-journal"
         }
+        label="Начисления и удержания"
         rows={rows}
         columns={columns}
         labels={labels}
         numeric={["amount"]}
         defaultSort="date"
         defaultSortDesc
-        scrollMode="page"
         toolbarTargetId={toolbarTargetId}
         externalSearch={{ value: query, onChange: onQuery }}
         searchText={(r) =>
@@ -293,47 +294,49 @@ export function PayrollJournal({
             {actions}
           </>
         }
+        hiddenColumns={employeeId ? ["employee"] : undefined}
         filters={{
           active: kind !== "all" || employee !== "all" || showDeleted,
-          content: (
-            <div className="space-y-4 p-1">
-              <Label>Сотрудник</Label>
-              <Select value={employee} onValueChange={setEmployee}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Все сотрудники</SelectItem>
-                  {data.employees.map((e) => (
-                    <SelectItem key={e.id} value={e.id}>
-                      {e.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Label>Тип записи</Label>
-              <Select value={kind} onValueChange={setKind}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Все записи</SelectItem>
-                  {Object.entries(kindLabels).map(([id, name]) => (
-                    <SelectItem key={id} value={id}>
-                      {name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={showDeleted}
-                  onChange={(e) => setShowDeleted(e.target.checked)}
+          onReset: () => {
+            setKind("all");
+            setEmployee("all");
+            setShowDeleted(false);
+          },
+          chips: (
+            <>
+              {!employeeId && (
+                <TableFilterChip
+                  label="Сотрудник"
+                  value={employee === "all" ? "" : employee}
+                  onChange={(v) => setEmployee(v || "all")}
+                  options={[
+                    { value: "", label: "Все сотрудники" },
+                    ...data.employees.map((e) => ({ value: e.id, label: e.name })),
+                  ]}
                 />
-                Показывать удалённые
-              </label>
-            </div>
+              )}
+              <TableFilterChip
+                label="Тип записи"
+                value={kind === "all" ? "" : kind}
+                onChange={(v) => setKind(v || "all")}
+                options={[
+                  { value: "", label: "Все записи" },
+                  ...Object.entries(kindLabels).map(([id, name]) => ({
+                    value: id,
+                    label: name,
+                  })),
+                ]}
+              />
+              <TableFilterChip
+                label="Удалённые"
+                value={showDeleted ? "shown" : ""}
+                onChange={(v) => setShowDeleted(v === "shown")}
+                options={[
+                  { value: "", label: "Скрывать удалённые" },
+                  { value: "shown", label: "Показывать удалённые" },
+                ]}
+              />
+            </>
           ),
         }}
       />

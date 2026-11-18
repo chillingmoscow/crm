@@ -14,6 +14,7 @@ import { OptionSelect } from "@/components/ui/option-select";
 import { EmployeePicker } from "./employee-picker";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { DrawerSection } from "@/components/ui/drawer-blocks";
+import { useDiscardGuard } from "@/components/shared/discard-changes-dialog";
 import { PALETTE_COLORS, paletteDot } from "@/lib/palette";
 import { cn } from "@/lib/utils";
 import { shiftTemplateLabel } from "@/lib/schedule/types";
@@ -45,7 +46,12 @@ export function Field({
     </label>
   );
 }
-export type Save = (action: string, input: unknown) => Promise<boolean>;
+/** `success` — текст тоста вместо общего «Изменения сохранены». */
+export type Save = (
+  action: string,
+  input: unknown,
+  success?: string,
+) => Promise<boolean>;
 const empty = {
   name: "",
   color: "blue",
@@ -470,6 +476,14 @@ export function ShiftEditor({
     : null;
   const selectedPayModelName = data.payModels?.find((model) => model.id === selectedPayModel)?.name;
   const [busy, setBusy] = useState(false);
+  // Закрытие с изменениями спрашивает подтверждение: сравниваем с тем, что
+  // было в форме при открытии.
+  const snapshot = JSON.stringify({ value, date, who, note, templateId });
+  const [initialSnapshot] = useState(snapshot);
+  const { guard, dialog } = useDiscardGuard(snapshot !== initialSnapshot);
+  const requestClose = () => {
+    if (!busy) guard(onClose);
+  };
   const started = shift && data.runs.some((r) => r.shift_id === shift.id);
   const unavailable = new Set(templateSlot
     ? data.shifts.filter((item) => item.id !== shift?.id &&
@@ -477,6 +491,29 @@ export function ShiftEditor({
     : []);
   const selectedEmployee = assignmentFields(who);
   const payrollModelId = casual ? selectedPayModel : null;
+  // Почему главная кнопка неактивна — пишем текстом в подвале: подсказка на
+  // выключенной кнопке не появляется, а без причины непонятно, чего не хватает.
+  const blockedReason =
+    (templateSlot
+    ? !who
+      ? "Выберите сотрудника"
+      : unavailable.has(who)
+        ? "У сотрудника уже есть смена в этот день"
+        : shift && who === shiftAssignee(shift)
+          ? "Выберите другого сотрудника"
+          : null
+    : chosen && !chosenTimes
+      ? "Шаблон не работает в этот день недели"
+      : !chosen && !value.name.trim()
+        ? "Укажите название смены"
+        : canAssign && !who
+          ? "Выберите сотрудника"
+          : null) ??
+    (casual && !templateValue.role_id
+      ? "У смены нет должности"
+      : casual && !selectedPayModel
+        ? "У должности не настроена оплата"
+        : null);
   const commit = async () => {
     setBusy(true);
     const assignment = { ...selectedEmployee, payroll_model_id: payrollModelId };
@@ -527,10 +564,11 @@ export function ShiftEditor({
     </>
   );
   return (
+    <>
     <EditDrawer
       open
       onOpenChange={(o) => {
-        if (!o && !busy) onClose();
+        if (!o) requestClose();
       }}
       title={
         templateSlot ? (shift && shiftAssignee(shift) ? "Замена сотрудника" : "Назначить сотрудника") : copy
@@ -545,20 +583,16 @@ export function ShiftEditor({
         : shift?.published && !copy ? "Смена опубликована — изменения сразу увидит сотрудник" : undefined}
       footer={
         <>
-          <Button variant="outline" onClick={onClose} disabled={busy}>
+          <Button variant="outline" onClick={requestClose} disabled={busy}>
             Отмена
           </Button>
+          {blockedReason && !busy ? (
+            <p className="order-first mr-auto text-xs text-muted-foreground">
+              {blockedReason}
+            </p>
+          ) : null}
           <Button
-            disabled={
-              busy ||
-              (!templateSlot && !!chosen && !chosenTimes) ||
-              (!templateSlot && canAssign && !who) ||
-              (!templateSlot && !chosen && !value.name.trim()) ||
-              (templateSlot && (!who || unavailable.has(who))) ||
-              // Замена на того же сотрудника ничего не меняет.
-              (templateSlot && !!shift && who === shiftAssignee(shift)) ||
-              (casual && (!selectedPayModel || !templateValue.role_id))
-            }
+            disabled={busy || !!blockedReason}
             onClick={commit}
           >
             {busy
@@ -698,6 +732,8 @@ export function ShiftEditor({
         </>
       )}
     </EditDrawer>
+    {dialog}
+    </>
   );
 }
 export function TemplateEditor({
@@ -732,6 +768,12 @@ export function TemplateEditor({
   );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const snapshot = JSON.stringify({ value, variants });
+  const [initialSnapshot] = useState(snapshot);
+  const { guard, dialog } = useDiscardGuard(snapshot !== initialSnapshot);
+  const requestClose = () => {
+    if (!busy) guard(onClose);
+  };
   const commit = async () => {
     const problem = validateVariants(variants);
     setError(problem);
@@ -757,10 +799,11 @@ export function TemplateEditor({
     setBusy(false);
   };
   return (
+    <>
     <EditDrawer
       open
       onOpenChange={(o) => {
-        if (!o && !busy) onClose();
+        if (!o) requestClose();
       }}
       title={
         copy
@@ -771,7 +814,7 @@ export function TemplateEditor({
       }
       footer={
         <>
-          <Button variant="outline" disabled={busy} onClick={onClose}>
+          <Button variant="outline" disabled={busy} onClick={requestClose}>
             Отмена
           </Button>
           <Button disabled={busy} onClick={commit}>
@@ -817,6 +860,8 @@ export function TemplateEditor({
         <ShiftRoleField data={data} value={value} set={set} />
       </DrawerSection>
     </EditDrawer>
+    {dialog}
+    </>
   );
 }
 function newItem(parent_id: string | null = null): ChecklistItem {

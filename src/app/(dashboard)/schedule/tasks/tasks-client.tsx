@@ -315,9 +315,13 @@ function TaskScreen({
         url.href === window.location.href
       )
         return;
+      // Путь вида «//host/…» router.push понял бы как адрес другого сайта:
+      // перехватываем только обычные пути внутри приложения.
+      const path = url.pathname + url.search + url.hash;
+      if (!/^\/(?!\/)/.test(path)) return;
       event.preventDefault();
       event.stopPropagation();
-      setExitHref(url.pathname + url.search + url.hash);
+      setExitHref(path);
       setConfirmExit(true);
     };
     window.addEventListener("beforeunload", guard);

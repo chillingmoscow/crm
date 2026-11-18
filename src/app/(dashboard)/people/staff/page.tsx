@@ -136,7 +136,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       departments={departments ?? []}
       venueId={venueId}
       currentUserId={user.id}
-      activeRoleCode={activeRoleCode}
+      canEditStaff={canEdit}
       casual={casual}
       openAddCasual={(await searchParams).add === "casual" && canEdit && !!casual}
     />

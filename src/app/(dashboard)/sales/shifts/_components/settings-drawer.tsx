@@ -258,7 +258,7 @@ export function SettingsDrawer({
                   rows={8}
                   value={tips}
                   onChange={(e) => setTips(e.target.value)}
-                  className="font-mono text-xs"
+                  className="font-mono text-xs md:text-xs"
                 />
               </div>
               <div className="space-y-2">
@@ -270,7 +270,7 @@ export function SettingsDrawer({
                   rows={8}
                   value={deposits}
                   onChange={(e) => setDeposits(e.target.value)}
-                  className="font-mono text-xs"
+                  className="font-mono text-xs md:text-xs"
                 />
               </div>
             </>

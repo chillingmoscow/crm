@@ -4,19 +4,13 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { ProfileSection } from "@/components/shared/profile-section";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { useSaveSection } from "@/components/shared/save-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
 import { DatePicker } from "@/components/ui/date-picker";
 import { EditDrawer } from "@/components/ui/edit-drawer";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -157,8 +151,9 @@ export function BasicMedicalCard({
       number: basic.number ?? "",
       until: basic.until ?? "",
     });
-  async function save(e: FormEvent) {
-    e.preventDefault();
+  const dirty =
+    basic.canEdit && (number !== saved.number || until !== saved.until);
+  async function save(): Promise<boolean> {
     setBusy(true);
     try {
       const r = await updateStaffAccountDetails(basic.userId, basic.accountId, {
@@ -169,15 +164,32 @@ export function BasicMedicalCard({
       setSaved({ number, until });
       onChanged?.();
       toast.success("Медкнижка сохранена");
+      return true;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Не удалось сохранить");
+      return false;
     } finally {
       setBusy(false);
     }
   }
+  // Сохраняется общей полосой карточки, как и остальные поля.
+  const bar = useSaveSection({
+    dirty,
+    saving: busy,
+    save,
+    reset: () => {
+      setNumber(saved.number);
+      setUntil(saved.until);
+    },
+  });
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (dirty && !busy) void save();
+  };
   return (
+    <>
     <ProfileSection title="Медкнижка">
-      <form onSubmit={(e) => void save(e)} className="space-y-4">
+      <form onSubmit={submit} className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Номер">
             {(control) => (
@@ -201,21 +213,10 @@ export function BasicMedicalCard({
             )}
           </Field>
         </div>
-        {basic.canEdit && (
-          <div className="flex justify-end">
-            <Button
-              className="w-full sm:w-auto"
-              type="submit"
-              disabled={
-                busy || (number === saved.number && until === saved.until)
-              }
-            >
-              Сохранить медкнижку
-            </Button>
-          </div>
-        )}
       </form>
     </ProfileSection>
+    {bar}
+    </>
   );
 }
 
@@ -245,8 +246,7 @@ function MedicalCard({
   const dirty =
     JSON.stringify(form) !== JSON.stringify(initial) ||
     number !== (data.medicalNumber ?? "");
-  async function save(e: FormEvent) {
-    e.preventDefault();
+  async function save(): Promise<boolean> {
     setBusy(true);
     try {
       const medical = employeeMedicalSchema.parse(form);
@@ -260,15 +260,32 @@ function MedicalCard({
       });
       await onSaved();
       toast.success("Медкнижка сохранена");
+      return true;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Не удалось сохранить");
+      return false;
     } finally {
       setBusy(false);
     }
   }
+  // Сохраняется общей полосой карточки; на странице без неё — своей.
+  const bar = useSaveSection({
+    dirty,
+    saving: busy,
+    save,
+    reset: () => {
+      setForm(initial);
+      setNumber(data.medicalNumber ?? "");
+    },
+  });
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (dirty && !busy) void save();
+  };
   return (
+    <>
     <ProfileSection title="Медкнижка">
-      <form onSubmit={(e) => void save(e)} className="space-y-5">
+      <form onSubmit={submit} className="space-y-5">
         <div className="grid gap-4 sm:grid-cols-2">
           <Choice
             label="Состояние"
@@ -332,17 +349,10 @@ function MedicalCard({
             </>
           )}
         </div>
-        <div className="flex justify-end">
-          <Button
-            className="w-full sm:w-auto"
-            type="submit"
-            disabled={busy || !dirty}
-          >
-            Сохранить медкнижку
-          </Button>
-        </div>
       </form>
     </ProfileSection>
+    {bar}
+    </>
   );
 }
 
@@ -639,50 +649,34 @@ function UniformCard({
         </Field>
         {!!parts.length && <Installments items={parts} />}
       </EditDrawer>
-      <Dialog
+      <ConfirmDialog
         open={!!cancel}
         onOpenChange={(v) => {
-          if (!v && !busy) setCancel(null);
+          if (!v) setCancel(null);
         }}
+        title={`Остановить удержания за «${
+          data.uniform.find((i) => i.id === cancel)?.title ?? "форму"
+        }»?`}
+        description="Будущие части удержаний отменятся. Уже учтённые суммы и расход на покупку сохранятся."
+        confirmLabel="Остановить удержания"
+        pendingLabel="Останавливаем…"
+        destructive
+        busy={busy}
+        confirmDisabled={reason.trim().length < 3}
+        onConfirm={() => void stop()}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Остановить удержания за форму?</DialogTitle>
-            <DialogDescription>
-              Уже учтённые суммы и расход на покупку сохранятся.
-            </DialogDescription>
-          </DialogHeader>
-          <Field label="Причина">
-            {(control) => (
-              <Input
-                {...control}
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                maxLength={1000}
-                placeholder="Например, сотрудник вернул форму"
-              />
-            )}
-          </Field>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={() => setCancel(null)}
-            >
-              Отмена
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={busy || reason.trim().length < 3}
-              onClick={() => void stop()}
-            >
-              Остановить удержания
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        <Field label="Причина">
+          {(control) => (
+            <Input
+              {...control}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              maxLength={1000}
+              placeholder="Например, сотрудник вернул форму"
+            />
+          )}
+        </Field>
+      </ConfirmDialog>
     </>
   );
 }

@@ -1,6 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 
 /**
  * Блоки содержимого боковой панели (EditDrawer). Правила — в
@@ -153,31 +154,15 @@ export function DrawerAvatar({
   );
 }
 
-const statusTones = {
-  neutral: "bg-muted text-muted-foreground",
-  info: "bg-brand/10 text-brand",
-  success: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-  warning: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
-  danger: "bg-destructive/10 text-destructive",
-} as const;
 
 export function DrawerStatus({
   label,
   tone = "neutral",
 }: {
   label: string;
-  tone?: keyof typeof statusTones;
+  tone?: StatusTone;
 }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium",
-        statusTones[tone],
-      )}
-    >
-      {label}
-    </span>
-  );
+  return <StatusBadge tone={tone}>{label}</StatusBadge>;
 }
 
 export function DrawerTimeline({ children }: { children: ReactNode }) {

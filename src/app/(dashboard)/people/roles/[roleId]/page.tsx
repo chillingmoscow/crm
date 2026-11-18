@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import {
   createClient,
@@ -6,6 +7,8 @@ import {
 import { listAuditEvents } from "@/lib/audit/list";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { RoleDetailPage } from "./_components/role-detail-page";
+
+export const metadata: Metadata = { title: "Должность" };
 
 export default async function RoleDetailServerPage({
   params,

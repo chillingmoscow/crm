@@ -1,9 +1,12 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import {
   createClient,
   getCachedPermissionChecker,
 } from "@/lib/supabase/server";
 import { RolesClient } from "./_components/roles-client";
+
+export const metadata: Metadata = { title: "Должности" };
 
 export default async function RolesPage() {
   const supabase = await createClient();

@@ -3,6 +3,9 @@ import { NotificationsHelp } from "@/app/(dashboard)/notifications/notifications
 import { PayrollHelp } from "@/app/(dashboard)/people/payroll/_components/payroll-help";
 import { StaffHelp } from "@/app/(dashboard)/people/staff/_components/staff-help";
 import { CandidatesHelp } from "@/app/(dashboard)/people/candidates/_components/candidates-help";
+import { RolesHelp } from "@/app/(dashboard)/people/roles/_components/roles-help";
+import { DepartmentsHelp } from "@/app/(dashboard)/people/departments/_components/departments-help";
+import { AttendanceHelp } from "@/app/(dashboard)/schedule/attendance/attendance-help";
 import {
   ScheduleHelp,
   ScheduleTasksHelp,
@@ -35,14 +38,24 @@ export type PageHelpEntry = {
 };
 
 export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
-  { match: p => p === "/people/staff", title: "Сотрудники", Content: StaffHelp },
+  // Список и карточка раздела делят одну справку (docs/design-system.md,
+  // «Top bar → Когда что показывать»).
+  { match: p => p === "/people/staff" || p.startsWith("/people/staff/"), title: "Сотрудники", Content: StaffHelp },
   { match: p => p === "/people/candidates" || p.startsWith("/people/candidates/"), title: "Кандидаты", Content: CandidatesHelp },
+  { match: p => p === "/people/roles" || p.startsWith("/people/roles/"), title: "Должности", Content: RolesHelp },
+  { match: p => p === "/people/departments" || p.startsWith("/people/departments/"), title: "Подразделения", Content: DepartmentsHelp },
   { match: p => p === "/notifications", title: "Уведомления", Content: NotificationsHelp },
   { match: (p) => p === "/schedule", title: "Расписание", Content: ScheduleHelp },
   { match: (p) => p === "/schedule/templates", title: "Шаблоны смен", Content: ScheduleTemplatesHelp },
   { match: (p) => p === "/schedule/tasks", title: "Задачи", Content: ScheduleTasksHelp },
+  { match: (p) => p === "/schedule/attendance", title: "Сверка отметок", Content: AttendanceHelp },
   {
-    match: (p) => p === "/people/payroll" || p.startsWith("/people/payroll/"),
+    // Рабочий экран ведомости живёт на /payroll-concept (/people/payroll
+    // туда перенаправляет), расчёт сотрудника — на /people/payroll/[id].
+    match: (p) =>
+      p === "/payroll-concept" ||
+      p === "/people/payroll" ||
+      p.startsWith("/people/payroll/"),
     title: "Зарплата",
     Content: PayrollHelp,
   },

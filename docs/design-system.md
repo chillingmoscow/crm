@@ -301,6 +301,8 @@ import { Button } from "@/components/ui/button";
 | `<TableSortSettings>` | `src/components/shared/table/table-sort-settings.tsx` | Настройка сортировки списка вместе с `useMultiSort`. |
 | `<PersonAvatar>` / `<EmployeeIdentity>` | `src/components/people/person-avatar.tsx`, `src/components/shared/employee-identity.tsx` | Аватар человека и строка «аватар + имя + должность». |
 | `<EntityAuditTab>` | — | Вкладки «Журнал» и «Активность» в карточке сущности. |
+| `<Field>` | `src/components/ui/field.tsx` | **Поле формы целиком**: подпись `Label` 14px, связанная с полем, красная звёздочка обязательности, подсказка `text-xs text-muted-foreground`, ошибка `text-xs text-destructive`. Поле передаётся функцией и получает `id` + `aria-describedby` / `aria-invalid` / `aria-required`: `<Field label="Номер" required error={e}>{(control) => <Input {...control} … />}</Field>`. Новые формы собираем на нём, своих обёрток «подпись + поле» не заводим. Подробнее — «Form States». |
+| `<AmountInput>` | `src/components/finance/amount-input.tsx` | **Единственный** способ ввести сумму денег: запятая и точка как разделитель, пробелы-разряды вне фокуса, знак валюты, отдаёт число или `null`. ❌ `type="number"` и текст с ручным разбором для сумм. |
 
 И базовые shadcn-примитивы: `Button`, `Input`, `Label`, `Textarea`, `Select`
 (в формах — `OptionSelect`, см. ниже),
@@ -350,6 +352,11 @@ import { Button } from "@/components/ui/button";
 `Sheet`, `AlertDialog`, `Popover`, `Select`, `Tabs`. Примитивы, которые
 отдают такой атрибут только в открытом состоянии (`DropdownMenu`,
 `Tooltip`), трогать не нужно.
+
+То же правило в `Field`: если `id` не передан явно, сгенерированный
+`useId()` попадает в `htmlFor` / `id` / `aria-describedby` только после
+гидратации (`useHydrated`). Явный строковый `id` (`<Field id="email">`)
+стабилен и уходит в SSR-разметку как есть.
 
 ---
 
@@ -748,15 +755,15 @@ when always-relevant.
 
 ## Form States (`Q4FzoZ` → `CxLzo` / Section/Form States)
 
-Состояния полей ввода одни для **всех** полей: `Input`, `Textarea`, `OptionSelect`, `DatePicker`, `TimePicker`, `MonthPicker`, `Combobox`.
+Состояния полей ввода одни для **всех** полей: `Input`, `Textarea`, `Select`/`OptionSelect`, `DatePicker`, `TimePicker`, `MonthPicker` (`variant="field"`), `Combobox`. Классы фокуса и ошибки общие — `fieldFocusClass` и `fieldInvalidClass` из `src/components/ui/field-styles.ts`; новый контрол-поле берёт их оттуда, а не пишет свои.
 
 | Состояние | Что меняется |
 |---|---|
 | **Default** | `border-input` (`#e4e4e7`), фон `bg-background` |
 | **Filled** | то же что Default, текст `text-foreground` |
 | **Focused** | `border-brand` (1px) + мягкий halo через `ring-2 ring-brand/30`. **Не offset-ring**, не двойная обводка. (`.pen` показывает `spread:3 / 40%` — в браузере это получается резче, поэтому подбираем визуальный эквивалент.) |
-| **Error** | `border-destructive` + сообщение под полем 12px destructive |
-| **ReadOnly** | то же что Default. Поле фокусируемо для скринридеров, но **focus halo не показывается** — у юзера не должно складываться впечатление, что значение можно поменять. (Реализовано через `read-only:focus-visible:ring-0`.) Если поле read-only и при этом фон выделен `bg-muted/50` — это сигнал «не редактируется». |
+| **Error** | `border-destructive` + сообщение под полем 12px destructive. Рамка включается сама по `aria-invalid="true"` (у кнопок-пикеров — `data-invalid`); `Field` ставит его, пока передан `error` |
+| **ReadOnly** | фон `bg-muted/50` — сигнал «не редактируется». Поле фокусируемо для скринридеров, но **focus halo не показывается** — у юзера не должно складываться впечатление, что значение можно поменять. Зашито в `Input`, `Textarea` и `DatePicker` (`readOnly`), вручную `bg-muted/50` не добавляем. |
 | **Disabled** | opacity 50%, cursor not-allowed |
 
 В Tailwind: `focus-visible:outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/30`.
@@ -765,17 +772,18 @@ when always-relevant.
 
 | Что | Правило |
 |---|---|
-| Высота поля | 40px у всех полей формы |
+| Высота поля | 40px у всех полей формы, включая триггер `Select` (дефолт `h-10`). Плотные тулбары задают свою высоту через `className` (`h-9`, `h-8`) — это перебивает дефолт |
 | Радиус поля | 6px (`rounded-md`) |
-| Кегль на телефоне | 16px у всех полей, включая `Textarea` (иначе iOS увеличивает страницу при фокусе) |
-| Подпись | `Label`, 14px / 500, всегда связана с полем (`htmlFor` + `id`). Отдельного `aria-label`, спорящего с подписью, нет |
-| Обязательное поле | красная звёздочка `<span class="text-destructive">*</span>` + `aria-required` |
-| Подсказка под полем | одна строка 12px, только если меняет результат |
-| Ошибка | 12px `destructive` под полем; ошибка сервера показывается в форме, а не только тостом |
-| Только чтение | `read-only:bg-muted/50` зашит в сам контрол |
-| Выпадающий список | `OptionSelect`. «Сырой» `Select` в формах не используем, пока у него высота 36px |
-| Деньги | только `AmountInput`; `type="number"` для сумм не используется |
-| Флажок, переключатель | `Checkbox`, `Switch` из набора, активный цвет brand |
+| Кегль на телефоне | 16px у полей с вводом текста — `Input` и `Textarea` (`text-base md:text-sm`), иначе iOS увеличивает страницу при фокусе. Кнопки-пикеры и триггер `Select` текст не вводят и остаются 14px |
+| Сборка поля | `Field` (`src/components/ui/field.tsx`): подпись, поле, обязательность, подсказка и ошибка одной разметкой |
+| Подпись | `Label`, 14px / 500 — один кегль во всех формах, без `text-[13px]`. Всегда связана с полем (`htmlFor` + `id`). Отдельного `aria-label`, спорящего с подписью, нет |
+| Обязательное поле | один способ: красная звёздочка после подписи (`required` у `Field`; звёздочка `aria-hidden`) + `aria-required` на поле. ❌ « *» внутри текста подписи, «· необязательно» |
+| Подсказка под полем | одна строка `text-xs text-muted-foreground`, только если меняет результат; связана с полем через `aria-describedby` |
+| Ошибка | `text-xs text-destructive` под полем, связана через `aria-describedby`, поле получает `aria-invalid`; ошибка сервера показывается в форме, а не только тостом |
+| Только чтение | `bg-muted/50` зашит в сам контрол (`readOnly`) |
+| Выпадающий список | `OptionSelect` — строковое значение, `""` = «не выбрано»; `SelectTrigger` по виду совпадает с `Input` |
+| Деньги | только `AmountInput` (`src/components/finance/amount-input.tsx`); `type="number"` и текст с ручным разбором для сумм не используются |
+| Флажок, переключатель | `Checkbox`, `Switch` из набора, отмеченное состояние `bg-brand`, фокус — тот же halo `ring-2 ring-brand/30` без смещения |
 | Время | `TimePicker` для выбора из сетки, `TimeInput` для ввода с клавиатуры; у каждого доступное имя из подписи поля |
 | Сетка полей | `grid gap-4 sm:grid-cols-2`; жёсткого `grid-cols-2` нет |
 
@@ -983,8 +991,12 @@ shadcn — 6 (`rounded-md`). Пара 6/8 визуально читается к
 - ❌ Несколько brand-CTA одного веса на одном экране
 - ❌ Иконки 32+ как inline — это feature-размер для hero/empty state
 - ❌ Менять ширину drawer (всегда 520) или цвет backdrop (всегда `bg-black/25` через `overlayClass`)
-- ❌ Focus-ring со смещением (`ring-offset-2`) на input/textarea/select —
-  только border swap + halo через `ring-2 ring-brand/30`
+- ❌ Focus-ring со смещением (`ring-offset-2`) и `ring-ring` на полях
+  (input, textarea, select, пикеры дат/времени/месяца, combobox), флажках и
+  переключателях — только border swap + halo через `ring-2 ring-brand/30`
+  (`fieldFocusClass`)
+- ❌ `bg-primary` у `Switch` / `Checkbox` — отмеченное состояние brand
+- ❌ Своя обёртка «подпись + поле» в новой форме — это `Field`
 - ❌ `resize-y` или `resize-both` на Textarea без явной причины — дефолт `resize-none`
 - ❌ Произвольные значения отступов/радиусов вне шкалы (`p-7`, `rounded-[11px]` и т.п.)
 - ❌ Произвольные тени (`shadow-2xl`, custom `box-shadow`) — только из 4 уровней DS

@@ -25,6 +25,9 @@ import {
 } from "@/components/ui/popover";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import tabStyle from "@/components/shared/workspace-tabs.module.css";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { PayrollDetailDialog } from "@/app/(dashboard)/people/payroll/_components/payroll-detail-dialog";
 import { ConceptPaymentForm } from "./concept-payment-form";
@@ -88,6 +91,22 @@ function componentGroups(accruals: Accrual[]) {
       groups.set(label, (groups.get(label) ?? 0) + Number(c.amount ?? 0));
     }
   return [...groups].filter(([, v]) => v !== 0).sort((a, b) => b[1] - a[1]);
+}
+
+function CompositionList({ groups }: { groups: [string, number][] }) {
+  return (
+    <div className={s.breakdown}>
+      {groups.map(([label, value]) => (
+        <div key={label}>
+          <span>{label}</span>
+          <strong>
+            {value < 0 ? "−" : ""}
+            {amount(Math.abs(value))}
+          </strong>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function PayrollConcept({
@@ -577,26 +596,15 @@ export function PayrollConcept({
                 <small>Отдельно от зарплаты</small>
               </div>
             </section>
-            <div className={s.tabs}>
-              <div role="tablist" aria-label="Разделы зарплаты">
-                {[
-                  ["statement", "Ведомость"],
-                  ["payments", "Выплаты"],
-                  ["journal", "Начисления и удержания"],
-                ].map(([id, label]) => (
-                  <button
-                    key={id}
-                    role="tab"
-                    aria-selected={tab === id}
-                    onClick={() => changeTab(id)}
-                    className={tab === id ? s.activeTab : ""}
-                  >
-                    {label}
-                    {id === "statement" && <span>{active.length}</span>}
-                  </button>
-                ))}
-              </div>
-            </div>
+            {/* Вкладки представления: общий Tabs + workspace-tabs. Панель одна
+                на активную вкладку — как у Radix, неактивные не монтируются. */}
+            <Tabs value={tab} onValueChange={changeTab} className={`${tabStyle.tabs} mt-6`}>
+              <TabsList aria-label="Разделы зарплаты">
+                <TabsTrigger value="statement">Ведомость · {active.length}</TabsTrigger>
+                <TabsTrigger value="payments">Выплаты</TabsTrigger>
+                <TabsTrigger value="journal">Начисления и удержания</TabsTrigger>
+              </TabsList>
+            <TabsContent value={tab} className="!mt-0">
             {tab === "statement" && (
               <section className={s.analytics}>
                 <div className={s.timeline}>
@@ -851,6 +859,8 @@ export function PayrollConcept({
                 />
               )}
             </section>
+            </TabsContent>
+            </Tabs>
           </PageFrame>
         </div>
         <PayrollEntryForm initialKind={entryKind} open={entryOpen} onOpenChange={setEntryOpen} data={data} month={monthStart}
@@ -898,115 +908,101 @@ export function PayrollConcept({
                     : `${plural(active.length, ["сотрудник", "сотрудника", "сотрудников"])} · ${shiftCount(shifts)}`}
                 </small>
               </div>
-              {selected && (
-                <div className={s.employeeTabs}>
-                  <button
-                    onClick={() => {
-                      setEmployeeTab("summary");
-                      setDay(null);
-                    }}
-                    className={
-                      employeeTab === "summary" ? s.employeeTabActive : ""
-                    }
-                  >
-                    Состав зарплаты
-                  </button>
-                  <button
-                    onClick={() => setEmployeeTab("shifts")}
-                    className={
-                      employeeTab === "shifts" ? s.employeeTabActive : ""
-                    }
-                  >
-                    Смены <span>{selectedDays.length}</span>
-                  </button>
-                </div>
-              )}
-              {(!selected || employeeTab === "summary") && (
-                <div className={s.breakdown}>
-                  {groups.map(([label, value]) => (
-                    <div key={label}>
-                      <span>{label}</span>
-                      <strong>
-                        {value < 0 ? "−" : ""}
-                        {amount(Math.abs(value))}
-                      </strong>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {selected &&
-                employeeTab === "shifts" &&
-                (day ? (
-                  <div className={s.shiftInspector}>
-                    <button
-                      className={s.shiftBack}
-                      onClick={() => setDay(null)}
-                    >
-                      <ArrowLeft size={13} /> Все смены
-                    </button>
-                    <div className={s.shiftHeading}>
-                      <span>
-                        {day.calculation_snapshot.kind === "monthly"
-                          ? "Оклад за месяц"
-                          : new Date(
-                              `${day.business_date}T12:00:00Z`,
-                            ).toLocaleDateString("ru-RU", {
-                              day: "numeric",
-                              month: "long",
-                              timeZone: "UTC",
-                            })}
-                      </span>
-                      <strong>{amount(Number(day.salary))}</strong>
-                    </div>
-                    <div className={s.dayDetail}>
-                      {day.components.map((c, i) => (
-                        <div key={i}>
+              {selected ? (
+                <Tabs
+                  value={employeeTab}
+                  onValueChange={(value) => {
+                    setEmployeeTab(value);
+                    setDay(null);
+                  }}
+                  className={`${tabStyle.tabs} mt-6`}
+                >
+                  <TabsList aria-label="Расчёт сотрудника">
+                    <TabsTrigger value="summary">Состав зарплаты</TabsTrigger>
+                    <TabsTrigger value="shifts">
+                      Смены · {selectedDays.length}
+                    </TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="summary" className="!mt-0">
+                    <CompositionList groups={groups} />
+                  </TabsContent>
+                  <TabsContent value="shifts" className="!mt-0">
+                    {day ? (
+                      <div className={s.shiftInspector}>
+                        <button
+                          className={s.shiftBack}
+                          onClick={() => setDay(null)}
+                        >
+                          <ArrowLeft size={13} /> Все смены
+                        </button>
+                        <div className={s.shiftHeading}>
                           <span>
-                            {c.label === "Выход" ? "Ставка за смену" : c.label}
-                            <small>{c.basis}</small>
-                          </span>
-                          <strong>
-                            {c.amount === null
-                              ? "Нет данных"
-                              : amount(Number(c.amount))}
-                          </strong>
-                        </div>
-                      ))}
-                    </div>
-                    {day.issues.length > 0 && (
-                      <details className={s.issueDetails}>
-                        <summary>
-                          Замечания к расчёту · {day.issues.length}
-                        </summary>
-                        {day.issues.map((issue) => (
-                          <p key={issue}>{issue}</p>
-                        ))}
-                      </details>
-                    )}
-                  </div>
-                ) : (
-                  <div className={s.dayList}>
-                    {selectedDays.map((a) => (
-                      <div key={a.id}>
-                        <button onClick={() => setDay(a)}>
-                          <span>
-                            {a.calculation_snapshot.kind === "monthly"
+                            {day.calculation_snapshot.kind === "monthly"
                               ? "Оклад за месяц"
                               : new Date(
-                                  `${a.business_date}T12:00:00Z`,
+                                  `${day.business_date}T12:00:00Z`,
                                 ).toLocaleDateString("ru-RU", {
                                   day: "numeric",
                                   month: "long",
                                   timeZone: "UTC",
                                 })}
                           </span>
-                          <strong>{amount(Number(a.salary))}</strong>
-                          <ChevronRight size={15} />
-                        </button>
+                          <strong>{amount(Number(day.salary))}</strong>
+                        </div>
+                        <div className={s.dayDetail}>
+                          {day.components.map((c, i) => (
+                            <div key={i}>
+                              <span>
+                                {c.label === "Выход" ? "Ставка за смену" : c.label}
+                                <small>{c.basis}</small>
+                              </span>
+                              <strong>
+                                {c.amount === null
+                                  ? "Нет данных"
+                                  : amount(Number(c.amount))}
+                              </strong>
+                            </div>
+                          ))}
+                        </div>
+                        {day.issues.length > 0 && (
+                          <details className={s.issueDetails}>
+                            <summary>
+                              Замечания к расчёту · {day.issues.length}
+                            </summary>
+                            {day.issues.map((issue) => (
+                              <p key={issue}>{issue}</p>
+                            ))}
+                          </details>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                ))}
+                    ) : (
+                      <div className={s.dayList}>
+                        {selectedDays.map((a) => (
+                          <div key={a.id}>
+                            <button onClick={() => setDay(a)}>
+                              <span>
+                                {a.calculation_snapshot.kind === "monthly"
+                                  ? "Оклад за месяц"
+                                  : new Date(
+                                      `${a.business_date}T12:00:00Z`,
+                                    ).toLocaleDateString("ru-RU", {
+                                      day: "numeric",
+                                      month: "long",
+                                      timeZone: "UTC",
+                                    })}
+                              </span>
+                              <strong>{amount(Number(a.salary))}</strong>
+                              <ChevronRight size={15} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </TabsContent>
+                </Tabs>
+              ) : (
+                <CompositionList groups={groups} />
+              )}
               {selected && (
                 <Link
                   className={s.fullDetailLink}
@@ -1018,52 +1014,25 @@ export function PayrollConcept({
             </div>
           </DialogContent>
         </Dialog>
-        <Dialog
+        <ConfirmDialog
           open={Boolean(cancelId)}
           onOpenChange={(open) => {
             if (!open) setCancelId(null);
           }}
-        >
-          <DialogContent
-            className={s.dialog}
-            tabIndex={-1}
-            onOpenAutoFocus={(event) => {
-              event.preventDefault();
-              requestAnimationFrame(() => {
-                const dialog = document.querySelector<HTMLElement>(
-                  '[role="dialog"][data-state="open"]',
-                );
-                dialog?.focus({ preventScroll: true });
-              });
-            }}
-          >
-            <DialogTitle className={s.dialogTitle}>
-              Удалить выплату?
-            </DialogTitle>
-            <DialogDescription className={s.dialogDescription}>
-              Транзакция будет помечена удалённой, а сумма вернётся в остаток к
-              выплате. История сохранится.
-            </DialogDescription>
-            <div className={s.dialogActions}>
-              <Button variant="outline" onClick={() => setCancelId(null)}>
-                Назад
-              </Button>
-              <Button
-                disabled={busy}
-                variant="destructive"
-                onClick={() => {
-                  if (cancelId)
-                    void run(async () => {
-                      await cancelPayrollPayment(cancelId);
-                      setCancelId(null);
-                    }, "Выплата удалена");
-                }}
-              >
-                Удалить выплату
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+          title="Удалить выплату?"
+          description="Финансовая операция будет помечена удалённой, а сумма вернётся в остаток к выплате сотруднику. История сохранится."
+          confirmLabel="Удалить выплату"
+          pendingLabel="Удаляем…"
+          destructive
+          busy={busy}
+          onConfirm={() => {
+            if (cancelId)
+              void run(async () => {
+                await cancelPayrollPayment(cancelId);
+                setCancelId(null);
+              }, "Выплата удалена");
+          }}
+        />
         <PayrollDetailDialog
           open={payOpen}
           onOpenChange={setPayOpen}

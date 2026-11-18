@@ -380,49 +380,6 @@
   color: hsl(var(--muted-foreground));
 }
 
-.tabs {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid hsl(var(--border));
-  margin-top: 29px;
-}
-.tabs > div {
-  display: flex;
-  gap: 27px;
-}
-.tabs button {
-  position: relative;
-  padding: 0 0 14px;
-  color: hsl(var(--muted-foreground));
-  background: none;
-  border: none;
-  font-size: 13px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.tabs button > span {
-  font-size: 10px;
-  background: hsl(var(--muted));
-  padding: 0 5px;
-  border-radius: 4px;
-  color: hsl(var(--muted-foreground));
-}
-.tabs .activeTab {
-  color: hsl(var(--muted-foreground));
-  font-weight: 600;
-}
-.activeTab:after {
-  content: "";
-  position: absolute;
-  height: 2px;
-  background: hsl(var(--muted));
-  bottom: -1px;
-  left: 0;
-  right: 0;
-}
-
 .analytics {
   display: grid;
   grid-template-columns: 1.9fr 1fr;
@@ -1462,15 +1419,6 @@
   .metric small {
     font-size: 9px;
   }
-  .tabs {
-    margin-top: 23px;
-  }
-  .tabs > div {
-    gap: 25px;
-  }
-  .tabs button {
-    font-size: 13px;
-  }
   .analytics {
     margin-top: 20px;
     margin-bottom: 24px;
@@ -1607,38 +1555,6 @@
 .monthPicker button:focus-visible {
   outline: 2px solid hsl(var(--brand));
   outline-offset: 3px;
-}
-.employeeTabs {
-  display: flex;
-  gap: 24px;
-  border-bottom: 1px solid hsl(var(--border));
-  margin-top: 22px;
-}
-.employeeTabs > button {
-  position: relative;
-  background: none;
-  border: 0;
-  font-size: 12px;
-  padding: 0 0 12px;
-  color: hsl(var(--muted-foreground));
-}
-.employeeTabs > button > span {
-  margin-left: 4px;
-  font-size: 10px;
-  color: hsl(var(--muted-foreground));
-}
-.employeeTabs > .employeeTabActive {
-  color: hsl(var(--foreground));
-  font-weight: 600;
-}
-.employeeTabActive:after {
-  content: "";
-  height: 2px;
-  background: hsl(var(--muted));
-  position: absolute;
-  bottom: -1px;
-  left: 0;
-  right: 0;
 }
 .shiftInspector {
   margin-top: 14px;
@@ -1816,14 +1732,6 @@
   color: hsl(var(--muted-foreground));
   font-size: 20px;
 }
-.tabs button {
-  font-size: 14px;
-  color: hsl(var(--muted-foreground));
-}
-.tabs .activeTab {
-  color: hsl(var(--foreground));
-}
-.activeTab:after,
 .legend i,
 .filterButton > i {
   background: hsl(var(--brand));
@@ -1868,13 +1776,9 @@
 .dialog .breakdown strong {
   color: hsl(var(--foreground));
 }
-.employeeTabs > .employeeTabActive,
 .shiftBack,
 .fullDetailLink {
   color: hsl(var(--brand));
-}
-.employeeTabActive:after {
-  background: hsl(var(--brand));
 }
 @media (max-width: 1150px) {
   .metric {
@@ -2077,12 +1981,6 @@
   align-items: center;
   gap: 6px;
 }
-.dialogActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 22px;
-}
 @media (max-width: 700px) {
   .functionalControls {
     width: 100%;
@@ -2197,20 +2095,5 @@
   }
   .metric strong {
     font-size: 22px;
-  }
-}
-
-@media (max-width: 540px) {
-  .tabs > div {
-    display: grid;
-    width: 100%;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 4px 16px;
-  }
-  .tabs button {
-    min-height: 40px;
-    padding: 6px 0;
-    text-align: left;
-    line-height: 1.3;
   }
 }

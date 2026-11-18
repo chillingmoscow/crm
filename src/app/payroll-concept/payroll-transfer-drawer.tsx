@@ -14,7 +14,8 @@ import { PayrollEmployeePicker } from "@/app/(dashboard)/people/payroll/_compone
 import { transferPayroll, cancelPayrollTransfer } from "@/app/(dashboard)/people/payroll/actions";
 import { statementRows } from "@/lib/payroll/calculate";
 import formStyle from "./concept-payment-form.module.css";
-import type { PayrollData } from "@/lib/payroll/types";
+import type { PayrollData, PayrollTransfer } from "@/lib/payroll/types";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 
 const money = (n: number) => `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(n)} ₽`;
 const monthLabel = (m: string) => new Date(`${m}T12:00:00Z`).toLocaleDateString("ru-RU", {month:"long", year:"numeric", timeZone:"UTC"}).replace(" г.", "");
@@ -42,6 +43,25 @@ export function PayrollTransferDrawer({data, month, employeeId, onClose, onChang
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
     try { await action(); await onChange(); } catch(e) { toast.error(e instanceof Error ? e.message : "Не удалось сохранить перенос"); }
+    finally { setBusy(false); }
+  };
+  // Отмена переноса меняет остатки двух месяцев — только через подтверждение.
+  const [cancelling, setCancelling] = useState<PayrollTransfer | null>(null);
+  const [cancelError, setCancelError] = useState("");
+  const confirmCancel = async () => {
+    if (!cancelling) return;
+    setBusy(true);
+    setCancelError("");
+    try {
+      await cancelPayrollTransfer(cancelling.id);
+    } catch (e) {
+      setCancelError(e instanceof Error ? e.message : "Не удалось отменить перенос");
+      setBusy(false);
+      return;
+    }
+    setCancelling(null);
+    toast.success("Перенос отменён");
+    try { await onChange(); } catch { /* Ведомость обновится при следующем автообновлении. */ }
     finally { setBusy(false); }
   };
   return <PayrollDetailDialog open onOpenChange={(open) => {if (!open && !busy) onClose();}} title="Перенести остаток"
@@ -73,10 +93,23 @@ export function PayrollTransferDrawer({data, month, employeeId, onClose, onChang
           <div className="flex flex-wrap items-center gap-2"><span>{monthLabel(t.from_month)}</span><ArrowRight size={14}/><span>{monthLabel(t.to_month)}</span></div>
           <div className="flex items-center justify-between"><strong className="font-medium">{money(Number(t.amount))}</strong>{t.state==="cancelled" && <span className="text-xs text-muted-foreground">Отменён</span>}</div>
           <p className="text-xs text-muted-foreground">{t.reason}</p>
-          {t.state==="posted" && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(async () => {await cancelPayrollTransfer(t.id);toast.success("Перенос отменён");})}>Отменить перенос</Button>}
+          {t.state==="posted" && <Button size="sm" variant="ghost" disabled={busy} onClick={() => {setCancelError("");setCancelling(t);}}>Отменить перенос</Button>}
         </div>)}
       </section>}
       {data.permissions.includes("org.view_audit") && <Link href="/org/audit?types=payroll_transfer" className="inline-flex text-xs text-brand hover:underline">Журнал переносов →</Link>}
     </div>
+    <ConfirmDialog
+      open={Boolean(cancelling)}
+      onOpenChange={(open) => { if (!open) setCancelling(null); }}
+      title={cancelling ? `Отменить перенос ${money(Math.abs(Number(cancelling.amount)))}?` : "Отменить перенос?"}
+      description={cancelling ? `Сумма вернётся из ведомости за ${monthLabel(cancelling.to_month)} в ведомость за ${monthLabel(cancelling.from_month)}. Перенос останется в списке с отметкой «Отменён». Движения денег не будет.` : undefined}
+      confirmLabel="Отменить перенос"
+      pendingLabel="Отменяем…"
+      destructive
+      busy={busy}
+      onConfirm={() => void confirmCancel()}
+    >
+      {cancelError && <p role="alert" className="text-sm text-destructive">{cancelError}</p>}
+    </ConfirmDialog>
   </PayrollDetailDialog>;
 }

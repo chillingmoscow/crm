@@ -18,6 +18,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { fieldFocusClass, fieldInvalidClass } from "@/components/ui/field-styles";
 
 export type ComboboxOption = {
   value: string;
@@ -95,7 +96,10 @@ export function Combobox({
           aria-label={ariaLabel}
           disabled={disabled}
           className={cn(
+            // Поле формы, а не кнопка: фокус и рамка ошибки как у Input.
             "w-full justify-between font-normal",
+            fieldFocusClass,
+            fieldInvalidClass,
             !selected && "text-muted-foreground",
             triggerClassName
           )}

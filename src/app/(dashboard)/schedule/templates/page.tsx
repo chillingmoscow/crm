@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getCachedUser } from "@/lib/supabase/server";
 import { loadSchedule } from "../actions";
 import { ScheduleClient } from "../_components/schedule-client";
+
+export const metadata: Metadata = { title: "Шаблоны смен" };
 
 export default async function TemplatesPage() {
   if (!(await getCachedUser())) redirect("/login");

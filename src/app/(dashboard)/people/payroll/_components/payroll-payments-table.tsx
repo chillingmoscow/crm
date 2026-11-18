@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { loadPayrollTransactionDetails, retryPayrollAdeskSync } from "../actions";
 import { money } from "@/lib/sales/format";
-import { PayrollTable } from "./payroll-table";
+import { PayrollTable, type PayrollTableFilters } from "./payroll-table";
 import { PayrollEmployeeCell } from "./payroll-employee-cell";
 const labels = {
   date: "Дата",
@@ -50,7 +50,6 @@ export function PayrollPaymentsTable({
   externalSearch,
   filters,
   exportAction,
-  scrollMode,
   financeMonth,
   financeRole,
 }: {
@@ -64,9 +63,8 @@ export function PayrollPaymentsTable({
   toolbarTargetId?: string;
   tableId?: string;
   exportAction?: { label: string; onClick: () => void };
-  scrollMode?: "contained" | "page";
   externalSearch?: { value: string; onChange: (value: string) => void };
-  filters?: { active?: boolean; content: React.ReactNode };
+  filters?: PayrollTableFilters;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const rows = useMemo(
@@ -122,6 +120,7 @@ export function PayrollPaymentsTable({
     <>
       <PayrollTable
         id={tableId ?? `payroll.payments.${data.venueId}`}
+        label="Выплаты"
         rows={rows}
         onRow={(row) => setSelectedId(row.id)}
         columns={columns}
@@ -133,8 +132,19 @@ export function PayrollPaymentsTable({
         externalSearch={externalSearch}
         filters={filters}
         exportAction={exportAction}
-        scrollMode={scrollMode}
         actions={actions}
+        totals={(visible) => ({
+          amount: (
+            <>
+              {money(
+                visible
+                  .filter((row) => row.posted)
+                  .reduce((sum, row) => sum + row.amount, 0),
+              )}{" "}
+              <span className="font-normal text-muted-foreground">₽</span>
+            </>
+          ),
+        })}
       />
       {selected && (
         <PaymentDetails

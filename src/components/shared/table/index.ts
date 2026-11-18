@@ -9,3 +9,8 @@ export { ROW_MENU_COLUMN_SIZE, TableRowMenu, type TableRowMenuAction } from "./t
 export { TableSplitButton, type TableSplitButtonOption } from "./table-split-button";
 export { useTableState, type TableStateColumn } from "./use-table-state";
 export { useMultiSort, type MultiSort, type SortCodec, type SortDirection } from "./use-multi-sort";
+export { DataTable, cycleHeaderSort } from "./data-table";
+export { TableMobileCards } from "./table-mobile-cards";
+export { TableConditions, TableSortPin, TableSearchPin } from "./table-conditions";
+export { TableFilterChip } from "./table-filter-chip";
+export { TableSortPicker, TableSortSettings } from "./table-sort-settings";

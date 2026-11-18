@@ -14,7 +14,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "CRM Platform",
+  // Каждый маршрут задаёт свой title строкой («Сотрудники»), шаблон
+  // добавляет «— Sheerly». Страница без своего title получает default.
+  title: { template: "%s — Sheerly", default: "Sheerly" },
   description: "Корпоративная платформа управления заведениями",
   // iOS PWA: даёт standalone-режим и корректный заголовок на экране
   // «Домой». Без этого Web Push на iPhone не работает (нужна установка).

@@ -4,7 +4,7 @@ import { loadPayrollOverview } from "@/app/(dashboard)/people/payroll/actions";
 import { validDate } from "@/lib/sales/time";
 import { PayrollConcept } from "@/app/payroll-concept/payroll-concept";
 
-export const metadata: Metadata = { title: "Зарплата — Sheerly" };
+export const metadata: Metadata = { title: "Зарплата" };
 
 export default async function PayrollPage({
   searchParams,

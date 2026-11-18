@@ -42,7 +42,14 @@ export function StatusBadge({
       )}
     >
       {icon}
-      <span className="truncate">{children}</span>
+      {/* Обрезанный текст статуса виден в подсказке. */}
+      <span
+        className="truncate"
+        data-tip={typeof children === "string" ? children : undefined}
+        data-tip-overflow
+      >
+        {children}
+      </span>
     </span>
   );
 }

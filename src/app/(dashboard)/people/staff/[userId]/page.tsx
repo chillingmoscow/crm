@@ -351,6 +351,7 @@ export default async function StaffMemberPage({
         needsPasswordSetup={needsPasswordSetup}
         canViewAudit={Boolean(canViewAudit)}
         canConfigurePayroll={can("payroll.configure")}
+        canViewPay={can("payroll.view") || user.id === userId}
         initialTab={tab === "documents" || tab === "pay" ? tab : "main"}
         initialAuditEvents={auditResult.events}
         initialAuditHasMore={auditResult.hasMore}

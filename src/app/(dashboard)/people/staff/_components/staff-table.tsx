@@ -37,6 +37,7 @@ import { PeopleListHeader } from "@/components/people/people-list-header";
 import { PeopleMobileCards } from "@/components/people/people-mobile-cards";
 import styles from "@/components/people/people-table.module.css";
 import type { CasualStaffRow } from "@/lib/payroll/casual-list";
+import { cn } from "@/lib/utils";
 
 type Row =
   | { kind: "staff"; id: string; member: StaffMember }
@@ -393,7 +394,7 @@ export function StaffTable({
     getPaginationRowModel: getPaginationRowModel(),
     autoResetPageIndex: false,
   });
-  const { tableRef, onResizeStart, columnWidths, minTableWidth } =
+  const { tableRef, onResizeStart, columnWidths, minTableWidth, overflowing } =
     useTableColumnResize(table, st.setColumnSizing);
   const firstPage = () => st.setPagination((p) => ({ ...p, pageIndex: 0 }));
   const changeSorting = (sorting: typeof st.sorting) => {
@@ -590,7 +591,7 @@ export function StaffTable({
           )}
         </div>
       )}
-      <div className={styles.scroll}>
+      <div className={cn(styles.scroll, overflowing && styles.scrollX)}>
         <table
           ref={tableRef}
           className={styles.table}

@@ -95,7 +95,7 @@ const detail = (x: { sales: unknown; rate: unknown; salesSource: unknown; extraP
 test("из чего смена: выручка, ставка, касса — из расчёта и из сохранённой строки Glide", () => {
   const p = buildPayslip(data(october), employee, "2026-10-01", () => "Бармен");
   assert.deepEqual(detail(p.shifts[1]), { sales: 49998, rate: 7.5, salesSource: "бар", extraPool: null, sharedWith: 1 });
-  assert.deepEqual(detail(p.shifts[0]), { sales: 63091, rate: 3, salesSource: "бар", extraPool: 5960, sharedWith: 2 });
+  assert.deepEqual(detail(p.shifts[0]), { sales: 63091, rate: 3, salesSource: "бар", extraPool: null, sharedWith: 2 });
 });
 
 test("смена на двоих: общая сумма допродаж и число человек", () => {

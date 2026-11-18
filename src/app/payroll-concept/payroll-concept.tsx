@@ -53,8 +53,7 @@ import { recalculateInventoryDeduction } from "@/app/(dashboard)/inventory/_acti
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { TablePageHeader } from "@/components/shared/table";
 import { Money, formatRub } from "@/components/shared/money";
-import { toKopecks } from "@/lib/format/amount";
-import { formatAmount } from "@/lib/format/amount";
+import { formatAmount, toKopecks } from "@/lib/format/amount";
 import { countRu } from "@/lib/format/plural";
 
 type Row = ReturnType<typeof statementRows>[number];

@@ -8,6 +8,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2, Lock, Search, Trash2 } from "lucide-react";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -406,12 +407,7 @@ export function RoleDetailPage({
                 {role.name}
               </h1>
               {role.venue_id === null && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">
-                  <Lock className="w-2.5 h-2.5" />
-                  <span className="text-[10px] font-medium leading-none">
-                    Системная
-                  </span>
-                </span>
+                <StatusBadge icon={<Lock />}>Системная</StatusBadge>
               )}
             </div>
             {role.comment && (

@@ -1,6 +1,5 @@
 "use client";
 import type { ReactNode } from "react";
-import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 export function Field({
   label,
@@ -42,26 +41,6 @@ export function FieldSelect({
         </SelectContent>
       </Select>
     </Field>
-  );
-}
-export function StatusBadge({
-  label,
-  className,
-}: {
-  label: string;
-  className?: string;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex min-w-0 max-w-full items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium transition-colors duration-150",
-        className,
-      )}
-    >
-      <span className="truncate" data-tip={label} data-tip-overflow>
-        {label}
-      </span>
-    </span>
   );
 }
 export function safeLink(value: string) {
@@ -118,14 +97,3 @@ export function wallTime(value: string, timezone: string) {
     .replace(" ", "T");
 }
 
-export function plural(n: number, forms: [string, string, string]) {
-  const a = Math.abs(n) % 100,
-    b = a % 10;
-  return a > 10 && a < 20
-    ? forms[2]
-    : b === 1
-      ? forms[0]
-      : b > 1 && b < 5
-        ? forms[1]
-        : forms[2];
-}

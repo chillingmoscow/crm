@@ -1,3 +1,5 @@
+import type { StatusTone } from "@/components/ui/status-badge";
+
 export const CANDIDATE_STAGES = {
   new: "Новая анкета",
   review: "Можно рассмотреть",
@@ -33,13 +35,14 @@ export type CandidatePage = {
   page: number;
   pageSize: number;
 };
-export const STATUS_CLASSES: Record<CandidateStatus, string> = {
-  new: "bg-muted text-muted-foreground",
-  review: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
-  interview: "bg-brand/10 text-brand",
-  trial: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-  hired: "bg-brand/10 text-brand",
-  rejected: "bg-destructive/10 text-destructive",
+/** Тон статуса: соседние этапы не делят цвет, «Принят» — success. */
+export const STATUS_TONES: Record<CandidateStatus, StatusTone> = {
+  new: "neutral",
+  review: "warning",
+  interview: "info",
+  trial: "accent",
+  hired: "success",
+  rejected: "danger",
 };
 export type Candidate = {
   id: string;

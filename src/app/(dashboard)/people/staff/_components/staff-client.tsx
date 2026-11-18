@@ -26,6 +26,7 @@ import { PhoneInput } from "@/components/ui/phone-input";
 import { formatPhoneDisplay } from "@/lib/format/phone";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
   Select,
   SelectContent,
@@ -451,54 +452,40 @@ export function StaffClient({
             </Link>
             {isPlaceholder && (
               <span
-                className="inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground"
+                className="inline-flex shrink-0"
                 data-tip="Сотрудник без аккаунта. Когда понадобится дать ему доступ — впишите email в карточке и отправьте приглашение."
               >
-                <Lock className="w-2.5 h-2.5" />
-                <span className="text-[10px] font-medium leading-none">
-                  Без аккаунта
-                </span>
+                <StatusBadge icon={<Lock />}>Без аккаунта</StatusBadge>
               </span>
             )}
             {isPendingInvite && (
               <span
-                className="inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground"
+                className="inline-flex shrink-0"
                 data-tip="Приглашение отправлено, но сотрудник ещё не подтвердил email."
               >
-                <Clock className="w-2.5 h-2.5" />
-                <span className="text-[10px] font-medium leading-none">
+                <StatusBadge tone="warning" icon={<Clock />}>
                   Ожидает
-                </span>
+                </StatusBadge>
               </span>
             )}
             {medbook && (
-              <span
-                className={`inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded-full ${
-                  medbook.kind === "expired"
-                    ? "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300"
-                    : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
-                }`}
-                data-tip={medbook.title}
-              >
-                <HeartPulse className="w-2.5 h-2.5" />
-                <span className="text-[10px] font-medium leading-none">
+              <span className="inline-flex shrink-0" data-tip={medbook.title}>
+                <StatusBadge
+                  tone={medbook.kind === "expired" ? "danger" : "warning"}
+                  icon={<HeartPulse />}
+                >
                   {medbook.label}
-                </span>
+                </StatusBadge>
               </span>
             )}
             {bday && (
-              <span
-                className={`inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded-full ${
-                  bday.kind === "today"
-                    ? "bg-pink-100 text-pink-700 dark:bg-pink-500/15 dark:text-pink-300"
-                    : "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300"
-                }`}
-                data-tip={bday.title}
-              >
-                <Cake className="w-2.5 h-2.5" />
-                <span className="text-[10px] font-medium leading-none">
+              <span className="inline-flex shrink-0" data-tip={bday.title}>
+                <StatusBadge
+                  tone={bday.kind === "today" ? "accent" : "info"}
+                  icon={<Cake />}
+                >
                   {bday.label}
-                </span>
+                </StatusBadge>
               </span>
             )}
           </div>
@@ -606,8 +593,8 @@ export function StaffClient({
       case "avatar":
         return (
           <div className="flex items-center justify-center">
-            <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
-              <Clock className="w-4 h-4 text-amber-600" />
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400">
+              <Clock className="size-4" />
             </div>
           </div>
         );
@@ -617,12 +604,9 @@ export function StaffClient({
             <span className="text-sm truncate text-foreground/70">
               {inv.email}
             </span>
-            <span className="inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">
-              <Clock className="w-2.5 h-2.5" />
-              <span className="text-[10px] font-medium leading-none">
-                Ожидает
-              </span>
-            </span>
+            <StatusBadge tone="warning" icon={<Clock />} className="shrink-0">
+              Ожидает
+            </StatusBadge>
           </div>
         );
       case "role":
@@ -715,11 +699,10 @@ export function StaffClient({
               {c.name}
             </Link>
             <span
-              className="inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground"
+              className="inline-flex shrink-0"
               data-tip="Выходит на смены по графику без входа в Sheerly. Отмечается в кассе своим PIN."
             >
-              <CalendarClock className="w-2.5 h-2.5" />
-              <span className="text-[10px] font-medium leading-none">Разовый</span>
+              <StatusBadge icon={<CalendarClock />}>Разовый</StatusBadge>
             </span>
           </div>
         );

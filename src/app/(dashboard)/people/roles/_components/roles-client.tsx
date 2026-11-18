@@ -16,6 +16,8 @@ import {
 import { iconForRole } from "./role-icons";
 import { IconPicker } from "./icon-picker";
 import { paletteText, type PaletteColor } from "@/lib/palette";
+import { pluralRu } from "@/lib/format/plural";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
@@ -414,14 +416,9 @@ export function RolesClient({
             <div className="flex items-center gap-2 min-w-0">
               <span className="font-medium text-sm truncate">{role.name}</span>
               {isSystem && (
-                // Matches iXYPZ in design: lock 10 + 10/500 text muted-foreground,
-                // bg-secondary, NO border, NO uppercase, gap 4, padding [2,6].
-                <span className="inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">
-                  <Lock className="w-2.5 h-2.5" />
-                  <span className="text-[10px] font-medium leading-none">
-                    Системная
-                  </span>
-                </span>
+                <StatusBadge icon={<Lock />} className="shrink-0">
+                  Системная
+                </StatusBadge>
               )}
             </div>
             {desc && (
@@ -448,12 +445,7 @@ export function RolesClient({
         if (count === 0) {
           return <span className="text-sm text-muted-foreground">—</span>;
         }
-        const label =
-          count === 1
-            ? "сотрудник"
-            : count < 5
-            ? "сотрудника"
-            : "сотрудников";
+        const label = pluralRu(count, "сотрудник", "сотрудника", "сотрудников");
         return (
           <div className="flex items-center gap-2 text-sm">
             <span className="flex items-center justify-center size-6 rounded-full bg-violet-400 text-white text-[11px] font-semibold">

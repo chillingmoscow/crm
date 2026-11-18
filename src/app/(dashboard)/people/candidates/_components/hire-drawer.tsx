@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Money } from "@/components/shared/money";
 import type { CandidateDetail, HiringOptions } from "@/lib/candidates/types";
 import {
   hireCandidate,
@@ -226,7 +227,7 @@ export function HireDrawer({
           {rule ? (
             <>
               <p>
-                Оклад: {Number(rule.monthly_amount).toLocaleString("ru-RU")} ₽
+                Оклад: <Money value={Number(rule.monthly_amount)} />
               </p>
               <details>
                 <summary className="cursor-pointer text-brand">
@@ -250,12 +251,15 @@ export function HireDrawer({
                       {Object.entries(rule.rates).map(([count, days]) => (
                         <tr className="border-t" key={count}>
                           <th className="p-1 text-left">{count}</th>
-                          {Array.from({ length: 7 }, (_, d) => (
-                            <td className="whitespace-nowrap p-1" key={d}>
-                              {days[String(d + 1)]?.base ?? "—"} ₽ /{" "}
-                              {days[String(d + 1)]?.percent ?? "—"}%
-                            </td>
-                          ))}
+                          {Array.from({ length: 7 }, (_, d) => {
+                            const day = days[String(d + 1)];
+                            return (
+                              <td className="whitespace-nowrap p-1" key={d}>
+                                <Money value={day?.base} /> /{" "}
+                                {day?.percent == null ? "—" : `${day.percent}%`}
+                              </td>
+                            );
+                          })}
                         </tr>
                       ))}
                     </tbody>

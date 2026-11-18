@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { OptionSelect } from "@/components/ui/option-select";
 import { Textarea } from "@/components/ui/textarea";
 import { paletteText, type PaletteColor } from "@/lib/palette";
+import { pluralRu } from "@/lib/format/plural";
 
 import { ICON_REGISTRY } from "../../roles/_components/role-icons";
 import { createDepartment, type DepartmentSummary } from "../actions";
@@ -331,12 +332,7 @@ export function DepartmentsClient({
         if (d.roles_count === 0) {
           return <span className="text-sm text-muted-foreground">—</span>;
         }
-        const label =
-          d.roles_count === 1
-            ? "должность"
-            : d.roles_count < 5
-              ? "должности"
-              : "должностей";
+        const label = pluralRu(d.roles_count, "должность", "должности", "должностей");
         return (
           <div className="flex items-center gap-2 text-sm">
             <span className="flex items-center justify-center size-6 rounded-full bg-violet-400 text-white text-[11px] font-semibold">
@@ -350,12 +346,7 @@ export function DepartmentsClient({
         if (d.staff_count === 0) {
           return <span className="text-sm text-muted-foreground">—</span>;
         }
-        const label =
-          d.staff_count === 1
-            ? "сотрудник"
-            : d.staff_count < 5
-              ? "сотрудника"
-              : "сотрудников";
+        const label = pluralRu(d.staff_count, "сотрудник", "сотрудника", "сотрудников");
         return (
           <div className="flex items-center gap-2 text-sm">
             <span className="flex items-center justify-center size-6 rounded-full bg-emerald-400 text-white text-[11px] font-semibold">

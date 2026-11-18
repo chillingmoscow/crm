@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { CheckCircle2, AlertCircle, Loader2, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { retryStaffTermination } from "../actions";
 
 export function StaffTerminationStatus({
@@ -56,14 +57,16 @@ export function StaffTerminationStatus({
     >
       <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-brand [&::-webkit-details-marker]:hidden">
         <span className="flex-1 font-medium">Закрытие доступов</span>
-        <span
-          className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs ${error ? "bg-destructive/10 text-destructive" : !complete ? "bg-muted text-muted-foreground" : manualDoorCheck ? "bg-amber-500/10 text-amber-700 dark:text-amber-400" : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"}`}
+        <StatusBadge
+          tone={error ? "danger" : !complete ? "neutral" : manualDoorCheck ? "warning" : "success"}
+          icon={
+            <Icon
+              className={!error && !complete ? "animate-spin motion-reduce:animate-none" : undefined}
+            />
+          }
         >
-          <Icon
-            className={`size-3.5 ${!error && !complete ? "animate-spin motion-reduce:animate-none" : ""}`}
-          />
           {label}
-        </span>
+        </StatusBadge>
         <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180 motion-reduce:transition-none" />
       </summary>
       <div className="mt-4 space-y-3" role="status">

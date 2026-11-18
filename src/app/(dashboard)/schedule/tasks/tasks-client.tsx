@@ -51,6 +51,7 @@ import {
 import { toast } from "sonner";
 import type { Answer, ChecklistItem } from "@/lib/schedule/types";
 import { dayLabel } from "@/lib/schedule/utils";
+import { countRu } from "@/lib/format/plural";
 import {
   missingItems,
   taskStatus,
@@ -196,10 +197,6 @@ function SwitchRow({
       />
     </div>
   );
-}
-function plural(count: number, one: string, few: string, many: string) {
-  const key = new Intl.PluralRules("ru-RU").select(count);
-  return key === "one" ? one : key === "few" ? few : many;
 }
 function newItem(kind: ChecklistItem["kind"] = "check"): ChecklistItem {
   return {
@@ -616,8 +613,7 @@ function DefinitionEditor({
           title="Чек-лист"
           actions={
             <span className="text-[13px] text-muted-foreground">
-              {value.items.length}{" "}
-              {plural(value.items.length, "пункт", "пункта", "пунктов")}
+              {countRu(value.items.length, "пункт", "пункта", "пунктов")}
             </span>
           }
         >

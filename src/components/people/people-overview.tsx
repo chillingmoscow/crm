@@ -159,7 +159,7 @@ const stageColors = {
   new: "bg-muted-foreground/45",
   review: "bg-amber-400/80",
   interview: "bg-brand/80",
-  trial: "bg-emerald-400/80",
+  trial: "bg-violet-400/80",
   rejected: "bg-rose-400/75",
 };
 const funnelLabels = {

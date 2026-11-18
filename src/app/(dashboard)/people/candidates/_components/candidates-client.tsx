@@ -37,7 +37,7 @@ import {
 } from "@/lib/candidates/types";
 import { deleteCandidates, listCandidates } from "../actions";
 import { CandidateDeleteDialog } from "./candidate-delete-dialog";
-import { plural } from "./fields";
+import { countRu } from "@/lib/format/plural";
 import {
   candidateColumns,
   COLUMN_CONFIG,
@@ -361,7 +361,7 @@ export function CandidatesClient({
               label={
                 st.sorting.length === 1
                   ? FIELD_LABELS[st.sorting[0].id as CandidateField]
-                  : `${st.sorting.length} ${plural(st.sorting.length, ["сортировка", "сортировки", "сортировок"])}`
+                  : countRu(st.sorting.length, "сортировка", "сортировки", "сортировок")
               }
               icon={
                 st.sorting.length === 1 ? (
@@ -460,7 +460,7 @@ export function CandidatesClient({
         </div>
       ) : null}
       <p className="sr-only" aria-live="polite">
-        {list.total} {plural(list.total, ["анкета", "анкеты", "анкет"])}
+        {countRu(list.total, "анкета", "анкеты", "анкет")}
       </p>
       <div className="min-w-0 space-y-3" aria-busy={loading}>
         {error ? (

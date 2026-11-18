@@ -30,7 +30,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Input } from "@/components/ui/input";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -774,37 +774,18 @@ export function StaffDetailPage({
             )}
           </span>
           {isFired ? (
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-secondary">
-              <span className="text-[12px] font-medium text-muted-foreground leading-none">
-                Уволен{firedAt ? ` · ${formatDate(firedAt)}` : ""}
-              </span>
-            </span>
+            <StatusBadge>
+              Уволен{firedAt ? ` · ${formatDate(firedAt)}` : ""}
+            </StatusBadge>
           ) : isPlaceholderUser ? (
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-secondary">
-              <span className="text-[12px] font-medium text-muted-foreground leading-none">
-                Без аккаунта
-              </span>
-            </span>
+            <StatusBadge>Без аккаунта</StatusBadge>
           ) : isPendingInvite ? (
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-500/15">
-              <span className="text-[12px] font-medium text-amber-700 dark:text-amber-300 leading-none">
-                Ожидает подтверждения
-              </span>
-            </span>
+            <StatusBadge tone="warning">Ожидает подтверждения</StatusBadge>
           ) : (
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/15">
-              <span className="text-[12px] font-medium text-emerald-700 dark:text-emerald-400 leading-none">
-                Активен
-              </span>
-            </span>
+            <StatusBadge tone="success">Активен</StatusBadge>
           )}
           {importedFromQuickResto && (
-            <Badge
-              variant="outline"
-              className="text-[11px] border-blue-200 text-blue-700 dark:text-blue-300 dark:border-blue-500/30"
-            >
-              Из QuickResto
-            </Badge>
+            <StatusBadge tone="info">Из Quick Resto</StatusBadge>
           )}
         </ProfileHeader>
 
@@ -1058,9 +1039,9 @@ export function StaffDetailPage({
                     <Label className="text-[13px] font-medium">
                       Email
                       {isPendingInvite && (
-                        <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-500/15 text-[10px] font-medium text-amber-700 dark:text-amber-300 leading-none">
+                        <StatusBadge tone="warning" className="ml-2">
                           Ожидает подтверждения
-                        </span>
+                        </StatusBadge>
                       )}
                     </Label>
                     <div className="flex items-center gap-2">

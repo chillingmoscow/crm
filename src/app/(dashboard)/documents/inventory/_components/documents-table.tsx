@@ -558,7 +558,7 @@ export function DocumentsTable({
         label: "Комментарий",
         size: 240,
         cell: (row: DocumentListRow) => (
-          <span className="block truncate text-sm text-muted-foreground" data-tip={row.comment ?? undefined}>
+          <span className="block truncate text-sm text-muted-foreground" data-tip={row.comment ?? undefined} data-tip-overflow>
             {row.comment ?? "—"}
           </span>
         ),

@@ -171,7 +171,7 @@ export function CandidateDetailClient({
           <span aria-hidden="true" className="text-muted-foreground">/</span>
           <Link href="/people/candidates" className="shrink-0 text-muted-foreground hover:text-foreground">Кандидаты</Link>
           <span aria-hidden="true" className="text-muted-foreground">/</span>
-          <span aria-current="page" className="min-w-0 truncate" data-tip={c.full_name}>{c.full_name}</span>
+          <span aria-current="page" className="min-w-0 truncate" data-tip={c.full_name} data-tip-overflow>{c.full_name}</span>
         </nav>
       </PageBreadcrumb>
       <div className="mx-auto flex w-full min-w-0 max-w-[1120px] flex-col gap-6 px-6 pb-8 pt-4 md:px-8">

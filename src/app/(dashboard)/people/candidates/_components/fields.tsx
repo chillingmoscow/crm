@@ -58,7 +58,7 @@ export function StatusBadge({
         className,
       )}
     >
-      <span className="truncate" data-tip={label}>
+      <span className="truncate" data-tip={label} data-tip-overflow>
         {label}
       </span>
     </span>

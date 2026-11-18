@@ -8,6 +8,7 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import { validateVariants } from "@/lib/schedule/template-times";
 import type { ShiftAttendanceMark, ShiftAttendanceSnapshot } from "@/lib/payroll/types";
 import { addDays, validDate } from "@/lib/sales/time";
+import { dateInZone } from "@/lib/schedule/utils";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 const uuid = z.string().uuid();
@@ -422,6 +423,25 @@ export async function applyTemplateToShifts(input: {
   if (error || !data) return { error: error?.message ?? "Не удалось обновить смены" };
   revalidatePath("/schedule");
   return data as ApplyTemplateResult;
+}
+/** Сколько смен по шаблону начинается с даты (по часам заведения) — для окна «Обновить смены». */
+export async function countTemplateShifts(input: { id: string; from: string }): Promise<number> {
+  const parsed = z.object({ id: uuid, from: z.string().refine(validDate) }).safeParse(input);
+  if (!parsed.success) throw new Error("Проверьте шаблон и дату");
+  const db = await client();
+  const { data: venueId } = await db.rpc("get_active_venue_id");
+  if (!venueId) throw new Error("Выберите заведение");
+  const venue = await db.from("venues").select("timezone").eq("id", venueId).single();
+  const timezone = venue.data?.timezone || "Europe/Moscow";
+  // Запас в сутки на часовой пояс, точная граница — по дате заведения.
+  const { data, error } = await db
+    .from("schedule_shifts")
+    .select("starts_at")
+    .eq("venue_id", venueId)
+    .eq("template_id", parsed.data.id)
+    .gte("starts_at", `${addDays(parsed.data.from, -1)}T00:00:00Z`);
+  if (error) throw new Error("Не удалось посчитать смены");
+  return (data ?? []).filter((s) => dateInZone(s.starts_at, timezone) >= parsed.data.from).length;
 }
 export async function scheduleHistory(id: string) {
   const db = await client();

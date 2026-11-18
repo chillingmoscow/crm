@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { shiftTemplateLabel, type Shift, type ShiftTemplate } from "@/lib/schedule/types";
 import { addDays, dateInZone, dayLabel, weekStart } from "@/lib/schedule/utils";
-import { applyTemplateToShifts } from "../actions";
+import { applyTemplateToShifts, countTemplateShifts } from "../actions";
 
 /**
  * После сохранения шаблона предлагает перенести изменения в уже созданные
@@ -38,9 +38,20 @@ export function ApplyTemplateDialog({
   const today = dateInZone(new Date(), timezone);
   const [from, setFrom] = useState(today);
   const [busy, setBusy] = useState(false);
-  const affected = shifts.filter(
+  // Загруженная неделя не знает о прошлых неделях — точное число считает сервер.
+  const loaded = shifts.filter(
     (s) => s.template_id === template.id && dateInZone(s.starts_at, timezone) >= from,
   ).length;
+  const [counted, setCounted] = useState<{ from: string; count: number } | null>(null);
+  useEffect(() => {
+    let live = true;
+    countTemplateShifts({ id: template.id, from })
+      .then((count) => { if (live) setCounted({ from, count }); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [template.id, from]);
+  const affected = counted?.from === from ? counted.count : loaded;
+  const counting = counted?.from !== from;
   const presets = [
     { label: "Сегодня", value: today },
     { label: "С начала недели", value: weekStart(today) },
@@ -105,15 +116,15 @@ export function ApplyTemplateDialog({
           </div>
           <p className="text-sm text-muted-foreground">
             {affected
-              ? `Смен по шаблону с ${dayLabel(from)}: ${affected}. Сотрудники и заметки не изменятся. Смены с начатым чек-листом или уже учтённые в зарплате будут пропущены.`
-              : `С ${dayLabel(from)} смен по этому шаблону нет.`}
+              ? `Смен по шаблону с ${dayLabel(from)}: ${affected}${counting ? "…" : ""}. Сотрудники и заметки не изменятся. Зарплата, опоздания и отметки пересчитаются по новому времени. Смены с начатым чек-листом будут пропущены.`
+              : counting ? "Считаем смены…" : `С ${dayLabel(from)} смен по этому шаблону нет.`}
           </p>
         </div>
         <DialogFooter>
           <Button variant="outline" disabled={busy} onClick={onClose}>
             Не обновлять
           </Button>
-          <Button disabled={busy || !affected} onClick={apply}>
+          <Button disabled={busy || counting || !affected} onClick={apply}>
             {busy ? "Обновление…" : `Обновить смены · ${affected}`}
           </Button>
         </DialogFooter>

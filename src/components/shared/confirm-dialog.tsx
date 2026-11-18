@@ -17,6 +17,10 @@ import {
  * Правила — `docs/design-system.md`, «Modal»: заголовок называет объект
  * («Удалить документ „Паспорт“?»), кнопка повторяет глагол с объектом
  * («Удалить документ»), вторая кнопка всегда «Отмена».
+ *
+ * `children` — поля, без которых действие не выполнить (причина
+ * увольнения, основание). `confirmDisabled` блокирует кнопку, пока они
+ * не заполнены; `error` показывает ошибку сервера внутри диалога.
  */
 export function ConfirmDialog({
   open,
@@ -27,6 +31,9 @@ export function ConfirmDialog({
   pendingLabel,
   destructive = false,
   busy = false,
+  confirmDisabled = false,
+  error,
+  children,
   onConfirm,
 }: {
   open: boolean;
@@ -38,6 +45,9 @@ export function ConfirmDialog({
   pendingLabel?: string;
   destructive?: boolean;
   busy?: boolean;
+  confirmDisabled?: boolean;
+  error?: string | null;
+  children?: ReactNode;
   onConfirm: () => void;
 }) {
   return (
@@ -54,6 +64,12 @@ export function ConfirmDialog({
             <DialogDescription>{description}</DialogDescription>
           ) : null}
         </DialogHeader>
+        {children}
+        {error ? (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        ) : null}
         <DialogFooter>
           <Button
             type="button"
@@ -66,7 +82,7 @@ export function ConfirmDialog({
           <Button
             type="button"
             variant={destructive ? "destructive" : "default"}
-            disabled={busy}
+            disabled={busy || confirmDisabled}
             onClick={onConfirm}
           >
             {busy && pendingLabel ? pendingLabel : confirmLabel}

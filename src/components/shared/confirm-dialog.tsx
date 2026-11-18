@@ -17,10 +17,6 @@ import {
  * Правила — `docs/design-system.md`, «Modal»: заголовок называет объект
  * («Удалить документ „Паспорт“?»), кнопка повторяет глагол с объектом
  * («Удалить документ»), вторая кнопка всегда «Отмена».
- *
- * `children` — поля, без которых действие не выполнить (причина
- * увольнения, основание). `confirmDisabled` блокирует кнопку, пока они
- * не заполнены; `error` показывает ошибку сервера внутри диалога.
  */
 export function ConfirmDialog({
   open,
@@ -32,9 +28,10 @@ export function ConfirmDialog({
   destructive = false,
   busy = false,
   confirmDisabled = false,
+  restriction,
   error,
-  children,
   onConfirm,
+  children,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -45,10 +42,18 @@ export function ConfirmDialog({
   pendingLabel?: string;
   destructive?: boolean;
   busy?: boolean;
+  /** Кнопка подтверждения неактивна, пока не выполнено условие (например, не указана причина). */
   confirmDisabled?: boolean;
-  error?: string | null;
-  children?: ReactNode;
+  /**
+   * Почему действие сейчас недоступно. Показывается в теле, кнопка
+   * подтверждения выключена: разрушительное действие не прячем, а объясняем.
+   */
+  restriction?: ReactNode;
+  /** Ошибка выполнения: остаётся в диалоге, а не уходит в тост. */
+  error?: ReactNode;
   onConfirm: () => void;
+  /** Поля между текстом и кнопками: например, причина удаления. */
+  children?: ReactNode;
 }) {
   return (
     <Dialog
@@ -65,9 +70,9 @@ export function ConfirmDialog({
           ) : null}
         </DialogHeader>
         {children}
-        {error ? (
+        {restriction || error ? (
           <p role="alert" className="text-sm text-destructive">
-            {error}
+            {restriction || error}
           </p>
         ) : null}
         <DialogFooter>
@@ -82,7 +87,7 @@ export function ConfirmDialog({
           <Button
             type="button"
             variant={destructive ? "destructive" : "default"}
-            disabled={busy || confirmDisabled}
+            disabled={busy || confirmDisabled || !!restriction}
             onClick={onConfirm}
           >
             {busy && pendingLabel ? pendingLabel : confirmLabel}

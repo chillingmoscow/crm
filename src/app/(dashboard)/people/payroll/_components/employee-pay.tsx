@@ -22,6 +22,7 @@ import tabStyle from "@/components/shared/workspace-tabs.module.css";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { toast } from "sonner";
 import { Money, formatRub } from "@/components/shared/money";
+import { toKopecks } from "@/lib/format/amount";
 import { countRu } from "@/lib/format/plural";
 export const selectClass = "h-10 w-full rounded-md border bg-background px-3 text-base md:text-sm";
 const dateLabel = (date: string) => new Date(`${date}T12:00:00Z`).toLocaleDateString("ru-RU", { timeZone: "UTC" });
@@ -102,7 +103,7 @@ export function EmployeePay({ data, employee, month, onChange, fullPage = false,
   <div className={s.stats}>
    <button aria-label="Показать начисления за месяц" onClick={() => setBreakdown(true)}><span>Начислено<ChevronRight size={16}/></span><strong><Money value={row?.earned ?? 0} /></strong></button>
    <button onClick={() => setTab("payments")}><span>Выплачено<ChevronRight size={16}/></span><strong><Money value={pending ? null : row?.paid ?? 0} /></strong></button>
-   <div><span>{balanceKnown && remaining < 0 ? "Переплата" : "К выплате"}</span><strong><Money value={balanceKnown ? Math.abs(remaining) : null} /></strong></div>
+   <div><span>{balanceKnown && toKopecks(remaining) < 0 ? "Переплата" : "К выплате"}</span><strong><Money value={balanceKnown ? Math.abs(toKopecks(remaining)) : null} fraction="auto" /></strong></div>
    <div><span>Чаевые</span><strong><Money value={row?.tips ?? 0} /></strong></div>
   </div>
   <div className={s.meta}><span>{countRu(shifts.length, "смена", "смены", "смен")}{shifts.length > 0 ? ` · В среднем ${formatRub((row?.earned ?? 0) / shifts.length)} за смену` : ""}</span>{!fullPage && <Button variant="ghost" size="sm" onClick={() => setConditions(true)}>Условия сотрудника</Button>}</div>

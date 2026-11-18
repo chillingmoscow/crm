@@ -53,6 +53,7 @@ import { recalculateInventoryDeduction } from "@/app/(dashboard)/inventory/_acti
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { TablePageHeader } from "@/components/shared/table";
 import { Money, formatRub } from "@/components/shared/money";
+import { toKopecks } from "@/lib/format/amount";
 import { formatAmount } from "@/lib/format/amount";
 import { countRu } from "@/lib/format/plural";
 
@@ -570,11 +571,12 @@ export function PayrollConcept({
               </div>
               <div className={s.metric}>
                 <span className={s.metricLabel}>
-                  {knownBalance && remaining < 0 ? "Переплата" : "К выплате"}
+                  {knownBalance && toKopecks(remaining) < 0 ? "Переплата" : "К выплате"}
                 </span>
                 <strong>
                   <Money
-                    value={knownBalance ? Math.abs(remaining) : null}
+                    value={knownBalance ? Math.abs(toKopecks(remaining)) : null}
+                    fraction="auto"
                     className={s.metricValue}
                   />
                 </strong>

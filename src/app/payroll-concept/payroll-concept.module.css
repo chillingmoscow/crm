@@ -603,6 +603,7 @@
   overflow: hidden;
 }
 .barTrack > span {
+  display: block;
   height: 100%;
   border-radius: 5px;
   min-width: 3px;

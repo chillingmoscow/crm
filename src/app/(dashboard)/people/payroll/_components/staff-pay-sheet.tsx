@@ -15,6 +15,7 @@ import { MonthPicker } from "@/components/shared/month-picker";
 import { PeriodStepper } from "@/components/shared/period-stepper";
 import { ProfileSection } from "@/components/shared/profile-section";
 import { Money, formatRub } from "@/components/shared/money";
+import { toKopecks } from "@/lib/format/amount";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { countRu } from "@/lib/format/plural";
 import { accrualRole } from "@/lib/payroll/accrual-view";
@@ -257,10 +258,10 @@ export function StaffPaySheet({
         <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
           <div className="min-w-0">
             <h2 className="text-xs font-medium text-muted-foreground">
-              {!unknownReason && remaining < 0 ? `Переплата за ${name}` : `К выплате за ${name}`}
+              {!unknownReason && toKopecks(remaining) < 0 ? `Переплата за ${name}` : `К выплате за ${name}`}
             </h2>
             <p className="mt-1 text-[32px] font-semibold leading-tight tracking-tight tabular-nums sm:text-4xl">
-              <Money value={unknownReason ? null : Math.abs(remaining)} />
+              <Money value={unknownReason ? null : Math.abs(toKopecks(remaining))} fraction="auto" />
             </p>
           </div>
           <div className="flex gap-2">

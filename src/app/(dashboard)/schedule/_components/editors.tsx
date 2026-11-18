@@ -14,6 +14,7 @@ import { OptionSelect } from "@/components/ui/option-select";
 import { EmployeePicker } from "./employee-picker";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { DrawerSection } from "@/components/ui/drawer-blocks";
+import { useDiscardGuard } from "@/components/shared/discard-changes-dialog";
 import { PALETTE_COLORS, paletteDot } from "@/lib/palette";
 import { cn } from "@/lib/utils";
 import { shiftTemplateLabel } from "@/lib/schedule/types";
@@ -470,6 +471,14 @@ export function ShiftEditor({
     : null;
   const selectedPayModelName = data.payModels?.find((model) => model.id === selectedPayModel)?.name;
   const [busy, setBusy] = useState(false);
+  // Закрытие с изменениями спрашивает подтверждение: сравниваем с тем, что
+  // было в форме при открытии.
+  const snapshot = JSON.stringify({ value, date, who, note, templateId });
+  const [initialSnapshot] = useState(snapshot);
+  const { guard, dialog } = useDiscardGuard(snapshot !== initialSnapshot);
+  const requestClose = () => {
+    if (!busy) guard(onClose);
+  };
   const started = shift && data.runs.some((r) => r.shift_id === shift.id);
   const unavailable = new Set(templateSlot
     ? data.shifts.filter((item) => item.id !== shift?.id &&
@@ -527,10 +536,11 @@ export function ShiftEditor({
     </>
   );
   return (
+    <>
     <EditDrawer
       open
       onOpenChange={(o) => {
-        if (!o && !busy) onClose();
+        if (!o) requestClose();
       }}
       title={
         templateSlot ? (shift && shiftAssignee(shift) ? "Замена сотрудника" : "Назначить сотрудника") : copy
@@ -545,7 +555,7 @@ export function ShiftEditor({
         : shift?.published && !copy ? "Смена опубликована — изменения сразу увидит сотрудник" : undefined}
       footer={
         <>
-          <Button variant="outline" onClick={onClose} disabled={busy}>
+          <Button variant="outline" onClick={requestClose} disabled={busy}>
             Отмена
           </Button>
           <Button
@@ -698,6 +708,8 @@ export function ShiftEditor({
         </>
       )}
     </EditDrawer>
+    {dialog}
+    </>
   );
 }
 export function TemplateEditor({
@@ -732,6 +744,12 @@ export function TemplateEditor({
   );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const snapshot = JSON.stringify({ value, variants });
+  const [initialSnapshot] = useState(snapshot);
+  const { guard, dialog } = useDiscardGuard(snapshot !== initialSnapshot);
+  const requestClose = () => {
+    if (!busy) guard(onClose);
+  };
   const commit = async () => {
     const problem = validateVariants(variants);
     setError(problem);
@@ -757,10 +775,11 @@ export function TemplateEditor({
     setBusy(false);
   };
   return (
+    <>
     <EditDrawer
       open
       onOpenChange={(o) => {
-        if (!o && !busy) onClose();
+        if (!o) requestClose();
       }}
       title={
         copy
@@ -771,7 +790,7 @@ export function TemplateEditor({
       }
       footer={
         <>
-          <Button variant="outline" disabled={busy} onClick={onClose}>
+          <Button variant="outline" disabled={busy} onClick={requestClose}>
             Отмена
           </Button>
           <Button disabled={busy} onClick={commit}>
@@ -817,6 +836,8 @@ export function TemplateEditor({
         <ShiftRoleField data={data} value={value} set={set} />
       </DrawerSection>
     </EditDrawer>
+    {dialog}
+    </>
   );
 }
 function newItem(parent_id: string | null = null): ChecklistItem {

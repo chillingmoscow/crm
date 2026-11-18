@@ -112,7 +112,7 @@ export function PayrollPreview({ initialView }: { initialView: View }) {
   ];
 
   return <PageFrame className={s.page}>
-    <PageBreadcrumb><Link href="/payroll-concept" className={s.back}><ArrowLeft size={15} />Зарплата</Link></PageBreadcrumb>
+    <PageBreadcrumb><Link href="/people/payroll" className={s.back}><ArrowLeft size={15} />Зарплата</Link></PageBreadcrumb>
     <div className={s.previewBar}><nav aria-label="Макеты зарплаты"><button aria-current={view === "role" ? "page" : undefined} onClick={() => selectView("role")}>Оплата должности</button><button aria-current={view === "employee" ? "page" : undefined} onClick={() => selectView("employee")}>Расчёт сотрудника</button></nav><span>Макет · пример данных</span></div>
     {view === "role" ? <>
       <header className={s.heading}><div><h1>{master}</h1><p>Оплата труда</p></div><Button variant="outline" onClick={() => open("history")}><History />История</Button></header>

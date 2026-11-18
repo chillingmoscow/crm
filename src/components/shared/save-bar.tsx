@@ -30,19 +30,25 @@ export function SaveBar({
   dirty,
   saving = false,
   blocked,
+  notice,
   onSave,
   onReset,
   className,
 }: {
   dirty: boolean;
   saving?: boolean;
-  /** Почему сохранить нельзя: кнопка неактивна, причина в подсказке. */
+  /** Почему сохранить нельзя: кнопка неактивна, причина написана в полосе. */
   blocked?: string | null;
+  /** Что не сохранится при нажатии (часть изменений): текст в полосе. */
+  notice?: string | null;
   onSave: () => void;
   onReset: () => void;
   className?: string;
 }) {
-  const leaveDialog = useLeaveGuard(dirty);
+  // Пока идёт сохранение (и обновление данных после него), уход не
+  // спрашиваем: изменения уже отправлены.
+  const leaveDialog = useLeaveGuard(dirty && !saving);
+  const message = blocked ?? notice;
   return (
     <>
       {dirty ? (
@@ -54,8 +60,16 @@ export function SaveBar({
             className,
           )}
         >
-          <p role="status" className="text-sm text-muted-foreground">
-            Есть несохранённые изменения
+          <p
+            role="status"
+            className={cn(
+              "text-sm",
+              message
+                ? "text-amber-700 dark:text-amber-400"
+                : "text-muted-foreground",
+            )}
+          >
+            {message ?? "Есть несохранённые изменения"}
           </p>
           <div className="flex flex-1 justify-end gap-2 sm:flex-none">
             <Button
@@ -149,14 +163,17 @@ export function SaveBarScope({ children }: { children: ReactNode }) {
   );
 
   const dirtyIds = Object.keys(sections).filter((id) => sections[id].dirty);
-  const blocked =
+  // Секция, которую нельзя сохранить, не держит остальные: «Сохранить»
+  // сохраняет всё, что можно, а причина для остального написана в полосе.
+  const savableIds = dirtyIds.filter((id) => !sections[id].blocked);
+  const reason =
     dirtyIds.map((id) => sections[id].blocked).find(Boolean) ?? null;
   const busy = saving || dirtyIds.some((id) => sections[id].saving);
 
   const saveAll = async () => {
     setSaving(true);
     try {
-      for (const id of dirtyIds) {
+      for (const id of savableIds) {
         const section = handlers.current.get(id)?.current;
         if (!section) continue;
         if (!(await section.save())) break;
@@ -172,7 +189,10 @@ export function SaveBarScope({ children }: { children: ReactNode }) {
       <SaveBar
         dirty={dirtyIds.length > 0}
         saving={busy}
-        blocked={blocked}
+        blocked={savableIds.length ? null : reason}
+        notice={
+          savableIds.length && reason ? `${reason}. Остальное сохранится` : null
+        }
         onSave={() => void saveAll()}
         onReset={() => {
           for (const id of dirtyIds) handlers.current.get(id)?.current.reset();

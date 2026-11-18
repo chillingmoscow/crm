@@ -95,6 +95,9 @@ export function DepartmentDetailPage({
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  // Обновление данных после сохранения — отдельный переход: общий
+  // isPending занят и переключением прав, и откреплением должностей.
+  const [refreshing, startRefresh] = useTransition();
   const [activeTab, setActiveTab] = useState<TabKey>("main");
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -182,7 +185,7 @@ export function DepartmentDetailPage({
       }
       toast.success("Изменения сохранены");
       // Полоса остаётся в «Сохраняем…», пока не придут свежие данные.
-      startTransition(() => router.refresh());
+      startRefresh(() => router.refresh());
       return true;
     } catch {
       toast.error("Не удалось сохранить изменения. Проверьте подключение и повторите");
@@ -276,7 +279,7 @@ export function DepartmentDetailPage({
         <SaveBarScope>
         <SaveBarSection
           dirty={canManage && dirty}
-          saving={saving || (dirty && isPending)}
+          saving={saving || refreshing}
           save={saveMain}
           reset={resetMain}
           blocked={

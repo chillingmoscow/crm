@@ -125,6 +125,9 @@ export function RoleDetailPage({
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  // Обновление данных после сохранения — отдельный переход: общий
+  // isPending занят и переключением прав, и откреплением должностей.
+  const [refreshing, startRefresh] = useTransition();
 
   // Settings tab state
   const [nameValue, setNameValue] = useState(role.name);
@@ -264,7 +267,7 @@ export function RoleDetailPage({
       toast.success("Изменения сохранены");
       // Полоса пропадёт, когда придут свежие данные: до этого она остаётся
       // в состоянии «Сохраняем…», а не снова предлагает сохранить.
-      startTransition(() => router.refresh());
+      startRefresh(() => router.refresh());
     } catch {
       toast.error("Не удалось сохранить изменения. Проверьте подключение и повторите");
     } finally {
@@ -746,7 +749,7 @@ export function RoleDetailPage({
 
         <SaveBar
           dirty={isDirty}
-          saving={saving || (isDirty && isPending)}
+          saving={saving || refreshing}
           blocked={saveBlocked}
           onSave={() => void handleSave()}
           onReset={resetDetails}

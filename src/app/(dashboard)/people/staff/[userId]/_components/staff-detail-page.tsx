@@ -947,6 +947,15 @@ export function StaffDetailPage({
               }}
               className="flex flex-col gap-5"
             >
+              {/* Enter в поле сохраняет форму: без кнопки отправки форма
+                  с несколькими полями по Enter не отправляется. Видимая
+                  кнопка — в полосе сохранения. */}
+              <button
+                type="submit"
+                tabIndex={-1}
+                aria-hidden
+                className="sr-only"
+              />
               {isFired && (firedReason || terminationStatus) && (
                 <FormSection title="Увольнение">
                   {firedReason && (

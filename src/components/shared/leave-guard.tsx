@@ -57,9 +57,14 @@ export function useLeaveGuard(active: boolean): ReactNode {
           url.search === window.location.search)
       )
         return;
+      // Путь вида «//host/…» router.push понял бы как адрес другого сайта:
+      // перехватываем только обычные пути внутри приложения, остальное
+      // уходит браузеру и закрывается предупреждением beforeunload.
+      const path = url.pathname + url.search + url.hash;
+      if (!/^\/(?!\/)/.test(path)) return;
       event.preventDefault();
       event.stopPropagation();
-      setPendingHref(url.pathname + url.search + url.hash);
+      setPendingHref(path);
     };
     window.addEventListener("beforeunload", guardUnload);
     document.addEventListener("click", guardLink, true);

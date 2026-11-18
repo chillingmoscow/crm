@@ -103,6 +103,7 @@ type FormValues = z.infer<typeof schema>;
 type Role = { id: string; name: string; code: string };
 
 import { StaffPayPanel } from "@/app/(dashboard)/people/payroll/_components/payroll-context";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 
 type TabKey = "pay" | "main" | "documents" | "history" | "activity" | "danger";
 
@@ -583,16 +584,28 @@ export function StaffDetailPage({
     }
   };
 
+  // Удаление документа необратимо: сначала спрашиваем, какой именно удаляем.
+  const [docToDelete, setDocToDelete] = useState<{
+    path: string;
+    name: string;
+  } | null>(null);
+  const [deletingDoc, setDeletingDoc] = useState(false);
   const handleDeletePassportPhoto = async (path: string) => {
-    const result = await changeStaffDocument({
-      userId: profile.id, accountId, expectedPaths: passportPhotos, removePath: path,
-    });
-    if (result.error) {
-      toast.error(result.error);
-      return;
+    setDeletingDoc(true);
+    try {
+      const result = await changeStaffDocument({
+        userId: profile.id, accountId, expectedPaths: passportPhotos, removePath: path,
+      });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      setPassportPhotos(result.paths ?? passportPhotos.filter((p) => p !== path));
+      setDocToDelete(null);
+      toast.success("Документ удалён");
+    } finally {
+      setDeletingDoc(false);
     }
-    setPassportPhotos(result.paths ?? passportPhotos.filter((p) => p !== path));
-    toast.success("Документ удалён");
   };
 
   const handleFire = () => {
@@ -898,7 +911,7 @@ export function StaffDetailPage({
                   )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label
                       htmlFor="first_name"
@@ -1014,7 +1027,7 @@ export function StaffDetailPage({
                 description="Телефон, мессенджер, email и адрес проживания"
                 locked={{ tone: canEditPersonal ? "info" : "locked" }}
               >
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label htmlFor="phone" className="text-[13px] font-medium">
                       Телефон
@@ -1196,7 +1209,7 @@ export function StaffDetailPage({
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label
                       htmlFor="employment_date"
@@ -1404,9 +1417,9 @@ export function StaffDetailPage({
                           {canEdit && (
                             <button
                               type="button"
-                              onClick={() => handleDeletePassportPhoto(path)}
-                              className="absolute top-2 right-2 size-6 rounded-md bg-background/90 border border-border text-muted-foreground hover:text-destructive flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                              aria-label="Удалить документ"
+                              onClick={() => setDocToDelete({ path, name })}
+                              className="absolute top-2 right-2 size-6 rounded-md bg-background/90 border border-border text-muted-foreground hover:text-destructive flex items-center justify-center opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
+                              aria-label={`Удалить документ: ${name}`}
                             >
                               <X className="w-3.5 h-3.5" />
                             </button>
@@ -1492,6 +1505,22 @@ export function StaffDetailPage({
           </TabsContent>
         </Tabs>
       </div>
+
+      <ConfirmDialog
+        open={Boolean(docToDelete)}
+        onOpenChange={(open) => {
+          if (!open) setDocToDelete(null);
+        }}
+        title={`Удалить документ «${docToDelete?.name ?? ""}»?`}
+        description="Файл удалится из карточки сотрудника. Вернуть его можно будет только повторной загрузкой."
+        confirmLabel="Удалить документ"
+        pendingLabel="Удаляем…"
+        destructive
+        busy={deletingDoc}
+        onConfirm={() => {
+          if (docToDelete) void handleDeletePassportPhoto(docToDelete.path);
+        }}
+      />
 
       {/* Confirm fire dialog */}
       <Dialog

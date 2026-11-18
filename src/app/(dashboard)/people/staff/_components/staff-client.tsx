@@ -47,7 +47,8 @@ type Props = {
   departments: DepartmentLite[];
   venueId: string;
   currentUserId: string;
-  activeRoleCode: string | null;
+  /** Право people.edit_staff у текущего пользователя. */
+  canEditStaff: boolean;
   /** null when casual workers are unavailable (e.g. before the database update). */
   casual: { employees: CasualStaffRow[]; roles: { id: string; name: string }[] } | null;
   /** Opened from the schedule: «Добавить → Разовый» is shown right away. */
@@ -206,7 +207,7 @@ export function StaffClient({
   departments,
   venueId,
   currentUserId,
-  activeRoleCode,
+  canEditStaff,
   casual,
   openAddCasual = false,
 }: Props) {
@@ -229,7 +230,9 @@ export function StaffClient({
     `${staff.length}:${fired.length}`,
   );
 
-  const canEdit = ["owner", "manager", "admin"].includes(activeRoleCode ?? "");
+  // Право, а не код должности: своя должность с people.edit_staff тоже
+  // добавляет сотрудников, а менеджер без права — нет. Считает страница.
+  const canEdit = canEditStaff;
 
   // Оба действия трудно откатить (восстановление создаёт записи в Quick Resto
   // и выдаёт код замка), поэтому сначала подтверждение.

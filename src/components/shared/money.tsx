@@ -17,8 +17,12 @@ export function Money({
 }: {
   value: number | null | undefined;
   signed?: boolean;
-  /** Копейки: только в карточке одной операции. */
-  fraction?: boolean;
+  /**
+   * Копейки: `true` — всегда (карточка одной операции); `"auto"` — только
+   * если они есть (ставки, рассрочки, остаток к выплате: округление до
+   * рубля там искажает сумму). По умолчанию — целые.
+   */
+  fraction?: boolean | "auto";
   className?: string;
 }) {
   if (typeof value !== "number" || !Number.isFinite(value))
@@ -37,7 +41,7 @@ export function Money({
       )}
     >
       {sign}
-      {formatAmount(Math.abs(value), fraction ? 2 : 0)}
+      {formatAmount(Math.abs(value), digits(value, fraction))}
       <span className="ml-0.5 text-[0.85em] font-normal text-muted-foreground">
         ₽
       </span>
@@ -48,9 +52,18 @@ export function Money({
 /** Строка суммы для тостов, подписей и экспорта: «1 200 ₽», «−300 ₽», «—». */
 export function formatRub(
   value: number | null | undefined,
-  { signed = false, fraction = false }: { signed?: boolean; fraction?: boolean } = {},
+  {
+    signed = false,
+    fraction = false,
+  }: { signed?: boolean; fraction?: boolean | "auto" } = {},
 ): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "—";
   const sign = signed ? (value > 0 ? "+" : value < 0 ? "−" : "") : value < 0 ? "−" : "";
-  return `${sign}${formatAmount(Math.abs(value), fraction ? 2 : 0)} ₽`;
+  return `${sign}${formatAmount(Math.abs(value), digits(value, fraction))} ₽`;
+}
+
+function digits(value: number, fraction: boolean | "auto"): 0 | 2 {
+  if (fraction === "auto")
+    return Math.round(Math.abs(value) * 100) % 100 === 0 ? 0 : 2;
+  return fraction ? 2 : 0;
 }

@@ -50,10 +50,8 @@ export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
   { match: (p) => p === "/schedule/tasks", title: "Задачи", Content: ScheduleTasksHelp },
   { match: (p) => p === "/schedule/attendance", title: "Сверка отметок", Content: AttendanceHelp },
   {
-    // Рабочий экран ведомости живёт на /payroll-concept (/people/payroll
-    // туда перенаправляет), расчёт сотрудника — на /people/payroll/[id].
+    // Ведомость — /people/payroll, расчёт сотрудника — /people/payroll/[id].
     match: (p) =>
-      p === "/payroll-concept" ||
       p === "/people/payroll" ||
       p.startsWith("/people/payroll/"),
     title: "Зарплата",

@@ -227,7 +227,7 @@ export function HireDrawer({
           {rule ? (
             <>
               <p>
-                Оклад: <Money value={Number(rule.monthly_amount)} />
+                Оклад: <Money value={Number(rule.monthly_amount)} fraction="auto" />
               </p>
               <details>
                 <summary className="cursor-pointer text-brand">
@@ -255,7 +255,7 @@ export function HireDrawer({
                             const day = days[String(d + 1)];
                             return (
                               <td className="whitespace-nowrap p-1" key={d}>
-                                <Money value={day?.base} /> /{" "}
+                                <Money value={day?.base} fraction="auto" /> /{" "}
                                 {day?.percent == null ? "—" : `${day.percent}%`}
                               </td>
                             );

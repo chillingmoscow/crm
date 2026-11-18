@@ -480,12 +480,12 @@ function UniformCard({
                     </p>
                   </div>
                   <p className="shrink-0 text-sm font-medium tabular-nums">
-                    <Money value={total} />
+                    <Money value={total} fraction="auto" />
                   </p>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Учтено в зарплате <Money value={i.deducted} /> из{" "}
-                  <Money value={total} />
+                  Учтено в зарплате <Money value={i.deducted} fraction="auto" /> из{" "}
+                  <Money value={total} fraction="auto" />
                 </p>
                 <details>
                   <summary className="w-fit cursor-pointer text-sm text-muted-foreground">
@@ -533,7 +533,7 @@ function UniformCard({
                 >
                   <span>{dateLabel(i.purchased_on)}</span>
                   <span className="tabular-nums">
-                    <Money value={i.amount == null ? null : Number(i.amount)} />
+                    <Money value={i.amount == null ? null : Number(i.amount)} fraction="auto" />
                   </span>
                 </div>
               ))}
@@ -681,7 +681,7 @@ function Installments({
           className="flex justify-between gap-4 py-2.5 text-sm"
         >
           <span>{dateLabel(i.dueOn)}</span>
-          <Money value={i.amount} />
+          <Money value={i.amount} fraction="auto" />
         </div>
       ))}
     </div>

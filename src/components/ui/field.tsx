@@ -29,7 +29,7 @@ export type FieldProps = {
    * уже на клиенте, получат другой id, чем серверный `aria-describedby`.
    */
   id?: string;
-  /** Обязательное поле: красная звёздочка у подписи + `aria-required`. */
+  /** Обязательное поле: красная звёздочка у подписи и «обязательное поле» для скринридера. */
   required?: boolean;
   /** Подсказка под полем, одна строка — только если меняет результат. */
   hint?: React.ReactNode;
@@ -73,18 +73,21 @@ export function Field({
       <Label htmlFor={id}>
         {label}
         {required && (
-          // Обязательность для скринридера передаёт aria-required на поле,
-          // поэтому сама звёздочка скрыта.
-          <span aria-hidden className="ml-0.5 text-destructive">
-            *
-          </span>
+          // Звёздочку скринридер не читает, обязательность — текстом в
+          // подписи: aria-required не доходит до кнопок-пикеров (дата,
+          // время, месяц), а подпись связана с любым полем.
+          <>
+            <span aria-hidden className="ml-0.5 text-destructive">
+              *
+            </span>
+            <span className="sr-only">, обязательное поле</span>
+          </>
         )}
       </Label>
       {children({
         id,
         "aria-describedby": describedBy,
         "aria-invalid": error ? true : undefined,
-        "aria-required": required || undefined,
       })}
       {hint && (
         <p id={hintId} className="text-xs text-muted-foreground">

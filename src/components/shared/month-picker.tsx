@@ -1,12 +1,13 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { periodTriggerClass } from "@/components/shared/period-stepper";
 
 const months = Array.from({ length: 12 }, (_, i) =>
   new Intl.DateTimeFormat("ru-RU", { month: "short", timeZone: "UTC" })
@@ -32,7 +33,8 @@ export function MonthPicker({
   disabled?: boolean;
   prefix?: string;
   ariaLabel?: string;
-  variant?: "inline" | "field" | "toolbar";
+  /** "period" — середина `PeriodStepper`: месяц между стрелками. */
+  variant?: "inline" | "field" | "toolbar" | "period";
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -51,14 +53,20 @@ export function MonthPicker({
           disabled={disabled}
           aria-label={ariaLabel ?? `За какой месяц: ${employee}`}
           className={
-            variant === "toolbar"
+            variant === "period"
+              ? periodTriggerClass
+              : variant === "toolbar"
               ? "inline-flex h-8 items-center gap-2 rounded-md px-2 text-sm font-normal text-foreground hover:bg-muted disabled:opacity-50"
               : variant === "field"
                 ? "inline-flex h-10 w-full items-center gap-2 rounded-lg border bg-background px-3 text-[13px] font-normal text-foreground hover:bg-muted disabled:opacity-50"
                 : "mt-2 inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1.5 text-xs font-normal text-foreground hover:bg-muted disabled:opacity-50"
           }
         >
-          <CalendarDays size={12} className="text-muted-foreground" />
+          {variant === "period" ? (
+            <CalendarDays size={15} />
+          ) : (
+            <CalendarDays size={12} className="text-muted-foreground" />
+          )}
           {prefix}
           {new Date(`${value}T12:00:00Z`)
             .toLocaleDateString("ru-RU", {
@@ -67,6 +75,7 @@ export function MonthPicker({
               timeZone: "UTC",
             })
             .replace(" г.", "")}
+          {variant === "period" && <ChevronDown size={12} />}
         </button>
       </PopoverTrigger>
       <PopoverContent

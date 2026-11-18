@@ -24,17 +24,24 @@ export type StatusTone = keyof typeof statusTones;
 export function StatusBadge({
   tone = "neutral",
   icon,
+  tip,
   children,
   className,
 }: {
   tone?: StatusTone;
   /** Иконка 12px перед текстом, если без неё статус путается с соседним. */
   icon?: ReactNode;
+  /**
+   * Пояснение в подсказке. Подсказка ставится на сам бейдж, а не на
+   * обёртку снаружи: вложенный data-tip перехватил бы внешний.
+   */
+  tip?: string;
   children: ReactNode;
   className?: string;
 }) {
   return (
     <span
+      data-tip={tip}
       className={cn(
         "inline-flex max-w-full items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium [&_svg]:size-3 [&_svg]:shrink-0",
         statusTones[tone],
@@ -42,14 +49,7 @@ export function StatusBadge({
       )}
     >
       {icon}
-      {/* Обрезанный текст статуса виден в подсказке. */}
-      <span
-        className="truncate"
-        data-tip={typeof children === "string" ? children : undefined}
-        data-tip-overflow
-      >
-        {children}
-      </span>
+      <span className="truncate">{children}</span>
     </span>
   );
 }

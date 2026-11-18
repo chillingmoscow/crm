@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { isDeploymentSkewError } from "./deployment-skew.ts";
+import { isDeploymentSkewError, isDeploymentSkewResponse } from "./deployment-skew.ts";
 
 test("детектит пропавший Server Action (deploy skew)", () => {
   const e = new Error(
@@ -49,4 +49,18 @@ test("обычные ошибки НЕ считаются skew (не маски�
   assert.equal(isDeploymentSkewError(null), false);
   assert.equal(isDeploymentSkewError(undefined), false);
   assert.equal(isDeploymentSkewError(42), false);
+});
+
+test("детектит клиентскую ошибку Next 15.5 о пропавшем Server Action", () => {
+  const e = Object.assign(
+    new Error('Server Action "00d92a" was not found on the server. \nRead more: https://nextjs.org/docs/messages/failed-to-find-server-action'),
+    { name: "UnrecognizedActionError" },
+  );
+  assert.equal(isDeploymentSkewError(e), true);
+  assert.equal(isDeploymentSkewError({ name: "UnrecognizedActionError", message: "x" }), true);
+});
+
+test("детектит ответ сервера без нужного Server Action по заголовку", () => {
+  assert.equal(isDeploymentSkewResponse(new Response("", { headers: { "x-nextjs-action-not-found": "1" } })), true);
+  assert.equal(isDeploymentSkewResponse(new Response("")), false);
 });

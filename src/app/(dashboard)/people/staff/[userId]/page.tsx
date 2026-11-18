@@ -46,6 +46,7 @@ type VenueRow = { account_id: string | null };
 // (а не произвольный URL) — чтобы не открывать дыру open-redirect.
 const BACK_CONTEXTS: Record<string, { href: string; label: string }> = {
   inventory: { href: "/documents/inventory", label: "Акты инвентаризации" },
+  schedule: { href: "/schedule", label: "Расписание" },
 };
 
 export default async function StaffMemberPage({

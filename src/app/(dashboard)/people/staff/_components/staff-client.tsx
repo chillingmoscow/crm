@@ -429,6 +429,7 @@ export function StaffClient({
             <Link
               href={`/people/staff/${member.user_id}`}
               data-tip={displayName(member)}
+              data-tip-overflow
               className="font-medium text-sm truncate min-w-0 hover:text-brand"
             >
               {displayName(member)}
@@ -643,6 +644,7 @@ export function StaffClient({
           <Link
             href={`/people/staff/${member.user_id}`}
             data-tip={displayName(member)}
+              data-tip-overflow
             className="block truncate text-sm font-medium hover:text-brand"
           >
             {displayName(member)}
@@ -673,6 +675,7 @@ export function StaffClient({
           <span
             className="block truncate text-muted-foreground"
             data-tip={member.fired_reason ?? undefined}
+            data-tip-overflow
           >
             {member.fired_reason || "Не указана"}
           </span>

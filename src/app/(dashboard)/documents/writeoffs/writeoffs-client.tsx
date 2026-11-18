@@ -496,7 +496,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
                 Не разнесён
               </Badge>
             ) : (
-              <span className="block truncate" data-tip={row.original.pool}>
+              <span className="block truncate" data-tip={row.original.pool} data-tip-overflow>
                 {row.original.pool}
               </span>
             )
@@ -509,7 +509,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
           ) : (
             <span
               className="block truncate"
-              data-tip={String(row.original[id as keyof WriteoffRow] ?? "")}
+              data-tip={String(row.original[id as keyof WriteoffRow] ?? "")} data-tip-overflow
             >
               {String(row.original[id as keyof WriteoffRow] ?? "—")}
             </span>

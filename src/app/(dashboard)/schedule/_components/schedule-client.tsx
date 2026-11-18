@@ -292,6 +292,9 @@ export function ScheduleClient({
   const canPlan = can("view_all");
   const templateView = canPlan && view === "templates";
   const canViewAttendance = canPlan && data.permissions.includes("payroll.view");
+  const canOpenStaff =
+    data.permissions.includes("people.view_staff") &&
+    data.permissions.includes("people.view_staff_details");
   const [attendance, setAttendance] = useState<{
     week: string;
     marks: Record<string, ShiftAttendanceMark>;
@@ -1438,23 +1441,37 @@ export function ScheduleClient({
                         ].map((s) => (
                           <tr key={s.id ?? "open"} className="group hover:bg-muted/30">
                             <th scope="row" className="sticky left-0 z-10 border-b bg-card px-4 py-3 text-left font-normal group-hover:bg-muted">
-                              <div className="flex items-center gap-3">
-                                {s.id ? (
-                                  <PersonAvatar name={s.label} src={s.avatar} />
+                              {(() => {
+                                const person = (
+                                  <>
+                                    {s.id ? (
+                                      <PersonAvatar name={s.label} src={s.avatar} />
+                                    ) : (
+                                      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                                        <Users className="size-4" />
+                                      </span>
+                                    )}
+                                    <div className="min-w-0">
+                                      <p className="break-words text-[13px] font-medium group-hover/person:text-brand">
+                                        {s.label}
+                                      </p>
+                                      <p className="truncate text-xs text-muted-foreground">
+                                        {s.role}
+                                      </p>
+                                    </div>
+                                  </>
+                                );
+                                return s.id && canOpenStaff ? (
+                                  <Link
+                                    href={`/people/staff/${s.id}?from=schedule`}
+                                    className="group/person -m-1 flex items-center gap-3 rounded-md p-1 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  >
+                                    {person}
+                                  </Link>
                                 ) : (
-                                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                                    <Users className="size-4" />
-                                  </span>
-                                )}
-                                <div className="min-w-0">
-                                  <p className="break-words text-[13px] font-medium">
-                                    {s.label}
-                                  </p>
-                                  <p className="truncate text-xs text-muted-foreground">
-                                    {s.role}
-                                  </p>
-                                </div>
-                              </div>
+                                  <div className="flex items-center gap-3">{person}</div>
+                                );
+                              })()}
                             </th>
                             {days.map((d) => (
                               <ContextMenu key={d} modal={false}>

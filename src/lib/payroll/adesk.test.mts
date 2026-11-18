@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  CreatedMismatchError,
   adeskRelatedDate,
   decideBeforeCreate,
   verifyCreated,
@@ -75,6 +76,16 @@ test("банковский импорт на имя сотрудника бло�
 test("однофамилец не блокирует", () => {
   const imported = tx({ id: 7, description: "Перевод", category: null, contractor: { name: "Волков Сергей" } });
   assert.deepEqual(decideBeforeCreate([imported], expense, null), { kind: "create" });
+});
+
+test("та же выплата в другом проекте не привязывается и не дублируется", () => {
+  assert.equal(decideBeforeCreate([tx({ project: { id: 1 } })], expense, null).kind, "review");
+  assert.equal(decideBeforeCreate([tx({ relatedDateIso: "2026-10-16" })], expense, null).kind, "review");
+  assert.equal(decideBeforeCreate([tx({ project: { id: 1 } })], expense, 100).kind, "review");
+});
+
+test("несовпавшая созданная операция сохраняет номер", () => {
+  assert.throws(() => verifyCreated(tx({ project: { id: 1 } }), expense), (e: unknown) => e instanceof CreatedMismatchError && e.adeskId === 100);
 });
 
 test("созданная операция сверяется со всеми полями", () => {

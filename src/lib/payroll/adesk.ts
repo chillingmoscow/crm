@@ -53,8 +53,8 @@ const words = (v: unknown) =>
 
 const same = (a: unknown, b: unknown) => a != null && b != null && Number(a) === Number(b);
 
-/** An Adesk operation is this payout: same day, account, amount, category, employee and kind. */
-export function isExactMatch(t: AdeskTransaction, e: AdeskExpense): boolean {
+/** Same day, account, amount, category, employee and kind; project and accrual date not compared. */
+function isCoreMatch(t: AdeskTransaction, e: AdeskExpense): boolean {
   return (
     same(t.amount, e.amount) &&
     same(t.bankAccount?.id, e.bankAccount) &&
@@ -65,6 +65,14 @@ export function isExactMatch(t: AdeskTransaction, e: AdeskExpense): boolean {
     t.isTransfer !== true &&
     t.isPlanned !== true
   );
+}
+
+/**
+ * An Adesk operation is this payout: every field the payout writes matches, project and
+ * accrual date included. Only such an operation is ever linked or removed automatically.
+ */
+export function isExactMatch(t: AdeskTransaction, e: AdeskExpense): boolean {
+  return isCoreMatch(t, e) && same(t.project?.id, e.project) && t.relatedDateIso === e.relatedDate;
 }
 
 /**
@@ -108,14 +116,29 @@ export function decideBeforeCreate(list: AdeskTransaction[], e: AdeskExpense, kn
       reason: `В Adesk уже есть возможная банковская выплата этому сотруднику: ${imported.map((t) => t.id).join(", ")}. Проверьте её, чтобы не создать дубль`,
     };
   if (exact.length === 1) return { kind: "link", id: Number(exact[0].id) };
+  // Same payout in another project or with another accrual date: never link or duplicate it.
+  const near = list.filter((t) => isCoreMatch(t, e));
+  if (near.length)
+    return {
+      kind: "review",
+      reason: `В Adesk есть похожая выплата с другим проектом или датой начисления: ${near.map((t) => t.id).join(", ")}`,
+    };
   return { kind: "create" };
+}
+
+/** Adesk created an operation that differs from the payout: keep its id, stop for review. */
+export class CreatedMismatchError extends Error {
+  readonly adeskId: number;
+  constructor(adeskId: number) {
+    super(`Операция ${adeskId} в Adesk не совпадает с выплатой; проверьте её в Adesk`);
+    this.adeskId = adeskId;
+  }
 }
 
 /** The created operation must be exactly what was asked for before the payout is marked synced. */
 export function verifyCreated(t: AdeskTransaction | undefined, e: AdeskExpense): number {
   const id = Number(t?.id);
   if (!t || !Number.isSafeInteger(id) || id <= 0) throw new Error("Adesk не вернул номер операции");
-  if (!isExactMatch(t, e) || !same(t.project?.id, e.project) || t.relatedDateIso !== e.relatedDate)
-    throw new Error("Операция в Adesk не совпадает с выплатой; нужна сверка");
+  if (!isExactMatch(t, e)) throw new CreatedMismatchError(id);
   return id;
 }

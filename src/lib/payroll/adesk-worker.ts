@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import {
+  CreatedMismatchError,
   adeskRelatedDate,
   decideBeforeCreate,
   isExactMatch,
@@ -118,7 +119,13 @@ async function createOrLink(token: string, job: Job): Promise<Outcome> {
   const created = (body.transaction ?? (body.data as Record<string, unknown> | undefined)?.transaction) as
     | AdeskTransaction
     | undefined;
-  return { state: "synced", adeskId: verifyCreated(created, expense), error: null };
+  try {
+    return { state: "synced", adeskId: verifyCreated(created, expense), error: null };
+  } catch (e) {
+    // Something was created: keep its id and stop, a retry must not create a second one.
+    if (e instanceof CreatedMismatchError) return { state: "review", adeskId: e.adeskId, error: e.message };
+    throw e;
+  }
 }
 
 async function removeCancelled(token: string, job: Job): Promise<Outcome> {

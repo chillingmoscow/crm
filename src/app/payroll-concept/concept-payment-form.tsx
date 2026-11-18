@@ -27,8 +27,11 @@ export function ConceptPaymentForm({
   data,
   month,
   onDone,
+  onCancel,
   initialEmployeeId,
 }: {
+  /** Закрыть панель без записи: кнопка «Отмена» в подвале. */
+  onCancel?: () => void;
   initialEmployeeId?: string;
   data: PayrollData;
   month: string;
@@ -121,6 +124,12 @@ export function ConceptPaymentForm({
             {money(amount)} <small>₽</small>
           </strong>
         </div>
+        <div className="flex items-center gap-2">
+        {onCancel && (
+          <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
+            Отмена
+          </Button>
+        )}
         <Button
           type="submit"
           form={formId}
@@ -133,6 +142,7 @@ export function ConceptPaymentForm({
               ? "Записать выплаты"
               : "Записать выплату"}
         </Button>
+        </div>
       </div>
       <p className={s.footerMeta}>
         Каждому сотруднику создаётся отдельная транзакция в финансах.

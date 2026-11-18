@@ -731,9 +731,12 @@ export function PayrollEntryForm({
             <span>Итого</span>
             <strong>{format(total)} <small>{medium === "money" ? "₽" : "б."}</small></strong>
           </div>}
-          <Button className="ml-auto" disabled={busy || !valid} onClick={() => void submit()}>
-            {busy ? "Сохраняем…" : issuing ? "Начислить и выдать" : isBonus ? "Начислить" : "Добавить"}
-          </Button>
+          <div className="ml-auto flex items-center gap-2">
+            <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>Отмена</Button>
+            <Button disabled={busy || !valid} onClick={() => void submit()}>
+              {busy ? "Сохраняем…" : issuing ? "Начислить и выдать" : isBonus ? "Начислить" : "Добавить"}
+            </Button>
+          </div>
         </div>
       }
     >

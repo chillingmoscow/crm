@@ -32,6 +32,8 @@ interface EditDrawerProps {
   title: string;
   description?: string;
   titleAccessory?: React.ReactNode;
+  /** Действия в шапке слева от крестика: обычно меню «⋯» карточки. */
+  headerActions?: React.ReactNode;
   children: React.ReactNode;
   /** Footer slot — typically <Button variant="outline">Отмена</Button> + <Button>Сохранить</Button> */
   footer?: React.ReactNode;
@@ -46,6 +48,7 @@ export function EditDrawer({
   title,
   description,
   titleAccessory,
+  headerActions,
   children,
   footer,
   className,
@@ -80,12 +83,15 @@ export function EditDrawer({
                 </SheetDescription>
               )}
             </div>
-            <SheetClose
-              className="flex items-center justify-center size-8 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors shrink-0"
-              aria-label="Закрыть"
-            >
-              <X className="w-[18px] h-[18px]" />
-            </SheetClose>
+            <div className="flex shrink-0 items-center gap-1">
+              {headerActions}
+              <SheetClose
+                className="flex items-center justify-center size-8 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors shrink-0"
+                aria-label="Закрыть"
+              >
+                <X className="w-[18px] h-[18px]" />
+              </SheetClose>
+            </div>
           </div>
 
           {/* Body — padding 24, vertical gap 20, scrollable */}

@@ -1,11 +1,16 @@
 "use client";
 
-import { useRef, type ReactNode } from "react";
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import type { ReactNode } from "react";
+import { EditDrawer } from "@/components/ui/edit-drawer";
 import { PayrollEmployeeCell } from "./payroll-employee-cell";
 import s from "./payroll-detail-dialog.module.css";
 
-/** Shared detail surface for payroll records; creation forms remain separate. */
+/**
+ * Боковая панель записей и форм зарплаты. Это обычный `EditDrawer` (520px,
+ * вплотную к краю) с двумя готовыми блоками сверху: сотрудник и ключевая
+ * сумма. Своего каркаса у панели нет — см. `docs/design-system.md`,
+ * «Боковая панель».
+ */
 export function PayrollDetailDialog({open, onOpenChange, title, description, employee, amount, amountLabel, status, actions, footer, children}: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -19,24 +24,26 @@ export function PayrollDetailDialog({open, onOpenChange, title, description, emp
   footer?: ReactNode;
   children: ReactNode;
 }) {
-  const panel = useRef<HTMLDivElement>(null);
-  return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent ref={panel} tabIndex={-1} className={s.dialog} onOpenAutoFocus={(event) => {
-      event.preventDefault(); panel.current?.focus({preventScroll:true});
-    }}>
-      <header className={s.header}>
-        {actions && <div className={s.headerActions}>{actions}</div>}
-        <DialogTitle className={s.title}>{title}</DialogTitle>
-        <DialogDescription className={s.description}>{description}</DialogDescription>
-      </header>
-      <div className={s.body}>
-        {employee && <div className={s.employee}><PayrollEmployeeCell {...employee} /></div>}
-        {amount != null && <div className={s.summary}>
-          <div><span>{amountLabel}</span><strong>{amount}</strong></div>{status}
-        </div>}
-        <div className={s.details}>{children}</div>
-      </div>
-      {footer && <footer className={s.footer}>{footer}</footer>}
-    </DialogContent>
-  </Dialog>;
+  return (
+    <EditDrawer
+      open={open}
+      onOpenChange={onOpenChange}
+      title={title}
+      description={description || undefined}
+      headerActions={actions}
+      footer={footer}
+    >
+      {employee && <PayrollEmployeeCell {...employee} />}
+      {amount != null && (
+        <div className="flex flex-wrap items-end justify-between gap-3 border-b pb-4">
+          <div className="min-w-0">
+            <p className="text-xs text-muted-foreground">{amountLabel}</p>
+            <p className="mt-1 break-words text-3xl font-semibold tabular-nums">{amount}</p>
+          </div>
+          {status}
+        </div>
+      )}
+      <div className={s.details}>{children}</div>
+    </EditDrawer>
+  );
 }

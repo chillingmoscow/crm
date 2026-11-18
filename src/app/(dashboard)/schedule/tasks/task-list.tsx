@@ -17,7 +17,6 @@ import {
   Plus,
   Repeat,
   SearchX,
-  Settings,
   Trash2,
   UserCheck,
   X,
@@ -28,7 +27,6 @@ import { EmptyState } from "@/components/ui/empty-state";
 import {
   ROW_MENU_COLUMN_SIZE,
   TableColumnManager,
-  TableIconButton,
   TableControls,
   TablePageHeader,
   TablePagination,
@@ -69,13 +67,11 @@ export function TaskList({
   data,
   onOpen,
   onCreate,
-  onSettings,
   onRefresh,
 }: {
   data: TaskData;
   onOpen: (task: TaskDefinition) => void;
   onCreate?: () => void;
-  onSettings?: () => void;
   onRefresh: () => Promise<unknown>;
 }) {
   const st = useTableState({
@@ -320,13 +316,6 @@ export function TaskList({
                 />
               ),
             }}
-            secondaryActions={
-              onSettings ? (
-                <TableIconButton label="Настройки задач" onClick={onSettings}>
-                  <Settings className="size-4" />
-                </TableIconButton>
-              ) : null
-            }
             primaryActions={
               onCreate ? (
                 <Button size="sm" className="h-9 gap-2" onClick={onCreate}>

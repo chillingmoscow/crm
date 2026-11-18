@@ -19,7 +19,7 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
     { title: "Тильда", icon: PanelsTopLeft, href: "/settings/integrations/tilda", description: "Приём анкет с сайта в список кандидатов.",
       status: t ? t.enabled ? "Приём включён" : "Приём выключен" : "Не настроено", tone: t?.enabled ? "success" as const : "neutral" as const,
       detail: t?.last_received_at ? <>Последняя анкета: <LocalDateTime value={t.last_received_at} /></> : <>Анкеты пока не поступали</> },
-    { title: "Telegram", icon: Send, href: "/settings/integrations/telegram", description: "Бот и чаты для новых анкет и сообщений о найме.",
+    { title: "Telegram", icon: Send, href: "/settings/integrations/telegram", description: "Бот и чаты для новых анкет, сообщений о найме, задач и графика.",
       status: tg ? "Подключено" : "Не подключено", tone: tg ? "success" as const : "neutral" as const,
       detail: tg?.bot_username ? <>@{tg.bot_username}</> : <>Подключите бота организации</> },
     { title: "Quick Resto", icon: PlugZap, href: "/settings/integrations/quickresto", description: "Подключение кассы, импорт и создание сотрудников.",

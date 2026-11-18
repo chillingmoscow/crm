@@ -14,7 +14,6 @@ import {
   type TaskData,
   type TaskDefinition,
   type TaskOccurrence,
-  type TaskSettings,
   type TaskMessage,
   type TaskPreview,
 } from "@/lib/schedule/tasks";
@@ -97,11 +96,6 @@ export async function loadTasks(): Promise<TaskData> {
       .order("name"),
     readTaskOccurrences(occurrencesQuery),
     db
-      .from<TaskSettings>("schedule_task_settings")
-      .select("*")
-      .eq("venue_id", venueId)
-      .maybeSingle(),
-    db
       .from<{ id: string; name: string; subtitle: string; color: string }[]>("schedule_templates")
       .select("id,name,subtitle,color")
       .eq("venue_id", venueId)
@@ -122,11 +116,10 @@ export async function loadTasks(): Promise<TaskData> {
     venueId,
     definitions: results[0].data ?? [],
     occurrences: results[1].data ?? [],
-    settings: results[2].data,
-    templates: (results[3].data ?? []).map((template) => ({
+    templates: (results[2].data ?? []).map((template) => ({
       id: template.id, name: shiftTemplateLabel(template), color: template.color,
     })),
-    messages: results[4].data ?? [],
+    messages: results[3].data ?? [],
     permissions,
     userId: user.id,
     today,
@@ -150,42 +143,19 @@ export async function loadTaskInstructionPages() {
     id, title, slug, parent_id,
   }));
 }
-/**
- * Чаты Telegram для настроек задач — из «Интеграции → Telegram», только
- * название и ID. Права проверяет база (schedule_task_chat_choices, миграция 344).
- */
-export async function loadTaskChats(): Promise<{ chat_id: string; title: string }[]> {
-  const { db } = await context();
-  const r = await db.rpc("schedule_task_chat_choices");
-  if (r.error) throw new Error(r.error.message);
-  return (r.data as { chat_id: string; title: string }[] | null) ?? [];
-}
-
 /** Задачи для быстрого назначения из графика: только названия. */
 export async function loadTaskChoices(): Promise<{
-  enabled: boolean;
   tasks: { id: string; name: string }[];
 }> {
   const { db, venueId } = await context();
-  const [definitions, settings] = await Promise.all([
-    db
-      .from<{ id: string; name: string }[]>("schedule_task_definitions")
-      .select("id,name")
-      .eq("venue_id", venueId)
-      .is("deleted_at", null)
-      .order("name"),
-    db
-      .from<{ enabled_from: string | null; legacy_stopped: boolean; paused: boolean }>("schedule_task_settings")
-      .select("enabled_from,legacy_stopped,paused")
-      .eq("venue_id", venueId)
-      .maybeSingle(),
-  ]);
+  const definitions = await db
+    .from<{ id: string; name: string }[]>("schedule_task_definitions")
+    .select("id,name")
+    .eq("venue_id", venueId)
+    .is("deleted_at", null)
+    .order("name");
   if (definitions.error) throw new Error(definitions.error.message);
-  const st = settings.data;
-  return {
-    enabled: !!st?.enabled_from && st.legacy_stopped && !st.paused,
-    tasks: definitions.data ?? [],
-  };
+  return { tasks: definitions.data ?? [] };
 }
 
 /**
@@ -280,43 +250,6 @@ export async function saveTask(input: unknown) {
           : e instanceof Error
             ? e.message
             : "Не удалось сохранить задачу",
-    };
-  }
-}
-export async function saveTaskSettings(input: unknown) {
-  try {
-    const value = z
-      .object({
-        version: z.number().int().positive().optional(),
-        enabled_from: z
-          .string()
-          .regex(/^\d{4}-\d{2}-\d{2}$/)
-          .nullable(),
-        paused: z.boolean().default(false),
-        legacy_stopped: z.boolean(),
-        chat_id: z
-          .string()
-          .regex(/^-?\d{1,20}$/)
-          .nullable(),
-        reminder_chat_ids: z.array(z.string().regex(/^-?\d{1,20}$/)).max(30),
-      })
-      .parse(input);
-    const { db } = await context();
-    const result = await db.rpc("schedule_task_command", {
-      p_action: "settings.save",
-      p_input: value,
-    });
-    if (result.error) throw new Error(result.error.message);
-    revalidatePath("/schedule");
-    return { ok: true };
-  } catch (e) {
-    return {
-      error:
-        e instanceof z.ZodError
-          ? "Проверьте дату и ID чатов"
-          : e instanceof Error
-            ? e.message
-            : "Не удалось сохранить настройки",
     };
   }
 }

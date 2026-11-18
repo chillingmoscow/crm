@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import Image from "next/image";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Plus, ArrowLeft, Camera, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,8 +34,6 @@ import {
   TabsContent,
 } from "@/components/ui/tabs";
 import { ProfileSection } from "@/components/shared/profile-section";
-import { MultiOptionPicker } from "@/components/shared/multi-option-picker";
-import { OptionSelect } from "@/components/ui/option-select";
 import {
   TaskHeaderActions,
   TaskPageTitle,
@@ -65,13 +63,11 @@ import {
 import {
   loadTasks,
   saveTask,
-  saveTaskSettings,
   taskRunCommand,
   uploadTaskPhoto,
   taskPhotoUrl,
   taskHistory,
   retryTaskMessage,
-  loadTaskChats,
 } from "./actions";
 
 const actionLabels: Record<string, string> = {
@@ -399,9 +395,6 @@ export function TasksClient({
 }) {
   const [data, setData] = useState(initial);
   const [editor, setEditor] = useState<TaskDefinition | "new" | null>(null);
-  // ?settings=1 — сразу открыть настройки (ссылка из графика «Задачи не включены»).
-  const params = useSearchParams();
-  const [settings, setSettings] = useState(params.get("settings") === "1");
   const wasActive = useRef(active);
   useEffect(() => {
     const returning = active && !wasActive.current;
@@ -421,10 +414,6 @@ export function TasksClient({
   }, [active]);
   const manage = data.permissions.includes("schedule.checklist_edit"),
     create = data.permissions.includes("schedule.checklist_create");
-  const canSettings =
-      manage &&
-      data.permissions.includes("payroll.configure") &&
-      data.permissions.includes("payroll.review");
   const refresh = async () => {
     const next = await loadTasks();
     setData(next);
@@ -432,30 +421,15 @@ export function TasksClient({
   };
     return (
     <>
-      <div hidden={!!editor || settings} className="space-y-4">
+      <div hidden={!!editor} className="space-y-4">
         <TaskPageTitle title={null} />
         <TaskList
         data={data}
           onOpen={setEditor}
           onCreate={create ? () => setEditor("new") : undefined}
-          onSettings={canSettings ? () => setSettings(true) : undefined}
           onRefresh={refresh}
       />
-      {manage && (!data.settings?.enabled_from || data.settings?.paused) && (
-        <p className="text-[13px] text-muted-foreground">
-          {data.settings?.paused
-            ? "Автоматическая обработка приостановлена."
-            : "Автоматическое назначение ещё не включено."}
-          {canSettings && (
-            <button
-              className="ml-1.5 hover:text-foreground hover:underline"
-              onClick={() => setSettings(true)}
-            >
-              Настроить
-            </button>
-          )}
-        </p>
-      )}
+      {manage && <TaskMessageErrors messages={data.messages} onSaved={async () => { await refresh(); }} />}
     </div>
       {editor ? (
         <DefinitionEditor
@@ -466,18 +440,6 @@ export function TasksClient({
           onSaved={async () => {
             await refresh();
             setEditor(null);
-          }}
-        />
-      ) : settings ? (
-        <SettingsEditor
-          data={data}
-          onClose={() => setSettings(false)}
-          onRefresh={async () => {
-            await refresh();
-          }}
-          onSaved={async () => {
-            await refresh();
-            setSettings(false);
           }}
         />
       ) : null}
@@ -1363,144 +1325,6 @@ export function TaskReport({
           </details>
         )}
       </div>
-    </TaskScreen>
-  );
-}
-function SettingsEditor({
-  data,
-  onClose,
-  onRefresh,
-  onSaved,
-}: {
-  data: TaskData;
-  onClose: () => void;
-  onRefresh: () => Promise<void>;
-  onSaved: () => Promise<void>;
-}) {
-  const started = Boolean(data.settings?.enabled_from);
-  const [from, setFrom] = useState(data.settings?.enabled_from ?? data.today),
-    [working, setWorking] = useState(started && !(data.settings?.paused ?? false)),
-    [chat, setChat] = useState(data.settings?.chat_id ?? ""),
-    [reminders, setReminders] = useState<string[]>(data.settings?.reminder_chat_ids ?? []),
-    [chats, setChats] = useState<{ chat_id: string; title: string }[] | null>(null),
-    [busy, setBusy] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    loadTaskChats()
-      .then((c) => alive && setChats(c))
-      .catch(() => alive && setChats([]));
-    return () => {
-      alive = false;
-    };
-  }, []);
-  // Чаты — из «Интеграции → Telegram». Если в настройках уже есть ID, которого
-  // нет в интеграции, показываем его, чтобы не потерять при сохранении.
-  const chatOptions = [
-    ...(chats ?? []).map((c) => ({ id: c.chat_id, label: c.title })),
-    ...[chat, ...reminders]
-      .filter((id) => id && !(chats ?? []).some((c) => c.chat_id === id))
-      .filter((id, i, all) => all.indexOf(id) === i)
-      .map((id) => ({ id, label: `Чат ${id} · нет в интеграции` })),
-  ];
-  // Включение: дата начала + работа без паузы. «Прежние сценарии отключены» —
-  // внутреннее условие сервера; интерфейс отмечает его сам при включении.
-  const enabledFrom = started ? data.settings!.enabled_from : working ? from || null : null;
-  async function submit() {
-    setBusy(true);
-    try {
-      const r = await saveTaskSettings({
-        version: data.settings?.version,
-        enabled_from: enabledFrom,
-        paused: !working,
-        legacy_stopped: enabledFrom ? true : (data.settings?.legacy_stopped ?? false),
-        chat_id: chat || null,
-        reminder_chat_ids: reminders,
-      });
-      if (r.error) toast.error(r.error);
-      else {
-        toast.success("Настройки сохранены");
-        await onSaved();
-      }
-    } catch {
-      toast.error("Не удалось сохранить настройки");
-    } finally {
-      setBusy(false);
-    }
-  }
-  const dirty =
-    working !== (started && !(data.settings?.paused ?? false)) ||
-    (!started && working && from !== data.today) ||
-    chat !== (data.settings?.chat_id ?? "") ||
-    reminders.join(",") !== (data.settings?.reminder_chat_ids ?? []).join(",");
-  return (
-    <TaskScreen
-      title="Настройки задач"
-      onBack={onClose}
-      busy={busy}
-      dirty={dirty}
-      showFooterActions={false}
-      actions={
-        <Button disabled={busy || !dirty} onClick={() => void submit()}>
-          {busy ? "Сохранение…" : "Сохранить"}
-        </Button>
-      }
-    >
-      <fieldset disabled={busy} className="min-w-0 space-y-5">
-        <ProfileSection title="Работа задач">
-          <SwitchRow
-            label="Задачи работают"
-            description="Задачи назначаются сотрудникам по графику, проверяются и учитываются в зарплате. Выключение ставит работу на паузу — задачи и отчёты сохраняются."
-            checked={working}
-            disabled={busy}
-            onChange={setWorking}
-          />
-          {(working || started) && (
-            <Field label="С какого дня">
-              <DatePicker
-                disabled={busy || started}
-                fromDate={new Date(data.today + "T00:00:00")}
-                value={started ? (data.settings?.enabled_from ?? "") : from}
-                onChange={setFrom}
-                clearable={false}
-              />
-            </Field>
-          )}
-          {started && (
-            <p className="text-[13px] text-muted-foreground">
-              День начала уже задан и не меняется — так сохраняется история назначений.
-            </p>
-          )}
-        </ProfileSection>
-        <ProfileSection title="Сообщения в Telegram">
-          <Field label="Список задач на день · ежедневно в 12:00">
-            <OptionSelect
-              aria-label="Чат для списка задач"
-              placeholder={chats ? "Не отправлять" : "Загрузка…"}
-              value={chat}
-              onValueChange={setChat}
-              options={[{ value: "", label: "Не отправлять" }, ...chatOptions.map((c) => ({ value: c.id, label: c.label }))]}
-            />
-          </Field>
-          <Field label="Напоминание сдать график · пн и ср, 14:00">
-            <MultiOptionPicker
-              label="Чаты для напоминания сдать график"
-              options={chatOptions}
-              selectedIds={reminders}
-              disabled={busy}
-              placeholder="Не отправлять"
-              onChange={setReminders}
-            />
-          </Field>
-          <p className="text-[13px] leading-snug text-muted-foreground">
-            Нужного чата нет в списке? Добавьте его в{" "}
-            <a href="/settings/integrations/telegram" className="text-brand hover:underline">
-              Интеграции → Telegram
-            </a>
-            . Время — по часам заведения.
-          </p>
-        </ProfileSection>
-      </fieldset>
-      <TaskMessageErrors messages={data.messages} onSaved={onRefresh} />
     </TaskScreen>
   );
 }

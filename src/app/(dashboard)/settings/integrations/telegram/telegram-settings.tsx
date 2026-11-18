@@ -9,11 +9,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { candidateError } from "@/lib/candidates/errors";
 import { FinesChat } from "./fines-chat";
 import { TelegramChats } from "./telegram-chats";
+import { ScheduleMessages } from "./schedule-messages";
+import type { ScheduleMessageSettings } from "./schedule-message-actions";
 import type { ChatRoleOption, TelegramChatRow } from "./chat-actions";
 import { readTelegramSettings, saveOrganizationTelegram, type FinesChatSettings } from "./actions";
 import { IntegrationLayout, IntegrationSection, IntegrationStatus, IntegrationNotice } from "../_components/integration-layout";
 type TelegramView = Awaited<ReturnType<typeof readTelegramSettings>>;
-export function TelegramSettings({ initial, editable, chats, roles, fines }: { initial: TelegramView; editable: boolean; chats: TelegramChatRow[]; roles: ChatRoleOption[]; fines: FinesChatSettings | null }) {
+export function TelegramSettings({ initial, editable, chats, roles, fines, schedule }: { initial: TelegramView; editable: boolean; chats: TelegramChatRow[]; roles: ChatRoleOption[]; fines: FinesChatSettings | null; schedule: ScheduleMessageSettings[] }) {
   const [saved, setSaved] = useState(initial), [editing, setEditing] = useState(!initial);
   const [token, setToken] = useState(""), [chat, setChat] = useState(initial?.default_chat_id ?? "");
   const [candidateChat, setCandidateChat] = useState(initial?.candidate_chat_id ?? ""), [sameChat, setSameChat] = useState(!initial?.candidate_chat_id);
@@ -24,7 +26,7 @@ export function TelegramSettings({ initial, editable, chats, roles, fines }: { i
     return () => { active = false; };
   }, [initial]);
   const reset = () => { setToken(""); setChat(saved?.default_chat_id ?? ""); setCandidateChat(saved?.candidate_chat_id ?? ""); setSameChat(!saved?.candidate_chat_id); setError(""); setEditing(false); };
-  return <IntegrationLayout title="Telegram" description="Бот организации и чаты для уведомлений о кандидатах и новых сотрудниках."
+  return <IntegrationLayout title="Telegram" description="Бот организации и чаты для уведомлений о кандидатах, новых сотрудниках, задачах и графике."
     status={<IntegrationStatus tone={saved ? "success" : "neutral"}>{saved ? "Подключено" : "Не подключено"}</IntegrationStatus>}
     actions={saved && editable && !editing ? <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Pencil className="mr-2 size-4" />Изменить</Button> : null}>
     <div className="max-w-3xl space-y-5">
@@ -47,6 +49,7 @@ export function TelegramSettings({ initial, editable, chats, roles, fines }: { i
         catch (e) { setError(candidateError(e, "Не удалось сохранить Telegram")); }
       })}>{busy ? "Проверяем…" : "Проверить и сохранить"}</Button>{saved ? <Button variant="outline" size="sm" disabled={busy} onClick={reset}>Отмена</Button> : null}</div></div> : null}
       {fines ? <FinesChat initial={fines} /> : null}
+      <ScheduleMessages settings={schedule} chats={chats} />
       <TelegramChats chats={chats} roles={roles} connected={!!saved} />
       {!editable ? <IntegrationNotice>Бота и токен может менять только владелец организации. Чатами управляют все, у кого есть право на интеграции.</IntegrationNotice> : null}
     </div>

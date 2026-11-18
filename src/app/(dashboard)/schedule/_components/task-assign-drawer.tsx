@@ -1,7 +1,6 @@
 "use client";
 import { ColorDot } from "@/components/ui/color-dot";
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -51,7 +50,7 @@ export function TaskAssignDrawer({
     let alive = true;
     loadTaskChoices()
       .then((c) => alive && setChoices(c))
-      .catch(() => alive && setChoices({ enabled: false, tasks: [] }));
+      .catch(() => alive && setChoices({ tasks: [] }));
     return () => {
       alive = false;
     };
@@ -88,7 +87,7 @@ export function TaskAssignDrawer({
     };
   })();
 
-  const ready = !!choices?.enabled && !!taskId && !!date && picked && who?.tone !== "error";
+  const ready = !!taskId && !!date && picked && who?.tone !== "error";
 
   const commit = async () => {
     setBusy(true);
@@ -126,18 +125,7 @@ export function TaskAssignDrawer({
         </>
       }
     >
-      {choices && !choices.enabled ? (
-        <div className="space-y-3 text-sm">
-          <p className="text-muted-foreground">
-            Автоматическая работа задач в заведении ещё не включена — назначенная задача никому
-            не придёт. Включается в настройках задач.
-          </p>
-          <Button asChild variant="outline" size="sm">
-            <Link href="/schedule/tasks?settings=1">Открыть настройки задач</Link>
-          </Button>
-        </div>
-      ) : (
-        <>
+      <>
           <DrawerSection title="Что и когда">
             <Field label="Задача">
               <OptionSelect
@@ -209,8 +197,7 @@ export function TaskAssignDrawer({
               </p>
             )}
           </DrawerSection>
-        </>
-      )}
+      </>
     </EditDrawer>
   );
 }

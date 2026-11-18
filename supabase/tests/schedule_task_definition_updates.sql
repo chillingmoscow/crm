@@ -20,7 +20,6 @@ begin
   if sqlerrm<>'Для включения задачи укажите смену, повтор и чек-лист' then raise;end if;
  end;
  insert into public.schedule_templates(venue_id,name,color,start_time,end_time) values(v,'TEST Definition Updates','blue','09:00','17:00') returning id into tpl;
- insert into public.schedule_task_settings(venue_id,account_id,enabled_from,legacy_stopped,paused) values(v,a,d-7,true,false) on conflict(venue_id) do update set enabled_from=d-7,legacy_stopped=true,paused=false;
  body:=jsonb_build_object('request_key',gen_random_uuid(),'name','TEST Future Plan','instructions','Версия 1','template_id',tpl,'review_mode','manager','items',jsonb_build_array(jsonb_build_object('id',point,'title','Фото результата','kind','photo','required',true)),'recurrence',jsonb_build_object('unit','week','interval',1,'anchor',d+1),'starts_on',d,'enabled',true,'penalty_enabled',false,'fine_amount',0,'reward_amount',0,'equipment_groups','[]'::jsonb);
  def:=(public.schedule_task_command('definition.save',body)->>'id')::uuid;
  insert into public.schedule_shifts(venue_id,user_id,template_id,title,color,starts_at,ends_at,published)

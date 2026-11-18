@@ -422,13 +422,9 @@ export function StaffTable({
   return (
     <>
       <PeopleListHeader
-        title="Сотрудники"
+        title={showFired ? "Уволенные сотрудники" : "Сотрудники"}
+        crumb="Сотрудники"
         count={rows.length}
-        description={
-          showFired
-            ? "Уволенные сотрудники, история и восстановление"
-            : "Состав команды и приглашения в выбранном заведении"
-        }
         actions={
           <TableControls
             search={{

@@ -10,7 +10,7 @@ import {
 } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Plus, ArrowLeft, Camera, Trash2, X } from "lucide-react";
+import { Plus, Camera, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,7 +26,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import {
   Tabs,
   ProfileTabsList,
@@ -69,6 +68,7 @@ import {
   taskHistory,
   retryTaskMessage,
 } from "./actions";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 
 const actionLabels: Record<string, string> = {
   "definition.created": "Создан шаблон задачи",
@@ -335,24 +335,24 @@ function TaskScreen({
     >
       <TaskPageTitle title={title} />
       <TaskHeaderActions>{actions}</TaskHeaderActions>
-      <PageBreadcrumb>
-        <a
-          href={backHref}
-          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 py-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          aria-disabled={busy}
-          onClick={(event) => {
-            event.preventDefault();
-            if (!busy) {
-              setExitHref(null);
-              if (dirty) setConfirmExit(true);
-              else onBack();
-            }
-          }}
-        >
-          <ArrowLeft className="size-4" />
-          {backLabel}
-        </a>
-      </PageBreadcrumb>
+      <Breadcrumbs
+        items={[
+          { label: "График работы" },
+          {
+            label: backLabel === "К графику" ? "Расписание" : "Задачи",
+            href: backHref,
+            onClick: (event) => {
+              event.preventDefault();
+              if (!busy) {
+                setExitHref(null);
+                if (dirty) setConfirmExit(true);
+                else onBack();
+              }
+            },
+          },
+          { label: title },
+        ]}
+      />
       {description && (
         <p className="text-sm leading-relaxed text-muted-foreground">
           {description}

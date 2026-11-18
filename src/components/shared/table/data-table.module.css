@@ -128,3 +128,20 @@
     overflow: visible;
   }
 }
+/* Строка итогов денежных таблиц: та же сетка, жирнее, над ней линия. */
+.totals td {
+  height: 52px;
+  padding: 12px;
+  font-weight: 600;
+  border-top: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.totals td:first-child {
+  border-bottom-left-radius: calc(var(--radius) - 1px);
+}
+.totals td:last-child {
+  border-bottom-right-radius: calc(var(--radius) - 1px);
+}

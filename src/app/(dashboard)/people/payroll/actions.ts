@@ -11,6 +11,7 @@ import { queuePayroll } from "@/lib/payroll/sync";
 import { validateRates, tipBatch, tipMatch } from "@/lib/payroll/calculate";
 import { validDate, addDays, businessDate } from "@/lib/sales/time";
 import type {
+  AdeskSync,
   PayrollData,
   PaySettings,
   Payment,
@@ -77,6 +78,7 @@ const EMPLOYEE_SKIPPED_TABLES = new Set([
   "cashbox",
   "events",
   "payments", // читаются ниже по выплатам самого сотрудника
+  "adeskSync", // читается ниже по тем же выплатам
 ]);
 
 async function loadPayrollData(
@@ -119,12 +121,13 @@ async function loadPayrollData(
     adjustments: "payroll_adjustments",
     cashbox: "payroll_cashbox",
     payments: "payroll_payments",
+    adeskSync: "payroll_adesk_sync",
     allocations: "payroll_allocations",
     events: "payroll_events",
   } as const;
   // The monthly overview uses accruals and payments, including history for opening balances.
   // Raw attendance and rules are read by the detailed screens.
-  const overviewTables = new Set(["transfers", "legacyPayments", "accruals", "adjustments", "payments", "allocations"]);
+  const overviewTables = new Set(["transfers", "legacyPayments", "accruals", "adjustments", "payments", "adeskSync", "allocations"]);
   // Для одного сотрудника сначала нужен его id: по нему фильтруются таблицы.
   const employeeId = single ? ((await employeesRequest)[0]?.id ?? null) : null;
   const entriesRequest = Promise.all(
@@ -141,6 +144,7 @@ async function loadPayrollData(
           "periods",
           "cashbox",
           "payments",
+          "adeskSync",
           "events",
         ].includes(key)
       )
@@ -154,7 +158,7 @@ async function loadPayrollData(
         if (single && EMPLOYEE_TABLES.has(key))
           query = query.eq("employee_id", employeeId);
         const { data, error } = await query
-          .order(key === "salaryLinks" ? "accrual_id" : "id")
+          .order(key === "salaryLinks" ? "accrual_id" : key === "adeskSync" ? "payment_id" : "id")
           .range(start, start + 999);
         if (error) throw new Error(error.message);
         rows.push(...(data ?? []));
@@ -196,6 +200,17 @@ async function loadPayrollData(
       payments.push(...(r.data ?? []));
     }
     result.payments = payments;
+    const sync: AdeskSync[] = [];
+    for (let start = 0; start < ids.length; start += 100) {
+      const r = await s.db
+        .from<AdeskSync[]>("payroll_adesk_sync")
+        .select("*")
+        .eq("venue_id", s.venueId)
+        .in("payment_id", ids.slice(start, start + 100));
+      if (r.error) throw new Error(r.error.message);
+      sync.push(...(r.data ?? []));
+    }
+    result.adeskSync = sync;
   }
   if (!manager) {
     const ids = [...new Set(result.allocations.map((a) => a.payment_id))];
@@ -602,6 +617,13 @@ export async function reconcileTips(
   });
   if (r.error) throw new Error(r.error.message);
   return r.data;
+}
+/** Sends a payout to Adesk again after its cause (mapping, a duplicate) was fixed. */
+export async function retryPayrollAdeskSync(paymentId: string) {
+  const s = await scope("payroll.pay");
+  z.string().uuid().parse(paymentId);
+  const r = await s.db.rpc("payroll_retry_adesk_sync", { p_payment: paymentId });
+  if (r.error) throw new Error(r.error.message);
 }
 export async function cancelPayrollPayment(paymentId: string) {
   const s = await scope("payroll.pay");

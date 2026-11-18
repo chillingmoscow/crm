@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -8,7 +8,7 @@ import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { useSaveSection } from "@/components/shared/save-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
 import { DatePicker } from "@/components/ui/date-picker";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import {
@@ -144,7 +144,6 @@ export function BasicMedicalCard({
   basic: BasicMedical;
   onChanged?: () => void;
 }) {
-  const id = useId();
   const [number, setNumber] = useState(basic.number ?? ""),
     [until, setUntil] = useState(basic.until ?? ""),
     [busy, setBusy] = useState(false),
@@ -189,30 +188,34 @@ export function BasicMedicalCard({
   };
   return (
     <>
-      <ProfileSection title="Медкнижка">
-        <form onSubmit={submit} className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field id={`${id}-number`} label="Номер">
+    <ProfileSection title="Медкнижка">
+      <form onSubmit={submit} className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Номер">
+            {(control) => (
               <Input
-                id={`${id}-number`}
+                {...control}
                 value={number}
                 onChange={(e) => setNumber(e.target.value)}
                 readOnly={!basic.canEdit}
                 maxLength={100}
               />
-            </Field>
-            <Field id={`${id}-until`} label="Действует до">
+            )}
+          </Field>
+          <Field label="Действует до">
+            {(control) => (
               <DatePicker
-                id={`${id}-until`}
+                {...control}
                 value={until}
                 onChange={setUntil}
                 readOnly={!basic.canEdit}
               />
-            </Field>
-          </div>
-        </form>
-      </ProfileSection>
-      {bar}
+            )}
+          </Field>
+        </div>
+      </form>
+    </ProfileSection>
+    {bar}
     </>
   );
 }
@@ -233,7 +236,6 @@ function MedicalCard({
   data: EmployeeDocumentsData;
   onSaved: () => Promise<unknown>;
 }) {
-  const id = useId();
   const initial = initialMedical(data);
   const [form, setForm] = useState(initial),
     [number, setNumber] = useState(data.medicalNumber ?? ""),
@@ -282,69 +284,74 @@ function MedicalCard({
   };
   return (
     <>
-      <ProfileSection title="Медкнижка">
-        <form onSubmit={submit} className="space-y-5">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Choice
-              id={`${id}-state`}
-              label="Состояние"
-              value={
-                form.medical_required === false
-                  ? "not_required"
-                  : form.medical_state
-              }
-              options={{
-                unknown: "Нужно уточнить",
-                missing: "Не предоставлена",
-                present: "Предоставлена",
-                not_required: "Не требуется",
-              }}
-              onChange={(v) =>
-                patch(
-                  v === "not_required"
-                    ? { medical_required: false }
-                    : {
-                        medical_required: true,
-                        medical_state: v as EmployeeMedicalInput["medical_state"],
-                      },
-                )
-              }
-            />
-            {form.medical_required !== false && (
-              <>
-                {data.employee.local_user_id && (
-                  <Field id={`${id}-number`} label="Номер">
+    <ProfileSection title="Медкнижка">
+      <form onSubmit={submit} className="space-y-5">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Choice
+            label="Состояние"
+            value={
+              form.medical_required === false
+                ? "not_required"
+                : form.medical_state
+            }
+            options={{
+              unknown: "Нужно уточнить",
+              missing: "Не предоставлена",
+              present: "Предоставлена",
+              not_required: "Не требуется",
+            }}
+            onChange={(v) =>
+              patch(
+                v === "not_required"
+                  ? { medical_required: false }
+                  : {
+                      medical_required: true,
+                      medical_state: v as EmployeeMedicalInput["medical_state"],
+                    },
+              )
+            }
+          />
+          {form.medical_required !== false && (
+            <>
+              {data.employee.local_user_id && (
+                <Field label="Номер">
+                  {(control) => (
                     <Input
-                      id={`${id}-number`}
+                      {...control}
                       value={number}
                       onChange={(e) => setNumber(e.target.value)}
                       readOnly={!data.canEditHr}
                       maxLength={100}
                     />
-                  </Field>
-                )}
-                <Field id={`${id}-exam`} label="Дата обследования">
+                  )}
+                </Field>
+              )}
+              <Field label="Дата обследования">
+                {(control) => (
                   <DatePicker
-                    id={`${id}-exam`}
+                    {...control}
                     value={form.examined_on ?? ""}
                     onChange={(v) => patch({ examined_on: v || null })}
                     readOnly={!canEditDates || form.medical_state !== "present"}
                   />
-                </Field>
-                <Field id={`${id}-until`} label="Действует до">
+                )}
+              </Field>
+              <Field label="Действует до">
+                {(control) => (
                   <DatePicker
-                    id={`${id}-until`}
+                    {...control}
                     value={form.valid_until ?? ""}
                     onChange={(v) => patch({ valid_until: v || null })}
                     readOnly={!canEditDates || form.medical_state !== "present"}
                   />
-                </Field>
-              </>
-            )}
-          </div>
-        </form>
-      </ProfileSection>
-      {bar}
+                )}
+              </Field>
+            </>
+          )}
+        </div>
+      </form>
+    </ProfileSection>
+    {bar}
     </>
   );
 }
@@ -356,7 +363,6 @@ function UniformCard({
   data: EmployeeDocumentsData;
   reload: () => Promise<EmployeeDocumentsData | null>;
 }) {
-  const id = useId();
   const [open, setOpen] = useState(false),
     [busy, setBusy] = useState(false),
     [title, setTitle] = useState(""),
@@ -578,37 +584,43 @@ function UniformCard({
           </>
         }
       >
-        <Field id={`${id}-title`} label="Что приобретено">
-          <Input
-            id={`${id}-title`}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Например, две футболки"
-            maxLength={200}
-          />
+        <Field label="Что приобретено" required>
+          {(control) => (
+            <Input
+              {...control}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Например, две футболки"
+              maxLength={200}
+            />
+          )}
         </Field>
-        <Field id={`${id}-amount`} label="Стоимость, ₽">
-          <Input
-            id={`${id}-amount`}
-            inputMode="decimal"
-            type="number"
-            min="0.01"
-            step="0.01"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
+        <Field label="Стоимость, ₽" required>
+          {(control) => (
+            <Input
+              {...control}
+              inputMode="decimal"
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          )}
         </Field>
-        <Field id={`${id}-purchased`} label="Дата покупки">
-          <DatePicker
-            id={`${id}-purchased`}
-            value={purchased}
-            onChange={setPurchased}
-            clearable={false}
-          />
+        <Field label="Дата покупки" required>
+          {(control) => (
+            <DatePicker
+              {...control}
+              value={purchased}
+              onChange={setPurchased}
+              clearable={false}
+            />
+          )}
         </Field>
         <Choice
-          id={`${id}-bank`}
           label="Счёт списания"
+          required
           value={bank}
           options={Object.fromEntries(data.banks.map((b) => [b.id, b.name]))}
           onChange={setBank}
@@ -617,18 +629,23 @@ function UniformCard({
         <p className="text-sm text-muted-foreground">
           Статья ФОТ · {data.employee.role_name}
         </p>
-        <Field id={`${id}-due`} label="Первое удержание">
-          <DatePicker
-            id={`${id}-due`}
-            value={due}
-            onChange={(v) =>
-              setDue(
-                v
-                  ? nextUniformPaymentDate(v, data.uniformSettings.payment_days)
-                  : "",
-              )
-            }
-          />
+        <Field label="Первое удержание" required>
+          {(control) => (
+            <DatePicker
+              {...control}
+              value={due}
+              onChange={(v) =>
+                setDue(
+                  v
+                    ? nextUniformPaymentDate(
+                        v,
+                        data.uniformSettings.payment_days,
+                      )
+                    : "",
+                )
+              }
+            />
+          )}
         </Field>
         {!!parts.length && <Installments items={parts} />}
       </EditDrawer>
@@ -648,14 +665,16 @@ function UniformCard({
         confirmDisabled={reason.trim().length < 3}
         onConfirm={() => void stop()}
       >
-        <Field id={`${id}-cancel`} label="Причина">
-          <Input
-            id={`${id}-cancel`}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            maxLength={1000}
-            placeholder="Например, сотрудник вернул форму"
-          />
+        <Field label="Причина">
+          {(control) => (
+            <Input
+              {...control}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              maxLength={1000}
+              placeholder="Например, сотрудник вернул форму"
+            />
+          )}
         </Field>
       </ConfirmDialog>
     </>
@@ -680,51 +699,37 @@ function Installments({
     </div>
   );
 }
-function Field({
-  id,
-  label,
-  children,
-}: {
-  id: string;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-2">
-      <Label htmlFor={id}>{label}</Label>
-      {children}
-    </div>
-  );
-}
 function Choice({
-  id,
   label,
   value,
   options,
   onChange,
   placeholder,
+  required,
 }: {
-  id: string;
   label: string;
   value: string;
   options: Record<string, string>;
   onChange: (v: string) => void;
   placeholder?: string;
+  required?: boolean;
 }) {
   return (
-    <Field id={id} label={label}>
-      <Select value={value || undefined} onValueChange={onChange}>
-        <SelectTrigger id={id}>
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
-        <SelectContent>
-          {Object.entries(options).map(([key, text]) => (
-            <SelectItem key={key} value={key}>
-              {text}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+    <Field label={label} required={required}>
+      {(control) => (
+        <Select value={value || undefined} onValueChange={onChange}>
+          <SelectTrigger {...control}>
+            <SelectValue placeholder={placeholder} />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(options).map(([key, text]) => (
+              <SelectItem key={key} value={key}>
+                {text}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
     </Field>
   );
 }

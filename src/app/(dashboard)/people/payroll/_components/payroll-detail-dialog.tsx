@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { PayrollEmployeeCell } from "./payroll-employee-cell";
 import s from "./payroll-detail-dialog.module.css";
+import tabStyle from "@/components/shared/workspace-tabs.module.css";
 
 /**
  * Боковая панель записей и форм зарплаты. Это обычный `EditDrawer` (520px,
@@ -43,7 +44,9 @@ export function PayrollDetailDialog({open, onOpenChange, title, description, emp
           {status}
         </div>
       )}
-      <div className={s.details}>{children}</div>
+      {/* Вкладки внутри панели («Детали / История») — тот же общий вид
+          представления, что и на странице, без уменьшенной копии. */}
+      <div className={`${s.details} ${tabStyle.tabs}`}>{children}</div>
     </EditDrawer>
   );
 }

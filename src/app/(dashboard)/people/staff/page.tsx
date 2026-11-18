@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import {
   createClient,
@@ -7,6 +8,8 @@ import {
 import { StaffClient } from "./_components/staff-client";
 import { getStaff, getPendingInvitations, getFiredStaff } from "./actions";
 import { getCasualStaff } from "@/lib/payroll/casual-list";
+
+export const metadata: Metadata = { title: "Сотрудники" };
 
 export default async function StaffPage({
   searchParams,
@@ -133,7 +136,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       departments={departments ?? []}
       venueId={venueId}
       currentUserId={user.id}
-      activeRoleCode={activeRoleCode}
+      canEditStaff={canEdit}
       casual={casual}
       openAddCasual={(await searchParams).add === "casual" && canEdit && !!casual}
     />

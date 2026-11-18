@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { loadPayroll } from "../actions";
 import { validDate } from "@/lib/sales/time";
 import { EmployeePayrollPage } from "../_components/employee-payroll-page";
+
+export const metadata: Metadata = { title: "Зарплата сотрудника" };
 
 export default async function EmployeeSalaryPage({
   params,

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import {
   createClient,
@@ -11,6 +12,8 @@ import {
   type StockRuleData,
 } from "@/app/(dashboard)/documents/writeoffs/rule-actions";
 import { DepartmentDetailPage } from "./_components/department-detail-page";
+
+export const metadata: Metadata = { title: "Подразделение" };
 
 export default async function DepartmentDetailServerPage({
   params,

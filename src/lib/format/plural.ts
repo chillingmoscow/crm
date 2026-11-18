@@ -12,3 +12,11 @@ export function pluralRu(n: number, one: string, few: string, many: string): str
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few;
   return many;
 }
+
+/**
+ * Число со словом в нужной форме: «1 операция», «2 смены», «5 записей».
+ * Число через неразрывный пробел, чтобы «5» не отрывалось от слова.
+ */
+export function countRu(n: number, one: string, few: string, many: string): string {
+  return `${n.toLocaleString("ru-RU")} ${pluralRu(n, one, few, many)}`;
+}

@@ -30,6 +30,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { createRole } from "../actions";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { PageFrame } from "@/components/shared/page-frame";
+import { TablePageHeader } from "@/components/shared/table";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -507,24 +510,15 @@ export function RolesClient({
   };
 
   return (
-    <div className="p-6 md:p-8 w-full">
-      {/* Header */}
-      <div className="flex items-end justify-between mb-6 gap-6 flex-wrap">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-3xl font-bold tracking-tight">Должности</h1>
-            <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-muted px-2 text-[12px] font-medium text-muted-foreground/80 tabular-nums">
-              {roles.length}
-            </span>
-          </div>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Управление должностями и настройка прав доступа
-            {isFiltered && ` · показано ${filteredRoles.length}`}
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Search */}
+    <PageFrame>
+      <Breadcrumbs items={[{ label: "Люди" }, { label: "Должности" }]} />
+      <TablePageHeader
+        className="mb-4"
+        title="Должности"
+        count={isFiltered ? `${filteredRoles.length} из ${roles.length}` : roles.length}
+        actions={
+          <>
+            {/* Search */}
           <div className="flex items-center gap-1">
             {searchOpen && (
               <div className="relative">
@@ -575,8 +569,9 @@ export function RolesClient({
               Добавить
             </Button>
           )}
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Empty state */}
       {roles.length === 0 && (
@@ -771,6 +766,6 @@ export function RolesClient({
           </p>
         </div>
       </EditDrawer>
-    </div>
+    </PageFrame>
   );
 }

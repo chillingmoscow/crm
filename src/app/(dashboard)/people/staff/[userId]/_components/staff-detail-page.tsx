@@ -21,7 +21,6 @@ import { z } from "zod";
 import { toast } from "sonner";
 import {
   Camera,
-  ChevronLeft,
   FileText,
   Loader2,
   Lock,
@@ -54,7 +53,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  PageBreadcrumb,
   PageHeaderActions,
 } from "@/components/shared/page-header-actions";
 import { ProfileHeader } from "@/components/shared/profile-header";
@@ -103,6 +101,7 @@ type FormValues = z.infer<typeof schema>;
 type Role = { id: string; name: string; code: string };
 
 import { StaffPayPanel } from "@/app/(dashboard)/people/payroll/_components/payroll-context";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 
 type TabKey = "pay" | "main" | "documents" | "history" | "activity" | "danger";
 
@@ -152,6 +151,8 @@ interface Props {
    *  conditional render'а. */
   canViewAudit: boolean;
   canConfigurePayroll: boolean;
+  /** Показывать ли вкладку «Оплата»: право на зарплату или своя карточка. */
+  canViewPay: boolean;
   initialTab?: "main" | "documents" | "pay";
   initialAuditEvents: AuditEvent[];
   initialAuditHasMore: boolean;
@@ -199,6 +200,7 @@ export function StaffDetailPage({
   needsPasswordSetup,
   canViewAudit,
   canConfigurePayroll,
+  canViewPay,
   initialTab = "main",
   initialAuditEvents,
   initialAuditHasMore,
@@ -208,7 +210,9 @@ export function StaffDetailPage({
   backLabel = "Сотрудники",
 }: Props) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
+  const [activeTab, setActiveTab] = useState<TabKey>(
+    initialTab === "pay" && !canViewPay ? "main" : initialTab,
+  );
   const [documentAudit, setDocumentAudit] = useState<{
     events: AuditEvent[];
     hasMore: boolean;
@@ -685,15 +689,18 @@ export function StaffDetailPage({
 
   return (
     <div className="flex-1 flex flex-col">
-      <PageBreadcrumb>
-        <Link
-          href={backHref}
-          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          {backLabel}
-        </Link>
-      </PageBreadcrumb>
+      <Breadcrumbs
+        back={
+          backHref === "/people/staff"
+            ? undefined
+            : { href: backHref, label: backLabel }
+        }
+        items={[
+          { label: "Люди" },
+          { label: "Сотрудники", href: "/people/staff" },
+          { label: displayName },
+        ]}
+      />
 
       <PageHeaderActions>
         {isFired && canManageStaff && (
@@ -795,7 +802,7 @@ export function StaffDetailPage({
           <ProfileTabsList>
             <TabsTrigger value="main">Основное</TabsTrigger>
             <TabsTrigger value="documents">Документы</TabsTrigger>
-            <TabsTrigger value="pay">Оплата</TabsTrigger>
+            {canViewPay && <TabsTrigger value="pay">Оплата</TabsTrigger>}
             {canViewAudit && (
               <>
                 <TabsTrigger value="history">Журнал</TabsTrigger>
@@ -1278,10 +1285,14 @@ export function StaffDetailPage({
             </form>
           </TabsContent>
 
+          {/* ── Оплата ───────────────────────────────────────── */}
+          {canViewPay && (
+            <TabsContent value="pay">
+              <StaffPayPanel userId={profile.id} />
+            </TabsContent>
+          )}
+
           {/* ── Документы ────────────────────────────────────── */}
-          <TabsContent value="pay">
-            <StaffPayPanel userId={profile.id} />
-          </TabsContent>
           <TabsContent value="documents">
             <div className="mx-auto w-full max-w-[720px] flex flex-col gap-5">
               {candidateId && (

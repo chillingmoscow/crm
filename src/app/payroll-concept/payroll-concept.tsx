@@ -1091,7 +1091,7 @@ export function PayrollConcept({
             />
           }
         >
-          <ConceptPaymentForm
+          <ConceptPaymentForm onCancel={() => setPayOpen(false)}
             data={data}
             month={monthStart}
             onDone={async () => {

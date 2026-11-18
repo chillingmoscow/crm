@@ -443,7 +443,7 @@ export function StaffPaySheet({
         description="Запись выданной зарплаты"
         footer={<div id="concept-payment-footer" className={paymentStyle.footerSlot} />}
       >
-        <ConceptPaymentForm
+        <ConceptPaymentForm onCancel={() => setPayOpen(false)}
           data={data}
           month={month}
           initialEmployeeId={employee.id}

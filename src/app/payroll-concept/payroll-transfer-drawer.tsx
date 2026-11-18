@@ -46,11 +46,11 @@ export function PayrollTransferDrawer({data, month, employeeId, onClose, onChang
   };
   return <PayrollDetailDialog open onOpenChange={(open) => {if (!open && !busy) onClose();}} title="Перенести остаток"
     description={`Из ведомости за ${monthLabel(month)}`}
-    footer={<Button className="ml-auto" disabled={busy || !valid} onClick={() => void run(async () => {
+    footer={<><Button variant="outline" disabled={busy} onClick={() => onClose()}>Отмена</Button><Button disabled={busy || !valid} onClick={() => void run(async () => {
       requestKey.current ??= crypto.randomUUID();
       await transferPayroll({ request_key:requestKey.current, employee_id:employee, from_month:month, to_month:dateMonth(target), amount:numeric*Math.sign(remaining), reason:reason.trim() });
       requestKey.current=null; setValue(""); setReason(""); toast.success("Остаток перенесён");
-    })}>{busy ? "Сохраняем…" : "Перенести"}</Button>}>
+    })}>{busy ? "Сохраняем…" : "Перенести"}</Button></>}>
     <div className={formStyle.form}>
       <div className="space-y-2">
         <Label>Сотрудник</Label>

@@ -88,28 +88,24 @@ test("премии и удержания отдельно, всё вместе �
   assert.equal(p.earned, 22563);
 });
 
-test("пояснение к смене: из расчёта и из сохранённой строки Glide", () => {
-  const p = buildPayslip(data(october), employee, "2026-10-01", () => "Бармен");
-  assert.deepEqual(p.shifts[1].basis, ["Процент: 49 998 ₽ × 7,5% · бар"]);
-  assert.deepEqual(p.shifts[0].basis, [
-    "Выход: 2 сотр. одной должности на смене",
-    "Процент: 63 091 ₽ × 3% · бар",
-    "Допродажи: общая сумма поровну на 2 сотр.",
-  ]);
+const detail = (x: { sales: unknown; rate: unknown; salesSource: unknown; extraPool: unknown; sharedWith: unknown }) => ({
+  sales: x.sales, rate: x.rate, salesSource: x.salesSource, extraPool: x.extraPool, sharedWith: x.sharedWith,
 });
 
-test("пояснение к смене на двоих: выход и допродажи", () => {
+test("из чего смена: выручка, ставка, касса — из расчёта и из сохранённой строки Glide", () => {
+  const p = buildPayslip(data(october), employee, "2026-10-01", () => "Бармен");
+  assert.deepEqual(detail(p.shifts[1]), { sales: 49998, rate: 7.5, salesSource: "бар", extraPool: null, sharedWith: 1 });
+  assert.deepEqual(detail(p.shifts[0]), { sales: 63091, rate: 3, salesSource: "бар", extraPool: 5960, sharedWith: 2 });
+});
+
+test("смена на двоих: общая сумма допродаж и число человек", () => {
   const shift = accrual("9", "2026-10-30", [
     c("base", 1500, "Выход", "2 сотрудников · пятница"),
     c("percent", 2492, "Процент от продаж", "83 061 ₽ × 3% · бар"),
     c("extra", 3320, "Дополнительные продажи", "6 640 ₽ / 2 сотрудников"),
   ]);
   const p = buildPayslip(data([shift]), employee, "2026-10-01", () => "Бармен");
-  assert.deepEqual(p.shifts[0].basis, [
-    "Выход: 2 сотр. одной должности на смене",
-    "Процент: 83 061 ₽ × 3% · бар",
-    "Допродажи: 6 640 ₽ / 2 сотр.",
-  ]);
+  assert.deepEqual(detail(p.shifts[0]), { sales: 83061, rate: 3, salesSource: "бар", extraPool: 6640, sharedWith: 2 });
 });
 
 test("неизвестная сумма не превращается в ноль", () => {

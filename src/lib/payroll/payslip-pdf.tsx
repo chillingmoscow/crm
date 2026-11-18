@@ -1,9 +1,9 @@
 // PDF layout of the monthly pay statement. Loaded on demand from the browser:
 // the renderer is heavy and only needed when someone downloads a statement.
 import { Document, Font, Page, StyleSheet, Text, View, pdf } from "@react-pdf/renderer";
-import type { Payslip } from "./payslip";
+import type { Payslip, PayslipEntry, PayslipShift } from "./payslip";
 
-const C = { text: "#0a0a0a", muted: "#6b7280", line: "#e5e7eb", soft: "#f5f6f8" };
+const C = { text: "#1c1917", muted: "#a8a29e", line: "#d6d3d1", band: "#f5f5f4", zebra: "#fafaf9", accent: "#1570EF" };
 
 let registered = "";
 function registerFonts(base: string) {
@@ -22,48 +22,42 @@ function registerFonts(base: string) {
 }
 
 const s = StyleSheet.create({
-  page: { fontFamily: "Inter", fontSize: 9, color: C.text, paddingTop: 32, paddingBottom: 44, paddingHorizontal: 40 },
-  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 },
-  eyebrow: { fontSize: 9, color: C.muted },
-  title: { fontSize: 20, fontWeight: 600, marginTop: 2 },
-  subtitle: { fontSize: 11, marginTop: 4 },
-  summary: { flexDirection: "row", borderWidth: 1, borderColor: C.line, borderRadius: 8, padding: 12, marginBottom: 14 },
-  totalBox: { width: "38%", paddingRight: 14, borderRightWidth: 1, borderRightColor: C.line, justifyContent: "center" },
-  totalLabel: { fontSize: 9, color: C.muted },
-  total: { fontSize: 22, fontWeight: 600, marginTop: 4 },
-  totalNote: { fontSize: 8, color: C.muted, marginTop: 6, lineHeight: 1.35 },
-  lines: { flex: 1, paddingLeft: 14 },
-  line: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 2.5 },
-  lineStrong: { fontWeight: 600, borderTopWidth: 1, borderTopColor: C.line, marginTop: 3, paddingTop: 5 },
+  page: { fontFamily: "Inter", fontSize: 8.5, color: C.text, paddingTop: 40, paddingBottom: 48, paddingHorizontal: 40 },
   muted: { color: C.muted },
-  section: { marginBottom: 12 },
-  sectionHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 },
-  sectionTitle: { fontSize: 11, fontWeight: 600 },
-  sectionSum: { fontSize: 10, fontWeight: 600 },
-  th: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: C.line, paddingBottom: 4, color: C.muted, fontSize: 8 },
-  tr: { borderBottomWidth: 1, borderBottomColor: C.line, paddingVertical: 3 },
-  row: { flexDirection: "row" },
-  basis: { fontSize: 7.5, color: C.muted, marginTop: 2, lineHeight: 1.3 },
-  num: { textAlign: "right" },
-  note: { fontSize: 8, color: C.muted, lineHeight: 1.4 },
-  warn: { borderWidth: 1, borderColor: "#f59e0b", backgroundColor: "#fffbeb", borderRadius: 6, padding: 8, marginBottom: 14, fontSize: 8 },
-  footer: { position: "absolute", bottom: 22, left: 40, right: 40, flexDirection: "row", justifyContent: "space-between", fontSize: 7.5, color: C.muted },
+  r: { textAlign: "right" },
+  header: { flexDirection: "row", justifyContent: "space-between" },
+  month: { fontSize: 9, color: C.accent, fontWeight: 600 },
+  name: { fontSize: 20, fontWeight: 600, marginTop: 3 },
+  total: { fontSize: 24, fontWeight: 600, marginTop: 2 },
+  chain: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", marginTop: 18, marginBottom: 22, backgroundColor: C.band, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12 },
+  op: { fontSize: 12, color: C.muted, marginHorizontal: 6 },
+  chainValue: { fontSize: 10.5, fontWeight: 600 },
+  chainLabel: { fontSize: 7, color: C.muted },
+  warn: { borderWidth: 1, borderColor: "#f59e0b", backgroundColor: "#fffbeb", borderRadius: 6, padding: 8, marginTop: 14, fontSize: 8 },
+  th: { flexDirection: "row", borderBottomWidth: 0.8, borderBottomColor: C.line, paddingBottom: 4, fontSize: 7.5, color: C.muted },
+  tr: { flexDirection: "row", paddingVertical: 4.5 },
+  totalRow: { flexDirection: "row", justifyContent: "space-between", borderTopWidth: 0.8, borderTopColor: C.line, paddingTop: 5 },
+  columns: { flexDirection: "row", marginTop: 20, gap: 24 },
+  colTitle: { fontWeight: 600, marginBottom: 5, paddingBottom: 4, borderBottomWidth: 0.8, borderBottomColor: C.line },
+  footer: { position: "absolute", bottom: 22, left: 40, right: 40, flexDirection: "row", justifyContent: "space-between", fontSize: 7, color: C.muted },
 });
 
 const money = (n: number | null, signed = false) => {
   if (n === null) return "нет данных";
   const abs = Math.abs(n),
-    whole = Number.isInteger(Math.round(abs * 100) / 100) || Math.abs(abs - Math.round(abs)) < 0.005;
+    frac = Math.abs(abs - Math.round(abs)) >= 0.005;
   const text = abs
-    .toLocaleString("ru-RU", { minimumFractionDigits: whole ? 0 : 2, maximumFractionDigits: whole ? 0 : 2 })
+    .toLocaleString("ru-RU", { minimumFractionDigits: frac ? 2 : 0, maximumFractionDigits: frac ? 2 : 0 })
     .replace(/ | /g, " ");
-  const sign = n < 0 ? "−" : signed && n > 0 ? "+" : "";
-  return `${sign}${text} ₽`;
+  return `${n < 0 ? "−" : signed && n > 0 ? "+" : ""}${text} ₽`;
 };
-const day = (iso: string) => {
-  const d = new Date(`${iso.slice(0, 10)}T12:00:00Z`);
-  return `${iso.slice(8, 10)}.${iso.slice(5, 7)}, ${d.toLocaleDateString("ru-RU", { weekday: "short", timeZone: "UTC" })}`;
-};
+/** Rounded plain number for the formula band and the table cells. */
+const plain = (n: number | null) =>
+  n === null ? "—" : Math.round(n).toLocaleString("ru-RU").replace(/ | /g, " ");
+const rate = (r: number) => `${String(r).replace(".", ",")}%`;
+const dayMonth = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
+const weekday = (iso: string) =>
+  new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString("ru-RU", { weekday: "short", timeZone: "UTC" });
 const monthTitle = (month: string) => {
   const t = new Date(`${month.slice(0, 7)}-01T12:00:00Z`)
     .toLocaleDateString("ru-RU", { month: "long", year: "numeric", timeZone: "UTC" })
@@ -76,65 +70,107 @@ const plural = (n: number, forms: [string, string, string]) => {
   return a > 10 && a < 20 ? forms[2] : b === 1 ? forms[0] : b > 1 && b < 5 ? forms[1] : forms[2];
 };
 
-const SHIFT_COLS: { label: string; width: string; num?: boolean }[] = [
-  { label: "Дата", width: "13%" },
-  { label: "Должность", width: "17%" },
-  { label: "Выход", width: "11%", num: true },
-  { label: "Процент", width: "12%", num: true },
-  { label: "Допродажи", width: "12%", num: true },
-  { label: "Стаж и др.", width: "11%", num: true },
-  { label: "За смену", width: "13%", num: true },
-  { label: "Чаевые", width: "11%", num: true },
-];
+type Link = { label: string; value: number; op: "+" | "−" | "" };
 
-function Line({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+/** The month as one sum: what was earned, what was carried and paid, what is left. */
+function formula(p: Payslip): Link[] {
+  const links: Link[] = [];
+  if (p.shifts.length) links.push({ label: "смены", value: p.shiftTotal ?? 0, op: "" });
+  if (p.additions.length) links.push({ label: "премии", value: p.additionsTotal, op: links.length ? "+" : "" });
+  if (p.deductions.length) links.push({ label: "удержания", value: -p.deductionsTotal, op: "−" });
+  if (p.opening) links.push({ label: p.opening < 0 ? "переплата" : "долг", value: Math.abs(p.opening), op: p.opening < 0 ? "−" : "+" });
+  if (p.transferredOut) links.push({ label: "перенесено", value: p.transferredOut, op: "−" });
+  if (p.paid) links.push({ label: "выплачено", value: p.paid, op: "−" });
+  return links;
+}
+
+function ShiftTable({ shifts, total }: { shifts: PayslipShift[]; total: number | null }) {
+  const other = shifts.some((x) => (x.other ?? 0) !== 0);
+  const cols = other
+    ? { date: "13%", base: "11%", percent: "28%", extra: "22%", other: "10%", total: "16%" }
+    : { date: "14%", base: "12%", percent: "30%", extra: "24%", other: "0%", total: "20%" };
   return (
-    <View style={[s.line, strong ? s.lineStrong : {}]}>
-      <Text style={strong ? {} : s.muted}>{label}</Text>
-      <Text>{value}</Text>
+    <View>
+      <View style={s.th} fixed>
+        <Text style={{ width: cols.date }}>Смена</Text>
+        <Text style={[{ width: cols.base }, s.r]}>Выход</Text>
+        <Text style={[{ width: cols.percent }, s.r]}>Процент от кассы</Text>
+        <Text style={[{ width: cols.extra }, s.r]}>Допродажи</Text>
+        {other && <Text style={[{ width: cols.other }, s.r]}>Стаж и др.</Text>}
+        <Text style={[{ width: cols.total }, s.r]}>Итого</Text>
+      </View>
+      {shifts.map((x, i) => (
+        <View key={i} style={[s.tr, { backgroundColor: i % 2 ? C.zebra : "#fff" }]} wrap={false}>
+          <Text style={{ width: cols.date, paddingLeft: 2 }}>
+            {dayMonth(x.date)} <Text style={s.muted}>{weekday(x.date)}</Text>
+          </Text>
+          <Text style={[{ width: cols.base }, s.r]}>{plain(x.base)}</Text>
+          <Text style={[{ width: cols.percent }, s.r]}>
+            {x.sales !== null && x.rate !== null && (
+              <Text style={s.muted}>{`${plain(x.sales)} × ${rate(x.rate)} = `}</Text>
+            )}
+            {plain(x.percent)}
+          </Text>
+          <Text style={[{ width: cols.extra }, s.r]}>
+            {x.sharedWith > 1 && (x.extra ?? 0) !== 0 && (
+              <Text style={s.muted}>
+                {x.extraPool !== null ? `${plain(x.extraPool)} ÷ ${x.sharedWith} = ` : `÷ ${x.sharedWith} = `}
+              </Text>
+            )}
+            {plain(x.extra)}
+          </Text>
+          {other && <Text style={[{ width: cols.other }, s.r]}>{x.other ? plain(x.other) : "—"}</Text>}
+          <Text style={[{ width: cols.total, fontWeight: 600, paddingRight: 2 }, s.r]}>{money(x.total)}</Text>
+        </View>
+      ))}
+      <View style={s.totalRow} wrap={false}>
+        <Text style={s.muted}>
+          {shifts.length} {plural(shifts.length, ["смена", "смены", "смен"])}
+        </Text>
+        <Text style={{ fontWeight: 600 }}>{money(total)}</Text>
+      </View>
     </View>
   );
 }
 
-function EntryTable({ title, entries, total }: { title: string; entries: Payslip["additions"]; total: number }) {
-  if (!entries.length) return null;
+function EntryColumn({ title, entries, signed }: { title: string; entries: PayslipEntry[]; signed: boolean }) {
   return (
-    <View style={s.section} wrap={false}>
-      <View style={s.sectionHead}>
-        <Text style={s.sectionTitle}>{title}</Text>
-        <Text style={s.sectionSum}>{money(total, true)}</Text>
-      </View>
-      <View style={s.th}>
-        <Text style={{ width: "15%" }}>Дата</Text>
-        <Text style={{ width: "65%" }}>Основание</Text>
-        <Text style={[{ width: "20%" }, s.num]}>Сумма</Text>
-      </View>
-      {entries.map((e, i) => (
-        <View key={i} style={[s.tr, s.row]}>
-          <Text style={{ width: "15%" }}>{day(e.date)}</Text>
-          <Text style={{ width: "65%" }}>{e.title}</Text>
-          <Text style={[{ width: "20%" }, s.num]}>{money(e.amount, true)}</Text>
-        </View>
-      ))}
+    <View style={{ flex: 1 }}>
+      <Text style={s.colTitle}>{title}</Text>
+      {entries.length ? (
+        entries.map((e, i) => (
+          <View key={i} style={{ marginBottom: 5 }} wrap={false}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <Text style={s.muted}>{dayMonth(e.date)}</Text>
+              <Text style={{ fontWeight: 500 }}>{money(e.amount, signed)}</Text>
+            </View>
+            {e.title && <Text style={{ marginTop: 1 }}>{e.title}</Text>}
+          </View>
+        ))
+      ) : (
+        <Text style={s.muted}>нет</Text>
+      )}
     </View>
   );
 }
 
 export function PayslipDocument({ p, generatedAt }: { p: Payslip; generatedAt: Date }) {
-  const owed = p.opening + p.earned - p.transferredOut;
   const overpaid = p.remainingKnown && p.remaining < 0;
+  const resultLabel = overpaid ? "переплата" : "к выплате";
+  const links = formula(p);
   return (
     <Document title={`Расчётный лист — ${p.employee} — ${monthTitle(p.month)}`} author="Sheerly" language="ru">
       <Page size="A4" style={s.page}>
         <View style={s.header}>
           <View>
-            <Text style={s.eyebrow}>Расчётный лист</Text>
-            <Text style={s.title}>{monthTitle(p.month)}</Text>
-            <Text style={s.subtitle}>
-              {p.employee} · {p.role}
-            </Text>
+            <Text style={s.month}>{monthTitle(p.month)}</Text>
+            <Text style={s.name}>{p.employee}</Text>
+            <Text style={[s.muted, { marginTop: 2 }]}>{p.role}</Text>
           </View>
-          <Text style={s.eyebrow}>Сформирован {generatedAt.toLocaleDateString("ru-RU")}</Text>
+          <View style={{ alignItems: "flex-end" }}>
+            <Text style={s.muted}>{resultLabel}</Text>
+            <Text style={s.total}>{p.remainingKnown ? money(Math.abs(p.remaining)) : "уточняется"}</Text>
+          </View>
         </View>
 
         {p.issues.length > 0 && (
@@ -143,98 +179,48 @@ export function PayslipDocument({ p, generatedAt }: { p: Payslip; generatedAt: D
           </View>
         )}
 
-        <View style={s.summary} wrap={false}>
-          <View style={s.totalBox}>
-            <Text style={s.totalLabel}>{overpaid ? "Переплата" : "Осталось выплатить"}</Text>
-            <Text style={s.total}>{p.remainingKnown ? money(Math.abs(p.remaining)) : "уточняется"}</Text>
-            <Text style={s.totalNote}>
-              {p.remainingKnown
-                ? `Выплачено ${money(p.paid)} из ${money(owed)}`
-                : "Остаток с прошлых периодов ещё сверяется"}
-            </Text>
-            {p.tips > 0 && (
-              <Text style={s.totalNote}>
-                Чаевые {money(p.tips)}
-                {p.tipPaid > 0 ? `, выдано ${money(p.tipPaid)}` : ""} — отдельно от зарплаты
-              </Text>
-            )}
-          </View>
-          <View style={s.lines}>
-            <Line
-              label={`За смены (${p.shifts.length} ${plural(p.shifts.length, ["смена", "смены", "смен"])})`}
-              value={money(p.shiftTotal)}
-            />
-            {p.additions.length > 0 && <Line label="Премии и надбавки" value={money(p.additionsTotal, true)} />}
-            {p.deductions.length > 0 && <Line label="Удержания" value={money(p.deductionsTotal)} />}
-            <Line label="Начислено за месяц" value={money(p.earned)} strong />
-            {p.opening !== 0 && (
-              <Line label={p.opening < 0 ? "Переплата прошлых месяцев" : "Долг с прошлых месяцев"} value={money(p.opening, true)} />
-            )}
-            {p.transferredOut !== 0 && <Line label="Перенесено на другой месяц" value={money(-p.transferredOut)} />}
-            <Line label="Выплачено" value={money(-p.paid)} />
-          </View>
-        </View>
-
-        {p.shifts.length > 0 && (
-          <View style={s.section}>
-            <View style={s.sectionHead}>
-              <Text style={s.sectionTitle}>Смены</Text>
-              <Text style={s.sectionSum}>{money(p.shiftTotal)}</Text>
-            </View>
-            <View style={s.th} fixed>
-              {SHIFT_COLS.map((col) => (
-                <Text key={col.label} style={[{ width: col.width }, col.num ? s.num : {}]}>
-                  {col.label}
-                </Text>
-              ))}
-            </View>
-            {p.shifts.map((shift, i) => {
-              const cells = [day(shift.date), shift.role, shift.base, shift.percent, shift.extra, shift.other, shift.total, shift.tips];
-              return (
-                <View key={i} style={s.tr} wrap={false}>
-                  <View style={s.row}>
-                    {cells.map((v, j) => (
-                      <Text
-                        key={j}
-                        style={[{ width: SHIFT_COLS[j].width }, SHIFT_COLS[j].num ? s.num : {}, j === 6 ? { fontWeight: 600 } : {}]}
-                      >
-                        {typeof v === "string" ? v : v === 0 && j !== 6 ? "—" : money(v)}
-                      </Text>
-                    ))}
-                  </View>
-                  {shift.basis.length > 0 && <Text style={s.basis}>{shift.basis.join("   ·   ")}</Text>}
+        {p.remainingKnown ? (
+          <View style={s.chain} wrap={false}>
+            {links.map((link, i) => (
+              <View key={i} style={{ flexDirection: "row", alignItems: "center" }}>
+                {link.op && <Text style={s.op}>{link.op}</Text>}
+                <View style={{ alignItems: "center" }}>
+                  <Text style={s.chainValue}>{plain(link.value)}</Text>
+                  <Text style={s.chainLabel}>{link.label}</Text>
                 </View>
-              );
-            })}
-          </View>
-        )}
-
-        <EntryTable title="Премии и надбавки" entries={p.additions} total={p.additionsTotal} />
-        <EntryTable title="Удержания" entries={p.deductions} total={p.deductionsTotal} />
-
-        {p.payments.length > 0 && (
-          <View style={s.section} wrap={false}>
-            <View style={s.sectionHead}>
-              <Text style={s.sectionTitle}>Выплаты за этот месяц</Text>
-              <Text style={s.sectionSum}>{money(p.paid)}</Text>
-            </View>
-            {p.payments.map((pay, i) => (
-              <View key={i} style={[s.tr, s.row]}>
-                <Text style={{ width: "80%" }}>{day(pay.date)}</Text>
-                <Text style={[{ width: "20%" }, s.num]}>{money(pay.amount)}</Text>
               </View>
             ))}
+            <Text style={s.op}>=</Text>
+            <View style={{ alignItems: "center" }}>
+              <Text style={[s.chainValue, { color: C.accent }]}>{plain(Math.abs(p.remaining))}</Text>
+              <Text style={s.chainLabel}>{resultLabel}</Text>
+            </View>
+          </View>
+        ) : (
+          <View style={s.chain}>
+            <Text>
+              Начислено за месяц {money(p.earned)}, выплачено {money(p.paid)}. Остаток с прошлых периодов ещё
+              сверяется, поэтому сумма к выплате появится позже.
+            </Text>
           </View>
         )}
 
-        <Text style={s.note} wrap={false}>
-          За смену — выход, процент от продаж, допродажи и надбавки дня; под сменой — из чего они получились.
-          Вопросы по расчёту — к управляющему.
-        </Text>
+        {p.shifts.length > 0 && <ShiftTable shifts={p.shifts} total={p.shiftTotal} />}
+
+        <View style={s.columns} wrap={false}>
+          <EntryColumn title="Премии и надбавки" entries={p.additions} signed />
+          <EntryColumn title="Удержания" entries={p.deductions} signed />
+          <EntryColumn
+            title="Выплаты"
+            entries={p.payments.map((x) => ({ date: x.date, title: "", amount: x.amount }))}
+            signed={false}
+          />
+        </View>
 
         <View style={s.footer} fixed>
           <Text>
-            {p.employee} · {monthTitle(p.month)}
+            {p.tips > 0 ? `Чаевые ${money(p.tips)} получены на сменах и в расчёт не входят. ` : ""}
+            Сформирован {generatedAt.toLocaleDateString("ru-RU")}
           </Text>
           <Text render={({ pageNumber, totalPages }) => `${pageNumber} из ${totalPages}`} />
         </View>

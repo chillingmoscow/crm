@@ -14,8 +14,14 @@ export type PayslipShift = {
   other: number | null;
   total: number | null;
   tips: number;
-  /** Как получились процент и допродажи, человеческим языком. */
-  basis: string[];
+  /** Из чего получился процент: выручка, ставка и чья касса. */
+  sales: number | null;
+  rate: number | null;
+  salesSource: string | null;
+  /** Общие допродажи смены до деления; null, если делить не пришлось или сумма неизвестна. */
+  extraPool: number | null;
+  /** Сколько человек одной должности делили выход и допродажи; 1 — работал один. */
+  sharedWith: number;
 };
 
 export type PayslipEntry = { date: string; title: string; amount: number | null };
@@ -58,11 +64,12 @@ const num = (v: unknown) => {
   const n = Number(String(v ?? "").replace(/\s/g, "").replace(",", "."));
   return Number.isFinite(n) ? n : null;
 };
-const rub = (n: number) => `${Math.round(n).toLocaleString("ru-RU").replace(/ /g, " ")} ₽`;
+type ShiftDetail = Pick<PayslipShift, "sales" | "rate" | "salesSource" | "extraPool" | "sharedWith">;
+const NONE: ShiftDetail = { sales: null, rate: null, salesSource: null, extraPool: null, sharedWith: 1 };
 
-/** Shifts carried over from Glide kept only totals: rebuild the explanation from the saved row. */
-function legacyBasis(legacy: Record<string, unknown>): string[] {
-  const out: string[] = [];
+/** Shifts carried over from Glide kept only totals: rebuild the detail from the saved row. */
+function legacyDetail(legacy: Record<string, unknown>): ShiftDetail {
+  const out = { ...NONE };
   const pct = num(legacy["%"]),
     percent = num(legacy["Процент"]);
   if (pct && percent) {
@@ -75,27 +82,41 @@ function legacyBasis(legacy: Record<string, unknown>): string[] {
       const base = num(v);
       return base !== null && Math.abs(Math.round((base * pct) / 100) - percent) <= 1;
     });
-    if (hit) out.push(`Процент: ${rub(num(hit[1]) ?? 0)} × ${String(pct).replace(".", ",")}% · ${hit[0]}`);
+    if (hit) Object.assign(out, { sales: num(hit[1]), rate: pct, salesSource: hit[0] });
   }
   const same = num(legacy["Сотрудники на смене / Одной должности"]);
   if (same && same > 1) {
-    out.unshift(`Выход: ${same} сотр. одной должности на смене`);
-    if (num(legacy["Дополнительные продажи"])) out.push(`Допродажи: общая сумма поровну на ${same} сотр.`);
+    out.sharedWith = same;
+    // Glide kept only the share; it split the pool evenly, so the pool is share × people.
+    const share = num(legacy["Дополнительные продажи"]);
+    if (share) out.extraPool = share * same;
   }
   return out;
 }
 
-function shiftBasis(a: Accrual): string[] {
+const amountIn = (text: string) => num(text.replace(/[^\d,.]/g, ""));
+
+function shiftDetail(a: Accrual): ShiftDetail {
   const legacy = a.calculation_snapshot.legacy;
-  if (legacy && typeof legacy === "object") return legacyBasis(legacy as Record<string, unknown>);
-  const out: string[] = [];
-  // Only a split explains a number: «1 сотрудник» says nothing an employee does not know.
-  const shared = (basis: string) => Number(/(\d+) сотрудник/.exec(basis)?.[1] ?? 1);
+  if (legacy && typeof legacy === "object") return legacyDetail(legacy as Record<string, unknown>);
+  const out = { ...NONE };
+  const people = (basis: string) => Number(/(\d+) сотрудник/.exec(basis)?.[1] ?? 1);
   for (const c of a.components) {
     if (!c.basis) continue;
-    if (c.kind === "base" && shared(c.basis) > 1) out.push(`Выход: ${shared(c.basis)} сотр. одной должности на смене`);
-    if (c.kind === "percent") out.push(`Процент: ${c.basis.replace(/(\d)\.(\d)/g, "$1,$2")}`);
-    if (c.kind === "extra" && shared(c.basis) > 1) out.push(`Допродажи: ${c.basis.replace(/(\d+) сотрудник\S*/, "$1 сотр.")}`);
+    if (c.kind === "base") out.sharedWith = Math.max(out.sharedWith, people(c.basis));
+    if (c.kind === "percent") {
+      // «49 998 ₽ × 7.5% · бар»
+      const m = /^(.+?)₽\s*×\s*([\d.,]+)%\s*·\s*(.+)$/.exec(c.basis);
+      if (m) Object.assign(out, { sales: amountIn(m[1]), rate: num(m[2]), salesSource: m[3].trim() });
+    }
+    if (c.kind === "extra") {
+      // «6 640 ₽ / 2 сотрудников»
+      const m = /^(.+?)₽\s*\/\s*(\d+)/.exec(c.basis);
+      if (m && Number(m[2]) > 1) {
+        out.extraPool = amountIn(m[1]);
+        out.sharedWith = Math.max(out.sharedWith, Number(m[2]));
+      }
+    }
   }
   return out;
 }
@@ -130,7 +151,7 @@ export function buildPayslip(
         ...parts,
         total: sum(pick((k) => PER_SHIFT.has(k))),
         tips: Number(a.tips),
-        basis: shiftBasis(a),
+        ...shiftDetail(a),
       });
     }
     for (const c of a.components) {

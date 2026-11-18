@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getCachedUser } from "@/lib/supabase/server";
 import {
@@ -6,6 +7,8 @@ import {
   candidateOptions,
 } from "@/lib/candidates/data";
 import { CandidatesClient } from "./_components/candidates-client";
+
+export const metadata: Metadata = { title: "Кандидаты" };
 export const dynamic = "force-dynamic";
 export default async function CandidatesPage({
   searchParams,

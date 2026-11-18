@@ -3,16 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  PageHeaderActions,
-} from "@/components/shared/page-header-actions";
-import {
   ArrowLeft,
   ArrowUpRight,
   CalendarDays,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  CircleHelp,
   Users,
   Plus,
 } from "lucide-react";
@@ -160,7 +156,6 @@ export function PayrollConcept({
   const [selected, setSelected] = useState<Row | null>(null);
   const [day, setDay] = useState<Accrual | null>(null);
   const [employeeTab, setEmployeeTab] = useState("summary");
-  const [help, setHelp] = useState(false);
   const [composition, setComposition] = useState(false);
   const [hoverDay, setHoverDay] = useState<number | null>(null);
   const monthStart = `${month}-01`;
@@ -445,15 +440,6 @@ export function PayrollConcept({
     <TooltipProvider>
       <div className={`${s.app} ${s.embedded}`}>
         <Breadcrumbs items={[{ label: "Люди" }, { label: "Зарплата" }]} />
-        <PageHeaderActions>
-          <button
-            className={s.iconButton}
-            aria-label="Как устроен этот экран"
-            onClick={() => setHelp(true)}
-          >
-            <CircleHelp size={18} />
-          </button>
-        </PageHeaderActions>
         <div className={s.main}>
           <PageFrame>
             <TablePageHeader
@@ -1099,64 +1085,6 @@ export function PayrollConcept({
             }}
           />
         </PayrollDetailDialog>
-        <Dialog open={help} onOpenChange={setHelp}>
-          <DialogContent
-            className={s.dialog}
-            tabIndex={-1}
-            onOpenAutoFocus={(event) => {
-              event.preventDefault();
-              requestAnimationFrame(() => {
-                const dialog = document.querySelector<HTMLElement>(
-                  '[role="dialog"][data-state="open"]',
-                );
-                dialog?.focus({ preventScroll: true });
-              });
-            }}
-          >
-            <DialogTitle className={s.dialogTitle}>
-              От смены до зарплаты
-            </DialogTitle>
-            <DialogDescription className={s.dialogDescription}>
-              Один расчёт, понятные основания.
-            </DialogDescription>
-            <div className={s.helpSteps}>
-              {[
-                [
-                  "01",
-                  "Смены из Quick Resto",
-                  "Закрытые персональные смены подтверждают фактическую работу сотрудника.",
-                ],
-                [
-                  "02",
-                  "Ваши правила оплаты",
-                  "Ставка, проценты, надбавки и премии формируют начисление. Удержания уменьшают его.",
-                ],
-                [
-                  "03",
-                  "Выплаты и переносы",
-                  "Записанная выплата уменьшает долг. Перенос между месяцами оформляется вручную.",
-                ],
-                [
-                  "04",
-                  "Чаевые отдельно",
-                  "Показываем сумму чаевых, не смешивая её с зарплатой.",
-                ],
-              ].map(([n, t, d]) => (
-                <div key={n}>
-                  <span>{n}</span>
-                  <div>
-                    <strong>{t}</strong>
-                    <p>{d}</p>
-                  </div>
-                </div>
-              ))}
-              <p className={s.helpNote}>
-                Выплаты работают с реальными данными. Перевод денег в банке
-                выполняется отдельно.
-              </p>
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
     </TooltipProvider>
   );

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import {
   createClient,
@@ -7,6 +8,8 @@ import {
 import { StaffClient } from "./_components/staff-client";
 import { getStaff, getPendingInvitations, getFiredStaff } from "./actions";
 import { getCasualStaff } from "@/lib/payroll/casual-list";
+
+export const metadata: Metadata = { title: "Сотрудники" };
 
 export default async function StaffPage({
   searchParams,

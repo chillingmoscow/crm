@@ -27,6 +27,8 @@ export function ConfirmDialog({
   pendingLabel,
   destructive = false,
   busy = false,
+  restriction,
+  error,
   onConfirm,
 }: {
   open: boolean;
@@ -38,6 +40,13 @@ export function ConfirmDialog({
   pendingLabel?: string;
   destructive?: boolean;
   busy?: boolean;
+  /**
+   * Почему действие сейчас недоступно. Показывается в теле, кнопка
+   * подтверждения выключена: разрушительное действие не прячем, а объясняем.
+   */
+  restriction?: ReactNode;
+  /** Ошибка выполнения: остаётся в диалоге, а не уходит в тост. */
+  error?: ReactNode;
   onConfirm: () => void;
 }) {
   return (
@@ -54,6 +63,11 @@ export function ConfirmDialog({
             <DialogDescription>{description}</DialogDescription>
           ) : null}
         </DialogHeader>
+        {restriction || error ? (
+          <p role="alert" className="text-sm text-destructive">
+            {restriction || error}
+          </p>
+        ) : null}
         <DialogFooter>
           <Button
             type="button"
@@ -66,7 +80,7 @@ export function ConfirmDialog({
           <Button
             type="button"
             variant={destructive ? "destructive" : "default"}
-            disabled={busy}
+            disabled={busy || !!restriction}
             onClick={onConfirm}
           >
             {busy && pendingLabel ? pendingLabel : confirmLabel}

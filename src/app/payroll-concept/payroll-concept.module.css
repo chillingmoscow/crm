@@ -579,7 +579,7 @@
   font-size: 11px;
   margin-bottom: 6px;
 }
-.roleBars span {
+.roleBars > button > div:first-child > span {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -808,15 +808,6 @@
   font-size: inherit;
   color: inherit;
   padding: 0;
-}
-.bonus {
-  color: hsl(var(--muted-foreground));
-  font-size: 11px;
-}
-.deduction {
-  color: hsl(var(--muted-foreground));
-  font-size: 11px;
-  margin-left: 9px;
 }
 .table .muted {
   color: hsl(var(--muted-foreground));
@@ -1892,12 +1883,6 @@
 .rowChevron,
 .iconButton {
   color: hsl(var(--muted-foreground));
-}
-.bonus {
-  color: var(--palette-green-fg);
-}
-.deduction {
-  color: var(--palette-red-fg);
 }
 .selectedRole {
   outline-color: hsl(var(--brand) / 0.5);

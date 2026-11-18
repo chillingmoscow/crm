@@ -3,7 +3,8 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { loadEmployeePayroll, loadPayroll, reconcileTips } from "../actions";
 import type { PayrollData } from "@/lib/payroll/types";
-import { money } from "@/lib/sales/format";
+import { Money } from "@/components/shared/money";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { selectClass } from "./employee-pay";
 import { StaffPaySheet } from "./staff-pay-sheet";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -159,15 +160,27 @@ export function PayrollDayPanel({ date }: { date: string }) {
             </p>
           )}
           {cash.map((c) => (
-            <p className="text-sm" key={c.id}>
-              Инкассация №{c.external_id} · {money(Number(c.amount))} ₽ ·{" "}
-              {c.state === "posted"
-                ? "Учтена"
-                : c.state === "cancelled"
-                  ? "Отменена"
-                  : c.recognition === "ambiguous"
-                    ? "Неоднозначный комментарий"
-                    : "Выдача не подтверждена"}
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" key={c.id}>
+              <span>
+                Инкассация №{c.external_id} · <Money value={Number(c.amount)} />
+              </span>
+              <StatusBadge
+                tone={
+                  c.state === "posted"
+                    ? "success"
+                    : c.state === "cancelled"
+                      ? "neutral"
+                      : "warning"
+                }
+              >
+                {c.state === "posted"
+                  ? "Учтена"
+                  : c.state === "cancelled"
+                    ? "Отменена"
+                    : c.recognition === "ambiguous"
+                      ? "Неоднозначный комментарий"
+                      : "Выдача не подтверждена"}
+              </StatusBadge>
             </p>
           ))}
           {data.permissions.includes("payroll.pay") &&

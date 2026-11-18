@@ -52,18 +52,16 @@ import { PageFrame } from "@/components/shared/page-frame";
 import { recalculateInventoryDeduction } from "@/app/(dashboard)/inventory/_actions/deduction";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { TablePageHeader } from "@/components/shared/table";
+import { Money, formatRub } from "@/components/shared/money";
+import { formatAmount } from "@/lib/format/amount";
+import { countRu } from "@/lib/format/plural";
 
 type Row = ReturnType<typeof statementRows>[number];
-const rub = (n: number) =>
-  new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(n);
-const amount = (n: number) => `${rub(n)} ₽`;
-const short = (n: number) => (n >= 1000 ? `${rub(n / 1000)} тыс.` : rub(n));
-const plural = (n: number, forms: [string, string, string]) => {
-  const v = Math.abs(n) % 100,
-    d = v % 10;
-  return `${n} ${forms[v > 10 && v < 20 ? 2 : d === 1 ? 0 : d >= 2 && d <= 4 ? 1 : 2]}`;
-};
-const shiftCount = (n: number) => plural(n, ["смена", "смены", "смен"]);
+const short = (n: number) =>
+  n >= 1000 ? `${formatAmount(n / 1000, 0)} тыс.` : formatAmount(n, 0);
+const shiftCount = (n: number) => countRu(n, "смена", "смены", "смен");
+const staffCount = (n: number) =>
+  countRu(n, "сотрудник", "сотрудника", "сотрудников");
 const colors = [1, 0.72, 0.46, 0.28, 0.18].map(
   (alpha) => `hsl(var(--brand) / ${alpha})`,
 );
@@ -544,40 +542,41 @@ export function PayrollConcept({
                   Начислено команде <ArrowUpRight size={15} />
                 </span>
                 <strong>
-                  {rub(total)} <span>₽</span>
+                  <Money value={total} className={s.metricValue} />
                 </strong>
                 <small>
-                  {plural(active.length, [
-                    "сотрудник",
-                    "сотрудника",
-                    "сотрудников",
-                  ])}{" "}
+                  {staffCount(active.length)}{" "}
                   <i>·</i> {shiftCount(shifts)}
                 </small>
               </button>
               <div className={s.metric}>
                 <span className={s.metricLabel}>Выплачено</span>
                 <strong>
-                  <span className={s.metricValue}>
-                    {historyPending ? "—" : rub(paid)}
-                  </span>{" "}
-                  <span>₽</span>
+                  <Money
+                    value={historyPending ? null : paid}
+                    className={s.metricValue}
+                  />
                 </strong>
                 {/* Причина прочерка написана текстом: подсказку по наведению
                     не увидеть с клавиатуры и с телефона. */}
                 {historyPending ? (
                   <small>Прежние выплаты ещё не сверены</small>
                 ) : (
-                  <small>{payments.length} операций за месяц</small>
+                  <small>
+                    {countRu(payments.length, "операция", "операции", "операций")}{" "}
+                    за месяц
+                  </small>
                 )}
               </div>
               <div className={s.metric}>
-                <span className={s.metricLabel}>К выплате</span>
+                <span className={s.metricLabel}>
+                  {knownBalance && remaining < 0 ? "Переплата" : "К выплате"}
+                </span>
                 <strong>
-                  <span className={s.metricValue}>
-                    {knownBalance ? rub(remaining) : "—"}
-                  </span>{" "}
-                  <span>₽</span>
+                  <Money
+                    value={knownBalance ? Math.abs(remaining) : null}
+                    className={s.metricValue}
+                  />
                 </strong>
                 {!knownBalance && (
                   <small>Появится после сверки выплат и переносов</small>
@@ -586,7 +585,7 @@ export function PayrollConcept({
               <div className={s.metric}>
                 <span className={s.metricLabel}>Чаевые</span>
                 <strong>
-                  {rub(tips)} <span>₽</span>
+                  <Money value={tips} className={s.metricValue} />
                 </strong>
                 <small>Отдельно от зарплаты</small>
               </div>
@@ -624,7 +623,7 @@ export function PayrollConcept({
                     </span>
                   </div>
                   <div className={s.chartHeading}>
-                    <strong>{amount(selectedPoint.value)}</strong>
+                    <strong><Money value={selectedPoint.value} /></strong>
                     <span>
                       {String(selectedPoint.day).padStart(2, "0")}{" "}
                       {new Date(`${monthStart}T12:00:00Z`)
@@ -733,7 +732,7 @@ export function PayrollConcept({
                         {daily.map((d, i) => (
                           <button
                             key={d.day}
-                            aria-label={`${d.day} число: ${amount(d.value)}`}
+                            aria-label={`${d.day} число: ${formatRub(d.value)}`}
                             onMouseEnter={() => setHoverDay(i)}
                             onFocus={() => setHoverDay(i)}
                             onClick={() => setHoverDay(i)}
@@ -774,7 +773,7 @@ export function PayrollConcept({
                             <i style={{ background: colors[i] }} />
                             {r.name}
                           </span>
-                          <strong>{amount(r.value)}</strong>
+                          <strong><Money value={r.value} /></strong>
                         </div>
                         <div className={s.barTrack}>
                           <span
@@ -792,17 +791,19 @@ export function PayrollConcept({
                       В среднем за смену<small>Без сотрудников на окладе</small>
                     </span>
                     <strong>
-                      {amount(
-                        shifts
-                          ? current
-                              .filter(
-                                (a) =>
-                                  a.calculation_snapshot.kind !== "monthly",
-                              )
-                              .reduce((sum, a) => sum + Number(a.salary), 0) /
+                      <Money
+                        value={
+                          shifts
+                            ? current
+                                .filter(
+                                  (a) =>
+                                    a.calculation_snapshot.kind !== "monthly",
+                                )
+                                .reduce((sum, a) => sum + Number(a.salary), 0) /
                               shifts
-                          : 0,
-                      )}
+                            : 0
+                        }
+                      />
                     </strong>
                   </div>
                 </div>
@@ -906,11 +907,11 @@ export function PayrollConcept({
             <div className={s.dialogBody}>
               <div className={s.employeeTotal}>
                 <span>Начислено за месяц</span>
-                <strong>{amount(selected ? selected.earned : total)}</strong>
+                <strong><Money value={selected ? selected.earned : total} /></strong>
                 <small>
                   {selected
-                    ? `${shiftCount(selected.shifts)} · чаевые ${amount(selected.tips)} отдельно`
-                    : `${plural(active.length, ["сотрудник", "сотрудника", "сотрудников"])} · ${shiftCount(shifts)}`}
+                    ? `${shiftCount(selected.shifts)} · чаевые ${formatRub(selected.tips)} отдельно`
+                    : `${staffCount(active.length)} · ${shiftCount(shifts)}`}
                 </small>
               </div>
               {selected && (
@@ -942,8 +943,7 @@ export function PayrollConcept({
                     <div key={label}>
                       <span>{label}</span>
                       <strong>
-                        {value < 0 ? "−" : ""}
-                        {amount(Math.abs(value))}
+                        <Money value={value} />
                       </strong>
                     </div>
                   ))}
@@ -971,7 +971,7 @@ export function PayrollConcept({
                               timeZone: "UTC",
                             })}
                       </span>
-                      <strong>{amount(Number(day.salary))}</strong>
+                      <strong><Money value={Number(day.salary)} /></strong>
                     </div>
                     <div className={s.dayDetail}>
                       {day.components.map((c, i) => (
@@ -981,9 +981,9 @@ export function PayrollConcept({
                             <small>{c.basis}</small>
                           </span>
                           <strong>
-                            {c.amount === null
-                              ? "Нет данных"
-                              : amount(Number(c.amount))}
+                            <Money
+                              value={c.amount === null ? null : Number(c.amount)}
+                            />
                           </strong>
                         </div>
                       ))}
@@ -1015,7 +1015,7 @@ export function PayrollConcept({
                                   timeZone: "UTC",
                                 })}
                           </span>
-                          <strong>{amount(Number(a.salary))}</strong>
+                          <strong><Money value={Number(a.salary)} /></strong>
                           <ChevronRight size={15} />
                         </button>
                       </div>
@@ -1056,8 +1056,8 @@ export function PayrollConcept({
               Удалить выплату?
             </DialogTitle>
             <DialogDescription className={s.dialogDescription}>
-              Транзакция будет помечена удалённой, а сумма вернётся в остаток к
-              выплате. История сохранится.
+              Транзакция будет помечена удалённой, а сумма вернётся в «К
+              выплате». История сохранится.
             </DialogDescription>
             <div className={s.dialogActions}>
               <Button variant="outline" onClick={() => setCancelId(null)}>

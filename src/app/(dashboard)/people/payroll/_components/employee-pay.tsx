@@ -21,8 +21,9 @@ import s from "./employee-pay.module.css";
 import tabStyle from "@/components/shared/workspace-tabs.module.css";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { toast } from "sonner";
+import { Money, formatRub } from "@/components/shared/money";
+import { countRu } from "@/lib/format/plural";
 export const selectClass = "h-10 w-full rounded-md border bg-background px-3 text-base md:text-sm";
-const rub = (n: number | null) => n === null ? "Нет данных" : `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(n)} ₽`;
 const dateLabel = (date: string) => new Date(`${date}T12:00:00Z`).toLocaleDateString("ru-RU", { timeZone: "UTC" });
 const labels = { date: "Дата", role: "Должность", base: "Выход", percent: "Процент", extra: "Допродажи", other: "Надбавки и прочее", salary: "Начислено", tips: "Чаевые" };
 const numeric = ["base", "percent", "extra", "other", "salary", "tips"];
@@ -68,6 +69,8 @@ export function EmployeePay({ data, employee, month, onChange, fullPage = false,
     const shifts = useMemo(() => accruals.filter(isShiftAccrual), [accruals]);
     const row = statementRows([employee], data.accruals, data.adjustments, data.payments, data.allocations, month, data.transfers, data.settings?.starts_on)[0];
     const pending = data.legacyPayments.some(p => p.employee_id === employee.id && p.month === month && p.state === "review");
+    const balanceKnown = !pending && employee.opening_confirmed;
+    const remaining = row?.remaining ?? 0;
     const canReview = data.permissions.includes("payroll.review"), canPay = data.permissions.includes("payroll.pay") && data.permissions.includes("finance.create_transaction");
     const setConditions = onConditionsOpenChange ?? setOwnConditions;
     const sums = new Map<string, number | null>();
@@ -88,21 +91,21 @@ export function EmployeePay({ data, employee, month, onChange, fullPage = false,
                 row: {
                     original: Accrual;
                 };
-            }) => rub(componentAmount(row.original.components, [...kinds])) })),
-        { id: "other", header: labels.other, accessorFn: accrualOtherAmount, cell: ({ row }) => rub(accrualOtherAmount(row.original)) },
-        { id: "salary", header: "Начислено", accessorFn: shiftSalary, cell: ({ row }) => <button type="button" className={s.totalCell} aria-label={`Состав начисления за ${row.original.business_date}`} onClick={event => { event.stopPropagation(); setDetail(row.original); }}><strong>{rub(shiftSalary(row.original))}</strong><ChevronRight size={13}/></button> },
-        { id: "tips", header: "Чаевые", accessorFn: a => a.tips, cell: ({ row }) => rub(row.original.tips) },
+            }) => <Money value={componentAmount(row.original.components, [...kinds])} /> })),
+        { id: "other", header: labels.other, accessorFn: accrualOtherAmount, cell: ({ row }) => <Money value={accrualOtherAmount(row.original)} /> },
+        { id: "salary", header: "Начислено", accessorFn: shiftSalary, cell: ({ row }) => <button type="button" className={s.totalCell} aria-label={`Состав начисления за ${row.original.business_date}`} onClick={event => { event.stopPropagation(); setDetail(row.original); }}><strong><Money value={shiftSalary(row.original)} /></strong><ChevronRight size={13}/></button> },
+        { id: "tips", header: "Чаевые", accessorFn: a => a.tips, cell: ({ row }) => <Money value={row.original.tips} /> },
     ], [employee.role_name, data]);
     const issues = [...new Set(accruals.flatMap(a => a.issues))];
     const actions = (canPay || canReview) ? <DropdownMenu><DropdownMenuTrigger asChild><Button><Plus />Добавить</Button></DropdownMenuTrigger><DropdownMenuContent align="end">{canPay && <DropdownMenuItem onSelect={() => setPayOpen(true)}>Выплата</DropdownMenuItem>}{canReview && <><DropdownMenuItem onSelect={() => { setEntryKind("allowance"); setEntryOpen(true); }}>Надбавка за месяц</DropdownMenuItem><DropdownMenuItem onSelect={() => { setEntryKind("deduction"); setEntryOpen(true); }}>Премия / штраф</DropdownMenuItem></>}</DropdownMenuContent></DropdownMenu> : undefined;
     return <div className={s.workspace}>
   <div className={s.stats}>
-   <button aria-label="Показать начисления за месяц" onClick={() => setBreakdown(true)}><span>Начислено<ChevronRight size={16}/></span><strong>{rub(row?.earned ?? 0)}</strong></button>
-   <button onClick={() => setTab("payments")}><span>Выплачено<ChevronRight size={16}/></span><strong>{pending ? "—" : rub(row?.paid ?? 0)}</strong></button>
-   <div><span>Осталось выплатить</span><strong>{pending || !employee.opening_confirmed ? "—" : rub(row?.remaining ?? 0)}</strong></div>
-   <div><span>Чаевые</span><strong>{rub(row?.tips ?? 0)}</strong></div>
+   <button aria-label="Показать начисления за месяц" onClick={() => setBreakdown(true)}><span>Начислено<ChevronRight size={16}/></span><strong><Money value={row?.earned ?? 0} /></strong></button>
+   <button onClick={() => setTab("payments")}><span>Выплачено<ChevronRight size={16}/></span><strong><Money value={pending ? null : row?.paid ?? 0} /></strong></button>
+   <div><span>{balanceKnown && remaining < 0 ? "Переплата" : "К выплате"}</span><strong><Money value={balanceKnown ? Math.abs(remaining) : null} /></strong></div>
+   <div><span>Чаевые</span><strong><Money value={row?.tips ?? 0} /></strong></div>
   </div>
-  <div className={s.meta}><span>{shifts.length} смен{shifts.length > 0 ? ` · В среднем ${rub((row?.earned ?? 0) / shifts.length)} за смену` : ""}</span>{!fullPage && <Button variant="ghost" size="sm" onClick={() => setConditions(true)}>Условия сотрудника</Button>}</div>
+  <div className={s.meta}><span>{countRu(shifts.length, "смена", "смены", "смен")}{shifts.length > 0 ? ` · В среднем ${formatRub((row?.earned ?? 0) / shifts.length)} за смену` : ""}</span>{!fullPage && <Button variant="ghost" size="sm" onClick={() => setConditions(true)}>Условия сотрудника</Button>}</div>
   {!fullPage && <div id={controlsId} className={s.controls}/>}
   <Tabs value={tab} onValueChange={setTab} className={tabStyle.tabs}>
    <TabsList aria-label="Расчёт сотрудника"><TabsTrigger value="shifts">Смены</TabsTrigger><TabsTrigger value="entries">Начисления и удержания</TabsTrigger><TabsTrigger value="payments">Выплаты</TabsTrigger>{documentsAvailable && <TabsTrigger value="documents">Документы</TabsTrigger>}</TabsList>
@@ -111,16 +114,16 @@ export function EmployeePay({ data, employee, month, onChange, fullPage = false,
    <TabsContent value="payments"><PayrollPaymentsTable data={paymentData} payments={payments} busy={false} actions={canPay ? <Button onClick={() => setPayOpen(true)}><Plus />Добавить выплату</Button> : null} toolbarTargetId={controlsId} tableId={`employee-payments-${employee.id}`} scrollMode="page" onCancel={async (id) => { setCancelId(id); }}/></TabsContent>
    {documentsAvailable && <TabsContent value="documents"><div className="mx-auto w-full max-w-[720px]"><EmployeeDocuments target={{employeeId:employee.id}} /></div></TabsContent>}
   </Tabs>
-  <PayrollDetailDialog open={breakdown} onOpenChange={setBreakdown} title="Начисления за месяц" description={new Date(`${month}T12:00:00Z`).toLocaleDateString("ru-RU", { month: "long", year: "numeric", timeZone: "UTC" })} employee={{ name: employee.name, role: employee.role_name, avatarUrl: employee.avatar_url }} amount={rub(row?.earned ?? 0)} amountLabel="Всего начислено">
-   {[...sums].map(([label, value]) => <div key={label} className={s.breakdown}><span>{label}</span><strong>{rub(value)}</strong></div>)}
-   <div className={s.breakdown}><span>Перенос в этот месяц</span><strong>{employee.opening_confirmed ? rub(row?.opening ?? 0) : "—"}</strong></div>
-   {!!row?.transferredOut && <div className={s.breakdown}><span>Перенесено далее</span><strong>{rub(row.transferredOut)}</strong></div>}
+  <PayrollDetailDialog open={breakdown} onOpenChange={setBreakdown} title="Начисления за месяц" description={new Date(`${month}T12:00:00Z`).toLocaleDateString("ru-RU", { month: "long", year: "numeric", timeZone: "UTC" })} employee={{ name: employee.name, role: employee.role_name, avatarUrl: employee.avatar_url }} amount={<Money value={row?.earned ?? 0} />} amountLabel="Всего начислено">
+   {[...sums].map(([label, value]) => <div key={label} className={s.breakdown}><span>{label}</span><strong><Money value={value} /></strong></div>)}
+   <div className={s.breakdown}><span>Перенос в этот месяц</span><strong><Money value={employee.opening_confirmed ? row?.opening ?? 0 : null} /></strong></div>
+   {!!row?.transferredOut && <div className={s.breakdown}><span>Перенесено далее</span><strong><Money value={row.transferredOut} /></strong></div>}
    {issues.length > 0 && <details className={s.issue}><summary>Данные, требующие внимания · {issues.length}</summary>{issues.map(i => <p key={i}>{i}</p>)}</details>}
   </PayrollDetailDialog>
   <PayrollDetailDialog open={Boolean(detail)} onOpenChange={v => { if (!v)
-        setDetail(null); }} title={detail?.calculation_snapshot.kind === "monthly" ? "Оклад за месяц" : detail?.calculation_snapshot.kind === "adjustment" ? "Начисления за месяц" : "Расчёт смены"} description={detail?.business_date ? dateLabel(detail.business_date) : ""} employee={{ name: employee.name, role: detail ? accrualRole(detail, employee.role_name, data) : employee.role_name, avatarUrl: employee.avatar_url }} amount={detail ? rub(isShiftAccrual(detail) ? shiftSalary(detail) : detail.salary) : undefined} amountLabel="Начислено">
+        setDetail(null); }} title={detail?.calculation_snapshot.kind === "monthly" ? "Оклад за месяц" : detail?.calculation_snapshot.kind === "adjustment" ? "Начисления за месяц" : "Расчёт смены"} description={detail?.business_date ? dateLabel(detail.business_date) : ""} employee={{ name: employee.name, role: detail ? accrualRole(detail, employee.role_name, data) : employee.role_name, avatarUrl: employee.avatar_url }} amount={detail ? <Money value={isShiftAccrual(detail) ? shiftSalary(detail) : detail.salary} /> : undefined} amountLabel="Начислено">
    {detail&&isShiftAccrual(detail)&&<p className="mb-3 text-xs text-muted-foreground">{detail.calculation_snapshot.source==="schedule"?"Выход по опубликованному графику":"Выход по отметке Quick Resto"}</p>}
-   {detail?.components.filter(c => !isShiftAccrual(detail) || c.kind !== "monthly").map((c, i) => <div key={i} className={s.breakdown}><div><p className="font-medium">{c.label}</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{c.basis}</p>{c.source && <p className="mt-1 text-[11px] text-muted-foreground">{c.source}</p>}</div><strong>{rub(c.amount)}</strong></div>)}
+   {detail?.components.filter(c => !isShiftAccrual(detail) || c.kind !== "monthly").map((c, i) => <div key={i} className={s.breakdown}><div><p className="font-medium">{c.label}</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{c.basis}</p>{c.source && <p className="mt-1 text-[11px] text-muted-foreground">{c.source}</p>}</div><strong><Money value={c.amount} /></strong></div>)}
    {detail && <p className="mt-5 text-[11px] text-muted-foreground">Сохранённый расчёт · {new Date(detail.updated_at).toLocaleString("ru-RU", { timeZone: data.timezone })}</p>}
    {Boolean(detail?.issues.length) && <details className={s.issue}><summary>Данные, требующие внимания</summary>{detail?.issues.map(i => <p key={i}>{i}</p>)}</details>}
   </PayrollDetailDialog>

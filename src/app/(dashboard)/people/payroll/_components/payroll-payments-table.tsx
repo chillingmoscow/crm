@@ -27,7 +27,8 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { loadPayrollTransactionDetails, retryPayrollAdeskSync } from "../actions";
-import { money } from "@/lib/sales/format";
+import { Money } from "@/components/shared/money";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { PayrollTable } from "./payroll-table";
 import { PayrollEmployeeCell } from "./payroll-employee-cell";
 const labels = {
@@ -87,10 +88,7 @@ export function PayrollPaymentsTable({
               })}
             </time>
           ) : id === "amount" ? (
-            <span className="font-semibold tabular-nums">
-              {money(row.original.amount)}{" "}
-              <span className="font-normal text-muted-foreground">₽</span>
-            </span>
+            <Money value={row.original.amount} className="font-semibold" />
           ) : id === "employee" ? (
             <PayrollEmployeeCell
               name={row.original.employee}
@@ -155,12 +153,12 @@ export function PayrollPaymentsTable({
 
 function PaymentStatus({ posted }: { posted: boolean }) {
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${posted ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}
+    <StatusBadge
+      tone={posted ? "success" : "neutral"}
+      icon={posted ? <Check /> : <Trash2 />}
     >
-      {posted ? <Check size={12} /> : <Trash2 size={12} />}
       {posted ? "Проведена" : "Удалена"}
-    </span>
+    </StatusBadge>
   );
 }
 const ADESK_MAX_ATTEMPTS = 10;
@@ -277,7 +275,7 @@ function PaymentDetails({
         role: row.roleName,
         avatarUrl: row.avatarUrl,
       }}
-      amount={<>{money(row.amount)} ₽</>}
+      amount={<Money value={row.amount} fraction />}
       amountLabel="Выдано сотруднику"
       status={<PaymentStatus posted={row.posted} />}
       footer={
@@ -346,7 +344,7 @@ function PaymentDetails({
                 >
                   <dt className="text-muted-foreground">{label}</dt>
                   <dd className="whitespace-nowrap font-medium tabular-nums">
-                    {money(Number(value))} ₽
+                    <Money value={Number(value)} fraction />
                   </dd>
                 </div>
               ))}

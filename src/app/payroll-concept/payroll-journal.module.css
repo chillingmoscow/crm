@@ -15,14 +15,6 @@
   align-items: center;
   gap: 8px;
 }
-.positive {
-  color: hsl(var(--success, 150 65% 35%));
-  font-variant-numeric: tabular-nums;
-}
-.negative {
-  color: hsl(var(--destructive));
-  font-variant-numeric: tabular-nums;
-}
 .status {
   display: inline-flex;
   align-items: center;

@@ -12,7 +12,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { PersonAvatar } from "@/components/people/person-avatar";
 import { TableFilterChip } from "@/components/shared/table/table-filter-chip";
 import { TableIconButton } from "@/components/shared/table";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { DrawerSummary, DrawerSummaryItem } from "@/components/ui/drawer-blocks";
@@ -25,7 +25,6 @@ import {
   type PayrollData,
 } from "@/lib/payroll/types";
 import { businessDate } from "@/lib/sales/time";
-import { cn } from "@/lib/utils";
 import { payrollCommand } from "../actions";
 import { PayrollTable } from "./payroll-table";
 
@@ -253,23 +252,22 @@ export function AttendanceReview({
         header: labels.status,
         accessorKey: "status",
         cell: ({ row }) => (
-          <Badge
-            variant="secondary"
-            className={cn(
-              "font-medium",
-              row.original.status === "confirmed" &&
-                "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-              !row.original.awaitingSource &&
-                !["confirmed", "ignored"].includes(row.original.status) &&
-                "bg-amber-500/10 text-amber-800 dark:text-amber-400",
-            )}
+          <StatusBadge
+            tone={
+              row.original.status === "confirmed"
+                ? "success"
+                : !row.original.awaitingSource &&
+                    row.original.status !== "ignored"
+                  ? "warning"
+                  : "neutral"
+            }
           >
             {row.original.noShow
               ? "Невыход подтверждён"
               : row.original.awaitingSource
                 ? "Ожидаем данные"
                 : attendanceLabels[row.original.status]}
-          </Badge>
+          </StatusBadge>
         ),
       },
     ],

@@ -36,6 +36,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { PayrollDetailDialog } from "@/app/(dashboard)/people/payroll/_components/payroll-detail-dialog";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { PayrollEmployeeCell } from "@/app/(dashboard)/people/payroll/_components/payroll-employee-cell";
 import { PayrollTable } from "@/app/(dashboard)/people/payroll/_components/payroll-table";
 import {
@@ -65,6 +66,15 @@ const kindLabels: Record<string, string> = {
   correction: "Корректировка",
   knowledge: "Знания",
   experience: "Стаж",
+};
+/** Что удаляем — для заголовка и кнопки подтверждения («Удалить штраф»). */
+const deleteObjects: Record<string, string> = {
+  allowance: "надбавку",
+  bonus: "премию",
+  deduction: "штраф",
+  inventory: "удержание за недостачу",
+  warning: "предупреждение",
+  correction: "корректировку",
 };
 const labels = {
   date: "Дата",
@@ -130,7 +140,8 @@ export function PayrollJournal({
   const [busy, setBusy] = useState(false),
     [comment, setComment] = useState(""),
     [deleting, setDeleting] = useState(false),
-    [deleteReason, setDeleteReason] = useState("");
+    [deleteReason, setDeleteReason] = useState(""),
+    [deleteError, setDeleteError] = useState("");
   const [photoPreview, setPhotoPreview] = useState<{url:string;name:string} | null>(null);
   const [editing, setEditing] = useState(false);
   const [editAmount, setEditAmount] = useState("");
@@ -264,6 +275,30 @@ export function PayrollJournal({
       setBusy(false);
     }
   };
+  // Удаление записи — только через диалог с причиной; ошибка сервера остаётся в диалоге.
+  const deleteObject = selected ? (deleteObjects[selected.kind] ?? "запись") : "запись";
+  const confirmDelete = async () => {
+    if (!selected) return;
+    setBusy(true);
+    setDeleteError("");
+    try {
+      await deletePayrollEntry(selected.id, deleteReason);
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Не удалось удалить запись");
+      setBusy(false);
+      return;
+    }
+    setDeleting(false);
+    toast.success("Запись удалена");
+    try {
+      await onChange();
+      await reloadDetail();
+    } catch {
+      // Список обновится при следующем автообновлении.
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <>
       <PayrollTable
@@ -374,39 +409,13 @@ export function PayrollJournal({
                 setEditAmount(String(Math.abs(Number(selected.amount)))); setEditReason(selected.reason);
                 setEditExpected({amount:Number(selected.amount),reason:selected.reason});
               }}><Pencil size={15} className="mr-2"/>Изменить</DropdownMenuItem>}
-              {!selectedPaid && <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => {setEditing(false);setDeleting(true);setDetailTab("details");}}><Trash2 size={15} className="mr-2"/>Удалить</DropdownMenuItem>}
+              {!selectedPaid && <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => {setEditing(false);setDeleteReason("");setDeleteError("");setDeleting(true);}}><Trash2 size={15} className="mr-2"/>Удалить запись</DropdownMenuItem>}
             </DropdownMenuContent>
           </DropdownMenu>
         ) : undefined}
       >
         {selected && (
           <div className="space-y-6">
-            {deleting && (
-              <div className="space-y-3 rounded-lg border p-4">
-                <Label htmlFor="delete-entry-reason">Причина удаления</Label>
-                <Textarea
-                  id="delete-entry-reason"
-                  value={deleteReason}
-                  onChange={(e) => setDeleteReason(e.target.value)}
-                />
-                <Button
-                  variant="destructive"
-                  disabled={busy || deleteReason.trim().length < 3}
-                  onClick={() =>
-                    void run(async () => {
-                      await deletePayrollEntry(selected.id, deleteReason);
-                      await onChange();
-                      await reloadDetail();
-                      setDeleting(false);
-                      toast.success("Запись удалена");
-                    })
-                  }
-                >
-                  Удалить
-                </Button>
-                <Button variant="ghost" disabled={busy} onClick={() => setDeleting(false)}>Отмена</Button>
-              </div>
-            )}
             <Tabs value={detailTab} onValueChange={setDetailTab}>
               <TabsList>
                 <TabsTrigger value="details">Детали</TabsTrigger>
@@ -528,7 +537,7 @@ export function PayrollJournal({
                   </div>
                 ))}
               </TabsContent>
-              <TabsContent value="comments" className="space-y-5 pt-4">
+              <TabsContent value="comments" className="space-y-5">
                 {detail?.comments.map((c) => (
                   <div key={c.id} className={style.comment}>
                     <div>
@@ -583,6 +592,30 @@ export function PayrollJournal({
           </div>
         )}
       </PayrollDetailDialog>
+      <ConfirmDialog
+        open={deleting && Boolean(selected)}
+        onOpenChange={(open) => { if (!open) setDeleting(false); }}
+        title={`Удалить ${deleteObject}?`}
+        description="Запись перестанет учитываться и останется в журнале с отметкой «Удалено»: её видно с фильтром «Показывать удалённые». Причина сохранится в истории записи."
+        confirmLabel={`Удалить ${deleteObject}`}
+        pendingLabel="Удаляем…"
+        destructive
+        busy={busy}
+        confirmDisabled={deleteReason.trim().length < 3}
+        onConfirm={() => void confirmDelete()}
+      >
+        <div className="space-y-2">
+          <Label htmlFor="delete-entry-reason">Причина удаления</Label>
+          <Textarea
+            id="delete-entry-reason"
+            value={deleteReason}
+            onChange={(e) => setDeleteReason(e.target.value)}
+            maxLength={1000}
+            disabled={busy}
+          />
+          {deleteError && <p role="alert" className="text-sm text-destructive">{deleteError}</p>}
+        </div>
+      </ConfirmDialog>
       <Dialog open={Boolean(photoPreview)} onOpenChange={(open) => {if (!open) setPhotoPreview(null);}}>
         <DialogContent className="max-w-3xl">
           <DialogTitle className="pr-8 text-base">Фотография</DialogTitle>

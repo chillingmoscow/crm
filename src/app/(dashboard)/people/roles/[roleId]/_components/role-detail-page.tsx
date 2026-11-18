@@ -5,10 +5,9 @@ import { PageFrame } from "@/components/shared/page-frame";
 
 import { RoleCompensation } from "../../../payroll/_components/role-compensation";
 import { useMemo, useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ChevronLeft, Loader2, Lock, Search, Trash2 } from "lucide-react";
+import { Loader2, Lock, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -44,12 +43,12 @@ import { IconPicker } from "../../_components/icon-picker";
 import { iconForRole } from "../../_components/role-icons";
 import { paletteText, type PaletteColor } from "@/lib/palette";
 import {
-  PageBreadcrumb,
   PageHeaderActions,
 } from "@/components/shared/page-header-actions";
 import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
 import type { AuditEvent } from "@/lib/audit/list";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -353,15 +352,13 @@ export function RoleDetailPage({
   return (
     <div className="flex-1 flex flex-col">
       {/* Breadcrumb in layout's top bar (left side) */}
-      <PageBreadcrumb>
-        <Link
-          href="/people/roles"
-          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          Должности
-        </Link>
-      </PageBreadcrumb>
+      <Breadcrumbs
+        items={[
+          { label: "Люди" },
+          { label: "Должности", href: "/people/roles" },
+          { label: role.name },
+        ]}
+      />
 
       {/* Info popover in layout's top bar (right side, next to bell) */}
       <PageHeaderActions>

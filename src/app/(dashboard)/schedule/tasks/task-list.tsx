@@ -262,7 +262,6 @@ export function TaskList({
   return (
     <div className="space-y-4">
       <TablePageHeader
-        className="md:flex-wrap md:items-center [&>div:last-child]:max-w-full"
         title="Задачи"
         count={rows.length}
         actions={

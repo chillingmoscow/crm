@@ -1,0 +1,438 @@
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Оплата сотрудника: макеты</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: страница-обзор с переключателем трёх вариантов; каждый вариант показан внутри рамки «карточка сотрудника», под рамкой заметки. Токены повторяют Sheerly (zinc + brand). */
+:root {
+  --canvas: #f1f1f3;
+  --app: #fafafa;
+  --card: #fafafa;
+  --muted: #f4f4f5;
+  --fg: #09090b;
+  --fg-muted: #71717a;
+  --border: #e4e4e7;
+  --brand: #1570ef;
+  --brand-fg: #ffffff;
+  --brand-tint: rgba(21, 112, 239, 0.1);
+  --pos: #16a34a;
+  --neg: #dc2626;
+  --ok-bg: #ecfdf5; --ok-fg: #047857; --ok-bd: #a7f3d0;
+  --warn-bg: #fffbeb; --warn-fg: #b45309; --warn-bd: #fde68a;
+  --c1: #1570ef; --c2: #8b5cf6; --c3: #10b981; --c4: #f59e0b; --c5: #ec4899;
+  --shadow: 0 2px 6px rgba(10, 10, 10, 0.08);
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --canvas: #050506; --app: #09090b; --card: #18181b; --muted: #27272a;
+    --fg: #fafafa; --fg-muted: #a1a1aa; --border: rgba(255, 255, 255, 0.1);
+    --brand: #3b82f6; --brand-fg: #ffffff; --brand-tint: rgba(59, 130, 246, 0.18);
+    --pos: #22c55e; --neg: #f87171;
+    --ok-bg: rgba(16, 185, 129, 0.15); --ok-fg: #34d399; --ok-bd: rgba(16, 185, 129, 0.3);
+    --warn-bg: rgba(245, 158, 11, 0.15); --warn-fg: #fcd34d; --warn-bd: rgba(245, 158, 11, 0.3);
+    --shadow: 0 2px 8px rgba(0, 0, 0, 0.26);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --canvas: #050506; --app: #09090b; --card: #18181b; --muted: #27272a;
+  --fg: #fafafa; --fg-muted: #a1a1aa; --border: rgba(255, 255, 255, 0.1);
+  --brand: #3b82f6; --brand-fg: #ffffff; --brand-tint: rgba(59, 130, 246, 0.18);
+  --pos: #22c55e; --neg: #f87171;
+  --ok-bg: rgba(16, 185, 129, 0.15); --ok-fg: #34d399; --ok-bd: rgba(16, 185, 129, 0.3);
+  --warn-bg: rgba(245, 158, 11, 0.15); --warn-fg: #fcd34d; --warn-bd: rgba(245, 158, 11, 0.3);
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.26);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--canvas); color: var(--fg);
+  font-family: var(--font); font-size: 14px; line-height: 1.45;
+  padding-block: 28px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.page { max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+h1, h2, h3, p { margin: 0; }
+h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; text-wrap: balance; }
+.lede { color: var(--fg-muted); max-width: 72ch; margin-top: 6px; }
+.num { font-variant-numeric: tabular-nums; }
+.muted { color: var(--fg-muted); }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/* переключатель вариантов */
+.switch { display: flex; flex-wrap: wrap; gap: 8px; }
+.switch button {
+  border: 1px solid var(--border); background: var(--app); border-radius: 8px;
+  padding: 10px 14px; text-align: left; cursor: pointer; min-width: 0; flex: 1 1 220px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.switch button b { font-weight: 600; }
+.switch button span { color: var(--fg-muted); font-size: 12px; }
+.switch button[aria-selected="true"] { border-color: var(--brand); background: var(--brand-tint); }
+.switch button[aria-selected="true"] b { color: var(--brand); }
+
+/* рамка «экран приложения» */
+.screen { background: var(--app); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+.crumbs { display: flex; align-items: center; gap: 8px; padding: 14px 24px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--fg-muted); }
+.crumbs b { color: var(--fg); font-weight: 500; }
+.screen-body { padding: 28px 24px 32px; display: flex; flex-direction: column; gap: 20px; }
+.who { display: flex; align-items: center; gap: 14px; }
+.avatar { width: 56px; height: 56px; border-radius: 999px; background: var(--muted); color: var(--fg-muted); display: grid; place-items: center; font-weight: 600; flex: none; }
+.who h2 { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; }
+.who-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; color: var(--fg-muted); }
+.badge { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 600; border: 1px solid var(--ok-bd); background: var(--ok-bg); color: var(--ok-fg); white-space: nowrap; }
+.badge.warn { border-color: var(--warn-bd); background: var(--warn-bg); color: var(--warn-fg); }
+.badge.plain { border-color: var(--border); background: var(--muted); color: var(--fg-muted); }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.tabs.center { justify-content: center; }
+.tabs span { padding: 10px 14px; font-weight: 500; color: var(--fg-muted); white-space: nowrap; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs span.on { color: var(--fg); border-bottom-color: var(--fg); }
+@media (max-width: 760px) { .tabs.center { justify-content: flex-start; } .screen-body { padding: 20px 16px 24px; } .crumbs { padding: 12px 16px; } .who h2 { font-size: 22px; } }
+
+/* общие элементы макетов */
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.row.between { justify-content: space-between; }
+.stepper { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; height: 36px; }
+.stepper span { display: grid; place-items: center; padding: 0 12px; font-weight: 500; }
+.stepper span + span { border-left: 1px solid var(--border); }
+.stepper .arrow { color: var(--fg-muted); padding: 0 10px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 6px; font-weight: 500; border: 1px solid var(--border); background: var(--app); white-space: nowrap; }
+.btn.brand { background: var(--brand); border-color: var(--brand); color: var(--brand-fg); }
+.btn.sm { height: 32px; padding: 0 12px; font-size: 13px; }
+.link { color: var(--brand); font-size: 13px; font-weight: 500; white-space: nowrap; }
+.section-title { font-size: 16px; font-weight: 600; }
+.surface { border: 1px solid var(--border); border-radius: 8px; background: var(--card); }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; min-width: 560px; }
+th { text-align: left; font-size: 12px; font-weight: 500; color: var(--fg-muted); padding: 0 12px; height: 44px; background: var(--muted); white-space: nowrap; }
+td { padding: 0 12px; height: 52px; border-top: 1px solid var(--border); white-space: nowrap; }
+th.r, td.r { text-align: right; }
+td .sub { display: block; font-size: 12px; color: var(--fg-muted); }
+.pos { color: var(--pos); } .neg { color: var(--neg); }
+.dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; flex: none; }
+
+/* вариант А */
+.kpis { display: grid; grid-template-columns: 1.3fr 1fr 1fr 1fr; }
+.kpi { padding: 18px 20px; min-width: 0; }
+.kpi + .kpi { border-left: 1px solid var(--border); }
+.kpi .label { font-size: 12px; font-weight: 500; color: var(--fg-muted); }
+.kpi .value { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; margin-top: 6px; }
+.kpi.main .value { font-size: 32px; }
+.kpi .hint { font-size: 12px; color: var(--fg-muted); margin-top: 4px; }
+@media (max-width: 860px) { .kpis { grid-template-columns: 1fr 1fr; } .kpi:nth-child(3) { border-left: 0; } .kpi:nth-child(n+3) { border-top: 1px solid var(--border); } }
+.stack { display: flex; height: 12px; border-radius: 999px; overflow: hidden; gap: 2px; }
+.stack i { display: block; height: 100%; }
+.legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px 24px; margin-top: 16px; }
+.legend div { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.legend .name { color: var(--fg-muted); flex: 1; min-width: 0; }
+.legend .dot { align-self: center; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { height: 32px; padding: 0 12px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; background: var(--muted); color: var(--fg-muted); font-size: 13px; font-weight: 500; }
+.chip.on { background: var(--brand-tint); color: var(--brand); }
+.chip small { font-size: 12px; font-weight: 500; opacity: 0.8; }
+
+/* вариант Б */
+.narrow { width: 100%; max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+.psec { border: 1px solid var(--border); border-radius: 14px; background: var(--card); padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.psec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.psec-head .sum { font-weight: 600; }
+.due { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.due .value { font-size: 36px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; }
+.progress { height: 8px; border-radius: 999px; background: var(--muted); overflow: hidden; }
+.progress i { display: block; height: 100%; background: var(--brand); border-radius: 999px; }
+.lines { display: flex; flex-direction: column; }
+.line { display: grid; grid-template-columns: 1fr auto 16px; gap: 12px; align-items: center; padding: 11px 0; border-top: 1px solid var(--border); }
+.line:first-child { border-top: 0; padding-top: 0; }
+.line .t { min-width: 0; }
+.line .t small { display: block; color: var(--fg-muted); font-size: 12px; }
+.line .a { font-weight: 500; text-align: right; }
+.line .chev { color: var(--fg-muted); font-size: 12px; }
+.nested { margin: 0 0 4px; padding: 4px 12px; background: var(--muted); border-radius: 8px; }
+.nested .line { grid-template-columns: 88px 1fr auto; padding: 8px 0; font-size: 13px; }
+.months { display: flex; align-items: flex-end; gap: 6px; height: 56px; }
+.months div { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 34px; }
+.months i { display: block; width: 100%; border-radius: 4px 4px 0 0; background: var(--border); }
+.months .on i { background: var(--brand); }
+.months small { font-size: 11px; color: var(--fg-muted); }
+.months .on small { color: var(--fg); font-weight: 600; }
+.kv { display: grid; grid-template-columns: minmax(140px, 220px) 1fr; gap: 10px 16px; }
+.kv dt { color: var(--fg-muted); } .kv dd { margin: 0; }
+@media (max-width: 520px) { .kv { grid-template-columns: 1fr; gap: 2px 0; } .kv dd { margin-bottom: 8px; } }
+
+/* вариант В */
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 16px; }
+@media (max-width: 860px) { .split { grid-template-columns: 1fr; } }
+.pad { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.bars { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; align-items: end; height: 150px; }
+.bar { display: flex; flex-direction: column; justify-content: flex-end; height: 100%; gap: 6px; min-width: 0; }
+.bar .col { display: flex; flex-direction: column; justify-content: flex-end; border-radius: 4px 4px 0 0; overflow: hidden; }
+.bar .paid { background: var(--brand); }
+.bar .rest { background: var(--brand-tint); border: 1px dashed var(--brand); border-bottom: 0; }
+.bar small { font-size: 11px; color: var(--fg-muted); text-align: center; }
+.bar b { font-size: 11px; font-weight: 500; text-align: center; }
+.facts { display: flex; flex-wrap: wrap; gap: 8px; }
+.fact { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; min-width: 0; }
+.fact small { display: block; font-size: 12px; color: var(--fg-muted); }
+tr.cur td { background: var(--brand-tint); }
+
+/* заметки под рамкой */
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.note { background: var(--app); border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; }
+.note h3 { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+.note ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; color: var(--fg); }
+.pick { border-color: var(--brand); }
+.pick h3 { color: var(--brand); }
+</style>
+
+<div class="page">
+  <header>
+    <h1>Вкладка «Оплата» в карточке сотрудника</h1>
+    <p class="lede">Три направления передела. Данные вымышленные. Во всех вариантах появляется выбор месяца, уходят вложенные рамки, второй ряд вкладок и колонка «Сотрудник» в собственной карточке сотрудника.</p>
+  </header>
+
+  <div class="switch" role="tablist" aria-label="Вариант макета">
+    <button role="tab" id="tab-a" aria-controls="variant-a" aria-selected="true" data-v="variant-a"><b>А. Сводка месяца</b><span>Широкий экран, одна лента операций</span></button>
+    <button role="tab" id="tab-b" aria-controls="variant-b" aria-selected="false" data-v="variant-b"><b>Б. Расчётный лист</b><span>Колонка 720 px, как остальные вкладки</span></button>
+    <button role="tab" id="tab-c" aria-controls="variant-c" aria-selected="false" data-v="variant-c"><b>В. История по месяцам</b><span>Итоги здесь, детали в «Зарплате»</span></button>
+  </div>
+
+  <!-- ============ ВАРИАНТ А ============ -->
+  <section id="variant-a" role="tabpanel" aria-labelledby="tab-a">
+    <div class="screen">
+      <div class="crumbs">Люди <span>/</span> Сотрудники <span>/</span> <b>Анна Соколова</b></div>
+      <div class="screen-body">
+        <div class="who">
+          <div class="avatar">АС</div>
+          <div><h2>Анна Соколова</h2><div class="who-sub">Бармен · Бар <span class="badge">Активен</span></div></div>
+        </div>
+        <div class="tabs center"><span>Основное</span><span>Документы</span><span class="on">Оплата</span><span>Журнал</span><span>Активность</span><span>Опасная зона</span></div>
+
+        <div class="row between">
+          <div class="stepper"><span class="arrow">‹</span><span>октябрь 2026</span><span class="arrow">›</span></div>
+          <div class="row"><span class="btn">Условия оплаты</span><span class="btn brand">+ Добавить</span></div>
+        </div>
+
+        <div class="surface kpis">
+          <div class="kpi main"><div class="label">К выплате</div><div class="value num">32 550 ₽</div><div class="hint">Начислено минус выплаты за месяц</div></div>
+          <div class="kpi"><div class="label">Начислено</div><div class="value num">112 550 ₽</div><div class="hint">14 смен · 8 039 ₽ в среднем</div></div>
+          <div class="kpi"><div class="label">Выплачено</div><div class="value num">80 000 ₽</div><div class="hint">2 выплаты</div></div>
+          <div class="kpi"><div class="label">Чаевые</div><div class="value num">12 380 ₽</div><div class="hint">Отдельно от зарплаты</div></div>
+        </div>
+
+        <div>
+          <div class="row between" style="margin-bottom:12px"><h3 class="section-title">Из чего сложилось начисление</h3><span class="muted num">115 950 ₽ начислено · 3 400 ₽ удержано</span></div>
+          <div class="stack" aria-hidden="true">
+            <i style="width:41.7%;background:var(--c1)"></i><i style="width:30.2%;background:var(--c2)"></i><i style="width:18.5%;background:var(--c3)"></i><i style="width:6%;background:var(--c4)"></i><i style="width:3.6%;background:var(--c5)"></i>
+          </div>
+          <div class="legend">
+            <div><span class="dot" style="background:var(--c1)"></span><span class="name">Процент от продаж</span><b class="num">48 300 ₽</b></div>
+            <div><span class="dot" style="background:var(--c2)"></span><span class="name">Выходы, 14 смен</span><b class="num">35 000 ₽</b></div>
+            <div><span class="dot" style="background:var(--c3)"></span><span class="name">Допродажи</span><b class="num">21 450 ₽</b></div>
+            <div><span class="dot" style="background:var(--c4)"></span><span class="name">Премии</span><b class="num">7 000 ₽</b></div>
+            <div><span class="dot" style="background:var(--c5)"></span><span class="name">Надбавка за стаж</span><b class="num">4 200 ₽</b></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="row between" style="margin-bottom:12px">
+            <h3 class="section-title">Операции</h3>
+            <div class="chips"><span class="chip on">Все <small>19</small></span><span class="chip">Смены <small>14</small></span><span class="chip">Начисления и удержания <small>3</small></span><span class="chip">Выплаты <small>2</small></span></div>
+          </div>
+          <div class="surface table-wrap">
+            <table>
+              <thead><tr><th>Дата</th><th>Операция</th><th>Детали</th><th class="r">Сумма</th></tr></thead>
+              <tbody>
+                <tr><td class="num">31.10.2026</td><td>Смена</td><td class="muted">Бармен · 12:20–03:00 · выход 2 500, процент 4 870, допродажи 2 470</td><td class="r num"><b>9 840 ₽</b></td></tr>
+                <tr><td class="num">30.10.2026</td><td>Премия</td><td class="muted">Работа без недостач</td><td class="r num pos">+5 000 ₽</td></tr>
+                <tr><td class="num">29.10.2026</td><td>Смена</td><td class="muted">Бармен · 13:00–03:00 · выход 2 500, процент 3 120, допродажи 1 360</td><td class="r num"><b>6 980 ₽</b></td></tr>
+                <tr><td class="num">25.10.2026</td><td>Выплата</td><td class="muted">Фонд оплаты труда <span class="badge">Проведена</span></td><td class="r num">40 000 ₽</td></tr>
+                <tr><td class="num">22.10.2026</td><td>Удержание</td><td class="muted">Рабочая форма</td><td class="r num neg">−2 400 ₽</td></tr>
+                <tr><td class="num">15.10.2026</td><td>Выплата</td><td class="muted">Фонд оплаты труда <span class="badge">Проведена</span></td><td class="r num">40 000 ₽</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes" style="margin-top:16px">
+      <div class="note"><h3>Что меняется</h3><ul><li>Месяц, «Условия оплаты» и «Добавить» в одной строке сверху.</li><li>Четыре показателя на одной поверхности, главный «К выплате» крупнее.</li><li>Структура начисления одной полосой с расшифровкой.</li><li>Одна таблица операций с чипами вместо трёх вкладок и трёх разных таблиц.</li></ul></div>
+      <div class="note"><h3>Плюсы</h3><ul><li>Ближе всего к текущей логике, меньше переделывать.</li><li>Всё на одном экране, ничего не спрятано.</li><li>Операции разных видов видны в одном порядке по датам.</li></ul></div>
+      <div class="note"><h3>Минусы</h3><ul><li>Вкладка остаётся шире остальных (720 px), шапку карточки нужно выравнивать отдельно.</li><li>Полностью дублирует страницу расчёта в «Зарплате».</li><li>У смены много чисел в одной строке, нужна раскрывающаяся детализация.</li></ul></div>
+    </div>
+  </section>
+
+  <!-- ============ ВАРИАНТ Б ============ -->
+  <section id="variant-b" role="tabpanel" aria-labelledby="tab-b" hidden>
+    <div class="screen">
+      <div class="crumbs">Люди <span>/</span> Сотрудники <span>/</span> <b>Анна Соколова</b></div>
+      <div class="screen-body">
+        <div class="narrow" style="gap:20px">
+          <div class="who">
+            <div class="avatar">АС</div>
+            <div><h2>Анна Соколова</h2><div class="who-sub">Бармен · Бар <span class="badge">Активен</span></div></div>
+          </div>
+          <div class="tabs"><span>Основное</span><span>Документы</span><span class="on">Оплата</span><span>Журнал</span><span>Активность</span><span>Опасная зона</span></div>
+        </div>
+
+        <div class="narrow">
+          <div class="row between" style="align-items:flex-end">
+            <div class="stepper"><span class="arrow">‹</span><span>октябрь 2026</span><span class="arrow">›</span></div>
+            <div class="months" aria-label="Начислено по месяцам">
+              <div><i style="height:33px"></i><small>май</small></div>
+              <div><i style="height:35px"></i><small>июн</small></div>
+              <div><i style="height:40px"></i><small>июл</small></div>
+              <div><i style="height:37px"></i><small>авг</small></div>
+              <div><i style="height:34px"></i><small>сен</small></div>
+              <div class="on"><i style="height:38px"></i><small>окт</small></div>
+            </div>
+          </div>
+
+          <div class="psec">
+            <div class="due">
+              <div><div class="muted" style="font-size:12px;font-weight:500">К выплате за октябрь</div><div class="value num">32 550 ₽</div></div>
+              <span class="btn brand">Добавить выплату</span>
+            </div>
+            <div class="progress" aria-hidden="true"><i style="width:71%"></i></div>
+            <div class="row between muted" style="font-size:13px"><span class="num">Выплачено 80 000 ₽ из 112 550 ₽</span><span class="num">Чаевые 12 380 ₽, отдельно от зарплаты</span></div>
+          </div>
+
+          <div class="psec">
+            <div class="psec-head"><h3 class="section-title">Начислено</h3><span class="sum num">115 950 ₽</span></div>
+            <div class="lines">
+              <div class="line"><div class="t">Выходы<small>14 смен × 2 500 ₽</small></div><div class="a num">35 000 ₽</div><span class="chev">▾</span></div>
+              <div class="nested">
+                <div class="line"><span class="num muted">31.10</span><span>12:20–03:00 · Бармен</span><span class="num">2 500 ₽</span></div>
+                <div class="line"><span class="num muted">29.10</span><span>13:00–03:00 · Бармен</span><span class="num">2 500 ₽</span></div>
+                <div class="line"><span class="num muted">28.10</span><span>13:00–03:00 · Бармен</span><span class="num">2 500 ₽</span></div>
+                <div class="line"><span></span><span class="link">Показать все 14 смен</span><span></span></div>
+              </div>
+              <div class="line"><div class="t">Процент от продаж<small>5 % от личной выручки 966 000 ₽</small></div><div class="a num">48 300 ₽</div><span class="chev">▸</span></div>
+              <div class="line"><div class="t">Допродажи<small>10 % с позиций программы</small></div><div class="a num">21 450 ₽</div><span class="chev">▸</span></div>
+              <div class="line"><div class="t">Премии<small>2 записи</small></div><div class="a num">7 000 ₽</div><span class="chev">▸</span></div>
+              <div class="line"><div class="t">Надбавка за стаж<small>300 ₽ за выход</small></div><div class="a num">4 200 ₽</div><span class="chev">▸</span></div>
+            </div>
+          </div>
+
+          <div class="psec">
+            <div class="psec-head"><h3 class="section-title">Удержано</h3><span class="sum num neg">−3 400 ₽</span></div>
+            <div class="lines">
+              <div class="line"><div class="t">Рабочая форма<small>22.10.2026</small></div><div class="a num">−2 400 ₽</div><span class="chev">▸</span></div>
+              <div class="line"><div class="t">Опоздание на смену<small>12.10.2026 · по правилам дисциплины</small></div><div class="a num">−1 000 ₽</div><span class="chev">▸</span></div>
+            </div>
+          </div>
+
+          <div class="psec">
+            <div class="psec-head"><h3 class="section-title">Выплачено</h3><span class="sum num">80 000 ₽</span></div>
+            <div class="lines">
+              <div class="line"><div class="t">Фонд оплаты труда <span class="badge">Проведена</span><small>25.10.2026</small></div><div class="a num">40 000 ₽</div><span class="chev">▸</span></div>
+              <div class="line"><div class="t">Фонд оплаты труда <span class="badge">Проведена</span><small>15.10.2026</small></div><div class="a num">40 000 ₽</div><span class="chev">▸</span></div>
+            </div>
+          </div>
+
+          <div class="psec">
+            <div class="psec-head"><h3 class="section-title">Условия оплаты</h3><span class="link">Изменить</span></div>
+            <dl class="kv">
+              <dt>Должность</dt><dd>Бармен, ставки заданы должностью</dd>
+              <dt>За выход</dt><dd class="num">2 500 ₽</dd>
+              <dt>Процент от продаж</dt><dd class="num">5 %</dd>
+              <dt>Надбавка за стаж</dt><dd class="num">300 ₽ за выход, с 10.09.2026</dd>
+              <dt>Учёт выходов</dt><dd>По отметкам в Quick Resto</dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes" style="margin-top:16px">
+      <div class="note"><h3>Что меняется</h3><ul><li>Вкладка читается сверху вниз как расчётный лист: сколько должны, за что начислили, что удержали, что уже выплатили.</li><li>Та же ширина 720 px и те же секции, что на «Основном» и «Документах»; шапка карточки встаёт в ту же колонку.</li><li>Таблиц нет: строка раскрывается в детали на месте.</li><li>Условия оплаты видны сразу, а не спрятаны за ссылкой.</li><li>Столбики по месяцам работают как быстрый переход между месяцами.</li></ul></div>
+      <div class="note"><h3>Плюсы</h3><ul><li>Сразу отвечает на два главных вопроса: «сколько должны» и «на каких условиях работает».</li><li>Единый язык со всей карточкой, без особого «широкого» режима.</li><li>Хорошо ложится на телефон без отдельной вёрстки.</li></ul></div>
+      <div class="note"><h3>Минусы</h3><ul><li>Нет сортировки и поиска по операциям; для этого остаётся страница расчёта в «Зарплате».</li><li>Самый большой объём переделки из трёх.</li></ul></div>
+      <div class="note pick"><h3>Рекомендую этот вариант</h3><ul><li>Карточка сотрудника нужна, чтобы понять человека, а не вести ведомость. Ведомость уже есть в «Зарплате».</li><li>Из варианта В стоит взять ссылку «Открыть расчёт в Зарплате» для правок.</li></ul></div>
+    </div>
+  </section>
+
+  <!-- ============ ВАРИАНТ В ============ -->
+  <section id="variant-c" role="tabpanel" aria-labelledby="tab-c" hidden>
+    <div class="screen">
+      <div class="crumbs">Люди <span>/</span> Сотрудники <span>/</span> <b>Анна Соколова</b></div>
+      <div class="screen-body">
+        <div class="who">
+          <div class="avatar">АС</div>
+          <div><h2>Анна Соколова</h2><div class="who-sub">Бармен · Бар <span class="badge">Активен</span></div></div>
+        </div>
+        <div class="tabs center"><span>Основное</span><span>Документы</span><span class="on">Оплата</span><span>Журнал</span><span>Активность</span><span>Опасная зона</span></div>
+
+        <div class="split">
+          <div class="surface pad">
+            <div class="muted" style="font-size:12px;font-weight:500">Сейчас к выплате</div>
+            <div class="num" style="font-size:36px;font-weight:600;letter-spacing:-0.02em;line-height:1.1">32 550 ₽</div>
+            <div class="muted num">За октябрь 2026 · начислено 112 550 ₽, выплачено 80 000 ₽</div>
+            <div class="row"><span class="btn brand">Добавить выплату</span><span class="btn">Открыть расчёт в «Зарплате»</span></div>
+            <div class="row between" style="margin-top:6px"><h3 class="section-title">Условия оплаты</h3><span class="link">Изменить</span></div>
+            <div class="facts">
+              <div class="fact"><small>За выход</small><b class="num">2 500 ₽</b></div>
+              <div class="fact"><small>От продаж</small><b class="num">5 %</b></div>
+              <div class="fact"><small>Допродажи</small><b class="num">10 %</b></div>
+              <div class="fact"><small>Стаж</small><b class="num">+300 ₽ за выход</b></div>
+            </div>
+          </div>
+          <div class="surface pad">
+            <div class="row between"><h3 class="section-title">Начислено по месяцам</h3><span class="muted" style="font-size:12px"><span class="dot" style="background:var(--brand)"></span> выплачено &nbsp; <span class="dot" style="background:var(--brand-tint);border:1px dashed var(--brand)"></span> остаток</span></div>
+            <div class="bars" aria-hidden="true">
+              <div class="bar"><b class="num">96,4</b><div class="col" style="height:98px"><div class="paid" style="height:100%"></div></div><small>май</small></div>
+              <div class="bar"><b class="num">104,8</b><div class="col" style="height:106px"><div class="paid" style="height:100%"></div></div><small>июн</small></div>
+              <div class="bar"><b class="num">118,2</b><div class="col" style="height:120px"><div class="paid" style="height:100%"></div></div><small>июл</small></div>
+              <div class="bar"><b class="num">109,6</b><div class="col" style="height:111px"><div class="paid" style="height:100%"></div></div><small>авг</small></div>
+              <div class="bar"><b class="num">101,3</b><div class="col" style="height:103px"><div class="paid" style="height:100%"></div></div><small>сен</small></div>
+              <div class="bar"><b class="num">112,6</b><div class="col" style="height:114px"><div class="rest" style="height:29%"></div><div class="paid" style="height:71%"></div></div><small>окт</small></div>
+            </div>
+            <div class="muted" style="font-size:12px">Суммы в тысячах рублей</div>
+          </div>
+        </div>
+
+        <div class="surface table-wrap">
+          <table>
+            <thead><tr><th>Месяц</th><th class="r">Смен</th><th class="r">Начислено</th><th class="r">Удержано</th><th class="r">Выплачено</th><th class="r">Остаток</th><th>Состояние</th></tr></thead>
+            <tbody>
+              <tr class="cur"><td><b>Октябрь 2026</b></td><td class="r num">14</td><td class="r num">115 950 ₽</td><td class="r num neg">−3 400 ₽</td><td class="r num">80 000 ₽</td><td class="r num"><b>32 550 ₽</b></td><td><span class="badge warn">Не закрыт</span></td></tr>
+              <tr><td>Сентябрь 2026</td><td class="r num">13</td><td class="r num">101 300 ₽</td><td class="r num muted">0 ₽</td><td class="r num">101 300 ₽</td><td class="r num muted">0 ₽</td><td><span class="badge plain">Закрыт</span></td></tr>
+              <tr><td>Август 2026</td><td class="r num">15</td><td class="r num">112 600 ₽</td><td class="r num neg">−3 000 ₽</td><td class="r num">109 600 ₽</td><td class="r num muted">0 ₽</td><td><span class="badge plain">Закрыт</span></td></tr>
+              <tr><td>Июль 2026</td><td class="r num">16</td><td class="r num">118 200 ₽</td><td class="r num muted">0 ₽</td><td class="r num">118 200 ₽</td><td class="r num muted">0 ₽</td><td><span class="badge plain">Закрыт</span></td></tr>
+              <tr><td>Июнь 2026</td><td class="r num">14</td><td class="r num">106 300 ₽</td><td class="r num neg">−1 500 ₽</td><td class="r num">104 800 ₽</td><td class="r num muted">0 ₽</td><td><span class="badge plain">Закрыт</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="notes" style="margin-top:16px">
+      <div class="note"><h3>Что меняется</h3><ul><li>Вкладка отвечает на вопрос «как человек зарабатывает во времени»; операций здесь нет.</li><li>Строка месяца ведёт на расчёт этого месяца в «Зарплате», где всё редактируется.</li><li>Долг и условия оплаты всегда в первом блоке.</li></ul></div>
+      <div class="note"><h3>Плюсы</h3><ul><li>Исчезает дублирование: детали в одном месте.</li><li>Появляется динамика, которой сейчас нет нигде.</li><li>Меньше кода: вкладка только читает итоги.</li></ul></div>
+      <div class="note"><h3>Минусы</h3><ul><li>За любой деталью нужен переход в другой раздел.</li><li>Нужны месячные итоги по сотруднику и понятие «месяц закрыт», которых сейчас может не быть в данных.</li></ul></div>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.switch [role="tab"]'));
+  function show(id) {
+    if (!document.getElementById(id)) id = 'variant-a';
+    tabs.forEach(function (t) {
+      var on = t.getAttribute('data-v') === id;
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      document.getElementById(t.getAttribute('data-v')).hidden = !on;
+    });
+  }
+  tabs.forEach(function (t) {
+    t.addEventListener('click', function () {
+      var id = t.getAttribute('data-v');
+      show(id);
+      try { history.replaceState(null, '', '#' + id); } catch (e) { location.hash = id; }
+    });
+  });
+  window.addEventListener('hashchange', function () { show(location.hash.slice(1)); });
+  show(location.hash.slice(1) || 'variant-a');
+})();
+</script>

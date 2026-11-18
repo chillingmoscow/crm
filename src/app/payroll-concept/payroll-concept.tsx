@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  PageBreadcrumb,
   PageHeaderActions,
 } from "@/components/shared/page-header-actions";
 import {
@@ -51,6 +50,8 @@ import s from "./payroll-concept.module.css";
 import { PeriodStepper, periodTriggerClass } from "@/components/shared/period-stepper";
 import { PageFrame } from "@/components/shared/page-frame";
 import { recalculateInventoryDeduction } from "@/app/(dashboard)/inventory/_actions/deduction";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { TablePageHeader } from "@/components/shared/table";
 
 type Row = ReturnType<typeof statementRows>[number];
 const rub = (n: number) =>
@@ -443,13 +444,7 @@ export function PayrollConcept({
   return (
     <TooltipProvider>
       <div className={`${s.app} ${s.embedded}`}>
-        <PageBreadcrumb>
-          <div className={s.breadcrumb}>
-            <Link href="/people/staff">Люди</Link>
-            <span>/</span>
-            <strong>Зарплата</strong>
-          </div>
-        </PageBreadcrumb>
+        <Breadcrumbs items={[{ label: "Люди" }, { label: "Зарплата" }]} />
         <PageHeaderActions>
           <button
             className={s.iconButton}
@@ -461,81 +456,82 @@ export function PayrollConcept({
         </PageHeaderActions>
         <div className={s.main}>
           <PageFrame>
-            <section className={s.heading}>
-              <div>
-                <h1>Зарплата</h1>
-              </div>
-            </section>
-            <div className={s.contextBar}>
-              <PeriodStepper
-                previous="Предыдущий месяц"
-                next="Следующий месяц"
-                onPrevious={() => moveMonth(-1)}
-                onNext={() => moveMonth(1)}
-              >
-                <Popover
-                  open={monthOpen}
-                  onOpenChange={(open) => {
-                    setMonthOpen(open);
-                    if (open) setPickerYear(Number(month.slice(0, 4)));
-                  }}
+            <TablePageHeader
+              className={s.pageHeader}
+              title="Зарплата"
+              period={
+                <PeriodStepper
+                  previous="Предыдущий месяц"
+                  next="Следующий месяц"
+                  onPrevious={() => moveMonth(-1)}
+                  onNext={() => moveMonth(1)}
                 >
-                  <PopoverTrigger asChild>
-                    <button
-                      className={periodTriggerClass}
-                      aria-label="Месяц ведомости"
-                    >
-                      <CalendarDays size={15} />
-                      <span>{title}</span>
-                      <ChevronDown size={12} />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent className={s.monthPicker} align="start">
-                    <div className={s.pickerHeading}>
+                  <Popover
+                    open={monthOpen}
+                    onOpenChange={(open) => {
+                      setMonthOpen(open);
+                      if (open) setPickerYear(Number(month.slice(0, 4)));
+                    }}
+                  >
+                    <PopoverTrigger asChild>
                       <button
-                        aria-label="Предыдущий год"
-                        onClick={() => setPickerYear(pickerYear - 1)}
+                        className={periodTriggerClass}
+                        aria-label="Месяц ведомости"
                       >
-                        <ChevronLeft size={16} />
+                        <CalendarDays size={15} />
+                        <span>{title}</span>
+                        <ChevronDown size={12} />
                       </button>
-                      <strong>{pickerYear}</strong>
-                      <button
-                        aria-label="Следующий год"
-                        onClick={() => setPickerYear(pickerYear + 1)}
-                      >
-                        <ChevronRight size={16} />
-                      </button>
-                    </div>
-                    <div className={s.monthGrid}>
-                      {Array.from({ length: 12 }, (_, i) => {
-                        const value = `${pickerYear}-${String(i + 1).padStart(2, "0")}`;
-                        return (
-                          <button
-                            key={i}
-                            className={value === month ? s.selectedMonth : ""}
-                            onClick={() => {
-                              changeMonth(value);
-                              setMonthOpen(false);
-                            }}
-                          >
-                            {new Date(Date.UTC(pickerYear, i, 1))
-                              .toLocaleDateString("ru-RU", {
-                                month: "short",
-                                timeZone: "UTC",
-                              })
-                              .replace(".", "")}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </PeriodStepper>
-              <div
-                id="payroll-concept-controls"
-                className={s.functionalControls}
-              />
-            </div>
+                    </PopoverTrigger>
+                    <PopoverContent className={s.monthPicker} align="start">
+                      <div className={s.pickerHeading}>
+                        <button
+                          aria-label="Предыдущий год"
+                          onClick={() => setPickerYear(pickerYear - 1)}
+                        >
+                          <ChevronLeft size={16} />
+                        </button>
+                        <strong>{pickerYear}</strong>
+                        <button
+                          aria-label="Следующий год"
+                          onClick={() => setPickerYear(pickerYear + 1)}
+                        >
+                          <ChevronRight size={16} />
+                        </button>
+                      </div>
+                      <div className={s.monthGrid}>
+                        {Array.from({ length: 12 }, (_, i) => {
+                          const value = `${pickerYear}-${String(i + 1).padStart(2, "0")}`;
+                          return (
+                            <button
+                              key={i}
+                              className={value === month ? s.selectedMonth : ""}
+                              onClick={() => {
+                                changeMonth(value);
+                                setMonthOpen(false);
+                              }}
+                            >
+                              {new Date(Date.UTC(pickerYear, i, 1))
+                                .toLocaleDateString("ru-RU", {
+                                  month: "short",
+                                  timeZone: "UTC",
+                                })
+                                .replace(".", "")}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </PeriodStepper>
+              }
+              actions={
+                <div
+                  id="payroll-concept-controls"
+                  className={s.functionalControls}
+                />
+              }
+            />
             <section className={s.metrics} aria-label="Итоги за месяц">
               <button
                 className={`${s.metric} ${s.mainMetric}`}

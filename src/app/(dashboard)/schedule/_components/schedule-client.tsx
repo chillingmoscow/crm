@@ -40,7 +40,6 @@ import { Button } from "@/components/ui/button";
 import { PersonAvatar } from "@/components/people/person-avatar";
 import { Calendar } from "@/components/ui/calendar";
 import { PeriodStepper, periodTriggerClass } from "@/components/shared/period-stepper";
-import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import { TableControls, TableIconButton, TablePageHeader } from "@/components/shared/table";
 import { TableFilterChip } from "@/components/shared/table/table-filter-chip";
 import {
@@ -104,6 +103,7 @@ import {
   type TaskOccurrence,
 } from "@/lib/schedule/tasks";
 import { loadCalendarTasks } from "../tasks/actions";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 const CalendarTaskReport = dynamic(
   () => import("../tasks/tasks-client").then((module) => module.TaskReport),
   {
@@ -1063,22 +1063,101 @@ export function ScheduleClient({
   const canPublish = can("shift_publish") && draftShifts.length > 0;
   const filtersActive = department !== "all" || publication !== "all";
   const today = dateInZone(new Date(), data.timezone);
+  // Период и «Сегодня» стоят в шапке слева, инструменты — в той же строке справа.
+  const periodControls = (
+    <>
+      <PeriodStepper
+        previous="Предыдущая неделя"
+        next="Следующая неделя"
+        onPrevious={() => setWeek(addDays(week, -7))}
+        onNext={() => setWeek(addDays(week, 7))}
+      >
+        <Popover open={weekPickerOpen} onOpenChange={setWeekPickerOpen}>
+          <PopoverTrigger asChild>
+            <button type="button" className={periodTriggerClass} aria-label="Выбрать неделю расписания">
+              <CalendarDays className="size-4 shrink-0" />
+              <span className="whitespace-nowrap">
+                {dayLabel(days[0], { day: "numeric", month: "short" })} –{" "}
+                {dayLabel(days[6], { day: "numeric", month: "short", year: "numeric" })}
+              </span>
+              <ChevronDown className="size-3 shrink-0" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-auto p-0">
+            <Calendar
+              mode="single"
+              locale={ru}
+              weekStartsOn={1}
+              defaultMonth={new Date(week + "T12:00:00")}
+              selected={new Date(week + "T12:00:00")}
+              captionLayout="dropdown"
+              onSelect={(date) => {
+                if (!date) return;
+                setWeek(weekStart(format(date, "yyyy-MM-dd")));
+                setWeekPickerOpen(false);
+              }}
+            />
+          </PopoverContent>
+        </Popover>
+      </PeriodStepper>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() =>
+            setWeek(
+              weekStart(dateInZone(new Date(), data.timezone)),
+            )
+        }
+      >
+        Сегодня
+      </Button>
+    </>
+  );
+  const pendingReports =
+    showTasks && pendingTaskReports.length > 0 ? (
+      <Popover>
+                            <PopoverTrigger asChild>
+                              <Button variant="outline" size="sm" className="h-8 sm:h-9">
+                                На приёмке · {pendingTaskReports.length}
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent
+                              align="end"
+                              className="max-h-[70vh] w-96 max-w-[calc(100vw-32px)] overflow-y-auto p-3"
+                            >
+                              <p className="mb-1 text-sm font-semibold">
+                                Отчёты на приёмке
+                              </p>
+                              <p className="mb-3 text-[13px] text-muted-foreground">
+                                За все дни, включая прошлые недели
+                              </p>
+                              <div className="space-y-2">
+                                {pendingTaskReports.map((task) => (
+                                  <div key={task.id}>
+                                    <p className="mb-1 text-xs text-muted-foreground">
+                                      {dayLabel(task.business_date)}
+                                    </p>
+                                    {taskCard(task, false)}
+                                  </div>
+                                ))}
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+    ) : null;
   return (
     <TaskTitleTarget.Provider value={setScreenTitle}>
     <PageFrame className="space-y-6">
       {calendarVisible && (
         <>
-          <PageBreadcrumb>
-            <nav aria-label="Навигация по разделам" className="flex min-w-0 items-center gap-2 text-sm">
-              <span className="text-muted-foreground">График работы</span>
-              <span aria-hidden="true" className="text-muted-foreground">/</span>
-              <span className="truncate">Расписание</span>
-            </nav>
-          </PageBreadcrumb>
+          <Breadcrumbs
+            items={[{ label: "График работы" }, { label: "Расписание" }]}
+          />
           <TablePageHeader
             title="Расписание"
-            className="md:flex-wrap md:items-center [&>div:last-child]:max-w-full"
+            period={periodControls}
             actions={
+              <>
+              {pendingReports}
               <TableControls
                 search={{
                   value: query,
@@ -1174,6 +1253,7 @@ export function ScheduleClient({
                   </>
                 }
               />
+              </>
             }
           />
         </>
@@ -1207,112 +1287,31 @@ export function ScheduleClient({
             </TaskHeaderTarget.Provider>
           ) : (
             <>
-              <div className="flex flex-wrap justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <PeriodStepper
-                    previous="Предыдущая неделя"
-                    next="Следующая неделя"
-                    onPrevious={() => setWeek(addDays(week, -7))}
-                    onNext={() => setWeek(addDays(week, 7))}
-                  >
-                    <Popover open={weekPickerOpen} onOpenChange={setWeekPickerOpen}>
-                      <PopoverTrigger asChild>
-                        <button type="button" className={periodTriggerClass} aria-label="Выбрать неделю расписания">
-                          <CalendarDays className="size-4 shrink-0" />
-                          <span className="whitespace-nowrap">
-                            {dayLabel(days[0], { day: "numeric", month: "short" })} –{" "}
-                            {dayLabel(days[6], { day: "numeric", month: "short", year: "numeric" })}
-                          </span>
-                          <ChevronDown className="size-3 shrink-0" />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent align="start" className="w-auto p-0">
-                        <Calendar
-                          mode="single"
-                          locale={ru}
-                          weekStartsOn={1}
-                          defaultMonth={new Date(week + "T12:00:00")}
-                          selected={new Date(week + "T12:00:00")}
-                          captionLayout="dropdown"
-                          onSelect={(date) => {
-                            if (!date) return;
-                            setWeek(weekStart(format(date, "yyyy-MM-dd")));
-                            setWeekPickerOpen(false);
-                          }}
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </PeriodStepper>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                        setWeek(
-                          weekStart(dateInZone(new Date(), data.timezone)),
-                        )
-                    }
-                  >
-                    Сегодня
-                  </Button>
-                  {(filters || filtersActive) && (
-                    <div className="flex flex-wrap items-center gap-2 sm:ml-2" aria-label="Фильтры расписания">
-                      <TableFilterChip
-                        label="Подразделение"
-                        value={department === "all" ? "" : department}
-                        options={[
-                          { value: "", label: "Все подразделения" },
-                          ...data.departments.map(({ id, name }) => ({ value: id, label: name })),
-                        ]}
-                        onChange={(value) => setDepartment(value || "all")}
-                      />
-                      {canPlan && (
-                        <TableFilterChip
-                          label="Публикация"
-                          value={publication === "all" ? "" : publication}
-                          options={[
-                            { value: "", label: "Все смены" },
-                            { value: "draft", label: "Черновики" },
-                            { value: "published", label: "Опубликованные" },
-                          ]}
-                          onChange={(value) => setPublication(value || "all")}
-                        />
-                      )}
-                    </div>
+              {(filters || filtersActive) && (
+                <div className="flex flex-wrap items-center gap-2" aria-label="Фильтры расписания">
+                  <TableFilterChip
+                    label="Подразделение"
+                    value={department === "all" ? "" : department}
+                    options={[
+                      { value: "", label: "Все подразделения" },
+                      ...data.departments.map(({ id, name }) => ({ value: id, label: name })),
+                    ]}
+                    onChange={(value) => setDepartment(value || "all")}
+                  />
+                  {canPlan && (
+                    <TableFilterChip
+                      label="Публикация"
+                      value={publication === "all" ? "" : publication}
+                      options={[
+                        { value: "", label: "Все смены" },
+                        { value: "draft", label: "Черновики" },
+                        { value: "published", label: "Опубликованные" },
+                      ]}
+                      onChange={(value) => setPublication(value || "all")}
+                    />
                   )}
                 </div>
-                <div className="flex flex-wrap gap-2 items-center">
-                  {showTasks && pendingTaskReports.length > 0 && (
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" size="sm">
-                          На приёмке · {pendingTaskReports.length}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent
-                        align="end"
-                        className="max-h-[70vh] w-96 max-w-[calc(100vw-32px)] overflow-y-auto p-3"
-                      >
-                        <p className="mb-1 text-sm font-semibold">
-                          Отчёты на приёмке
-                        </p>
-                        <p className="mb-3 text-[13px] text-muted-foreground">
-                          За все дни, включая прошлые недели
-                        </p>
-                        <div className="space-y-2">
-                          {pendingTaskReports.map((task) => (
-                            <div key={task.id}>
-                              <p className="mb-1 text-xs text-muted-foreground">
-                                {dayLabel(task.business_date)}
-                              </p>
-                              {taskCard(task, false)}
-                            </div>
-                          ))}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  )}
-                </div>
-              </div>
+              )}
               {showTasks && tasksError && (
                 <div
                   role="alert"

@@ -9,7 +9,6 @@ import {
   ArrowLeft,
   ArrowUpRight,
   CalendarDays,
-  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -51,7 +50,7 @@ import { PeriodStepper, periodTriggerClass } from "@/components/shared/period-st
 import { PageFrame } from "@/components/shared/page-frame";
 import { recalculateInventoryDeduction } from "@/app/(dashboard)/inventory/_actions/deduction";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
-import { TablePageHeader } from "@/components/shared/table";
+import { TableFilterChip, TablePageHeader } from "@/components/shared/table";
 
 type Row = ReturnType<typeof statementRows>[number];
 const rub = (n: number) =>
@@ -281,16 +280,17 @@ export function PayrollConcept({
 
   const roleFilters = {
     active: Boolean(role),
-    content: (
-      <div className={s.roleFilter}>
-        <span>Должность</span>
-        {["", ...roles].map((name) => (
-          <button key={name} onClick={() => setRole(name)}>
-            <span>{name || "Все должности"}</span>
-            {role === name && <Check size={14} />}
-          </button>
-        ))}
-      </div>
+    onReset: () => setRole(""),
+    chips: (
+      <TableFilterChip
+        label="Должность"
+        value={role}
+        onChange={setRole}
+        options={[
+          { value: "", label: "Все должности" },
+          ...roles.map((name) => ({ value: name, label: name })),
+        ]}
+      />
     ),
   };
   // Пересчёт удержания по недостаче за открытый месяц: нужен после правок табеля
@@ -836,7 +836,6 @@ export function PayrollConcept({
                   busy={busy}
                   actions={tableActions}
                   toolbarTargetId="payroll-concept-controls"
-                  scrollMode="page"
                   exportAction={{
                     label: "Экспорт выплат",
                     onClick: exportPayments,

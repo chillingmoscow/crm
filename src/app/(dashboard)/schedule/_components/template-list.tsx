@@ -4,31 +4,26 @@ import { ColorDot } from "@/components/ui/color-dot";
 import { useEffect, useState } from "react";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
-  flexRender,
   getCoreRowModel,
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
-  type ColumnSizingState,
-  type OnChangeFn,
-  type Table,
 } from "@tanstack/react-table";
 import {
   Archive,
-  ArrowDown,
-  ArrowUp,
   CalendarClock,
   Copy,
   Pencil,
   Plus,
   SearchX,
 } from "lucide-react";
-import { PeopleMobileCards } from "@/components/people/people-mobile-cards";
-import styles from "@/components/people/people-table.module.css";
 import {
+  DataTable,
   ROW_MENU_COLUMN_SIZE,
-  ResizableTableHead,
+  TableConditions,
+  TableFilterChip,
+  TableSortPicker,
   TableColumnManager,
   TableControls,
   TablePageHeader,
@@ -37,19 +32,15 @@ import {
   useTableState,
   type TableRowMenuAction,
 } from "@/components/shared/table";
-import { TableFilterChip } from "@/components/shared/table/table-filter-chip";
-import { TableSortPicker } from "@/components/shared/table/table-sort-settings";
-import { useTableColumnResize } from "@/components/shared/table/use-table-column-resize";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { shiftTemplateLabel, type ShiftTemplate } from "@/lib/schedule/types";
 import { templateTimesFor } from "@/lib/schedule/template-times";
 import { TemplateName } from "./template-name";
-import { cn } from "@/lib/utils";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 
-// Время — семь колонок ПН…ВС: в заголовке день, в ячейке начало и конец.
-const DAYS = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"] as const;
+// Время — семь колонок Пн…Вс: в заголовке день, в ячейке начало и конец.
+const DAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"] as const;
 const dayId = (i: number) => `day${i + 1}`;
 const labels: Record<string, string> = {
   name: "Название",
@@ -239,7 +230,7 @@ export function TemplateList({
               placeholder: "Найти шаблон смены",
             }}
             filters={{
-              active: filtersVisible || archived,
+              active: archived,
               onClick: () => setFiltersVisible((visible) => !visible),
             }}
             sort={{
@@ -281,25 +272,39 @@ export function TemplateList({
           />
         }
       />
-      {(filtersVisible || archived) && (
-        <div
-          className="flex flex-wrap items-center gap-2"
-          aria-label="Фильтры шаблонов смен"
-        >
-          <TableFilterChip
-            label="Статус"
-            value={status}
-            onChange={(value) => {
-              setStatus(value);
-              firstPage();
-            }}
-            options={[
-              { value: "", label: "Активные" },
-              { value: "archived", label: "Архив" },
-            ]}
-          />
-        </div>
-      )}
+      <TableConditions
+        label="Условия списка шаблонов смен"
+        open={filtersVisible}
+        hasFilters={archived}
+        sorting={state.sorting}
+        onSortingChange={table.setSorting}
+        sortFields={[...sortable]}
+        sortLabels={labels}
+        search={state.search}
+        onSearchClear={() => {
+          state.setSearch("");
+          firstPage();
+        }}
+        onReset={() => {
+          setStatus("");
+          state.setSearch("");
+          table.setSorting([]);
+          firstPage();
+        }}
+      >
+        <TableFilterChip
+          label="Статус"
+          value={status}
+          onChange={(value) => {
+            setStatus(value);
+            firstPage();
+          }}
+          options={[
+            { value: "", label: "Активные" },
+            { value: "archived", label: "Архив" },
+          ]}
+        />
+      </TableConditions>
       {rows.length === 0 ? (
         <EmptyState
           icon={query ? SearchX : archived ? Archive : CalendarClock}
@@ -335,20 +340,17 @@ export function TemplateList({
         />
       ) : (
         <>
-          <TemplateTable
+          <DataTable
             table={table}
-            onColumnSizingChange={state.setColumnSizing}
-            onOpen={canEdit ? onEdit : undefined}
-          />
-          <PeopleMobileCards
-            table={table}
-            label="Карточки шаблонов смен"
-            nameColumn="name"
-            photoColumn="__none"
-            roleColumn="__none"
-            onOpen={canEdit ? (row) => onEdit(row.original) : undefined}
+            label="Шаблоны смен"
             labels={labels}
+            onColumnSizingChange={state.setColumnSizing}
+            sorting={state.sorting}
+            onSortingChange={table.setSorting}
+            sortable={sortable}
+            onRowClick={canEdit ? (row) => onEdit(row.original) : undefined}
             empty={null}
+            mobile={{ label: "Карточки шаблонов смен", nameColumn: "name" }}
           />
           <TablePagination
             pageIndex={pageIndex}
@@ -363,82 +365,6 @@ export function TemplateList({
           />
         </>
       )}
-    </div>
-  );
-}
-
-function TemplateTable({
-  table,
-  onColumnSizingChange,
-  onOpen,
-}: {
-  table: Table<ShiftTemplate>;
-  onColumnSizingChange: OnChangeFn<ColumnSizingState>;
-  /** Клик по строке целиком открывает шаблон (кроме кнопок в строке). */
-  onOpen?: (template: ShiftTemplate) => void;
-}) {
-  const { tableRef, onResizeStart, columnWidths, minTableWidth, overflowing } =
-    useTableColumnResize(table, onColumnSizingChange);
-  return (
-    <div className={cn(styles.scroll, overflowing && styles.scrollX)}>
-      <table
-        ref={tableRef}
-        className={styles.table}
-        style={{ minWidth: minTableWidth }}
-        aria-label="Шаблоны смен"
-      >
-        <ResizableTableHead
-          table={table}
-          columnWidths={columnWidths}
-          onResizeStart={onResizeStart}
-          isControlColumn={(id) => id === "actions"}
-          sortableColumnIds={sortable}
-          onSort={(id) => table.getColumn(id)?.toggleSorting(undefined, true)}
-          headerAriaSort={(id) => {
-            if (!sortable.has(id)) return undefined;
-            const direction = table.getColumn(id)?.getIsSorted();
-            return direction === "asc"
-              ? "ascending"
-              : direction === "desc"
-                ? "descending"
-                : "none";
-          }}
-          headerIndicator={(id) => {
-            const column = table.getColumn(id);
-            const direction = column?.getIsSorted();
-            if (!column || !direction) return null;
-            const Icon = direction === "desc" ? ArrowDown : ArrowUp;
-            return (
-              <span className="inline-flex items-center gap-0.5">
-                <Icon className="size-3" />
-                {table.getState().sorting.length > 1 && (
-                  <span className="text-[10px]">
-                    {column.getSortIndex() + 1}
-                  </span>
-                )}
-              </span>
-            );
-          }}
-        />
-        <tbody>
-          {table.getRowModel().rows.map((row) => (
-            <tr
-              key={row.id}
-              className={onOpen ? "cursor-pointer" : undefined}
-              onClick={(event) => {
-                if (onOpen && !(event.target as HTMLElement).closest("button,a,input,[role=menu]"))
-                  onOpen(row.original);
-              }}
-            >
-              {row.getVisibleCells().map((cell) => (
-                <td key={cell.id}>
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }

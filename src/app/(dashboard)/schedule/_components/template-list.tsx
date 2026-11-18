@@ -46,6 +46,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { shiftTemplateLabel, type ShiftTemplate } from "@/lib/schedule/types";
 import { templateTimesFor } from "@/lib/schedule/template-times";
 import { TemplateName } from "./template-name";
+import { cn } from "@/lib/utils";
 
 // Время — семь колонок ПН…ВС: в заголовке день, в ячейке начало и конец.
 const DAYS = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"] as const;
@@ -386,10 +387,10 @@ function TemplateTable({
   /** Клик по строке целиком открывает шаблон (кроме кнопок в строке). */
   onOpen?: (template: ShiftTemplate) => void;
 }) {
-  const { tableRef, onResizeStart, columnWidths, minTableWidth } =
+  const { tableRef, onResizeStart, columnWidths, minTableWidth, overflowing } =
     useTableColumnResize(table, onColumnSizingChange);
   return (
-    <div className={styles.scroll}>
+    <div className={cn(styles.scroll, overflowing && styles.scrollX)}>
       <table
         ref={tableRef}
         className={styles.table}

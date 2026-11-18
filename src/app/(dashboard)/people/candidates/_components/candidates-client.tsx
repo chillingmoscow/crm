@@ -269,7 +269,7 @@ export function CandidatesClient({
   const selectedRows = table
     .getSelectedRowModel()
     .rows.map((row) => row.original);
-  const { tableRef, onResizeStart, columnWidths, minTableWidth } =
+  const { tableRef, onResizeStart, columnWidths, minTableWidth, overflowing } =
     useCandidateColumnResize(table, st.setColumnSizing);
   const hasFilters = !!(status.length || position || from || to);
   const reset = () => {
@@ -477,7 +477,7 @@ export function CandidatesClient({
             </Button>
           </div>
         ) : null}
-        <div className={peopleTable.scroll}>
+        <div className={cn(peopleTable.scroll, overflowing && peopleTable.scrollX)}>
           <table
             ref={tableRef}
             className={peopleTable.table}

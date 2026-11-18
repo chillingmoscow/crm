@@ -140,5 +140,10 @@ export function useTableColumnResize<TData>(
     },
     [table, onChange],
   );
-  return { tableRef, onResizeStart, columnWidths, minTableWidth };
+  // Таблица шире контейнера (узкий экран или пользователь растянул столбцы):
+  // тогда контейнеру нужна горизонтальная прокрутка. Пока она помещается,
+  // прокрутки нет и шапка может закрепляться к окну. Допуск 1px — ширина
+  // контейнера целая, а сумма ширин столбцов после перетаскивания дробная.
+  const overflowing = width > 0 && minTableWidth > width + 1;
+  return { tableRef, onResizeStart, columnWidths, minTableWidth, overflowing };
 }

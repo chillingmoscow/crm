@@ -8,6 +8,7 @@ import {
 } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { listAuditEvents } from "@/lib/audit/list";
 import type {
   Candidate,
   CandidateDetail,
@@ -198,7 +199,7 @@ export async function candidateDetail(id: string): Promise<CandidateDetail | nul
       .maybeSingle(),
   );
   if (!candidate) return null;
-  const [comments, events, appointments, files, related, hire, stageEvents] =
+  const [comments, audit, appointments, files, related, hire, stageEvents] =
     await Promise.all([
       s.db
         .from<Comment[]>("candidate_comments")
@@ -207,13 +208,9 @@ export async function candidateDetail(id: string): Promise<CandidateDetail | nul
         .eq("account_id", s.accountId)
         .is("deleted_at", null)
         .order("created_at"),
-      s.db
-        .from<CandidateEvent[]>("candidate_events")
-        .select("*")
-        .eq("candidate_id", id)
-        .eq("account_id", s.accountId)
-        .order("created_at", { ascending: false })
-        .limit(200),
+      // Журнал — общий (audit_logs), как у сотрудника и должности; события
+      // анкеты читаются с доступом к кандидатам (миграция 354).
+      listAuditEvents({ entityType: "candidate", entityId: id }),
       appointmentQuery(s, id),
       s.db
         .from<CandidateFile[]>("candidate_files")
@@ -237,9 +234,9 @@ export async function candidateDetail(id: string): Promise<CandidateDetail | nul
         .eq("account_id", s.accountId)
         .eq("candidate_id", id)
         .maybeSingle(),
-      // «Ход подбора» — смены этапа и встречи за всю историю: журнал выше
-      // ограничен 200 последними событиями, и у кандидата с длинной
-      // перепиской ранние шаги выпали бы из хода.
+      // «Ход подбора» — смены этапа и встречи за всю историю: журнал
+      // постраничный, и у кандидата с длинной перепиской ранние шаги
+      // выпали бы из хода.
       s.db
         .from<CandidateEvent[]>("candidate_events")
         .select("*")
@@ -255,11 +252,10 @@ export async function candidateDetail(id: string): Promise<CandidateDetail | nul
     ]);
   const cs = check(comments) ?? [],
     ss = check(stageEvents) ?? [],
-    es = check(events) ?? [],
     fs = check(files) ?? [];
   const authorIds = [
     ...new Set(
-      [...cs.map((c) => c.author_id), ...es.map((e) => e.actor_id), ...ss.map((e) => e.actor_id)].filter(
+      [...cs.map((c) => c.author_id), ...ss.map((e) => e.actor_id)].filter(
         (id): id is string => Boolean(id),
       ),
     ),
@@ -305,10 +301,7 @@ export async function candidateDetail(id: string): Promise<CandidateDetail | nul
       author_name:
         names.get(c.author_id ?? "") ?? c.source_author ?? "Импорт из Notion",
     })),
-    events: es.map((e) => ({
-      ...e,
-      actor_name: names.get(e.actor_id ?? "") ?? "Система",
-    })),
+    audit: { events: audit.events, hasMore: audit.hasMore },
     stageEvents: ss.map((e) => ({
       ...e,
       actor_name: names.get(e.actor_id ?? "") ?? "Система",

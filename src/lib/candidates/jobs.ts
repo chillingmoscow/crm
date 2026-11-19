@@ -192,86 +192,100 @@ export async function processCandidateJobs(limit = 5) {
     ) ?? [];
   for (const file of files) {
     if (file.attempts >= 5) continue;
-    try {
-      if (!file.original_url || !allowedPhotoURL(file.original_url))
-        throw new Error("Адрес файла не разрешён");
-      const response = await fetch(file.original_url, {
-        redirect: "manual",
-        signal: AbortSignal.timeout(12000),
-      });
-      if (response.status === 404 || response.status === 410) {
-        check(
-          await db
-            .from("candidate_files")
-            .update({
-              state: "missing",
-              error: "Файл недоступен в исходном хранилище",
-              attempts: file.attempts + 1,
-            })
-            .eq("id", file.id),
-        );
-        continue;
-      }
-      if (!response.ok || !response.body)
-        throw new Error("Не удалось получить исходный файл");
-      const mime = (response.headers.get("content-type") ?? "").split(";")[0];
-      if (
-        ![
-          "image/jpeg",
-          "image/png",
-          "image/webp",
-          "image/avif",
-          "image/gif",
-          "application/pdf",
-        ].includes(mime)
-      )
-        throw new Error("Неподдерживаемый тип файла");
-      const reader = response.body.getReader();
-      const chunks: Uint8Array[] = [];
-      let size = 0;
-      while (true) {
-        const r = await reader.read();
-        if (r.done) break;
-        size += r.value.byteLength;
-        if (size > 10485760) {
-          await reader.cancel();
-          throw new Error("Файл больше 10 МБ");
-        }
-        chunks.push(r.value);
-      }
-      const path = `${file.account_id}/${file.candidate_id}/${file.id}`;
-      check(
-        await admin.storage
-          .from("candidate-files")
-          .upload(path, Buffer.concat(chunks), {
-            contentType: mime,
-            upsert: true,
-          }),
-      );
+    if ((await transferCandidateFile(db, admin, file)) === "error") errors++;
+  }
+  return { processed, errors };
+}
+type TransferableFile = Pick<
+  CandidateFile,
+  "id" | "original_url"
+> & { account_id: string; candidate_id: string; attempts: number };
+/** Переносит исходный файл анкеты (Тильда, Notion) в хранилище. Используется
+ *  фоновой очередью и кнопкой «Повторить» на карточке кандидата. */
+export async function transferCandidateFile(
+  db: ReturnType<typeof asLooseDb>,
+  admin: ReturnType<typeof createAdminClient>,
+  file: TransferableFile,
+): Promise<"ready" | "missing" | "error"> {
+  try {
+    if (!file.original_url || !allowedPhotoURL(file.original_url))
+      throw new Error("Адрес файла не разрешён");
+    const response = await fetch(file.original_url, {
+      redirect: "manual",
+      signal: AbortSignal.timeout(12000),
+    });
+    if (response.status === 404 || response.status === 410) {
       check(
         await db
           .from("candidate_files")
           .update({
-            state: "ready",
-            storage_path: path,
-            mime_type: mime,
-            size_bytes: size,
-            error: null,
+            state: "missing",
+            error: "Файл недоступен в исходном хранилище",
             attempts: file.attempts + 1,
           })
           .eq("id", file.id),
       );
-    } catch (e) {
+      return "missing";
+    }
+    if (!response.ok || !response.body)
+      throw new Error("Не удалось получить исходный файл");
+    const mime = (response.headers.get("content-type") ?? "").split(";")[0];
+    if (
+      ![
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/avif",
+        "image/gif",
+        "application/pdf",
+      ].includes(mime)
+    )
+      throw new Error("Неподдерживаемый тип файла");
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    while (true) {
+      const r = await reader.read();
+      if (r.done) break;
+      size += r.value.byteLength;
+      if (size > 10485760) {
+        await reader.cancel();
+        throw new Error("Файл больше 10 МБ");
+      }
+      chunks.push(r.value);
+    }
+    const path = `${file.account_id}/${file.candidate_id}/${file.id}`;
+    check(
+      await admin.storage
+        .from("candidate-files")
+        .upload(path, Buffer.concat(chunks), {
+          contentType: mime,
+          upsert: true,
+        }),
+    );
+    check(
       await db
         .from("candidate_files")
         .update({
-          state: "error",
-          error: e instanceof Error ? e.message : "Ошибка файла",
+          state: "ready",
+          storage_path: path,
+          mime_type: mime,
+          size_bytes: size,
+          error: null,
           attempts: file.attempts + 1,
         })
-        .eq("id", file.id);
-      errors++;
-    }
+        .eq("id", file.id),
+    );
+    return "ready";
+  } catch (e) {
+    await db
+      .from("candidate_files")
+      .update({
+        state: "error",
+        error: e instanceof Error ? e.message : "Ошибка файла",
+        attempts: file.attempts + 1,
+      })
+      .eq("id", file.id);
+    return "error";
   }
-  return { processed, errors };
 }

@@ -174,6 +174,8 @@ export type CandidateDetail = {
   candidate: Candidate;
   comments: Comment[];
   events: CandidateEvent[];
+  /** Смены этапа и встречи за всю историю — для «Хода подбора». */
+  stageEvents: CandidateEvent[];
   appointments: Appointment[];
   files: CandidateFile[];
   related: Pick<Candidate, "id" | "full_name" | "status" | "submitted_at">[];

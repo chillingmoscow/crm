@@ -359,6 +359,7 @@ export function ShiftEditor({
   templateSlot = false,
   copy,
   onClose,
+  onCancel,
   save,
   onEditTemplate,
 }: {
@@ -370,6 +371,8 @@ export function ShiftEditor({
   templateSlot?: boolean;
   copy?: boolean;
   onClose: () => void;
+  /** Закрытие без сохранения («Отмена», крестик, клик мимо). По умолчанию — `onClose`. */
+  onCancel?: () => void;
   save: Save;
   /** Открыть редактор выбранного шаблона поверх формы смены. */
   onEditTemplate?: (template: ShiftTemplate) => void;
@@ -485,7 +488,7 @@ export function ShiftEditor({
   const [initialSnapshot] = useState(snapshot);
   const { guard, dialog } = useDiscardGuard(snapshot !== initialSnapshot);
   const requestClose = () => {
-    if (!busy) guard(onClose);
+    if (!busy) guard(onCancel ?? onClose);
   };
   const started = shift && data.runs.some((r) => r.shift_id === shift.id);
   const unavailable = new Set(templateSlot

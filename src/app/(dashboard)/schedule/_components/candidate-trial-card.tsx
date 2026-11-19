@@ -13,7 +13,8 @@ export function CandidateTrialCard({ trial, timezone, showName = false, linked =
   linked?: boolean;
 }) {
   const className = cn(
-        "block min-w-0 space-y-1 rounded-lg p-2 text-xs outline-none transition-colors hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring",
+        // Та же карточка, что у смены в ячейке: rounded-md, px-1.5 py-2, gap-1.
+        "grid min-w-0 gap-1 rounded-md px-1.5 py-2 text-xs outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring",
         paletteBg("purple"), paletteText("purple"),
         !linked && "hover:opacity-100",
       );
@@ -28,8 +29,8 @@ export function CandidateTrialCard({ trial, timezone, showName = false, linked =
         {trial.starts_at ? timeInZone(trial.starts_at, timezone) : "Время не указано"}
         {trial.outcome === "passed" ? " · Пройдена" : ""}
       </span>
-      {/* Место не показываем: график — по одному заведению, и стажировки
-          здесь только его; стажировки другого заведения — в его графике. */}
+      {/* Место не показываем: расписание — по одному заведению, и стажировки
+          здесь только его; стажировки другого заведения — в его расписании. */}
     </>
   );
   const label = `Стажировка: ${trial.full_name}`;

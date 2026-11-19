@@ -535,7 +535,7 @@ export function RoleDetailPage({
                       <Icon className="w-4 h-4 text-brand" />
                     </div>
                     <span className="text-sm font-semibold">{meta.label}</span>
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold text-muted-foreground bg-secondary border">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold text-muted-foreground bg-secondary border">
                       {grantedInGroup} из {totalInGroup}
                     </span>
                     <div className="flex-1" />

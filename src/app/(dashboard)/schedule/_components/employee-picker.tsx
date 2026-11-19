@@ -30,7 +30,7 @@ function Avatar({ name, src }: { name: string; src?: string | null }) {
   return src ? (
     <img src={src} alt="" className="size-7 shrink-0 rounded-full object-cover" />
   ) : (
-    <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground">
+    <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
       {name.trim().charAt(0).toUpperCase() || "?"}
     </span>
   );

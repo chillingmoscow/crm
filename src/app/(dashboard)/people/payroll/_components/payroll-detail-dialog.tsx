@@ -39,7 +39,7 @@ export function PayrollDetailDialog({open, onOpenChange, title, description, emp
         <div className="flex flex-wrap items-end justify-between gap-3 border-b pb-4">
           <div className="min-w-0">
             <p className="text-xs text-muted-foreground">{amountLabel}</p>
-            <p className="mt-1 break-words text-3xl font-semibold tabular-nums">{amount}</p>
+            <p className="mt-1 break-words text-[28px] font-semibold leading-tight tabular-nums">{amount}</p>
           </div>
           {status}
         </div>

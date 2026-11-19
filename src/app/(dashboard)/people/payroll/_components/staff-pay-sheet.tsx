@@ -260,7 +260,7 @@ export function StaffPaySheet({
             <h2 className="text-xs font-medium text-muted-foreground">
               {!unknownReason && toKopecks(remaining) < 0 ? `Переплата за ${name}` : `К выплате за ${name}`}
             </h2>
-            <p className="mt-1 text-[32px] font-semibold leading-tight tracking-tight tabular-nums sm:text-4xl">
+            <p className="mt-1 text-[28px] font-semibold leading-tight tracking-tight tabular-nums">
               <Money value={unknownReason ? null : Math.abs(toKopecks(remaining))} fraction="auto" />
             </p>
           </div>
@@ -606,7 +606,7 @@ function MonthBars({
             </span>
             <span
               className={cn(
-                "text-[11px] leading-none",
+                "text-xs leading-none",
                 active ? "font-semibold text-foreground" : "text-muted-foreground",
               )}
             >

@@ -1061,7 +1061,7 @@ export function StaffDetailPage({
                         живёт в trigger'е tg_profiles_birth_date_yearly_limit
                         (миграция 142) — это про UX, не про защиту. */}
                     {profile.birth_date_set_at && (
-                      <p className="text-[11px] text-muted-foreground">
+                      <p className="text-xs text-muted-foreground">
                         Изменено{" "}
                         {new Date(profile.birth_date_set_at).toLocaleDateString(
                           "ru-RU",
@@ -1445,7 +1445,7 @@ export function StaffDetailPage({
                             <p className="text-[13px] font-medium text-foreground truncate">
                               {name}
                             </p>
-                            <p className="text-[11px] text-muted-foreground">
+                            <p className="text-xs text-muted-foreground">
                               {uploadedAt
                                 ? `Загружен ${formatDate(uploadedAt)}`
                                 : "Файл"}
@@ -1516,7 +1516,7 @@ export function StaffDetailPage({
                   <Lock className="w-4 h-4 text-destructive" />
                 </div>
                 <div className="flex flex-col gap-0.5 min-w-0 flex-[1_1_240px]">
-                  <p className="text-[15px] font-semibold text-destructive leading-tight">
+                  <p className="text-base font-semibold text-destructive leading-tight">
                     Уволить сотрудника
                   </p>
                   <p className="text-[13px] text-muted-foreground leading-snug">
@@ -1592,7 +1592,7 @@ export function StaffDetailPage({
             className="resize-none"
             required
           />
-          <p className="text-[12px] text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             Будет видна в списке уволенных и поможет вспомнить контекст
           </p>
         </div>
@@ -1654,7 +1654,7 @@ export function StaffDetailPage({
                 <p className="text-[13px] font-medium text-foreground truncate max-w-full">
                   {photoFile.name}
                 </p>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {(photoFile.size / 1024 / 1024).toFixed(2)} МБ — нажмите,
                   чтобы выбрать другой файл
                 </p>
@@ -1665,7 +1665,7 @@ export function StaffDetailPage({
                 <p className="text-[13px] text-muted-foreground">
                   Перетащите файл сюда или нажмите для выбора
                 </p>
-                <p className="text-[11px] text-muted-foreground/70">
+                <p className="text-xs text-muted-foreground/70">
                   JPG, PNG, WebP до 5 МБ
                 </p>
               </>
@@ -1770,7 +1770,7 @@ export function StaffDetailPage({
                   <p className="text-[13px] font-medium text-foreground truncate max-w-full">
                     {docFile.name}
                   </p>
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     {(docFile.size / 1024 / 1024).toFixed(2)} МБ — нажмите,
                     чтобы выбрать другой
                   </p>
@@ -1781,7 +1781,7 @@ export function StaffDetailPage({
                   <p className="text-[13px] text-muted-foreground">
                     Перетащите файл или нажмите для выбора
                   </p>
-                  <p className="text-[11px] text-muted-foreground/70">
+                  <p className="text-xs text-muted-foreground/70">
                     JPG, PNG, WebP, HEIC, PDF до 10 МБ
                   </p>
                 </>

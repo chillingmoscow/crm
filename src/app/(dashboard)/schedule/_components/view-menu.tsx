@@ -71,7 +71,7 @@ export function ViewMenu({
                 setOpen(false);
               }}
               className={cn(
-                "flex w-full items-center justify-between gap-2 rounded-sm px-3 py-2 text-left text-sm outline-none hover:bg-accent focus-visible:bg-accent",
+                "flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm outline-none hover:bg-accent focus-visible:bg-accent",
                 v.value === value && "bg-accent",
               )}
             >

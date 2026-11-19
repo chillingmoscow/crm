@@ -65,7 +65,7 @@ export function IconPicker({
         align="start"
         side="bottom"
         sideOffset={6}
-        className="w-[380px] p-0 rounded-[10px]"
+        className="w-[380px] p-0"
       >
         <KbIconPickerBody
           value={value}

@@ -88,7 +88,7 @@ export function InventoryActsPermissionSection({
               </span>
               <span className="min-w-0">
                 <span className="block text-sm font-medium">{opt.label}</span>
-                <span className="mt-0.5 block text-[12px] leading-snug text-muted-foreground">
+                <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
                   {opt.description}
                 </span>
               </span>

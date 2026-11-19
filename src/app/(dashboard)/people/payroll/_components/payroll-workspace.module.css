@@ -732,7 +732,7 @@
 }
 
 .appliedFilter {
-  color: hsl(var(--brand));
+  color: hsl(var(--brand-text));
   background: hsl(var(--brand) / 0.06);
   border-color: hsl(var(--brand) / 0.2);
 }
@@ -752,7 +752,7 @@
 }
 .shiftBack,
 .fullDetailLink {
-  color: hsl(var(--brand));
+  color: hsl(var(--brand-text));
 }
 
 /* Шапка страницы: общий TablePageHeader, до показателей 16px. */

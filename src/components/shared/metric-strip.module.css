@@ -51,7 +51,7 @@ button.primary:hover {
   white-space: nowrap;
 }
 .primary .label {
-  color: hsl(var(--brand-tint-foreground));
+  color: hsl(var(--brand-text));
 }
 .value {
   display: block;

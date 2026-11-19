@@ -11,6 +11,14 @@ import {
 import Link from "next/link";
 import { isStaffPlaceholderEmail } from "@/lib/people/staff-identity";
 import {
+  GENDER_LABEL,
+  GENDER_OPTIONS,
+  genderFormField,
+  genderFormValue,
+  isGender,
+  type Gender,
+} from "@/lib/people/gender";
+import {
   encodeStaffDocumentName,
   decodeStaffDocumentName,
 } from "@/lib/people/staff-document-name";
@@ -35,6 +43,8 @@ import { Input } from "@/components/ui/input";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
+import { OptionSelect } from "@/components/ui/option-select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, ProfileTabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
@@ -81,7 +91,8 @@ const schema = z.object({
   last_name: z.string().min(1, "Обязательное поле"),
   phone: z.string().optional(),
   telegram_id: z.string().optional(),
-  gender: z.enum(["male", "female", ""]).optional(),
+  // Пол обязателен, пока личные поля правит админ: см. personalSchema.
+  gender: z.string(),
   birth_date: z.string().optional(),
   address: z.string().optional(),
 
@@ -97,6 +108,11 @@ const schema = z.object({
 });
 
 type FormValues = z.infer<typeof schema>;
+
+// Личные поля правит админ (сотрудник ещё не вошёл в Sheerly) — тогда пол
+// обязателен. Зарегистрированный ведёт пол сам, и его пустой пол не должен
+// мешать админу сохранить HR-поля карточки.
+const personalSchema = schema.extend({ gender: genderFormField });
 
 type Role = { id: string; name: string; code: string };
 
@@ -332,13 +348,13 @@ export function StaffDetailPage({
     watch,
     formState: { errors, isDirty },
   } = useForm<FormValues>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(canEditPersonal ? personalSchema : schema),
     defaultValues: {
       first_name: profile.first_name ?? "",
       last_name: profile.last_name ?? "",
       phone: profile.phone ?? "",
       telegram_id: profile.telegram_id ?? "",
-      gender: (profile.gender as "male" | "female" | "") ?? "",
+      gender: genderFormValue(profile.gender),
       birth_date: profile.birth_date ?? "",
       address: profile.address ?? "",
       employment_date: accountDetails.employment_date ?? "",
@@ -362,7 +378,7 @@ export function StaffDetailPage({
       last_name: profile.last_name ?? "",
       phone: profile.phone ?? "",
       telegram_id: profile.telegram_id ?? "",
-      gender: (profile.gender as "male" | "female" | "") ?? "",
+      gender: genderFormValue(profile.gender),
       birth_date: profile.birth_date ?? "",
       address: profile.address ?? "",
       employment_date: accountDetails.employment_date ?? "",
@@ -463,7 +479,7 @@ export function StaffDetailPage({
             last_name: values.last_name,
             phone: values.phone || null,
             telegram_id: values.telegram_id || null,
-            gender: values.gender || null,
+            gender: values.gender as Gender,
             birth_date: values.birth_date || null,
             address: values.address || null,
           })
@@ -957,119 +973,122 @@ export function StaffDetailPage({
                 title="Личные данные"
                 locked={{ tone: canEditPersonal ? "info" : "locked" }}
               >
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <Label
-                      htmlFor="first_name"
-                      className="text-[13px] font-medium"
-                    >
-                      Имя
-                    </Label>
-                    <Input
-                      id="first_name"
-                      {...register("first_name")}
-                      readOnly={!canEditPersonal}
-                      className={!canEditPersonal ? "bg-muted/50" : ""}
-                    />
-                    {errors.first_name && (
-                      <p className="text-xs text-destructive">
-                        {errors.first_name.message}
-                      </p>
+                {/* Обязательные поля отмечены, только пока админ может их
+                    править; зарегистрированный сотрудник ведёт их сам.
+                    items-start: подсказка или ошибка под одним полем не
+                    сдвигает соседнее в строке. */}
+                <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2">
+                  <Field
+                    id="first_name"
+                    label="Имя"
+                    required={canEditPersonal}
+                    error={errors.first_name?.message}
+                  >
+                    {(fieldProps) => (
+                      <Input
+                        {...fieldProps}
+                        aria-required={canEditPersonal || undefined}
+                        {...register("first_name")}
+                        readOnly={!canEditPersonal}
+                        className={!canEditPersonal ? "bg-muted/50" : ""}
+                      />
                     )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label
-                      htmlFor="last_name"
-                      className="text-[13px] font-medium"
-                    >
-                      Фамилия
-                    </Label>
-                    <Input
-                      id="last_name"
-                      {...register("last_name")}
-                      readOnly={!canEditPersonal}
-                      className={!canEditPersonal ? "bg-muted/50" : ""}
-                    />
-                    {errors.last_name && (
-                      <p className="text-xs text-destructive">
-                        {errors.last_name.message}
-                      </p>
+                  </Field>
+                  <Field
+                    id="last_name"
+                    label="Фамилия"
+                    required={canEditPersonal}
+                    error={errors.last_name?.message}
+                  >
+                    {(fieldProps) => (
+                      <Input
+                        {...fieldProps}
+                        aria-required={canEditPersonal || undefined}
+                        {...register("last_name")}
+                        readOnly={!canEditPersonal}
+                        className={!canEditPersonal ? "bg-muted/50" : ""}
+                      />
                     )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-[13px] font-medium">Пол</Label>
-                    {canEditPersonal ? (
+                  </Field>
+                  <Field
+                    id="gender"
+                    label="Пол"
+                    required={canEditPersonal}
+                    error={errors.gender?.message}
+                    hint={
+                      !canEditPersonal && !isGender(profile.gender)
+                        ? "Сотрудник указывает пол сам, в своём профиле"
+                        : undefined
+                    }
+                  >
+                    {(fieldProps) =>
+                      canEditPersonal ? (
+                        <Controller
+                          control={control}
+                          name="gender"
+                          render={({ field }) => (
+                            <OptionSelect
+                              {...fieldProps}
+                              aria-required
+                              value={field.value}
+                              onValueChange={field.onChange}
+                              placeholder="Выберите пол"
+                              options={GENDER_OPTIONS}
+                            />
+                          )}
+                        />
+                      ) : (
+                        <Input
+                          {...fieldProps}
+                          value={
+                            isGender(profile.gender)
+                              ? GENDER_LABEL[profile.gender]
+                              : "Не указан"
+                          }
+                          readOnly
+                          className="bg-muted/50"
+                        />
+                      )
+                    }
+                  </Field>
+                  {/* Подпись «когда был последний раз изменён» — видна всем.
+                      Социальный гард от фрода с ДР: если кто-то перевыставил
+                      дату чтобы получить поздравление повторно, остальные
+                      сотрудники видят, что дата свежая. Сам limit (раз в год)
+                      живёт в trigger'е tg_profiles_birth_date_yearly_limit
+                      (миграция 142) — это про UX, не про защиту. */}
+                  <Field
+                    id="birth_date"
+                    label="Дата рождения"
+                    hint={
+                      profile.birth_date_set_at
+                        ? `Изменено ${new Date(
+                            profile.birth_date_set_at,
+                          ).toLocaleDateString("ru-RU", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            year: "numeric",
+                          })}`
+                        : undefined
+                    }
+                  >
+                    {(fieldProps) => (
                       <Controller
                         control={control}
-                        name="gender"
+                        name="birth_date"
                         render={({ field }) => (
-                          <Select
+                          <DatePicker
+                            {...fieldProps}
                             value={field.value ?? ""}
-                            onValueChange={(v) =>
-                              field.onChange(v as "male" | "female")
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Не указан" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="male">Мужской</SelectItem>
-                              <SelectItem value="female">Женский</SelectItem>
-                            </SelectContent>
-                          </Select>
+                            onChange={field.onChange}
+                            placeholder="Выберите дату"
+                            readOnly={!canEditPersonal}
+                            toDate={new Date()}
+                          />
                         )}
                       />
-                    ) : (
-                      <Input
-                        value={
-                          profile.gender === "male"
-                            ? "Мужской"
-                            : profile.gender === "female"
-                              ? "Женский"
-                              : "—"
-                        }
-                        readOnly
-                        className="bg-muted/50"
-                      />
                     )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label
-                      htmlFor="birth_date"
-                      className="text-[13px] font-medium"
-                    >
-                      Дата рождения
-                    </Label>
-                    <Controller
-                      control={control}
-                      name="birth_date"
-                      render={({ field }) => (
-                        <DatePicker
-                          id="birth_date"
-                          value={field.value ?? ""}
-                          onChange={field.onChange}
-                          placeholder="Выберите дату"
-                          readOnly={!canEditPersonal}
-                          toDate={new Date()}
-                        />
-                      )}
-                    />
-                    {/* Подпись «когда был последний раз изменён» — видна всем.
-                        Социальный гард от фрода с ДР: если кто-то перевыставил
-                        дату чтобы получить поздравление повторно, остальные
-                        сотрудники видят, что дата свежая. Сам limit (раз в год)
-                        живёт в trigger'е tg_profiles_birth_date_yearly_limit
-                        (миграция 142) — это про UX, не про защиту. */}
-                    {profile.birth_date_set_at && (
-                      <p className="text-xs text-muted-foreground">
-                        Изменено{" "}
-                        {new Date(profile.birth_date_set_at).toLocaleDateString(
-                          "ru-RU",
-                          { day: "2-digit", month: "2-digit", year: "numeric" },
-                        )}
-                      </p>
-                    )}
-                  </div>
+                  </Field>
                 </div>
               </FormSection>
 

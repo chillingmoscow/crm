@@ -100,7 +100,7 @@ export function ViewPresetsTabs({
           className={cn(
             "group inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm transition-colors",
             activeView?.id === view.id
-              ? "bg-brand/10 text-brand-tint-foreground"
+              ? "bg-brand/10 text-brand"
               : "text-muted-foreground hover:bg-muted hover:text-foreground",
           )}
         >

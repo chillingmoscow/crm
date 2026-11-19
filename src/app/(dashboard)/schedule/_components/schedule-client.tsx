@@ -86,6 +86,7 @@ import {
   isoWeekday,
 } from "./editors";
 import { EmployeePicker } from "./employee-picker";
+import { EmployeeStrip } from "./employee-strip";
 import { ApplyTemplateDialog } from "./apply-template-dialog";
 import { ShiftDetails } from "./shift-details";
 import { DrawerAvatar, DrawerStatus } from "@/components/ui/drawer-blocks";
@@ -129,8 +130,14 @@ type Editor =
   | { type: "template"; template?: ShiftTemplate; copy?: boolean };
 type DragItem =
   | { kind: "shift"; shift: Shift }
-  | { kind: "template"; template: ShiftTemplate };
-type DropTarget = { day: string; userId: string | null; ok: boolean };
+  | { kind: "template"; template: ShiftTemplate }
+  /** Сотрудник из полосы вида «По шаблонам». */
+  | { kind: "employee"; userId: string };
+/** Ячейка под курсором: сотрудник × день или (вид «По шаблонам») шаблон × день. */
+type DropTarget = { day: string; ok: boolean } & (
+  | { userId: string | null; templateId?: undefined }
+  | { templateId: string; userId?: undefined }
+);
 export function ScheduleClient({
   initial,
   section = "calendar",
@@ -233,7 +240,8 @@ export function ScheduleClient({
   }, [showTasks, tab, week, refreshCalendarTasks]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [filters, setFilters] = useState(false);
-  const [templatesOpen, setTemplatesOpen] = useState(false);
+  /** Полоса шаблонов («По сотрудникам») или сотрудников («По шаблонам»). */
+  const [stripOpen, setStripOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [department, setDepartment] = useState("all");
   const [publication, setPublication] = useState("all");
@@ -748,7 +756,7 @@ export function ScheduleClient({
         !occupied(userId, day) &&
         !templateTaken(item.template.id, day) &&
         templateTimesFor(item.template, isoWeekday(day)) !== null
-      : can("shift_edit") && !occupied(userId, day, item.shift.id);
+      : item.kind === "shift" && can("shift_edit") && !occupied(userId, day, item.shift.id);
   const dragOver = (e: React.DragEvent, day: string, userId: string | null) => {
     if (!dragItem) return;
     const ok = sameCell(dragItem, day, userId) || canDrop(dragItem, day, userId);
@@ -759,11 +767,101 @@ export function ScheduleClient({
     if (dropTarget?.day !== day || dropTarget.userId !== userId || dropTarget.ok !== ok)
       setDropTarget({ day, userId, ok });
   };
-  const dragLeave = (e: React.DragEvent, day: string, userId: string | null) => {
+  /** row — сотрудник (вид «По сотрудникам») или шаблон (вид «По шаблонам»). */
+  const dragLeave = (e: React.DragEvent, day: string, row: string | null) => {
     if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
     setDropTarget((current) =>
-      current?.day === day && current.userId === userId ? null : current,
+      current?.day === day && (current.templateId ?? current.userId) === row ? null : current,
     );
+  };
+  /** Смена вернулась в свой же слот шаблона. */
+  const sameSlot = (shift: Shift, template: ShiftTemplate, day: string) =>
+    shift.template_id === template.id && dateInZone(shift.starts_at, data.timezone) === day;
+  /** Смена в слоте без сотрудника (карточка «Назначить») — её можно занять броском. */
+  const openSlotShift = (template: ShiftTemplate, day: string) => {
+    const shift = data.shifts.find((s) => sameSlot(s, template, day));
+    return shift && !shiftAssignee(shift) ? shift : undefined;
+  };
+  /**
+   * Вид «По шаблонам»: почему в слот «шаблон × день» бросить нельзя (null —
+   * можно). Сотрудник из полосы ставится в слот работающего в этот день
+   * шаблона — пустой или со сменой без сотрудника, — если у него в этот день
+   * ещё нет смены; смена переносится только в слот своего шаблона на другой день.
+   */
+  const slotRefusal = (item: DragItem, template: ShiftTemplate, day: string): string | null => {
+    if (item.kind === "template") return "Перетащите сотрудника";
+    if (item.kind === "shift" && sameSlot(item.shift, template, day)) return null;
+    if (item.kind === "employee" ? !can("shift_create") || !can("shift_assign") : !can("shift_edit"))
+      return "Нет права";
+    if (item.kind === "shift" && item.shift.template_id !== template.id) return "Другой шаблон";
+    if (!templateTimesFor(template, isoWeekday(day))) return "Шаблон не работает в этот день";
+    const takesOpenShift = item.kind === "employee" && Boolean(openSlotShift(template, day));
+    if (templateTaken(template.id, day) && !takesOpenShift) return "Шаблон уже занят";
+    const busy = item.kind === "employee"
+      ? occupied(item.userId, day)
+      : occupied(shiftAssignee(item.shift), day, item.shift.id);
+    return busy ? "Уже есть смена" : null;
+  };
+  const slotDragOver = (e: React.DragEvent, day: string, template: ShiftTemplate) => {
+    if (!dragItem) return;
+    const ok = slotRefusal(dragItem, template, day) === null;
+    if (ok) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = dragItem.kind === "shift" ? "move" : "copy";
+    }
+    if (dropTarget?.day !== day || dropTarget.templateId !== template.id || dropTarget.ok !== ok)
+      setDropTarget({ day, templateId: template.id, ok });
+  };
+  /**
+   * Сотрудник в пустой слот — сразу черновик смены по шаблону (как шаблон
+   * в ячейку сотрудника), в слот со сменой без сотрудника — назначение на
+   * неё (как «Назначить»); смена в слот своего шаблона на другой день —
+   * перенос со временем шаблона на этот день.
+   */
+  const dropOnSlot = async (e: React.DragEvent, day: string, template: ShiftTemplate) => {
+    e.preventDefault();
+    endDrag();
+    const userId = e.dataTransfer.getData("application/sheerly-employee");
+    const shift = data.shifts.find(
+      (s) => s.id === e.dataTransfer.getData("application/sheerly-shift"),
+    );
+    const item: DragItem | null = userId
+      ? { kind: "employee", userId }
+      : shift ? { kind: "shift", shift } : null;
+    if (!item || slotRefusal(item, template, day) !== null) return;
+    if (item.kind === "employee") {
+      const open = openSlotShift(template, day);
+      if (open) await assignOpenShift(open, item.userId, day);
+      else await placeTemplate(template, day, item.userId);
+      return;
+    }
+    if (item.kind !== "shift" || sameSlot(item.shift, template, day)) return;
+    const times = templateTimesFor(template, isoWeekday(day));
+    if (!times) return;
+    const assignee = shiftAssignee(item.shift);
+    await save("shift.edit", {
+      ...item.shift,
+      date: day,
+      start_time: times.start_time.slice(0, 5),
+      end_time: times.end_time.slice(0, 5),
+      ...assignmentFields(assignee),
+      payroll_model_id: casualPayModel(assignee, item.shift),
+    });
+  };
+  /** Сотрудника — на смену без сотрудника. Разовый без однозначной ставки — через форму «Назначить». */
+  const assignOpenShift = async (shift: Shift, userId: string, day: string) => {
+    const casual = data.casualEmployees?.some((e) => `payroll:${e.id}` === userId);
+    const payModel = casualPayModel(userId, shift);
+    if (casual && !payModel) {
+      setEditor({ type: "shift", shift, day, templateSlot: true });
+      return;
+    }
+    await save("shift.assign", {
+      ...assignmentFields(userId),
+      payroll_model_id: payModel,
+      id: shift.id,
+      version: shift.version,
+    });
   };
   const confirmDelete = (shift: Shift) =>
     setConfirmation({
@@ -1003,25 +1101,45 @@ export function ScheduleClient({
     );
   };
   /**
-   * «Тень» смены в ячейке, куда она упадёт. Лежит поверх ячейки (absolute),
+   * «Тень» и запрет в ячейке, куда упадёт перетаскиваемое. Лежат поверх ячейки (absolute),
    * а не в потоке — иначе строка растягивается и сетка дёргается.
    */
+  const refusalBox = (text: string) => (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-1.5 z-[1] flex items-center justify-center rounded-md border border-dashed border-destructive/60 bg-background/85 px-1 text-center text-xs font-medium leading-tight text-destructive"
+    >
+      {text}
+    </div>
+  );
+  // Непрозрачная подложка: тень может лечь на карточку (смена без сотрудника
+  // в виде «По шаблонам»), а цвет шаблона полупрозрачный.
+  const ghostBox = (color: string | null, times: string, title: string) => (
+    <div aria-hidden className="pointer-events-none absolute inset-1.5 z-[1] rounded-md bg-card">
+      <div
+        className={cn(
+          "flex h-full flex-col gap-0.5 overflow-hidden rounded-md border-2 border-dashed border-current px-1.5 py-1.5",
+          paletteBg(color),
+          paletteText(color),
+        )}
+      >
+        <span className="truncate text-xs font-semibold tabular-nums">{times}</span>
+        <span className="truncate text-xs">{title}</span>
+      </div>
+    </div>
+  );
   const dropGhost = (day: string, userId: string | null) => {
-    if (!dragItem || dropTarget?.day !== day || dropTarget.userId !== userId) return null;
+    if (!dragItem || dragItem.kind === "employee") return null;
+    if (dropTarget?.day !== day || dropTarget.userId !== userId) return null;
     if (!dropTarget.ok)
-      return (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-1.5 z-[1] flex items-center justify-center rounded-md border border-dashed border-destructive/60 bg-background/85 px-1 text-center text-xs font-medium leading-tight text-destructive"
-        >
-          {dragItem.kind === "shift" && !can("shift_edit")
-            ? "Нет права"
-            : dragItem.kind === "template" && !templateTimesFor(dragItem.template, isoWeekday(day))
-              ? "Шаблон не работает в этот день"
-              : dragItem.kind === "template" && templateTaken(dragItem.template.id, day)
-                ? "Шаблон уже занят"
-                : "Уже есть смена"}
-        </div>
+      return refusalBox(
+        dragItem.kind === "shift" && !can("shift_edit")
+          ? "Нет права"
+          : dragItem.kind === "template" && !templateTimesFor(dragItem.template, isoWeekday(day))
+            ? "Шаблон не работает в этот день"
+            : dragItem.kind === "template" && templateTaken(dragItem.template.id, day)
+              ? "Шаблон уже занят"
+              : "Уже есть смена",
       );
     if (sameCell(dragItem, day, userId)) return null;
     const color = dragItem.kind === "shift" ? dragItem.shift.color : dragItem.template.color;
@@ -1034,19 +1152,23 @@ export function ScheduleClient({
     const title = dragItem.kind === "shift"
       ? (shiftTemplate(dragItem.shift) ? shiftTemplateLabel(shiftTemplate(dragItem.shift)!) : dragItem.shift.title)
       : shiftTemplateLabel(dragItem.template);
-    return (
-      <div
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute inset-1.5 z-[1] flex flex-col gap-0.5 overflow-hidden rounded-md border-2 border-dashed border-current px-1.5 py-1.5",
-          paletteBg(color),
-          paletteText(color),
-        )}
-      >
-        <span className="truncate text-xs font-semibold tabular-nums">{times}</span>
-        <span className="truncate text-xs">{title}</span>
-      </div>
-    );
+    return ghostBox(color, times, title);
+  };
+  /** «Тень» в слоте вида «По шаблонам»: время слота и кто встанет на смену. */
+  const slotGhost = (day: string, template: ShiftTemplate) => {
+    if (!dragItem || dropTarget?.day !== day || dropTarget.templateId !== template.id) return null;
+    const refusal = slotRefusal(dragItem, template, day);
+    if (refusal) return refusalBox(refusal);
+    if (dragItem.kind === "shift" && sameSlot(dragItem.shift, template, day)) return null;
+    const t = templateTimesFor(template, isoWeekday(day));
+    if (!t || dragItem.kind === "template") return null;
+    const assignee = dragItem.kind === "employee" ? dragItem.userId : shiftAssignee(dragItem.shift);
+    // На смену без сотрудника встаёт с её временем — оно могло быть своим.
+    const open = dragItem.kind === "employee" ? openSlotShift(template, day) : undefined;
+    const times = open
+      ? `${timeInZone(open.starts_at, data.timezone)}–${timeInZone(open.ends_at, data.timezone)}`
+      : `${t.start_time.slice(0, 5)}–${t.end_time.slice(0, 5)}`;
+    return ghostBox(template.color, times, name(assignee));
   };
   const noData = (
     icon: typeof CalendarDays,
@@ -1176,12 +1298,24 @@ export function ScheduleClient({
                   <>
                     {can("shift_create") && !templateView && (
                       <TableIconButton
-                        label={templatesOpen ? "Скрыть шаблоны смен" : "Показать шаблоны смен"}
-                        active={templatesOpen}
-                        onClick={() => setTemplatesOpen(!templatesOpen)}
+                        label={stripOpen ? "Скрыть шаблоны смен" : "Показать шаблоны смен"}
+                        active={stripOpen}
+                        onClick={() => setStripOpen(!stripOpen)}
                       >
                         <Layers />
                       </TableIconButton>
+                    )}
+                    {/* На телефоне вида-таблицы нет — перетаскивать некуда. */}
+                    {can("shift_create") && can("shift_assign") && templateView && (
+                      <span className="hidden md:inline-flex">
+                        <TableIconButton
+                          label={stripOpen ? "Скрыть сотрудников" : "Показать сотрудников"}
+                          active={stripOpen}
+                          onClick={() => setStripOpen(!stripOpen)}
+                        >
+                          <Users />
+                        </TableIconButton>
+                      </span>
                     )}
                     <TableIconButton
                       label={showTasks ? "Скрыть задачи" : "Показать задачи"}
@@ -1331,7 +1465,7 @@ export function ScheduleClient({
                   </Button>
                 </div>
               )}
-              {templatesOpen && !templateView && (
+              {stripOpen && !templateView && (
                 <section aria-label="Шаблоны смен" className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-muted/30 px-3 py-2.5">
                   <h2 className="shrink-0 text-xs font-semibold text-muted-foreground">Шаблоны смен</h2>
                   <div className="flex flex-wrap gap-1.5">
@@ -1360,6 +1494,15 @@ export function ScheduleClient({
                   </div>
                 </section>
               )}
+              {stripOpen && templateView && can("shift_create") && can("shift_assign") && (
+                <EmployeeStrip
+                  data={data}
+                  days={days}
+                  dragging={dragItem?.kind === "employee" ? dragItem.userId : null}
+                  onDragStart={(userId) => startDrag({ kind: "employee", userId })}
+                  onDragEnd={endDrag}
+                />
+              )}
               {templateView ? (
                 <TemplateWeek
                   days={days}
@@ -1374,6 +1517,15 @@ export function ScheduleClient({
                   onAssign={can("shift_create") && can("shift_assign")
                     ? (day, template) => create(day, null, template, true)
                     : undefined}
+                  slotDrop={(day, template) => ({
+                    onDragOver: (e) => slotDragOver(e, day, template),
+                    onDragLeave: (e) => dragLeave(e, day, template.id),
+                    onDrop: (e) => void dropOnSlot(e, day, template),
+                    target: dropTarget?.day === day && dropTarget.templateId === template.id
+                      ? (dropTarget.ok ? "ok" : "refused")
+                      : null,
+                    ghost: slotGhost(day, template),
+                  })}
                   renderShift={(shift, showTitle) => card(shift, showTitle ? "full" : "template")}
                   renderTask={(task) => taskCard(task)}
                   empty={noData(Layers, "Нет смен по выбранным условиям", "Проверьте шаблоны смен или сбросьте фильтры.")}
@@ -1412,7 +1564,7 @@ export function ScheduleClient({
                               scope="col"
                               className={cn(
                                 "border-b border-l px-2 py-3 text-center text-xs font-medium",
-                                d === today && "bg-brand/10 text-brand-tint-foreground",
+                                d === today && "bg-brand/10 text-brand",
                               )}
                             >
                               {dayLabel(d, { weekday: "short", day: "numeric" })}

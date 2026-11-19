@@ -26,6 +26,60 @@ type Option = {
   disabledHint?: string;
 };
 
+/**
+ * Кого можно поставить на смену: штатные (видимые в графике), актуальные
+ * разовые и бывшие разовые — без смен последние CASUAL_RECENT_DAYS дней.
+ * Общий список для выбора в форме и полосы сотрудников в виде «По шаблонам».
+ */
+export function employeeOptions(
+  data: ScheduleData,
+  {
+    value = null,
+    unavailable,
+    includeCasual = true,
+  }: { value?: string | null; unavailable?: Set<string | null>; includeCasual?: boolean } = {},
+) {
+  const busy = (key: string) => unavailable?.has(key) ?? false;
+  const staff: Option[] = data.staff
+    .filter((s) => s.show_in_schedule || s.user_id === value)
+    .map((s) => ({
+      value: s.user_id,
+      name: [s.first_name, s.last_name].filter(Boolean).join(" ") || s.role_name,
+      hint: s.role_name,
+      avatar: s.avatar_url,
+      disabled: busy(s.user_id),
+      disabledHint: busy(s.user_id) ? "уже в графике" : undefined,
+    }));
+  const casuals = data.casualEmployees ?? [];
+  const keep = value?.startsWith("payroll:") ? [value.slice(8)] : [];
+  const split = splitCasualEmployees({
+    employees: includeCasual ? casuals : casuals.filter((e) => keep.includes(e.id)),
+    today: dateInZone(new Date(), data.timezone),
+    shiftDates: data.shifts
+      .filter((s) => s.payroll_employee_id)
+      .map((s) => ({
+        employeeId: s.payroll_employee_id!,
+        date: dateInZone(s.starts_at, data.timezone),
+      })),
+    keep,
+  });
+  const toOption = (e: (typeof casuals)[number]): Option => {
+    const key = `payroll:${e.id}`;
+    return {
+      value: key,
+      name: e.name,
+      hint: `${e.role_name} · разовый`,
+      disabled: busy(key),
+      disabledHint: busy(key) ? "уже в графике" : undefined,
+    };
+  };
+  return {
+    staff,
+    recent: split.recent.map(toOption),
+    former: split.former.map(toOption),
+  };
+}
+
 function Avatar({ name, src }: { name: string; src?: string | null }) {
   return src ? (
     <img src={src} alt="" className="size-7 shrink-0 rounded-full object-cover" />
@@ -74,47 +128,10 @@ export function EmployeePicker({
   const [search, setSearch] = useState("");
   const [showFormer, setShowFormer] = useState(false);
 
-  const { staff, recent, former } = useMemo(() => {
-    const busy = (key: string) => unavailable?.has(key) ?? false;
-    const staff: Option[] = data.staff
-      .filter((s) => s.show_in_schedule || s.user_id === value)
-      .map((s) => ({
-        value: s.user_id,
-        name: [s.first_name, s.last_name].filter(Boolean).join(" ") || s.role_name,
-        hint: s.role_name,
-        avatar: s.avatar_url,
-        disabled: busy(s.user_id),
-        disabledHint: busy(s.user_id) ? "уже в графике" : undefined,
-      }));
-    const casuals = data.casualEmployees ?? [];
-    const keep = value?.startsWith("payroll:") ? [value.slice(8)] : [];
-    const split = splitCasualEmployees({
-      employees: includeCasual ? casuals : casuals.filter((e) => keep.includes(e.id)),
-      today: dateInZone(new Date(), data.timezone),
-      shiftDates: data.shifts
-        .filter((s) => s.payroll_employee_id)
-        .map((s) => ({
-          employeeId: s.payroll_employee_id!,
-          date: dateInZone(s.starts_at, data.timezone),
-        })),
-      keep,
-    });
-    const toOption = (e: (typeof casuals)[number]): Option => {
-      const key = `payroll:${e.id}`;
-      return {
-        value: key,
-        name: e.name,
-        hint: `${e.role_name} · разовый`,
-        disabled: busy(key),
-        disabledHint: busy(key) ? "уже в графике" : undefined,
-      };
-    };
-    return {
-      staff,
-      recent: split.recent.map(toOption),
-      former: split.former.map(toOption),
-    };
-  }, [data, value, unavailable, includeCasual]);
+  const { staff, recent, former } = useMemo(
+    () => employeeOptions(data, { value, unavailable, includeCasual }),
+    [data, value, unavailable, includeCasual],
+  );
 
   const all = [...staff, ...recent, ...former];
   const selected = all.find((o) => o.value === value);

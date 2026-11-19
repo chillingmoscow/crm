@@ -108,9 +108,9 @@ const TEXT: Record<Exclude<PaletteColor, "default">, string> = {
   orange: "text-orange-700 dark:text-orange-300",
   yellow: "text-yellow-700 dark:text-yellow-300",
   green:  "text-emerald-700 dark:text-emerald-300",
-  // Не `text-brand`: на своей подложке он не дотягивает до 4.5:1 (3,8 в
-  // светлой, 3,2 в тёмной теме) — время в синих карточках смен не читалось.
-  blue:   "text-brand-tint-foreground",
+  // `text-brand` — текстовый оттенок brand (--brand-text): проходит AA и на
+  // своей подложке bg-brand/10 (dark /30), не только на фоне страницы.
+  blue:   "text-brand",
   purple: "text-violet-700 dark:text-violet-300",
   pink:   "text-pink-700 dark:text-pink-300",
   red:    "text-red-700 dark:text-red-300",

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { isStaffPlaceholderEmail } from "@/lib/people/staff-identity";
+import { isGender } from "@/lib/people/gender";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -14,6 +15,7 @@ import {
   HeartPulse,
   Cake,
   CalendarClock,
+  UserRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
@@ -77,7 +79,7 @@ function displayName(m: {
 function genderShort(g: string | null) {
   if (g === "male") return "М";
   if (g === "female") return "Ж";
-  return "—";
+  return "Не указан";
 }
 
 /**
@@ -373,6 +375,26 @@ export function StaffClient({
                   icon={<Cake />}
                 >
                   {bday.label}
+                </StatusBadge>
+              </span>
+            )}
+            {/* Пол обязателен; у сотрудников, заведённых до этого (импорт
+                из Quick Resto, ранние карточки), его может не быть. Пока
+                сотрудник не вошёл в Sheerly, пол указывает админ в карточке,
+                потом — сам сотрудник в профиле. Бейдж последний и, в отличие
+                от остальных, сжимается (до иконки с подсказкой): рядом с
+                «Без аккаунта» иначе от имени остаётся одна буква. */}
+            {!isGender(member.gender) && (
+              <span
+                className="inline-flex min-w-0"
+                data-tip={
+                  isPlaceholder || isPendingInvite
+                    ? "Укажите пол в карточке сотрудника"
+                    : "Сотрудник указывает пол сам, в своём профиле"
+                }
+              >
+                <StatusBadge tone="warning" icon={<UserRound />}>
+                  Не указан пол
                 </StatusBadge>
               </span>
             )}

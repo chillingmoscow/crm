@@ -1,8 +1,11 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { loadPayrollRules } from "@/app/(dashboard)/people/payroll/actions";
 import { PayrollSettings } from "@/app/(dashboard)/people/payroll/_components/payroll-settings";
 import { TablePageHeader } from "@/components/shared/table";
+export const metadata: Metadata = { title: "Условия оплаты" };
+
 export default async function PayRulesPage({
   params,
 }: {

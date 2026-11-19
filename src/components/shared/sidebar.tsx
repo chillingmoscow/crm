@@ -17,6 +17,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   ChevronsUpDown,
+  ClipboardCheck,
   ClipboardList,
   Eye,
   FileBadge2,
@@ -37,6 +38,7 @@ import {
   Tags,
   User,
   Users,
+  CalendarClock,
   CalendarDays,
   ChartNoAxesCombined,
   Wallet,
@@ -162,8 +164,15 @@ const NAV_SECTIONS: NavSection[] = [
       {
         title: "Шаблоны смен",
         href: "/schedule/templates",
-        icon: CalendarDays,
+        icon: CalendarClock,
         permissions: ["schedule.template_create", "schedule.template_edit", "schedule.template_copy", "schedule.template_archive", "schedule.shift_create"],
+      },
+      {
+        // Страница сама пускает только с payroll.view (attendance/page.tsx).
+        title: "Сверка отметок",
+        href: "/schedule/attendance",
+        icon: ClipboardCheck,
+        permission: "payroll.view",
       },
     ],
   },
@@ -197,7 +206,7 @@ const NAV_SECTIONS: NavSection[] = [
         permission: "org.view_account",
       },
       {
-        title: "Юрлица",
+        title: "Юридические лица",
         href: "/org/legal-entities",
         icon: FileBadge2,
         permission: "org.view_legal_entities",
@@ -215,7 +224,7 @@ const NAV_SECTIONS: NavSection[] = [
         permission: "inventory.view_stores",
       },
       {
-        title: "Журнал",
+        title: "Журнал событий",
         href: "/org/audit",
         icon: ScrollText,
         permission: "org.view_audit",
@@ -340,7 +349,7 @@ const NAV_SECTIONS: NavSection[] = [
     icon: Settings,
     items: [
       {
-        title: "Общее",
+        title: "Общие настройки",
         href: "/settings/general",
         icon: SlidersHorizontal,
         permission: "settings.manage_integrations",

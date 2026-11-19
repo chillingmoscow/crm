@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { SlidersHorizontal } from "lucide-react";
 
@@ -11,6 +12,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { updateGeneralSettings } from "./actions";
 import { AmountRoundingSelect } from "./_components/amount-rounding-select";
+
+export const metadata: Metadata = { title: "Общие настройки" };
 
 type AccountSettingsRow = {
   amount_rounding_scale: number | null;

@@ -6,7 +6,7 @@ import { toast } from "sonner";
 
 import { ProfileSection } from "@/components/shared/profile-section";
 import { Input } from "@/components/ui/input";
-import { setRolePermissions } from "../../actions";
+import { getRolePermissionStates, setRolePermissions } from "../../actions";
 import {
   OTHER_GROUP_LABEL,
   PERMISSION_GROUPS,
@@ -173,8 +173,17 @@ export function RolePermissionsTab({
           );
         }
       } catch {
-        rollback(new Set(changes.map((c) => c.permissionId)));
-        toast.error("Не удалось сохранить права. Проверьте подключение и повторите");
+        // Запрос оборвался: часть прав могла записаться. Берём состояние из
+        // БД, а не откатываем вслепую — иначе экран мог бы показать меньше
+        // прав, чем у должности есть на самом деле.
+        const fresh = await getRolePermissionStates(roleId).catch(() => null);
+        if (fresh?.data) {
+          onRolePermissionsChange(fresh.data);
+          toast.error("Не удалось сохранить права. Показано то, что сохранено сейчас");
+        } else {
+          rollback(new Set(changes.map((c) => c.permissionId)));
+          toast.error("Не удалось сохранить права. Обновите страницу, чтобы увидеть сохранённое");
+        }
       }
     });
   }

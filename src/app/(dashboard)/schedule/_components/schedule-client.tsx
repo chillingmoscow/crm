@@ -1065,6 +1065,9 @@ export function ScheduleClient({
   const canPublish = can("shift_publish") && draftShifts.length > 0;
   const filtersActive = department !== "all" || publication !== "all";
   const today = dateInZone(new Date(), data.timezone);
+  // День для «Новая смена» / «Задача» из шапки: сегодня, если он на открытой
+  // неделе, иначе её первый день — иначе смена уезжает с экрана.
+  const addDay = days.includes(today) ? today : days[0];
   // Период и «Сегодня» стоят в шапке слева, инструменты — в той же строке справа.
   const periodControls = (
     <>
@@ -1219,8 +1222,8 @@ export function ScheduleClient({
                               type="button"
                               onClick={() => {
                                 setAddOpen(false);
-                                if (item.key === "shift") create(today);
-                                else setTaskAssign({ day: today });
+                                if (item.key === "shift") create(addDay);
+                                else setTaskAssign({ day: addDay });
                               }}
                               className="flex w-full items-start gap-2.5 rounded-md px-3 py-2 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
                             >
@@ -1236,12 +1239,12 @@ export function ScheduleClient({
                         </PopoverContent>
                       </Popover>
                     ) : can("shift_create") ? (
-                      <Button size="sm" className="h-8 sm:h-9" variant={canPublish ? "outline" : "default"} onClick={() => create(today)}>
+                      <Button size="sm" className="h-8 sm:h-9" variant={canPublish ? "outline" : "default"} onClick={() => create(addDay)}>
                         <Plus />
                         Новая смена
                       </Button>
                     ) : can("checklist_edit") ? (
-                      <Button size="sm" className="h-8 sm:h-9" variant={canPublish ? "outline" : "default"} onClick={() => setTaskAssign({ day: today })}>
+                      <Button size="sm" className="h-8 sm:h-9" variant={canPublish ? "outline" : "default"} onClick={() => setTaskAssign({ day: addDay })}>
                         <Plus />
                         Задача на день
                       </Button>
@@ -1926,7 +1929,10 @@ export function ScheduleClient({
             `${timeInZone(selected.starts_at, data.timezone)}–${timeInZone(selected.ends_at, data.timezone)}`,
             `${shiftHours(selected.starts_at, selected.ends_at).toLocaleString("ru", { maximumFractionDigits: 1 })} ч`,
           ].join(" · ")}
+          // Без единой кнопки подвал не рисуем: иначе у сотрудника без прав
+          // внизу панели остаётся пустая полоса с рамкой.
           footer={
+            can("shift_delete") || can("shift_edit") || (!selected.published && can("shift_publish")) ? (
             <>
               {can("shift_delete") && (
                 <Button
@@ -1934,6 +1940,7 @@ export function ScheduleClient({
                   size="icon"
                   className="mr-auto text-destructive hover:text-destructive"
                   aria-label={selected.published ? "Удалить смену" : "Удалить черновик"}
+                  data-tip={selected.published ? "Удалить смену" : "Удалить черновик"}
                   onClick={() => confirmDelete(selected)}
                 >
                   <Trash2 className="size-4" />
@@ -1969,6 +1976,7 @@ export function ScheduleClient({
                 </Button>
               )}
             </>
+            ) : undefined
           }
         >
           <ShiftDetails

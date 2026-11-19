@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type ReactNode } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -10,7 +10,7 @@ import { AlertCircle, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
 import { OptionSelect } from "@/components/ui/option-select";
 import { PhoneInput } from "@/components/ui/phone-input";
 import {
@@ -20,6 +20,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { useDiscardGuard } from "@/components/shared/discard-changes-dialog";
+import { GENDER_OPTIONS, genderFormField, type Gender } from "@/lib/people/gender";
 import {
   createStaffWithoutEmail,
   inviteStaff,
@@ -31,7 +32,9 @@ import { createCasualEmployee, provisionCasualEmployee } from "../casual-actions
 /**
  * Панель «Новый сотрудник» (кнопка «Добавить» в списке сотрудников).
  * Три способа: карточка без входа в Sheerly, приглашение по email и
- * разовый сотрудник с PIN кассы. Панель-форма по правилам
+ * разовый сотрудник с PIN кассы. Пол обязателен в «Создать»: карточку
+ * без входа ведёт админ; приглашённый указывает пол сам при первом входе,
+ * у разового профиля в Sheerly нет. Панель-форма по правилам
  * `docs/design-system.md` § «Боковая панель»: поля в теле, кнопки только
  * в подвале, PIN разового показывается в этой же панели.
  */
@@ -45,6 +48,7 @@ type InviteForm = z.infer<typeof inviteSchema>;
 const createSchema = z.object({
   firstName: z.string().min(1, "Укажите имя"),
   lastName: z.string().min(1, "Укажите фамилию"),
+  gender: genderFormField,
   phone: z.string().optional(),
   roleId: z.string().min(1, "Выберите должность"),
 });
@@ -70,38 +74,6 @@ async function copyPin(pin: string) {
   } catch {
     toast.error("Не удалось скопировать. Выделите код вручную");
   }
-}
-
-/** Подпись над полем, поле, ошибка или подсказка под ним. */
-function FormField({
-  id,
-  label,
-  required,
-  error,
-  hint,
-  children,
-}: {
-  id: string;
-  label: string;
-  required?: boolean;
-  error?: string;
-  hint?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <div className="grid gap-2">
-      <Label htmlFor={id}>
-        {label}
-        {required && <span className="text-destructive"> *</span>}
-      </Label>
-      {children}
-      {error ? (
-        <p className="text-xs text-destructive">{error}</p>
-      ) : hint ? (
-        <p className="text-xs text-muted-foreground">{hint}</p>
-      ) : null}
-    </div>
-  );
 }
 
 /**
@@ -167,29 +139,33 @@ function CasualCreateFields({ form }: { form: CasualCreate }) {
         form.submit();
       }}
     >
-      <div className="grid gap-4 sm:grid-cols-2">
-        <FormField id="casual-first" label="Имя" required>
-          <Input
-            id="casual-first"
-            placeholder="Иван"
-            aria-required
-            value={form.firstName}
-            disabled={locked}
-            onChange={(e) => form.setFirstName(e.target.value)}
-          />
-        </FormField>
-        <FormField id="casual-last" label="Фамилия" required>
-          <Input
-            id="casual-last"
-            placeholder="Иванов"
-            aria-required
-            value={form.lastName}
-            disabled={locked}
-            onChange={(e) => form.setLastName(e.target.value)}
-          />
-        </FormField>
+      <div className="grid items-start gap-4 sm:grid-cols-2">
+        <Field id="casual-first" label="Имя" required>
+          {(control) => (
+            <Input
+              {...control}
+              placeholder="Иван"
+              aria-required
+              value={form.firstName}
+              disabled={locked}
+              onChange={(e) => form.setFirstName(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field id="casual-last" label="Фамилия" required>
+          {(control) => (
+            <Input
+              {...control}
+              placeholder="Иванов"
+              aria-required
+              value={form.lastName}
+              disabled={locked}
+              onChange={(e) => form.setLastName(e.target.value)}
+            />
+          )}
+        </Field>
       </div>
-      <FormField
+      <Field
         id="casual-role"
         label="Должность"
         required
@@ -199,15 +175,18 @@ function CasualCreateFields({ form }: { form: CasualCreate }) {
             : "Настройте в должности оплату за смену и связь с должностью Quick Resto"
         }
       >
-        <OptionSelect
-          id="casual-role"
-          value={form.roleId}
-          onValueChange={form.setRoleId}
-          disabled={!form.roles.length || locked}
-          placeholder={form.roles.length ? "Выберите должность" : "Нет подходящих должностей"}
-          options={form.roles.map((r) => ({ value: r.id, label: r.name }))}
-        />
-      </FormField>
+        {(control) => (
+          <OptionSelect
+            {...control}
+            aria-required
+            value={form.roleId}
+            onValueChange={form.setRoleId}
+            disabled={!form.roles.length || locked}
+            placeholder={form.roles.length ? "Выберите должность" : "Нет подходящих должностей"}
+            options={form.roles.map((r) => ({ value: r.id, label: r.name }))}
+          />
+        )}
+      </Field>
       {form.error ? (
         <div
           role="alert"
@@ -281,7 +260,7 @@ export function AddStaffDrawer({
 
   const manual = useForm<CreateForm>({
     resolver: zodResolver(createSchema),
-    defaultValues: { firstName: "", lastName: "", phone: "", roleId: "" },
+    defaultValues: { firstName: "", lastName: "", gender: "", phone: "", roleId: "" },
   });
   const invite = useForm<InviteForm>({
     resolver: zodResolver(inviteSchema),
@@ -307,6 +286,7 @@ export function AddStaffDrawer({
       const result = await createStaffWithoutEmail({
         firstName: values.firstName,
         lastName: values.lastName,
+        gender: values.gender as Gender,
         phone: values.phone || null,
         roleId: values.roleId,
         venueId,
@@ -414,70 +394,102 @@ export function AddStaffDrawer({
                 onSubmit={manual.handleSubmit(onCreate)}
                 className="grid gap-5"
               >
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <FormField
+                <div className="grid items-start gap-4 sm:grid-cols-2">
+                  <Field
                     id="create-first"
                     label="Имя"
                     required
                     error={manualErrors.firstName?.message}
                   >
-                    <Input
-                      id="create-first"
-                      placeholder="Иван"
-                      aria-required
-                      aria-invalid={!!manualErrors.firstName}
-                      {...manual.register("firstName")}
-                    />
-                  </FormField>
-                  <FormField
+                    {(control) => (
+                      <Input
+                        {...control}
+                        placeholder="Иван"
+                        aria-required
+                        {...manual.register("firstName")}
+                      />
+                    )}
+                  </Field>
+                  <Field
                     id="create-last"
                     label="Фамилия"
                     required
                     error={manualErrors.lastName?.message}
                   >
-                    <Input
-                      id="create-last"
-                      placeholder="Иванов"
-                      aria-required
-                      aria-invalid={!!manualErrors.lastName}
-                      {...manual.register("lastName")}
-                    />
-                  </FormField>
-                </div>
-                <FormField id="create-phone" label="Телефон">
-                  <Controller
-                    control={manual.control}
-                    name="phone"
-                    render={({ field }) => (
-                      <PhoneInput
-                        id="create-phone"
-                        value={field.value ?? ""}
-                        onChange={field.onChange}
-                        onBlur={field.onBlur}
+                    {(control) => (
+                      <Input
+                        {...control}
+                        placeholder="Иванов"
+                        aria-required
+                        {...manual.register("lastName")}
                       />
                     )}
-                  />
-                </FormField>
-                <FormField
+                  </Field>
+                </div>
+                <div className="grid items-start gap-4 sm:grid-cols-2">
+                  <Field
+                    id="create-gender"
+                    label="Пол"
+                    required
+                    error={manualErrors.gender?.message}
+                  >
+                    {(control) => (
+                      <Controller
+                        control={manual.control}
+                        name="gender"
+                        render={({ field }) => (
+                          <OptionSelect
+                            {...control}
+                            aria-required
+                            value={field.value}
+                            onValueChange={(v) => field.onChange(v as Gender)}
+                            placeholder="Выберите пол"
+                            options={GENDER_OPTIONS}
+                          />
+                        )}
+                      />
+                    )}
+                  </Field>
+                  <Field id="create-phone" label="Телефон">
+                    {(control) => (
+                      <Controller
+                        control={manual.control}
+                        name="phone"
+                        render={({ field }) => (
+                          <PhoneInput
+                            id={control.id}
+                            value={field.value ?? ""}
+                            onChange={field.onChange}
+                            onBlur={field.onBlur}
+                          />
+                        )}
+                      />
+                    )}
+                  </Field>
+                </div>
+                <Field
                   id="create-role"
                   label="Должность"
                   required
                   error={manualErrors.roleId?.message}
                 >
-                  <Controller
-                    control={manual.control}
-                    name="roleId"
-                    render={({ field }) => (
-                      <OptionSelect
-                        id="create-role"
-                        value={field.value}
-                        onValueChange={field.onChange}
-                        placeholder="Выберите должность"
-                        options={roleOptions}
-                      />
-                    )}
-                  />
-                </FormField>
+                  {(control) => (
+                    <Controller
+                      control={manual.control}
+                      name="roleId"
+                      render={({ field }) => (
+                        <OptionSelect
+                          {...control}
+                          aria-required
+                          value={field.value}
+                          onValueChange={field.onChange}
+                          placeholder="Выберите должность"
+                          options={roleOptions}
+                        />
+                      )}
+                    />
+                  )}
+                </Field>
                 <p className="text-xs text-muted-foreground">
                   Без входа в Sheerly. Доступ можно выдать позже в карточке
                 </p>
@@ -490,41 +502,45 @@ export function AddStaffDrawer({
                 onSubmit={invite.handleSubmit(onInvite)}
                 className="grid gap-5"
               >
-                <FormField
+                <Field
                   id="inv-email"
                   label="Email сотрудника"
                   required
                   error={inviteErrors.email?.message}
                 >
-                  <Input
-                    id="inv-email"
-                    type="email"
-                    placeholder="employee@example.com"
-                    aria-required
-                    aria-invalid={!!inviteErrors.email}
-                    {...invite.register("email")}
-                  />
-                </FormField>
-                <FormField
+                  {(control) => (
+                    <Input
+                      {...control}
+                      type="email"
+                      placeholder="employee@example.com"
+                      aria-required
+                      {...invite.register("email")}
+                    />
+                  )}
+                </Field>
+                <Field
                   id="inv-role"
                   label="Должность"
                   required
                   error={inviteErrors.roleId?.message}
                 >
-                  <Controller
-                    control={invite.control}
-                    name="roleId"
-                    render={({ field }) => (
-                      <OptionSelect
-                        id="inv-role"
-                        value={field.value}
-                        onValueChange={field.onChange}
-                        placeholder="Выберите должность"
-                        options={roleOptions}
-                      />
-                    )}
-                  />
-                </FormField>
+                  {(control) => (
+                    <Controller
+                      control={invite.control}
+                      name="roleId"
+                      render={({ field }) => (
+                        <OptionSelect
+                          {...control}
+                          aria-required
+                          value={field.value}
+                          onValueChange={field.onChange}
+                          placeholder="Выберите должность"
+                          options={roleOptions}
+                        />
+                      )}
+                    />
+                  )}
+                </Field>
                 <p className="text-xs text-muted-foreground">
                   Сотрудник получит письмо и сам заполнит профиль
                 </p>

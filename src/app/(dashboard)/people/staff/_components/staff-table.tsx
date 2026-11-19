@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { isGender } from "@/lib/people/gender";
 import { useRouter } from "next/navigation";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
@@ -290,7 +291,10 @@ export function StaffTable({
     const m = row.member;
     return (
       (!filter.role || m.role_id === filter.role) &&
-      (!filter.gender || m.gender === filter.gender) &&
+      (!filter.gender ||
+        (filter.gender === "__none__"
+          ? !isGender(m.gender)
+          : m.gender === filter.gender)) &&
       (!filter.department ||
         (filter.department === "__none__"
           ? !m.department_id
@@ -530,6 +534,7 @@ export function StaffTable({
               { value: "", label: "Любой пол" },
               { value: "male", label: "Мужской" },
               { value: "female", label: "Женский" },
+              { value: "__none__", label: "Пол не указан" },
             ]}
           />
         )}

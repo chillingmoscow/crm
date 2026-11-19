@@ -403,7 +403,9 @@ export function ShiftEditor({
   );
   const [who, setWho] = useState(
     shift && !copy
-      ? shiftAssignee(shift)
+      ? // Смена без сотрудника, на которую бросили человека в виде
+        // «По шаблонам»: он уже выбран в форме «Назначить».
+        (shiftAssignee(shift) ?? (templateSlot && canAssign ? (userId ?? null) : null))
       : canAssign
         ? shift
           ? shiftAssignee(shift)

@@ -30,9 +30,14 @@ export function EmployeePayrollPage({
   const [conditionsOpen, setConditionsOpen] = useState(false);
   const router = useRouter();
   useEffect(() => setData(initial), [initial]);
-  const minMonth = `${(data.settings?.starts_on ?? month).slice(0, 7)}-01` < month
-    ? `${(data.settings?.starts_on ?? month).slice(0, 7)}-01`
-    : month;
+  // Нижняя граница — начало учёта, а без настроек (нет права на них) — первое
+  // начисление, как в ведомости; иначе назад нельзя было листать вовсе.
+  const firstAccrual = data.accruals.reduce<string | null>(
+    (min, a) => (!min || a.business_date < min ? a.business_date : min),
+    null,
+  );
+  const start = `${(data.settings?.starts_on ?? firstAccrual ?? month).slice(0, 7)}-01`;
+  const minMonth = start < month ? start : month;
   const goTo = (value: string) =>
     router.replace(`/people/payroll/${employeeId}?month=${value.slice(0, 7)}`);
   const goMonth = (direction: number) => {

@@ -82,6 +82,8 @@ function candidateQuery(s: CandidateScope, filters: ListFilters) {
     // «На этапе» сортируется по сроку: по возрастанию — кто перешёл позже,
     // то есть дата перехода идёт в обратном порядке.
     const byStageAge = sort.field === "stage_changed_at";
+    // У отказанных срока нет («—»): при сортировке по сроку — в конец списка.
+    if (byStageAge) query = query.order("stage_waiting", { ascending: false });
     query = query.order(sort.field === "status" ? "status_order" : sort.field, {
       ascending: byStageAge ? sort.direction !== "asc" : sort.direction === "asc",
       nullsFirst: false,
@@ -196,7 +198,7 @@ export async function candidateDetail(id: string): Promise<CandidateDetail | nul
       .maybeSingle(),
   );
   if (!candidate) return null;
-  const [comments, events, appointments, files, related, hire] =
+  const [comments, events, appointments, files, related, hire, stageEvents] =
     await Promise.all([
       s.db
         .from<Comment[]>("candidate_comments")
@@ -235,13 +237,26 @@ export async function candidateDetail(id: string): Promise<CandidateDetail | nul
         .eq("account_id", s.accountId)
         .eq("candidate_id", id)
         .maybeSingle(),
+      // «Ход подбора» — смены этапа и встречи за всю историю: журнал выше
+      // ограничен 200 последними событиями, и у кандидата с длинной
+      // перепиской ранние шаги выпали бы из хода.
+      s.db
+        .from<CandidateEvent[]>("candidate_events")
+        .select("*")
+        .eq("candidate_id", id)
+        .eq("account_id", s.accountId)
+        .or(
+          "kind.in.(appointment_created,appointment_updated),details->changes->status.not.is.null",
+        )
+        .order("created_at", { ascending: true }),
     ]);
   const cs = check(comments) ?? [],
+    ss = check(stageEvents) ?? [],
     es = check(events) ?? [],
     fs = check(files) ?? [];
   const authorIds = [
     ...new Set(
-      [...cs.map((c) => c.author_id), ...es.map((e) => e.actor_id)].filter(
+      [...cs.map((c) => c.author_id), ...es.map((e) => e.actor_id), ...ss.map((e) => e.actor_id)].filter(
         (id): id is string => Boolean(id),
       ),
     ),
@@ -288,6 +303,10 @@ export async function candidateDetail(id: string): Promise<CandidateDetail | nul
         names.get(c.author_id ?? "") ?? c.source_author ?? "Импорт из Notion",
     })),
     events: es.map((e) => ({
+      ...e,
+      actor_name: names.get(e.actor_id ?? "") ?? "Система",
+    })),
+    stageEvents: ss.map((e) => ({
       ...e,
       actor_name: names.get(e.actor_id ?? "") ?? "Система",
     })),

@@ -151,7 +151,8 @@ export function ScheduleClient({
   initialCalendarTasks?: CalendarTaskData | null;
   initialShowTasks?: boolean;
   initialDate?: string;
-  initialView?: "templates";
+  /** Вид из адреса (`?view=`) важнее запомненного на устройстве. */
+  initialView?: "templates" | "list" | "week";
 }) {
   const [data, setData] = useState(initial);
   const tab = section;
@@ -261,7 +262,7 @@ export function ScheduleClient({
   const [query, setQuery] = useState("");
   const [department, setDepartment] = useState("all");
   const [publication, setPublication] = useState("all");
-  const [view, setView] = useState(
+  const [view, setView] = useState<string>(
     initial.permissions.includes("schedule.view_all") ? initialView ?? "week" : "week",
   );
   // Выбранный вид запоминается на устройстве, как показ задач: «Список»
@@ -882,7 +883,8 @@ export function ScheduleClient({
     const casual = data.casualEmployees?.some((e) => `payroll:${e.id}` === userId);
     const payModel = casualPayModel(userId, shift);
     if (casual && !payModel) {
-      setEditor({ type: "shift", shift, day, templateSlot: true });
+      // Брошенный сотрудник подставлен в форму: остаётся выбрать ставку.
+      setEditor({ type: "shift", shift, day, templateSlot: true, userId });
       return;
     }
     await save("shift.assign", {

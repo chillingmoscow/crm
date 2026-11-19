@@ -42,7 +42,11 @@ export default async function SchedulePage({
       initialCalendarTasks={calendarTasks}
       initialShowTasks={params.showTasks === undefined ? undefined : showTasks}
       initialDate={initialDate}
-      initialView={params.view === "templates" ? "templates" : undefined}
+      initialView={
+        params.view === "templates" || params.view === "list" || params.view === "week"
+          ? params.view
+          : undefined
+      }
     />
   );
 }

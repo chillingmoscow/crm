@@ -8,6 +8,7 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import { validateVariants } from "@/lib/schedule/template-times";
 import type { ShiftAttendanceMark, ShiftAttendanceSnapshot } from "@/lib/payroll/types";
 import { addDays, validDate } from "@/lib/sales/time";
+import { applyShiftReviews } from "@/lib/payroll/shift-attendance";
 import { dateInZone } from "@/lib/schedule/utils";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
@@ -127,27 +128,39 @@ export async function loadShiftAttendance(week: string): Promise<Record<string, 
       !permissions.includes("payroll.view") ||
       !permissions.includes("schedule.view_all")) return {};
 
-  const { data, error } = await asLooseDb(createAdminClient())
-    .from<{
-      business_date: string;
-      synced_at: string | null;
-      state: string;
-      missing_shifts: string[] | null;
-      marks: Record<string, ShiftAttendanceSnapshot> | null;
-    }[]>("payroll_source_days")
-    .select("business_date,synced_at,state,missing_shifts:source->missing_shifts,marks:source->shift_attendance")
-    .eq("account_id", accountId)
-    .eq("venue_id", venueId)
-    .gte("business_date", addDays(week, -1))
-    .lte("business_date", addDays(week, 6));
-  if (error) throw new Error("Не удалось загрузить отметки о выходах");
+  const admin = asLooseDb(createAdminClient());
+  const [{ data, error }, reviews] = await Promise.all([
+    admin
+      .from<{
+        business_date: string;
+        synced_at: string | null;
+        state: string;
+        missing_shifts: string[] | null;
+        marks: Record<string, ShiftAttendanceSnapshot> | null;
+      }[]>("payroll_source_days")
+      .select("business_date,synced_at,state,missing_shifts:source->missing_shifts,marks:source->shift_attendance")
+      .eq("account_id", accountId)
+      .eq("venue_id", venueId)
+      .gte("business_date", addDays(week, -1))
+      .lte("business_date", addDays(week, 6)),
+    admin
+      .from<{ shift_id: string; decision: "include" | "exclude" | null; reason: string; reviewed_at: string }[]>(
+        "payroll_schedule_reviews",
+      )
+      .select("shift_id,decision,reason,reviewed_at")
+      .eq("account_id", accountId)
+      .eq("venue_id", venueId)
+      .gte("business_date", addDays(week, -1))
+      .lte("business_date", addDays(week, 6)),
+  ]);
+  if (error || reviews.error) throw new Error("Не удалось загрузить отметки о выходах");
   const result: Record<string, ShiftAttendanceMark> = {};
   for (const day of data ?? []) {
     const context = { date: day.business_date, syncedAt: day.synced_at, sourceState: day.state };
     for (const id of day.missing_shifts ?? []) result[id] = { ...context, state: "missing" };
     for (const [id, mark] of Object.entries(day.marks ?? {})) result[id] = { ...context, ...mark };
   }
-  return result;
+  return applyShiftReviews(result, reviews.data ?? []);
 }
 export async function reviewShiftAttendance(input: {
   shiftId: string;

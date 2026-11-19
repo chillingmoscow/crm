@@ -47,6 +47,11 @@ const nextConfig: NextConfig = {
     },
   },
   images: {
+    // Через оптимизатор идут только уменьшенные фото людей (avatarThumbUrl;
+    // остальные <Image> — unoptimized). Их адреса неизменяемые: новое фото
+    // сотрудника получает новый ?t=, у Glide — новый путь. Поэтому браузер
+    // может держать копию неделю, а не час (по заголовку исходника).
+    minimumCacheTTL: 60 * 60 * 24 * 7,
     remotePatterns: [
       // Self-hosted Supabase storage (production)
       { protocol: "https", hostname: supabaseHostname },
@@ -56,6 +61,9 @@ const nextConfig: NextConfig = {
       // Common OAuth avatar providers
       { protocol: "https", hostname: "lh3.googleusercontent.com" },
       { protocol: "https", hostname: "avatars.githubusercontent.com" },
+      // Фото сотрудников, перенесённые из Glide (avatarThumbUrl уменьшает их
+      // через оптимизатор — без этого шаблона он вернёт 400).
+      { protocol: "https", hostname: "storage.googleapis.com", pathname: "/glide-prod.appspot.com/**" },
     ],
   },
   async redirects() {

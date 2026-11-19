@@ -1,5 +1,6 @@
 "use client";
 
+import { AttendanceAttentionNotice } from "./attendance-attention";
 import {
   useCallback,
   useEffect,
@@ -545,6 +546,9 @@ export function PayrollWorkspace({
             />
             {autoRefresh.failed && (
               <RefreshFailedNotice className="mb-4" {...autoRefresh} />
+            )}
+            {can("view") && (
+              <AttendanceAttentionNotice className="mb-4" months={[monthStart.slice(0, 7)]} />
             )}
             <MetricStrip label="Итоги за месяц">
               <Metric

@@ -90,7 +90,9 @@ export function CandidateForm({
           e.preventDefault();
           save();
         }}
-        className="space-y-5"
+        // Не space-y: его селектор сильнее mt-4 у DrawerSection, и между
+        // разделами выходило 20px вместо 36 (gap-5 + mt-4), как в DS.
+        className="flex flex-col gap-5"
       >
         <DrawerSection title="Основное">
           {fields.map(([key, label]) => (

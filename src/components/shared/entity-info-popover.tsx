@@ -109,7 +109,7 @@ function MiniAvatar({
     );
   }
   return (
-    <span className="size-4 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-[8px] font-semibold shrink-0">
+    <span className="size-4 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-xs font-semibold leading-none shrink-0">
       {initials}
     </span>
   );
@@ -178,9 +178,9 @@ export function EntityInfoPopover({
         align="end"
         side="bottom"
         sideOffset={8}
-        className="w-[300px] p-5 rounded-xl"
+        className="w-[300px] p-5"
       >
-        <h2 className="text-[14px] font-semibold mb-3.5">{title}</h2>
+        <h2 className="text-sm font-semibold mb-3.5">{title}</h2>
         <div className="h-px bg-border -mx-5 mb-3" />
         <dl className="flex flex-col gap-2">
           {rows.map((r) => (

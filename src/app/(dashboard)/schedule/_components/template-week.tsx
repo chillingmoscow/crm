@@ -136,7 +136,7 @@ export function TemplateWeek({
                           onClick={() => onAssign(day, template)}
                           aria-label={`Назначить: ${shiftTemplateLabel(template)}, ${dayLabel(day)}, ${time}`}
                           data-tip="Назначить сотрудника"
-                          className="group/slot relative h-8 w-full px-1 text-[11px] font-normal tabular-nums text-muted-foreground/70 hover:text-foreground"
+                          className="group/slot relative h-8 w-full px-1 text-xs font-normal tabular-nums text-muted-foreground/70 hover:text-foreground"
                         >
                           {time}
                           <Plus

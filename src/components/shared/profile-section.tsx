@@ -41,7 +41,7 @@ export function ProfileSection({
                       <Lock className="w-3 h-3" aria-label="Раздел с ограничением" />
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-[280px] text-[12px]">
+                  <TooltipContent side="top" className="max-w-[280px] text-xs">
                     {lockMessage}
                   </TooltipContent>
                 </Tooltip>

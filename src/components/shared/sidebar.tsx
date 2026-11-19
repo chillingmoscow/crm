@@ -980,10 +980,10 @@ function CollapsedSectionFlyout({
         side="right"
         align="start"
         sideOffset={12}
-        className={cn("w-[200px] p-1.5 rounded-[10px]", modern && appearance.navigationFlyout)}
+        className={cn("w-[200px] p-1.5", modern && appearance.navigationFlyout)}
       >
         <div className="px-2 py-1.5">
-          <span className="text-[11px] font-semibold tracking-wider uppercase text-muted-foreground">
+          <span className="text-xs font-semibold tracking-wider uppercase text-muted-foreground">
             {section.label}
           </span>
         </div>
@@ -1108,7 +1108,7 @@ function ProfileMenu({
       side="top"
       sideOffset={8}
       className={cn(
-        "w-[280px] p-0 rounded-xl overflow-hidden",
+        "w-[280px] p-0 overflow-hidden",
         modern && appearance.profileMenu,
       )}
     >

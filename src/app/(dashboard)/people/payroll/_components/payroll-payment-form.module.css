@@ -21,7 +21,7 @@
   gap: 9px;
   min-height: 38px;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: 6px;
   font-size: 13px;
   font-weight: 500;
   color: hsl(var(--muted-foreground));
@@ -49,7 +49,7 @@
   height: 40px;
   font-size: 13px;
   box-shadow: none;
-  border-radius: 8px;
+  border-radius: 6px;
   background: hsl(var(--card));
   gap: 8px;
   min-width: 0;
@@ -81,10 +81,10 @@
   margin: 0;
 }
 .recipientHeading h3 > span {
-  font-size: 11px;
+  font-size: 12px;
   color: hsl(var(--muted-foreground));
   border: 1px solid hsl(var(--border));
-  border-radius: 5px;
+  border-radius: 6px;
   padding: 0 5px;
   font-weight: 400;
 }
@@ -105,7 +105,7 @@
   height: 36px;
   padding-left: 33px;
   padding-right: 29px;
-  border-radius: 7px;
+  border-radius: 6px;
   font-size: 12px;
   box-shadow: none;
   background: hsl(var(--muted) / 0.45);
@@ -138,7 +138,7 @@
   border-radius: 50%;
   background: hsl(var(--brand) / 0.08);
   color: hsl(var(--brand));
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
 }
 .identity {
@@ -162,7 +162,7 @@
 }
 .identity small {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   color: hsl(var(--muted-foreground));
   margin-top: 3px;
   white-space: nowrap;
@@ -186,7 +186,7 @@
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   padding-right: 25px;
-  border-radius: 7px;
+  border-radius: 6px;
   box-shadow: none;
 }
 .amountInput > input:disabled {
@@ -207,7 +207,7 @@
   right: 10px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 11px;
+  font-size: 12px;
   color: hsl(var(--muted-foreground));
   pointer-events: none;
 }
@@ -233,7 +233,7 @@
   resize: vertical;
   min-height: 72px;
   border: 1px solid hsl(var(--border));
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   font-size: 13px;
   padding: 10px 12px;
@@ -250,28 +250,28 @@
   gap: 16px;
 }
 .totalRow > div > span {
-  font-size: 11px;
+  font-size: 12px;
   color: hsl(var(--muted-foreground));
   display: block;
   margin-bottom: 4px;
 }
 .totalRow strong {
   display: block;
-  font-size: 25px;
+  font-size: 28px;
   font-weight: 600;
   letter-spacing: -0.6px;
   font-variant-numeric: tabular-nums;
   line-height: 1.25;
 }
 .totalRow strong > small {
-  font-size: 17px;
+  font-size: 16px;
   color: hsl(var(--muted-foreground));
   font-weight: 400;
 }
 .totalRow > button {
   height: 40px;
   font-size: 13px;
-  border-radius: 8px;
+  border-radius: 6px;
 }
 .footerMeta {
   display: flex;
@@ -279,7 +279,7 @@
   gap: 10px;
   margin-top: 13px;
   color: hsl(var(--muted-foreground));
-  font-size: 10px;
+  font-size: 12px;
 }
 .footerSlot {
   width: 100%;
@@ -304,7 +304,7 @@
     font-size: 12px;
   }
   .identity small {
-    font-size: 10px;
+    font-size: 12px;
   }
   .person {
     gap: 8px;
@@ -312,17 +312,17 @@
   .avatar {
     width: 28px;
     height: 28px;
-    font-size: 9px;
+    font-size: 12px;
   }
   .amountInput {
     width: 88px;
   }
   .footerMeta {
-    font-size: 9px;
+    font-size: 12px;
     gap: 7px;
   }
   .totalRow strong {
-    font-size: 23px;
+    font-size: 20px;
   }
   .totalRow > button {
     font-size: 12px;
@@ -373,7 +373,7 @@
   resize: vertical;
   min-height: 84px;
   border: 1px solid hsl(var(--border));
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 12px;
   font-size: 13px;
   background: hsl(var(--background));
@@ -396,7 +396,7 @@
 }
 
 .form > div > label { font-size: 13px; font-weight: 500; }
-.form input, .form textarea, .form button[role="combobox"] { font-size: 13px; border-radius: 8px; box-shadow: none; }
+.form input, .form textarea, .form button[role="combobox"] { font-size: 13px; border-radius: 6px; box-shadow: none; }
 .form input, .form button[role="combobox"] { min-height: 40px; }
 .form textarea { min-height: 84px; }
 @media (max-width: 480px) {

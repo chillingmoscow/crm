@@ -1,4 +1,3 @@
-import { dateTimeFormat } from "../intl-cache.ts";
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 export function validDate(value: string) {
   if (!isoDate.test(value)) return false;
@@ -10,9 +9,14 @@ export function addDays(date: string, count: number) {
   d.setUTCDate(d.getUTCDate() + count);
   return d.toISOString().slice(0, 10);
 }
-export function zonedParts(now: Date, timezone: string) {
-  const p = Object.fromEntries(
-    dateTimeFormat("en-GB", {
+// Файл без импортов: CI-скрипты (scripts/test-payroll.mjs и др.) копируют
+// его отдельным модулем. Форматтер на пояс создаётся один раз — `new
+// Intl.DateTimeFormat` на каждый вызов в ~15 раз дороже (см. src/lib/intl-cache.ts).
+const zonedFormats = new Map<string, Intl.DateTimeFormat>();
+function zonedFormat(timezone: string) {
+  let format = zonedFormats.get(timezone);
+  if (!format) {
+    format = new Intl.DateTimeFormat("en-GB", {
       timeZone: timezone,
       year: "numeric",
       month: "2-digit",
@@ -20,7 +24,14 @@ export function zonedParts(now: Date, timezone: string) {
       hour: "2-digit",
       minute: "2-digit",
       hourCycle: "h23",
-    })
+    });
+    zonedFormats.set(timezone, format);
+  }
+  return format;
+}
+export function zonedParts(now: Date, timezone: string) {
+  const p = Object.fromEntries(
+    zonedFormat(timezone)
       .formatToParts(now)
       .map((v) => [v.type, v.value]),
   );

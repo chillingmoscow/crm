@@ -267,7 +267,7 @@ async function loadPayrollData(
   const metadataRequest = Promise.all([
     s.admin.from<{ day_start_hour: number }>("sales_settings")
       .select("day_start_hour").eq("account_id", s.accountId).eq("venue_id", s.venueId).maybeSingle(),
-    s.client.from("venues").select("timezone").eq("id", s.venueId).single(),
+    s.client.from("venues").select("timezone,name").eq("id", s.venueId).single(),
     s.client.from("roles").select("id,name").eq("venue_id", s.venueId).is("archived_at", null),
   ]);
   const managerRequest = manager
@@ -344,6 +344,7 @@ async function loadPayrollData(
     experienceStartsOn,
     asOfDate: businessDate(new Date(), venue.data?.timezone ?? "Europe/Moscow", hours.data?.day_start_hour ?? 9),
     venueId: s.venueId,
+    venueName: venue.data?.name ?? null,
     userId: s.user.id,
     timezone: venue.data?.timezone ?? "Europe/Moscow",
     dayStartHour: hours.data?.day_start_hour ?? 9,

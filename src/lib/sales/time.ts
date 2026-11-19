@@ -1,3 +1,4 @@
+import { dateTimeFormat } from "../intl-cache.ts";
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 export function validDate(value: string) {
   if (!isoDate.test(value)) return false;
@@ -11,7 +12,7 @@ export function addDays(date: string, count: number) {
 }
 export function zonedParts(now: Date, timezone: string) {
   const p = Object.fromEntries(
-    new Intl.DateTimeFormat("en-GB", {
+    dateTimeFormat("en-GB", {
       timeZone: timezone,
       year: "numeric",
       month: "2-digit",

@@ -1,15 +1,30 @@
 import type { ChecklistItem, Answer } from "./types";
+import { dateTimeFormat } from "../intl-cache.ts";
+
+// Дата смены в поясе заведения нужна сетке расписания тысячи раз за рендер
+// (по каждой смене, дню и сотруднику), а аргументы повторяются: одни и те же
+// starts_at. Ответ запоминается; потолок — чтобы долгая сессия не копила
+// память.
+const dateInZoneCache = new Map<string, string>();
 export function dateInZone(value: string | Date, timezone: string) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
+  const key = typeof value === "string" ? `${timezone}|${value}` : null;
+  const cached = key === null ? undefined : dateInZoneCache.get(key);
+  if (cached !== undefined) return cached;
+  const parts = dateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   }).formatToParts(new Date(value));
-  return `${parts.find((p) => p.type === "year")?.value}-${parts.find((p) => p.type === "month")?.value}-${parts.find((p) => p.type === "day")?.value}`;
+  const date = `${parts.find((p) => p.type === "year")?.value}-${parts.find((p) => p.type === "month")?.value}-${parts.find((p) => p.type === "day")?.value}`;
+  if (key !== null) {
+    if (dateInZoneCache.size >= 20000) dateInZoneCache.clear();
+    dateInZoneCache.set(key, date);
+  }
+  return date;
 }
 export function timeInZone(value: string, timezone: string) {
-  return new Intl.DateTimeFormat("ru", {
+  return dateTimeFormat("ru", {
     timeZone: timezone,
     hour: "2-digit",
     minute: "2-digit",
@@ -26,7 +41,7 @@ export function instantInZone(date: string, time: string, timezone: string): str
   // Пустая или неполная дата/время — момента нет; не роняем рендер.
   if (Number.isNaN(naive)) return null;
   const offset = (at: number) => {
-    const p = new Intl.DateTimeFormat("en-CA", {
+    const p = dateTimeFormat("en-CA", {
       timeZone: timezone,
       year: "numeric",
       month: "2-digit",
@@ -56,7 +71,7 @@ export function dayLabel(
   date: string,
   options: Intl.DateTimeFormatOptions = { day: "numeric", month: "long" },
 ) {
-  return new Intl.DateTimeFormat("ru", { ...options, timeZone: "UTC" }).format(
+  return dateTimeFormat("ru", { ...options, timeZone: "UTC" }).format(
     new Date(date + "T12:00:00Z"),
   );
 }

@@ -5,6 +5,8 @@ import { describeAuditEvent } from "@/lib/audit/format";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { KbRestoreIconButton } from "@/components/audit/kb-restore-icon-button";
 import type { AuditEvent } from "@/lib/audit/list";
+import { genderizeNode } from "@/components/audit/genderize-node";
+import type { ActorGender } from "@/lib/audit/gender";
 
 interface AuditEventRowProps {
   event: AuditEvent;
@@ -33,6 +35,13 @@ export function AuditEventRow({
     headline,
     details,
   } = describeAuditEvent(event);
+  // Без автора и без внешнего автора действие подписано «Система» — глагол
+  // в женском роде («Система удалила»).
+  const gender: ActorGender = event.actor
+    ? (event.actor.gender as ActorGender)
+    : typeof event.details.source_author === "string"
+      ? null
+      : "female";
 
   return (
     <li className="flex items-start gap-3 px-4 py-3 border-b last:border-b-0 hover:bg-accent/40 transition-colors">
@@ -49,9 +58,9 @@ export function AuditEventRow({
           <span className="font-medium text-foreground">
             {event.actor?.name ?? (typeof event.details.source_author === "string" ? event.details.source_author : "Система")}
           </span>{" "}
-          <span className="text-foreground">{headline}</span>
+          <span className="text-foreground">{genderizeNode(headline, gender)}</span>
         </div>
-        {details && <div className="pl-0.5">{details}</div>}
+        {details && <div className="pl-0.5">{genderizeNode(details, gender)}</div>}
         <div className="text-[12px] text-muted-foreground flex items-center gap-2 flex-wrap">
           <time
             dateTime={event.created_at}

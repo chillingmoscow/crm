@@ -75,7 +75,7 @@ export function auditFallbackHeadline(code: string): string {
 
 const FIELD_LABELS: Record<string, string> = {
   active:"действующий",
-  hired_on: "дата приёма",
+  hired_on: "дата трудоустройства",
   birthday: "дата рождения",
   gender: "пол",
   gift_role: "группа для подарков",
@@ -164,6 +164,8 @@ const FIELD_LABELS: Record<string, string> = {
   default_corr_account: "корр. счёт",
 };
 
+/** Подпись поля в строке изменения: с заглавной буквы, как подписи полей в формах. */
 export function auditFieldLabel(field: string): string {
-  return FIELD_LABELS[field] ?? field;
+  const label = FIELD_LABELS[field] ?? field;
+  return label.charAt(0).toLocaleUpperCase("ru") + label.slice(1);
 }

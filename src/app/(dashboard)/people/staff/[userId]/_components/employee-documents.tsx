@@ -53,10 +53,17 @@ export function EmployeeDocuments({
   target,
   basic,
   onChanged,
+  sections = ["medical", "uniform"],
 }: {
   target: Target;
   basic?: BasicMedical;
   onChanged?: () => void;
+  /**
+   * Какие секции показать. Покупки формы — это удержания из зарплаты, поэтому
+   * в карточке сотрудника они живут во вкладке «Оплата», а медкнижка — в
+   * «Документах».
+   */
+  sections?: ("medical" | "uniform")[];
 }) {
   const [data, setData] = useState<EmployeeDocumentsData | null>(null),
     [loading, setLoading] = useState(true),
@@ -101,11 +108,16 @@ export function EmployeeDocuments({
     onChanged?.();
     return d;
   };
+  const medical = sections.includes("medical"),
+    uniform = sections.includes("uniform");
   if (loading)
     return (
-      <div className="space-y-5" aria-label="Загрузка документов сотрудника">
-        <Skeleton className="h-48 rounded-xl" />
-        <Skeleton className="h-32 rounded-xl" />
+      <div
+        className="space-y-5"
+        aria-label={medical ? "Загрузка документов сотрудника" : "Загрузка покупок формы"}
+      >
+        {medical && <Skeleton className="h-48 rounded-xl" />}
+        {uniform && <Skeleton className="h-32 rounded-xl" />}
       </div>
     );
   if (error)
@@ -122,17 +134,19 @@ export function EmployeeDocuments({
       </div>
     );
   if (!data)
-    return basic ? (
+    return basic && medical ? (
       <BasicMedicalCard basic={basic} onChanged={onChanged} />
     ) : null;
   return (
     <div className="flex min-w-0 flex-col gap-5">
-      <MedicalCard
-        key={`${data.employee.id}.${data.person?.version ?? 0}.${data.medicalNumber}.${data.medicalUntil}`}
-        data={data}
-        onSaved={refresh}
-      />
-      <UniformCard data={data} reload={refresh} />
+      {medical && (
+        <MedicalCard
+          key={`${data.employee.id}.${data.person?.version ?? 0}.${data.medicalNumber}.${data.medicalUntil}`}
+          data={data}
+          onSaved={refresh}
+        />
+      )}
+      {uniform && <UniformCard data={data} reload={refresh} />}
     </div>
   );
 }

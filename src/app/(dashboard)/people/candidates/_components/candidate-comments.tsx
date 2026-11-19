@@ -10,6 +10,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { candidateError } from "@/lib/candidates/errors";
 import type { Comment } from "@/lib/candidates/types";
+import { dateTimeLabel } from "./fields";
 import { commentCandidate, editCandidateComment } from "../actions";
 
 export function CandidateComments({ candidateId, comments, viewerId, editable, onSaved }: {
@@ -55,7 +56,7 @@ export function CandidateComments({ candidateId, comments, viewerId, editable, o
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <p className="break-words text-sm font-medium">{author}</p>
-                <p className="text-xs text-muted-foreground">{new Date(comment.created_at).toLocaleString("ru-RU", { timeZone: "Europe/Moscow", dateStyle: "short", timeStyle: "short" })}{comment.revision > 1 ? " · изменён" : ""}</p>
+                <p className="text-xs text-muted-foreground">{dateTimeLabel(comment.created_at)}{comment.revision > 1 ? " · изменён" : ""}</p>
               </div>
               {editable && comment.author_id === viewerId && <DropdownMenu>
                 <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="size-7 shrink-0" disabled={busy || composing || !!editing} aria-label={`Действия с комментарием от ${author}`}><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger>

@@ -10,7 +10,9 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { getCandidateDoorCode } from "../actions";
+import { getCandidateDoorCode } from "@/app/(dashboard)/people/candidates/actions";
+/** Код офисного замка сотрудника: кнопка открывает диалог. Один вид в карточках
+ *  сотрудника и кандидата. */
 export function StaffDoorCode({ userId }: { userId: string }) {
   const [code, setCode] = useState<{
     user_number: number;
@@ -23,6 +25,7 @@ export function StaffDoorCode({ userId }: { userId: string }) {
         type="button"
         size="sm"
         variant="outline"
+        className="w-fit"
         disabled={busy}
         onClick={() =>
           start(async () => {
@@ -36,7 +39,7 @@ export function StaffDoorCode({ userId }: { userId: string }) {
           })
         }
       >
-        <KeyRound className="mr-2 size-4" />
+        <KeyRound />
         Код офисного замка
       </Button>
       <Dialog

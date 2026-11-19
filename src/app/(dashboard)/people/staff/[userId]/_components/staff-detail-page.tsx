@@ -1333,6 +1333,15 @@ export function StaffDetailPage({
           {canViewPay && (
             <TabsContent value="pay">
               <StaffPayPanel userId={profile.id} />
+              {canConfigurePayroll && (
+                <div className="mx-auto mt-5 w-full max-w-[720px]">
+                  <EmployeeDocuments
+                    target={{ userId: profile.id }}
+                    sections={["uniform"]}
+                    onChanged={refreshDocumentHistory}
+                  />
+                </div>
+              )}
             </TabsContent>
           )}
 
@@ -1362,6 +1371,8 @@ export function StaffDetailPage({
               {canConfigurePayroll ? (
                 <EmployeeDocuments
                   target={{ userId: profile.id }}
+                  // Покупки формы — во вкладке «Оплата», если она есть.
+                  sections={canViewPay ? ["medical"] : ["medical", "uniform"]}
                   basic={{
                     userId: profile.id,
                     accountId,

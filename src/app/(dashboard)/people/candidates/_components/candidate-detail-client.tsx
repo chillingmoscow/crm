@@ -13,7 +13,6 @@ import {
   Trash2,
   Phone,
   ExternalLink,
-  KeyRound,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -40,12 +39,12 @@ import {
   getCandidateOptions,
   uploadCandidateFile,
   deleteCandidate,
-  getCandidateDoorCode,
 } from "../actions";
 import { canScheduleCandidateTrial, interviewFeedbackEntries } from "@/lib/candidates/workflow";
 import { candidateError } from "@/lib/candidates/errors";
 import { CandidateForm } from "./candidate-form";
 import { HireDrawer } from "./hire-drawer";
+import { StaffDoorCode } from "@/components/people/staff-door-code";
 import { CandidateComments } from "./candidate-comments";
 import { CandidateAppointmentRow } from "./candidate-appointment-row";
 import { CandidateAppointmentDetails } from "./candidate-appointment-details";
@@ -56,6 +55,7 @@ import { ProfileHeader } from "@/components/shared/profile-header";
 import { ProfileSection } from "@/components/shared/profile-section";
 import {
   dateLabel,
+  dateTimeLabel,
   safeLink,
   wallTime,
 } from "./fields";
@@ -112,11 +112,7 @@ export function CandidateDetailClient({
     [meetingKind, setMeetingKind] = useState<Appointment["kind"]>("interview"),
     [activeTab, setActiveTab] = useState("profile"),
     [deleting, setDeleting] = useState(false),
-    [busy, start] = useTransition(),
-    [door, setDoor] = useState<{
-      user_number: number;
-      password: string;
-    } | null>(null);
+    [busy, start] = useTransition();
   const c = data.candidate,
     photo = data.files.find((file) => file.url && file.mime_type?.startsWith("image/"))?.url,
     canEdit = permissions.manage;
@@ -393,35 +389,9 @@ export function CandidateDetailClient({
               )}
             </ProfileSection>
             {c.hired_user_id && permissions.owner ? (
-              <div className="space-y-3 border-t pt-5">
-                <Button
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() =>
-                    action(async () => {
-                      setDoor(await getCandidateDoorCode(c.hired_user_id!));
-                    })
-                  }
-                >
-                  <KeyRound className="mr-2 h-4 w-4" />
-                  Показать данные офисного замка
-                </Button>
-                {door ? (
-                  <div className="flex items-center gap-4 rounded-lg bg-muted/40 p-4 text-sm">
-                    <p>
-                      Пользователь: <strong>{door.user_number}</strong> · Код:{" "}
-                      <strong>{door.password}</strong>
-                    </p>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setDoor(null)}
-                    >
-                      Скрыть
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
+              <ProfileSection title="Офисный замок">
+                <StaffDoorCode userId={c.hired_user_id} />
+              </ProfileSection>
             ) : null}
             <CandidateComments candidateId={c.id} comments={data.comments} viewerId={data.viewer_id} editable={canEdit} onSaved={async () => { await refresh(); }} />
           </TabsContent>
@@ -455,9 +425,7 @@ export function CandidateDetailClient({
                       </span>
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {new Date(item.created_at).toLocaleString("ru-RU", {
-                        timeZone: "Europe/Moscow",
-                      })}
+                      {dateTimeLabel(item.created_at)}
                     </p>
                     {item.kind === "comment_updated" && <p className="mt-2 whitespace-pre-wrap break-words text-xs text-muted-foreground"><span className="line-through">{String(item.details.before ?? "")}</span> → {String(item.details.after ?? "")}</p>}
                     {item.details.changes &&
@@ -487,9 +455,9 @@ export function CandidateDetailClient({
                             | Partial<Appointment>
                             | undefined;
                           const summary = (a: Partial<Appointment>) => {
-                            const date =
-                              a.appointment_date?.split("-").reverse().join(".") ??
-                              "";
+                            const date = a.appointment_date
+                              ? dateLabel(a.appointment_date)
+                              : "";
                             const time = a.starts_at
                               ? wallTime(
                                 a.starts_at,
@@ -498,7 +466,7 @@ export function CandidateDetailClient({
                               : "";
                             return [
                               a.kind === "trial" ? "Стажировка" : "Собеседование",
-                              `${date}${time ? `, ${time} (${a.timezone ?? "Europe/Moscow"})` : ""}`,
+                              `${date}${time ? `, ${time}` : ""}`,
                               a.outcome ? appointmentOutcomeLabel(a.kind === "trial" ? "trial" : "interview", a.outcome) : "",
                               a.location,
                               ...interviewFeedbackEntries(a.interview_feedback).map(([label, value]) => `${label}: ${value}`),

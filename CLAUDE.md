@@ -57,13 +57,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Permissions
 - Активный account — RPC `get_active_account_id`. Права — RPC `list_my_permissions` (см. миграции `065`, `103`).
-- Перекрытие в `account_role_permissions` умеет **и добавлять, и отзывать** права; `has_permission` должен LEFT JOIN-ить обе таблицы. Подробности — в memory `permissions_override_semantics.md`. Greenfield-wipe `platform.*` зафиксирован в `permissions_wipe_policy.md` (миграция 034).
+- **Пер-аккаунтных перекрытий прав нет**: таблица `account_role_permissions` удалена миграцией `138_owner_only_system_role.sql`. Права роли задаются только через `role_permissions.granted`, и `has_permission` идёт по `user_venue_roles → role_permissions → permissions` для активного venue — никакой второй таблицы с перекрытиями (прежняя формулировка здесь была устаревшей). С миграции `237` у функции есть быстрый путь: если транзакционный GUC `app.ctx_ready = '1'`, права читаются из `app.perms`, иначе выполняется тот же запрос. Подробности — в memory `permissions_override_semantics.md`. Greenfield-wipe `platform.*` зафиксирован в `permissions_wipe_policy.md` (миграция 034).
+- В `src/types/database.ts` тип `account_role_permissions` ещё лежит — артефакт давнего regen, живого кода за ним нет; уедет при следующей полной регенерации типов.
 
 ### Tenancy
 Трёхуровневая модель **Account → LegalEntity → Venue**. Действующая модель описана в [`docs/CURRENT_TENANCY.md`](docs/CURRENT_TENANCY.md); план слияния finance-tracker — [`docs/MERGE_PLAN.md`](docs/MERGE_PLAN.md). Старые URL (`/staff`, `/settings/roles`, `/settings/venues`, `/settings/account`, `/settings/profile`) — **301-redirect**ы в [`next.config.ts`](next.config.ts) на новые `/people/*`, `/org/*`, `/profile`.
 
 ### Supabase: миграции и тесты
-- `supabase/migrations/` — линейная нумерация `NNN_*.sql` (на момент написания 001–131 + один с timestamp-префиксом, оставленный для истории). Не переставлять и не редактировать применённые миграции.
+- `supabase/migrations/` — линейная нумерация `NNN_*.sql` (на 19.11.2026 — 001–349 + один с timestamp-префиксом, оставленный для истории). Номер последней смотреть в `ls supabase/migrations | tail -1`, а не в этом файле: он отстаёт. Не переставлять и не редактировать применённые миграции.
 - **Создание новой**: `pnpm db:migrate <name>` запускает `supabase migration new`, который кладёт файл в формате `<timestamp>_<name>.sql`. Сразу **переименовать** в следующий по порядку `NNN_<name>.sql` (например `132_<name>.sql`), чтобы сохранить convention. Линейная нумерация — не косметика: она нужна, чтобы reviewer мог проверить «не разъехалась ли последовательность» и для self-hosted apply-флоу.
 - `supabase/seed.sql` — тестовые данные для локальной разработки (применяется автоматически при `pnpm db:reset`).
 - `supabase/tests/` — SQL-тесты (legal_entities, finance_module).

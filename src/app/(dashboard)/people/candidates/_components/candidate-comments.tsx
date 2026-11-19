@@ -12,6 +12,7 @@ import { candidateError } from "@/lib/candidates/errors";
 import type { Comment } from "@/lib/candidates/types";
 import { dateTimeLabel } from "./fields";
 import { commentCandidate, editCandidateComment } from "../actions";
+import { personInitials } from "@/lib/format/initials";
 
 export function CandidateComments({ candidateId, comments, viewerId, editable, onSaved }: {
   candidateId: string; comments: Comment[]; viewerId: string; editable: boolean; onSaved: () => Promise<void>;
@@ -50,7 +51,7 @@ export function CandidateComments({ candidateId, comments, viewerId, editable, o
         return <article key={comment.id} className="flex min-w-0 gap-3 border-b pb-4 last:border-b-0 last:pb-0">
           {comment.author_avatar_url ? <Image unoptimized src={comment.author_avatar_url} alt={author} width={32} height={32} className="size-8 shrink-0 rounded-full object-cover" /> :
             <span aria-label={`Автор: ${author}`} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
-              {author.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}
+              {personInitials(author)}
             </span>}
           <div className="min-w-0 flex-1 space-y-2">
             <div className="flex items-start justify-between gap-2">

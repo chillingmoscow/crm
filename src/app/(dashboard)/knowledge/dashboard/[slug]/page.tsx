@@ -10,6 +10,7 @@ import {
   getKbAnalyticsPageViewers,
   type KbAnalyticsPeriod,
 } from "@/lib/knowledge/analytics";
+import { personInitials } from "@/lib/format/initials";
 
 const VALID_PERIODS: KbAnalyticsPeriod[] = ["day", "week", "month"];
 const PERIOD_LABEL: Record<KbAnalyticsPeriod, string> = {
@@ -193,13 +194,7 @@ function Avatar({
   name: string;
   avatarUrl: string | null;
 }) {
-  const initials =
-    name
-      .split(" ")
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((p) => p[0]?.toUpperCase() ?? "")
-      .join("") || "?";
+  const initials = personInitials(name);
   if (avatarUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element

@@ -16,6 +16,7 @@ import { Search } from "lucide-react";
 import { searchKbMentions, type KbMentionPerson } from "@/lib/knowledge/mentions";
 import { cn } from "@/lib/utils";
 import { avatarDotClass } from "@/lib/avatar-color";
+import { personInitials } from "@/lib/format/initials";
 
 /**
  * @-mention dropdown для plain-textarea-композеров комментариев.
@@ -360,7 +361,7 @@ function DropdownList({
                       avatarDotClass(it.id || it.full_name),
                     )}
                   >
-                    {initialsOf(it.full_name)}
+                    {personInitials(it.full_name)}
                   </span>
                 )}
                 <span className="truncate">{it.full_name}</span>
@@ -373,10 +374,6 @@ function DropdownList({
   );
 }
 
-function initialsOf(name: string): string {
-  const parts = name.trim().split(/\s+/).slice(0, 2);
-  return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
-}
 
 /**
  * Извлекает зарегистрированные kbStaffMention chip'ы из BN body.

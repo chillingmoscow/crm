@@ -10,6 +10,7 @@ import type {
   Notification,
   NotificationActor,
 } from "@/app/(dashboard)/notifications/actions";
+import { personInitials } from "@/lib/format/initials";
 
 /**
  * Notion-style строка уведомления для bell'а.
@@ -55,7 +56,7 @@ export function KbNotificationRow({
 }: KbNotificationRowProps) {
   const spec = getNotificationTypeSpec(notification.type);
   const Icon = spec.icon;
-  const initials = getInitials(actor?.full_name);
+  const initials = personInitials(actor?.full_name);
 
   // Title:
   //   • Если есть actor + verb из registry — собираем «<Actor> <verb>».
@@ -308,9 +309,3 @@ function relativeTime(iso: string): string {
   });
 }
 
-function getInitials(name?: string | null): string {
-  if (!name) return "?";
-  const parts = name.trim().split(/\s+/).slice(0, 2);
-  if (parts.length === 0) return "?";
-  return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
-}

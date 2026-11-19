@@ -11,6 +11,7 @@ import {
   type KbPagePreview,
   type KbStaffPreview,
 } from "@/lib/knowledge/preview";
+import { personInitials } from "@/lib/format/initials";
 
 // Sprint D Phase 7 — inline-preview tooltip для KB-ссылок. Цель:
 // при hover на @-mention или kb-link показать заголовок + иконку +
@@ -225,7 +226,7 @@ function PagePreviewBody({ data }: { data: KbPagePreview }) {
 }
 
 function StaffPreviewBody({ data }: { data: KbStaffPreview }) {
-  const initials = getInitials(data.full_name);
+  const initials = data.full_name.trim() ? personInitials(data.full_name) : "";
   return (
     <div className="flex items-start gap-2.5 p-3">
       {data.avatar_url ? (
@@ -254,11 +255,6 @@ function StaffPreviewBody({ data }: { data: KbStaffPreview }) {
   );
 }
 
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).slice(0, 2);
-  if (parts.length === 0) return "";
-  return parts.map((p) => p[0]?.toUpperCase() ?? "").join("");
-}
 
 async function loadPagePreview(
   slug: string,

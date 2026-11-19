@@ -1,6 +1,7 @@
 "use client";
 
 import { createReactInlineContentSpec } from "@blocknote/react";
+import { personInitials } from "@/lib/format/initials";
 
 /**
  * Atomic @-mention сотрудника. Аналог kbPageMention'а, но с
@@ -27,7 +28,7 @@ export const kbStaffMentionInlineContent = createReactInlineContentSpec(
         fullName: string;
         avatarUrl: string;
       };
-      const initials = getInitials(props.fullName);
+      const initials = personInitials(props.fullName);
       return (
         <a
           href={`/people/staff/${props.userId}`}
@@ -66,8 +67,3 @@ export const kbStaffMentionInlineContent = createReactInlineContentSpec(
   },
 );
 
-function getInitials(name: string): string {
-  const parts = name.split(" ").filter(Boolean).slice(0, 2);
-  if (parts.length === 0) return "?";
-  return parts.map((p) => p[0]?.toUpperCase() ?? "").join("");
-}

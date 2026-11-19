@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useDiscardGuard } from "@/components/shared/discard-changes-dialog";
 import type { Appointment, AppointmentOptions } from "@/lib/candidates/types";
-import { APPOINTMENT_TITLES, appointmentOutcomeLabel } from "@/lib/candidates/appointment-labels";
+import { APPOINTMENT_OUTCOME_TONES, APPOINTMENT_TITLES, appointmentOutcomeLabel } from "@/lib/candidates/appointment-labels";
 import { appointmentError } from "@/lib/candidates/errors";
 import { saveCandidateAppointmentResult } from "../actions";
 import { dateLabel, safeLink, wallTime, Field, FieldSelect } from "./fields";
@@ -17,7 +17,6 @@ import { dateLabel, safeLink, wallTime, Field, FieldSelect } from "./fields";
 import { PUNCTUALITY_LABELS, SMILE_LABELS, APPEARANCE_OPTIONS, COMMUNICATION_OPTIONS, feedbackOptions } from "@/lib/candidates/interview-feedback";
 
 const resultOptions = ["passed", "no_show", "rejected", "canceled"] as const;
-const outcomeTone = { scheduled: "info", passed: "success", no_show: "warning", rejected: "danger", canceled: "neutral" } as const;
 function initialReport(a: Appointment) {
   return {
     outcome: a.outcome === "scheduled" ? "" : a.outcome,
@@ -63,7 +62,7 @@ export function CandidateAppointmentDetails({ candidateId, appointment: a, candi
   });
   return <>
     <EditDrawer open title={APPOINTMENT_TITLES[a.kind]} description={candidateName}
-      titleAccessory={<DrawerStatus label={appointmentOutcomeLabel(a.kind, a.outcome)} tone={outcomeTone[a.outcome]} />}
+      titleAccessory={<DrawerStatus label={appointmentOutcomeLabel(a.kind, a.outcome)} tone={APPOINTMENT_OUTCOME_TONES[a.outcome]} />}
       onOpenChange={(open) => { if (!open) requestAction("close"); }}
       footer={<><Button variant="outline" disabled={busy} onClick={() => requestAction("close")}>Закрыть</Button>{editable && <Button disabled={busy || !dirty || !report.outcome || (commentRequired && !report.notes.trim()) || futureResult} onClick={save}>Сохранить</Button>}</>}>
       <DrawerSummary label="Данные назначения">

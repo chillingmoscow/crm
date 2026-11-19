@@ -11,6 +11,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Lock, Search, Trash2 } from "lucide-react";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -421,10 +422,7 @@ export function RoleDetailPage({
                 </span>
               )}
               {isSystem && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                  <Lock className="size-3" />
-                  Системная
-                </span>
+                <StatusBadge icon={<Lock />}>Системная</StatusBadge>
               )}
             </ProfileHeader>
           );

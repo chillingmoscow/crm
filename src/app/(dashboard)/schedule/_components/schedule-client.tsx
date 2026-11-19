@@ -862,7 +862,7 @@ export function ScheduleClient({
             {/* На телефоне бейдж — в этой строке, справа он резал бы имя. */}
             {!s.published && (
               <span className="shrink-0 sm:hidden">
-                <DrawerStatus label="Черновик" tone="warning" />
+                <DrawerStatus label="Черновик" tone="neutral" />
               </span>
             )}
           </span>
@@ -872,7 +872,7 @@ export function ScheduleClient({
         </span>
         {!s.published && (
           <span className={cn("hidden self-center sm:block", mark ? "mr-6" : undefined)}>
-            <DrawerStatus label="Черновик" tone="warning" />
+            <DrawerStatus label="Черновик" tone="neutral" />
           </span>
         )}
       </>
@@ -1916,7 +1916,7 @@ export function ScheduleClient({
           titleAccessory={
             <DrawerStatus
               label={selected.published ? "Опубликована" : "Черновик"}
-              tone={selected.published ? "success" : "warning"}
+              tone={selected.published ? "success" : "neutral"}
             />
           }
           description={[

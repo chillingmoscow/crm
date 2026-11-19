@@ -17,6 +17,7 @@ import { iconForRole } from "./role-icons";
 import { IconPicker } from "./icon-picker";
 import { paletteText, type PaletteColor } from "@/lib/palette";
 import { pluralRu } from "@/lib/format/plural";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
@@ -275,10 +276,9 @@ export function RolesClient({
                   {role.name}
                 </Link>
                 {role.venue_id === null && (
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-xs text-muted-foreground">
-                    <Lock className="size-3" />
+                  <StatusBadge icon={<Lock />} className="shrink-0">
                     Системная
-                  </span>
+                  </StatusBadge>
                 )}
               </div>
               {desc && (

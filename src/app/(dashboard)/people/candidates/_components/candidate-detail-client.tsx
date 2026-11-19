@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -239,7 +240,7 @@ export function CandidateDetailClient({
             }}
             onRefresh={() => void refresh()}
           />
-          {c.archived_at && <span className="text-xs text-muted-foreground">В архиве</span>}
+          {c.archived_at && <StatusBadge>В архиве</StatusBadge>}
         </ProfileHeader>
         {data.related.length ? (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">

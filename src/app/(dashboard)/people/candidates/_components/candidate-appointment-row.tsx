@@ -1,8 +1,9 @@
 "use client";
 import { CalendarDays, ChevronRight } from "lucide-react";
 import type { Appointment, AppointmentOptions } from "@/lib/candidates/types";
-import { APPOINTMENT_OUTCOME_CLASSES, appointmentOutcomeLabel } from "@/lib/candidates/appointment-labels";
-import { dateLabel, safeLink, StatusBadge, wallTime } from "./fields";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { APPOINTMENT_OUTCOME_TONES, appointmentOutcomeLabel } from "@/lib/candidates/appointment-labels";
+import { dateLabel, safeLink, wallTime } from "./fields";
 
 export function CandidateAppointmentRow({ appointment: a, options, onOpen }: {
   appointment: Appointment; options: AppointmentOptions; onOpen: () => void;
@@ -19,7 +20,7 @@ export function CandidateAppointmentRow({ appointment: a, options, onOpen }: {
       <span className="block text-sm font-medium">{dateLabel(a.appointment_date)}</span>
       {subtitle && <span className="block truncate text-[13px] text-muted-foreground">{subtitle}</span>}
     </span>
-    <span className="shrink-0"><StatusBadge label={status} className={APPOINTMENT_OUTCOME_CLASSES[a.outcome]} /></span>
+    <span className="shrink-0"><StatusBadge tone={APPOINTMENT_OUTCOME_TONES[a.outcome]}>{status}</StatusBadge></span>
     <ChevronRight className="size-4 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground motion-reduce:transition-none" />
   </button>;
 }

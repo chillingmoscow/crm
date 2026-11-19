@@ -7,6 +7,7 @@ import { Boxes, Crown, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -507,10 +508,9 @@ export function DepartmentDetailPage({
                             {r.name}
                           </Link>
                           {isHead && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 text-[11px] font-medium">
-                              <Crown className="w-3 h-3" />
+                            <StatusBadge tone="warning" icon={<Crown />}>
                               Руководитель
-                            </span>
+                            </StatusBadge>
                           )}
                           {canManage && (
                             <Button

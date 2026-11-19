@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { ProfileSection } from "@/components/shared/profile-section";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { useSaveSection } from "@/components/shared/save-bar";
+import { Money } from "@/components/shared/money";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
@@ -39,7 +40,6 @@ import { businessDate } from "@/lib/sales/time";
 
 const dateLabel = (v: string | null) =>
   v ? v.split("-").reverse().join(".") : "—";
-const rub = (n: number) => `${n.toLocaleString("ru-RU")} ₽`;
 type BasicMedical = {
   userId: string;
   accountId: string;
@@ -496,11 +496,12 @@ function UniformCard({
                     </p>
                   </div>
                   <p className="shrink-0 text-sm font-medium tabular-nums">
-                    {rub(total)}
+                    <Money value={total} fraction="auto" />
                   </p>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Учтено в зарплате {rub(i.deducted)} из {rub(total)}
+                  Учтено в зарплате <Money value={i.deducted} fraction="auto" /> из{" "}
+                  <Money value={total} fraction="auto" />
                 </p>
                 <details>
                   <summary className="w-fit cursor-pointer text-sm text-muted-foreground">
@@ -548,7 +549,7 @@ function UniformCard({
                 >
                   <span>{dateLabel(i.purchased_on)}</span>
                   <span className="tabular-nums">
-                    {i.amount == null ? "—" : rub(Number(i.amount))}
+                    <Money value={i.amount == null ? null : Number(i.amount)} fraction="auto" />
                   </span>
                 </div>
               ))}
@@ -693,7 +694,7 @@ function Installments({
           className="flex justify-between gap-4 py-2.5 text-sm"
         >
           <span>{dateLabel(i.dueOn)}</span>
-          <span className="tabular-nums">{rub(i.amount)}</span>
+          <Money value={i.amount} fraction="auto" />
         </div>
       ))}
     </div>

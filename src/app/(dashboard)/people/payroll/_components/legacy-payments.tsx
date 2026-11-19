@@ -26,11 +26,12 @@ export function LegacyPayments({
     .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
   if (!rows.length) return null;
   return (
-    <section className="space-y-4 rounded-xl border p-4">
+    // Блок внутри секции «Первоначальные данные по зарплате»: без своей рамки.
+    <div className="space-y-4">
       <div>
-        <h2 className="font-medium">
+        <h3 className="text-sm font-semibold">
           Прежние выплаты · требуется подтверждение
-        </h2>
+        </h3>
         <p className="mt-1 text-sm text-muted-foreground">
           {countRu(rows.length, "запись", "записи", "записей")} ·{" "}
           <Money value={rows.reduce((s, p) => s + Number(p.amount), 0)} />. Ещё не
@@ -118,6 +119,6 @@ export function LegacyPayments({
           </div>
         ))}
       </div>
-    </section>
+    </div>
   );
 }

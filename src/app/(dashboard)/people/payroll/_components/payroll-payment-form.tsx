@@ -21,6 +21,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { zonedParts } from "@/lib/sales/time";
 import { PayrollMonthPicker } from "@/app/(dashboard)/people/payroll/_components/payroll-month-picker";
 import { Money } from "@/components/shared/money";
+import { PayrollEmployeeCell } from "./payroll-employee-cell";
 import s from "./payroll-payment-form.module.css";
 
 export function PayrollPaymentForm({
@@ -199,16 +200,14 @@ export function PayrollPaymentForm({
             <div className={s.selectedPeople}>
               {selected.map((e) => (
                 <div key={e.id} className={s.person}>
-                  <span className={s.avatar}>
-                    {e.name
-                      .split(" ")
-                      .slice(0, 2)
-                      .map((p) => p[0])
-                      .join("")}
-                  </span>
+                  {/* Получатель — общий `EmployeeIdentity` (фото, имя, должность),
+                      как в выборе сотрудника и в таблицах «Зарплаты». */}
                   <div className={s.identity}>
-                    <strong>{e.name}</strong>
-                    <small>{e.role_name}</small>
+                    <PayrollEmployeeCell
+                      name={e.name}
+                      role={e.role_name}
+                      avatarUrl={e.avatar_url}
+                    />
                     <PayrollMonthPicker
                       value={months[e.id] ?? month}
                       onChange={(value) =>

@@ -6,21 +6,67 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { OptionSelect } from "@/components/ui/option-select";
+import { ProfileSection } from "@/components/shared/profile-section";
+import { SaveBarScope, useSaveSection } from "@/components/shared/save-bar";
 import { PayrollExperiencePolicy } from "./payroll-experience-policy";
 import type { PayrollData } from "@/lib/payroll/types";
 import { loadPayrollRules, payrollCommand } from "../actions";
 import { selectClass } from "./employee-pay";
 import { PayrollSetup } from "./payroll-setup";
 import { PayrollInitialData } from "./payroll-initial-data";
+
+/** Значения формы «Выдача чаевых и финансы» — для сравнения с сохранёнными. */
+type TipForm = {
+  comments: string;
+  category: string;
+  salaryCategory: string;
+  cashAccounts: Record<string, string>;
+};
+const tipForm = (d: PayrollData): TipForm => ({
+  comments: d.settings?.tip_comments.join("\n") ?? "чаевые",
+  category: d.settings?.tip_category_id ?? "",
+  salaryCategory: d.settings?.salary_category_id ?? "",
+  cashAccounts: d.settings?.cashbox_accounts ?? {},
+});
+/** Пустой счёт кассы не сохраняется — и не считается изменением. */
+const sameTipForm = (a: TipForm, b: TipForm) => {
+  const accounts = (v: Record<string, string>) =>
+    JSON.stringify(
+      Object.entries(v)
+        .filter(([, id]) => id)
+        .sort(([x], [y]) => x.localeCompare(y)),
+    );
+  return (
+    a.comments.trim() === b.comments.trim() &&
+    a.category === b.category &&
+    a.salaryCategory === b.salaryCategory &&
+    accounts(a.cashAccounts) === accounts(b.cashAccounts)
+  );
+};
+
+/**
+ * Настройки оплаты труда заведения (вкладка «Оплата труда» карточки
+ * заведения и `/org/venues/[id]/payroll`). Секции — `ProfileSection`;
+ * правки на месте сохраняет одна полоса `SaveBar` внизу (DS «SaveBar»):
+ * «Выдача чаевых и финансы», «Автоматические правила» и «Медкнижки, форма и
+ * мотивация» подключены к ней как отдельные секции, уход с изменениями
+ * спрашивает подтверждение.
+ */
 export function PayrollSettings({ venueId }: { venueId: string }) {
+  return (
+    <div className="mx-auto w-full max-w-3xl">
+      <SaveBarScope>
+        <PayrollSettingsSections venueId={venueId} />
+      </SaveBarScope>
+    </div>
+  );
+}
+
+function PayrollSettingsSections({ venueId }: { venueId: string }) {
   const [data, setData] = useState<PayrollData | null>(null),
-    [error, setError] = useState(""),
-    [comments, setComments] = useState(""),
-    [category, setCategory] = useState(""),
-    [salaryCategory, setSalaryCategory] = useState(""),
-    [cashAccounts, setCashAccounts] = useState<Record<string, string>>({}),
-    [busy, setBusy] = useState(false);
+    [error, setError] = useState("");
   const reload = useCallback(async () => {
     const d = await loadPayrollRules();
     if (d.venueId !== venueId)
@@ -30,103 +76,164 @@ export function PayrollSettings({ venueId }: { venueId: string }) {
     if (!d.permissions.includes("payroll.configure"))
       throw new Error("Нет доступа к настройке оплаты труда");
     setData(d);
-    setComments(d.settings?.tip_comments.join("\n") ?? "чаевые");
-    setCategory(d.settings?.tip_category_id ?? "");
-    setSalaryCategory(d.settings?.salary_category_id ?? "");
-    setCashAccounts(d.settings?.cashbox_accounts ?? {});
   }, [venueId]);
   useEffect(() => {
     void reload().catch((e) => setError(e.message));
   }, [reload]); // scoped server loader protects other venues
-  const run = async (fn: () => Promise<unknown>) => {
-    setBusy(true);
-    try {
-      await fn();
-      await reload();
-      toast.success("Настройки сохранены");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Не удалось сохранить");
-    } finally {
-      setBusy(false);
-    }
-  };
   if (error)
     return (
-      <p className="rounded-xl border p-5 text-sm text-muted-foreground">
-        {error}
-      </p>
+      <ProfileSection title="Оплата труда">
+        <p className="text-sm text-muted-foreground">{error}</p>
+      </ProfileSection>
     );
   if (!data)
     return (
-      <p className="p-5 text-sm text-muted-foreground">
+      <p className="py-5 text-sm text-muted-foreground">
         Загружаем условия оплаты…
       </p>
     );
+  const roles = (data.roles ?? []).filter((r) =>
+    data.models.some(
+      (m) => m.role_id === r.id && m.is_role_default && !m.archived,
+    ),
+  );
   return (
     <div className="space-y-6">
       <PayrollSetup data={data} onChange={reload} />
       <PayrollExperiencePolicy settings={data.settings} onChange={reload} />
       <DisciplineSettings />
       <AutomationSettings key={venueId} venueId={venueId} />
-      <section className="rounded-xl border p-5"><h2 className="font-semibold">Оплата должностей</h2><div className="mt-4 flex flex-wrap gap-2">{(data.roles??[]).filter(r=>data.models.some(m=>m.role_id===r.id&&m.is_role_default&&!m.archived)).map(r=><Button key={r.id} variant="outline" size="sm" asChild><Link href={`/people/roles/${r.id}?tab=compensation`}>{r.name}</Link></Button>)}</div></section>
+      <ProfileSection
+        title="Оплата должностей"
+        description="Условия оплаты задаются в карточке должности."
+      >
+        {roles.length ? (
+          <div className="flex flex-wrap gap-2">
+            {roles.map((r) => (
+              <Button key={r.id} variant="outline" size="sm" asChild>
+                <Link href={`/people/roles/${r.id}?tab=compensation`}>
+                  {r.name}
+                </Link>
+              </Button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Оплата пока не задана ни для одной должности
+          </p>
+        )}
+      </ProfileSection>
+      <TipSettings data={data} onSaved={reload} />
+      <PayrollInitialData venueId={venueId} />
+    </div>
+  );
+}
+
+function TipSettings({
+  data,
+  onSaved,
+}: {
+  data: PayrollData;
+  onSaved: () => Promise<void>;
+}) {
+  const saved = tipForm(data);
+  const [form, setForm] = useState<TipForm>(saved);
+  const [busy, setBusy] = useState(false);
+  // Свежие данные после сохранения — новая точка отсчёта для изменений.
+  const savedKey = JSON.stringify(saved);
+  useEffect(() => {
+    setForm(JSON.parse(savedKey) as TipForm);
+  }, [savedKey]);
+  const canPay =
+    data.permissions.includes("payroll.pay") &&
+    data.permissions.includes("finance.create_transaction");
+  const dirty = canPay && !sameTipForm(form, saved);
+  const blocked =
+    !form.category || !form.salaryCategory
+      ? "Выберите статьи чаевых и зарплаты"
+      : null;
+  const set = (patch: Partial<TipForm>) =>
+    setForm((current) => ({ ...current, ...patch }));
+  const save = async () => {
+    if (!canPay || blocked) return false;
+    setBusy(true);
+    try {
+      await payrollCommand("settings", {
+        tip_comments: form.comments
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean),
+        tip_category_id: form.category,
+        salary_category_id: form.salaryCategory,
+        cashbox_accounts: Object.fromEntries(
+          Object.entries(form.cashAccounts).filter(([, value]) => value),
+        ),
+      });
+      await onSaved();
+      toast.success("Настройки сохранены");
+      return true;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось сохранить");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+  const saveBar = useSaveSection({
+    dirty,
+    saving: busy,
+    blocked,
+    save,
+    reset: () => setForm(saved),
+  });
+  const cashboxes = [
+    ...new Set([
+      ...data.cashbox.map((c) => String(c.kkm_id)),
+      ...Object.keys(form.cashAccounts),
+    ]),
+  ];
+  const disabled = !canPay || busy;
+  return (
+    <ProfileSection
+      title="Выдача чаевых и финансы"
+      description="Распознаём точное совпадение комментария инкассации. Суммируем операции за рабочий день; до 100 ₽ включительно считаем округлением."
+    >
       <form
-        className="space-y-4 rounded-xl border p-5"
+        className="flex flex-col gap-4"
         onSubmit={(e) => {
+          // Enter в поле сохраняет, как кнопка в полосе.
           e.preventDefault();
-          void run(() =>
-            payrollCommand("settings", {
-              ...(data.permissions.includes("payroll.pay") &&
-              data.permissions.includes("finance.create_transaction")
-                ? {
-                    tip_comments: comments
-                      .split("\n")
-                      .map((s) => s.trim())
-                      .filter(Boolean),
-                    tip_category_id: category,
-                    salary_category_id: salaryCategory,
-                    cashbox_accounts: Object.fromEntries(
-                      Object.entries(cashAccounts).filter(([, value]) => value),
-                    ),
-                  }
-                : {}),
-            }),
-          );
+          if (dirty && !blocked && !busy) void save();
         }}
       >
-        <h2 className="font-semibold">Выдача чаевых и финансы</h2>
-        <p className="text-sm text-muted-foreground">
-          Распознаём точное совпадение комментария инкассации. Суммируем
-          операции за рабочий день; до 100 ₽ включительно считаем округлением.
-        </p>
-        <Label htmlFor="tip-comments">Комментарии · один на строку</Label>
-        <textarea
-          id="tip-comments"
-          className="min-h-20 w-full rounded-md border bg-background p-3 text-base md:text-sm"
-          value={comments}
-          onChange={(e) => setComments(e.target.value)}
-        />
+        <button type="submit" className="sr-only" tabIndex={-1} aria-hidden="true" />
+        {!canPay && (
+          <p className="text-[13px] text-muted-foreground">
+            Менять эти настройки могут те, у кого есть права на выплаты и
+            операции в финансах.
+          </p>
+        )}
+        <div className="space-y-2">
+          <Label htmlFor="tip-comments">Комментарии · один на строку</Label>
+          <Textarea
+            id="tip-comments"
+            className="min-h-20"
+            value={form.comments}
+            disabled={disabled}
+            onChange={(e) => set({ comments: e.target.value })}
+          />
+        </div>
         <div className="grid gap-4 md:grid-cols-2">
-          {[
-            ...new Set([
-              ...data.cashbox.map((c) => String(c.kkm_id)),
-              ...Object.keys(cashAccounts),
-            ]),
-          ].map((id) => (
+          {cashboxes.map((id) => (
             <div className="space-y-2" key={id}>
               <Label htmlFor={`tip-bank-${id}`}>Касса {id} · счёт выдачи</Label>
               <OptionSelect
                 id={`tip-bank-${id}`}
                 className={selectClass}
-                value={cashAccounts[id] ?? ""}
-                disabled={
-                  !data.permissions.includes("payroll.pay") ||
-                  !data.permissions.includes("finance.create_transaction")
-                }
+                value={form.cashAccounts[id] ?? ""}
+                disabled={disabled}
                 onValueChange={(v) =>
-                  setCashAccounts((current) => ({
-                    ...current,
-                    [id]: v,
-                  }))
+                  set({ cashAccounts: { ...form.cashAccounts, [id]: v } })
                 }
                 placeholder="Не настроен"
                 options={[
@@ -136,8 +243,8 @@ export function PayrollSettings({ venueId }: { venueId: string }) {
               />
             </div>
           ))}
-          {!data.cashbox.length && !Object.keys(cashAccounts).length && (
-            <p className="text-sm text-muted-foreground">
+          {!cashboxes.length && (
+            <p className="text-sm text-muted-foreground md:col-span-2">
               Кассы появятся после загрузки инкассаций Quick Resto.
             </p>
           )}
@@ -146,8 +253,9 @@ export function PayrollSettings({ venueId }: { venueId: string }) {
             <OptionSelect
               id="tip-category"
               className={selectClass}
-              value={category}
-              onValueChange={setCategory}
+              value={form.category}
+              disabled={disabled}
+              onValueChange={(category) => set({ category })}
               placeholder="Выберите статью"
               options={[
                 { value: "", label: "Выберите статью" },
@@ -160,8 +268,9 @@ export function PayrollSettings({ venueId }: { venueId: string }) {
             <OptionSelect
               id="salary-category"
               className={selectClass}
-              value={salaryCategory}
-              onValueChange={setSalaryCategory}
+              value={form.salaryCategory}
+              disabled={disabled}
+              onValueChange={(salaryCategory) => set({ salaryCategory })}
               placeholder="Выберите статью"
               options={[
                 { value: "", label: "Выберите статью" },
@@ -170,19 +279,8 @@ export function PayrollSettings({ venueId }: { venueId: string }) {
             />
           </div>
         </div>
-        <Button
-          disabled={
-            busy ||
-            (data.permissions.includes("payroll.pay") &&
-              data.permissions.includes("finance.create_transaction") &&
-              (!category || !salaryCategory))
-          }
-        >
-          Сохранить
-        </Button>
+        {saveBar}
       </form>
-      <PayrollInitialData venueId={venueId} />
-
-    </div>
+    </ProfileSection>
   );
 }

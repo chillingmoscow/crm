@@ -87,9 +87,8 @@ function candidateQuery(s: CandidateScope, filters: ListFilters) {
   if (!filters.sort?.some((s) => s.field === "submitted_at"))
     query = query.order("submitted_at", { ascending: false });
   query = query.order("id", { ascending: false });
-  query = filters.archive
-    ? query.or("archived_at.not.is.null")
-    : query.is("archived_at", null);
+  // Архива анкет нет, но в данных могут остаться записи с archived_at: они скрыты.
+  query = query.is("archived_at", null);
   const search = (filters.search ?? "")
     .replace(/[,()%_*\\]/g, " ")
     .trim()
@@ -179,11 +178,9 @@ export async function candidateList(
   filters: ListFilters = {},
 ): Promise<CandidatePage> {
   const s = await candidateScope();
-  if (filters.archive && !s.permissions.owner)
-    throw new Error("Архив доступен владельцу");
   return candidatePage(s, filters);
 }
-export async function candidateDetail(id: string): Promise<CandidateDetail> {
+export async function candidateDetail(id: string): Promise<CandidateDetail | null> {
   const s = await candidateScope();
   uuid.parse(id);
   const candidate = check(
@@ -192,10 +189,10 @@ export async function candidateDetail(id: string): Promise<CandidateDetail> {
       .select("*")
       .eq("id", id)
       .eq("account_id", s.accountId)
-      .single(),
+      .is("archived_at", null)
+      .maybeSingle(),
   );
-  if (candidate.archived_at && !s.permissions.owner)
-    throw new Error("Анкета в архиве");
+  if (!candidate) return null;
   const [comments, events, appointments, files, related, hire] =
     await Promise.all([
       s.db
@@ -226,6 +223,7 @@ export async function candidateDetail(id: string): Promise<CandidateDetail> {
             .eq("account_id", s.accountId)
             .eq("phone_normalized", candidate.phone_normalized)
             .neq("id", id)
+            .is("archived_at", null)
             .limit(20)
         : Promise.resolve({ data: [], error: null }),
       s.admin

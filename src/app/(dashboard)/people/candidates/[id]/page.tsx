@@ -22,6 +22,7 @@ export default async function CandidatePage({
     candidateDetail(id),
     candidateOptions(),
   ]);
+  if (!detail) notFound();
   return (
     <CandidateDetailClient
       initial={detail}

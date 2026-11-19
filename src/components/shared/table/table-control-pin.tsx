@@ -42,7 +42,7 @@ export function TableControlPin({
             className={cn(
               "inline-flex h-8 max-w-[260px] items-center gap-1.5 rounded-full border px-3 text-sm transition-colors",
               active
-                ? cn("border-brand/20 bg-brand/10 text-brand hover:bg-brand/15", onClear ? "pr-8" : null)
+                ? cn("border-brand/20 bg-brand/10 text-brand-tint-foreground hover:bg-brand/15", onClear ? "pr-8" : null)
                 : "border-transparent bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground",
               className,
             )}

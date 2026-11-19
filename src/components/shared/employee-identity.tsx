@@ -15,7 +15,7 @@ export function EmployeeIdentity({
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   return (
     <span className="flex min-w-0 items-center gap-3">
-      <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 text-xs font-medium text-brand">
+      <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 text-xs font-medium text-brand-tint-foreground">
         {avatarUrl && failedUrl !== avatarUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img

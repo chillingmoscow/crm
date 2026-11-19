@@ -758,7 +758,7 @@ function SidebarBody({
                     {userName}
                   </span>
                   {userEmail && (
-                    <span className="truncate text-[11px] text-muted-foreground leading-tight">
+                    <span className="truncate text-xs text-muted-foreground leading-tight">
                       {userEmail}
                     </span>
                   )}
@@ -801,7 +801,7 @@ function FlatExpandedLink({
       className={cn(
         // Match ExpandedSection trigger geometry so flat + nested
         // sections sit on the same baseline.
-        "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[14px] font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
+        "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
         isActive && "bg-sidebar-accent text-sidebar-accent-foreground",
       )}
     >
@@ -878,14 +878,14 @@ function ExpandedSection({
         aria-expanded={isOpen}
         className={cn(
           // Trigger: padding [8,10], gap 10, font 14/500, rounded 8
-          "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[14px] font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
+          "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
           hasActiveChild && !isOpen && "bg-sidebar-accent",
         )}
       >
         <SectionIcon className="w-[18px] h-[18px] shrink-0" />
         <span className="flex-1 text-left">{section.label}</span>
         {sectionBadge > 0 && (
-          <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-primary text-primary-foreground text-[11px] font-semibold px-1.5">
+          <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-primary text-primary-foreground text-xs font-semibold px-1.5">
             {sectionBadge}
           </span>
         )}
@@ -915,7 +915,7 @@ function ExpandedSection({
                 >
                   <span className="flex-1 truncate">{item.title}</span>
                   {item.badge !== undefined && (
-                    <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-primary text-primary-foreground text-[11px] font-semibold px-1.5">
+                    <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-primary text-primary-foreground text-xs font-semibold px-1.5">
                       {item.badge}
                     </span>
                   )}
@@ -1007,7 +1007,7 @@ function CollapsedSectionFlyout({
                 <ItemIcon className="w-4 h-4 shrink-0" />
                 <span className="flex-1 truncate">{item.title}</span>
                 {item.badge !== undefined && (
-                  <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-primary text-primary-foreground text-[11px] font-semibold px-1.5">
+                  <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-primary text-primary-foreground text-xs font-semibold px-1.5">
                     {item.badge}
                   </span>
                 )}
@@ -1124,7 +1124,7 @@ function ProfileMenu({
         <Link
           href="/profile"
           onClick={onClose}
-          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium hover:bg-accent transition-colors"
+          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium hover:bg-accent transition-colors"
         >
           <Settings className="w-3.5 h-3.5 text-muted-foreground" />
           <span className="flex-1">Настройки профиля</span>
@@ -1135,7 +1135,7 @@ function ProfileMenu({
             onClose();
             onOpenSupport();
           }}
-          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium hover:bg-accent transition-colors w-full text-left"
+          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium hover:bg-accent transition-colors w-full text-left"
         >
           <LifeBuoy className="w-3.5 h-3.5 text-muted-foreground" />
           <span className="flex-1">Помощь и поддержка</span>
@@ -1153,11 +1153,11 @@ function ProfileMenu({
             // TODO: open hotkeys modal — placeholder for now
             window.dispatchEvent(new CustomEvent("hotkeys:open"));
           }}
-          className="hide-on-coarse-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium hover:bg-accent transition-colors w-full text-left"
+          className="hide-on-coarse-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium hover:bg-accent transition-colors w-full text-left"
         >
           <Keyboard className="w-3.5 h-3.5 text-muted-foreground" />
           <span className="flex-1">Горячие клавиши</span>
-          <kbd className="inline-flex items-center px-1 py-px rounded-[3px] bg-muted border border-border text-[9px] font-semibold text-muted-foreground font-mono">
+          <kbd className="inline-flex items-center px-1 py-px rounded-sm bg-muted border border-border text-xs font-semibold text-muted-foreground font-mono">
             Shift ?
           </kbd>
         </button>
@@ -1176,7 +1176,7 @@ function ProfileMenu({
             onSignOut();
           }}
           className={
-            "flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-semibold transition-colors w-full text-left " +
+            "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-semibold transition-colors w-full text-left " +
             (isImpersonating
               ? "text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-500/15"
               : "text-destructive hover:bg-destructive/5")
@@ -1219,7 +1219,7 @@ function ThemeSwitcher() {
         modern && appearance.themeSwitcher,
       )}
     >
-      <span className="text-[11px] font-medium text-muted-foreground">
+      <span className="text-xs font-medium text-muted-foreground">
         {modern ? "Тема оформления" : "Тема"}
       </span>
       <div className="flex items-center gap-px p-0.5 rounded-md bg-muted">
@@ -1234,7 +1234,7 @@ function ThemeSwitcher() {
               aria-pressed={active}
               data-tip={modern ? undefined : label}
               className={cn(
-                "flex items-center justify-center px-2 py-1 rounded-[5px] transition-colors",
+                "flex items-center justify-center px-2 py-1 rounded-sm transition-colors",
                 active
                   ? "bg-background text-foreground border border-border shadow-sm"
                   : "text-muted-foreground hover:text-foreground",

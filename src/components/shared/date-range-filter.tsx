@@ -123,7 +123,7 @@ export function DateRangeFilter({
               "rounded-full h-8 pl-3 font-normal text-sm",
               monthOnly ? "pr-3" : "pr-8",
               hasValue
-                ? "bg-brand/10 border-brand/20 text-brand hover:bg-brand/15 hover:text-brand"
+                ? "bg-brand/10 border-brand/20 text-brand-tint-foreground hover:bg-brand/15 hover:text-brand-tint-foreground"
                 : "bg-muted/60 border-transparent text-muted-foreground hover:bg-muted",
             )}
           >

@@ -476,7 +476,7 @@ function Reactions({
             className={cn(
               "inline-flex items-center gap-1 h-6 px-1.5 rounded-md border text-[12px] transition-colors",
               isMine
-                ? "bg-brand/10 border-brand/40 text-brand hover:bg-brand/15"
+                ? "bg-brand/10 border-brand/40 text-brand-tint-foreground hover:bg-brand/15"
                 : "bg-muted/50 border-border hover:bg-accent",
             )}
           >

@@ -260,7 +260,7 @@ export function RolesClient({
             <span
               className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${
                 role.code === "owner"
-                  ? "bg-brand/10 text-brand"
+                  ? "bg-brand/10 text-brand-tint-foreground"
                   : `bg-muted ${tint || "text-muted-foreground"}`
               }`}
             >

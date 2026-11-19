@@ -133,7 +133,7 @@ export function TableSearchPin({
   onClear: () => void;
 }) {
   return (
-    <span className="inline-flex h-8 max-w-64 items-center gap-1 rounded-full border border-brand/20 bg-brand/10 pl-3 pr-1 text-sm text-brand">
+    <span className="inline-flex h-8 max-w-64 items-center gap-1 rounded-full border border-brand/20 bg-brand/10 pl-3 pr-1 text-sm text-brand-tint-foreground">
       <span className="truncate">Поиск: «{value}»</span>
       <button
         type="button"

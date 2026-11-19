@@ -18,7 +18,7 @@ import { hotkeyGroupsForPath } from "@/lib/hotkeys";
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="inline-flex min-w-[20px] items-center justify-center px-1.5 py-px rounded-[4px] bg-muted border border-border text-[11px] font-semibold text-muted-foreground font-mono">
+    <kbd className="inline-flex min-w-[20px] items-center justify-center px-1.5 py-px rounded-sm bg-muted border border-border text-xs font-semibold text-muted-foreground font-mono">
       {children}
     </kbd>
   );
@@ -62,7 +62,7 @@ function HotkeysDialog({
         <div className="mt-2 flex flex-col gap-6">
           {groups.map((group) => (
             <section key={group.title}>
-              <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {group.title}
               </h3>
               <ul className="flex flex-col">

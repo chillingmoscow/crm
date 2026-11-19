@@ -36,7 +36,7 @@ export function PayrollTransferDrawer({data, month, employeeId, onClose, onChang
   const requestKey = useRef<string | null>(null);
   const row = rows.find((r) => r.employee.id === employee);
   const pending = data.legacyPayments.some((p) => p.employee_id === employee && p.month === month && p.state === "review");
-  const known = Boolean(row?.employee.opening_confirmed && !pending);
+  const known = Boolean(row && !pending);
   const remaining = row?.remaining ?? 0;
   const numeric = Number(value.replace(/\s/g, "").replace(",", "."));
   const valid = known && numeric > 0 && numeric <= Math.abs(remaining) && reason.trim().length >= 3 && dateMonth(target) > month;

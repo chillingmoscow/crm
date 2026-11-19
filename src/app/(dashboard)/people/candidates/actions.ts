@@ -59,7 +59,9 @@ export async function countNewCandidates() {
   return typeof count === "number" ? count : 0;
 }
 export async function getCandidate(id: string) {
-  return candidateDetail(uuid.parse(id));
+  const detail = await candidateDetail(uuid.parse(id));
+  if (!detail) throw new Error("Анкета не найдена");
+  return detail;
 }
 export async function getCandidateOptions() {
   return candidateOptions();
@@ -151,12 +153,8 @@ export async function editCandidateComment(candidateId: string, commentId: strin
   }));
   revalidatePath("/people/candidates", "layout");
 }
-export async function candidateLifecycle(
-  id: string,
-  action: "archive" | "restore" | "delete",
-) {
-  z.enum(["archive", "restore", "delete"]).parse(action);
-  return command(action, uuid.parse(id), {});
+export async function deleteCandidate(id: string) {
+  return command("delete", uuid.parse(id), {});
 }
 export async function deleteCandidates(ids: string[]) {
   const selected = z.array(uuid).min(1).max(100).parse(ids);

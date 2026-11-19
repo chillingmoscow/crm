@@ -186,7 +186,6 @@ export type ListFilters = {
   position?: string;
   from?: string;
   to?: string;
-  archive?: boolean;
   page?: number;
   pageSize?: number;
   sort?: CandidateSort[];

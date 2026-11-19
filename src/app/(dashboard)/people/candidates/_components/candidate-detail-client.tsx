@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { StatusBadge } from "@/components/ui/status-badge";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -39,7 +38,7 @@ import {
   getCandidate,
   getCandidateOptions,
   uploadCandidateFile,
-  candidateLifecycle,
+  deleteCandidate,
   getCandidateDoorCode,
 } from "../actions";
 import { canScheduleCandidateTrial, interviewFeedbackEntries } from "@/lib/candidates/workflow";
@@ -88,6 +87,7 @@ const events: Record<string, string> = {
   commented: "Добавлен комментарий",
   comment_updated: "Комментарий изменён",
   comment_deleted: "Комментарий удалён",
+  // Архива анкет больше нет; подписи нужны для старых записей истории.
   archived: "Анкета архивирована",
   restored: "Анкета восстановлена",
   file_added: "Добавлен файл",
@@ -118,7 +118,7 @@ export function CandidateDetailClient({
     } | null>(null);
   const c = data.candidate,
     photo = data.files.find((file) => file.url && file.mime_type?.startsWith("image/"))?.url,
-    canEdit = permissions.manage && !c.archived_at;
+    canEdit = permissions.manage;
   const refresh = async () => {
     const [next, ctx] = await Promise.all([
       getCandidate(c.id),
@@ -188,7 +188,7 @@ export function CandidateDetailClient({
                   Открыть сотрудника
                 </Link>
               </Button>
-            ) : permissions.hire && options.venues.some(v => v.can_hire) && !c.archived_at && (c.status === "trial" || data.hire?.state === "reserved") ? (
+            ) : permissions.hire && options.venues.some(v => v.can_hire) && (c.status === "trial" || data.hire?.state === "reserved") ? (
               <span data-tip={c.status !== "trial" ? "Приём на работу доступен на этапе «Стажировка»" : undefined} className="inline-flex">
                 <Button
                   disabled={c.status !== "trial" && data.hire?.state !== "reserved"}
@@ -240,7 +240,6 @@ export function CandidateDetailClient({
             }}
             onRefresh={() => void refresh()}
           />
-          {c.archived_at && <StatusBadge>В архиве</StatusBadge>}
         </ProfileHeader>
         {data.related.length ? (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
@@ -537,7 +536,7 @@ export function CandidateDetailClient({
               : undefined
         }
         onConfirm={async () => {
-          await candidateLifecycle(c.id, "delete");
+          await deleteCandidate(c.id);
           window.dispatchEvent(new Event("candidates:changed"));
           toast.success("Анкета удалена");
           router.push("/people/candidates");

@@ -70,7 +70,7 @@ export function EmployeePay({ data, employee, month, onChange, fullPage = false,
     const shifts = useMemo(() => accruals.filter(isShiftAccrual), [accruals]);
     const row = statementRows([employee], data.accruals, data.adjustments, data.payments, data.allocations, month, data.transfers, data.settings?.starts_on)[0];
     const pending = data.legacyPayments.some(p => p.employee_id === employee.id && p.month === month && p.state === "review");
-    const balanceKnown = !pending && employee.opening_confirmed;
+    const balanceKnown = !pending;
     const remaining = row?.remaining ?? 0;
     const canReview = data.permissions.includes("payroll.review"), canPay = data.permissions.includes("payroll.pay") && data.permissions.includes("finance.create_transaction");
     const setConditions = onConditionsOpenChange ?? setOwnConditions;
@@ -117,7 +117,7 @@ export function EmployeePay({ data, employee, month, onChange, fullPage = false,
   </Tabs>
   <PayrollDetailDialog open={breakdown} onOpenChange={setBreakdown} title="Начисления за месяц" description={new Date(`${month}T12:00:00Z`).toLocaleDateString("ru-RU", { month: "long", year: "numeric", timeZone: "UTC" })} employee={{ name: employee.name, role: employee.role_name, avatarUrl: employee.avatar_url }} amount={<Money value={row?.earned ?? 0} />} amountLabel="Всего начислено">
    {[...sums].map(([label, value]) => <div key={label} className={s.breakdown}><span>{label}</span><strong><Money value={value} /></strong></div>)}
-   <div className={s.breakdown}><span>Перенос в этот месяц</span><strong><Money value={employee.opening_confirmed ? row?.opening ?? 0 : null} /></strong></div>
+   <div className={s.breakdown}><span>Перенос в этот месяц</span><strong><Money value={row?.opening ?? 0} /></strong></div>
    {!!row?.transferredOut && <div className={s.breakdown}><span>Перенесено далее</span><strong><Money value={row.transferredOut} /></strong></div>}
    {issues.length > 0 && <details className={s.issue}><summary>Данные, требующие внимания · {issues.length}</summary>{issues.map(i => <p key={i}>{i}</p>)}</details>}
   </PayrollDetailDialog>

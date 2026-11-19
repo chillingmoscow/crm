@@ -2,6 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { isStaffPlaceholderEmail } from "@/lib/people/staff-identity";
+import { genderSchema, type Gender } from "@/lib/people/gender";
 
 import {
   createClient,
@@ -140,6 +141,12 @@ export async function updateStaffProfile(
   userId: string,
   data: Partial<ProfileUpdate>
 ): Promise<{ error: string | null }> {
+  // Пол обязателен: если форма его передаёт, то только male / female —
+  // очистить пол у сотрудника нельзя.
+  if ("gender" in data) {
+    const gender = genderSchema.safeParse(data.gender);
+    if (!gender.success) return { error: gender.error.issues[0].message };
+  }
   const supabase = await createClient();
   const { error } = await supabase
     .from("profiles")
@@ -410,6 +417,7 @@ function isValidEmail(value: string): boolean {
 export async function createStaffWithoutEmail(data: {
   firstName: string;
   lastName:  string;
+  gender:    Gender;
   phone:     string | null;
   roleId:    string;
   venueId:   string;
@@ -424,6 +432,10 @@ export async function createStaffWithoutEmail(data: {
   const lastName  = data.lastName.trim();
   if (!firstName || !lastName) {
     return { error: "Имя и фамилия обязательны", member: null };
+  }
+  const gender = genderSchema.safeParse(data.gender);
+  if (!gender.success) {
+    return { error: gender.error.issues[0].message, member: null };
   }
 
   // Проверка прав: вызывающий должен быть owner/manager/admin в этом venue.
@@ -469,6 +481,7 @@ export async function createStaffWithoutEmail(data: {
       id:          newUserId,
       first_name:  firstName,
       last_name:   lastName,
+      gender:      gender.data,
       phone:       data.phone?.trim() || null,
     }, { onConflict: "id" });
 
@@ -524,7 +537,7 @@ export async function createStaffWithoutEmail(data: {
     avatar_url:      null,
     phone:           data.phone?.trim() || null,
     telegram_id:     null,
-    gender:          null,
+    gender:          gender.data,
     birth_date:      null,
     employment_date:   uvrInsert.created_at?.slice(0, 10) ?? null,
     medical_book_date: null,

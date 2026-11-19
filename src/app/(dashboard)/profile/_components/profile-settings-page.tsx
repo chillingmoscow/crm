@@ -18,13 +18,8 @@ import { Input } from "@/components/ui/input";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Field } from "@/components/ui/field";
+import { OptionSelect } from "@/components/ui/option-select";
 import {
   Dialog,
   DialogContent,
@@ -35,6 +30,12 @@ import {
 } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
 import { translateError } from "@/lib/i18n/translate-error";
+import {
+  GENDER_OPTIONS,
+  genderFormField,
+  genderFormValue,
+  type Gender,
+} from "@/lib/people/gender";
 import { updateOwnProfile, type OwnProfile } from "../actions";
 import { requestEmailChange } from "../email-change-actions";
 
@@ -43,7 +44,7 @@ const schema = z.object({
   last_name:   z.string().min(1, "Обязательное поле"),
   phone:       z.string().optional(),
   telegram_id: z.string().optional(),
-  gender:      z.enum(["male", "female", ""]).optional(),
+  gender:      genderFormField,
   birth_date:  z.string().optional(),
   address:     z.string().optional(),
 });
@@ -195,7 +196,7 @@ export function ProfileSettingsPage({
 
   const photoInputRef = useRef<HTMLInputElement>(null);
 
-  const { register, handleSubmit, setValue, control, formState: { errors } } =
+  const { register, handleSubmit, control, formState: { errors } } =
     useForm<FormValues>({
       resolver: zodResolver(schema),
       defaultValues: {
@@ -203,7 +204,7 @@ export function ProfileSettingsPage({
         last_name:   profile.last_name ?? "",
         phone:       profile.phone ?? "",
         telegram_id: profile.telegram_id ?? "",
-        gender:      (profile.gender as "male" | "female" | "") ?? "",
+        gender:      genderFormValue(profile.gender),
         birth_date:  profile.birth_date ?? "",
         address:     profile.address ?? "",
       },
@@ -251,7 +252,7 @@ export function ProfileSettingsPage({
         last_name:   values.last_name,
         phone:       values.phone || null,
         telegram_id: values.telegram_id || null,
-        gender:      values.gender || null,
+        gender:      values.gender as Gender,
         birth_date:  values.birth_date || null,
         address:     values.address || null,
       });
@@ -455,71 +456,71 @@ export function ProfileSettingsPage({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="first_name" className="text-[13px] font-medium">Имя</Label>
-              <Input id="first_name" {...register("first_name")} />
-              {errors.first_name && (
-                <p className="text-xs text-destructive">{errors.first_name.message}</p>
+          <div className="grid grid-cols-2 items-start gap-3">
+            <Field id="first_name" label="Имя" required error={errors.first_name?.message}>
+              {(fieldProps) => (
+                <Input {...fieldProps} aria-required {...register("first_name")} />
               )}
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="last_name" className="text-[13px] font-medium">Фамилия</Label>
-              <Input id="last_name" {...register("last_name")} />
-              {errors.last_name && (
-                <p className="text-xs text-destructive">{errors.last_name.message}</p>
+            </Field>
+            <Field id="last_name" label="Фамилия" required error={errors.last_name?.message}>
+              {(fieldProps) => (
+                <Input {...fieldProps} aria-required {...register("last_name")} />
               )}
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[13px] font-medium">Пол</Label>
-              <Select
-                defaultValue={profile.gender ?? ""}
-                onValueChange={(v) => setValue("gender", v as "male" | "female" | "")}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Не указан" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="male">Мужской</SelectItem>
-                  <SelectItem value="female">Женский</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="birth_date" className="text-[13px] font-medium">
-                Дата рождения
-              </Label>
-              <Controller
-                control={control}
-                name="birth_date"
-                render={({ field }) => (
-                  <DatePicker
-                    id="birth_date"
-                    value={field.value ?? ""}
-                    onChange={field.onChange}
-                    placeholder="Выберите дату"
-                    toDate={new Date()}
-                  />
-                )}
-              />
-              {/* Подпись «когда был последний раз изменён». Видна
-                  только если ДР МЕНЯЛИ (set_at не равен created_at).
-                  При первом заполнении не показываем — нет смысла
-                  социально «помечать» нормальное действие. Социальный
-                  гард от фрода с поздравлениями: повторно перевыставить
-                  дату чтобы получить подарок второй раз — заметно.
-                  Сам limit «раз в год» живёт в trg_profiles_birth_date_yearly_limit
-                  (миграция 142). */}
-              {profile.birth_date_set_at && (
-                <p className="text-[11px] text-muted-foreground">
-                  Изменено{" "}
-                  {new Date(profile.birth_date_set_at).toLocaleDateString(
-                    "ru-RU",
-                    { day: "2-digit", month: "2-digit", year: "numeric" },
+            </Field>
+            <Field id="gender" label="Пол" required error={errors.gender?.message}>
+              {(fieldProps) => (
+                <Controller
+                  control={control}
+                  name="gender"
+                  render={({ field }) => (
+                    <OptionSelect
+                      {...fieldProps}
+                      aria-required
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      placeholder="Выберите пол"
+                      options={GENDER_OPTIONS}
+                    />
                   )}
-                </p>
+                />
               )}
-            </div>
+            </Field>
+            {/* Подпись «когда был последний раз изменён». Видна
+                только если ДР МЕНЯЛИ (set_at не равен created_at).
+                При первом заполнении не показываем — нет смысла
+                социально «помечать» нормальное действие. Социальный
+                гард от фрода с поздравлениями: повторно перевыставить
+                дату чтобы получить подарок второй раз — заметно.
+                Сам limit «раз в год» живёт в trg_profiles_birth_date_yearly_limit
+                (миграция 142). */}
+            <Field
+              id="birth_date"
+              label="Дата рождения"
+              hint={
+                profile.birth_date_set_at
+                  ? `Изменено ${new Date(profile.birth_date_set_at).toLocaleDateString(
+                      "ru-RU",
+                      { day: "2-digit", month: "2-digit", year: "numeric" },
+                    )}`
+                  : undefined
+              }
+            >
+              {(fieldProps) => (
+                <Controller
+                  control={control}
+                  name="birth_date"
+                  render={({ field }) => (
+                    <DatePicker
+                      {...fieldProps}
+                      value={field.value ?? ""}
+                      onChange={field.onChange}
+                      placeholder="Выберите дату"
+                      toDate={new Date()}
+                    />
+                  )}
+                />
+              )}
+            </Field>
           </div>
         </FormSection>
 

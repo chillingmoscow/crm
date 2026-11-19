@@ -137,7 +137,7 @@
   height: 32px;
   border-radius: 50%;
   background: hsl(var(--brand) / 0.08);
-  color: hsl(var(--brand));
+  color: hsl(var(--brand-text));
   font-size: 12px;
   font-weight: 500;
 }

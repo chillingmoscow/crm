@@ -42,7 +42,7 @@ export function TableControlPin({
             className={cn(
               "inline-flex h-8 max-w-[260px] items-center gap-1.5 rounded-full border px-3 text-sm transition-colors",
               active
-                ? cn("border-brand/20 bg-brand/10 text-brand-tint-foreground hover:bg-brand/15", onClear ? "pr-8" : null)
+                ? cn("border-brand/20 bg-brand/10 text-brand hover:bg-brand/15", onClear ? "pr-8" : null)
                 : "border-transparent bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground",
               className,
             )}
@@ -60,7 +60,7 @@ export function TableControlPin({
               event.stopPropagation();
               onClear();
             }}
-            className="absolute right-1.5 top-1/2 inline-flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand/90"
+            className="absolute right-1.5 top-1/2 inline-flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand-hover"
           >
             <X className="h-3 w-3" />
           </button>

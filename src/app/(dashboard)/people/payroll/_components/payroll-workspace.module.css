@@ -282,7 +282,7 @@
   background: transparent;
   padding: 0;
   font-size: 12px;
-  color: hsl(var(--brand));
+  color: hsl(var(--brand-text));
   text-align: left;
 }
 .roleBars > .moreRoles:hover {
@@ -954,7 +954,7 @@
 }
 .mainMetric .metricLabel,
 .mainMetric .metricLabel > svg {
-  color: hsl(var(--brand));
+  color: hsl(var(--brand-text));
 }
 .metric strong > span {
   color: hsl(var(--muted-foreground));
@@ -965,7 +965,7 @@
 }
 .monthGrid > .selectedMonth {
   background: hsl(var(--brand) / 0.1);
-  color: hsl(var(--brand));
+  color: hsl(var(--brand-text));
   border-color: hsl(var(--brand) / 0.2);
 }
 .pickerHeading > button:hover,
@@ -974,7 +974,7 @@
 }
 
 .appliedFilter {
-  color: hsl(var(--brand));
+  color: hsl(var(--brand-text));
   background: hsl(var(--brand) / 0.06);
   border-color: hsl(var(--brand) / 0.2);
 }
@@ -995,7 +995,7 @@
 }
 .shiftBack,
 .fullDetailLink {
-  color: hsl(var(--brand));
+  color: hsl(var(--brand-text));
 }
 @media (max-width: 1150px) {
   .metric {

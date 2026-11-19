@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { DragEvent, ReactNode } from "react";
 import { ColorDot } from "@/components/ui/color-dot";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,9 +10,20 @@ import { dateInZone, dayLabel } from "@/lib/schedule/utils";
 import { isoWeekday } from "./editors";
 import { TemplateName } from "./template-name";
 
+/** Перетаскивание в слот «шаблон × день» (только таблица, на md+). */
+export type SlotDrop = {
+  onDragOver: (e: DragEvent) => void;
+  onDragLeave: (e: DragEvent) => void;
+  onDrop: (e: DragEvent) => void;
+  /** Курсор над этой ячейкой: можно бросить или нельзя. */
+  target: "ok" | "refused" | null;
+  /** Тень или запрет поверх ячейки — не в потоке, строка не растёт. */
+  ghost: ReactNode;
+};
+
 export function TemplateWeek({
   days, today, timezone, templates, shifts, visibleShifts, tasks, showVacancies,
-  onAssign, renderShift, renderTask, empty,
+  onAssign, slotDrop, renderShift, renderTask, empty,
 }: {
   days: string[];
   today: string;
@@ -23,6 +34,7 @@ export function TemplateWeek({
   tasks: TaskOccurrence[];
   showVacancies: boolean;
   onAssign?: (day: string, template: ShiftTemplate) => void;
+  slotDrop?: (day: string, template: ShiftTemplate) => SlotDrop;
   renderShift: (shift: Shift, showTitle?: boolean) => ReactNode;
   renderTask: (task: TaskOccurrence) => ReactNode;
   empty: ReactNode;
@@ -90,7 +102,7 @@ export function TemplateWeek({
   );
   /** Пустой слот: тихое время слота; «+» при наведении и фокусе, на телефоне
    *  виден всегда (наведения нет). */
-  const slotButton = (day: string, template: ShiftTemplate, time: string, mobile = false) => onAssign && (
+  const slotButton = (day: string, template: ShiftTemplate, time: string, mobile = false, covered = false) => onAssign && (
     <Button
       variant="ghost"
       size="sm"
@@ -100,6 +112,8 @@ export function TemplateWeek({
       className={cn(
         "group/slot relative w-full px-1 text-xs font-normal tabular-nums text-muted-foreground/70 hover:text-foreground",
         mobile ? "touch-target h-10 justify-start px-2" : "h-8",
+        // Под «тенью» кнопку прячем, но место оставляем.
+        covered && "invisible",
       )}
     >
       {time}
@@ -189,7 +203,7 @@ export function TemplateWeek({
               Шаблоны смен · {rows.length}
             </th>
             {days.map((day) => (
-              <th key={day} scope="col" className={cn("border-b border-l px-2 py-3 text-center text-xs font-medium", day === today && "bg-brand/10 text-brand-tint-foreground")}>
+              <th key={day} scope="col" className={cn("border-b border-l px-2 py-3 text-center text-xs font-medium", day === today && "bg-brand/10 text-brand")}>
                 {dayLabel(day, { weekday: "short", day: "numeric" })}
               </th>
             ))}
@@ -208,13 +222,26 @@ export function TemplateWeek({
                 const times = templateTimesFor(template, isoWeekday(day));
                 const key = slotKey(template.id, day);
                 const shift = cells.get(key);
-                if (!times) return <td key={day} className={cellClass(day)} />;
+                const drop = slotDrop?.(day, template);
+                const dropProps = drop && {
+                  onDragOver: drop.onDragOver,
+                  onDragLeave: drop.onDragLeave,
+                  onDrop: drop.onDrop,
+                };
+                const tdClass = cn(
+                  cellClass(day),
+                  "relative transition-colors",
+                  drop?.target === "ok" && "bg-brand/[0.06]",
+                  drop?.target === "refused" && "bg-destructive/[0.04]",
+                );
+                if (!times) return <td key={day} className={tdClass} {...dropProps}>{drop?.ghost}</td>;
                 const time = `${times.start_time.slice(0, 5)}–${times.end_time.slice(0, 5)}`;
                 return (
-                  <td key={day} className={cellClass(day)}>
+                  <td key={day} className={tdClass} {...dropProps}>
+                    {drop?.ghost}
                     <div className="grid gap-1.5">
                       {shift && visibleIds.has(shift.id) && shiftWithTasks(shift)}
-                      {!shift && showVacancies && slotButton(day, template, time)}
+                      {!shift && showVacancies && slotButton(day, template, time, false, Boolean(drop?.target))}
                       {(tasksBySlot.get(key) ?? []).map(renderTask)}
                     </div>
                   </td>

@@ -27,8 +27,42 @@
 
 | Токен | Hex | Где использовать |
 |---|---|---|
-| **`brand`** (`bg-brand`, `text-brand`) | `#1570EF` | **ВСЕ CTA**: «Сохранить», «Добавить», «Создать», «Пригласить». Активные состояния, ссылки, notification dots, brand-tinted backgrounds (`bg-brand/10` ≈ `#1570ef14`). Дефолтный variant `<Button>` уже использует brand. |
+| **`brand`** (`bg-brand`, `text-brand`) | `#1570EF` | **ВСЕ CTA**: «Сохранить», «Добавить», «Создать», «Пригласить». Активные состояния, ссылки, notification dots, brand-tinted backgrounds (`bg-brand/10` ≈ `#1570ef14`). Дефолтный variant `<Button>` уже использует brand. Как устроены заливка и текст — см. «Синий: заливка и текст» ниже. |
 | `primary` (`bg-primary`) | `#1d4ed8` | Внутренний токен дизайн-системы shadcn. **НЕ для CTA.** Допустимо для нейтральных «акцентных» поверхностей (например, иконка раздела в подложке). Если сомневаешься — бери `brand`. |
+
+### Синий: заливка и текст
+
+У brand три значения, и каждое отвечает за своё:
+
+| Переменная | Light | Dark | Утилиты | Для чего |
+|---|---|---|---|---|
+| `--brand` | `215 89% 51%` (`#1570EF`) | то же | `bg-brand`, `bg-brand/N`, `border-brand`, `ring-brand`, `fill-`/`stroke-brand` | Заливка кнопок, рамки и фокус, подложки, точки, графики |
+| `--brand-hover` | `215 89% 46%` | то же | `hover:bg-brand-hover` | Заливка brand-кнопки при наведении |
+| `--brand-text` | `215 89% 43%` | `217 91% 72%` | `text-brand` (и `hover:`/`group-hover:`) | **Любой синий текст и иконки**: ссылки, активные вкладки и пункты меню, выбранная тема, текст и иконки на синей подложке, бейдж `info`, пины |
+
+- `text-brand` в Tailwind берёт **текстовый** оттенок `--brand-text`, а не
+  заливку (переопределение `textColor` в `tailwind.config.ts`). Заливка как
+  цвет текста не дотягивает до AA (4,4:1 на фоне, 3,8:1 на `bg-brand/10`).
+  Пиши `text-brand` везде, где синий — это текст или иконка; отдельного
+  токена «текст на подложке» нет, один оттенок проходит AA на всех
+  поверхностях:
+
+  | Текст `text-brand` на | Light | Dark |
+  |---|---|---|
+  | фоне страницы | 5,75 | 8,2 |
+  | карточке / поповере | 5,75 | 7,4 |
+  | серой строке (`muted`) | 5,5 | 6,2 |
+  | `bg-brand/10` | 5,0 | 6,8 |
+  | `bg-brand/15` | 4,7 | 6,4 |
+  | `bg-brand/30` (плитка «Синий» в dark) | — | 5,3 |
+
+- В CSS-модулях синий текст — `color: hsl(var(--brand-text))`, заливка и
+  рамки — `hsl(var(--brand) / …)`.
+- Белый текст на `bg-brand` — 4,6:1, на `bg-brand-hover` — 5,4:1. Наведение
+  у заливных brand-кнопок — `hover:bg-brand-hover`, **не** `hover:bg-brand/90`:
+  прозрачность осветляет кнопку, и белый текст падает до 3,9:1.
+- Не пиши синий текст полупрозрачным (`text-brand/80`): он теряет AA.
+  Приглушённые иконки (`text-brand/60`) и неактивные состояния — допустимо.
 
 Остальные:
 
@@ -68,25 +102,20 @@
    - `--background` — страница (`#09090b`)
    - `--card` — карточки/попоперы (`#18181b`)
    - `--muted` — выделение, header строк, sticky-row (`#27272a`)
-3. **Brand и destructive светлее в dark** для контраста на тёмных
+3. **Синий текст и destructive светлее в dark** для контраста на тёмных
    поверхностях:
-   - `--brand` light `#1570EF` → dark `#3b82f6`
+   - `--brand-text` light `215 89% 43%` → dark `217 91% 72%`
    - `--destructive` light `#e7000b` → dark `#ef4444`
+   - Заливка `--brand` в dark та же, что в light (`#1570EF`): на прежнем
+     `#3b82f6` белый текст кнопок был 3,6:1, на `#1570EF` — 4,6:1. Рамки и
+     фокус brand на тёмных поверхностях — 3,9:1 и выше (норма 3:1).
 4. **Пастельные tint'ы (`#dbeafe`, `#FEE2E2`) в dark не работают.** Замена:
    полупрозрачный brand (`bg-brand/20` ≈ `#3b82f633`) или dark-saturated
    (`#1e3a8a`).
    - Синий **текст на синей подложке** (`bg-brand/5`–`/15`, в dark и
-     `bg-brand/30`) — всегда `text-brand-tint-foreground`
-     (`--brand-tint-foreground`: light `215 89% 42%`, dark `217 91% 78%`),
-     а не `text-brand`, и `hover:text-brand-tint-foreground` у таких элементов.
-     Brand на своей подложке даёт 3,4–4:1, токен — 4,7–5,4:1 в светлой и
-     6,3–9:1 в тёмной теме (WCAG AA для текста — 4,5:1). Где действует:
-     тон `info` в `StatusBadge`, активный `TableControlPin` и `TableFilterChip`,
-     чипы ряда условий, счётчики на синей подложке (уведомления), инициалы в
-     синем кружке, плитка владельца в «Должностях», активный пункт меню и
-     выбранный вид уведомлений, карточки смен, «сегодня» в шапке расписания,
-     плитки палитры «Синий» (`paletteText("blue")`). В CSS-модулях —
-     `color: hsl(var(--brand-tint-foreground))`.
+     `bg-brand/30`) — обычный `text-brand`: его оттенок `--brand-text`
+     проходит AA и там (таблица в «Синий: заливка и текст»). Прежний
+     отдельный `text-brand-tint-foreground` слит с ним.
 5. **Семантические income/expense пары**: green `#16a34a` → `#22c55e`,
    red `#dc2626` → `#f87171`. Минимум AA-контраст. Классы отдаёт
    `signedAmountClass` (`src/lib/format/amount.ts`) — единственный источник
@@ -873,7 +902,7 @@ when always-relevant.
 | Тон | Классы |
 |---|---|
 | neutral | `bg-muted text-muted-foreground` |
-| info | `bg-brand/10 text-brand-tint-foreground` |
+| info | `bg-brand/10 text-brand` |
 | warning | `bg-amber-500/10 text-amber-700 dark:text-amber-400` |
 | success | `bg-emerald-500/10 text-emerald-700 dark:text-emerald-400` |
 | destructive | `bg-destructive/10 text-destructive` |
@@ -891,8 +920,8 @@ when always-relevant.
 `border-brand/30 bg-brand/5 dark:border-brand/40 dark:bg-brand/10`.
 
 **Tinted active-state у пинов** (внутри `<TableControlPin>`):
-`bg-brand/10 text-brand-tint-foreground` — токен сам светлеет в тёмной теме
-(см. «Тёмная тема», п. 4: `text-brand` на подложке ниже AA).
+`bg-brand/10 text-brand` — текстовый оттенок brand сам светлеет в тёмной
+теме и проходит AA на подложке (см. «Синий: заливка и текст»).
 
 ---
 

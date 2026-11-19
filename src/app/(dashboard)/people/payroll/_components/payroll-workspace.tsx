@@ -30,8 +30,8 @@ import tabStyle from "@/components/shared/workspace-tabs.module.css";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { PayrollDetailDialog } from "@/app/(dashboard)/people/payroll/_components/payroll-detail-dialog";
-import { ConceptPaymentForm } from "./concept-payment-form";
-import paymentStyle from "./concept-payment-form.module.css";
+import { PayrollPaymentForm } from "./payroll-payment-form";
+import paymentStyle from "./payroll-payment-form.module.css";
 import { paymentJournalRows } from "@/lib/payroll/payment-journal";
 import { PayrollPaymentsTable } from "@/app/(dashboard)/people/payroll/_components/payroll-payments-table";
 import {
@@ -44,7 +44,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { PayrollLedger } from "./payroll-ledger";
 import { statementRows } from "@/lib/payroll/calculate";
 import type { Accrual, PayrollData } from "@/lib/payroll/types";
-import s from "./payroll-concept.module.css";
+import s from "./payroll-workspace.module.css";
 import { PeriodStepper, periodTriggerClass } from "@/components/shared/period-stepper";
 import { PageFrame } from "@/components/shared/page-frame";
 import { recalculateInventoryDeduction } from "@/app/(dashboard)/inventory/_actions/deduction";
@@ -106,7 +106,7 @@ function CompositionList({ groups }: { groups: [string, number][] }) {
   );
 }
 
-export function PayrollConcept({
+export function PayrollWorkspace({
   data: initial,
   initialMonth,
 }: {
@@ -529,7 +529,7 @@ export function PayrollConcept({
               }
               actions={
                 <div
-                  id="payroll-concept-controls"
+                  id="payroll-workspace-controls"
                   className={s.functionalControls}
                 />
               }
@@ -830,11 +830,13 @@ export function PayrollConcept({
                   financeRole={role}
                   busy={busy}
                   actions={tableActions}
-                  toolbarTargetId="payroll-concept-controls"
+                  toolbarTargetId="payroll-workspace-controls"
                   exportAction={{
                     label: "Экспорт выплат",
                     onClick: exportPayments,
                   }}
+                  // Ключ сохранённых настроек столбцов: остался от прежнего названия
+                  // экрана, менять нельзя — у всех сбросятся порядок и ширина столбцов.
                   tableId={`payroll.concept.payments.${data.venueId}`}
                   externalSearch={{ value: query, onChange: setQuery }}
                   filters={roleFilters}
@@ -1045,12 +1047,12 @@ export function PayrollConcept({
           description="Запись выданной зарплаты"
           footer={
             <div
-              id="concept-payment-footer"
+              id="payroll-payment-footer"
               className={paymentStyle.footerSlot}
             />
           }
         >
-          <ConceptPaymentForm onCancel={() => setPayOpen(false)}
+          <PayrollPaymentForm onCancel={() => setPayOpen(false)}
             data={data}
             month={monthStart}
             onDone={async () => {

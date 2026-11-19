@@ -13,7 +13,7 @@ import { PayrollMonthPicker } from "@/app/(dashboard)/people/payroll/_components
 import { PayrollEmployeePicker } from "@/app/(dashboard)/people/payroll/_components/payroll-employee-picker";
 import { transferPayroll, cancelPayrollTransfer } from "@/app/(dashboard)/people/payroll/actions";
 import { statementRows } from "@/lib/payroll/calculate";
-import formStyle from "./concept-payment-form.module.css";
+import formStyle from "./payroll-payment-form.module.css";
 import type { PayrollData, PayrollTransfer } from "@/lib/payroll/types";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Money, formatRub } from "@/components/shared/money";

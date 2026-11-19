@@ -57,7 +57,7 @@ import { formatQuantityAmount, signedAmountClass } from "@/lib/format/amount";
 import { Money, formatRub } from "@/components/shared/money";
 import { StatusBadge } from "@/components/ui/status-badge";
 import style from "./payroll-journal.module.css";
-import formStyle from "./concept-payment-form.module.css";
+import formStyle from "./payroll-payment-form.module.css";
 
 const kindLabels: Record<string, string> = {
   allowance: "Надбавка за месяц",
@@ -137,7 +137,7 @@ export function PayrollJournal({
   onQuery,
   onChange,
   actions,
-  toolbarTargetId = "payroll-concept-controls",
+  toolbarTargetId = "payroll-workspace-controls",
   employeeId,
 }: {
   data: PayrollData;
@@ -316,6 +316,8 @@ export function PayrollJournal({
   return (
     <>
       <PayrollTable
+        // Ключ сохранённых настроек столбцов: остался от прежнего названия
+        // экрана, менять нельзя — у всех сбросятся порядок и ширина столбцов.
         id={
           employeeId
             ? `payroll-employee-journal-${employeeId}`

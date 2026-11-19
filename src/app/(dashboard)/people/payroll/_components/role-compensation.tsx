@@ -16,7 +16,7 @@ import { PayrollDetailDialog } from "./payroll-detail-dialog";
 import { PayrollMonthPicker } from "./payroll-month-picker";
 import { CompensationRow, CompensationRates } from "./compensation-summary";
 import { ExperienceScaleEditor } from "./experience-scale-editor";
-import form from "@/app/payroll-concept/concept-payment-form.module.css";
+import form from "@/app/(dashboard)/people/payroll/_components/payroll-payment-form.module.css";
 import { Money, formatRub } from "@/components/shared/money";
 import s from "./role-compensation.module.css";
 type Panel = "salary" | "base" | "percent" | "extras" | "benefits" | "history" | null;

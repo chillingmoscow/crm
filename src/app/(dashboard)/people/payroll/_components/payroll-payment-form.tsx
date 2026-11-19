@@ -21,9 +21,9 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { zonedParts } from "@/lib/sales/time";
 import { PayrollMonthPicker } from "@/app/(dashboard)/people/payroll/_components/payroll-month-picker";
 import { Money } from "@/components/shared/money";
-import s from "./concept-payment-form.module.css";
+import s from "./payroll-payment-form.module.css";
 
-export function ConceptPaymentForm({
+export function PayrollPaymentForm({
   data,
   month,
   onDone,
@@ -51,7 +51,7 @@ export function ConceptPaymentForm({
     null,
   );
   useEffect(
-    () => setFooterTarget(document.getElementById("concept-payment-footer")),
+    () => setFooterTarget(document.getElementById("payroll-payment-footer")),
     [],
   );
   const employees = [...data.employees]

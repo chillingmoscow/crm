@@ -23,7 +23,6 @@ import {
   DataTable,
   ROW_MENU_COLUMN_SIZE,
   TableConditions,
-  TableFilterChip,
   TableSortPicker,
   TableColumnManager,
   TableControls,
@@ -33,6 +32,7 @@ import {
   useTableState,
   type TableRowMenuAction,
 } from "@/components/shared/table";
+import { TooltipIconButton } from "@/components/shared/table/table-controls";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { shiftTemplateLabel, type ShiftTemplate } from "@/lib/schedule/types";
@@ -75,9 +75,9 @@ export function TemplateList({
   onArchive: (template: ShiftTemplate) => void;
 }) {
   const state = useTableState({ tableId, columns: config });
-  const [filtersVisible, setFiltersVisible] = useState(false);
   const [status, setStatus] = useState("");
   const archived = status === "archived";
+  const archivedCount = templates.filter((template) => template.archived).length;
   const query = state.search.trim().toLocaleLowerCase("ru");
   const canEdit = can("template_edit");
   const canCreate = can("template_create");
@@ -216,7 +216,7 @@ export function TemplateList({
         items={[{ label: "График работы" }, { label: "Шаблоны смен" }]}
       />
       <TablePageHeader
-        title="Шаблоны смен"
+        title={archived ? "Шаблоны смен в архиве" : "Шаблоны смен"}
         count={rows.length}
         actions={
           <TableControls
@@ -230,10 +230,24 @@ export function TemplateList({
               onOpenChange: state.setSearchOpen,
               placeholder: "Найти шаблон смены",
             }}
-            filters={{
-              active: archived,
-              onClick: () => setFiltersVisible((visible) => !visible),
-            }}
+            // Архив открывается кнопкой в ряду инструментов, как уволенные
+            // у сотрудников, а не спрятанным за фильтрами чипом «Статус».
+            secondaryActions={
+              <TooltipIconButton
+                label={
+                  archived
+                    ? "Вернуться к действующим шаблонам"
+                    : `Архив шаблонов (${archivedCount})`
+                }
+                active={archived}
+                onClick={() => {
+                  setStatus(archived ? "" : "archived");
+                  firstPage();
+                }}
+              >
+                <Archive />
+              </TooltipIconButton>
+            }
             sort={{
               active: state.sorting.length > 0,
               content: (
@@ -275,8 +289,8 @@ export function TemplateList({
       />
       <TableConditions
         label="Условия списка шаблонов смен"
-        open={filtersVisible}
-        hasFilters={archived}
+        open={false}
+        hasFilters={false}
         sorting={state.sorting}
         onSortingChange={table.setSorting}
         sortFields={[...sortable]}
@@ -293,18 +307,6 @@ export function TemplateList({
           firstPage();
         }}
       >
-        <TableFilterChip
-          label="Статус"
-          value={status}
-          onChange={(value) => {
-            setStatus(value);
-            firstPage();
-          }}
-          options={[
-            { value: "", label: "Активные" },
-            { value: "archived", label: "Архив" },
-          ]}
-        />
       </TableConditions>
       {rows.length === 0 ? (
         <EmptyState

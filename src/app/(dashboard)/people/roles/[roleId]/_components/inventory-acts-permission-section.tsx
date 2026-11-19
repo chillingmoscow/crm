@@ -44,7 +44,7 @@ export function InventoryActsPermissionSection({
   const currentTier = detectInventoryActsTier(grantedCodes);
 
   const options: { id: string; label: string; description: string; codes: string[] }[] = [
-    { id: "none", label: "Нет доступа", description: "Роль не работает с актами инвентаризации.", codes: [] },
+    { id: "none", label: "Нет доступа", description: "Должность не работает с актами инвентаризации.", codes: [] },
     ...INVENTORY_ACTS_TIERS,
   ];
 

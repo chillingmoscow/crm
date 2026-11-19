@@ -585,7 +585,7 @@ export function RolesClient({
           }
         }}
         title="Новая должность"
-        description="Создайте роль с нуля или скопируйте права у существующей."
+        description="Создайте должность с нуля или скопируйте права у существующей."
         footer={
           <>
             <Button variant="outline" onClick={() => setSheetOpen(false)}>
@@ -631,7 +631,7 @@ export function RolesClient({
 
         <div className="space-y-1.5">
           <Label htmlFor="copy-from" className="text-[13px] font-medium">
-            На основе существующей роли
+            На основе существующей должности
           </Label>
           <Select
             value={copyFromRoleId || "__none__"}
@@ -655,8 +655,8 @@ export function RolesClient({
             </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">
-            Скопируйте «Хостес» или «Официант», если новая роль похожа —
-            настроить только разницу прав быстрее, чем 48 чекбоксов с нуля.
+            Скопируйте «Хостес» или «Официант», если новая должность похожа:
+            настроить только разницу прав быстрее, чем все права с нуля.
           </p>
         </div>
       </EditDrawer>

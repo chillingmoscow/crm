@@ -168,7 +168,7 @@ async function assertRoleOwner(
     .select("id, name, venue_id, code")
     .eq("id", roleId)
     .maybeSingle();
-  if (!role) return { ok: false, error: "Роль не найдена" };
+  if (!role) return { ok: false, error: "Должность не найдена" };
   if (role.venue_id === null) {
     return { ok: false, error: "Системную должность нельзя архивировать или удалить" };
   }
@@ -223,7 +223,7 @@ export async function archiveRole(
   if (!ownerCheck.ok) return { error: ownerCheck.error };
 
   if (opts.confirmName.trim() !== ownerCheck.name.trim()) {
-    return { error: "Введите название точно как у роли" };
+    return { error: "Введите название точно как у должности" };
   }
 
   const db = supabase as unknown as {
@@ -284,7 +284,7 @@ export async function deleteRole(
   if (!ownerCheck.ok) return { error: ownerCheck.error };
 
   if (opts?.confirmName !== undefined && opts.confirmName.trim() !== ownerCheck.name.trim()) {
-    return { error: "Введите название точно как у роли" };
+    return { error: "Введите название точно как у должности" };
   }
 
   // RLS roles_delete_manage отбьёт если venue не в активном аккаунте.

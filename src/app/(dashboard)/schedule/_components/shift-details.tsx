@@ -124,7 +124,7 @@ export function ShiftDetails({
           icon={<DrawerAvatar name={assignee ? personName(assignee) : "?"} src={staffMember?.avatar_url} />}
           label={casual ? "Разовый сотрудник · начисление по графику" : staffMember?.role_name ?? "Сотрудник"}
         >
-          {assignControl ?? (assignee ? personName(assignee) : "Сотрудник не назначен")}
+          {assignControl ?? (assignee ? personName(assignee) : "Без сотрудника")}
         </DrawerSummaryItem>
         {template ? (
           <DrawerSummaryItem

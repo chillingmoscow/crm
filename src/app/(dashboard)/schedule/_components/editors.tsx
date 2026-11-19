@@ -220,7 +220,9 @@ function Variants({
                 type="button"
                 variant="ghost"
                 size="icon"
+                className="size-8 text-muted-foreground hover:text-destructive"
                 aria-label={`Удалить вариант ${index + 1}`}
+                data-tip="Удалить вариант"
                 onClick={() => set(variants.filter((_, i) => i !== index))}
               >
                 <Trash2 className="size-4" />
@@ -806,7 +808,7 @@ export function TemplateEditor({
       }}
       title={
         copy
-          ? "Копировать шаблон"
+          ? "Копия шаблона"
           : template
             ? "Редактирование шаблона"
             : "Новый шаблон"
@@ -816,9 +818,13 @@ export function TemplateEditor({
           <Button variant="outline" disabled={busy} onClick={requestClose}>
             Отмена
           </Button>
-          <Button disabled={busy} onClick={commit}>
-            {busy ? "Сохранение…" : "Сохранить шаблон"}
-          </Button>
+          {/* Без названия шаблон не сохранить: кнопка неактивна, причина —
+              в подсказке (DS → «Подсказки»). */}
+          <span data-tip={!value.name.trim() ? "Укажите название" : undefined} className="inline-flex">
+            <Button disabled={busy || !value.name.trim()} onClick={commit}>
+              {busy ? "Сохранение…" : template && !copy ? "Сохранить" : "Создать шаблон"}
+            </Button>
+          </span>
         </>
       }
     >
@@ -852,7 +858,7 @@ export function TemplateEditor({
           }}
         />
           {error && (
-          <p role="alert" className="text-sm text-destructive">{error}</p>
+          <p role="alert" className="text-xs text-destructive">{error}</p>
         )}
       </DrawerSection>
       <DrawerSection title="Назначение">

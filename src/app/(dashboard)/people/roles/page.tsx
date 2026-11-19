@@ -5,6 +5,7 @@ import {
   getCachedPermissionChecker,
 } from "@/lib/supabase/server";
 import { RolesClient } from "./_components/roles-client";
+import type { RoleStaffMember } from "./_components/role-staff-cell";
 
 export const metadata: Metadata = { title: "Должности" };
 
@@ -99,16 +100,39 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     activeVenueId
       ? supabase
           .from("user_venue_roles")
-          .select("role_id")
+          .select("role_id, user_id")
           .eq("venue_id", activeVenueId as string)
           .eq("status", "active")
-      : (Promise.resolve({ data: [] as { role_id: string }[] })),
+      : (Promise.resolve({ data: [] as { role_id: string; user_id: string }[] })),
   ]);
 
-  const staffCountByRole: Record<string, number> = {};
-  for (const row of venueRolesResult.data ?? []) {
-    staffCountByRole[row.role_id] = (staffCountByRole[row.role_id] ?? 0) + 1;
+  // Люди на должностях — для аватаров и карточки по наведению в колонке
+  // «Сотрудники». Без профиля (нет доступа или удалён) человек всё равно
+  // считается: имя заменяется на «Без имени».
+  const venueRoles = venueRolesResult.data ?? [];
+  const userIds = Array.from(new Set(venueRoles.map((r) => r.user_id)));
+  const { data: profiles } = userIds.length
+    ? await supabase
+        .from("profiles")
+        .select("id, first_name, last_name, avatar_url")
+        .in("id", userIds)
+    : { data: [] as { id: string; first_name: string | null; last_name: string | null; avatar_url: string | null }[] };
+  const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
+  const staffByRole: Record<string, RoleStaffMember[]> = {};
+  for (const row of venueRoles) {
+    const p = profileById.get(row.user_id);
+    const name =
+      [p?.first_name, p?.last_name].filter((x) => x?.trim()).join(" ") ||
+      "Без имени";
+    (staffByRole[row.role_id] ??= []).push({
+      id: row.user_id,
+      name,
+      avatarUrl: p?.avatar_url ?? null,
+    });
   }
+  const collator = new Intl.Collator("ru", { sensitivity: "base" });
+  for (const list of Object.values(staffByRole))
+    list.sort((a, b) => collator.compare(a.name, b.name));
 
   return (
     <RolesClient
@@ -117,7 +141,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       rolePermissions={rolePermsResult.data ?? []}
       accountId={accountId ?? null}
       activeVenueId={activeVenueId ?? null}
-      staffCountByRole={staffCountByRole}
+      staffByRole={staffByRole}
       importedRoleIds={importedRoleIds}
       departments={departmentsResult.data ?? []}
     />

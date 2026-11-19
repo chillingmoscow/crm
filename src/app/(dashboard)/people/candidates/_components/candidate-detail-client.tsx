@@ -57,6 +57,7 @@ import { ProfileSection, ProfileSectionAddButton } from "@/components/shared/pro
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
 import { dateLabel, safeLink } from "./fields";
+import { socialLink } from "@/lib/candidates/social-link";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { ProfilePageFrame } from "@/components/shared/page-frame";
 export function CandidateDetailClient({
@@ -235,16 +236,20 @@ export function CandidateDetailClient({
                 <ProfileValue label="Возраст">{ageLabel}</ProfileValue>
                 <ProfileValue label="Дата заявки">{dateLabel(c.submitted_at)}</ProfileValue>
               <ProfileValue label="Адрес">{c.address}</ProfileValue>
-                {Object.entries(c.social).filter(([, value]) => value).map(([key, value]) => (
-                  <ProfileValue key={key} label={key === "vk" ? "VK" : key === "telegram" ? "Telegram" : "Instagram"}>
-                    {safeLink(value) ? (
-                      <a href={safeLink(value)!} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1 text-brand">
-                        {value}
-                        <ExternalLink className="size-3.5 shrink-0" />
-                      </a>
-                    ) : value}
-                  </ProfileValue>
-                ))}
+                {Object.entries(c.social).filter(([, value]) => value).map(([key, value]) => {
+                  // Длинные ссылки с трекингом не показываем: только «@ник».
+                  const link = socialLink(key, value);
+                  return (
+                    <ProfileValue key={key} label={key === "vk" ? "VK" : key === "telegram" ? "Telegram" : "Instagram"}>
+                      {link.href ? (
+                        <a href={link.href} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1.5 text-brand hover:underline">
+                          <span className="truncate">{link.label}</span>
+                          <ExternalLink className="size-3.5 shrink-0" aria-hidden />
+                        </a>
+                      ) : link.label}
+                    </ProfileValue>
+                  );
+                })}
                 <ProfileValue label="Семейное положение">{c.family_status}</ProfileValue>
                 <ProfileValue label="Водительские права">{c.drivers_license}</ProfileValue>
               </dl>

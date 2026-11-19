@@ -19,14 +19,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Field } from "@/components/ui/field";
+import { OptionSelect } from "@/components/ui/option-select";
 import { Tabs, ProfileTabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { deleteRole, setRolePermission, setRoleScheduleVisibility, updateRole } from "../../actions";
 import { setRoleDepartment } from "../../../departments/actions";
 import {
@@ -441,12 +436,7 @@ export function RoleDetailPage({
               <TabsTrigger value="history">Журнал</TabsTrigger>
             )}
             {canDelete && (
-              <TabsTrigger
-                value="danger"
-                className="data-[state=active]:text-destructive data-[state=active]:border-destructive"
-              >
-                Опасная зона
-              </TabsTrigger>
+              <TabsTrigger value="danger">Опасная зона</TabsTrigger>
             )}
           </ProfileTabsList>
 
@@ -596,88 +586,87 @@ export function RoleDetailPage({
           {/* ── Main (Основное). Info card вынесен в popover в топбаре
                 (см. PageHeaderActions). Сохраняет полоса внизу колонки. */}
           <TabsContent value="main" className="flex flex-col gap-5">
-            {isSystem && (
-              <div className="flex items-center gap-2.5 rounded-[10px] px-3.5 py-3 border border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300">
-                <Lock className="w-4 h-4 shrink-0" />
-                <p className="text-[13px] font-medium leading-snug">
-                  Это системная должность. Некоторые права и название изменить нельзя.
-                </p>
-              </div>
-            )}
-
-            <ProfileSection title="Основное">
-              {/* Name (left, flex-1) + Icon picker (right, compact) — matches J0qwQg */}
-              <div className="flex items-end gap-2">
-                <div className="space-y-1.5 flex-1 min-w-0">
-                  <Label htmlFor="role-name" className="text-[13px] font-medium">
-                    Название
-                  </Label>
-                  <Input
-                    id="role-name"
-                    value={nameValue}
-                    onChange={(e) => setNameValue(e.target.value)}
-                    readOnly={!canEdit}
-                    className={!canEdit ? "bg-muted/50" : ""}
-                    placeholder="Название должности"
+            <ProfileSection
+              title="Основное"
+              locked={
+                !canEdit
+                  ? { tone: "locked", message: "Системную должность владельца изменить нельзя" }
+                  : undefined
+              }
+            >
+              <form
+                className="flex flex-col gap-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void handleSave();
+                }}
+              >
+                {/* Enter в поле сохраняет форму; видимая кнопка — в полосе. */}
+                <button type="submit" tabIndex={-1} aria-hidden className="sr-only" />
+                <div className="flex items-end gap-2">
+                  <Field id="role-name" label="Название" required className="flex-1">
+                    {(control) => (
+                      <Input
+                        {...control}
+                        value={nameValue}
+                        onChange={(e) => setNameValue(e.target.value)}
+                        disabled={!canEdit}
+                        placeholder="Например: Бармен"
+                        maxLength={120}
+                      />
+                    )}
+                  </Field>
+                  <IconPicker
+                    value={iconValue}
+                    color={iconColorValue}
+                    roleCode={role.code}
+                    onChange={({ icon, color }) => {
+                      setIconValue(icon);
+                      setIconColorValue(color);
+                    }}
+                    disabled={!canEdit}
                   />
                 </div>
-                <IconPicker
-                  value={iconValue}
-                  color={iconColorValue}
-                  roleCode={role.code}
-                  onChange={({ icon, color }) => {
-                    setIconValue(icon);
-                    setIconColorValue(color);
-                  }}
-                  disabled={!canEdit}
-                />
-              </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="role-department" className="text-[13px] font-medium">
-                  Подразделение
-                </Label>
-                <Select
-                  value={departmentId ?? "__none__"}
-                  onValueChange={(v) => {
-                    if (!canEdit || isSystem) return;
-                    setDepartmentId(v === "__none__" ? null : v);
-                  }}
-                  disabled={!canEdit || isSystem || saving}
-                >
-                  <SelectTrigger id="role-department">
-                    <SelectValue placeholder="Без подразделения" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">Без подразделения</SelectItem>
-                    {departments.map((d) => (
-                      <SelectItem key={d.id} value={d.id}>
-                        {d.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {isSystem && (
-                  <p className="text-xs text-muted-foreground">
-                    Системные должности нельзя относить к подразделению.
-                  </p>
+                <Field id="role-comment" label="Описание">
+                  {(control) => (
+                    <Textarea
+                      {...control}
+                      value={commentValue}
+                      onChange={(e) => setCommentValue(e.target.value)}
+                      disabled={!canEdit}
+                      placeholder="Для чего должность, кому назначается"
+                      rows={3}
+                    />
+                  )}
+                </Field>
+
+                {/* Владельца в подразделение не включают — поле не показываем. */}
+                {!isSystem && (
+                  <Field
+                    id="role-department"
+                    label="Подразделение"
+                    hint={
+                      departments.length === 0
+                        ? "Подразделений пока нет — их создают в разделе «Подразделения»"
+                        : undefined
+                    }
+                  >
+                    {(control) => (
+                      <OptionSelect
+                        {...control}
+                        value={departmentId ?? ""}
+                        onValueChange={(v) => setDepartmentId(v || null)}
+                        disabled={!canEdit || saving || departments.length === 0}
+                        options={[
+                          { value: "", label: "Без подразделения" },
+                          ...departments.map((d) => ({ value: d.id, label: d.name })),
+                        ]}
+                      />
+                    )}
+                  </Field>
                 )}
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="role-comment" className="text-[13px] font-medium">
-                  Описание
-                </Label>
-                <Textarea
-                  id="role-comment"
-                  value={commentValue}
-                  onChange={(e) => setCommentValue(e.target.value)}
-                  readOnly={!canEdit}
-                  className={!canEdit ? "bg-muted/50" : ""}
-                  placeholder="Для чего используется должность, кому назначается…"
-                  rows={4}
-                />
-              </div>
+              </form>
             </ProfileSection>
 
             <ProfileSection title="Расписание">
@@ -685,7 +674,7 @@ export function RoleDetailPage({
                 <div className="space-y-1">
                   <Label
                     htmlFor="role-show-in-schedule"
-                    className="text-[13px] font-medium"
+                    className="text-sm font-medium"
                   >
                     Показывать в расписании
                   </Label>

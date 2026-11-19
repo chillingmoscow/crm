@@ -15,8 +15,8 @@ import { arrayMove } from "@dnd-kit/sortable";
 import { Check, Lock, Plus, SearchX, Shield } from "lucide-react";
 import { iconForRole } from "./role-icons";
 import { IconPicker } from "./icon-picker";
+import { RoleStaffCell, type RoleStaffMember } from "./role-staff-cell";
 import { paletteText, type PaletteColor } from "@/lib/palette";
-import { pluralRu } from "@/lib/format/plural";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -79,7 +79,8 @@ type Props = {
   rolePermissions: RolePermission[];
   accountId: string | null;
   activeVenueId: string | null;
-  staffCountByRole: Record<string, number>;
+  /** Активные сотрудники заведения по должностям, по алфавиту. */
+  staffByRole: Record<string, RoleStaffMember[]>;
   importedRoleIds: string[];
   departments: DepartmentLite[];
 };
@@ -93,14 +94,14 @@ const labels: Record<ColKey, string> = {
   department: "Подразделение",
   staff: "Сотрудники",
   permissions: "Права",
-  qr_import: "Импорт из Quick Resto",
+  qr_import: "Из Quick Resto",
 };
 const columnConfig = [
   { id: "name", defaultSize: 320 },
   { id: "department", defaultSize: 200 },
   { id: "staff", defaultSize: 160 },
   { id: "permissions", defaultSize: 220 },
-  { id: "qr_import", defaultSize: 190 },
+  { id: "qr_import", defaultSize: 140 },
 ];
 const sortFields: ColKey[] = [
   "name",
@@ -119,7 +120,7 @@ export function RolesClient({
   rolePermissions,
   accountId,
   activeVenueId,
-  staffCountByRole,
+  staffByRole,
   importedRoleIds,
   departments,
 }: Props) {
@@ -299,12 +300,16 @@ export function RolesClient({
       accessorFn: (r) =>
         r.department_id ? departmentNameById.get(r.department_id) : undefined,
       sortUndefined: "last",
-      cell: ({ getValue }) => {
+      cell: ({ row, getValue }) => {
         const name = getValue() as string | undefined;
         return name ? (
-          <span className="block truncate" data-tip={name}>
+          <Link
+            href={`/people/departments/${row.original.department_id}`}
+            className="block truncate hover:underline"
+            data-tip={name}
+          >
             {name}
-          </span>
+          </Link>
         ) : (
           <span className="text-muted-foreground">—</span>
         );
@@ -315,17 +320,13 @@ export function RolesClient({
       header: labels.staff,
       size: 160,
       minSize: 120,
-      accessorFn: (r) => staffCountByRole[r.id] ?? 0,
-      cell: ({ getValue }) => {
-        const count = getValue() as number;
-        return count ? (
-          <span className="tabular-nums">
-            {count} {pluralRu(count, "сотрудник", "сотрудника", "сотрудников")}
-          </span>
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        );
-      },
+      accessorFn: (r) => staffByRole[r.id]?.length ?? 0,
+      cell: ({ row }) => (
+        <RoleStaffCell
+          roleName={row.original.name}
+          staff={staffByRole[row.original.id] ?? []}
+        />
+      ),
     },
     {
       id: "permissions",
@@ -361,17 +362,16 @@ export function RolesClient({
     {
       id: "qr_import",
       header: labels.qr_import,
-      size: 190,
-      minSize: 170,
+      size: 140,
+      minSize: 120,
       accessorFn: (r) => (importedSet.has(r.id) ? 1 : 0),
+      // Только признак: галочка или пусто. Флажок здесь не нажимается,
+      // поэтому это не Checkbox, а значок с подписью для скринридера.
       cell: ({ getValue }) =>
         getValue() ? (
-          <span className="inline-flex items-center gap-1.5">
-            <Check className="size-4 text-brand" aria-hidden />
-            Да
-          </span>
+          <Check className="size-4 text-brand" aria-label="Да" />
         ) : (
-          <span className="text-muted-foreground">—</span>
+          <span className="sr-only">Нет</span>
         ),
     },
   ];
@@ -405,7 +405,7 @@ export function RolesClient({
   };
 
   return (
-    <PageFrame>
+    <PageFrame className="flex min-w-0 flex-col gap-4">
       <Breadcrumbs items={[{ label: "Люди" }, { label: "Должности" }]} />
       <TablePageHeader
         title="Должности"

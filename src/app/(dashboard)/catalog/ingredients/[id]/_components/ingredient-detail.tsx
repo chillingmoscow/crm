@@ -351,12 +351,7 @@ export function IngredientDetail({
             <TabsTrigger value="suppliers">Поставщики</TabsTrigger>
             <TabsTrigger value="history">История</TabsTrigger>
             <TabsTrigger value="journal">Журнал</TabsTrigger>
-            <TabsTrigger
-              value="danger"
-              className="data-[state=active]:text-destructive data-[state=active]:border-destructive"
-            >
-              Опасная зона
-            </TabsTrigger>
+            <TabsTrigger value="danger">Опасная зона</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">

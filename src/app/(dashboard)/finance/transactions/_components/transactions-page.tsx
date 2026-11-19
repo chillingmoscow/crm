@@ -1032,7 +1032,7 @@ function IconButton({
 } & React.HTMLAttributes<HTMLElement>) {
   const className = cn(
     "relative inline-flex items-center justify-center h-9 w-9 rounded-md border border-border bg-background text-muted-foreground hover:bg-muted transition-colors",
-    active && "bg-brand/10 border-brand/20 text-brand",
+    active && "bg-brand/10 border-brand/20 text-brand-tint-foreground",
   );
   const tooltipLabel =
     typeof rest["aria-label"] === "string" ? rest["aria-label"] : undefined;
@@ -1163,7 +1163,7 @@ function TypeFilter({
             className={cn(
               "h-8 rounded-full pl-3 pr-8 font-normal text-sm",
               active
-                ? "bg-brand/10 border-brand/20 text-brand hover:bg-brand/15 hover:text-brand"
+                ? "bg-brand/10 border-brand/20 text-brand-tint-foreground hover:bg-brand/15 hover:text-brand-tint-foreground"
                 : "bg-muted/60 border-transparent text-muted-foreground hover:bg-muted",
             )}
           >
@@ -1206,7 +1206,7 @@ function TypeFilter({
 
 function Chip({ label, onClear }: { label: string; onClear: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-brand/10 border border-brand/20 text-brand text-sm pl-3 pr-1.5 py-0.5 h-8">
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-brand/10 border border-brand/20 text-brand-tint-foreground text-sm pl-3 pr-1.5 py-0.5 h-8">
       <span className="truncate max-w-[200px]">{label}</span>
       <button
         type="button"

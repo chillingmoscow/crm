@@ -127,7 +127,7 @@ export function VenueSwitcher({ venues, activeVenueId }: Props) {
                   {activeVenue?.venue_name ?? "Выберите заведение"}
                 </span>
                 {activeVenue?.role_name && (
-                  <span className="truncate text-[11px] text-muted-foreground leading-tight">
+                  <span className="truncate text-xs text-muted-foreground leading-tight">
                     {modern ? activeVenue.role_name : venueSubtitle(activeVenue)}
                   </span>
                 )}

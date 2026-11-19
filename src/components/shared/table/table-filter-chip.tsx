@@ -34,7 +34,7 @@ export function TableFilterChip({
             className={cn(
               "h-8 max-w-[260px] rounded-full pl-3 pr-8 font-normal text-sm",
               active
-                ? "bg-brand/10 border-brand/20 text-brand hover:bg-brand/15 hover:text-brand"
+                ? "bg-brand/10 border-brand/20 text-brand-tint-foreground hover:bg-brand/15 hover:text-brand-tint-foreground"
                 : "bg-muted/60 border-transparent text-muted-foreground hover:bg-muted",
             )}
           >

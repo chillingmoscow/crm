@@ -103,7 +103,7 @@ export function KbNotificationRow({
             className="size-7 rounded-full object-cover"
           />
         ) : actor ? (
-          <span className="text-[11px] font-semibold text-muted-foreground">
+          <span className="text-xs font-semibold text-muted-foreground">
             {initials}
           </span>
         ) : (
@@ -156,7 +156,7 @@ export function KbNotificationRow({
             hasHoverActions && "group-hover:opacity-0",
           )}
         >
-          <span className="text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">
+          <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
             {relativeTime(notification.created_at)}
           </span>
           {!notification.read && (
@@ -246,7 +246,7 @@ function NotificationActions({
             // просто открываем link (если есть).
             onOpen();
           }}
-          className="inline-flex items-center gap-1 px-2 h-6 rounded-md border border-border bg-background hover:bg-accent text-[11px] font-medium transition-colors"
+          className="inline-flex items-center gap-1 px-2 h-6 rounded-md border border-border bg-background hover:bg-accent text-xs font-medium transition-colors"
         >
           {action.label}
         </button>

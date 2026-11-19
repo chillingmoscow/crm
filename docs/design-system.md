@@ -75,12 +75,18 @@
 4. **Пастельные tint'ы (`#dbeafe`, `#FEE2E2`) в dark не работают.** Замена:
    полупрозрачный brand (`bg-brand/20` ≈ `#3b82f633`) или dark-saturated
    (`#1e3a8a`).
-   - Синий **текст на синей подложке** (`bg-brand/10`, в dark `bg-brand/30`:
-     карточки смен, плитки палитры «Синий», «сегодня» в шапке расписания) —
-     `text-brand-tint-foreground` (`--brand-tint-foreground`: light
-     `215 89% 42%`, dark `217 91% 78%`), а не `text-brand`: brand на своей
-     подложке даёт 3,8:1 в светлой и 3,2:1 в тёмной теме, токен — 5,2:1 и
-     6:1 (WCAG AA для текста — 4,5:1). Его отдаёт `paletteText("blue")`.
+   - Синий **текст на синей подложке** (`bg-brand/5`–`/15`, в dark и
+     `bg-brand/30`) — всегда `text-brand-tint-foreground`
+     (`--brand-tint-foreground`: light `215 89% 42%`, dark `217 91% 78%`),
+     а не `text-brand`, и `hover:text-brand-tint-foreground` у таких элементов.
+     Brand на своей подложке даёт 3,4–4:1, токен — 4,7–5,4:1 в светлой и
+     6,3–9:1 в тёмной теме (WCAG AA для текста — 4,5:1). Где действует:
+     тон `info` в `StatusBadge`, активный `TableControlPin` и `TableFilterChip`,
+     чипы ряда условий, счётчики на синей подложке (уведомления), инициалы в
+     синем кружке, плитка владельца в «Должностях», активный пункт меню и
+     выбранный вид уведомлений, карточки смен, «сегодня» в шапке расписания,
+     плитки палитры «Синий» (`paletteText("blue")`). В CSS-модулях —
+     `color: hsl(var(--brand-tint-foreground))`.
 5. **Семантические income/expense пары**: green `#16a34a` → `#22c55e`,
    red `#dc2626` → `#f87171`. Минимум AA-контраст. Классы отдаёт
    `signedAmountClass` (`src/lib/format/amount.ts`) — единственный источник
@@ -332,12 +338,17 @@ import { Button } from "@/components/ui/button";
   нет, расширяем саму кнопку на сенсорном экране (удаление получателя в
   форме выплаты — 32px вместо 20).
 - Предок с `overflow: hidden` обрезает зону — у края такого контейнера
-  оставляем отступ (у «+» в шапке дня — `py-1.5`, высота шапки 44).
+  оставляем отступ (у «+» в шапке дня — `py-1.5`, высота шапки 44), а если
+  `overflow-hidden` стоит только ради скругления, убираем его.
+- Две кнопки вплотную (`TableSplitButton`): стрелка на сенсорном экране сама
+  шириной 44 (`[@media(pointer:coarse)]:w-11`), `touch-target` добирает
+  высоту; основная кнопка растёт только по высоте.
 - Уже стоит на: ряд инструментов таблиц (`TableControls`, вид расписания),
   меню строки «⋯», пагинация, крестики `EditDrawer` / `Dialog` / `Sheet`,
   стрелки года в `MonthPicker`, «Зарплате» и `Calendar`, дни недели в
   редакторе шаблона, значок отметки на смене, «+» в шапке дня, удаление
-  получателя премии/выплаты, «Добавить» файла у кандидата и в задаче.
+  получателя премии/выплаты, «Добавить» файла у кандидата и в задаче,
+  обе половины `TableSplitButton`.
 - Скрытое поле файла (`<label>` + `input.sr-only`) получает обводку фокуса
   через `fileLabelFocusClass` из `src/components/ui/field-styles.ts`: само
   поле невидимо, рамку рисует подпись, при `disabled` она приглушена.
@@ -862,7 +873,7 @@ when always-relevant.
 | Тон | Классы |
 |---|---|
 | neutral | `bg-muted text-muted-foreground` |
-| info | `bg-brand/10 text-brand` |
+| info | `bg-brand/10 text-brand-tint-foreground` |
 | warning | `bg-amber-500/10 text-amber-700 dark:text-amber-400` |
 | success | `bg-emerald-500/10 text-emerald-700 dark:text-emerald-400` |
 | destructive | `bg-destructive/10 text-destructive` |
@@ -880,8 +891,8 @@ when always-relevant.
 `border-brand/30 bg-brand/5 dark:border-brand/40 dark:bg-brand/10`.
 
 **Tinted active-state у пинов** (внутри `<TableControlPin>`):
-`bg-brand/10 text-brand` (light=dark одинаково — brand-цвет уже работает в
-обоих режимах).
+`bg-brand/10 text-brand-tint-foreground` — токен сам светлеет в тёмной теме
+(см. «Тёмная тема», п. 4: `text-brand` на подложке ниже AA).
 
 ---
 

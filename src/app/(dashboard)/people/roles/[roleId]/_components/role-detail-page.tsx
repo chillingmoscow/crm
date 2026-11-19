@@ -408,7 +408,7 @@ export function RoleDetailPage({
                   aria-hidden
                   className={`w-14 h-14 rounded-[14px] flex items-center justify-center ${
                     isOwner
-                      ? "bg-brand/10 text-brand"
+                      ? "bg-brand/10 text-brand-tint-foreground"
                       : `bg-muted ${tintClass || "text-muted-foreground"}`
                   }`}
                 >

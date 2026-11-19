@@ -242,6 +242,20 @@ export async function hireCandidate(id: string, input: unknown) {
     revalidatePath("/schedule");
     return { user_id: payload.existing_user_id };
   }
+  if (!payload.gender) {
+    // Без пола — только продолжение найма, начатого до того, как пол стал
+    // обязательным: его сохранённый вход нельзя менять.
+    const unfinished = result(
+      await s.admin
+        .from<{ state: string }>("candidate_hires")
+        .select("state")
+        .eq("account_id", s.accountId)
+        .eq("candidate_id", uuid.parse(id))
+        .neq("state", "complete")
+        .maybeSingle(),
+    );
+    if (!unfinished) throw new Error("Укажите пол");
+  }
   const hire = result(
     await s.db.rpc("candidate_begin_hire", {
       p_candidate: uuid.parse(id),

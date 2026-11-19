@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { genderSchema } from "@/lib/people/gender";
 
 /**
  * Личные данные пользователя — те, что лежат на public.profiles и
@@ -36,6 +37,12 @@ export async function updateOwnProfile(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
+
+  // Пол обязателен: если форма его передаёт, то только male / female.
+  if ("gender" in data) {
+    const gender = genderSchema.safeParse(data.gender);
+    if (!gender.success) return { error: gender.error.issues[0].message };
+  }
 
   // RLS-политика `profiles_update_own` гарантирует, что юзер может
   // менять только свой ряд (id = auth.uid()). Дополнительный фильтр

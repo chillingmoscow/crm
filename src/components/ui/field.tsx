@@ -39,6 +39,23 @@ export type FieldProps = {
 };
 
 /**
+ * Отметка обязательного поля после подписи. Звёздочку скринридер не
+ * читает, обязательность — текстом в подписи: aria-required не доходит до
+ * кнопок-пикеров (дата, время, месяц), а подпись связана с любым полем.
+ * Отдельно — для подписей, собранных не через `Field`.
+ */
+export function RequiredMark() {
+  return (
+    <>
+      <span aria-hidden className="ml-0.5 text-destructive">
+        *
+      </span>
+      <span className="sr-only">, обязательное поле</span>
+    </>
+  );
+}
+
+/**
  * Поле формы: подпись, контрол, подсказка, ошибка — одной разметкой
  * (DS «Form States»). Подпись `Label` 14px связана с полем через
  * `htmlFor`/`id`, подсказка и ошибка — через `aria-describedby`.
@@ -72,17 +89,7 @@ export function Field({
     <div className={cn("grid min-w-0 gap-2", className)}>
       <Label htmlFor={id}>
         {label}
-        {required && (
-          // Звёздочку скринридер не читает, обязательность — текстом в
-          // подписи: aria-required не доходит до кнопок-пикеров (дата,
-          // время, месяц), а подпись связана с любым полем.
-          <>
-            <span aria-hidden className="ml-0.5 text-destructive">
-              *
-            </span>
-            <span className="sr-only">, обязательное поле</span>
-          </>
-        )}
+        {required && <RequiredMark />}
       </Label>
       {children({
         id,

@@ -328,3 +328,103 @@ export async function setRolePermission(
   revalidatePath("/people/roles");
   return { error: null };
 }
+
+/**
+ * Выставить несколько прав должности за один вызов — выбор уровня раздела
+ * на вкладке «Права доступа». Server actions с клиента идут по очереди,
+ * поэтому 20 отдельных `setRolePermission` при смене уровня — 20 круговых
+ * запросов подряд. Здесь доступ проверяется один раз до записи, а RPC идут
+ * пачками по 10. `failed` — id прав, которые записать не удалось (клиент
+ * откатывает только их; удавшиеся остаются — так экран совпадает с БД).
+ */
+const MAX_PERMISSION_CHANGES = 200;
+const PERMISSION_WRITE_BATCH = 10;
+
+export async function setRolePermissions(
+  roleId: string,
+  changes: { permissionId: string; granted: boolean }[],
+): Promise<{ error: string | null; failed: string[] }> {
+  // Последнее изменение по праву выигрывает — дубли не пишем дважды.
+  const unique = [...new Map(changes.map((c) => [c.permissionId, c])).values()].filter(
+    (c) => typeof c.permissionId === "string" && typeof c.granted === "boolean",
+  );
+  const allIds = unique.map((c) => c.permissionId);
+  if (unique.length === 0) return { error: null, failed: [] };
+  if (unique.length > MAX_PERMISSION_CHANGES)
+    return { error: "Слишком много изменений за раз", failed: allIds };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован", failed: allIds };
+
+  const can = await getCachedPermissionChecker();
+  if (!can("people.manage_roles"))
+    return { error: "Нет права менять права должностей", failed: allIds };
+
+  const { data: role } = await supabase
+    .from("roles")
+    .select("code")
+    .eq("id", roleId)
+    .maybeSingle();
+  if (!role) return { error: "Должность не найдена", failed: allIds };
+  if (role.code === "owner")
+    return { error: "Нельзя редактировать должность Владелец", failed: allIds };
+
+  const failed: string[] = [];
+  let firstError: string | null = null;
+  for (let i = 0; i < unique.length; i += PERMISSION_WRITE_BATCH) {
+    const batch = unique.slice(i, i + PERMISSION_WRITE_BATCH);
+    const results = await Promise.all(
+      batch.map(async (c) => {
+        const { error } = await supabase.rpc("set_effective_role_permission", {
+          p_role_id: roleId,
+          p_permission_id: c.permissionId,
+          p_granted: c.granted,
+        });
+        return { id: c.permissionId, error };
+      }),
+    );
+    for (const r of results) {
+      if (!r.error) continue;
+      failed.push(r.id);
+      firstError ??= r.error.message;
+    }
+  }
+
+  revalidatePath("/people/roles");
+  return { error: firstError, failed };
+}
+
+/**
+ * Текущие права должности из БД. Вкладка перечитывает их, если запись
+ * оборвалась (сеть): неизвестно, какие права успели записаться, поэтому
+ * экран берёт состояние из базы, а не угадывает откатом.
+ */
+export async function getRolePermissionStates(
+  roleId: string,
+): Promise<{ data: { role_id: string; permission_id: string; granted: boolean }[] | null; error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { data: null, error: "Не авторизован" };
+  // Вызывается только из редактора прав — тот же доступ, что и на запись.
+  const can = await getCachedPermissionChecker();
+  if (!can("people.manage_roles"))
+    return { data: null, error: "Нет доступа к правам должностей" };
+
+  const { data, error } = await supabase.rpc("get_effective_role_permissions", {
+    p_role_ids: [roleId],
+  });
+  if (error) return { data: null, error: error.message };
+  return {
+    data: (data ?? []).map((r) => ({
+      role_id: r.role_id,
+      permission_id: r.permission_id,
+      granted: r.granted,
+    })),
+    error: null,
+  };
+}

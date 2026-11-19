@@ -8,13 +8,11 @@ import { ProfileDangerAction } from "@/components/shared/profile-danger-zone";
 import { SaveBar } from "@/components/shared/save-bar";
 
 import { RoleCompensation } from "../../../payroll/_components/role-compensation";
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Lock, Search, Trash2 } from "lucide-react";
+import { Lock, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -22,15 +20,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Field } from "@/components/ui/field";
 import { OptionSelect } from "@/components/ui/option-select";
 import { Tabs, ProfileTabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { deleteRole, setRolePermission, setRoleScheduleVisibility, updateRole } from "../../actions";
+import { deleteRole, setRoleScheduleVisibility, updateRole } from "../../actions";
 import { setRoleDepartment } from "../../../departments/actions";
-import {
-  metaForModule,
-  sortModuleKeys,
-  INVENTORY_ACTS_MODULES,
-  INVENTORY_ACTS_ANCHOR_MODULE,
-} from "./permission-modules";
-import { InventoryActsPermissionSection } from "./inventory-acts-permission-section";
+import { RolePermissionsTab } from "./role-permissions-tab";
 import { IconPicker } from "../../_components/icon-picker";
 import { iconForRole } from "../../_components/role-icons";
 import { paletteText, type PaletteColor } from "@/lib/palette";
@@ -144,9 +136,6 @@ export function RoleDetailPage({
     iconColorValue !== (role.icon_color ?? null) ||
     departmentId !== role.department_id;
 
-  // Permissions search
-  const [permQuery, setPermQuery] = useState("");
-
   const isOwner = role.code === "owner";
   // После миграции 138 единственная системная роль — owner. Все остальные
   // (Управляющий/Администратор/Бухгалтер/…) — кастомные per-account.
@@ -172,62 +161,6 @@ export function RoleDetailPage({
   // Owner и системные роли (после миграции — только owner) не удаляются.
   // Кастомка — физический DELETE.
   const canDelete = !isOwner && !isSystem && accountId !== null;
-
-  // ── Helpers ────────────────────────────────────────────────
-
-  function hasPermission(permId: string): boolean {
-    return rolePermissions.some(
-      (rp) =>
-        rp.role_id === role.id && rp.permission_id === permId && rp.granted,
-    );
-  }
-
-  function applyPermissionLocal(permissionId: string, granted: boolean) {
-    setRolePerms((prev) => {
-      const existing = prev.find((rp) => rp.permission_id === permissionId);
-      if (existing) {
-        return prev.map((rp) =>
-          rp.permission_id === permissionId ? { ...rp, granted } : rp,
-        );
-      }
-      return [...prev, { role_id: role.id, permission_id: permissionId, granted }];
-    });
-  }
-
-  function handleToggle(permissionId: string) {
-    if (!canEdit) return;
-    const next = !hasPermission(permissionId);
-    const previous = !next;
-    applyPermissionLocal(permissionId, next);
-
-    startTransition(async () => {
-      const result = await setRolePermission(role.id, permissionId, next);
-      if (result.error) {
-        toast.error(result.error);
-        applyPermissionLocal(permissionId, previous);
-      }
-    });
-  }
-
-  function handleBulkSet(perms: Permission[], target: boolean) {
-    if (!canEdit) return;
-    // Optimistic UI: set all locally, then fire requests in parallel.
-    const toToggle = perms.filter((p) => hasPermission(p.id) !== target);
-    if (toToggle.length === 0) return;
-    toToggle.forEach((p) => applyPermissionLocal(p.id, target));
-
-    startTransition(async () => {
-      const results = await Promise.all(
-        toToggle.map((p) => setRolePermission(role.id, p.id, target)),
-      );
-      const failed = results.filter((r) => r.error).length;
-      if (failed > 0) {
-        toast.error(`Не удалось обновить ${failed} из ${toToggle.length} прав`);
-        // Roll back failed ones — keep simple: re-fetch best left to caller refresh.
-        router.refresh();
-      }
-    });
-  }
 
   async function handleSave() {
     if (!isDirty || saveBlocked || saving) return;
@@ -284,85 +217,6 @@ export function RoleDetailPage({
       router.push("/people/roles");
     });
   }
-
-  // ── Derived ────────────────────────────────────────────────
-
-  // Group permissions by module, filtered by search.
-  // Модули кластера «Акты инвентаризации» (документы/интеграция/scope) кроме
-  // якорного НЕ попадают в обычные группы — они отрисованы единой секцией
-  // с уровнями в позиции якоря (см. InventoryActsPermissionSection).
-  const absorbedActsModules = INVENTORY_ACTS_MODULES.filter(
-    (m) => m !== INVENTORY_ACTS_ANCHOR_MODULE,
-  );
-  const groupedPermissions = useMemo(() => {
-    const q = permQuery.toLowerCase().trim();
-    const filtered = q
-      ? permissions.filter((p) => p.description.toLowerCase().includes(q))
-      : permissions;
-    const byModule: Record<string, Permission[]> = {};
-    for (const p of filtered) {
-      if (absorbedActsModules.includes(p.module)) continue;
-      (byModule[p.module] ??= []).push(p);
-    }
-    // Кластер актов рендерится единой карточкой по якорю. Если поиск совпал
-    // ТОЛЬКО с поглощёнными правами (integration/scope, напр. «Quick Resto»),
-    // якорь сам в byModule не попадёт — добавляем плейсхолдер, чтобы карточка
-    // всё равно показалась и право можно было найти (Codex P2 #409).
-    const clusterMatchesQuery =
-      !q ||
-      permissions.some(
-        (p) =>
-          INVENTORY_ACTS_MODULES.includes(p.module) &&
-          p.description.toLowerCase().includes(q),
-      );
-    if (clusterMatchesQuery && !byModule[INVENTORY_ACTS_ANCHOR_MODULE]) {
-      byModule[INVENTORY_ACTS_ANCHOR_MODULE] = [];
-    }
-    return sortModuleKeys(Object.keys(byModule)).map((key) => ({
-      key,
-      meta: metaForModule(key),
-      perms: byModule[key],
-    }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [permissions, permQuery]);
-
-  // Все права кластера «Акты инвентаризации» (без фильтра поиска) — для секции.
-  const inventoryActsPerms = useMemo(
-    () => permissions.filter((p) => INVENTORY_ACTS_MODULES.includes(p.module)),
-    [permissions],
-  );
-
-  function applyInventoryActsCodes(grantCodes: Set<string>) {
-    if (!canEdit) return;
-    const toGrant = inventoryActsPerms.filter(
-      (p) => grantCodes.has(p.code) && !hasPermission(p.id),
-    );
-    const toRevoke = inventoryActsPerms.filter(
-      (p) => !grantCodes.has(p.code) && hasPermission(p.id),
-    );
-    if (toGrant.length === 0 && toRevoke.length === 0) return;
-    toGrant.forEach((p) => applyPermissionLocal(p.id, true));
-    toRevoke.forEach((p) => applyPermissionLocal(p.id, false));
-    startTransition(async () => {
-      const results = await Promise.all([
-        ...toGrant.map((p) => setRolePermission(role.id, p.id, true)),
-        ...toRevoke.map((p) => setRolePermission(role.id, p.id, false)),
-      ]);
-      if (results.some((r) => r.error)) {
-        toast.error("Не удалось обновить часть прав");
-        router.refresh();
-      }
-    });
-  }
-
-  // Total permissions per module (for "X из Y" display, ignoring search filter)
-  const totalsByModule = useMemo(() => {
-    const t: Record<string, number> = {};
-    for (const p of permissions) {
-      t[p.module] = (t[p.module] ?? 0) + 1;
-    }
-    return t;
-  }, [permissions]);
 
   // ── Render ─────────────────────────────────────────────────
 
@@ -441,141 +295,14 @@ export function RoleDetailPage({
           </ProfileTabsList>
 
           {/* ── Permissions ───────────────────────────────────── */}
-          <TabsContent value="permissions" className="space-y-4">
-            {isOwner && (
-              <p className="text-sm text-muted-foreground rounded-lg bg-muted px-4 py-3">
-                Системная должность — права нельзя изменить
-              </p>
-            )}
-
-            {/* Toolbar: search + bulk */}
-            <div className="flex items-center gap-3 flex-wrap">
-              <div className="relative w-full max-w-[280px]">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  value={permQuery}
-                  onChange={(e) => setPermQuery(e.target.value)}
-                  placeholder="Найти право…"
-                  className="pl-9 h-9 text-[13px]"
-                />
-              </div>
-              {canEdit && (
-                <div className="flex items-center gap-1 ml-auto">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleBulkSet(permissions, true)}
-                    disabled={isPending}
-                  >
-                    Выделить всё
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleBulkSet(permissions, false)}
-                    disabled={isPending}
-                  >
-                    Сбросить
-                  </Button>
-                </div>
-              )}
-            </div>
-
-            {/* Module group cards */}
-            {groupedPermissions.length === 0 && (
-              <div className="text-sm text-muted-foreground rounded-lg border border-dashed p-8 text-center">
-                По запросу «{permQuery}» ничего не найдено
-              </div>
-            )}
-            {groupedPermissions.map(({ key, meta, perms }) => {
-              // Кластер «Акты инвентаризации» — единая секция с уровнями
-              // (Исполнитель / Редактор / Полный доступ) вместо простыни галок.
-              if (key === INVENTORY_ACTS_ANCHOR_MODULE) {
-                return (
-                  <InventoryActsPermissionSection
-                    key={key}
-                    clusterPerms={inventoryActsPerms}
-                    isGranted={hasPermission}
-                    canEdit={canEdit}
-                    isPending={isPending}
-                    onToggle={handleToggle}
-                    onApplyCodes={applyInventoryActsCodes}
-                  />
-                );
-              }
-              const Icon = meta.icon;
-              // Master state must reflect the WHOLE module, not the
-              // search-filtered subset — otherwise a fully-granted module
-              // can render the switch as off whenever a query hides some
-              // rows, and toggling would issue spurious bulk writes.
-              const allModulePerms = permissions.filter((p) => p.module === key);
-              const grantedInGroup = allModulePerms.filter((p) =>
-                hasPermission(p.id),
-              ).length;
-              const totalInGroup = totalsByModule[key];
-              const allGranted =
-                totalInGroup > 0 && grantedInGroup === totalInGroup;
-              return (
-                <div
-                  key={key}
-                  className="rounded-[14px] border bg-card overflow-hidden"
-                >
-                  {/* Group header */}
-                  <div className="flex items-center gap-3 bg-muted px-5 py-3.5 border-b">
-                    <div className="flex items-center justify-center size-7 rounded-lg bg-brand/10 shrink-0">
-                      <Icon className="w-4 h-4 text-brand" />
-                    </div>
-                    <span className="text-sm font-semibold">{meta.label}</span>
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold text-muted-foreground bg-secondary border">
-                      {grantedInGroup} из {totalInGroup}
-                    </span>
-                    <div className="flex-1" />
-                    {canEdit && (
-                      <Switch
-                        checked={allGranted}
-                        onCheckedChange={(checked) =>
-                          handleBulkSet(allModulePerms, checked)
-                        }
-                        disabled={isPending}
-                        aria-label={`${meta.label} — переключить все права`}
-                      />
-                    )}
-                  </div>
-
-                  {/* Rows */}
-                  <div>
-                    {perms.map((perm, i) => {
-                      const granted = hasPermission(perm.id);
-                      return (
-                        <div
-                          key={perm.id}
-                          className={`flex items-center gap-3 px-5 py-3 ${
-                            i < perms.length - 1 ? "border-b" : ""
-                          }`}
-                        >
-                          <Checkbox
-                            id={`perm-${perm.id}`}
-                            checked={granted}
-                            disabled={!canEdit}
-                            onCheckedChange={() => handleToggle(perm.id)}
-                          />
-                          <label
-                            htmlFor={`perm-${perm.id}`}
-                            className={`text-[13px] leading-tight select-none ${
-                              !canEdit
-                                ? "cursor-default text-muted-foreground"
-                                : "cursor-pointer text-foreground"
-                            }`}
-                          >
-                            {perm.description}
-                          </label>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
+          <TabsContent value="permissions">
+            <RolePermissionsTab
+              roleId={role.id}
+              permissions={permissions}
+              rolePermissions={rolePermissions}
+              onRolePermissionsChange={setRolePerms}
+              readOnly={!canEdit}
+            />
           </TabsContent>
 
           {/* ── Compensation (stub) ───────────────────────────── */}

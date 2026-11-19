@@ -53,6 +53,9 @@ import {
 import type { Adjustment, PayrollData } from "@/lib/payroll/types";
 import { runWithConcurrency } from "@/lib/run-with-concurrency";
 import { zonedParts } from "@/lib/sales/time";
+import { formatQuantityAmount, signedAmountClass } from "@/lib/format/amount";
+import { Money, formatRub } from "@/components/shared/money";
+import { StatusBadge } from "@/components/ui/status-badge";
 import style from "./payroll-journal.module.css";
 import formStyle from "./concept-payment-form.module.css";
 
@@ -84,8 +87,9 @@ const labels = {
   reason: "Основание",
   amount: "Сумма",
 };
-const format = (n: number) =>
-  new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(n);
+/** Бонусы Quick Resto — баллы, не рубли: «+150 б.», «−20 б.». */
+const bonusPoints = (n: number, signed = true) =>
+  `${signed ? (n > 0 ? "+" : n < 0 ? "−" : "") : n < 0 ? "−" : ""}${formatQuantityAmount(Math.abs(n), 2)} б.`;
 const dateLabel = (d: string) => d.slice(0, 10).split("-").reverse().join(".");
 const statusLabel = (r: Adjustment) =>
   r.deleted_at
@@ -101,10 +105,25 @@ const statusLabel = (r: Adjustment) =>
         : r.approved
           ? "Учтено в зарплате"
           : "Прежняя запись";
-const entryAmount = (r: Adjustment) =>
+/** Сумма записи со знаком; копейки — только в карточке записи (`fraction`). */
+const entryAmount = (r: Adjustment, fraction = false): ReactNode => {
+  if (r.kind === "warning") return <Money value={null} />;
+  const value = Number(r.amount);
+  if (r.medium === "bonus")
+    return (
+      <span className={`whitespace-nowrap tabular-nums ${signedAmountClass(value)}`}>
+        {bonusPoints(value)}
+      </span>
+    );
+  return <Money value={value} signed fraction={fraction} />;
+};
+/** То же строкой — для удалённой записи, которая показывается серой и зачёркнутой. */
+const entryAmountText = (r: Adjustment) =>
   r.kind === "warning"
     ? "—"
-    : `${Number(r.amount) > 0 ? "+" : "−"}${format(Math.abs(Number(r.amount)))} ${r.medium === "bonus" ? "б." : "₽"}`;
+    : r.medium === "bonus"
+      ? bonusPoints(Number(r.amount))
+      : formatRub(Number(r.amount), { signed: true });
 
 
 export function PayrollEntryMenuItems({onSelect}: {onSelect:(kind:"deduction" | "allowance")=>void}) {
@@ -243,24 +262,18 @@ export function PayrollJournal({
                   <Coins size={14} />
                 )}{" "}
                 {kindLabels[r.kind] ?? r.kind}
-                {paidBonuses.has(r.id) && <span className="text-xs text-muted-foreground">· Выплачена</span>}
+                {paidBonuses.has(r.id) && <StatusBadge tone="success">Выплачена</StatusBadge>}
               </span>
             );
           if (id === "amount")
-            return (
-              <span
-                className={
-                  r.deleted_at
-                    ? style.deleted
-                    : Number(r.amount) < 0
-                      ? style.negative
-                      : style.positive
-                }
-              >
-                {entryAmount(r)}
+            return r.deleted_at ? (
+              <span className={`${style.deleted} whitespace-nowrap tabular-nums`}>
+                {entryAmountText(r)}
               </span>
+            ) : (
+              entryAmount(r)
             );
-          if (r.deleted_at) return <span className="line-clamp-2 text-muted-foreground line-through" data-tip={r.reason}>{r.reason} · Удалено</span>;
+          if (r.deleted_at) return <span className="flex min-w-0 items-center gap-2"><span className="line-clamp-2 min-w-0 text-muted-foreground line-through" data-tip={r.reason}>{r.reason}</span><StatusBadge className="shrink-0">Удалено</StatusBadge></span>;
           return <span className="line-clamp-2" data-tip={r.reason}>{r.reason}</span>;
         },
       })),
@@ -392,15 +405,15 @@ export function PayrollJournal({
         title={selected ? (kindLabels[selected.kind] ?? "Запись") : "Запись"}
         description={selected ? selected.kind === "allowance" ? new Date(`${selected.business_date}T12:00:00Z`).toLocaleDateString("ru-RU", {month:"long",year:"numeric",timeZone:"UTC"}) : dateLabel(selected.business_date) : ""}
         employee={selected ? (() => { const e = data.employees.find((e) => e.id === selected.employee_id); return {name:e?.name ?? "Сотрудник", role:e?.role_name, avatarUrl:e?.avatar_url}; })() : undefined}
-        amount={selected ? entryAmount(selected) : undefined}
+        amount={selected ? entryAmount(selected, true) : undefined}
         amountLabel={selected?.kind === "warning" ? "Без денежного удержания" : selected?.kind === "allowance" ? "Надбавка за месяц" : selected?.kind === "bonus" ? "Сумма премии" : selected?.kind === "correction" ? "Сумма корректировки" : "Сумма удержания"}
         status={selected && (selected.deleted_at || selectedPaid || detail?.notification) ? <span className="flex flex-wrap items-center justify-end gap-2">
-          {selected.deleted_at && <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">Удалено</span>}
-          {selectedPaid && <span className="rounded-full bg-muted px-2.5 py-1 text-xs">Выплачена</span>}
+          {selected.deleted_at && <StatusBadge>Удалено</StatusBadge>}
+          {selectedPaid && <StatusBadge tone="success">Выплачена</StatusBadge>}
           {!selected.deleted_at && detail?.notification && <span
-            className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-300"
+            className="inline-flex"
             data-tip={detail.notification.last_error ?? undefined}
-          >{detail.notification.final ? "Не будет отправлено" : "Не отправлено в чат"}</span>}
+          ><StatusBadge tone="warning">{detail.notification.final ? "Не будет отправлено" : "Не отправлено в чат"}</StatusBadge></span>}
         </span> : undefined}
         actions={canWrite && selected && !selected.deleted_at ? (
           <DropdownMenu>
@@ -524,7 +537,7 @@ export function PayrollJournal({
                         }[h.action] ?? h.action}
                       </p>
                       {h.action === "bonus_operation" && <p className="text-muted-foreground">{({pending:"В очереди",reading:"Проверка баланса",sending:"Отправлена в Quick Resto",done:"Проведена",review:"Нужна сверка",cancelled:"Отменена",money:"Удержано деньгами"} as Record<string,string>)[String(h.details.state)]??"Нужна сверка"}{h.details.message?` · ${String(h.details.message)}`:""}</p>}
-                      {h.action === "updated" && h.details.previous_amount != null && Number(h.details.previous_amount) !== Number(h.details.amount) && <p className="text-muted-foreground">Сумма: {format(Number(h.details.previous_amount))} → {format(Number(h.details.amount))} {h.details.medium === "bonus" ? "б." : "₽"}</p>}
+                      {h.action === "updated" && h.details.previous_amount != null && Number(h.details.previous_amount) !== Number(h.details.amount) && <p className="text-muted-foreground">Сумма: {h.details.medium === "bonus" ? `${bonusPoints(Number(h.details.previous_amount), false)} → ${bonusPoints(Number(h.details.amount), false)}` : `${formatRub(Number(h.details.previous_amount), { fraction: true })} → ${formatRub(Number(h.details.amount), { fraction: true })}`}</p>}
                       {h.action === "updated" && typeof h.details.previous_reason === "string" && h.details.previous_reason !== h.details.reason && <p className="text-muted-foreground">Основание: {h.details.previous_reason} → {String(h.details.reason)}</p>}
                       {h.details.delete_reason ? (
                         <p>{String(h.details.delete_reason)}</p>
@@ -764,7 +777,7 @@ export function PayrollEntryForm({
         <div className={`${formStyle.footer} ${formStyle.totalRow}`}>
           {isBonus && <div aria-live="polite">
             <span>Итого</span>
-            <strong>{format(total)} <small>{medium === "money" ? "₽" : "б."}</small></strong>
+            <strong>{medium === "money" ? <Money value={total} fraction={!Number.isInteger(total)} /> : <>{formatQuantityAmount(total, 2)} <small>б.</small></>}</strong>
           </div>}
           <div className="ml-auto flex items-center gap-2">
             <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>Отмена</Button>

@@ -18,6 +18,7 @@ import {
   saveAutomationSettings,
 } from "../automation-actions";
 import { selectClass } from "./employee-pay";
+import { formatRub } from "@/components/shared/money";
 
 function NumberField({
   id,
@@ -120,8 +121,8 @@ function RolesField({
     </div>
   );
 }
-const money = (n: number) =>
-  Number.isFinite(n) ? n.toLocaleString("ru-RU") : "—";
+/** Сумма из настроек: копейки — только если они заданы. */
+const money = (n: number) => formatRub(n, { fraction: !Number.isInteger(n) });
 const date = (value: string) =>
   new Date(value).toLocaleString("ru-RU", {
     timeZone: "Europe/Moscow",
@@ -256,7 +257,7 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
       <fieldset disabled={busy} className="min-w-0">
         <Section
           title="Медицинские книжки"
-          summary={`Просрочка — ${money(m.expiry_amount)} ₽ один раз за случай`}
+          summary={`Просрочка — ${money(m.expiry_amount)} один раз за случай`}
           open
         >
           <Toggle
@@ -756,7 +757,7 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
                   </summary>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {row.updated_at && date(row.updated_at)} · просрочка{" "}
-                    {money(row.config.medical.expiry_amount)} ₽ ·{" "}
+                    {money(row.config.medical.expiry_amount)} ·{" "}
                     {row.config.gifts.holidays.length} праздничных правил ·{" "}
                     {row.config.gifts.tenure.length} порогов стажа
                   </p>

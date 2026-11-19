@@ -10,7 +10,7 @@
 .stats > :last-child { border-right: 0; }
 .stats > button:first-child { background: hsl(var(--brand)/.045); }
 .stats > button:hover { background: hsl(var(--brand)/.08); }
-.stats span { display: flex; align-items: center; justify-content: space-between; color: hsl(var(--muted-foreground)); font-size: 12px; }
+.stats > * > span { display: flex; align-items: center; justify-content: space-between; color: hsl(var(--muted-foreground)); font-size: 12px; }
 .stats strong { display: block; font-size: 28px; font-weight: 500; letter-spacing: -.6px; margin-top: 12px; font-variant-numeric: tabular-nums; }
 .meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding: 16px 0 22px; color: hsl(var(--muted-foreground)); font-size: 12px; }
 .controls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
@@ -31,7 +31,7 @@
  .portrait { width: 44px; height: 44px; font-size: 14px; }
  .stats > * { padding: 16px 12px; }
  .stats strong { font-size: 18px; white-space: nowrap; }
- .stats span { font-size: 11px; gap: 4px; }
+ .stats > * > span { font-size: 11px; gap: 4px; }
  .setting { align-items: flex-start; gap: 12px; }
 }
 @media(max-width:359px) { .stats { grid-template-columns: 1fr; } .stats > * { border-right:0; border-bottom:1px solid hsl(var(--border)); } }

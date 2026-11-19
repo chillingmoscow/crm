@@ -2,6 +2,7 @@
 import type { ReactNode } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Money } from "@/components/shared/money";
 import s from "./compensation-summary.module.css";
 export function CompensationRow({ title, hint, icon, children, onEdit, editLabel = "Настроить" }: {
     title: string;
@@ -18,6 +19,7 @@ export function CompensationRates({ solo, team, unit = "₽" }: {
     team: number | null;
     unit?: string;
 }) {
-    const format = (v: number | null) => v === null ? "Не задано" : unit === "%" ? `${v}%` : `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(v)} ₽`;
+    // Ставка из настроек: копейки показываем, только если они заданы.
+    const format = (v: number | null) => v === null ? "Не задано" : unit === "%" ? `${v}%` : <Money value={v} fraction={!Number.isInteger(v)} />;
     return <div className={s.pair}><span><strong>{format(solo)}</strong><small>в одиночку</small></span><span><strong>{format(team)}</strong><small>вдвоём</small></span></div>;
 }

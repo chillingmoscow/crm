@@ -16,8 +16,9 @@ import { statementRows } from "@/lib/payroll/calculate";
 import formStyle from "./concept-payment-form.module.css";
 import type { PayrollData, PayrollTransfer } from "@/lib/payroll/types";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { Money, formatRub } from "@/components/shared/money";
+import { StatusBadge } from "@/components/ui/status-badge";
 
-const money = (n: number) => `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(n)} ₽`;
 const monthLabel = (m: string) => new Date(`${m}T12:00:00Z`).toLocaleDateString("ru-RU", {month:"long", year:"numeric", timeZone:"UTC"}).replace(" г.", "");
 const dateMonth = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`;
 
@@ -76,13 +77,13 @@ export function PayrollTransferDrawer({data, month, employeeId, onClose, onChang
         <Label>Сотрудник</Label>
         <PayrollEmployeePicker employees={rows.map((r) => r.employee)} selectedIds={employee ? [employee] : []} disabled={busy} onChange={(ids) => {setEmployee(ids[0] ?? "");setValue("");requestKey.current=null;}} />
       </div>
-      {row && <p className="text-sm text-muted-foreground">{known ? <>Остаток за {monthLabel(month)}: <strong className="font-medium text-foreground">{money(remaining)}</strong></> : "Для переноса сначала уточните прежние выплаты и начальный остаток сотрудника в настройках оплаты труда."}</p>}
+      {row && <p className="text-sm text-muted-foreground">{known ? <>{remaining < 0 ? "Переплата" : "К выплате"} за {monthLabel(month)}: <strong className="font-medium text-foreground"><Money value={Math.abs(remaining)} fraction /></strong></> : "Для переноса сначала уточните прежние выплаты и начальный остаток сотрудника в настройках оплаты труда."}</p>}
       <div className="flex flex-col items-start gap-2"><Label>В какой месяц</Label>
         <PayrollMonthPicker variant="field" ariaLabel="Месяц переноса" prefix="" value={dateMonth(target)} min={dateMonth(nextMonth)} disabled={busy} onChange={(value) => {setTarget(new Date(`${value}T12:00:00`));requestKey.current=null;}} />
       </div>
       <div className="space-y-2"><Label htmlFor="transfer-value">Сумма переноса, ₽</Label>
         <Input id="transfer-value" inputMode="decimal" value={value} onChange={(e) => {setValue(e.target.value);requestKey.current=null;}} placeholder="1 000" disabled={busy} />
-        {known && remaining !== 0 && <Button variant="link" size="sm" className="h-auto px-0" onClick={() => {setValue(String(Math.abs(remaining)));requestKey.current=null;}}>Весь остаток · {money(Math.abs(remaining))}</Button>}
+        {known && remaining !== 0 && <Button variant="link" size="sm" className="h-auto px-0" onClick={() => {setValue(String(Math.abs(remaining)));requestKey.current=null;}}>Весь остаток · {formatRub(Math.abs(remaining), { fraction: true })}</Button>}
         {known && numeric > Math.abs(remaining) && <p className="text-xs text-destructive">Сумма превышает остаток этого месяца.</p>}
       </div>
       <div className="space-y-2"><Label htmlFor="transfer-reason">Причина</Label><Textarea id="transfer-reason" value={reason} onChange={(e) => {setReason(e.target.value);requestKey.current=null;}} placeholder="Например, выплатить вместе с зарплатой за следующий месяц" disabled={busy} /></div>
@@ -91,7 +92,7 @@ export function PayrollTransferDrawer({data, month, employeeId, onClose, onChang
         {!history.length && <p className="text-xs text-muted-foreground">За этот месяц переносов нет.</p>}
         {history.map((t) => <div key={t.id} className="space-y-2 rounded-xl border p-4 text-sm">
           <div className="flex flex-wrap items-center gap-2"><span>{monthLabel(t.from_month)}</span><ArrowRight size={14}/><span>{monthLabel(t.to_month)}</span></div>
-          <div className="flex items-center justify-between"><strong className="font-medium">{money(Number(t.amount))}</strong>{t.state==="cancelled" && <span className="text-xs text-muted-foreground">Отменён</span>}</div>
+          <div className="flex items-center justify-between"><strong className="font-medium"><Money value={Number(t.amount)} fraction /></strong>{t.state==="cancelled" && <StatusBadge>Отменён</StatusBadge>}</div>
           <p className="text-xs text-muted-foreground">{t.reason}</p>
           {t.state==="posted" && <Button size="sm" variant="ghost" disabled={busy} onClick={() => {setCancelError("");setCancelling(t);}}>Отменить перенос</Button>}
         </div>)}
@@ -101,7 +102,7 @@ export function PayrollTransferDrawer({data, month, employeeId, onClose, onChang
     <ConfirmDialog
       open={Boolean(cancelling)}
       onOpenChange={(open) => { if (!open) setCancelling(null); }}
-      title={cancelling ? `Отменить перенос ${money(Math.abs(Number(cancelling.amount)))}?` : "Отменить перенос?"}
+      title={cancelling ? `Отменить перенос ${formatRub(Math.abs(Number(cancelling.amount)), { fraction: "auto" })}?` : "Отменить перенос?"}
       description={cancelling ? `Сумма вернётся из ведомости за ${monthLabel(cancelling.to_month)} в ведомость за ${monthLabel(cancelling.from_month)}. Перенос останется в списке с отметкой «Отменён». Движения денег не будет.` : undefined}
       confirmLabel="Отменить перенос"
       pendingLabel="Отменяем…"

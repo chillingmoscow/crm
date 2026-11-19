@@ -14,7 +14,10 @@ import {
 import { MonthPicker } from "@/components/shared/month-picker";
 import { PeriodStepper } from "@/components/shared/period-stepper";
 import { ProfileSection } from "@/components/shared/profile-section";
-import { formatMoney, formatSignedMoney, signedAmountClass } from "@/lib/format/amount";
+import { Money, formatRub } from "@/components/shared/money";
+import { toKopecks } from "@/lib/format/amount";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { countRu } from "@/lib/format/plural";
 import { accrualRole } from "@/lib/payroll/accrual-view";
 import { attendanceRuleAtDate } from "@/lib/payroll/attendance";
 import { statementRows } from "@/lib/payroll/calculate";
@@ -39,15 +42,7 @@ import { PayrollDetailDialog } from "./payroll-detail-dialog";
 /** Сколько строк раскрытой статьи видно до «Показать все». */
 const PREVIEW = 5;
 
-const rub = (n: number | null | undefined) =>
-  formatMoney(typeof n === "number" ? Math.round(n) : n, "RUB", 0);
-const signedRub = (n: number) => formatSignedMoney(Math.round(n), "RUB", 0);
-const plural = (n: number, forms: [string, string, string]) => {
-  const a = Math.abs(n) % 100,
-    b = a % 10;
-  return a > 10 && a < 20 ? forms[2] : b === 1 ? forms[0] : b > 1 && b < 5 ? forms[1] : forms[2];
-};
-const shifts = (n: number) => `${n} ${plural(n, ["смена", "смены", "смен"])}`;
+const shifts = (n: number) => countRu(n, "смена", "смены", "смен");
 const dayMonth = (date: string) => `${date.slice(8, 10)}.${date.slice(5, 7)}`;
 const fullDate = (date: string) => date.slice(0, 10).split("-").reverse().join(".");
 const monthName = (month: string, format: "long" | "short" = "long") =>
@@ -62,9 +57,9 @@ function groupNote(group: PaySheetGroup) {
   const n = group.items.length;
   if (group.id === "monthly") return "За месяц";
   if (PER_SHIFT.has(group.id))
-    return group.uniform !== null && n > 1 ? `${shifts(n)} × ${rub(group.uniform)}` : shifts(n);
+    return group.uniform !== null && n > 1 ? `${shifts(n)} × ${formatRub(group.uniform)}` : shifts(n);
   if (n === 1) return group.items[0].title;
-  return `${n} ${plural(n, ["запись", "записи", "записей"])}`;
+  return countRu(n, "запись", "записи", "записей");
 }
 
 /** Расчётный лист сотрудника за месяц: вкладка «Оплата» в карточке. */
@@ -247,8 +242,8 @@ export function StaffPaySheet({
           className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm"
         >
           <p className="font-medium">
-            Расчёт за {name} неполный: {issues.length}{" "}
-            {plural(issues.length, ["замечание", "замечания", "замечаний"])}
+            Расчёт за {name} неполный:{" "}
+            {countRu(issues.length, "замечание", "замечания", "замечаний")}
           </p>
           <ul className="mt-1 list-disc pl-5 text-[13px] text-muted-foreground">
             {issues.slice(0, 3).map((issue) => (
@@ -263,10 +258,10 @@ export function StaffPaySheet({
         <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
           <div className="min-w-0">
             <h2 className="text-xs font-medium text-muted-foreground">
-              {!unknownReason && remaining < 0 ? `Переплата за ${name}` : `К выплате за ${name}`}
+              {!unknownReason && toKopecks(remaining) < 0 ? `Переплата за ${name}` : `К выплате за ${name}`}
             </h2>
             <p className="mt-1 text-[32px] font-semibold leading-tight tracking-tight tabular-nums sm:text-4xl">
-              {unknownReason ? "—" : rub(Math.abs(remaining))}
+              <Money value={unknownReason ? null : Math.abs(toKopecks(remaining))} fraction="auto" />
             </p>
           </div>
           <div className="flex gap-2">
@@ -321,14 +316,14 @@ export function StaffPaySheet({
           {(paid !== 0 || owed > 0) && (
             <span>
               {unknownReason || owed <= 0
-                ? `Выплачено ${rub(paid)}`
-                : `Выплачено ${rub(paid)} из ${rub(owed)}`}
+                ? `Выплачено ${formatRub(paid)}`
+                : `Выплачено ${formatRub(paid)} из ${formatRub(owed)}`}
             </span>
           )}
           {tips > 0 && (
             <span>
-              Чаевые {rub(tips)}
-              {tipPaid > 0 ? ` (выдано ${rub(tipPaid)})` : ""}, отдельно от зарплаты
+              Чаевые {formatRub(tips)}
+              {tipPaid > 0 ? ` (выдано ${formatRub(tipPaid)})` : ""}, отдельно от зарплаты
             </span>
           )}
         </div>
@@ -337,13 +332,13 @@ export function StaffPaySheet({
             {opening !== 0 && (
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">Перенос в этот месяц</dt>
-                <dd className="tabular-nums">{employee.opening_confirmed ? signedRub(opening) : "—"}</dd>
+                <dd className="tabular-nums"><Money value={employee.opening_confirmed ? opening : null} signed /></dd>
               </div>
             )}
             {transferredOut !== 0 && (
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">Перенесено на другой месяц</dt>
-                <dd className="tabular-nums">{signedRub(-transferredOut)}</dd>
+                <dd className="tabular-nums"><Money value={-transferredOut} signed /></dd>
               </div>
             )}
           </dl>
@@ -360,7 +355,7 @@ export function StaffPaySheet({
         <>
           <ProfileSection
             title="Начислено"
-            actions={<Sum>{rub(sheet.earned)}</Sum>}
+            actions={<Sum><Money value={sheet.earned} /></Sum>}
           >
             {sheet.groups.length ? (
               <div className="flex flex-col">
@@ -376,8 +371,8 @@ export function StaffPaySheet({
           <ProfileSection
             title="Удержано"
             actions={
-              <Sum className={sheet.deducted < 0 ? signedAmountClass(sheet.deducted) : undefined}>
-                {sheet.deducted < 0 ? signedRub(sheet.deducted) : rub(0)}
+              <Sum>
+                <Money value={sheet.deducted < 0 ? sheet.deducted : 0} signed />
               </Sum>
             }
           >
@@ -389,7 +384,7 @@ export function StaffPaySheet({
                     title={item.title}
                     note={fullDate(item.date)}
                     amount={
-                      <span className={signedAmountClass(item.amount)}>{signedRub(item.amount ?? 0)}</span>
+                      <Money value={item.amount ?? 0} signed />
                     }
                   />
                 ))}
@@ -399,7 +394,7 @@ export function StaffPaySheet({
             )}
           </ProfileSection>
 
-          <ProfileSection title="Выплачено" actions={<Sum>{rub(paid)}</Sum>}>
+          <ProfileSection title="Выплачено" actions={<Sum><Money value={paid} /></Sum>}>
             {payments.length ? (
               <ul className="flex flex-col">
                 {payments.map((p) => (
@@ -409,9 +404,7 @@ export function StaffPaySheet({
                       <>
                         {p.kind === "advance" ? "Аванс" : "Зарплата"}
                         {!p.posted && (
-                          <span className="ml-2 inline-flex h-5 items-center rounded-full bg-muted px-2 text-[11px] font-medium text-muted-foreground">
-                            Удалена
-                          </span>
+                          <StatusBadge className="ml-2">Удалена</StatusBadge>
                         )}
                       </>
                     }
@@ -420,7 +413,7 @@ export function StaffPaySheet({
                     )}
                     amount={
                       <span className={p.posted ? undefined : "text-muted-foreground line-through"}>
-                        {rub(p.amount)}
+                        <Money value={p.amount} />
                       </span>
                     }
                   />
@@ -534,7 +527,7 @@ function GroupLine({ group }: { group: PaySheetGroup }) {
             {group.amount === null ? "Часть данных ещё не получена" : groupNote(group)}
           </span>
         </span>
-        <span className="shrink-0 text-sm font-medium tabular-nums">{rub(group.amount)}</span>
+        <span className="shrink-0 text-sm font-medium tabular-nums"><Money value={group.amount} /></span>
         <ChevronDown
           className={cn(
             "size-4 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none",
@@ -572,7 +565,7 @@ function ItemLine({ item }: { item: PaySheetItem }) {
         {item.title}
         {item.note && <span className="text-muted-foreground"> · {item.note}</span>}
       </span>
-      <span className="tabular-nums">{rub(item.amount)}</span>
+      <Money value={item.amount} />
     </li>
   );
 }
@@ -597,8 +590,8 @@ function MonthBars({
             key={h.month}
             type="button"
             aria-pressed={active}
-            aria-label={`${monthName(h.month)}: начислено ${rub(h.earned)}`}
-            data-tip={`${monthName(h.month)}: ${rub(h.earned)}`}
+            aria-label={`${monthName(h.month)}: начислено ${formatRub(h.earned)}`}
+            data-tip={`${monthName(h.month)}: ${formatRub(h.earned)}`}
             onClick={() => onMonth(h.month)}
             className="group flex w-9 flex-col items-center gap-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
@@ -681,7 +674,7 @@ function Conditions({
   if (!employee.casual)
     rows.push([
       "Начальный остаток",
-      employee.opening_confirmed ? rub(employee.opening_balance) : "Не указан",
+      employee.opening_confirmed ? <Money value={employee.opening_balance} /> : "Не указан",
     ]);
   return (
     <dl className="grid gap-x-4 gap-y-3 sm:grid-cols-[minmax(140px,220px)_1fr]">

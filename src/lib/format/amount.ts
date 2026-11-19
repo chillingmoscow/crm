@@ -113,3 +113,12 @@ export function signedAmountClass(value: number | null | undefined): string {
   if (amount < 0) return "text-red-700 dark:text-red-400";
   return "text-muted-foreground";
 }
+
+/**
+ * Сумма, округлённая до копеек. Для выбора подписи по знаку («К выплате» /
+ * «Переплата»): сумма float по строкам даёт хвосты вроде −2.8e-17, и без
+ * округления ноль превращался в «Переплата 0 ₽».
+ */
+export function toKopecks(value: number): number {
+  return Math.round(value * 100) / 100;
+}

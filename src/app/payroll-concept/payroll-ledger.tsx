@@ -8,7 +8,8 @@ import {
 } from "@/app/(dashboard)/people/payroll/_components/payroll-table";
 import { statementRows } from "@/lib/payroll/calculate";
 import type { PayrollData } from "@/lib/payroll/types";
-import s from "./payroll-concept.module.css";
+import { formatAmount } from "@/lib/format/amount";
+import { Money } from "@/components/shared/money";
 import { PayrollEmployeeCell } from "@/app/(dashboard)/people/payroll/_components/payroll-employee-cell";
 
 type Row = ReturnType<typeof statementRows>[number];
@@ -28,8 +29,6 @@ const numeric = Object.keys(labels).filter((id) => id !== "employee");
 const hidden = ["opening", "transferredOut", "tips"];
 const searchText = (row: Row) =>
   `${row.employee.name} ${row.employee.role_name}`;
-const format = (n: number) =>
-  new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(n);
 
 export function PayrollLedger({
   data,
@@ -87,25 +86,20 @@ export function PayrollLedger({
               </span>
             );
           const value = Number(record[id as keyof Omit<Row, "employee">]);
+          if (id === "shifts") return formatAmount(value, 0);
+          // Премии со знаком «+», удержания хранятся положительными и
+          // показываются со знаком «−»; ноль серый, без цвета.
+          if (id === "bonuses") return <Money value={value} signed />;
+          if (id === "deductions") return <Money value={-value} signed />;
           return (
-            <span
+            <Money
+              value={value}
               className={
                 id === "earned" || id === "remaining"
                   ? "font-semibold"
-                  : id === "bonuses"
-                    ? s.bonus
-                    : id === "deductions"
-                      ? s.deduction
-                      : undefined
+                  : undefined
               }
-            >
-              {id === "bonuses" && value > 0
-                ? "+"
-                : id === "deductions" && value > 0
-                  ? "−"
-                  : ""}
-              {format(value)}
-            </span>
+            />
           );
         },
       })),
@@ -150,7 +144,8 @@ export function PayrollLedger({
             unknown(id) ? (
               <span className="text-muted-foreground">—</span>
             ) : (
-              format(
+              totalCell(
+                id,
                 visible.reduce(
                   (sum, record) =>
                     sum + Number(record[id as keyof Omit<Row, "employee">]),
@@ -163,4 +158,12 @@ export function PayrollLedger({
       }}
     />
   );
+}
+
+/** Итог столбца в том же виде, что и ячейки: смены числом, деньги через Money. */
+function totalCell(id: string, value: number) {
+  if (id === "shifts") return formatAmount(value, 0);
+  if (id === "bonuses") return <Money value={value} signed />;
+  if (id === "deductions") return <Money value={-value} signed />;
+  return <Money value={value} />;
 }

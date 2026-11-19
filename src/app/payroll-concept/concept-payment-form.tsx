@@ -20,7 +20,7 @@ import { PayrollEmployeePicker } from "@/app/(dashboard)/people/payroll/_compone
 import { DatePicker } from "@/components/ui/date-picker";
 import { zonedParts } from "@/lib/sales/time";
 import { PayrollMonthPicker } from "@/app/(dashboard)/people/payroll/_components/payroll-month-picker";
-import { money } from "@/lib/sales/format";
+import { Money } from "@/components/shared/money";
 import s from "./concept-payment-form.module.css";
 
 export function ConceptPaymentForm({
@@ -121,7 +121,7 @@ export function ConceptPaymentForm({
         <div aria-live="polite">
           <span>Итого</span>
           <strong>
-            {money(amount)} <small>₽</small>
+            <Money value={amount} fraction={!Number.isInteger(amount)} />
           </strong>
         </div>
         <div className="flex items-center gap-2">

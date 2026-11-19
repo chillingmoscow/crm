@@ -55,11 +55,11 @@ export function StaffDoorCode({ userId }: { userId: string }) {
           <dl className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <dt className="text-muted-foreground">Номер пользователя</dt>
-              <dd className="mt-1 font-mono text-lg">{code?.user_number}</dd>
+              <dd className="mt-1 font-mono text-xl">{code?.user_number}</dd>
             </div>
             <div>
               <dt className="text-muted-foreground">Код</dt>
-              <dd className="mt-1 font-mono text-lg">{code?.password}</dd>
+              <dd className="mt-1 font-mono text-xl">{code?.password}</dd>
             </div>
           </dl>
         </DialogContent>

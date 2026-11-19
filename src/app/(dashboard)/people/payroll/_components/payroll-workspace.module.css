@@ -6,7 +6,7 @@
   background: hsl(var(--background));
   color: var(--ink);
   font-family: var(--font-inter), Arial, sans-serif;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.5;
   color-scheme: inherit;
 }
@@ -41,9 +41,9 @@
   grid-template-columns: 1.25fr 1fr 1.1fr 1fr;
   background: hsl(var(--card));
   border: 1px solid var(--line);
-  border-radius: 11px;
+  border-radius: 12px;
   overflow: hidden;
-  box-shadow: 0 3px 6px hsl(var(--foreground) / 0.08);
+  box-shadow: theme('boxShadow.DEFAULT');
   animation: rise 0.45s ease both;
 }
 .metric {
@@ -77,8 +77,8 @@
   color: hsl(var(--muted-foreground));
 }
 .metric strong {
-  font-size: 27px;
-  font-weight: 550;
+  font-size: 28px;
+  font-weight: 600;
   letter-spacing: -0.8px;
   white-space: nowrap;
   display: block;
@@ -93,7 +93,7 @@
 }
 .metric small {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   color: hsl(var(--muted-foreground));
   margin-top: 7px;
   white-space: nowrap;
@@ -127,14 +127,14 @@
 }
 .sectionTitle h2,
 .ledgerHeading h2 {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   letter-spacing: -0.2px;
   margin: 0;
 }
 .sectionTitle p,
 .ledgerHeading p {
-  font-size: 11px;
+  font-size: 12px;
   color: hsl(var(--muted-foreground));
   margin: 4px 0 0;
 }
@@ -146,7 +146,7 @@
   display: flex;
   gap: 6px;
   align-items: center;
-  font-size: 10px;
+  font-size: 12px;
   color: hsl(var(--muted-foreground));
 }
 .legend i {
@@ -162,17 +162,17 @@
   margin: 18px 0 14px;
 }
 .chartHeading strong {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 500;
   letter-spacing: -0.6px;
   font-variant-numeric: tabular-nums;
 }
 .chartHeading > span {
-  font-size: 11px;
+  font-size: 12px;
   color: hsl(var(--muted-foreground));
 }
 .chartHeading small {
-  font-size: 10px;
+  font-size: 12px;
   color: hsl(var(--muted-foreground));
   margin-left: auto;
 }
@@ -185,7 +185,7 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  font-size: 10px;
+  font-size: 12px;
   color: hsl(var(--muted-foreground));
   width: 39px;
   padding: 0 0 4px;
@@ -212,7 +212,7 @@
   display: flex;
   justify-content: space-between;
   padding: 10px 0 0 50px;
-  font-size: 10px;
+  font-size: 12px;
   color: hsl(var(--muted-foreground));
 }
 .distribution {
@@ -240,7 +240,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 7px;
-  font-size: 11px;
+  font-size: 12px;
   margin-bottom: 6px;
 }
 .roleBars > button > div:first-child > span {
@@ -252,31 +252,31 @@
 .roleBars i {
   height: 5px;
   width: 5px;
-  border-radius: 2px;
+  border-radius: 50%;
 }
 .roleBars strong {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   color: hsl(var(--foreground));
 }
 .barTrack {
   height: 4px;
-  border-radius: 5px;
+  border-radius: 9999px;
   background: hsl(var(--muted));
   overflow: hidden;
 }
 .barTrack > span {
   display: block;
   height: 100%;
-  border-radius: 5px;
+  border-radius: 9999px;
   min-width: 3px;
   transition: width 0.5s;
 }
 .selectedRole {
   outline: 1px solid hsl(var(--brand));
   outline-offset: 5px;
-  border-radius: 2px;
+  border-radius: 4px;
 }
 .average {
   display: flex;
@@ -285,17 +285,17 @@
   border-top: 1px solid hsl(var(--border));
   padding-top: 12px;
   margin-top: 18px;
-  font-size: 11px;
+  font-size: 12px;
   color: hsl(var(--muted-foreground));
 }
 .average small {
   display: block;
-  font-size: 10px;
+  font-size: 12px;
   color: hsl(var(--muted-foreground));
   margin-top: 3px;
 }
 .average strong {
-  font-size: 15px;
+  font-size: 16px;
   color: hsl(var(--muted-foreground));
   font-weight: 500;
   letter-spacing: -0.3px;
@@ -317,11 +317,11 @@
   gap: 8px;
 }
 .ledgerHeading h2 > span {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
   color: hsl(var(--muted-foreground));
   border: 1px solid hsl(var(--border));
-  border-radius: 5px;
+  border-radius: 6px;
   padding: 0 5px;
 }
 .search {
@@ -351,17 +351,17 @@
   border: 1px solid hsl(var(--border));
   line-height: 14px;
   padding: 0 4px;
-  border-radius: 3px;
+  border-radius: 4px;
   color: hsl(var(--muted-foreground));
 }
 
 .appliedFilter {
   border: 1px solid hsl(var(--border));
-  border-radius: 5px;
+  border-radius: 9999px;
   background: hsl(var(--muted));
   color: hsl(var(--muted-foreground));
   padding: 4px 9px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .appliedFilter {
   display: flex;
@@ -377,24 +377,24 @@
   background: hsl(var(--muted));
   color: hsl(var(--muted-foreground));
   padding: 3px 6px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .dialog {
   background: hsl(var(--card)) !important;
   color: hsl(var(--foreground)) !important;
   border: 1px solid hsl(var(--border)) !important;
-  border-radius: 16px !important;
+  border-radius: 8px !important;
   max-width: 520px !important;
   padding: 30px !important;
   font-family: var(--font-inter), Arial, sans-serif;
   gap: 0 !important;
-  box-shadow: 0 24px 100px hsl(var(--foreground) / 0.08) !important;
+  box-shadow: theme('boxShadow.lg') !important;
   color-scheme: inherit;
 }
 .dialogTitle {
-  font-size: 23px !important;
+  font-size: 20px !important;
   letter-spacing: -0.7px;
-  font-weight: 550 !important;
+  font-weight: 600 !important;
   color: hsl(var(--foreground)) !important;
   padding-right: 20px;
 }
@@ -423,7 +423,7 @@
 }
 .employeeTotal > strong {
   display: block;
-  font-size: 33px;
+  font-size: 28px;
   font-weight: 500;
   letter-spacing: -1px;
   margin-top: 7px;
@@ -495,7 +495,7 @@
 }
 .dayDetail small {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   color: hsl(var(--muted-foreground));
   max-width: 260px;
   margin-top: 3px;
@@ -512,7 +512,7 @@
   gap: 8px;
   font-size: 13px;
   border: 1px solid hsl(var(--border));
-  border-radius: 7px;
+  border-radius: 6px;
   padding: 11px;
   color: hsl(var(--muted-foreground));
   margin-top: 21px;
@@ -529,7 +529,7 @@
 }
 @media (min-width: 1500px) {
   .metric strong {
-    font-size: 32px;
+    font-size: 28px;
   }
   .metric {
     padding: 25px 29px;
@@ -566,13 +566,13 @@
     padding: 18px 15px;
   }
   .metric strong {
-    font-size: 23px;
+    font-size: 20px;
   }
   .metricLabel {
-    font-size: 11px;
+    font-size: 12px;
   }
   .metric small {
-    font-size: 10px;
+    font-size: 12px;
   }
   .analytics {
     grid-template-columns: 1.65fr 1fr;
@@ -586,7 +586,7 @@
     padding-right: 18px;
   }
   .roleBars strong {
-    font-size: 10px;
+    font-size: 12px;
   }
 
   .chartHeading small {
@@ -603,7 +603,7 @@
     grid-template-columns: 1.5fr 1fr;
   }
   .metric strong {
-    font-size: 21px;
+    font-size: 20px;
   }
   .metric strong > span {
     font-size: 16px;
@@ -626,10 +626,10 @@
     font-size: 13px;
   }
   .sectionTitle p {
-    font-size: 10px;
+    font-size: 12px;
   }
   .roleBars > button > div:first-child {
-    font-size: 10px;
+    font-size: 12px;
   }
 }
 @media (max-width: 700px) {
@@ -649,7 +649,7 @@
     gap: 18px 25px;
   }
   .roleBars strong {
-    font-size: 11px;
+    font-size: 12px;
   }
   .average {
     padding-top: 14px;
@@ -667,11 +667,11 @@
     border-bottom: 1px solid var(--line);
   }
   .metric strong {
-    font-size: 25px;
+    font-size: 28px;
   }
   .metric small {
     min-height: 0;
-    font-size: 10px;
+    font-size: 12px;
     white-space: normal;
   }
 
@@ -690,7 +690,7 @@
     display: none;
   }
   .sectionTitle h2 {
-    font-size: 15px;
+    font-size: 16px;
   }
   .chart {
     height: 140px;
@@ -699,7 +699,7 @@
     margin-top: 20px;
   }
   .roleBars > button > div:first-child {
-    font-size: 11px;
+    font-size: 12px;
   }
   .dialog {
     width: calc(100% - 24px) !important;
@@ -716,14 +716,14 @@
     padding: 16px;
   }
   .metric strong {
-    font-size: 24px;
+    font-size: 20px;
     margin-top: 10px;
   }
   .metricLabel {
-    font-size: 11px;
+    font-size: 12px;
   }
   .metric small {
-    font-size: 9px;
+    font-size: 12px;
   }
   .analytics {
     margin-top: 20px;
@@ -736,13 +736,13 @@
     height: 125px;
   }
   .chartHeading strong {
-    font-size: 21px;
+    font-size: 20px;
   }
   .chartHeading > span {
-    font-size: 10px;
+    font-size: 12px;
   }
   .chartLabels {
-    font-size: 9px;
+    font-size: 12px;
     width: 30px;
   }
   .chartDates {
@@ -752,19 +752,19 @@
     gap: 17px;
   }
   .roleBars strong {
-    font-size: 10px;
+    font-size: 12px;
   }
   .roleBars > button > div:first-child {
-    font-size: 10px;
+    font-size: 12px;
   }
   .average {
-    font-size: 11px;
+    font-size: 12px;
   }
   .average strong {
-    font-size: 15px;
+    font-size: 16px;
   }
   .dialogTitle {
-    font-size: 21px !important;
+    font-size: 20px !important;
   }
   .dialogBody {
     max-height: 67vh;
@@ -785,10 +785,10 @@
   background: hsl(var(--card)) !important;
   color: hsl(var(--foreground)) !important;
   border: 1px solid hsl(var(--border)) !important;
-  border-radius: 12px !important;
+  border-radius: 10px !important;
   padding: 15px !important;
   width: 280px !important;
-  box-shadow: 0 12px 38px hsl(var(--foreground) / 0.08) !important;
+  box-shadow: theme('boxShadow.md') !important;
   color-scheme: inherit;
 }
 .pickerHeading {
@@ -802,7 +802,7 @@
 .pickerHeading > button {
   border: 0;
   background: hsl(var(--muted));
-  border-radius: 5px;
+  border-radius: 6px;
   display: grid;
   place-items: center;
   width: 27px;
@@ -848,7 +848,7 @@
   background: none;
   padding: 0;
   color: hsl(var(--muted-foreground));
-  font-size: 11px;
+  font-size: 12px;
 }
 .shiftHeading {
   display: flex;
@@ -862,7 +862,7 @@
   font-weight: 500;
 }
 .issueDetails {
-  font-size: 11px;
+  font-size: 12px;
   color: hsl(var(--muted-foreground));
   border-top: 1px solid hsl(var(--border));
   padding-top: 12px;
@@ -890,7 +890,7 @@
 }
 .dialog .dayDetail small {
   color: hsl(var(--muted-foreground));
-  font-size: 10px;
+  font-size: 12px;
 }
 .dialog .breakdown > div {
   color: hsl(var(--muted-foreground));
@@ -916,7 +916,7 @@
   padding: 22px 24px;
 }
 .metric strong {
-  font-size: 30px;
+  font-size: 28px;
   font-weight: 600;
   letter-spacing: -0.7px;
 }
@@ -984,10 +984,10 @@
     padding: 20px 17px;
   }
   .metric strong {
-    font-size: 26px;
+    font-size: 28px;
   }
   .metric small {
-    font-size: 11px;
+    font-size: 12px;
   }
 }
 @media (max-width: 900px) {
@@ -995,14 +995,14 @@
     padding: 18px 15px;
   }
   .metric strong {
-    font-size: 24px;
+    font-size: 20px;
   }
   .metric small {
-    font-size: 10px;
+    font-size: 12px;
     white-space: normal;
   }
   .metricLabel {
-    font-size: 11px;
+    font-size: 12px;
   }
 }
 @media (max-width: 700px) {
@@ -1014,7 +1014,7 @@
     font-size: 28px;
   }
   .metric small {
-    font-size: 11px;
+    font-size: 12px;
   }
   .metricLabel {
     font-size: 12px;
@@ -1026,13 +1026,13 @@
     padding: 18px 16px;
   }
   .metric strong {
-    font-size: 26px;
+    font-size: 28px;
   }
   .metric small {
-    font-size: 10px;
+    font-size: 12px;
   }
   .metricLabel {
-    font-size: 11px;
+    font-size: 12px;
   }
 }
 .metric {
@@ -1057,7 +1057,7 @@
 }
 @media (max-width: 480px) {
   .metric strong {
-    font-size: 24px;
+    font-size: 20px;
   }
   .metric strong > span {
     font-size: 16px;
@@ -1194,7 +1194,7 @@
     padding: 22px;
   }
   .metric strong {
-    font-size: 26px;
+    font-size: 28px;
   }
 }
 @container payroll-surface (max-width: 420px) {
@@ -1202,6 +1202,6 @@
     padding: 16px 12px;
   }
   .metric strong {
-    font-size: 22px;
+    font-size: 20px;
   }
 }

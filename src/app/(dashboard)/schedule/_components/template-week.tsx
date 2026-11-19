@@ -98,7 +98,7 @@ export function TemplateWeek({
       aria-label={`Назначить: ${shiftTemplateLabel(template)}, ${dayLabel(day)}, ${time}`}
       data-tip="Назначить сотрудника"
       className={cn(
-        "group/slot relative w-full px-1 text-[11px] font-normal tabular-nums text-muted-foreground/70 hover:text-foreground",
+        "group/slot relative w-full px-1 text-xs font-normal tabular-nums text-muted-foreground/70 hover:text-foreground",
         mobile ? "touch-target h-10 justify-start px-2" : "h-8",
       )}
     >

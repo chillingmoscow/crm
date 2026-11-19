@@ -82,7 +82,7 @@ export function ShiftAttendancePopover({ shiftId, version, mark, canReview }: {
           aria-label={heading}
           aria-haspopup="dialog"
           aria-expanded={open}
-          className="touch-target absolute right-0.5 top-0.5 grid size-6 place-items-center rounded text-amber-700 hover:bg-amber-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-amber-300"
+          className="touch-target absolute right-0.5 top-0.5 grid size-6 place-items-center rounded-md text-amber-700 hover:bg-amber-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-amber-300"
           onPointerEnter={(event) => {
             if (event.pointerType !== "mouse") return;
             clearClose();

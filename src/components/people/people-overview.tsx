@@ -35,7 +35,7 @@ function Hint({ text }: { text: string }) {
         <button
           type="button"
           aria-label={text}
-          className="inline-flex shrink-0 rounded text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-brand"
+          className="inline-flex shrink-0 rounded-md text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-brand"
         >
           <Info className="size-3.5" />
         </button>
@@ -320,8 +320,8 @@ function OverviewSkeleton() {
   return (
     <div className={styles.skeleton} aria-label="Загружаем обзор">
       <div className="grid gap-6 sm:grid-cols-2">
-        <div className="h-40 rounded bg-muted/60" />
-        <div className="h-40 rounded bg-muted/60" />
+        <div className="h-40 rounded-md bg-muted/60" />
+        <div className="h-40 rounded-md bg-muted/60" />
       </div>
     </div>
   );

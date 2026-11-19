@@ -93,7 +93,7 @@ export function CandidateStatusCell({
             <button
               key={value}
               type="button"
-              className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm outline-none hover:bg-accent focus-visible:bg-accent"
+              className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm outline-none hover:bg-accent focus-visible:bg-accent"
               onClick={() => void save(value as CandidateStatus)}
             >
               <StatusBadge tone={STATUS_TONES[value as CandidateStatus]}>

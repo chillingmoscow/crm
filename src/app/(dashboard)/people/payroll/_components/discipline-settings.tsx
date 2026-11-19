@@ -212,7 +212,7 @@ export function DisciplineSettings() {
                 <p className="text-sm text-muted-foreground">
                   {outcome(preview.kind)}
                 </p>
-                <p className="mt-1 text-2xl font-semibold tabular-nums">
+                <p className="mt-1 text-xl font-semibold tabular-nums">
                   {preview.kind === "deduction"
                     ? `${money(preview.amount)} ${data.late_bonus ? "бонусов / ₽" : "₽"}`
                     : "0 ₽"}

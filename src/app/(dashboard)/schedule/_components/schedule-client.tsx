@@ -921,8 +921,10 @@ export function ScheduleClient({
     >
       {mode === "list" ? listCardBody(s, assignee, mark) : (
       <>
-      <span className={cn("whitespace-nowrap text-[11px] font-semibold tabular-nums", mark && "pr-5")}>
-        {timeInZone(s.starts_at, data.timezone)}–
+      {/* В узкой колонке (таблица на минимальной ширине) время переносится
+          после тире, а не обрезается: 12px «13:00–00:30» не всегда влезает. */}
+      <span className={cn("text-xs font-semibold tabular-nums", mark && "pr-5")}>
+        {timeInZone(s.starts_at, data.timezone)}–<wbr />
         {timeInZone(s.ends_at, data.timezone)}
       </span>
       {mode !== "template" && (
@@ -932,7 +934,7 @@ export function ScheduleClient({
       )}
       {mode !== "shift" && <span className={cn("break-words text-xs", mode === "template" && "font-medium")}>{assigneeLabel}</span>}
       {!s.published && (
-        <span className="flex gap-1 items-center text-[10px]">
+        <span className="flex gap-1 items-center text-xs">
           <span className="size-1.5 rounded-full bg-current" />
           Черновик
         </span>
@@ -1010,7 +1012,7 @@ export function ScheduleClient({
       return (
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-1.5 z-[1] flex items-center justify-center rounded-md border border-dashed border-destructive/60 bg-background/85 px-1 text-center text-[11px] font-medium leading-tight text-destructive"
+          className="pointer-events-none absolute inset-1.5 z-[1] flex items-center justify-center rounded-md border border-dashed border-destructive/60 bg-background/85 px-1 text-center text-xs font-medium leading-tight text-destructive"
         >
           {dragItem.kind === "shift" && !can("shift_edit")
             ? "Нет права"
@@ -1041,7 +1043,7 @@ export function ScheduleClient({
           paletteText(color),
         )}
       >
-        <span className="truncate text-[11px] font-semibold tabular-nums">{times}</span>
+        <span className="truncate text-xs font-semibold tabular-nums">{times}</span>
         <span className="truncate text-xs">{title}</span>
       </div>
     );
@@ -1220,7 +1222,7 @@ export function ScheduleClient({
                                 if (item.key === "shift") create(today);
                                 else setTaskAssign({ day: today });
                               }}
-                              className="flex w-full items-start gap-2.5 rounded-sm px-3 py-2 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+                              className="flex w-full items-start gap-2.5 rounded-md px-3 py-2 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
                             >
                               <span className="mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
                                 <item.icon className="size-3.5" />
@@ -1599,7 +1601,7 @@ export function ScheduleClient({
                               >
                                 {candidate.full_name}
                               </Link>
-                              <span className="mt-1 block text-[11px] text-muted-foreground">
+                              <span className="mt-1 block text-xs text-muted-foreground">
                                 {candidate.hired_user_id
                                   ? "Принят на работу"
                                   : "Кандидат"}

@@ -238,7 +238,7 @@ function CasualPinResult({ issued }: { issued: CasualIssued }) {
           <span
             key={i}
             aria-hidden
-            className="flex h-16 w-[52px] items-center justify-center rounded-lg border bg-muted/60 text-3xl font-semibold tabular-nums"
+            className="flex h-16 w-[52px] items-center justify-center rounded-lg border bg-muted/60 text-[28px] font-semibold tabular-nums"
           >
             {digit}
           </span>

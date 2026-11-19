@@ -4,8 +4,9 @@ import { Button } from "@/components/ui/button";
 
 /**
  * Строка разрушительного действия во вкладке «Опасная зона» карточки
- * сущности: красная плитка-иконка, заголовок, что произойдёт, и кнопка
- * `destructive` справа. Само действие — через `ConfirmDialog`.
+ * сущности: плитка-иконка, заголовок, что произойдёт, и кнопка справа.
+ * Красного здесь мало: значок и текст кнопки. Залитая красная кнопка —
+ * только в `ConfirmDialog`, на шаге, после которого действие не отменить.
  * Один вид для сотрудника, должности и подразделения.
  */
 export function ProfileDangerAction({
@@ -29,7 +30,7 @@ export function ProfileDangerAction({
         <Icon className="size-4 text-destructive" aria-hidden />
       </div>
       <div className="flex min-w-0 flex-[1_1_240px] flex-col gap-0.5">
-        <p className="text-base font-semibold leading-tight text-destructive">
+        <p className="text-base font-semibold leading-tight">
           {title}
         </p>
         <p className="text-[13px] leading-snug text-muted-foreground">
@@ -37,8 +38,8 @@ export function ProfileDangerAction({
         </p>
       </div>
       <Button
-        variant="destructive"
-        className="shrink-0"
+        variant="outline"
+        className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
         onClick={onAction}
         disabled={disabled}
       >

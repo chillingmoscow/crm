@@ -334,12 +334,7 @@ export function DepartmentDetailPage({
               <TabsTrigger value="history">Журнал</TabsTrigger>
             )}
             {canManage && (
-              <TabsTrigger
-                value="danger"
-                className="data-[state=active]:text-destructive data-[state=active]:border-destructive"
-              >
-                Опасная зона
-              </TabsTrigger>
+              <TabsTrigger value="danger">Опасная зона</TabsTrigger>
             )}
           </ProfileTabsList>
 

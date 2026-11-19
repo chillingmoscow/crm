@@ -157,9 +157,7 @@ export function StaffPaySheet({
   // Прочерк вместо нуля: остаток нельзя назвать, пока исходные данные не сверены.
   const unknownReason = legacyPending
     ? "Есть несверенные выплаты из прежнего учёта."
-    : !employee.opening_confirmed
-      ? "Начальный остаток сотрудника не подтверждён."
-      : null;
+    : null;
   const issues = [
     ...new Set(
       mine.filter((a) => a.business_date.startsWith(monthKey(month))).flatMap((a) => a.issues),
@@ -332,7 +330,7 @@ export function StaffPaySheet({
             {opening !== 0 && (
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">Перенос в этот месяц</dt>
-                <dd className="tabular-nums"><Money value={employee.opening_confirmed ? opening : null} signed /></dd>
+                <dd className="tabular-nums"><Money value={opening} signed /></dd>
               </div>
             )}
             {transferredOut !== 0 && (
@@ -671,11 +669,6 @@ function Conditions({
     ],
   ];
   if (employee.hired_on) rows.push(["Дата трудоустройства", fullDate(employee.hired_on)]);
-  if (!employee.casual)
-    rows.push([
-      "Начальный остаток",
-      employee.opening_confirmed ? <Money value={employee.opening_balance} /> : "Не указан",
-    ]);
   return (
     <dl className="grid gap-x-4 gap-y-3 sm:grid-cols-[minmax(140px,220px)_1fr]">
       {rows.map(([label, value]) => (

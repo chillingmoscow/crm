@@ -1,38 +1,8 @@
-.employee {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.employee strong {
-  font-weight: 500;
-}
-.employee small {
-  color: hsl(var(--muted-foreground));
-  font-size: 12px;
-}
+
 .kind {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-}
-.status {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 12px;
-  white-space: nowrap;
-}
-.status i {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.done {
-  color: hsl(var(--brand));
-}
-.pending {
-  color: hsl(var(--muted-foreground));
 }
 .deleted {
   color: hsl(var(--muted-foreground));
@@ -82,18 +52,6 @@
   opacity: 0;
   cursor: pointer;
   width: 100%;
-}
-.detailAmount {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 30px;
-  font-weight: 600;
-  letter-spacing: -1px;
-}
-.detailAmount .status {
-  font-weight: 400;
-  letter-spacing: 0;
 }
 .parallel {
   font-size: 12px;
@@ -156,12 +114,6 @@
   margin-top: 7px;
   flex-shrink: 0;
 }
-
-.historyDisclosure { border-top: 1px solid hsl(var(--border)); padding-top: 16px; }
-.historyDisclosure > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; font-size: 12px; color: hsl(var(--muted-foreground)); }
-.historyDisclosure > summary::-webkit-details-marker { display: none; }
-.historyDisclosure[open] > summary > svg { transform: rotate(180deg); }
-.historyDisclosure > div { padding-top: 18px; }
 @media (max-width: 639px) {
   .photos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .comment > div { flex-wrap: wrap; gap: 3px 12px; }

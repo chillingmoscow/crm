@@ -12,7 +12,7 @@ import { attendanceRuleAtDate } from "@/lib/payroll/attendance";
 import type { PayrollData, PayEmployee } from "@/lib/payroll/types";
 import { assignPayrollPosition, payrollCommand, setPayrollAttendanceSource } from "../actions";
 import { PayrollDetailDialog } from "./payroll-detail-dialog";
-import form from "@/app/payroll-concept/concept-payment-form.module.css";
+import form from "@/app/(dashboard)/people/payroll/_components/payroll-payment-form.module.css";
 import { Money } from "@/components/shared/money";
 import s from "./employee-pay.module.css";
 const dateLabel = (value: string) => new Date(`${value}T12:00:00Z`).toLocaleDateString("ru-RU", { timeZone: "UTC" });

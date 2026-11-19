@@ -33,9 +33,9 @@ import {
 import type { PayEmployee, PayrollData } from "@/lib/payroll/types";
 import { buildPayslip, payslipFileName } from "@/lib/payroll/payslip";
 import { cn } from "@/lib/utils";
-import { PayrollEntryForm } from "@/app/payroll-concept/payroll-journal";
-import { ConceptPaymentForm } from "@/app/payroll-concept/concept-payment-form";
-import paymentStyle from "@/app/payroll-concept/concept-payment-form.module.css";
+import { PayrollEntryForm } from "@/app/(dashboard)/people/payroll/_components/payroll-journal";
+import { PayrollPaymentForm } from "@/app/(dashboard)/people/payroll/_components/payroll-payment-form";
+import paymentStyle from "@/app/(dashboard)/people/payroll/_components/payroll-payment-form.module.css";
 import { EmployeePayConditions } from "./employee-pay-conditions";
 import { PayrollDetailDialog } from "./payroll-detail-dialog";
 
@@ -470,9 +470,9 @@ export function StaffPaySheet({
         onOpenChange={setPayOpen}
         title="Добавить выплату"
         description="Запись выданной зарплаты"
-        footer={<div id="concept-payment-footer" className={paymentStyle.footerSlot} />}
+        footer={<div id="payroll-payment-footer" className={paymentStyle.footerSlot} />}
       >
-        <ConceptPaymentForm onCancel={() => setPayOpen(false)}
+        <PayrollPaymentForm onCancel={() => setPayOpen(false)}
           data={data}
           month={month}
           initialEmployeeId={employee.id}

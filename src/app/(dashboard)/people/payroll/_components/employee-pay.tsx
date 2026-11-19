@@ -14,9 +14,9 @@ import { PayrollPaymentsTable } from "./payroll-payments-table";
 import { EmployeeDocuments } from "../../staff/[userId]/_components/employee-documents";
 import { EmployeePayConditions } from "./employee-pay-conditions";
 import { cancelPayrollPayment } from "../actions";
-import { PayrollJournal, PayrollEntryForm } from "@/app/payroll-concept/payroll-journal";
-import { ConceptPaymentForm } from "@/app/payroll-concept/concept-payment-form";
-import paymentStyle from "@/app/payroll-concept/concept-payment-form.module.css";
+import { PayrollJournal, PayrollEntryForm } from "@/app/(dashboard)/people/payroll/_components/payroll-journal";
+import { PayrollPaymentForm } from "@/app/(dashboard)/people/payroll/_components/payroll-payment-form";
+import paymentStyle from "@/app/(dashboard)/people/payroll/_components/payroll-payment-form.module.css";
 import s from "./employee-pay.module.css";
 import tabStyle from "@/components/shared/workspace-tabs.module.css";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
@@ -131,6 +131,6 @@ export function EmployeePay({ data, employee, month, onChange, fullPage = false,
   <PayrollDetailDialog open={conditionsOpen ?? ownConditions} onOpenChange={setConditions} title="Условия сотрудника" description={employee.name}><EmployeePayConditions data={data} employee={employee} month={month} onChange={onChange}/></PayrollDetailDialog>
   <ConfirmDialog open={Boolean(cancelId)} onOpenChange={open => { if (!open) setCancelId(null); }} title="Удалить выплату?" description="Финансовая операция будет помечена удалённой, а сумма вернётся в остаток к выплате сотруднику." confirmLabel="Удалить выплату" pendingLabel="Удаляем…" destructive busy={cancelBusy} onConfirm={() => void confirmCancel()}/>
   <PayrollEntryForm initialKind={entryKind} employeeId={employee.id} open={entryOpen} onOpenChange={setEntryOpen} data={data} month={month} onCreated={async () => { await onChange(); setTab("entries"); }}/>
-  <PayrollDetailDialog open={payOpen} onOpenChange={setPayOpen} title="Добавить выплату" description="Запись выданной зарплаты" footer={<div id="concept-payment-footer" className={paymentStyle.footerSlot}/>}><ConceptPaymentForm onCancel={() => setPayOpen(false)} data={data} month={month} initialEmployeeId={employee.id} onDone={async () => { setPayOpen(false); await onChange(); setTab("payments"); }}/></PayrollDetailDialog>
+  <PayrollDetailDialog open={payOpen} onOpenChange={setPayOpen} title="Добавить выплату" description="Запись выданной зарплаты" footer={<div id="payroll-payment-footer" className={paymentStyle.footerSlot}/>}><PayrollPaymentForm onCancel={() => setPayOpen(false)} data={data} month={month} initialEmployeeId={employee.id} onDone={async () => { setPayOpen(false); await onChange(); setTab("payments"); }}/></PayrollDetailDialog>
  </div>;
 }

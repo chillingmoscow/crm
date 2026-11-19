@@ -29,12 +29,6 @@
     background 0.15s,
     color 0.15s;
 }
-.kind > .activeKind {
-  background: hsl(var(--background));
-  color: hsl(var(--brand));
-  border-color: hsl(var(--border));
-  box-shadow: 0 1px 3px hsl(var(--foreground) / 0.04);
-}
 .fields {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -94,19 +88,6 @@
   padding: 0 5px;
   font-weight: 400;
 }
-.fill {
-  font-size: 12px;
-  font-weight: 400;
-  height: 28px;
-  padding: 0 4px;
-  color: hsl(var(--brand));
-}
-.searchRow {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-bottom: 12px;
-}
 .search {
   position: relative;
   flex: 1;
@@ -137,34 +118,6 @@
   color: hsl(var(--muted-foreground));
   padding: 2px;
 }
-.selectedFilter {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: hsl(var(--muted-foreground));
-  padding: 8px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 7px;
-  height: 36px;
-  white-space: nowrap;
-}
-.selectedFilter > span {
-  font-size: 10px;
-  color: hsl(var(--brand));
-  background: hsl(var(--brand) / 0.08);
-  padding: 0 4px;
-  border-radius: 4px;
-}
-.selectedFilterActive {
-  background: hsl(var(--brand) / 0.06);
-  border-color: hsl(var(--brand) / 0.25);
-  color: hsl(var(--brand));
-}
-.people {
-  display: flex;
-  flex-direction: column;
-}
 .person {
   display: flex;
   align-items: center;
@@ -175,12 +128,6 @@
 }
 .person:last-child {
   border-bottom: 0;
-}
-.personSelected {
-  background: hsl(var(--brand) / 0.035);
-  box-shadow:
-    12px 0 0 hsl(var(--brand) / 0.035),
-    -12px 0 0 hsl(var(--brand) / 0.035);
 }
 .avatar {
   display: grid;
@@ -264,12 +211,6 @@
   color: hsl(var(--muted-foreground));
   pointer-events: none;
 }
-.empty {
-  padding: 32px 12px;
-  text-align: center;
-  color: hsl(var(--muted-foreground));
-  font-size: 12px;
-}
 .comment {
   border-top: 1px solid hsl(var(--border));
   padding-top: 17px;
@@ -340,12 +281,6 @@
   color: hsl(var(--muted-foreground));
   font-size: 10px;
 }
-.drawer {
-  background: hsl(var(--background));
-}
-.drawer > div:last-child {
-  background: hsl(var(--card));
-}
 .footerSlot {
   width: 100%;
   min-height: 87px;
@@ -411,17 +346,6 @@
   font-size: 13px;
   font-weight: 500;
 }
-.recipientPicker {
-  width: 100%;
-  justify-content: flex-start;
-  height: 42px;
-  gap: 9px;
-  font-weight: 400;
-}
-.recipientPicker > svg:last-child {
-  margin-left: auto;
-  color: hsl(var(--muted-foreground));
-}
 .selectedPeople {
   margin-top: 12px;
 }
@@ -470,8 +394,6 @@
     font-size: 12px;
   }
 }
-
-.drawer:focus { outline: none; }
 
 .form > div > label { font-size: 13px; font-weight: 500; }
 .form input, .form textarea, .form button[role="combobox"] { font-size: 13px; border-radius: 8px; box-shadow: none; }

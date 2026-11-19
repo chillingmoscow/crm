@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { PaySettings } from "@/lib/payroll/types";
 import { saveExperienceStart } from "../actions";
 import { PayrollDetailDialog } from "./payroll-detail-dialog";
-import form from "@/app/payroll-concept/concept-payment-form.module.css";
+import form from "@/app/(dashboard)/people/payroll/_components/payroll-payment-form.module.css";
 
 export function PayrollExperiencePolicy({ settings, onChange }: {
   settings: PaySettings | null;

@@ -107,6 +107,8 @@ export function PayrollLedger({
   );
   return (
     <PayrollTable
+      // Ключ сохранённых настроек столбцов: остался от прежнего названия
+      // экрана, менять нельзя — у всех сбросятся порядок и ширина столбцов.
       id={`payroll.concept.statement.${data.venueId}`}
       label="Ведомость"
       rows={rows}
@@ -119,7 +121,7 @@ export function PayrollLedger({
       defaultSort="earned"
       defaultSortDesc
       hiddenColumns={hidden}
-      toolbarTargetId="payroll-concept-controls"
+      toolbarTargetId="payroll-workspace-controls"
       externalSearch={{ value: query, onChange: onQuery }}
       filters={filters}
       exportAction={{ label: "Экспорт ведомости", onClick: onExport }}

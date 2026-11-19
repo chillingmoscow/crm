@@ -933,12 +933,7 @@ export function StaffDetailPage({
               </>
             )}
             {canFire && (
-              <TabsTrigger
-                value="danger"
-                className="data-[state=active]:text-destructive data-[state=active]:border-destructive"
-              >
-                Опасная зона
-              </TabsTrigger>
+              <TabsTrigger value="danger">Опасная зона</TabsTrigger>
             )}
           </ProfileTabsList>
 

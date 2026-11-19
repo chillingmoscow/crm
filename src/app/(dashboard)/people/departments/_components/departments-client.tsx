@@ -275,7 +275,7 @@ export function DepartmentsClient({
   };
 
   return (
-    <PageFrame>
+    <PageFrame className="flex min-w-0 flex-col gap-4">
       <Breadcrumbs items={[{ label: "Люди" }, { label: "Подразделения" }]} />
       <TablePageHeader
         title="Подразделения"

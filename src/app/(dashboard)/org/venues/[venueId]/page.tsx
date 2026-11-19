@@ -35,7 +35,10 @@ export default async function VenueDetailServerPage({
   const { venueId } = await params;
   const requestedTab = (await searchParams).tab;
   const initialTab =
-    requestedTab === "inventory" || requestedTab === "audit" || requestedTab === "sales"
+    requestedTab === "inventory" ||
+    requestedTab === "audit" ||
+    requestedTab === "sales" ||
+    requestedTab === "payroll"
       ? requestedTab
       : undefined;
   const supabase = await createClient();
@@ -109,6 +112,7 @@ export default async function VenueDetailServerPage({
       key={`${venueId}:${initialTab ?? "main"}`}
       initialTab={initialTab}
       canViewStockRules={Boolean(can("inventory.view_results"))}
+      canConfigurePayroll={Boolean(can("payroll.configure"))}
       venue={venue}
       importedFromQuickResto={Boolean(importedVenueResult.data?.id)}
       legalEntities={legalEntities.map((le) => ({

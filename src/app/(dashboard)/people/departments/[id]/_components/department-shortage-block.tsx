@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { toast } from "sonner";
 
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -164,7 +165,10 @@ function ShortageForm({
     <>
       <ProfileSection title="Недостача">
         {multi && (
-          <p role="alert" className="text-sm text-destructive">
+          <p
+            role="alert"
+            className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm"
+          >
             Подразделение входит в одну группу удержания с другими
             подразделениями, поэтому доли здесь не меняются. Группу должен
             разделить администратор.
@@ -178,13 +182,13 @@ function ShortageForm({
               disabled={readOnly || busy}
               onCheckedChange={(v) => patch(departmentId, { participates: v })}
             />
-            <Label htmlFor="shortage-participates" className="text-[13px] font-medium">
+            <Label htmlFor="shortage-participates">
               Участвует в общей недостаче
             </Label>
           </div>
           {own.participates && (
             <div className="flex items-center gap-2">
-              <Label htmlFor="shortage-share" className="text-[13px] font-medium">
+              <Label htmlFor="shortage-share">
                 Доля, %
               </Label>
               <Input
@@ -239,30 +243,28 @@ function ShortageForm({
               Всего {total.toLocaleString("ru-RU")} из 100%
             </p>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="shortage-valid-from" className="text-[13px] font-medium">
-                  Применять с
-                </Label>
-                <DatePicker
-                  id="shortage-valid-from"
-                  value={from}
-                  onChange={setFrom}
-                  clearable={false}
-                  fromDate={new Date(`${initial.today}T00:00:00`)}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="shortage-reason" className="text-[13px] font-medium">
-                  Основание изменения <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="shortage-reason"
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  placeholder="Например, изменили доли подразделений"
-                  maxLength={1000}
-                />
-              </div>
+              <Field id="shortage-valid-from" label="Применять с">
+                {(control) => (
+                  <DatePicker
+                    {...control}
+                    value={from}
+                    onChange={setFrom}
+                    clearable={false}
+                    fromDate={new Date(`${initial.today}T00:00:00`)}
+                  />
+                )}
+              </Field>
+              <Field id="shortage-reason" label="Основание изменения" required>
+                {(control) => (
+                  <Input
+                    {...control}
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    placeholder="Например, изменили доли подразделений"
+                    maxLength={1000}
+                  />
+                )}
+              </Field>
             </div>
           </div>
         )}

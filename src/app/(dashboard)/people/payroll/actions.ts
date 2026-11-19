@@ -128,6 +128,33 @@ async function allPages<T>(
   return { data: [], error: { message: "Слишком много записей за период" } };
 }
 
+/**
+ * Дополнение к обзору «Зарплаты» для выгрузки ведомости: отметки о выходах
+ * за месяц (столбец «Часы по отметкам») и модели оплаты (должность в смене
+ * на листе «Начисления по дням»). Обзор их не грузит, чтобы не тянуть
+ * историю на каждый заход.
+ */
+export async function loadStatementExportData(
+  month: string,
+): Promise<Pick<PayrollData, "attendance" | "models">> {
+  if (!validDate(month)) throw new Error("Некорректный месяц");
+  const s = await scope("payroll.view");
+  const from = `${month.slice(0, 7)}-01`;
+  const to = addDays(`${addDays(`${month.slice(0, 7)}-28`, 4).slice(0, 7)}-01`, -1);
+  const [attendance, models] = await Promise.all([
+    allPages((a, b) =>
+      s.db.from<PayrollData["attendance"]>("payroll_attendance").select("*")
+        .eq("venue_id", s.venueId).gte("business_date", from).lte("business_date", to)
+        .order("id").range(a, b)),
+    allPages((a, b) =>
+      s.db.from<PayrollData["models"]>("payroll_models").select("*")
+        .eq("venue_id", s.venueId).order("id").range(a, b)),
+  ]);
+  if (attendance.error) throw new Error(attendance.error.message);
+  if (models.error) throw new Error(models.error.message);
+  return { attendance: attendance.data, models: models.data };
+}
+
 // Таблицы со столбцом employee_id: для одного сотрудника читаем только его строки.
 const EMPLOYEE_TABLES = new Set([
   "attendanceRules",

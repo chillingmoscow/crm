@@ -52,6 +52,7 @@ import { CandidateAppointmentDetails } from "./candidate-appointment-details";
 import { appointmentOutcomeLabel } from "@/lib/candidates/appointment-labels";
 import { CandidateAppointmentDrawer } from "./candidate-appointment-drawer";
 import { CandidateStatusCell } from "./candidate-status-cell";
+import { CandidateTimeline } from "./candidate-timeline";
 import { ProfileHeader } from "@/components/shared/profile-header";
 import { ProfileSection } from "@/components/shared/profile-section";
 import {
@@ -427,6 +428,7 @@ export function CandidateDetailClient({
           </TabsContent>
           <TabsContent value="communication">
             <div className="space-y-5">
+              <CandidateTimeline candidate={c} events={data.events} />
               <ProfileSection title="Собеседование">
                   {latestInterview ? <CandidateAppointmentRow appointment={latestInterview} options={options} onOpen={() => setViewing(latestInterview)} />
                     : <p className="py-6 text-sm text-muted-foreground">Собеседование ещё не назначено.</p>}

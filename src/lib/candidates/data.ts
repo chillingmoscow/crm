@@ -248,7 +248,10 @@ export async function candidateDetail(id: string): Promise<CandidateDetail | nul
         .or(
           "kind.in.(appointment_created,appointment_updated),details->changes->status.not.is.null",
         )
-        .order("created_at", { ascending: true }),
+        .order("created_at", { ascending: true })
+        // Потолок на всякий случай: смен этапа и встреч у кандидата единицы;
+        // сортировка от ранних сохраняет начало хода.
+        .limit(1000),
     ]);
   const cs = check(comments) ?? [],
     ss = check(stageEvents) ?? [],

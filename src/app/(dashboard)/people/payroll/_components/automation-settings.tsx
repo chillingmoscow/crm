@@ -244,8 +244,8 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
           </span>
         </div>
         <p className="text-sm text-muted-foreground">
-          Общие правила медкнижек и удержаний за форму. Сведения и покупки
-          хранятся во вкладке «Документы» сотрудника.
+          Общие правила медкнижек и удержаний за форму. Медкнижка — во вкладке
+          «Документы» сотрудника, покупки формы — во вкладке «Оплата».
         </p>
         {record.current.version === 0 && (
           <p className="text-sm text-muted-foreground">

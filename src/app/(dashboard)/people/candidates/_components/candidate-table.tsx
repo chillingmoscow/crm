@@ -12,7 +12,7 @@ import {
   type Candidate,
 } from "@/lib/candidates/types";
 import { overdueHint, stageAge } from "@/lib/candidates/stage-age";
-import { dateLabel } from "./fields";
+import { dateCell } from "./fields";
 import { countRu } from "@/lib/format/plural";
 import {
   CandidateStatusCell,
@@ -138,7 +138,7 @@ export function candidateColumns(
         }
         const value =
           id === "submitted_at"
-            ? dateLabel(c.submitted_at)
+            ? dateCell(c.submitted_at)
             : id === "phone"
               ? formatPhoneDisplay(c.phone)
               : id === "age"

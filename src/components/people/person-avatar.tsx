@@ -35,9 +35,10 @@ export function PersonAvatar({
   const previewSrc = pick(requestedPreview, fallbackSrc, src);
   const markFailed = (url: string) => setFailed((prev) => new Set(prev).add(url));
   const hasPhoto = !!src;
+  const initial = name.trim().charAt(0).toUpperCase() || "?";
   const fallback = (
     <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
-      {name.trim().charAt(0).toUpperCase() || "?"}
+      {initial}
     </span>
   );
   if (!hasPhoto)
@@ -65,16 +66,19 @@ export function PersonAvatar({
           onFocus={() => setOpen(true)}
           onBlur={() => setOpen(false)}
           className={cn(
-            "block size-9 shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand",
+            // Пока фото грузится, под ним видна та же буква на сером круге,
+            // что и у людей без фото, — ячейка не выглядит пустой.
+            "relative flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-brand",
             faded && "opacity-50",
           )}
         >
+          <span aria-hidden="true">{initial}</span>
           <img
             src={src!}
             alt=""
             width={36}
             height={36}
-            className="size-9 rounded-full object-cover"
+            className="absolute inset-0 size-9 rounded-full object-cover"
             loading="lazy"
             decoding="async"
             onError={() => {

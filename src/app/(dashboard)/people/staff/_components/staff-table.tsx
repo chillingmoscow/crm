@@ -11,7 +11,8 @@ import {
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table";
-import { RotateCcw, X } from "lucide-react";
+import { RotateCcw, SearchX, UserX, Users, X } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import type {
   StaffMember,
   PendingInvitation,
@@ -199,6 +200,7 @@ export function StaffTable({
   renderFiredCell,
   renderCasualCell,
   primaryAction,
+  emptyAction,
   secondaryActions,
   overviewPanel,
   canEdit,
@@ -219,6 +221,8 @@ export function StaffTable({
   renderFiredCell: (key: StaffColKey, m: FiredStaffMember) => ReactNode;
   renderCasualCell: (key: StaffColKey, c: CasualStaffRow) => ReactNode;
   primaryAction: ReactNode;
+  /** Кнопка в пустом состоянии списка: «Добавить сотрудника», если есть право. */
+  emptyAction?: ReactNode;
   secondaryActions: ReactNode;
   overviewPanel: ReactNode;
   canEdit: boolean;
@@ -405,6 +409,11 @@ export function StaffTable({
     st.setSorting([]);
     firstPage();
   };
+  // Счётчик — люди, а не строки: приглашения в него не входят. При поиске
+  // или фильтре — «N из M», чтобы число не выдавалось за весь состав.
+  const people = (list: Row[]) => list.filter((r) => r.kind !== "invitation").length;
+  const count =
+    active || q ? `${people(rows)} из ${people(source)}` : people(source);
   const pageCount = Math.max(
     1,
     Math.ceil(rows.length / st.pagination.pageSize),
@@ -419,7 +428,7 @@ export function StaffTable({
       <PeopleListHeader
         title={showFired ? "Уволенные сотрудники" : "Сотрудники"}
         crumb="Сотрудники"
-        count={rows.length}
+        count={count}
         actions={
           <TableControls
             search={{
@@ -551,49 +560,74 @@ export function StaffTable({
           />
         )}
       </TableConditions>
-      <DataTable
-        table={table}
-        label={showFired ? "Уволенные сотрудники" : "Сотрудники"}
-        labels={labels}
-        onColumnSizingChange={st.setColumnSizing}
-        sorting={st.sorting}
-        onSortingChange={changeSorting}
-        sortable={sortable}
-        onRowClick={(row) => {
-          if (row.original.kind !== "invitation")
-            router.push(rowHref(row.original));
-        }}
-        rowClassName={(row) =>
-          row.original.kind === "invitation" ? "!cursor-default" : undefined
-        }
-        empty={
-          active || q
-            ? "По этим условиям сотрудников нет"
-            : showFired
-              ? "Уволенных сотрудников нет"
-              : "Добавьте первого сотрудника или отправьте приглашение"
-        }
-        mobile={{
-          label: showFired
-            ? "Карточки уволенных сотрудников"
-            : "Карточки сотрудников",
-          nameColumn: "name",
-          photoColumn: "avatar",
-          roleColumn: "role",
-          actionsPlacement: showFired ? "footer" : "header",
-        }}
-      />
-      <TablePagination
-        pageIndex={Math.min(st.pagination.pageIndex, pageCount - 1)}
-        pageSize={st.pagination.pageSize}
-        total={rows.length}
-        onPageChange={(pageIndex) =>
-          st.setPagination((p) => ({ ...p, pageIndex }))
-        }
-        onPageSizeChange={(pageSize) =>
-          st.setPagination({ pageIndex: 0, pageSize })
-        }
-      />
+      {rows.length === 0 ? (
+        <EmptyState
+          icon={active || q ? SearchX : showFired ? UserX : Users}
+          title={
+            active || q
+              ? "Сотрудники не найдены"
+              : showFired
+                ? "Уволенных сотрудников нет"
+                : "Сотрудников пока нет"
+          }
+          description={
+            active || q
+              ? "Измените поиск или условия списка."
+              : showFired
+                ? "Здесь появятся сотрудники после увольнения."
+                : "Добавьте сотрудника вручную или отправьте приглашение на почту."
+          }
+          action={
+            active || q ? (
+              <Button variant="outline" onClick={reset}>
+                Очистить все
+              </Button>
+            ) : showFired ? undefined : (
+              emptyAction
+            )
+          }
+        />
+      ) : (
+        <>
+        <DataTable
+          table={table}
+          label={showFired ? "Уволенные сотрудники" : "Сотрудники"}
+          labels={labels}
+          onColumnSizingChange={st.setColumnSizing}
+          sorting={st.sorting}
+          onSortingChange={changeSorting}
+          sortable={sortable}
+          onRowClick={(row) => {
+            if (row.original.kind !== "invitation")
+              router.push(rowHref(row.original));
+          }}
+          rowClassName={(row) =>
+            row.original.kind === "invitation" ? "!cursor-default" : undefined
+          }
+          empty="По этим условиям сотрудников нет"
+          mobile={{
+            label: showFired
+              ? "Карточки уволенных сотрудников"
+              : "Карточки сотрудников",
+            nameColumn: "name",
+            photoColumn: "avatar",
+            roleColumn: "role",
+            actionsPlacement: showFired ? "footer" : "header",
+          }}
+        />
+        <TablePagination
+          pageIndex={Math.min(st.pagination.pageIndex, pageCount - 1)}
+          pageSize={st.pagination.pageSize}
+          total={rows.length}
+          onPageChange={(pageIndex) =>
+            st.setPagination((p) => ({ ...p, pageIndex }))
+          }
+          onPageSizeChange={(pageSize) =>
+            st.setPagination({ pageIndex: 0, pageSize })
+          }
+        />
+        </>
+      )}
     </>
   );
 }

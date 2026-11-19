@@ -711,6 +711,14 @@ export function StaffClient({
           })
         }
         primaryAction={addButton}
+        emptyAction={
+          canEdit ? (
+            <Button onClick={openAdd}>
+              <UserPlus />
+              Добавить сотрудника
+            </Button>
+          ) : undefined
+        }
       />
 
       {/* «Новый сотрудник»: без входа, по email или разовый. Ключ пересоздаёт

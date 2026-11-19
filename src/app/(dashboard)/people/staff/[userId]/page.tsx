@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { StaffDoorCode } from "../../candidates/_components/staff-door-code";
+import { StaffDoorCode } from "@/components/people/staff-door-code";
 import { StaffTerminationStatus } from "../_components/staff-termination-status";
 import { StaffRestoreStatus } from "../_components/staff-restore-status";
 import { asLooseDb } from "@/lib/supabase/loose";

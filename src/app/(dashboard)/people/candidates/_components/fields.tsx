@@ -63,13 +63,41 @@ export function safeLink(value: string) {
     return null;
   }
 }
+const ZONE = "Europe/Moscow";
+const yearOf = (d: Date) =>
+  new Intl.DateTimeFormat("ru-RU", { year: "numeric", timeZone: ZONE }).format(d);
+/**
+ * Даты модуля по DS («Деньги, числа, даты»): в карточке и ленте — «17 ноября»
+ * (год только если не текущий), в ячейке таблицы — `ДД.ММ.ГГГГ`.
+ */
 export function dateLabel(value: string) {
+  const d = new Date(value);
   return new Intl.DateTimeFormat("ru-RU", {
     day: "numeric",
-    month: "short",
+    month: "long",
+    ...(yearOf(d) === yearOf(new Date()) ? {} : { year: "numeric" as const }),
+    timeZone: ZONE,
+  })
+    .format(d)
+    .replace(/\s*г\.$/, "");
+}
+export function dateCell(value: string) {
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
     year: "numeric",
-    timeZone: "Europe/Moscow",
+    timeZone: ZONE,
   }).format(new Date(value));
+}
+/** «17 ноября, 14:03» — время события без секунд. */
+export function dateTimeLabel(value: string) {
+  const d = new Date(value);
+  const time = new Intl.DateTimeFormat("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: ZONE,
+  }).format(d);
+  return `${dateLabel(value)}, ${time}`;
 }
 export function localTimeToISO(value: string, timezone: string) {
   if (!value) return null;

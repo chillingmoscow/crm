@@ -406,6 +406,15 @@ export async function getRolePermissionStates(
   roleId: string,
 ): Promise<{ data: { role_id: string; permission_id: string; granted: boolean }[] | null; error: string | null }> {
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { data: null, error: "Не авторизован" };
+  // Вызывается только из редактора прав — тот же доступ, что и на запись.
+  const can = await getCachedPermissionChecker();
+  if (!can("people.manage_roles"))
+    return { data: null, error: "Нет доступа к правам должностей" };
+
   const { data, error } = await supabase.rpc("get_effective_role_permissions", {
     p_role_ids: [roleId],
   });

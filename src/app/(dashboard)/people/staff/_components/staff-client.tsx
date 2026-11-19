@@ -4,7 +4,6 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { isStaffPlaceholderEmail } from "@/lib/people/staff-identity";
 import { isGender } from "@/lib/people/gender";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   UserPlus,
@@ -20,7 +19,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { formatPhoneDisplay } from "@/lib/format/phone";
-import { Badge } from "@/components/ui/badge";
+import { badgeVariants } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { restoreStaff, cancelInvitation } from "../actions";
 import { StatusBadge } from "@/components/ui/status-badge";
 import type {
@@ -38,6 +38,40 @@ import { AddStaffDrawer } from "./add-staff-drawer";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 
 // ── Helpers ──────────────────────────────────────────────────
+
+/** Должность или подразделение в ячейке: чип-ссылка на карточку (открывается
+ *  и в новой вкладке), без ссылки — тот же чип текстом. Клик по ссылке не
+ *  открывает строку: `isRowNavigationClick` пропускает `a`. */
+function CellChip({
+  href,
+  className,
+  children,
+}: {
+  href: string | null;
+  className?: string;
+  children: string;
+}) {
+  const chip = cn(
+    badgeVariants({ variant: "secondary" }),
+    "max-w-full min-w-0 truncate whitespace-nowrap text-xs",
+    className,
+  );
+  return href ? (
+    <Link
+      href={href}
+      data-tip={children}
+      data-tip-overflow
+      className={cn(chip, "block w-fit hover:bg-accent")}
+    >
+      {children}
+    </Link>
+  ) : (
+    <span data-tip={children} data-tip-overflow className={cn(chip, "block w-fit")}>
+      {children}
+    </span>
+  );
+}
+
 type Role = { id: string; name: string; code: string };
 
 type DepartmentLite = { id: string; name: string };
@@ -214,8 +248,6 @@ export function StaffClient({
   casual,
   openAddCasual = false,
 }: Props) {
-  const router = useRouter();
-
   const [staff, setStaff] = useState(initialStaff);
   const [invitations, setInvitations] = useState(initialInvitations);
   const [fired, setFired] = useState(initialFired);
@@ -433,52 +465,29 @@ export function StaffClient({
             {formatDate(member.birth_date)}
           </div>
         );
-      case "role": {
-        // Owner — brand-tinted badge per design (descendants override на zHpCv: fill #1570EF).
-        // Остальные — стандартный secondary.
-        const isOwner = member.role_code === "owner";
+      case "role":
         return (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              router.push(`/people/roles/${member.role_id}`);
-            }}
-            className="text-left"
+          <CellChip
+            href={`/people/roles/${member.role_id}`}
+            className={member.role_code === "owner" ? "text-brand" : undefined}
           >
-            <Badge
-              variant="secondary"
-              className={`max-w-full truncate whitespace-nowrap text-xs cursor-pointer hover:bg-accent ${
-                isOwner ? "text-brand" : ""
-              }`}
-            >
-              {member.role_name}
-            </Badge>
-          </button>
+            {member.role_name}
+          </CellChip>
         );
-      }
-      case "department": {
-        if (!member.department_name) {
-          return <span className="text-sm text-muted-foreground">—</span>;
-        }
-        const departmentId = member.department_id;
-        return (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (departmentId)
-                router.push(`/people/departments/${departmentId}`);
-            }}
-            className="text-left"
+      case "department":
+        return member.department_name ? (
+          <CellChip
+            href={
+              member.department_id
+                ? `/people/departments/${member.department_id}`
+                : null
+            }
           >
-            <Badge
-              variant="secondary"
-              className="max-w-full truncate whitespace-nowrap text-xs cursor-pointer hover:bg-accent"
-            >
-              {member.department_name}
-            </Badge>
-          </button>
+            {member.department_name}
+          </CellChip>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
         );
-      }
       case "pin":
         return member.terminal_pin ? (
           <span className="font-mono text-sm tabular-nums">{member.terminal_pin}</span>
@@ -521,9 +530,9 @@ export function StaffClient({
         );
       case "role":
         return (
-          <Badge variant="secondary" className="text-xs cursor-default">
+          <CellChip href={`/people/roles/${inv.role_id}`}>
             {inv.role_name}
-          </Badge>
+          </CellChip>
         );
       case "pin":
         return <span className="text-sm text-muted-foreground">—</span>;
@@ -564,9 +573,9 @@ export function StaffClient({
         );
       case "role":
         return (
-          <Badge variant="secondary" className="max-w-full truncate text-xs">
+          <CellChip href={`/people/roles/${member.role_id}`}>
             {member.role_name}
-          </Badge>
+          </CellChip>
         );
       case "fired_at":
         return (
@@ -603,7 +612,8 @@ export function StaffClient({
           <div className="min-w-0 flex items-center gap-2">
             <Link
               href={`/people/payroll/${c.id}`}
-              title={c.name}
+              data-tip={c.name}
+              data-tip-overflow
               className="font-medium text-sm truncate min-w-0 hover:text-brand"
             >
               {c.name}
@@ -618,15 +628,19 @@ export function StaffClient({
         );
       case "role":
         return (
-          <Badge variant="secondary" className="max-w-full truncate whitespace-nowrap text-xs">
+          <CellChip href={c.roleId ? `/people/roles/${c.roleId}` : null}>
             {c.roleName}
-          </Badge>
+          </CellChip>
         );
       case "department":
         return c.departmentName ? (
-          <Badge variant="secondary" className="max-w-full truncate whitespace-nowrap text-xs">
+          <CellChip
+            href={
+              c.departmentId ? `/people/departments/${c.departmentId}` : null
+            }
+          >
             {c.departmentName}
-          </Badge>
+          </CellChip>
         ) : (
           <span className="text-sm text-muted-foreground">—</span>
         );

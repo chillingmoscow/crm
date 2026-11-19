@@ -65,10 +65,21 @@ function Metric({
     </div>
   );
 }
+const percent = new Intl.NumberFormat("ru-RU", {
+  style: "percent",
+  maximumFractionDigits: 1,
+});
 function EmptyChart({ children }: { children: React.ReactNode }) {
   return <p className={styles.empty}>{children}</p>;
 }
-function HorizontalBars({ items }: { items: (Series & { id: string })[] }) {
+function HorizontalBars({
+  items,
+  total,
+}: {
+  items: (Series & { id: string })[];
+  /** Знаменатель доли: строки показывают и число, и процент. */
+  total: number;
+}) {
   const max = Math.max(1, ...items.map((item) => item.count));
   return (
     <ul className={styles.horizontal}>
@@ -82,6 +93,9 @@ function HorizontalBars({ items }: { items: (Series & { id: string })[] }) {
             />
           </span>
           <span className={styles.count}>{item.count}</span>
+          <span className={styles.funnelPercent}>
+            {total ? percent.format(item.count / total) : "—"}
+          </span>
         </li>
       ))}
     </ul>
@@ -169,10 +183,6 @@ const funnelLabels = {
   trial: "Стажировка",
   hired: "Приняты",
 };
-const percent = new Intl.NumberFormat("ru-RU", {
-  style: "percent",
-  maximumFractionDigits: 1,
-});
 function RecruitingFunnel({ data }: { data: CandidateOverview }) {
   return (
     <section>
@@ -214,12 +224,23 @@ function RecruitingFunnel({ data }: { data: CandidateOverview }) {
 }
 function OverviewBody({ data }: { data: PeopleOverviewData }) {
   if (data.kind === "staff")
+    // Показатель слева, диаграмма справа на всю оставшуюся ширину: у
+    // обзора команды одна метрика и одна диаграмма, и так блок заполнен
+    // без пустой половины (на телефоне — показатель сверху).
     return (
       <div className={styles.staffBody}>
+        <dl className={styles.staffAverage}>
+          <Metric
+            label="Средний стаж"
+            value={overviewTenure(data.average_days)}
+            hint={`Среднее время с даты трудоустройства у действующих сотрудников на ${new Date(`${data.today}T12:00:00Z`).toLocaleDateString("ru-RU", { timeZone: "UTC" })}. В расчёте: ${data.dated_staff} из ${data.working}. Записи без даты трудоустройства и с будущей датой не учитываются.`}
+          />
+        </dl>
         <section>
           <h3>Стаж команды</h3>
           {data.dated_staff > 0 ? (
             <HorizontalBars
+              total={data.dated_staff}
               items={data.tenure.map((item) => ({
                 ...item,
                 label: tenureLabels[item.id],
@@ -234,13 +255,6 @@ function OverviewBody({ data }: { data: PeopleOverviewData }) {
             </EmptyChart>
           )}
         </section>
-        <dl className={styles.staffAverage}>
-          <Metric
-            label="Средний стаж"
-            value={overviewTenure(data.average_days)}
-            hint={`Среднее время с даты найма у действующих сотрудников на ${new Date(`${data.today}T12:00:00Z`).toLocaleDateString("ru-RU", { timeZone: "UTC" })}. В расчёте: ${data.dated_staff} из ${data.working}. Записи без даты трудоустройства и с будущей датой не учитываются.`}
-          />
-        </dl>
       </div>
     );
   return (

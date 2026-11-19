@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 
+import { isDeploymentSkewResponse } from "@/lib/deployment-skew";
 import { maybeReloadForDeploymentSkew } from "@/lib/deployment-skew-reload";
 
 /**
@@ -13,6 +14,12 @@ import { maybeReloadForDeploymentSkew } from "@/lib/deployment-skew-reload";
  * (только render). Здесь классифицируем и делаем тот же авто-reload на
  * свежий бандл (guard от циклов — внутри helper'а).
  *
+ * Ошибки, которые компонент поймал сам (try/catch → «Не удалось
+ * загрузить задачи»), сюда не доходят. Поэтому вызовы Server Action
+ * проверяем ещё и по ответу: обёртка над fetch смотрит заголовок
+ * «action not found» и перезагружает страницу независимо от того,
+ * как компонент обработал ошибку.
+ *
  * Рендерит null; монтируется один раз в root-layout.
  */
 export function DeploymentSkewListener() {
@@ -23,9 +30,18 @@ export function DeploymentSkewListener() {
     const onError = (e: ErrorEvent) => {
       maybeReloadForDeploymentSkew(e.error ?? e.message);
     };
+    const nativeFetch = window.fetch;
+    const watchedFetch: typeof window.fetch = async (...args) => {
+      const response = await nativeFetch.apply(window, args);
+      if (isDeploymentSkewResponse(response))
+        maybeReloadForDeploymentSkew("UnrecognizedActionError");
+      return response;
+    };
+    window.fetch = watchedFetch;
     window.addEventListener("unhandledrejection", onRejection);
     window.addEventListener("error", onError);
     return () => {
+      if (window.fetch === watchedFetch) window.fetch = nativeFetch;
       window.removeEventListener("unhandledrejection", onRejection);
       window.removeEventListener("error", onError);
     };

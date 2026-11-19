@@ -30,6 +30,7 @@ import {
   type DateRangeValue,
 } from "@/components/shared/date-range-filter";
 import {
+  ROW_MENU_COLUMN_SIZE,
   ResizableTableHead,
   TableColumnManager,
   TableControlPin,
@@ -72,7 +73,7 @@ const stateColumns = [
     defaultVisible: !hidden.has(id),
   })),
   { id: "status", defaultSize: 140 },
-  { id: "actions", defaultSize: 48 },
+  { id: "actions", defaultSize: ROW_MENU_COLUMN_SIZE },
 ];
 type SortMode = `${string}:${"asc" | "desc"}`;
 const sortMap = Object.fromEntries(
@@ -261,7 +262,7 @@ export function ShiftsClient({
                 {compactDate(row.original.business_date)}
                 {(current || job) && (
                   <span
-                    title={`${status} · ${lastUpdate}`}
+                    data-tip={`${status} · ${lastUpdate}`}
                     aria-label={status}
                     className="text-brand"
                   >
@@ -291,7 +292,7 @@ export function ShiftsClient({
         sortUndefined: "last" as const,
         cell: ({ row }: { row: { original: SalesDay } }) => (
           <span
-            title={
+            data-tip={
               k in row.original.overrides
                 ? `Исправлено вручную. Исходное: ${money(row.original.calculated[k] ?? null)}`
                 : metricHints[k]
@@ -323,8 +324,9 @@ export function ShiftsClient({
       },
       {
         id: "actions",
-        size: 48,
-        minSize: 48,
+        size: ROW_MENU_COLUMN_SIZE,
+        minSize: ROW_MENU_COLUMN_SIZE,
+        maxSize: ROW_MENU_COLUMN_SIZE,
         enableResizing: false,
         cell: ({ row }) => (
           <TableRowMenu
@@ -589,21 +591,22 @@ export function ShiftsClient({
           }
           primaryActions={
             can("sync") ? (
-              <Button
-                size="sm"
-                disabled={
-                  busy || currentRunning || !data.connected || !data.settings
-                }
-                title="Обновить текущую смену из Quick Resto"
-                onClick={() => void sync([today])}
-              >
-                {busy || currentRunning ? (
-                  <Loader2 className="size-4 mr-2 animate-spin" />
-                ) : (
-                  <RefreshCw className="size-4 mr-2" />
-                )}
-                Обновить
-              </Button>
+              <span data-tip="Обновить текущую смену из Quick Resto" className="inline-flex">
+                <Button
+                  size="sm"
+                  disabled={
+                    busy || currentRunning || !data.connected || !data.settings
+                  }
+                  onClick={() => void sync([today])}
+                >
+                  {busy || currentRunning ? (
+                    <Loader2 className="size-4 mr-2 animate-spin" />
+                  ) : (
+                    <RefreshCw className="size-4 mr-2" />
+                  )}
+                  Обновить
+                </Button>
+              </span>
             ) : undefined
           }
         />
@@ -653,7 +656,7 @@ export function ShiftsClient({
                   {metricLabels[k]}
                 </p>
                 <p
-                  title={
+                  data-tip={
                     totals[k].partial
                       ? "Сумма только по сменам с известным значением"
                       : "По всем отфильтрованным сменам"
@@ -737,7 +740,7 @@ export function ShiftsClient({
                           <span>Итого · {filtered.length}</span>
                         ) : metricKeys.includes(c.id as MetricKey) ? (
                           <span
-                            title={
+                            data-tip={
                               totals[c.id as MetricKey].partial
                                 ? "Не во всех сменах есть данные"
                                 : undefined

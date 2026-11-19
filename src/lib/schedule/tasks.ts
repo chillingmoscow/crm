@@ -111,15 +111,6 @@ export type TaskOccurrence = {
   adjustment_id: string | null;
   equipment: number[];
 };
-export type TaskSettings = {
-  venue_id: string;
-  enabled_from: string | null;
-  paused: boolean;
-  legacy_stopped: boolean;
-  chat_id: string | null;
-  reminder_chat_ids: string[];
-  version: number;
-};
 export type TaskMessage = {
   id: string;
   kind: string;
@@ -140,9 +131,8 @@ export type TaskData = {
   plans?: TaskPreview[];
   definitions: TaskDefinition[];
   occurrences: TaskOccurrence[];
-  settings: TaskSettings | null;
   messages: TaskMessage[];
-  templates: { id: string; name: string }[];
+  templates: { id: string; name: string; color?: string }[];
   permissions: string[];
   userId: string;
   today: string;

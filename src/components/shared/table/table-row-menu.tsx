@@ -17,6 +17,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+/**
+ * Ширина колонки с меню «⋯» — одна на все таблицы, чтобы отступ от края
+ * таблицы до точек везде был одинаковым. Задавать колонке size, minSize и
+ * maxSize этим значением.
+ */
+export const ROW_MENU_COLUMN_SIZE = 56;
+
 export type TableRowMenuAction = {
   label: string;
   icon?: ReactNode;

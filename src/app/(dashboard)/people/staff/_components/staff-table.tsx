@@ -4,14 +4,13 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
-  flexRender,
   getCoreRowModel,
   getSortedRowModel,
   getPaginationRowModel,
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table";
-import { ArrowUp, ArrowDown, ArrowUpDown, RotateCcw, X } from "lucide-react";
+import { RotateCcw, X } from "lucide-react";
 import type {
   StaffMember,
   PendingInvitation,
@@ -19,27 +18,24 @@ import type {
 } from "../actions";
 import { Button } from "@/components/ui/button";
 import {
-  TableControls,
+  DataTable,
+  ROW_MENU_COLUMN_SIZE,
   TableColumnManager,
+  TableConditions,
+  TableControls,
+  TableFilterChip,
   TablePagination,
-  TableControlPin,
-  ResizableTableHead,
+  TableSortPicker,
   useTableState,
 } from "@/components/shared/table";
-import { TableFilterChip } from "@/components/shared/table/table-filter-chip";
-import {
-  TableSortPicker,
-  TableSortSettings,
-} from "@/components/shared/table/table-sort-settings";
-import { useTableColumnResize } from "@/components/shared/table/use-table-column-resize";
 import { PeopleListHeader } from "@/components/people/people-list-header";
-import { PeopleMobileCards } from "@/components/people/people-mobile-cards";
-import styles from "@/components/people/people-table.module.css";
+import type { CasualStaffRow } from "@/lib/payroll/casual-list";
 
 type Row =
   | { kind: "staff"; id: string; member: StaffMember }
   | { kind: "fired"; id: string; member: FiredStaffMember }
-  | { kind: "invitation"; id: string; invitation: PendingInvitation };
+  | { kind: "invitation"; id: string; invitation: PendingInvitation }
+  | { kind: "casual"; id: string; casual: CasualStaffRow };
 export type StaffColKey =
   | "avatar"
   | "name"
@@ -50,7 +46,7 @@ export type StaffColKey =
   | "birth_date"
   | "role"
   | "department"
-  | "qr_import"
+  | "pin"
   | "employment_date"
   | "fired_at"
   | "fired_reason";
@@ -83,13 +79,7 @@ const activeDefinitions: StaffColumn[] = [
     min: 156,
     visible: true,
   },
-  {
-    id: "qr_import",
-    label: "Импорт из QR",
-    size: 156,
-    min: 144,
-    visible: true,
-  },
+  { id: "pin", label: "PIN кассы", size: 132, min: 112, visible: true },
   {
     id: "employment_date",
     label: "Трудоустройство",
@@ -142,6 +132,13 @@ const name = (m: StaffMember | FiredStaffMember) =>
   [m.first_name, m.last_name].filter(Boolean).join(" ") ||
   m.email.split("@")[0];
 function value(row: Row, id: StaffColKey): string | undefined {
+  if (row.kind === "casual") {
+    const c = row.casual;
+    return (
+      ({ name: c.name, role: c.roleName, department: c.departmentName, pin: c.pin } as Record<string, string | null>)[id] ||
+      undefined
+    );
+  }
   if (row.kind === "invitation")
     return id === "name" || id === "email"
       ? row.invitation.email
@@ -176,14 +173,20 @@ function value(row: Row, id: StaffColKey): string | undefined {
         birth_date: m.birth_date,
         role: m.role_name,
         department: m.department_name,
-        qr_import: m.imported_from_quickresto ? "Да" : "Нет",
+        pin: m.terminal_pin,
         employment_date: m.employment_date ?? m.joined_at,
       } as Record<string, string | null | undefined>
     )[id] || undefined
   );
 }
+const rowHref = (row: Exclude<Row, { kind: "invitation" }>) =>
+  row.kind === "casual"
+    ? `/people/payroll/${row.casual.id}`
+    : `/people/staff/${row.member.user_id}`;
+
 export function StaffTable({
   staff,
+  casual,
   fired,
   showFired,
   invitations,
@@ -193,6 +196,7 @@ export function StaffTable({
   renderCell,
   renderInvCell,
   renderFiredCell,
+  renderCasualCell,
   primaryAction,
   secondaryActions,
   overviewPanel,
@@ -202,6 +206,7 @@ export function StaffTable({
   onRestore,
 }: {
   staff: StaffMember[];
+  casual: CasualStaffRow[];
   fired: FiredStaffMember[];
   showFired: boolean;
   invitations: PendingInvitation[];
@@ -211,6 +216,7 @@ export function StaffTable({
   renderCell: (key: StaffColKey, m: StaffMember) => ReactNode;
   renderInvCell: (key: StaffColKey, i: PendingInvitation) => ReactNode;
   renderFiredCell: (key: StaffColKey, m: FiredStaffMember) => ReactNode;
+  renderCasualCell: (key: StaffColKey, c: CasualStaffRow) => ReactNode;
   primaryAction: ReactNode;
   secondaryActions: ReactNode;
   overviewPanel: ReactNode;
@@ -237,7 +243,7 @@ export function StaffTable({
     role: "",
     department: "",
     gender: "",
-    imported: "",
+    kind: "",
   });
   const q = st.search.trim().toLocaleLowerCase("ru");
   const active = Object.values(filter).some(Boolean);
@@ -254,6 +260,7 @@ export function StaffTable({
           id: invitation.inv_id,
           invitation,
         })),
+        ...casual.map((c) => ({ kind: "casual" as const, id: c.id, casual: c })),
       ];
   const rows = source.filter((row) => {
     if (
@@ -261,12 +268,22 @@ export function StaffTable({
       !fields.some((id) => value(row, id)?.toLocaleLowerCase("ru").includes(q))
     )
       return false;
+    if (filter.kind && (filter.kind === "casual") !== (row.kind === "casual"))
+      return false;
+    if (row.kind === "casual")
+      return (
+        (!filter.role || row.casual.roleId === filter.role) &&
+        !filter.gender &&
+        (!filter.department ||
+          (filter.department === "__none__"
+            ? !row.casual.departmentId
+            : row.casual.departmentId === filter.department))
+      );
     if (row.kind === "invitation")
       return (
         (!filter.role || row.invitation.role_id === filter.role) &&
         !filter.department &&
-        !filter.gender &&
-        !filter.imported
+        !filter.gender
       );
     if (row.kind === "fired")
       return !filter.role || row.member.role_id === filter.role;
@@ -277,9 +294,7 @@ export function StaffTable({
       (!filter.department ||
         (filter.department === "__none__"
           ? !m.department_id
-          : m.department_id === filter.department)) &&
-      (!filter.imported ||
-        (filter.imported === "yes") === !!m.imported_from_quickresto)
+          : m.department_id === filter.department))
     );
   });
   const columns: ColumnDef<Row>[] = [
@@ -304,14 +319,16 @@ export function StaffTable({
               ? renderCell(c.id, row.original.member)
               : row.original.kind === "fired"
                 ? renderFiredCell(c.id, row.original.member)
-                : renderInvCell(c.id, row.original.invitation),
+                : row.original.kind === "casual"
+                  ? renderCasualCell(c.id, row.original.casual)
+                  : renderInvCell(c.id, row.original.invitation),
         }) satisfies ColumnDef<Row>,
     ),
     {
       id: "actions",
-      size: showFired ? 152 : 44,
-      minSize: showFired ? 152 : 44,
-      maxSize: showFired ? 152 : 44,
+      size: showFired ? 152 : ROW_MENU_COLUMN_SIZE,
+      minSize: showFired ? 152 : ROW_MENU_COLUMN_SIZE,
+      maxSize: showFired ? 152 : ROW_MENU_COLUMN_SIZE,
       enableHiding: false,
       enableResizing: false,
       cell: ({ row }) =>
@@ -369,8 +386,6 @@ export function StaffTable({
     getPaginationRowModel: getPaginationRowModel(),
     autoResetPageIndex: false,
   });
-  const { tableRef, onResizeStart, columnWidths, minTableWidth } =
-    useTableColumnResize(table, st.setColumnSizing);
   const firstPage = () => st.setPagination((p) => ({ ...p, pageIndex: 0 }));
   const changeSorting = (sorting: typeof st.sorting) => {
     st.setSorting(sorting);
@@ -381,7 +396,7 @@ export function StaffTable({
     firstPage();
   };
   const reset = () => {
-    setFilter({ role: "", department: "", gender: "", imported: "" });
+    setFilter({ role: "", department: "", gender: "", kind: "" });
     st.setSearch("");
     st.setSorting([]);
     firstPage();
@@ -398,13 +413,9 @@ export function StaffTable({
   return (
     <>
       <PeopleListHeader
-        title="Сотрудники"
+        title={showFired ? "Уволенные сотрудники" : "Сотрудники"}
+        crumb="Сотрудники"
         count={rows.length}
-        description={
-          showFired
-            ? "Уволенные сотрудники, история и восстановление"
-            : "Состав команды и приглашения в выбранном заведении"
-        }
         actions={
           <TableControls
             search={{
@@ -418,7 +429,7 @@ export function StaffTable({
               placeholder: "Имя, телефон, email или должность",
             }}
             filters={{
-              active: filtersVisible || active,
+              active,
               onClick: () => setFiltersVisible((v) => !v),
             }}
             sort={{
@@ -462,224 +473,110 @@ export function StaffTable({
         }
       />
       {overviewPanel}
-      {(filtersVisible || active || q || st.sorting.length > 0) && (
-        <div
-          className="flex flex-wrap items-center gap-2"
-          aria-label="Условия списка сотрудников"
-        >
-          {st.sorting.length > 0 && (
-            <TableControlPin
-              active
-              label={
-                st.sorting.length === 1
-                  ? labels[st.sorting[0].id]
-                  : `${st.sorting.length} сортировки`
-              }
-              icon={<ArrowUpDown />}
-              contentClassName="w-auto p-3"
-            >
-              <TableSortSettings
-                sorting={st.sorting}
-                onChange={changeSorting}
-                fields={fields}
-                labels={labels}
-              />
-            </TableControlPin>
-          )}
-          {(filtersVisible || !!filter.role) && (
-            <TableFilterChip
-              label="Должность"
-              value={filter.role}
-              onChange={(v) => set("role", v)}
-              options={[
-                { value: "", label: "Все должности" },
-                ...(showFired
-                  ? [
-                      ...new Map(
-                        fired.map((m) => [
-                          m.role_id,
-                          { id: m.role_id, name: m.role_name },
-                        ]),
-                      ).values(),
-                    ]
-                  : roles
-                ).map((r) => ({ value: r.id, label: r.name })),
-              ]}
-            />
-          )}
-          {!showFired && (filtersVisible || !!filter.department) && (
-            <TableFilterChip
-              label="Подразделение"
-              value={filter.department}
-              onChange={(v) => set("department", v)}
-              options={[
-                { value: "", label: "Все подразделения" },
-                { value: "__none__", label: "Без подразделения" },
-                ...departments.map((r) => ({ value: r.id, label: r.name })),
-              ]}
-            />
-          )}
-          {!showFired && (filtersVisible || !!filter.gender) && (
-            <TableFilterChip
-              label="Пол"
-              value={filter.gender}
-              onChange={(v) => set("gender", v)}
-              options={[
-                { value: "", label: "Любой пол" },
-                { value: "male", label: "Мужской" },
-                { value: "female", label: "Женский" },
-              ]}
-            />
-          )}
-          {!showFired && (filtersVisible || !!filter.imported) && (
-            <TableFilterChip
-              label="Импорт из QR"
-              value={filter.imported}
-              onChange={(v) => set("imported", v)}
-              options={[
-                { value: "", label: "Все сотрудники" },
-                { value: "yes", label: "Из Quick Resto" },
-                { value: "no", label: "Созданы в Sheerly" },
-              ]}
-            />
-          )}
-          {q && (
-            <span className="inline-flex h-8 max-w-64 items-center gap-2 rounded-full border border-brand/20 bg-brand/10 pl-3 pr-2 text-sm text-brand">
-              <span className="truncate">Поиск: «{st.search}»</span>
-              <button
-                type="button"
-                aria-label="Сбросить поиск"
-                onClick={() => {
-                  st.setSearch("");
-                  firstPage();
-                }}
-              >
-                <X className="size-3.5" />
-              </button>
-            </span>
-          )}
-          {(active || q || st.sorting.length > 0) && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
-              onClick={reset}
-            >
-              Очистить все
-            </Button>
-          )}
-        </div>
-      )}
-      <div className={styles.scroll}>
-        <table
-          ref={tableRef}
-          className={styles.table}
-          style={{
-            minWidth: minTableWidth,
-          }}
-          aria-label="Сотрудники"
-        >
-          <ResizableTableHead
-            table={table}
-            onResizeStart={onResizeStart}
-            columnWidths={columnWidths}
-            isControlColumn={(id) => id === "actions"}
-            sortableColumnIds={sortable}
-            onSort={(id) => {
-              const current = st.sorting.find((s) => s.id === id);
-              changeSorting(
-                !current
-                  ? [...st.sorting, { id, desc: false }]
-                  : !current.desc
-                    ? st.sorting.map((s) =>
-                        s.id === id ? { ...s, desc: true } : s,
-                      )
-                    : st.sorting.filter((s) => s.id !== id),
-              );
-            }}
-            headerAriaSort={(id) => {
-              if (!sortable.has(id as StaffColKey)) return undefined;
-              const s = st.sorting.find((s) => s.id === id);
-              return s ? (s.desc ? "descending" : "ascending") : "none";
-            }}
-            headerIndicator={(id) => {
-              const i = st.sorting.findIndex((s) => s.id === id);
-              return i < 0 ? null : (
-                <span className="inline-flex items-center gap-0.5">
-                  {st.sorting[i].desc ? (
-                    <ArrowDown className="size-3" />
-                  ) : (
-                    <ArrowUp className="size-3" />
-                  )}
-                  {st.sorting.length > 1 && (
-                    <span className="text-[10px]">{i + 1}</span>
-                  )}
-                </span>
-              );
-            }}
-          />
-          <tbody>
-            {table.getRowModel().rows.map((row) => (
-              <tr
-                key={row.id}
-                className={
-                  row.original.kind !== "invitation"
-                    ? "cursor-pointer"
-                    : undefined
-                }
-                onClick={(e) => {
-                  if (
-                    row.original.kind !== "invitation" &&
-                    !(e.target as HTMLElement).closest("button,a,input")
-                  )
-                    router.push(`/people/staff/${row.original.member.user_id}`);
-                }}
-              >
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id}>
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
-              </tr>
-            ))}
-            {!rows.length && (
-              <tr>
-                <td
-                  colSpan={table.getVisibleLeafColumns().length}
-                  className="!h-32 text-center text-muted-foreground"
-                >
-                  {active || q
-                    ? "По этим условиям сотрудников нет"
-                    : showFired
-                      ? "Уволенных сотрудников нет."
-                      : "Добавьте первого сотрудника или отправьте приглашение."}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <PeopleMobileCards
-        table={table}
-        label={
-          showFired ? "Карточки уволенных сотрудников" : "Карточки сотрудников"
-        }
-        actionsPlacement={showFired ? "footer" : "header"}
-        nameColumn="name"
-        photoColumn="avatar"
-        roleColumn="role"
-        labels={labels}
-        onOpen={(row) => {
-          if (row.original.kind !== "invitation")
-            router.push(`/people/staff/${row.original.member.user_id}`);
+      <TableConditions
+        label="Условия списка сотрудников"
+        open={filtersVisible}
+        hasFilters={active}
+        sorting={st.sorting}
+        onSortingChange={changeSorting}
+        sortFields={fields}
+        sortLabels={labels}
+        search={st.search}
+        onSearchClear={() => {
+          st.setSearch("");
+          firstPage();
         }}
+        onReset={reset}
+      >
+        {(filtersVisible || !!filter.role) && (
+          <TableFilterChip
+            label="Должность"
+            value={filter.role}
+            onChange={(v) => set("role", v)}
+            options={[
+              { value: "", label: "Все должности" },
+              ...(showFired
+                ? [
+                    ...new Map(
+                      fired.map((m) => [
+                        m.role_id,
+                        { id: m.role_id, name: m.role_name },
+                      ]),
+                    ).values(),
+                  ]
+                : roles
+              ).map((r) => ({ value: r.id, label: r.name })),
+            ]}
+          />
+        )}
+        {!showFired && (filtersVisible || !!filter.department) && (
+          <TableFilterChip
+            label="Подразделение"
+            value={filter.department}
+            onChange={(v) => set("department", v)}
+            options={[
+              { value: "", label: "Все подразделения" },
+              { value: "__none__", label: "Без подразделения" },
+              ...departments.map((r) => ({ value: r.id, label: r.name })),
+            ]}
+          />
+        )}
+        {!showFired && (filtersVisible || !!filter.gender) && (
+          <TableFilterChip
+            label="Пол"
+            value={filter.gender}
+            onChange={(v) => set("gender", v)}
+            options={[
+              { value: "", label: "Любой пол" },
+              { value: "male", label: "Мужской" },
+              { value: "female", label: "Женский" },
+            ]}
+          />
+        )}
+        {!showFired && (filtersVisible || !!filter.kind) && (
+          <TableFilterChip
+            label="Тип"
+            value={filter.kind}
+            onChange={(v) => set("kind", v)}
+            options={[
+              { value: "", label: "Все сотрудники" },
+              { value: "staff", label: "Штатные" },
+              { value: "casual", label: "Разовые" },
+            ]}
+          />
+        )}
+      </TableConditions>
+      <DataTable
+        table={table}
+        label={showFired ? "Уволенные сотрудники" : "Сотрудники"}
+        labels={labels}
+        onColumnSizingChange={st.setColumnSizing}
+        sorting={st.sorting}
+        onSortingChange={changeSorting}
+        sortable={sortable}
+        onRowClick={(row) => {
+          if (row.original.kind !== "invitation")
+            router.push(rowHref(row.original));
+        }}
+        rowClassName={(row) =>
+          row.original.kind === "invitation" ? "!cursor-default" : undefined
+        }
         empty={
           active || q
             ? "По этим условиям сотрудников нет"
             : showFired
-              ? "Уволенных сотрудников нет."
-              : "Добавьте первого сотрудника или отправьте приглашение."
+              ? "Уволенных сотрудников нет"
+              : "Добавьте первого сотрудника или отправьте приглашение"
         }
+        mobile={{
+          label: showFired
+            ? "Карточки уволенных сотрудников"
+            : "Карточки сотрудников",
+          nameColumn: "name",
+          photoColumn: "avatar",
+          roleColumn: "role",
+          actionsPlacement: showFired ? "footer" : "header",
+        }}
       />
       <TablePagination
         pageIndex={Math.min(st.pagination.pageIndex, pageCount - 1)}

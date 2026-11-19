@@ -3,6 +3,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { OptionSelect } from "@/components/ui/option-select";
 import type { PayrollData } from "@/lib/payroll/types";
 import { money } from "@/lib/sales/format";
 import { confirmLegacyPayment } from "../actions";
@@ -41,35 +42,31 @@ export function LegacyPayments({
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <Label htmlFor="legacy-bank">Счёт Sheerly</Label>
-              <select
+              <OptionSelect
                 id="legacy-bank"
                 className={selectClass}
                 value={bank}
-                onChange={(e) => setBank(e.target.value)}
-              >
-                <option value="">Выберите счёт</option>
-                {data.banks.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
+                onValueChange={setBank}
+                placeholder="Выберите счёт"
+                options={[
+                  { value: "", label: "Выберите счёт" },
+                  ...data.banks.map((b) => ({ value: b.id, label: b.name })),
+                ]}
+              />
             </div>
             <div>
               <Label htmlFor="legacy-category">Статья расхода</Label>
-              <select
+              <OptionSelect
                 id="legacy-category"
                 className={selectClass}
                 value={category}
-                onChange={(e) => setCategory(e.target.value)}
-              >
-                <option value="">Выберите статью</option>
-                {data.categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+                onValueChange={setCategory}
+                placeholder="Выберите статью"
+                options={[
+                  { value: "", label: "Выберите статью" },
+                  ...data.categories.map((c) => ({ value: c.id, label: c.name })),
+                ]}
+              />
             </div>
           </div>
         )}

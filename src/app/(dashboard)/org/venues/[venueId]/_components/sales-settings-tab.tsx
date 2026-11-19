@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Loader2, RefreshCw, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
 import { SettingsDrawer } from "@/app/(dashboard)/sales/shifts/_components/settings-drawer";
 import {
@@ -124,23 +124,21 @@ export function SalesSettingsTab({ initial }: { initial: SalesConfiguration }) {
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="history-from">С</Label>
-            <Input
+            <DatePicker
               id="history-from"
-              type="date"
               value={from}
-              max={to || today}
-              onChange={(e) => setFrom(e.target.value)}
+              toDate={new Date(`${to || today}T00:00:00`)}
+              onChange={setFrom}
             />
           </div>
           <div className="space-y-2">
             <Label htmlFor="history-to">По</Label>
-            <Input
+            <DatePicker
               id="history-to"
-              type="date"
               value={to}
-              min={from}
-              max={today}
-              onChange={(e) => setTo(e.target.value)}
+              fromDate={from ? new Date(`${from}T00:00:00`) : undefined}
+              toDate={new Date(`${today}T00:00:00`)}
+              onChange={setTo}
             />
           </div>
         </div>

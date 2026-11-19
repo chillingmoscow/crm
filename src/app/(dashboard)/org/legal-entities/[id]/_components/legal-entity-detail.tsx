@@ -72,23 +72,23 @@ export function LegalEntityDetailClient({
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-end gap-2">
         {canManage && dadataEnabled && (
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onSync}
-            disabled={syncing || !row.inn}
-            // Нативный title — портальный data-tip не ловит события на
-            // disabled-кнопке, а подсказка тут объясняет причину
-            // блокировки (Codex P2).
-            title={!row.inn ? "Сначала укажите ИНН" : undefined}
-          >
-            {syncing ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-2 h-4 w-4" />
-            )}
-            Обновить из DaData
-          </Button>
+          // Подсказка на обёртке: у disabled-кнопки pointer-events: none,
+          // события получает span (GlobalTooltip, data-tip).
+          <span data-tip={!row.inn ? "Сначала укажите ИНН" : undefined} className="inline-flex">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onSync}
+              disabled={syncing || !row.inn}
+            >
+              {syncing ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              Обновить из DaData
+            </Button>
+          </span>
         )}
         {isArchived && canArchive && (
           <Button

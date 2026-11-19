@@ -11,6 +11,10 @@
 
 ## Components
 
+- `DataTable` — the one table frame for list pages: card, sticky header, header-click sorting (`cycleHeaderSort`), whole-row click, totals row, mobile cards. Pages own state via `useTableState` and pass the TanStack table in.
+- `TableConditions` — the conditions row (sort pin, divider, filter chips, search pin, «Очистить все») with visibility rules built in.
+- `TableMobileCards` — mobile presentation used by `DataTable`; use directly only for non-table layouts.
+
 - `TablePageHeader` keeps title, subtitle, meta text and right-side actions together.
 - `TableControls` is independent from the table and can sit near the title, above the table or in a compact mobile toolbar.
 - `TableControlPin` renders active search/filter/sort chips.

@@ -79,7 +79,7 @@ export function InventoryStatusBadge({
   return (
     <Badge
       variant="outline"
-      title={label}
+      data-tip={label}
       className={cn(
         // max-w-full + overflow-hidden + внутренний truncate: в узком столбце
         // чип усекается многоточием, сохраняя скруглённую рамку и паддинги,

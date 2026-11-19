@@ -1,21 +1,24 @@
 "use client";
 
-import tabStyle from "@/components/shared/workspace-tabs.module.css";
-import { PageFrame } from "@/components/shared/page-frame";
+import { ProfilePageFrame } from "@/components/shared/page-frame";
+import { ProfileHeader } from "@/components/shared/profile-header";
+import { ProfileSection } from "@/components/shared/profile-section";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { SaveBar } from "@/components/shared/save-bar";
 
 import { RoleCompensation } from "../../../payroll/_components/role-compensation";
 import { useMemo, useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ChevronLeft, Loader2, Lock, Search, Trash2 } from "lucide-react";
+import { Lock, Search, Trash2 } from "lucide-react";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tabs, ProfileTabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -23,14 +26,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { deleteRole, setRolePermission, setRoleScheduleVisibility, updateRole } from "../../actions";
 import { setRoleDepartment } from "../../../departments/actions";
 import {
@@ -44,12 +39,12 @@ import { IconPicker } from "../../_components/icon-picker";
 import { iconForRole } from "../../_components/role-icons";
 import { paletteText, type PaletteColor } from "@/lib/palette";
 import {
-  PageBreadcrumb,
   PageHeaderActions,
 } from "@/components/shared/page-header-actions";
 import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
 import type { AuditEvent } from "@/lib/audit/list";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -129,7 +124,11 @@ export function RoleDetailPage({
   // «Основное» — first tab + default by design RbRH4.
   const [activeTab, setActiveTab] = useState<TabKey>(initialCompensation ? "compensation" : "main");
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  // Обновление данных после сохранения — отдельный переход: общий
+  // isPending занят и переключением прав, и откреплением должностей.
+  const [refreshing, startRefresh] = useTransition();
 
   // Settings tab state
   const [nameValue, setNameValue] = useState(role.name);
@@ -159,8 +158,21 @@ export function RoleDetailPage({
   const canEdit = !isOwner;
   const saveDetails = canEdit && detailsDirty;
   const saveVisibility = canEditSchedule && scheduleVisible !== showInSchedule;
-  const isSaveActive = (saveDetails || saveVisibility) &&
-    (!saveDetails || nameValue.trim().length > 0);
+  const isDirty = saveDetails || saveVisibility;
+  const saveBlocked =
+    saveDetails && nameValue.trim().length === 0
+      ? "Укажите название должности"
+      : null;
+  const [saving, setSaving] = useState(false);
+
+  function resetDetails() {
+    setNameValue(role.name);
+    setCommentValue(role.comment ?? "");
+    setScheduleVisible(showInSchedule);
+    setIconValue(role.icon);
+    setIconColorValue(role.icon_color ?? null);
+    setDepartmentId(role.department_id);
+  }
   // Owner и системные роли (после миграции — только owner) не удаляются.
   // Кастомка — физический DELETE.
   const canDelete = !isOwner && !isSystem && accountId !== null;
@@ -221,9 +233,10 @@ export function RoleDetailPage({
     });
   }
 
-  function handleSave() {
-    if (!isSaveActive) return;
-    startTransition(async () => {
+  async function handleSave() {
+    if (!isDirty || saveBlocked || saving) return;
+    setSaving(true);
+    try {
       if (saveDetails) {
         if (departmentId !== role.department_id) {
           const result = await setRoleDepartment(role.id, departmentId);
@@ -253,15 +266,22 @@ export function RoleDetailPage({
         }
       }
       toast.success("Изменения сохранены");
-      router.refresh();
-    });
+      // Полоса пропадёт, когда придут свежие данные: до этого она остаётся
+      // в состоянии «Сохраняем…», а не снова предлагает сохранить.
+      startRefresh(() => router.refresh());
+    } catch {
+      toast.error("Не удалось сохранить изменения. Проверьте подключение и повторите");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function handleDelete() {
+    setDeleteError(null);
     startTransition(async () => {
       const result = await deleteRole(role.id);
       if (result.error) {
-        toast.error(result.error);
+        setDeleteError(result.error);
         return;
       }
       toast.success("Должность удалена");
@@ -353,15 +373,13 @@ export function RoleDetailPage({
   return (
     <div className="flex-1 flex flex-col">
       {/* Breadcrumb in layout's top bar (left side) */}
-      <PageBreadcrumb>
-        <Link
-          href="/people/roles"
-          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          Должности
-        </Link>
-      </PageBreadcrumb>
+      <Breadcrumbs
+        items={[
+          { label: "Люди" },
+          { label: "Должности", href: "/people/roles" },
+          { label: role.name },
+        ]}
+      />
 
       {/* Info popover in layout's top bar (right side, next to bell) */}
       <PageHeaderActions>
@@ -376,62 +394,45 @@ export function RoleDetailPage({
       </PageHeaderActions>
 
       {/* Page body */}
-      <PageFrame className="flex flex-col gap-6">
-        {/* Header — без CTA. Save живёт в футере формы на табе «Основное»
-            и появляется только когда есть что сохранять. Это убирает
-            «висящую» disabled-кнопку и микро-shift при переключении табов. */}
-        <div className="flex items-center gap-4 min-w-0">
-          {/* 56px icon-плашка слева от H1 — по аналогии с хедером
-              карточки сотрудника (см. staff-detail-page.tsx). Иконка
-              рендерится через iconForRole (резолвит role.icon из
-              ICON_REGISTRY либо fallback по системному code'у); цвет
-              тинта — из palette по role.icon_color. */}
-          {(() => {
-            const HeaderIcon = iconForRole(role.code, iconValue);
-            const isOwner = role.code === "owner";
-            const tintClass = paletteText(iconColorValue as PaletteColor | null);
-            return (
-              <div
-                className={`shrink-0 w-14 h-14 rounded-2xl flex items-center justify-center ${
-                  isOwner
-                    ? "bg-brand/10 text-brand"
-                    : `bg-muted ${tintClass || "text-muted-foreground"}`
-                }`}
-              >
-                <HeaderIcon className="w-7 h-7" />
-              </div>
-            );
-          })()}
-          <div className="flex flex-col gap-1.5 min-w-0">
-            <div className="flex items-center gap-3 flex-wrap">
-              {/* h1 size matches design (yU4hW/RbRH4: 28px / -0.5 letter-spacing) */}
-              <h1 className="text-[28px] font-[550] tracking-tight leading-tight">
-                {role.name}
-              </h1>
-              {role.venue_id === null && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">
-                  <Lock className="w-2.5 h-2.5" />
-                  <span className="text-[10px] font-medium leading-none">
-                    Системная
-                  </span>
+      <ProfilePageFrame>
+        {(() => {
+          // 56px плитка с иконкой должности вместо фото: сущность не человек.
+          const HeaderIcon = iconForRole(role.code, iconValue);
+          const tintClass = paletteText(iconColorValue as PaletteColor | null);
+          return (
+            <ProfileHeader
+              name={role.name}
+              wrapName
+              avatar={
+                <div
+                  aria-hidden
+                  className={`w-14 h-14 rounded-[14px] flex items-center justify-center ${
+                    isOwner
+                      ? "bg-brand/10 text-brand"
+                      : `bg-muted ${tintClass || "text-muted-foreground"}`
+                  }`}
+                >
+                  <HeaderIcon className="w-7 h-7" />
+                </div>
+              }
+            >
+              {role.comment && (
+                <span className="text-sm text-muted-foreground">
+                  {role.comment}
                 </span>
               )}
-            </div>
-            {role.comment && (
-              <p className="text-sm text-muted-foreground leading-snug">
-                {role.comment}
-              </p>
-            )}
-          </div>
-        </div>
+              {isSystem && (
+                <StatusBadge icon={<Lock />}>Системная</StatusBadge>
+              )}
+            </ProfileHeader>
+          );
+        })()}
 
-        {/* Tabs — «Основное» first per design RbRH4 */}
         <Tabs
-          className={tabStyle.tabs}
           value={activeTab}
           onValueChange={(v) => setActiveTab(v as TabKey)}
         >
-          <TabsList className="justify-start overflow-x-auto">
+          <ProfileTabsList>
             <TabsTrigger value="main">Основное</TabsTrigger>
             <TabsTrigger value="permissions">Права доступа</TabsTrigger>
             <TabsTrigger value="compensation">Оплата труда</TabsTrigger>
@@ -446,7 +447,7 @@ export function RoleDetailPage({
                 Опасная зона
               </TabsTrigger>
             )}
-          </TabsList>
+          </ProfileTabsList>
 
           {/* ── Permissions ───────────────────────────────────── */}
           <TabsContent value="permissions" className="space-y-4">
@@ -591,130 +592,114 @@ export function RoleDetailPage({
             {role.venue_id ? <RoleCompensation roleId={role.id}/> : <p className="py-8 text-sm text-muted-foreground">Условия оплаты задаются для должности конкретного заведения.</p>}
           </TabsContent>
 
-          {/* ── Main (Основное) — centered form per design c0jKNc.
-                Info card вынесен в popover в header'е (см. PageHeaderActions) */}
-          <TabsContent value="main">
-            <div className="flex justify-center">
-              <div className="w-full max-w-[720px] flex flex-col gap-5">
-                {isSystem && (
-                  <div className="flex items-center gap-2.5 rounded-[10px] px-3.5 py-3 border border-amber-200 bg-amber-50 text-amber-800">
-                    <Lock className="w-4 h-4 shrink-0" />
-                    <p className="text-[13px] font-medium leading-snug">
-                      Это системная должность. Некоторые права и название изменить нельзя.
-                    </p>
-                  </div>
-                )}
+          {/* ── Main (Основное). Info card вынесен в popover в топбаре
+                (см. PageHeaderActions). Сохраняет полоса внизу колонки. */}
+          <TabsContent value="main" className="flex flex-col gap-5">
+            {isSystem && (
+              <div className="flex items-center gap-2.5 rounded-[10px] px-3.5 py-3 border border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300">
+                <Lock className="w-4 h-4 shrink-0" />
+                <p className="text-[13px] font-medium leading-snug">
+                  Это системная должность. Некоторые права и название изменить нельзя.
+                </p>
+              </div>
+            )}
 
-                {/* Name (left, flex-1) + Icon picker (right, compact) — matches J0qwQg */}
-                <div className="flex items-end gap-2">
-                  <div className="space-y-1.5 flex-1 min-w-0">
-                    <Label htmlFor="role-name" className="text-[13px] font-medium">
-                      Название
-                    </Label>
-                    <Input
-                      id="role-name"
-                      value={nameValue}
-                      onChange={(e) => setNameValue(e.target.value)}
-                      readOnly={!canEdit}
-                      className={!canEdit ? "bg-muted/50" : ""}
-                      placeholder="Название должности"
-                    />
-                  </div>
-                  <IconPicker
-                    value={iconValue}
-                    color={iconColorValue}
-                    roleCode={role.code}
-                    onChange={({ icon, color }) => {
-                      setIconValue(icon);
-                      setIconColorValue(color);
-                    }}
-                    disabled={!canEdit}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="role-department" className="text-[13px] font-medium">
-                    Подразделение
+            <ProfileSection title="Основное">
+              {/* Name (left, flex-1) + Icon picker (right, compact) — matches J0qwQg */}
+              <div className="flex items-end gap-2">
+                <div className="space-y-1.5 flex-1 min-w-0">
+                  <Label htmlFor="role-name" className="text-[13px] font-medium">
+                    Название
                   </Label>
-                  <Select
-                    value={departmentId ?? "__none__"}
-                    onValueChange={(v) => {
-                      if (!canEdit || isSystem) return;
-                      setDepartmentId(v === "__none__" ? null : v);
-                    }}
-                    disabled={!canEdit || isSystem || isPending}
-                  >
-                    <SelectTrigger id="role-department">
-                      <SelectValue placeholder="Без подразделения" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">Без подразделения</SelectItem>
-                      {departments.map((d) => (
-                        <SelectItem key={d.id} value={d.id}>
-                          {d.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {isSystem && (
-                    <p className="text-xs text-muted-foreground">
-                      Системные должности нельзя относить к подразделению.
-                    </p>
-                  )}
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="role-comment" className="text-[13px] font-medium">
-                    Описание
-                  </Label>
-                  <Textarea
-                    id="role-comment"
-                    value={commentValue}
-                    onChange={(e) => setCommentValue(e.target.value)}
+                  <Input
+                    id="role-name"
+                    value={nameValue}
+                    onChange={(e) => setNameValue(e.target.value)}
                     readOnly={!canEdit}
                     className={!canEdit ? "bg-muted/50" : ""}
-                    placeholder="Для чего используется роль, кому назначается…"
-                    rows={4}
+                    placeholder="Название должности"
                   />
                 </div>
-
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1">
-                    <Label htmlFor="role-show-in-schedule">Показывать в расписании</Label>
-                    <p className="text-xs text-muted-foreground">
-                      Сотрудники этой должности видны при планировании. Уже назначенные смены остаются в графике.
-                    </p>
-                  </div>
-                  <Switch
-                    id="role-show-in-schedule"
-                    checked={scheduleVisible}
-                    onCheckedChange={setScheduleVisible}
-                    disabled={!canEditSchedule || isPending}
-                  />
-                </div>
-
-                {/* Form footer — Save виден всегда, статус меняется:
-                    активен (brand) когда есть что сохранять, иначе secondary
-                    (#f5f5f5) с приглушённым текстом и без hover. */}
-                <div className="flex justify-end pt-1">
-                  <Button
-                    onClick={handleSave}
-                    variant={isSaveActive ? "default" : "secondary"}
-                    disabled={!isSaveActive || isPending}
-                    className={
-                      isSaveActive
-                        ? ""
-                        : "disabled:opacity-100 text-muted-foreground hover:bg-secondary cursor-default"
-                    }
-                  >
-                    {isPending && (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    )}
-                    Сохранить
-                  </Button>
-                </div>
+                <IconPicker
+                  value={iconValue}
+                  color={iconColorValue}
+                  roleCode={role.code}
+                  onChange={({ icon, color }) => {
+                    setIconValue(icon);
+                    setIconColorValue(color);
+                  }}
+                  disabled={!canEdit}
+                />
               </div>
-            </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="role-department" className="text-[13px] font-medium">
+                  Подразделение
+                </Label>
+                <Select
+                  value={departmentId ?? "__none__"}
+                  onValueChange={(v) => {
+                    if (!canEdit || isSystem) return;
+                    setDepartmentId(v === "__none__" ? null : v);
+                  }}
+                  disabled={!canEdit || isSystem || saving}
+                >
+                  <SelectTrigger id="role-department">
+                    <SelectValue placeholder="Без подразделения" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Без подразделения</SelectItem>
+                    {departments.map((d) => (
+                      <SelectItem key={d.id} value={d.id}>
+                        {d.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {isSystem && (
+                  <p className="text-xs text-muted-foreground">
+                    Системные должности нельзя относить к подразделению.
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="role-comment" className="text-[13px] font-medium">
+                  Описание
+                </Label>
+                <Textarea
+                  id="role-comment"
+                  value={commentValue}
+                  onChange={(e) => setCommentValue(e.target.value)}
+                  readOnly={!canEdit}
+                  className={!canEdit ? "bg-muted/50" : ""}
+                  placeholder="Для чего используется должность, кому назначается…"
+                  rows={4}
+                />
+              </div>
+            </ProfileSection>
+
+            <ProfileSection title="Расписание">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1">
+                  <Label
+                    htmlFor="role-show-in-schedule"
+                    className="text-[13px] font-medium"
+                  >
+                    Показывать в расписании
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Сотрудники этой должности видны при планировании. Уже назначенные смены остаются в графике.
+                  </p>
+                </div>
+                <Switch
+                  id="role-show-in-schedule"
+                  checked={scheduleVisible}
+                  onCheckedChange={setScheduleVisible}
+                  disabled={!canEditSchedule || saving}
+                />
+              </div>
+            </ProfileSection>
           </TabsContent>
 
           {/* ── Журнал ─────────────────────────────────────────── */}
@@ -734,14 +719,14 @@ export function RoleDetailPage({
           {/* ── Danger zone ───────────────────────────────────── */}
           {canDelete && (
             <TabsContent value="danger">
-              <div className="max-w-[720px] mx-auto rounded-[14px] border bg-card p-6 flex flex-col gap-4">
+              <div className="rounded-[14px] border bg-card p-6 flex flex-col gap-4">
                 <div className="flex flex-col gap-1.5">
                   <h3 className="text-base font-semibold text-foreground">
                     Удалить должность
                   </h3>
                   <p className="text-sm text-muted-foreground leading-relaxed">
-                    Должность «{nameValue || role.name}» будет удалена
-                    безвозвратно. Сотрудники с этой ролью потеряют доступ —
+                    Должность «{role.name}» будет удалена безвозвратно.
+                    Сотрудники этой должности потеряют доступ, поэтому
                     переназначьте их перед удалением.
                   </p>
                 </div>
@@ -759,36 +744,31 @@ export function RoleDetailPage({
             </TabsContent>
           )}
         </Tabs>
-      </PageFrame>
 
-      {/* Delete confirmation modal */}
-      <Dialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Удалить должность?</DialogTitle>
-            <DialogDescription>
-              Должность «{nameValue || role.name}» будет удалена. Действие
-              нельзя отменить.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setConfirmDeleteOpen(false)}
-            >
-              Отмена
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={isPending}
-            >
-              <Trash2 className="w-4 h-4" />
-              Удалить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        <SaveBar
+          dirty={isDirty}
+          saving={saving || refreshing}
+          blocked={saveBlocked}
+          onSave={() => void handleSave()}
+          onReset={resetDetails}
+        />
+      </ProfilePageFrame>
+
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        onOpenChange={(open) => {
+          setConfirmDeleteOpen(open);
+          if (!open) setDeleteError(null);
+        }}
+        title={`Удалить должность «${role.name}»?`}
+        description="Действие нельзя отменить. Сотрудники этой должности потеряют доступ."
+        confirmLabel="Удалить должность"
+        pendingLabel="Удаляем…"
+        destructive
+        busy={isPending}
+        error={deleteError}
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }

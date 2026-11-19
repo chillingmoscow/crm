@@ -3,6 +3,7 @@
 import { Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { OptionSelect } from "@/components/ui/option-select";
 import type { KbCollectionField } from "@/lib/knowledge/collection";
 import { sortDirectionLabel } from "@/lib/knowledge/collection-format";
 import {
@@ -71,20 +72,20 @@ export function CollectionSortsEditor({
                   updateSort(sort.id, { fieldId })
                 }
               />
-              <select
-                className="kb-collection-sort-select"
+              <OptionSelect
+                className="kb-collection-sort-select shadow-none"
                 value={sort.direction}
                 aria-label="Направление сортировки"
-                onChange={(event) =>
+                onValueChange={(value) =>
                   updateSort(sort.id, {
-                    direction: event.currentTarget
-                      .value as KbCollectionSortDirection,
+                    direction: value as KbCollectionSortDirection,
                   })
                 }
-              >
-                <option value="asc">{sortDirectionLabel(field, "asc")}</option>
-                <option value="desc">{sortDirectionLabel(field, "desc")}</option>
-              </select>
+                options={[
+                  { value: "asc", label: sortDirectionLabel(field, "asc") },
+                  { value: "desc", label: sortDirectionLabel(field, "desc") },
+                ]}
+              />
               <Button
                 type="button"
                 variant="ghost"

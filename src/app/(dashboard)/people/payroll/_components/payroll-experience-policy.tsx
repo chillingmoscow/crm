@@ -47,7 +47,7 @@ export function PayrollExperiencePolicy({ settings, onChange }: {
     </section>
     <PayrollDetailDialog open={open} onOpenChange={v => { if (!busy) setOpen(v); }}
       title="Надбавка за стаж" description="Общая дата начала начисления для заведения"
-      footer={<Button className="ml-auto" disabled={busy || !date || reason.trim().length < 3} onClick={() => void save()}>{busy ? "Сохраняем…" : "Сохранить дату"}</Button>}>
+      footer={<><Button variant="outline" disabled={busy} onClick={() => setOpen(false)}>Отмена</Button><Button disabled={busy || !date || reason.trim().length < 3} onClick={() => void save()}>{busy ? "Сохраняем…" : "Сохранить дату"}</Button></>}>
       <div className={form.form}>
         <div className="space-y-2"><Label htmlFor="experience-start">Начислять с</Label><DatePicker id="experience-start" value={date} onChange={v => { setDate(v); setRequestKey(crypto.randomUUID()); }} clearable={false} disabled={busy}/></div>
         <div className="space-y-2"><Label htmlFor="experience-reason">Причина изменения</Label><Textarea id="experience-reason" value={reason} maxLength={1000} onChange={e => { setReason(e.target.value); setRequestKey(crypto.randomUUID()); }} disabled={busy}/></div>

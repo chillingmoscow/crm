@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import { DrawerSection } from "@/components/ui/drawer-blocks";
 import type { Candidate } from "@/lib/candidates/types";
 import { updateCandidate } from "../actions";
 import { Field } from "./fields";
@@ -92,46 +93,52 @@ export function CandidateForm({
         }}
         className="space-y-5"
       >
-        {fields.map(([key, label]) => (
-          <Field key={key} label={label + (key === "full_name" ? " *" : "")}>
-            <Input
-              value={values[key]}
-              required={key === "full_name"}
-              type={key === "age" ? "number" : key === "phone" ? "tel" : "text"}
-              min={key === "age" ? 14 : undefined}
-              max={key === "age" ? 100 : undefined}
-              maxLength={key === "full_name" ? 300 : 1000}
-              onChange={(e) => set(key, e.target.value)}
-            />
-          </Field>
-        ))}
-        {["telegram", "vk", "instagram"].map((key) => (
-          <Field
-            key={key}
-            label={
-              { telegram: "Telegram", vk: "VK", instagram: "Instagram" }[key] ??
-              key
-            }
-          >
-            <Input
-              value={social[key] ?? ""}
-              onChange={(e) =>
-                setSocial((v) => ({ ...v, [key]: e.target.value }))
+        <DrawerSection title="Основное">
+          {fields.map(([key, label]) => (
+            <Field key={key} label={label + (key === "full_name" ? " *" : "")}>
+              <Input
+                value={values[key]}
+                required={key === "full_name"}
+                type={key === "age" ? "number" : key === "phone" ? "tel" : "text"}
+                min={key === "age" ? 14 : undefined}
+                max={key === "age" ? 100 : undefined}
+                maxLength={key === "full_name" ? 300 : 1000}
+                onChange={(e) => set(key, e.target.value)}
+              />
+            </Field>
+          ))}
+        </DrawerSection>
+        <DrawerSection title="Соцсети">
+          {["telegram", "vk", "instagram"].map((key) => (
+            <Field
+              key={key}
+              label={
+                { telegram: "Telegram", vk: "VK", instagram: "Instagram" }[key] ??
+                key
               }
-              maxLength={2000}
-            />
-          </Field>
-        ))}
-        {longFields.map(([key, label]) => (
-          <Field key={key} label={label}>
-            <Textarea
-              value={values[key]}
-              onChange={(e) => set(key, e.target.value)}
-              rows={3}
-              maxLength={12000}
-            />
-          </Field>
-        ))}
+            >
+              <Input
+                value={social[key] ?? ""}
+                onChange={(e) =>
+                  setSocial((v) => ({ ...v, [key]: e.target.value }))
+                }
+                maxLength={2000}
+              />
+            </Field>
+          ))}
+        </DrawerSection>
+        <DrawerSection title="Опыт и планы">
+          {longFields.map(([key, label]) => (
+            <Field key={key} label={label}>
+              <Textarea
+                value={values[key]}
+                onChange={(e) => set(key, e.target.value)}
+                rows={3}
+                maxLength={12000}
+              />
+            </Field>
+          ))}
+        </DrawerSection>
       </form>
     </EditDrawer>
   );

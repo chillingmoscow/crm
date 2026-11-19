@@ -16,6 +16,9 @@ import { createPortal } from "react-dom";
  *  - `data-tip="Текст"` на любом интерактивном элементе → подсказка.
  *  - `data-tip-sub="Доп. строка"` (опц.) → серая вторая строка
  *    (шорткат / пояснение), как у IconTooltip.
+ *  - `data-tip-overflow` (опц.) → подсказка только когда текст элемента
+ *    обрезан (truncate). Для имён и названий в таблицах: полностью
+ *    видимый текст не дублируем.
  *  - Кнопки BlockNote side-menu (drag-handle / «+») разметку которых
  *    мы не контролируем — подхватываются по `aria-label`.
  *
@@ -34,7 +37,9 @@ function resolve(node: EventTarget | null): Resolved | null {
   const dataEl = node.closest<HTMLElement>("[data-tip]");
   if (dataEl) {
     const label = dataEl.getAttribute("data-tip");
-    if (label && label.trim()) {
+    const clipped = !dataEl.hasAttribute("data-tip-overflow") ||
+      dataEl.scrollWidth > dataEl.clientWidth || dataEl.scrollHeight > dataEl.clientHeight;
+    if (label && label.trim() && clipped) {
       return { el: dataEl, label, sub: dataEl.getAttribute("data-tip-sub") };
     }
   }

@@ -58,7 +58,7 @@ export function AssigneeSelect({
     return assigned ? (
       <PersonChip person={assigned} href={linkToPerson ? inventoryPersonHref(assigned.id) : null} />
     ) : (
-      <span className="text-sm text-muted-foreground" title={lockReason}>
+      <span className="text-sm text-muted-foreground" data-tip={lockReason}>
         —
       </span>
     );
@@ -159,13 +159,13 @@ export function PersonChip({
   return href ? (
     <Link
       href={href}
-      title={`Открыть профиль · ${person.name}`}
+      data-tip={`Открыть профиль · ${person.name}`}
       className={cn(baseClass, "transition-colors hover:bg-muted hover:text-foreground")}
     >
       {inner}
     </Link>
   ) : (
-    <span className={baseClass} title={person.name}>
+    <span className={baseClass} data-tip={person.name}>
       {inner}
     </span>
   );

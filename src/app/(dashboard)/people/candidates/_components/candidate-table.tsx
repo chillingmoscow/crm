@@ -9,7 +9,8 @@ import {
   type AppointmentOptions,
   type Candidate,
 } from "@/lib/candidates/types";
-import { dateLabel, plural } from "./fields";
+import { dateLabel } from "./fields";
+import { countRu } from "@/lib/format/plural";
 import {
   CandidateStatusCell,
   type CandidateStatusUpdate,
@@ -81,7 +82,7 @@ export function candidateColumns(
           return (
             <Link
               className="block truncate font-medium hover:text-brand"
-              title={c.full_name}
+              data-tip={c.full_name} data-tip-overflow
               href={`/people/candidates/${c.id}`}
             >
               {c.full_name}
@@ -110,13 +111,13 @@ export function candidateColumns(
               ? formatPhoneDisplay(c.phone)
               : id === "age"
                 ? c.age
-                  ? `${c.age} ${plural(c.age, ["год", "года", "лет"])}`
+                  ? countRu(c.age, "год", "года", "лет")
                   : "Не указан"
                 : c[id as keyof Candidate];
         return (
           <span
             className="block truncate"
-            title={value == null ? undefined : String(value)}
+            data-tip={value == null ? undefined : String(value)} data-tip-overflow
           >
             {value == null || value === "" ? "Не указано" : String(value)}
           </span>

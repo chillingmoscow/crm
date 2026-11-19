@@ -8,6 +8,7 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import { validateVariants } from "@/lib/schedule/template-times";
 import type { ShiftAttendanceMark, ShiftAttendanceSnapshot } from "@/lib/payroll/types";
 import { addDays, validDate } from "@/lib/sales/time";
+import { dateInZone } from "@/lib/schedule/utils";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 const uuid = z.string().uuid();
@@ -77,7 +78,6 @@ const shift = base.extend({
   user_id: nullable,
   payroll_employee_id: nullable.optional(),
   payroll_model_id: nullable.optional(),
-  casual_name: z.string().trim().max(160).optional(),
   note: z.string().max(5000),
   checklist_ids: z.array(uuid).max(30),
 });
@@ -241,7 +241,7 @@ export async function loadSchedule(
       .eq("venue_id", venueId)
       .order("name"),
     db.from("venues").select("timezone").eq("id", venueId).single(),
-    permissions.includes("people.manage_candidates") && permissions.includes("schedule.view_all")
+    permissions.includes("schedule.view_all")
       ? asLooseDb(db).rpc("candidate_calendar_trials", {})
       : Promise.resolve({ data: [], error: null }),
     asLooseDb(db).from<{ role_id: string }[]>("schedule_hidden_roles")
@@ -252,6 +252,7 @@ export async function loadSchedule(
   const payrollOptions = options.data as unknown as {
     employees: NonNullable<ScheduleData["casualEmployees"]>;
     models: NonNullable<ScheduleData["payModels"]>;
+    same_department_rate_from?: string | null;
   };
   for (const r of [
     shifts,
@@ -282,6 +283,7 @@ export async function loadSchedule(
     qualifications: qualifications.data ?? [],
     casualEmployees: payrollOptions.employees,
     payModels: payrollOptions.models,
+    sameDepartmentRateFrom: payrollOptions.same_department_rate_from ?? null,
     staff: (staff.data ?? []).map((s) => ({
       user_id: s.user_id,
       first_name: s.first_name,
@@ -390,6 +392,57 @@ export async function scheduleCommand(
     };
   }
 }
+export type ApplyTemplateResult = {
+  updated: number;
+  unchanged: number;
+  skipped: { date: string; reason: string }[];
+};
+/** Переносит текущие значения шаблона в смены по нему, начиная с даты `from`. */
+export async function applyTemplateToShifts(input: {
+  id: string;
+  from: string;
+  previousTitle?: string;
+}): Promise<ApplyTemplateResult | { error: string }> {
+  const parsed = z
+    .object({
+      id: uuid,
+      from: z.string().refine(validDate, "Укажите дату"),
+      previousTitle: z.string().max(160).optional(),
+    })
+    .safeParse(input);
+  if (!parsed.success) return { error: "Проверьте шаблон и дату" };
+  const db = await client();
+  const { data, error } = await asLooseDb(db).rpc(
+    "schedule_apply_template",
+    {
+      p_template: parsed.data.id,
+      p_from: parsed.data.from,
+      p_previous_title: parsed.data.previousTitle ?? null,
+    },
+  );
+  if (error || !data) return { error: error?.message ?? "Не удалось обновить смены" };
+  revalidatePath("/schedule");
+  return data as ApplyTemplateResult;
+}
+/** Сколько смен по шаблону начинается с даты (по часам заведения) — для окна «Обновить смены». */
+export async function countTemplateShifts(input: { id: string; from: string }): Promise<number> {
+  const parsed = z.object({ id: uuid, from: z.string().refine(validDate) }).safeParse(input);
+  if (!parsed.success) throw new Error("Проверьте шаблон и дату");
+  const db = await client();
+  const { data: venueId } = await db.rpc("get_active_venue_id");
+  if (!venueId) throw new Error("Выберите заведение");
+  const venue = await db.from("venues").select("timezone").eq("id", venueId).single();
+  const timezone = venue.data?.timezone || "Europe/Moscow";
+  // Запас в сутки на часовой пояс, точная граница — по дате заведения.
+  const { data, error } = await db
+    .from("schedule_shifts")
+    .select("starts_at")
+    .eq("venue_id", venueId)
+    .eq("template_id", parsed.data.id)
+    .gte("starts_at", `${addDays(parsed.data.from, -1)}T00:00:00Z`);
+  if (error) throw new Error("Не удалось посчитать смены");
+  return (data ?? []).filter((s) => dateInZone(s.starts_at, timezone) >= parsed.data.from).length;
+}
 export async function scheduleHistory(id: string) {
   const db = await client();
   const { data, error } = await db
@@ -400,6 +453,33 @@ export async function scheduleHistory(id: string) {
     .limit(50);
   if (error) throw new Error(error.message);
   return data ?? [];
+}
+/**
+ * История смены по страницам: от новых к старым. Курсор — (created_at, id)
+ * последней загруженной записи: события одной транзакции делят created_at,
+ * и курсор только по времени терял бы их на границе страниц.
+ */
+export async function shiftHistoryPage(id: string, before?: { created_at: string; id: string }) {
+  if (!uuid.safeParse(id).success) throw new Error("Смена не найдена");
+  if (before && (!uuid.safeParse(before.id).success || Number.isNaN(Date.parse(before.created_at))))
+    throw new Error("Некорректная страница истории");
+  const pageSize = 20;
+  const db = await client();
+  let query = db
+    .from("schedule_events")
+    .select("*")
+    .eq("entity_id", id)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(pageSize + 1);
+  if (before)
+    query = query.or(
+      `created_at.lt."${before.created_at}",and(created_at.eq."${before.created_at}",id.lt.${before.id})`,
+    );
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  const rows = data ?? [];
+  return { events: rows.slice(0, pageSize), hasMore: rows.length > pageSize };
 }
 export async function uploadEvidence(runId: string, form: FormData) {
   const parsed = uuid.safeParse(runId);

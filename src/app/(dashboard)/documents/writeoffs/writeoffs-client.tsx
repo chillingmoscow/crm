@@ -9,7 +9,12 @@ import {
   type ColumnDef,
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
-import { ClipboardList, RefreshCw, Loader2, ExternalLink } from "lucide-react";
+import {
+  ClipboardList,
+  RefreshCw,
+  Loader2,
+  ExternalLink,
+} from "lucide-react";
 import { toast } from "sonner";
 import { PageFrame } from "@/components/shared/page-frame";
 import { MonthPicker } from "@/components/shared/month-picker";
@@ -31,6 +36,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import {
+  DrawerAvatar,
+  DrawerSection,
+  DrawerStatus,
+  DrawerSummary,
+  DrawerSummaryTotal,
+  DrawerTimeline,
+  DrawerTimelineItem,
+} from "@/components/ui/drawer-blocks";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
 import { dayLabel } from "@/lib/sales/format";
@@ -171,19 +185,36 @@ function Detail({
       open
       title={row.name}
       description={`${dayLabel(row.date)} · ${row.archive ? "Архив Glide" : row.store}`}
+      titleAccessory={
+        <DrawerStatus
+          label={row.status}
+          tone={
+            row.status === "Проведён"
+              ? "success"
+              : row.status.startsWith("Удал") ||
+                  row.status === "Нет в источнике"
+                ? "danger"
+                : "neutral"
+          }
+        />
+      }
+      footer={
+        sourceUrl ? (
+          <Button variant="outline" asChild>
+            <a href={sourceUrl} target="_blank" rel="noreferrer">
+              <ExternalLink className="mr-2 size-4" />
+              Акт в Quick Resto
+            </a>
+          </Button>
+        ) : undefined
+      }
       onOpenChange={(v) => !v && onClose()}
     >
-      <div className="rounded-xl bg-brand/5 p-5">
-        <p className="text-sm text-muted-foreground">
-          Сумма {d ? "акта" : "записи"}
-        </p>
-        <p className="mt-2 text-3xl font-semibold tabular-nums">
+      <DrawerSummary label={d ? "Сумма акта" : "Сумма записи"}>
+        <DrawerSummaryTotal label={`Сумма ${d ? "акта" : "записи"}`}>
           {amount(row.total)}
-        </p>
-        <div className="mt-3">
-          <Status row={row} />
-        </div>
-      </div>
+        </DrawerSummaryTotal>
+      </DrawerSummary>
       <Tabs defaultValue="details">
         <TabsList>
           <TabsTrigger value="details">Детали</TabsTrigger>
@@ -217,8 +248,7 @@ function Detail({
             onAssign={(pool, key) => onAssign(row, pool, key)}
           />
           {d?.kind === "personal" && (
-            <section className="space-y-3 rounded-xl border p-4">
-              <h3 className="text-sm font-semibold">Личное потребление</h3>
+            <DrawerSection title="Личное потребление">
               <p className="text-xl font-semibold tabular-nums">
                 {amount(plan?.amount ?? null)}
               </p>
@@ -248,14 +278,11 @@ function Detail({
                 Это расчёт для сверки. Денежные операции из этой карточки пока
                 не создаются.
               </p>
-            </section>
+            </DrawerSection>
           )}
           {d && (
-            <section>
-              <h3 className="text-sm font-semibold">
-                Позиции · {d.lines.length}
-              </h3>
-              <ul className="mt-2 divide-y">
+            <DrawerSection title={`Позиции · ${d.lines.length}`}>
+              <ul className="divide-y">
                 {d.lines.map((l) => (
                   <li
                     key={l.id}
@@ -280,20 +307,12 @@ function Detail({
                   </li>
                 ))}
               </ul>
-            </section>
+            </DrawerSection>
           )}
           {row.archive?.deleted && row.archive.delete_reason && (
             <p className="text-sm">
               Причина удаления: {row.archive.delete_reason}
             </p>
-          )}
-          {sourceUrl && (
-            <Button variant="outline" asChild>
-              <a href={sourceUrl} target="_blank" rel="noreferrer">
-                <ExternalLink className="mr-2 size-4" />
-                Акт в Quick Resto
-              </a>
-            </Button>
           )}
         </TabsContent>
         <TabsContent value="history" className="space-y-4 text-sm">
@@ -334,24 +353,26 @@ function Detail({
               Загружаем историю…
             </p>
           ) : (
-            <ol className="divide-y">
-              {history.map((h) => (
-                <li key={h.id} className="space-y-2 py-3">
-                  <p className="font-medium">
-                    {events[h.action] ?? "Изменение"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {h.actor_name} · {stamp(h.created_at, data.timezone)}
-                  </p>
+            <DrawerTimeline>
+              {history.map((h, index) => (
+                <DrawerTimelineItem
+                  key={h.id}
+                  last={index === history.length - 1}
+                  avatar={<DrawerAvatar name={h.actor_name ?? ""} />}
+                  title={events[h.action] ?? "Изменение"}
+                  meta={[h.actor_name, stamp(h.created_at, data.timezone)]
+                    .filter(Boolean)
+                    .join(" · ")}
+                >
                   <p className="tabular-nums">
                     {h.before_payload
                       ? `${amount(h.before_payload.total)} → `
                       : ""}
                     {amount(h.after_payload?.total ?? null)}
                   </p>
-                </li>
+                </DrawerTimelineItem>
               ))}
-            </ol>
+            </DrawerTimeline>
           )}
         </TabsContent>
       </Tabs>
@@ -455,7 +476,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
               type="button"
               className="block w-full truncate text-left font-medium hover:text-brand"
               onClick={() => setDetail(row.original)}
-              title={row.original.name}
+              data-tip={row.original.name}
             >
               {row.original.name}
               {row.original.issues.length > 0 && (
@@ -475,7 +496,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
                 Не разнесён
               </Badge>
             ) : (
-              <span className="block truncate" title={row.original.pool}>
+              <span className="block truncate" data-tip={row.original.pool} data-tip-overflow>
                 {row.original.pool}
               </span>
             )
@@ -488,7 +509,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
           ) : (
             <span
               className="block truncate"
-              title={String(row.original[id as keyof WriteoffRow] ?? "")}
+              data-tip={String(row.original[id as keyof WriteoffRow] ?? "")} data-tip-overflow
             >
               {String(row.original[id as keyof WriteoffRow] ?? "—")}
             </span>

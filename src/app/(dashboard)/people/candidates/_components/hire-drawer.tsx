@@ -2,9 +2,12 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import { DrawerSection } from "@/components/ui/drawer-blocks";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Money } from "@/components/shared/money";
 import type { CandidateDetail, HiringOptions } from "@/lib/candidates/types";
 import {
   hireCandidate,
@@ -212,11 +215,10 @@ export function HireDrawer({
         ]}
       />
       <Field label="Дата приёма *">
-        <Input
-          type="date"
+        <DatePicker
           value={date}
           disabled={busy || locked}
-          onChange={(e) => setDate(e.target.value)}
+          onChange={setDate}
         />
       </Field>
       {selected ? (
@@ -225,7 +227,7 @@ export function HireDrawer({
           {rule ? (
             <>
               <p>
-                Оклад: {Number(rule.monthly_amount).toLocaleString("ru-RU")} ₽
+                Оклад: <Money value={Number(rule.monthly_amount)} fraction="auto" />
               </p>
               <details>
                 <summary className="cursor-pointer text-brand">
@@ -249,12 +251,15 @@ export function HireDrawer({
                       {Object.entries(rule.rates).map(([count, days]) => (
                         <tr className="border-t" key={count}>
                           <th className="p-1 text-left">{count}</th>
-                          {Array.from({ length: 7 }, (_, d) => (
-                            <td className="whitespace-nowrap p-1" key={d}>
-                              {days[String(d + 1)]?.base ?? "—"} ₽ /{" "}
-                              {days[String(d + 1)]?.percent ?? "—"}%
-                            </td>
-                          ))}
+                          {Array.from({ length: 7 }, (_, d) => {
+                            const day = days[String(d + 1)];
+                            return (
+                              <td className="whitespace-nowrap p-1" key={d}>
+                                <Money value={day?.base} fraction="auto" /> /{" "}
+                                {day?.percent == null ? "—" : `${day.percent}%`}
+                              </td>
+                            );
+                          })}
                         </tr>
                       ))}
                     </tbody>
@@ -296,8 +301,7 @@ export function HireDrawer({
         </Button>
       ) : null}
       {showRole ? (
-        <section className="space-y-4 border-y py-5">
-          <h3 className="text-base font-semibold">Новая должность</h3>
+        <DrawerSection title="Новая должность">
           <Field label="Название *">
             <Input
               value={roleName}
@@ -390,30 +394,32 @@ export function HireDrawer({
           >
             Создать должность
           </Button>
-        </section>
+        </DrawerSection>
       ) : null}
       {!locked ? (
-        <FieldSelect
-          label="Если сотрудник уже есть в Sheerly"
-          value={existing}
-          onChange={(id) => {
-            setExisting(id);
-            const member = options.staff.find(
-              (m) => m.id === id && m.venue_id === venue,
-            );
-            if (member) {
-              setRole(member.role_id);
-              setFirst(member.name.split(/\s+/)[0]);
-              setLast(member.name.split(/\s+/).slice(1).join(" "));
-            }
-          }}
-          options={[
-            { value: "", label: "Создать нового сотрудника" },
-            ...options.staff
-              .filter((m) => m.venue_id === venue)
-              .map((m) => ({ value: m.id, label: m.name })),
-          ]}
-        />
+        <DrawerSection>
+          <FieldSelect
+            label="Если сотрудник уже есть в Sheerly"
+            value={existing}
+            onChange={(id) => {
+              setExisting(id);
+              const member = options.staff.find(
+                (m) => m.id === id && m.venue_id === venue,
+              );
+              if (member) {
+                setRole(member.role_id);
+                setFirst(member.name.split(/\s+/)[0]);
+                setLast(member.name.split(/\s+/).slice(1).join(" "));
+              }
+            }}
+            options={[
+              { value: "", label: "Создать нового сотрудника" },
+              ...options.staff
+                .filter((m) => m.venue_id === venue)
+                .map((m) => ({ value: m.id, label: m.name })),
+            ]}
+          />
+        </DrawerSection>
       ) : null}
       {!options.venues.some((v) => v.can_hire) ? (
         <p className="text-sm text-destructive">

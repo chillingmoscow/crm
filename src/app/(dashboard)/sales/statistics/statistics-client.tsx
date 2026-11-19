@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import { DrawerSection } from "@/components/ui/drawer-blocks";
 import {
   Select,
   SelectContent,
@@ -146,7 +147,7 @@ function Amount({
   return (
     <span
       className="inline-flex flex-col items-end tabular-nums"
-      title={value?.hint}
+      data-tip={value?.hint}
     >
       <span>
         {money(value?.value ?? null)}
@@ -406,7 +407,7 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
               setDetail(null);
             }}
           >
-            <SelectTrigger className="w-44" aria-label="Источник статистики">
+            <SelectTrigger className="h-9 w-44" aria-label="Источник статистики">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -415,7 +416,7 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
             </SelectContent>
           </Select>
           <Select value={year} onValueChange={setYear}>
-            <SelectTrigger className="w-36" aria-label="Год статистики">
+            <SelectTrigger className="h-9 w-36" aria-label="Год статистики">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -707,11 +708,8 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
                   </div>
                 ))}
             </dl>
-            <section>
-              <h3 className="text-base font-semibold">
-                Средний оборот по дням недели
-              </h3>
-              <dl className="mt-2 divide-y">
+            <DrawerSection title="Средний оборот по дням недели">
+              <dl className="divide-y">
                 {detail.archive.weekday_turnover.map((v, i) => (
                   <div
                     key={i}
@@ -737,14 +735,13 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
                   </div>
                 ))}
               </dl>
-            </section>
+            </DrawerSection>
             {detail.archive.note && (
-              <section>
-                <h3 className="text-base font-semibold">Комментарий</h3>
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">
+              <DrawerSection title="Комментарий">
+                <p className="whitespace-pre-wrap text-sm leading-relaxed">
                   {detail.archive.note}
                 </p>
-              </section>
+              </DrawerSection>
             )}
             <p className="text-xs text-muted-foreground">
               Источник: {detail.archive.origin.range}. Прежняя методика расчёта

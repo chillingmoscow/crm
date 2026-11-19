@@ -32,6 +32,8 @@ export type PayEmployee = {
   hired_on: string | null;
   experience_offset_months: number;
   casual?: boolean;
+  /** PIN кассы разового, выданный при заведении в Quick Resto. */
+  quickresto_pin?: string | null;
   attendance_source?: "quickresto" | "schedule" | "excluded";
   active: boolean;
   opening_balance: number;
@@ -158,6 +160,15 @@ export type Payment = {
   occurred_at: string;
   created_at: string;
 };
+/** Mirror of a payout in Adesk; only payouts made in the app are queued. */
+export type AdeskSync = {
+  payment_id: string;
+  state: "pending" | "sending" | "synced" | "error" | "review";
+  adesk_id: number | null;
+  attempts: number;
+  last_error: string | null;
+  synced_at: string | null;
+};
 export type Allocation = {
   employee_id: string;
   payment_id: string;
@@ -272,6 +283,7 @@ export type PayrollData = {
   adjustments: Adjustment[];
   cashbox: Cashbox[];
   payments: Payment[];
+  adeskSync?: AdeskSync[];
   allocations: Allocation[];
   sources: SourceDay[];
   banks: { id: string; name: string; legal_entity_id: string }[];

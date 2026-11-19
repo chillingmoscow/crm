@@ -21,10 +21,10 @@ begin
  select count(*) into before_count from public.schedule_task_occurrences where definition_id=def;
  result:=public.schedule_task_preview(d,d+14);
  if jsonb_array_length(result)<3 or (select count(*) from public.schedule_task_occurrences where definition_id=def)<>before_count then raise exception 'Предпросмотр изменил задания или пропустил повтор';end if;
- -- No cutover: the worker is a no-op.
+ -- Задача включена сегодня с датой начала неделю назад: прошедшие дни не создаются (нет пропусков и штрафов задним числом).
+ if (select active_from from public.schedule_task_definitions where id=def) is distinct from d then raise exception 'Не записан день включения задачи';end if;
  perform public.schedule_process_tasks();
- if exists(select 1 from public.schedule_task_occurrences where definition_id=def) then raise exception 'Задания появились до перехода';end if;
- insert into public.schedule_task_settings(venue_id,account_id,enabled_from,legacy_stopped) values(v,a,d-7,true) on conflict(venue_id) do update set enabled_from=d-7,legacy_stopped=true;
+ if exists(select 1 from public.schedule_task_occurrences where definition_id=def and business_date<d) then raise exception 'Включение создало задания задним числом';end if;
  rules:='{"medical":{"reminders":false,"reminder_after_hire_days":3,"reminder_before_expiry_days":30,"submission_fine":false,"submission_after_hire_months":1,"submission_amount":3000,"expiry_fine":false,"expiry_amount":3000,"expiry_frequency":"once_per_expiry_case","reimbursement":false,"reimbursement_amount":3000,"reimbursement_after_exam_months":3,"reimbursement_requires_exam_after_hire":true},"uniform":{"enabled":false,"installments":4,"payment_days":[3,18]},"tasks":{"missing_enabled":true,"missing_kind":"deduction","missing_amount":200,"extra_reward_enabled":true,"extra_reward_medium":"bonus"},"gifts":{"enabled":false,"tenure_boundary_days":90,"holidays":[],"tenure":[]}}'::jsonb;
  insert into public.payroll_automation_settings(venue_id,account_id,version,config) values(v,a,1,rules) on conflict(venue_id) do update set config=rules;
  insert into public.payroll_settings(venue_id,account_id,starts_on,quickresto_venue_id,enabled) values(v,a,date_trunc('month',d-7)::date,1,false) on conflict(venue_id) do nothing;
@@ -48,6 +48,8 @@ begin
  if exists(select 1 from public.payroll_adjustments where automation_key='task:'||occ||':result') then raise exception 'Премия за обычное выполнение';end if;
  -- A missed occurrence creates exactly one deduction and one carry on an available day.
  def_past:=(public.schedule_task_command('definition.save',body||jsonb_build_object('request_key',gen_random_uuid(),'name','TEST Past Only','recurrence',jsonb_build_object('unit','week','interval',52,'anchor',d-7)))->>'id')::uuid;
+ -- Задача включена неделю назад: её прошедший день уже в работе.
+ update public.schedule_task_definitions set active_from=d-7 where id=def_past;
  perform public.schedule_process_tasks();
  insert into public.schedule_shifts(venue_id,user_id,template_id,title,color,starts_at,ends_at,published) values(v,staff_id,tpl,'TEST Past Tasks','blue',((d-7)::timestamp+interval '9 hours') at time zone 'Europe/Moscow',((d-7)::timestamp+interval '17 hours') at time zone 'Europe/Moscow',true) returning id into shift;
  select id into occ from public.schedule_task_occurrences where definition_id=def_past and business_date=d-7;
@@ -78,23 +80,8 @@ begin
  insert into public.payroll_execution_policy(venue_id,account_id,bonus_from,legacy_stopped,activated_at) values(v,a,d,true,now()) on conflict(venue_id) do update set bonus_from=d,legacy_stopped=true,activated_at=now();
  perform public.payroll_prepare_bonus_operations();perform public.payroll_prepare_bonus_operations();
  if (select count(*) from public.payroll_bonus_operations where adjustment_id=bonus_id and direction='credit' and amount=300)<>1 then raise exception 'Премия задачи не вошла в существующий исполнитель бонусов';end if;
- -- Pausing between claim and send must put the bonus back without authorizing a POST.
- declare bonus_job jsonb; settings_version integer; send_authorized boolean;
- begin
-  perform set_config('request.jwt.claim.sub',owner_id::text,true);perform set_config('app.ctx_ready','0',true);
-  select version into settings_version from public.schedule_task_settings where venue_id=v;
-  perform public.schedule_task_command('settings.save',jsonb_build_object('version',settings_version,'enabled_from',d-7,'legacy_stopped',true,'paused',true));
-  if (public.payroll_claim_bonus_operation()->>'adjustment_id')=bonus_id::text then raise exception 'Пауза выдала бонус из очереди';end if;
-  perform public.schedule_task_command('settings.save',jsonb_build_object('version',settings_version+1,'enabled_from',d-7,'legacy_stopped',true,'paused',false));
-  bonus_job:=public.payroll_claim_bonus_operation();
-  if bonus_job->>'adjustment_id' is distinct from bonus_id::text then raise exception 'После паузы бонус не вернулся в очередь';end if;
-  perform public.schedule_task_command('settings.save',jsonb_build_object('version',settings_version+2,'enabled_from',d-7,'legacy_stopped',true,'paused',true));
-  send_authorized:=public.payroll_begin_bonus_send((bonus_job->>'id')::uuid,(bonus_job->>'lease_token')::uuid,1000);
-  if send_authorized or not exists(select 1 from public.payroll_bonus_operations where adjustment_id=bonus_id and state='pending' and lease_token is null) then
-    raise exception 'Начатая проверка баланса пропустила паузу или потеряла бонус';
-  end if;
-  perform public.schedule_task_command('settings.save',jsonb_build_object('version',settings_version+3,'enabled_from',d-7,'legacy_stopped',true,'paused',false));
- end;
+ -- Паузы заведения нет: премия задачи сразу доступна исполнителю бонусов.
+ if (public.payroll_claim_bonus_operation()->>'adjustment_id') is distinct from bonus_id::text then raise exception 'Премия задачи не выдана из очереди';end if;
  -- Unknown Telegram delivery is quarantined, not retried into a duplicate message.
  insert into public.schedule_task_messages(venue_id,account_id,business_date,message_key,chat_id,kind,payload,available_at) values(v,a,d,'fixture','-1000','daily','[]',now()-interval '1 day') returning id into msg_id;
  claim:=public.schedule_claim_task_message();
@@ -126,10 +113,10 @@ begin
  select active_venue_id into v from public.profiles where id=owner_id;
  select account_id,(now() at time zone coalesce(timezone,'Europe/Moscow'))::date into a,d from public.venues where id=v;
  select id into employee from public.payroll_employees where venue_id=v and local_user_id=staff_id;
- update public.schedule_task_settings set enabled_from=d-10 where venue_id=v;
  insert into public.schedule_templates(venue_id,name,color,start_time,end_time) values(v,'TEST Review Regressions','blue','09:00','17:00') returning id into tpl;
  insert into public.schedule_task_definitions(account_id,venue_id,name,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount)
  values(a,v,'TEST Reviewed Task',tpl,'manager',jsonb_build_array(jsonb_build_object('id',check_id,'title','Проверено','kind','check','required',true)),jsonb_build_object('unit','week','interval',52,'anchor',d),d-10,true,true,300,300) returning id into def;
+ update public.schedule_task_definitions set active_from=d-10 where id=def;
  select to_jsonb(t)||jsonb_build_object('task_rules',s.config->'tasks') into snap from public.schedule_task_definitions t join public.payroll_automation_settings s on s.venue_id=t.venue_id where t.id=def;
  insert into public.schedule_task_definitions(account_id,venue_id,name,template_id,review_mode,items,recurrence,starts_on,enabled,penalty_enabled,fine_amount,reward_amount)
  values(a,v,'TEST Preparation',tpl,'auto','[]',jsonb_build_object('unit','week','interval',52,'anchor',d-2),d-10,false,false,0,0) returning id into prep_def;
@@ -384,32 +371,19 @@ begin
  select version into ver from public.schedule_task_occurrences where id=occ;
  perform public.schedule_task_command('run.submit',jsonb_build_object('id',occ,'version',ver,'answers',jsonb_build_object(check_id,true)));
  if not exists(select 1 from public.schedule_task_occurrences where id=occ and status='completed') then raise exception 'Отчёт недоступен после продления смены';end if;
- -- Pausing preserves the original cutover and an approved transferred reward from before the resume day.
+ -- An approved transferred reward is credited exactly once.
  update public.schedule_task_occurrences target set transferred=true,snapshot=jsonb_set(jsonb_set(target.snapshot,'{reward_amount}','300'),'{task_rules,extra_reward_enabled}','true') where id=occ;
- perform set_config('request.jwt.claim.sub',owner_id::text,true);perform set_config('app.ctx_ready','0',true);
- select enabled_from,version into original_cutover,ver from public.schedule_task_settings where venue_id=v;
- settings_input:=jsonb_build_object('version',ver,'enabled_from',original_cutover,'paused',true,'legacy_stopped',true,'chat_id',null,'reminder_chat_ids','[]'::jsonb);
- perform public.schedule_task_command('settings.save',settings_input);
- perform public.schedule_process_tasks();
- if not exists(select 1 from public.schedule_task_settings where venue_id=v and paused and enabled_from=original_cutover) or exists(select 1 from public.schedule_task_occurrences where id=occ and settled_at is not null) then raise exception 'Пауза не сохранила дату перехода или продолжила начисления';end if;
- insert into public.schedule_task_messages(venue_id,account_id,business_date,message_key,chat_id,kind,payload)
- values(v,a,(now() at time zone tz)::date,'pause-fixture','-1000','daily','[]') returning id into paused_message;
- if public.schedule_claim_task_message() is not null or not exists(select 1 from public.schedule_task_messages where id=paused_message and state='pending') then raise exception 'Пауза не остановила очередь уведомлений';end if;
- -- The former client's empty-date stop command must also preserve historical work.
- select version into ver from public.schedule_task_settings where venue_id=v;
- perform public.schedule_task_command('settings.save',settings_input||jsonb_build_object('version',ver,'enabled_from',null,'paused',false));
- if not exists(select 1 from public.schedule_task_settings where venue_id=v and paused and enabled_from=original_cutover) then raise exception 'Прежняя команда остановки стёрла дату перехода';end if;
- select version into ver from public.schedule_task_settings where venue_id=v;
- begin
-  perform public.schedule_task_command('settings.save',settings_input||jsonb_build_object('version',ver,'enabled_from',(now() at time zone tz)::date,'paused',false));
-  raise exception 'Дата перехода с отчётами была перезаписана';
- exception when others then
-  if sqlerrm<>'Дата перехода уже используется отчётами. Используйте паузу без изменения даты' then raise;end if;
- end;
- perform public.schedule_task_command('settings.save',settings_input||jsonb_build_object('version',ver,'paused',false));
  perform public.schedule_process_tasks();perform public.schedule_process_tasks();
- if not exists(select 1 from public.schedule_task_settings where venue_id=v and not paused and enabled_from=original_cutover) or (select count(*) from public.payroll_adjustments where automation_key='task:'||occ||':result' and amount=300 and kind='bonus')<>1 then raise exception 'Возобновление потеряло или задвоило премию прежнего отчёта';end if;
- if (public.schedule_claim_task_message()->>'id') is distinct from paused_message::text then raise exception 'Возобновление не восстановило очередь уведомлений';end if;
- raise notice 'PASS: shift.delete/assign preserve started reports; shift.edit extends saved draft with audit; no early charge; correction windows survive; report can submit; pause/resume preserves historical rewards and cutover';
+ if (select count(*) from public.payroll_adjustments where automation_key='task:'||occ||':result' and amount=300 and kind='bonus')<>1 then raise exception 'Премия перенесённого отчёта потеряна или задвоена';end if;
+ -- Telegram: reminder goes only on the configured weekday, from the configured time.
+ insert into public.schedule_task_settings(venue_id,account_id,reminder_chat_ids,schedule_open_day,schedule_deadline_day,schedule_time)
+ values(v,a,'["-1000"]',extract(isodow from (now() at time zone tz))::smallint % 7 + 1,(extract(isodow from (now() at time zone tz))::smallint + 1) % 7 + 1,date_trunc('minute',now() at time zone tz)::time)
+ on conflict(venue_id) do update set reminder_chat_ids=excluded.reminder_chat_ids,schedule_open_day=excluded.schedule_open_day,schedule_deadline_day=excluded.schedule_deadline_day,schedule_time=excluded.schedule_time,chat_id=null;
+ perform public.schedule_claim_task_message();
+ if exists(select 1 from public.schedule_task_messages where venue_id=v and message_key like 'schedule:%') then raise exception 'Напоминание ушло не в свой день';end if;
+ update public.schedule_task_settings set schedule_open_day=extract(isodow from (now() at time zone tz))::smallint where venue_id=v;
+ perform public.schedule_claim_task_message();
+ if not exists(select 1 from public.schedule_task_messages where venue_id=v and message_key like 'schedule:%' and kind='schedule_open' and payload->>'deadline_day' is not null) then raise exception 'Напоминание не поставлено в настроенный день и время';end if;
+ raise notice 'PASS: shift.delete/assign preserve started reports; shift.edit extends saved draft with audit; no early charge; correction windows survive; report can submit; transferred reward once, reminder day/time';
 end $$;
 rollback;

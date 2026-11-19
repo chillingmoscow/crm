@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { OptionSelect } from "@/components/ui/option-select";
 import { statementRows } from "@/lib/payroll/calculate";
 import type { PayrollData } from "@/lib/payroll/types";
 import { money } from "@/lib/sales/format";
@@ -156,49 +157,44 @@ export function PaymentForm({
     <form className="mt-6 space-y-5" onSubmit={onSubmit}>
       <div className="space-y-2">
         <Label htmlFor="payment-kind">Вид выплаты</Label>
-        <select
+        <OptionSelect
           className={selectClass}
           id="payment-kind"
           value={kind}
-          onChange={(e) => setKind(e.target.value as "salary" | "advance")}
-        >
-          <option value="salary">Зарплата</option>
-          <option value="advance">Аванс</option>
-        </select>
+          onValueChange={(v) => setKind(v as "salary" | "advance")}
+          options={[
+            { value: "salary", label: "Зарплата" },
+            { value: "advance", label: "Аванс" },
+          ]}
+        />
       </div>
       <div className="space-y-2">
         <Label htmlFor="payment-bank">Счёт списания</Label>
-        <select
+        <OptionSelect
           id="payment-bank"
           className={selectClass}
           value={bank}
-          onChange={(e) => setBank(e.target.value)}
+          onValueChange={setBank}
           required
-        >
-          <option value="">Выберите счёт</option>
-          {data.banks.map((b) => (
-            <option value={b.id} key={b.id}>
-              {b.name}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: "", label: "Выберите счёт" },
+            ...data.banks.map((b) => ({ value: b.id, label: b.name })),
+          ]}
+        />
       </div>
       <div className="space-y-2">
         <Label htmlFor="payment-category">Статья расхода</Label>
-        <select
+        <OptionSelect
           id="payment-category"
           className={selectClass}
           value={category}
-          onChange={(e) => setCategory(e.target.value)}
+          onValueChange={setCategory}
           required
-        >
-          <option value="">Выберите статью</option>
-          {data.categories.map((c) => (
-            <option value={c.id} key={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: "", label: "Выберите статью" },
+            ...data.categories.map((c) => ({ value: c.id, label: c.name })),
+          ]}
+        />
       </div>
       <div>
         <div className="flex items-center justify-between gap-3">

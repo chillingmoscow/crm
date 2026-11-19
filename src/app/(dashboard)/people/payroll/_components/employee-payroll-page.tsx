@@ -6,13 +6,12 @@ import { PageFrame } from "@/components/shared/page-frame";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
 import { PayrollMonthPicker } from "./payroll-month-picker";
 import s from "./employee-pay.module.css";
-import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import type { PayrollData } from "@/lib/payroll/types";
 import { loadPayroll } from "../actions";
 import { EmployeePay } from "./employee-pay";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 
 export function EmployeePayrollPage({
   initial,
@@ -56,15 +55,16 @@ export function EmployeePayrollPage({
     );
   return (
     <PageFrame className={s.page}>
-      <PageBreadcrumb>
-        <Link
-          href={`/payroll-concept?month=${month.slice(0, 7)}`}
-          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="size-4" />
-          Зарплата
-        </Link>
-      </PageBreadcrumb>
+      <Breadcrumbs
+        items={[
+          { label: "Люди" },
+          {
+            label: "Зарплата",
+            href: `/people/payroll?month=${month.slice(0, 7)}`,
+          },
+          { label: employee.name },
+        ]}
+      />
       <div className={s.heading}>
         <span className={s.portrait}>
           {employee.avatar_url ? (

@@ -44,6 +44,7 @@ import type { KbProperty, KbPropertyType } from "@/types/knowledge";
 
 import { CollectionAddFieldMenu } from "./add-field-menu";
 import {
+  COLUMN_MENU_SELECT_CONTENT_CLASS,
   CollectionColumnMenu,
   CollectionTitleColumnMenu,
 } from "./column-menu";
@@ -429,7 +430,7 @@ export function CollectionTableView({
       if (!(target instanceof Element)) return;
       if (
         target.closest(
-          ".kb-collection-column-menu, .kb-collection-table-head-cell, .kb-collection-table-add-field",
+          `.kb-collection-column-menu, .kb-collection-table-head-cell, .kb-collection-table-add-field, .${COLUMN_MENU_SELECT_CONTENT_CLASS}`,
         )
       ) {
         return;

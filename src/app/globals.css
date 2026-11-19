@@ -185,11 +185,22 @@
      iOS показывал «чёрную полосу» справа при отдалении и масштабировал
      страницу. overflow-x:hidden на html+body клампит ширину к экрану;
      широкие блоки скроллятся внутри своих overflow-x-auto контейнеров.
-     hidden (не clip) — надёжно на iOS Safari и не ломает sticky-шапки
-     (липнут к вьюпорту, т.к. вертикальный скролл остаётся страничным). */
+     hidden (не clip) — надёжно на iOS Safari. */
   html,
   body {
     overflow-x: hidden;
+  }
+  /* Но hidden на body ломает sticky-шапки: overflow html уходит вьюпорту, а
+     hidden на body делает сам body scroll-контейнером (overflow-y становится
+     auto). Он растянут по содержимому и никогда не скроллится, поэтому
+     position: sticky внутри него не срабатывает — шапки таблиц уезжают
+     вместе со страницей. clip, в отличие от hidden, scroll-контейнер не
+     создаёт. Меняем только от 640px: на телефоне списки показаны карточками
+     и закреплять нечего, а iOS-фикс выше остаётся нетронутым. */
+  @media (min-width: 640px) {
+    body {
+      overflow-x: clip;
+    }
   }
   body {
     @apply bg-background text-foreground;

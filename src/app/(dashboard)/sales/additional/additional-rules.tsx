@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import { DrawerSection } from "@/components/ui/drawer-blocks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -133,8 +134,7 @@ export function AdditionalRulesEditor({
               ))}
             </div>
             {kind === "masters" && (
-              <section className="space-y-3 border-t pt-4">
-                <h3 className="font-semibold">Прибавка за целый балл</h3>
+              <DrawerSection title="Прибавка за целый балл">
                 <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground">
                   <span>От баллов</span>
                   <span>₽ за балл</span>
@@ -167,37 +167,38 @@ export function AdditionalRulesEditor({
                   Берётся ставка достигнутого порога. Дробная часть баллов не
                   оплачивается.
                 </p>
-              </section>
+              </DrawerSection>
             )}
           </TabsContent>
         ))}
       </Tabs>
-      <div className="space-y-2 border-t pt-5">
-        <Label htmlFor="additional-from">Действует с</Label>
-        <DatePicker
-          id="additional-from"
-          value={from}
-          onChange={setFrom}
-          fromDate={new Date(data.nextFrom + "T00:00:00")}
-          clearable={false}
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="additional-reason">Причина изменения</Label>
-        <Textarea
-          id="additional-reason"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          maxLength={1000}
-        />
-      </div>
-      <p className="text-xs text-muted-foreground">
-        Новые ставки применятся к будущим рабочим дням. Сохранённые начисления
-        остаются в истории.
-      </p>
-      <details className="border-t pt-4 text-sm">
-        <summary className="cursor-pointer font-medium">История правил</summary>
-        <div className="mt-3 divide-y">
+      <DrawerSection title="Новая версия">
+        <div className="space-y-2">
+          <Label htmlFor="additional-from">Действует с</Label>
+          <DatePicker
+            id="additional-from"
+            value={from}
+            onChange={setFrom}
+            fromDate={new Date(data.nextFrom + "T00:00:00")}
+            clearable={false}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="additional-reason">Причина изменения</Label>
+          <Textarea
+            id="additional-reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            maxLength={1000}
+          />
+          <p className="text-xs text-muted-foreground">
+            Новые ставки применятся к будущим рабочим дням. Сохранённые
+            начисления остаются в истории.
+          </p>
+        </div>
+      </DrawerSection>
+      <DrawerSection title="История правил">
+        <div className="divide-y text-sm">
           {data.rules.map((r) => (
             <div key={r.id} className="py-3">
               <p className="font-medium">С {dayLabel(r.valid_from)}</p>
@@ -220,7 +221,7 @@ export function AdditionalRulesEditor({
             </div>
           ))}
         </div>
-      </details>
+      </DrawerSection>
     </EditDrawer>
   );
 }

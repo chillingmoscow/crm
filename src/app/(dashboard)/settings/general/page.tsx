@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { SlidersHorizontal } from "lucide-react";
 
-import { AMOUNT_ROUNDING_OPTIONS, normalizeAmountRoundingScale } from "@/lib/format/amount";
+import { normalizeAmountRoundingScale } from "@/lib/format/amount";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   getCachedActiveAccountId,
@@ -10,6 +10,7 @@ import {
 } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import { updateGeneralSettings } from "./actions";
+import { AmountRoundingSelect } from "./_components/amount-rounding-select";
 
 type AccountSettingsRow = {
   amount_rounding_scale: number | null;
@@ -57,18 +58,7 @@ export default async function GeneralSettingsPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             Применяется к финансовым суммам, себестоимости и итогам инвентаризации.
           </p>
-          <select
-            id="amountRoundingScale"
-            name="amountRoundingScale"
-            defaultValue={String(amountRoundingScale)}
-            className="mt-3 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
-            {AMOUNT_ROUNDING_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label} · {option.description}
-              </option>
-            ))}
-          </select>
+          <AmountRoundingSelect defaultValue={String(amountRoundingScale)} />
         </div>
 
         <div className="mt-5 rounded-md border bg-muted/30 p-4">

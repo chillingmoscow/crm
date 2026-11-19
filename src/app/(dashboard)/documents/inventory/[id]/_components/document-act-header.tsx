@@ -107,7 +107,7 @@ export function DocumentActHeader({
               <Link
                 href={`/documents/inventory/${recountParent.id}/results`}
                 className="inline-flex items-center gap-1 rounded-md border border-blue-500/30 bg-blue-500/15 px-2 py-0.5 text-xs font-medium text-blue-700 hover:bg-blue-500/25 dark:text-blue-300"
-                title="Акт пересчёта: позиции вынесены из другого акта на дату пересчёта"
+                data-tip="Акт пересчёта: позиции вынесены из другого акта на дату пересчёта"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
                 Пересчёт по акту № {recountParent.documentNumber}
@@ -116,7 +116,7 @@ export function DocumentActHeader({
             {reopenedAfterProcessed ? (
               <span
                 className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300"
-                title="Проведённый акт переоткрывали и правили итоги — управленческие суммы могут расходиться с Quick Resto."
+                data-tip="Проведённый акт переоткрывали и правили итоги — управленческие суммы могут расходиться с Quick Resto."
               >
                 <AlertTriangle className="h-3.5 w-3.5" />
                 Итоги правились после проведения
@@ -136,13 +136,11 @@ export function DocumentActHeader({
               resultsAvailable ? (
                 <TabsTrigger value="results">Итоги</TabsTrigger>
               ) : (
-                <TabsTrigger
-                  value="results"
-                  disabled
-                  title="Итоги появятся после проведения акта"
-                >
-                  Итоги
-                </TabsTrigger>
+                <span data-tip="Итоги появятся после проведения акта" className="inline-flex">
+                  <TabsTrigger value="results" disabled>
+                    Итоги
+                  </TabsTrigger>
+                </span>
               )
             ) : null}
             {canViewJournal ? (

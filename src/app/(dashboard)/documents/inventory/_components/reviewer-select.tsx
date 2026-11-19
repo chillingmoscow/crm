@@ -54,7 +54,7 @@ export function ReviewerSelect({
     return reviewer ? (
       <PersonChip person={reviewer} href={linkToPerson ? inventoryPersonHref(reviewer.id) : null} />
     ) : (
-      <span className="text-sm text-muted-foreground" title={lockReason}>
+      <span className="text-sm text-muted-foreground" data-tip={lockReason}>
         —
       </span>
     );

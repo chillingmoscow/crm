@@ -53,7 +53,7 @@ export function MultiOptionPicker({
           disabled={disabled}
           className="h-10 w-full min-w-0 justify-between gap-2 px-3 text-left text-sm font-normal"
         >
-          <span className="truncate" title={selected}>
+          <span className="truncate" data-tip={selected} data-tip-overflow>
             {selected || placeholder}
           </span>
           <ChevronDown className="size-4 shrink-0 text-muted-foreground" />

@@ -59,7 +59,8 @@ export function KbMonthlyTrend({
             <Link
               key={r.monthKey}
               href={`${basePath}?month=${r.monthKey}${suffix}`}
-              title={`${r.label}: ${formatDuration(r.totalSeconds)} · ${r.sessionCount} сессий · ${r.uniqueReaders} читателей`}
+              data-tip={`${r.label}: ${formatDuration(r.totalSeconds)} · ${r.sessionCount} сессий · ${r.uniqueReaders} читателей`}
+              aria-label={`${r.label}: ${formatDuration(r.totalSeconds)} · ${r.sessionCount} сессий · ${r.uniqueReaders} читателей`}
               className="group flex flex-1 flex-col items-center gap-1.5 min-w-0"
             >
               <span className="text-[10px] tabular-nums text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">

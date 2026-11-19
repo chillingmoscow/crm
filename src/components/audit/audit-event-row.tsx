@@ -55,7 +55,7 @@ export function AuditEventRow({
         <div className="text-[12px] text-muted-foreground flex items-center gap-2 flex-wrap">
           <time
             dateTime={event.created_at}
-            title={new Date(event.created_at).toLocaleString("ru-RU", {
+            data-tip={new Date(event.created_at).toLocaleString("ru-RU", {
               timeZone,
               ...(event.details.source_precision === "day" ? { dateStyle: "short" as const } : {}),
             })}

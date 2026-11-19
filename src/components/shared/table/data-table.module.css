@@ -1,10 +1,29 @@
+/* Контейнер таблицы. По умолчанию без overflow: любой overflow «ловит»
+   position: sticky шапки на себя, и она перестаёт закрепляться к окну.
+   Горизонтальная прокрутка включается классом .scrollX только когда таблица
+   не помещается (см. useTableColumnResize → overflowing). */
 .scroll {
   width: 100%;
   min-width: 0;
-  overflow-x: auto;
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   background: hsl(var(--card));
+}
+.scrollX {
+  overflow-x: auto;
+}
+/* Без overflow контейнер больше не обрезает углы: скругляем крайние ячейки. */
+.table thead th:first-child {
+  border-top-left-radius: calc(var(--radius) - 1px);
+}
+.table thead th:last-child {
+  border-top-right-radius: calc(var(--radius) - 1px);
+}
+.table tbody tr:last-child td:first-child {
+  border-bottom-left-radius: calc(var(--radius) - 1px);
+}
+.table tbody tr:last-child td:last-child {
+  border-bottom-right-radius: calc(var(--radius) - 1px);
 }
 .table {
   width: 100%;
@@ -108,4 +127,21 @@
     white-space: normal;
     overflow: visible;
   }
+}
+/* Строка итогов денежных таблиц: та же сетка, жирнее, над ней линия. */
+.totals td {
+  height: 52px;
+  padding: 12px;
+  font-weight: 600;
+  border-top: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.totals td:first-child {
+  border-bottom-left-radius: calc(var(--radius) - 1px);
+}
+.totals td:last-child {
+  border-bottom-right-radius: calc(var(--radius) - 1px);
 }

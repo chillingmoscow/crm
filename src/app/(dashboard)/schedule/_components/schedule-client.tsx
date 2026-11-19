@@ -1,5 +1,6 @@
 "use client";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { ColorDot } from "@/components/ui/color-dot";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { format } from "date-fns";
@@ -17,23 +18,30 @@ import {
   GripVertical,
   ListChecks,
   CheckCircle2,
+  Eye,
+  Pencil,
+  UserPlus,
+  CalendarPlus,
+  Clock,
 } from "lucide-react";
+import { TaskAssignDrawer } from "./task-assign-drawer";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Button } from "@/components/ui/button";
 import { PersonAvatar } from "@/components/people/person-avatar";
 import { Calendar } from "@/components/ui/calendar";
 import { PeriodStepper, periodTriggerClass } from "@/components/shared/period-stepper";
-import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import { TableControls, TableIconButton, TablePageHeader } from "@/components/shared/table";
 import { TableFilterChip } from "@/components/shared/table/table-filter-chip";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
@@ -50,12 +58,14 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { paletteBg, paletteText } from "@/lib/palette";
+import { paletteBg, paletteDot, paletteText } from "@/lib/palette";
+import { casualPayModel as pickCasualPayModel } from "@/lib/schedule/casual-pay-model";
 import { cn } from "@/lib/utils";
 import {
   addDays,
   dateInZone,
   dayLabel,
+  instantInZone,
   shiftHours,
   timeInZone,
   weekStart,
@@ -66,20 +76,24 @@ import type {
   ShiftTemplate,
   ScheduleEvent,
 } from "@/lib/schedule/types";
-import { loadShiftAttendance, loadSchedule, scheduleCommand, scheduleHistory } from "../actions";
+import { loadShiftAttendance, loadSchedule, scheduleCommand, shiftHistoryPage } from "../actions";
 import { ShiftAttendancePopover } from "./shift-attendance-popover";
 import type { ShiftAttendanceMark } from "@/lib/payroll/types";
 import {
   ShiftEditor,
   TemplateEditor,
-  Field,
-  selectClass,
   type Save,
-  formatTemplateTimes,
+  isoWeekday,
 } from "./editors";
+import { EmployeePicker } from "./employee-picker";
+import { ApplyTemplateDialog } from "./apply-template-dialog";
+import { ShiftDetails } from "./shift-details";
+import { DrawerAvatar, DrawerStatus } from "@/components/ui/drawer-blocks";
+import { templateTimesFor } from "@/lib/schedule/template-times";
 import { CandidateTrialCard } from "./candidate-trial-card";
 import { toast } from "sonner";
 import { TemplateList } from "./template-list";
+import { ViewMenu } from "./view-menu";
 import { TemplateWeek } from "./template-week";
 import { TemplateName } from "./template-name";
 import { TaskHeaderTarget, TaskTitleTarget } from "./task-header-actions";
@@ -89,6 +103,7 @@ import {
   type TaskOccurrence,
 } from "@/lib/schedule/tasks";
 import { loadCalendarTasks } from "../tasks/actions";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 const CalendarTaskReport = dynamic(
   () => import("../tasks/tasks-client").then((module) => module.TaskReport),
   {
@@ -112,14 +127,10 @@ type Editor =
       copy?: boolean;
     }
   | { type: "template"; template?: ShiftTemplate; copy?: boolean };
-const eventLabels: Record<string, string> = {
-  "shift.create": "Создана смена",
-  "shift.copy": "Создана копия",
-  "shift.edit": "Изменена смена",
-  "shift.assign": "Назначен сотрудник",
-  "shift.publish": "Опубликована смена",
-  "shift.delete": "Удалена смена",
-};
+type DragItem =
+  | { kind: "shift"; shift: Shift }
+  | { kind: "template"; template: ShiftTemplate };
+type DropTarget = { day: string; userId: string | null; ok: boolean };
 export function ScheduleClient({
   initial,
   section = "calendar",
@@ -237,14 +248,43 @@ export function ScheduleClient({
     window.history.replaceState(null, "", url);
   };
   const [editor, setEditor] = useState<Editor | null>(null);
+  /** «Задача на день»: день и, из меню смены, её шаблон. */
+  const [taskAssign, setTaskAssign] = useState<{ day: string; template?: string | null } | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [templateOverlay, setTemplateOverlay] = useState<ShiftTemplate | null>(null);
+  const [applyTemplate, setApplyTemplate] = useState<{
+    id: string;
+    previousTitle: string;
+  } | null>(null);
+  const [dragItem, setDragItem] = useState<DragItem | null>(null);
+  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
+  const [overTrash, setOverTrash] = useState(false);
+  const dragActive = useRef(false);
+  // Состояние меняем после dragstart: правка DOM внутри обработчика
+  // портит снимок перетаскиваемой карточки в Chrome.
+  const startDrag = (item: DragItem) => {
+    dragActive.current = true;
+    setTimeout(() => {
+      if (dragActive.current) setDragItem(item);
+    }, 0);
+  };
+  const endDrag = () => {
+    dragActive.current = false;
+    setDragItem(null);
+    setDropTarget(null);
+    setOverTrash(false);
+  };
   const [selected, setSelected] = useState<Shift | null>(null);
   const [confirmation, setConfirmation] = useState<{
     title: string;
     description: string;
+    confirmLabel: string;
+    destructive?: boolean;
     action: () => Promise<void>;
   } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [history, setHistory] = useState<ScheduleEvent[]>([]);
+  const [history, setHistory] = useState<ScheduleEvent[] | null>(null);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
   const can = useCallback(
     (p: string) => data.permissions.includes("schedule." + p),
     [data.permissions],
@@ -252,6 +292,9 @@ export function ScheduleClient({
   const canPlan = can("view_all");
   const templateView = canPlan && view === "templates";
   const canViewAttendance = canPlan && data.permissions.includes("payroll.view");
+  const canOpenStaff =
+    data.permissions.includes("people.view_staff") &&
+    data.permissions.includes("people.view_staff_details");
   const [attendance, setAttendance] = useState<{
     week: string;
     marks: Record<string, ShiftAttendanceMark>;
@@ -299,7 +342,7 @@ export function ScheduleClient({
       throw e;
     }
   }, []);
-  const save: Save = async (action, input) => {
+  const save: Save = async (action, input, success) => {
     try {
       const r = await scheduleCommand(action, input);
       if (r.error) {
@@ -314,19 +357,36 @@ export function ScheduleClient({
         );
         return true;
       }
-      toast.success("Изменения сохранены");
+      toast.success(success ?? "Изменения сохранены");
       return true;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Не удалось сохранить");
       return false;
     }
   };
+  /** Сохранение шаблона; после правки предлагаем обновить смены по нему. */
+  const saveTemplate = (before?: ShiftTemplate): Save => async (action, input) => {
+    const saved = await save(action, input);
+    if (
+      saved &&
+      action === "template.edit" &&
+      before &&
+      can("shift_edit") &&
+      data.shifts.some((shift) => shift.template_id === before.id)
+    )
+      setApplyTemplate({ id: before.id, previousTitle: before.name });
+    return saved;
+  };
   useEffect(() => {
     let alive = true;
+    setHistory(null);
+    setHistoryHasMore(false);
     if (selected)
-      scheduleHistory(selected.id)
-        .then((h) => {
-          if (alive) setHistory(h);
+      shiftHistoryPage(selected.id)
+        .then((page) => {
+          if (!alive) return;
+          setHistory(page.events);
+          setHistoryHasMore(page.hasMore);
         })
         .catch(() => {
           if (alive) setHistory([]);
@@ -335,6 +395,18 @@ export function ScheduleClient({
       alive = false;
     };
   }, [selected]);
+  /** Следующая страница истории (старее последней загруженной записи). */
+  const loadMoreHistory = async () => {
+    if (!selected || !history?.length) return;
+    try {
+      const last = history[history.length - 1];
+      const page = await shiftHistoryPage(selected.id, { created_at: last.created_at, id: last.id });
+      setHistory((current) => [...(current ?? []), ...page.events]);
+      setHistoryHasMore(page.hasMore);
+    } catch {
+      toast.error("Не удалось загрузить историю");
+    }
+  };
   const days = Array.from({ length: 7 }, (_, i) => addDays(week, i));
   const search = query.trim().toLowerCase();
   const roster = [
@@ -503,31 +575,32 @@ export function ScheduleClient({
     <button
       key={task.id}
       onClick={() => setSelectedTask(task)}
-      aria-label={`Задача: ${task.snapshot.name}, ${task.planned ? "План" : taskStatus[task.status]}`}
-      title={`${task.snapshot.name} · ${task.employee_name || "Без назначения"} · ${taskStatus[task.status]}`}
+      aria-label={`Задача: ${task.snapshot.name}, ${task.planned ? "запланирована" : taskStatus[task.status]}`}
+      // Будущая регулярная задача ещё не создана — пунктир и часы вместо
+      // непонятного «План»; кто получит — в подсказке.
+      data-tip={
+        task.planned
+          ? `Появится у сотрудника в день смены · ${task.employee_name || "смена ещё не назначена"}`
+          : `${task.employee_name || "Без назначения"} · ${taskStatus[task.status]}`
+      }
       className={cn(
         "flex w-full items-start gap-1.5 rounded-md border bg-background px-2 py-2 text-left text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        task.planned && "border-dashed text-muted-foreground",
         task.status === "completed" && "text-muted-foreground",
         task.status === "missed" && "border-destructive/30",
       )}
     >
-      {task.status === "completed" ? (
+      {task.planned ? (
+        <Clock className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      ) : task.status === "completed" ? (
         <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
       ) : (
         <ListChecks className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
       )}
       <span className="min-w-0 flex-1">
-        <span
-          className={
-            compact ? "line-clamp-2 leading-4" : "block text-sm font-medium"
-          }
-        >
+        {/* Название целиком — без обрезки. */}
+        <span className={cn("break-words", compact ? "leading-4" : "block text-sm font-medium")}>
           {task.snapshot.name}
-          {task.planned && (
-            <span className="ml-1 text-[10px] font-normal text-muted-foreground">
-              План
-            </span>
-          )}
         </span>
         {!compact && (
           <span className="mt-1 block text-[13px] text-muted-foreground">
@@ -560,6 +633,7 @@ export function ScheduleClient({
     setConfirmation({
       title: "Опубликовать смены?",
       description: `Количество смен для публикации: ${draftShifts.length}. Будут опубликованы черновики выбранной недели с учётом фильтров.`,
+      confirmLabel: "Опубликовать смены",
       action: async () => {
         const r = await publishShifts(draftShifts);
         if (r) toast.success("Смены опубликованы");
@@ -596,60 +670,239 @@ export function ScheduleClient({
       template,
       templateSlot,
     });
+  /** Модель оплаты разового — по правилу расчёта зарплаты (как в форме). */
+  const casualPayModel = (
+    userId: string | null,
+    shift: { role_id: string | null; department_id?: string | null; starts_at?: string | null },
+  ) => {
+    const casual = data.casualEmployees?.find((e) => `payroll:${e.id}` === userId);
+    if (!casual) return null;
+    return pickCasualPayModel({
+      employee: casual,
+      shift,
+      models: data.payModels ?? [],
+      roles: data.roles,
+      sameDepartmentRateFrom: data.sameDepartmentRateFrom,
+    });
+  };
+  /**
+   * Шаблон в ячейку сотрудника — сразу черновик смены, без формы: сотрудник,
+   * день, время, должность и цвет уже известны. Форма открывается, только если
+   * назначать сотрудников нельзя.
+   */
+  const placeTemplate = async (template: ShiftTemplate, day: string, userId: string | null) => {
+    const times = templateTimesFor(template, isoWeekday(day));
+    if (!times || occupied(userId, day) || templateTaken(template.id, day)) return;
+    if (!userId || !can("shift_assign")) {
+      create(day, userId, template);
+      return;
+    }
+    const casual = data.casualEmployees?.find((e) => `payroll:${e.id}` === userId);
+    // Если модель оплаты разового нельзя подобрать однозначно — открываем форму.
+    const payModel = casualPayModel(userId, {
+      role_id: template.role_id,
+      department_id: template.department_id,
+      starts_at: instantInZone(day, times.start_time, data.timezone),
+    });
+    if (casual && !payModel) {
+      create(day, userId, template);
+      return;
+    }
+    await save("shift.create", {
+      name: template.name,
+      title: template.name,
+      color: template.color,
+      start_time: times.start_time,
+      end_time: times.end_time,
+      department_id: template.department_id,
+      role_id: template.role_id,
+      checklist_ids: casual ? [] : template.checklist_ids,
+      date: day,
+      ...assignmentFields(userId),
+      payroll_model_id: payModel,
+      note: "",
+      template_id: template.id,
+    });
+  };
+  /** В списке перенос — на другой день у того же сотрудника. */
+  const listDropUser = dragItem?.kind === "shift" ? shiftAssignee(dragItem.shift) : null;
+  /** Смена вернулась в свою же ячейку — сохранять нечего. */
+  const sameCell = (item: DragItem, day: string, userId: string | null) =>
+    item.kind === "shift" &&
+    dateInZone(item.shift.starts_at, data.timezone) === day &&
+    shiftAssignee(item.shift) === userId;
+  /** По шаблону в день может быть только одна смена (правило сервера). */
+  const takenTemplateSlots = useMemo(
+    () =>
+      new Set(
+        data.shifts
+          .filter((shift) => shift.template_id)
+          .map((shift) => `${shift.template_id}:${dateInZone(shift.starts_at, data.timezone)}`),
+      ),
+    [data.shifts, data.timezone],
+  );
+  const templateTaken = (templateId: string, day: string) => takenTemplateSlots.has(`${templateId}:${day}`);
+  const canDrop = (item: DragItem, day: string, userId: string | null) =>
+    item.kind === "template"
+      ? can("shift_create") &&
+        !occupied(userId, day) &&
+        !templateTaken(item.template.id, day) &&
+        templateTimesFor(item.template, isoWeekday(day)) !== null
+      : can("shift_edit") && !occupied(userId, day, item.shift.id);
+  const dragOver = (e: React.DragEvent, day: string, userId: string | null) => {
+    if (!dragItem) return;
+    const ok = sameCell(dragItem, day, userId) || canDrop(dragItem, day, userId);
+    if (ok) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = dragItem.kind === "template" ? "copy" : "move";
+    }
+    if (dropTarget?.day !== day || dropTarget.userId !== userId || dropTarget.ok !== ok)
+      setDropTarget({ day, userId, ok });
+  };
+  const dragLeave = (e: React.DragEvent, day: string, userId: string | null) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setDropTarget((current) =>
+      current?.day === day && current.userId === userId ? null : current,
+    );
+  };
+  const confirmDelete = (shift: Shift) =>
+    setConfirmation({
+      title: shift.published ? "Удалить смену?" : "Удалить черновик смены?",
+      description: shift.published
+        ? `${name(shiftAssignee(shift))} больше не увидит эту смену в графике. Если смена уже засчитана в зарплату, начисление за этот день пересчитается. Нельзя удалить смену с начатым чек-листом или уже выплаченную.`
+        : "Черновик ещё не видели сотрудники — он просто исчезнет из расписания.",
+      confirmLabel: shift.published ? "Удалить смену" : "Удалить черновик",
+      destructive: true,
+      action: async () => {
+        if (
+          await save("shift.delete", {
+            id: shift.id,
+            version: shift.version,
+          })
+        )
+          setSelected((current) => (current?.id === shift.id ? null : current));
+      },
+    });
   const drop = async (
     e: React.DragEvent,
     day: string,
     userId: string | null,
   ) => {
     e.preventDefault();
+    const item = dragItem;
+    endDrag();
     const template = data.templates.find(
       (t) => t.id === e.dataTransfer.getData("application/sheerly-template"),
     );
     if (template && can("shift_create")) {
-      if (occupied(userId, day)) return;
-      create(day, userId, template);
+      await placeTemplate(template, day, userId);
       return;
     }
     const shift = data.shifts.find(
       (s) => s.id === e.dataTransfer.getData("application/sheerly-shift"),
     );
-    if (!shift || !can("shift_edit") || occupied(userId, day, shift.id)) return;
+    if (!shift || (item && sameCell(item, day, userId))) return;
+    if (
+      dateInZone(shift.starts_at, data.timezone) === day &&
+      shiftAssignee(shift) === userId
+    )
+      return;
+    if (!can("shift_edit") || occupied(userId, day, shift.id)) return;
     await save("shift.edit", {
       ...shift,
       date: day,
       start_time: timeInZone(shift.starts_at, data.timezone),
       end_time: timeInZone(shift.ends_at, data.timezone),
       ...assignmentFields(userId),
-      payroll_model_id: userId?.startsWith("payroll:")
-        ? (data.casualEmployees?.find((e) => e.id === userId.slice(8))
-            ?.model_id ?? null)
-        : null,
+      payroll_model_id: casualPayModel(userId, shift),
     });
   };
+  const cellTemplates = (day: string) =>
+    data.templates.filter(
+      (t) => !t.archived && templateTimesFor(t, isoWeekday(day)) !== null && !templateTaken(t.id, day),
+    );
   const templatesById = new Map(data.templates.map((template) => [template.id, template]));
-  const shiftTemplate = (shift: Shift) => {
-    const template = shift.template_id ? templatesById.get(shift.template_id) : undefined;
-    return template?.subtitle && (shift.title === template.name || shift.title === shiftTemplateLabel(template))
-      ? template
-      : undefined;
-  };
+  /**
+   * Шаблон смены для показа. Смена по шаблону всегда называется как шаблон
+   * сейчас: её собственное название — копия на момент создания, оно
+   * устаревает при переименовании шаблона и у смен из переноса старого
+   * графика («Менеджер №1» при шаблоне «Менеджер · день»).
+   */
+  // Цвет и название смены берём у её шаблона: у смены хранится копия на
+  // момент создания, и после перекраски шаблона она устаревает.
+  const shiftTemplate = (shift: Shift) =>
+    shift.template_id ? templatesById.get(shift.template_id) : undefined;
   const selectedTemplate = selected ? shiftTemplate(selected) : undefined;
-  const card = (s: Shift, mode: "shift" | "full" | "template" = "shift") => {
+  /**
+   * Смена в виде «Список» — как в календаре: время колонкой слева, полоска
+   * цвета шаблона, название и сотрудник; статус — только у черновика
+   * (опубликованная — обычное состояние, её не подписываем).
+   */
+  const listCardBody = (s: Shift, assignee: string | null, mark: unknown) => {
+    const template = shiftTemplate(s);
+    const title = template ? template.name : s.title;
+    const subtitle = template?.subtitle ?? null;
+    const avatar = data.staff.find((p) => p.user_id === assignee)?.avatar_url;
+    const person = assignee ? name(assignee) : "Сотрудник не назначен";
+    const hours = Math.round(shiftHours(s.starts_at, s.ends_at) * 10) / 10;
+    return (
+      <>
+        <span className="w-11 shrink-0 text-right text-xs leading-snug tabular-nums">
+          <span className="block font-semibold">{timeInZone(s.starts_at, data.timezone)}</span>
+          <span className="block text-muted-foreground">{timeInZone(s.ends_at, data.timezone)}</span>
+        </span>
+        <span aria-hidden className={cn("w-[3px] shrink-0 rounded-full", paletteDot(template?.color ?? s.color))} />
+        <span className="min-w-0 flex-1">
+          {/* Главное — кто работает: сотрудник жирным, ниже смена и часы. */}
+          <span className="flex min-w-0 items-center gap-1.5">
+            <DrawerAvatar name={person} src={avatar} size="sm" />
+            <span className={cn("truncate text-sm font-semibold", !assignee && "font-normal text-muted-foreground")}>
+              {person}
+            </span>
+            {/* На телефоне бейдж — в этой строке, справа он резал бы имя. */}
+            {!s.published && (
+              <span className="shrink-0 sm:hidden">
+                <DrawerStatus label="Черновик" tone="neutral" />
+              </span>
+            )}
+          </span>
+          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+            {[title, subtitle, `${hours.toLocaleString("ru")} ч`].filter(Boolean).join(" · ")}
+          </span>
+        </span>
+        {!s.published && (
+          <span className={cn("hidden self-center sm:block", mark ? "mr-6" : undefined)}>
+            <DrawerStatus label="Черновик" tone="neutral" />
+          </span>
+        )}
+      </>
+    );
+  };
+  const card = (s: Shift, mode: "shift" | "full" | "template" | "list" = "shift") => {
     const mark = attendanceMark(s);
     const template = shiftTemplate(s);
     const assignee = shiftAssignee(s);
     const assignOpenShift = mode === "template" && !assignee && can("shift_assign");
     const assigneeLabel = assignOpenShift ? "Назначить" : name(assignee);
+    const day = dateInZone(s.starts_at, data.timezone);
+    const assignSlot = () =>
+      setEditor({ type: "shift", shift: s, day, templateSlot: true });
+    const dragged = dragItem?.kind === "shift" && dragItem.shift.id === s.id;
     return (
-    <div key={s.id} className="relative min-w-0">
+    <ContextMenu key={s.id} modal={false}>
+    <ContextMenuTrigger asChild>
+    <div className="relative min-w-0">
     <button
       draggable={can("shift_edit")}
-      onDragStart={(e) =>
-        e.dataTransfer.setData("application/sheerly-shift", s.id)
-      }
+      onDragStart={(e) => {
+        e.dataTransfer.setData("application/sheerly-shift", s.id);
+        e.dataTransfer.effectAllowed = "move";
+        startDrag({ kind: "shift", shift: s });
+      }}
+      onDragEnd={endDrag}
       onClick={() => {
         if (assignOpenShift) {
-          setEditor({ type: "shift", shift: s, day: dateInZone(s.starts_at, data.timezone), templateSlot: true });
+          assignSlot();
         } else {
           setSelected(s);
         }
@@ -658,11 +911,16 @@ export function ScheduleClient({
         ? `${assigneeLabel}: ${template ? shiftTemplateLabel(template) : s.title}, ${dayLabel(dateInZone(s.starts_at, data.timezone))}`
         : undefined}
       className={cn(
-        "w-full rounded-md px-1.5 py-2 text-left grid gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-opacity hover:opacity-80",
-        paletteBg(s.color),
-        paletteText(s.color),
+        "w-full rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        can("shift_edit") && "cursor-grab active:cursor-grabbing",
+        dragged && "opacity-40",
+        mode === "list"
+          ? "flex items-stretch gap-3 px-2 py-1.5 transition-colors hover:bg-muted/60"
+          : cn("grid gap-1 px-1.5 py-2 transition-opacity hover:opacity-80", paletteBg(template?.color ?? s.color), paletteText(template?.color ?? s.color)),
       )}
     >
+      {mode === "list" ? listCardBody(s, assignee, mark) : (
+      <>
       <span className={cn("whitespace-nowrap text-[11px] font-semibold tabular-nums", mark && "pr-5")}>
         {timeInZone(s.starts_at, data.timezone)}–
         {timeInZone(s.ends_at, data.timezone)}
@@ -679,9 +937,113 @@ export function ScheduleClient({
           Черновик
         </span>
       )}
+      </>
+      )}
     </button>
     {mark && <ShiftAttendancePopover shiftId={s.id} version={s.version} mark={mark} canReview={data.permissions.includes("payroll.review")} />}
     </div>
+    </ContextMenuTrigger>
+    <ContextMenuContent>
+      <ContextMenuLabel>
+        {timeInZone(s.starts_at, data.timezone)}–{timeInZone(s.ends_at, data.timezone)} · {name(assignee)}
+      </ContextMenuLabel>
+      <ContextMenuItem onSelect={() => setSelected(s)}>
+        <Eye />
+        Открыть
+      </ContextMenuItem>
+      {can("shift_edit") && (
+        <ContextMenuItem onSelect={() => setEditor({ type: "shift", shift: s, day })}>
+          <Pencil />
+          Изменить
+        </ContextMenuItem>
+      )}
+      {can("shift_copy") && (
+        <ContextMenuItem onSelect={() => setEditor({ type: "shift", shift: s, day, copy: true })}>
+          <Copy />
+          Копировать на другой день
+        </ContextMenuItem>
+      )}
+      {!s.published && can("shift_publish") && (
+        <ContextMenuItem disabled={busy} onSelect={() => void publishShifts([s]).then((ok) => ok && toast.success("Смена опубликована"))}>
+          <Send />
+          Опубликовать
+        </ContextMenuItem>
+      )}
+      {can("shift_assign") && !assignee && s.template_id && can("shift_create") && (
+        <ContextMenuItem onSelect={assignSlot}>
+          <UserPlus />
+          Назначить сотрудника
+        </ContextMenuItem>
+      )}
+      {can("shift_assign") && assignee && (
+        <ContextMenuItem onSelect={assignSlot}>
+          <UserPlus />
+          Заменить сотрудника
+        </ContextMenuItem>
+      )}
+      {can("checklist_edit") && s.template_id && (
+        <ContextMenuItem onSelect={() => setTaskAssign({ day, template: s.template_id })}>
+          <ListChecks />
+          Добавить задачу
+        </ContextMenuItem>
+      )}
+      {can("shift_delete") && (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem destructive onSelect={() => confirmDelete(s)}>
+            <Trash2 />
+            {s.published ? "Удалить смену" : "Удалить черновик"}
+          </ContextMenuItem>
+        </>
+      )}
+    </ContextMenuContent>
+    </ContextMenu>
+    );
+  };
+  /**
+   * «Тень» смены в ячейке, куда она упадёт. Лежит поверх ячейки (absolute),
+   * а не в потоке — иначе строка растягивается и сетка дёргается.
+   */
+  const dropGhost = (day: string, userId: string | null) => {
+    if (!dragItem || dropTarget?.day !== day || dropTarget.userId !== userId) return null;
+    if (!dropTarget.ok)
+      return (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-1.5 z-[1] flex items-center justify-center rounded-md border border-dashed border-destructive/60 bg-background/85 px-1 text-center text-[11px] font-medium leading-tight text-destructive"
+        >
+          {dragItem.kind === "shift" && !can("shift_edit")
+            ? "Нет права"
+            : dragItem.kind === "template" && !templateTimesFor(dragItem.template, isoWeekday(day))
+              ? "Шаблон не работает в этот день"
+              : dragItem.kind === "template" && templateTaken(dragItem.template.id, day)
+                ? "Шаблон уже занят"
+                : "Уже есть смена"}
+        </div>
+      );
+    if (sameCell(dragItem, day, userId)) return null;
+    const color = dragItem.kind === "shift" ? dragItem.shift.color : dragItem.template.color;
+    const times = dragItem.kind === "shift"
+      ? `${timeInZone(dragItem.shift.starts_at, data.timezone)}–${timeInZone(dragItem.shift.ends_at, data.timezone)}`
+      : (() => {
+          const t = templateTimesFor(dragItem.template, isoWeekday(day));
+          return t ? `${t.start_time.slice(0, 5)}–${t.end_time.slice(0, 5)}` : "Шаблон не действует в этот день";
+        })();
+    const title = dragItem.kind === "shift"
+      ? (shiftTemplate(dragItem.shift) ? shiftTemplateLabel(shiftTemplate(dragItem.shift)!) : dragItem.shift.title)
+      : shiftTemplateLabel(dragItem.template);
+    return (
+      <div
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-1.5 z-[1] flex flex-col gap-0.5 overflow-hidden rounded-md border-2 border-dashed border-current px-1.5 py-1.5",
+          paletteBg(color),
+          paletteText(color),
+        )}
+      >
+        <span className="truncate text-[11px] font-semibold tabular-nums">{times}</span>
+        <span className="truncate text-xs">{title}</span>
+      </div>
     );
   };
   const noData = (
@@ -701,22 +1063,101 @@ export function ScheduleClient({
   const canPublish = can("shift_publish") && draftShifts.length > 0;
   const filtersActive = department !== "all" || publication !== "all";
   const today = dateInZone(new Date(), data.timezone);
+  // Период и «Сегодня» стоят в шапке слева, инструменты — в той же строке справа.
+  const periodControls = (
+    <>
+      <PeriodStepper
+        previous="Предыдущая неделя"
+        next="Следующая неделя"
+        onPrevious={() => setWeek(addDays(week, -7))}
+        onNext={() => setWeek(addDays(week, 7))}
+      >
+        <Popover open={weekPickerOpen} onOpenChange={setWeekPickerOpen}>
+          <PopoverTrigger asChild>
+            <button type="button" className={periodTriggerClass} aria-label="Выбрать неделю расписания">
+              <CalendarDays className="size-4 shrink-0" />
+              <span className="whitespace-nowrap">
+                {dayLabel(days[0], { day: "numeric", month: "short" })} –{" "}
+                {dayLabel(days[6], { day: "numeric", month: "short", year: "numeric" })}
+              </span>
+              <ChevronDown className="size-3 shrink-0" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-auto p-0">
+            <Calendar
+              mode="single"
+              locale={ru}
+              weekStartsOn={1}
+              defaultMonth={new Date(week + "T12:00:00")}
+              selected={new Date(week + "T12:00:00")}
+              captionLayout="dropdown"
+              onSelect={(date) => {
+                if (!date) return;
+                setWeek(weekStart(format(date, "yyyy-MM-dd")));
+                setWeekPickerOpen(false);
+              }}
+            />
+          </PopoverContent>
+        </Popover>
+      </PeriodStepper>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() =>
+            setWeek(
+              weekStart(dateInZone(new Date(), data.timezone)),
+            )
+        }
+      >
+        Сегодня
+      </Button>
+    </>
+  );
+  const pendingReports =
+    showTasks && pendingTaskReports.length > 0 ? (
+      <Popover>
+                            <PopoverTrigger asChild>
+                              <Button variant="outline" size="sm" className="h-8 sm:h-9">
+                                На приёмке · {pendingTaskReports.length}
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent
+                              align="end"
+                              className="max-h-[70vh] w-96 max-w-[calc(100vw-32px)] overflow-y-auto p-3"
+                            >
+                              <p className="mb-1 text-sm font-semibold">
+                                Отчёты на приёмке
+                              </p>
+                              <p className="mb-3 text-[13px] text-muted-foreground">
+                                За все дни, включая прошлые недели
+                              </p>
+                              <div className="space-y-2">
+                                {pendingTaskReports.map((task) => (
+                                  <div key={task.id}>
+                                    <p className="mb-1 text-xs text-muted-foreground">
+                                      {dayLabel(task.business_date)}
+                                    </p>
+                                    {taskCard(task, false)}
+                                  </div>
+                                ))}
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+    ) : null;
   return (
     <TaskTitleTarget.Provider value={setScreenTitle}>
     <PageFrame className="space-y-6">
       {calendarVisible && (
         <>
-          <PageBreadcrumb>
-            <nav aria-label="Навигация по разделам" className="flex min-w-0 items-center gap-2 text-sm">
-              <span className="text-muted-foreground">График работы</span>
-              <span aria-hidden="true" className="text-muted-foreground">/</span>
-              <span className="truncate">Расписание</span>
-            </nav>
-          </PageBreadcrumb>
+          <Breadcrumbs
+            items={[{ label: "График работы" }, { label: "Расписание" }]}
+          />
           <TablePageHeader
             title="Расписание"
-            className="md:flex-wrap md:items-center [&>div:last-child]:max-w-full"
+            period={periodControls}
             actions={
+              <>
+              {pendingReports}
               <TableControls
                 search={{
                   value: query,
@@ -730,24 +1171,79 @@ export function ScheduleClient({
                   onClick: () => setFilters(!filters),
                 }}
                 secondaryActions={
-                  can("shift_create") && !templateView ? (
+                  <>
+                    {can("shift_create") && !templateView && (
+                      <TableIconButton
+                        label={templatesOpen ? "Скрыть шаблоны смен" : "Показать шаблоны смен"}
+                        active={templatesOpen}
+                        onClick={() => setTemplatesOpen(!templatesOpen)}
+                      >
+                        <Layers />
+                      </TableIconButton>
+                    )}
                     <TableIconButton
-                      label={templatesOpen ? "Скрыть шаблоны смен" : "Показать шаблоны смен"}
-                      active={templatesOpen}
-                      onClick={() => setTemplatesOpen(!templatesOpen)}
+                      label={showTasks ? "Скрыть задачи" : "Показать задачи"}
+                      active={showTasks}
+                      onClick={() => toggleTasks(!showTasks)}
                     >
-                      <Layers />
+                      <ListChecks />
                     </TableIconButton>
-                  ) : null
+                    <ViewMenu
+                      value={templateView ? "templates" : view === "list" ? "list" : "week"}
+                      onChange={changeView}
+                      canPlan={canPlan}
+                    />
+                  </>
                 }
                 primaryActions={
                   <>
-                    {can("shift_create") && (
+                    {can("shift_create") && can("checklist_edit") ? (
+                      // Как «Добавить операцию» в финансах: что добавить — по стрелке.
+                      <Popover open={addOpen} onOpenChange={setAddOpen}>
+                        <PopoverTrigger asChild>
+                          <Button size="sm" className="h-8 gap-1.5 sm:h-9" variant={canPublish ? "outline" : "default"}>
+                            <Plus />
+                            Добавить
+                            <ChevronDown className="opacity-80" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent align="end" className="w-60 p-1">
+                          {[
+                            { key: "shift", icon: CalendarPlus, label: "Смена", hint: "Сотруднику на день" },
+                            { key: "task", icon: ListChecks, label: "Задача", hint: "Разово на день — кто будет на смене" },
+                          ].map((item) => (
+                            <button
+                              key={item.key}
+                              type="button"
+                              onClick={() => {
+                                setAddOpen(false);
+                                if (item.key === "shift") create(today);
+                                else setTaskAssign({ day: today });
+                              }}
+                              className="flex w-full items-start gap-2.5 rounded-sm px-3 py-2 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+                            >
+                              <span className="mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
+                                <item.icon className="size-3.5" />
+                              </span>
+                              <span>
+                                <span className="block">{item.label}</span>
+                                <span className="block text-xs text-muted-foreground">{item.hint}</span>
+                              </span>
+                            </button>
+                          ))}
+                        </PopoverContent>
+                      </Popover>
+                    ) : can("shift_create") ? (
                       <Button size="sm" className="h-8 sm:h-9" variant={canPublish ? "outline" : "default"} onClick={() => create(today)}>
                         <Plus />
                         Новая смена
                       </Button>
-                    )}
+                    ) : can("checklist_edit") ? (
+                      <Button size="sm" className="h-8 sm:h-9" variant={canPublish ? "outline" : "default"} onClick={() => setTaskAssign({ day: today })}>
+                        <Plus />
+                        Задача на день
+                      </Button>
+                    ) : null}
                     {canPublish && (
                       <Button size="sm" className="h-8 sm:h-9" disabled={busy} onClick={publish}>
                         <Send />
@@ -757,6 +1253,7 @@ export function ScheduleClient({
                   </>
                 }
               />
+              </>
             }
           />
         </>
@@ -790,136 +1287,6 @@ export function ScheduleClient({
             </TaskHeaderTarget.Provider>
           ) : (
             <>
-              <div className="flex flex-wrap justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <PeriodStepper
-                    previous="Предыдущая неделя"
-                    next="Следующая неделя"
-                    onPrevious={() => setWeek(addDays(week, -7))}
-                    onNext={() => setWeek(addDays(week, 7))}
-                  >
-                    <Popover open={weekPickerOpen} onOpenChange={setWeekPickerOpen}>
-                      <PopoverTrigger asChild>
-                        <button type="button" className={periodTriggerClass} aria-label="Выбрать неделю расписания">
-                          <CalendarDays className="size-4 shrink-0" />
-                          <span className="whitespace-nowrap">
-                            {dayLabel(days[0], { day: "numeric", month: "short" })} –{" "}
-                            {dayLabel(days[6], { day: "numeric", month: "short", year: "numeric" })}
-                          </span>
-                          <ChevronDown className="size-3 shrink-0" />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent align="start" className="w-auto p-0">
-                        <Calendar
-                          mode="single"
-                          locale={ru}
-                          weekStartsOn={1}
-                          defaultMonth={new Date(week + "T12:00:00")}
-                          selected={new Date(week + "T12:00:00")}
-                          captionLayout="dropdown"
-                          onSelect={(date) => {
-                            if (!date) return;
-                            setWeek(weekStart(format(date, "yyyy-MM-dd")));
-                            setWeekPickerOpen(false);
-                          }}
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </PeriodStepper>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                        setWeek(
-                          weekStart(dateInZone(new Date(), data.timezone)),
-                        )
-                    }
-                  >
-                    Сегодня
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-2 items-center">
-                  <div className="mr-2 flex items-center gap-2">
-                    <Switch
-                      id="calendar-show-tasks"
-                      checked={showTasks}
-                      onCheckedChange={toggleTasks}
-                    />
-                    <Label
-                      htmlFor="calendar-show-tasks"
-                      className="cursor-pointer whitespace-nowrap text-sm"
-                    >
-                      Показать задачи
-                    </Label>
-                  </div>
-                  {showTasks && pendingTaskReports.length > 0 && (
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" size="sm">
-                          На приёмке · {pendingTaskReports.length}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent
-                        align="end"
-                        className="max-h-[70vh] w-96 max-w-[calc(100vw-32px)] overflow-y-auto p-3"
-                      >
-                        <p className="mb-1 text-sm font-semibold">
-                          Отчёты на приёмке
-                        </p>
-                        <p className="mb-3 text-[13px] text-muted-foreground">
-                          За все дни, включая прошлые недели
-                        </p>
-                        <div className="space-y-2">
-                          {pendingTaskReports.map((task) => (
-                            <div key={task.id}>
-                              <p className="mb-1 text-xs text-muted-foreground">
-                                {dayLabel(task.business_date)}
-                              </p>
-                              {taskCard(task, false)}
-                            </div>
-                          ))}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  )}
-                  <Select value={templateView ? "templates" : view === "list" ? "list" : "week"} onValueChange={changeView}>
-                    <SelectTrigger aria-label="Вид расписания" className="w-[160px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="week">По сотрудникам</SelectItem>
-                      {canPlan && <SelectItem value="templates">По шаблонам</SelectItem>}
-                      <SelectItem value="list">Список</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              {showTasks && tasksError && (
-                <div
-                  role="alert"
-                  className="flex flex-wrap items-center gap-3 text-sm text-destructive"
-                >
-                  <span>Не удалось загрузить задачи</span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                      onClick={() =>
-                        void refreshCalendarTasks().catch(() => {})
-                      }
-                  >
-                    Повторить
-                  </Button>
-                </div>
-              )}
-              {showTasks &&
-                calendarTasks &&
-                calendarTasksWeek === week &&
-                !tasksError &&
-                !weekTasks.length && (
-                  <p className="text-sm text-muted-foreground">
-                    На этой неделе назначенных задач нет
-                  </p>
-                )}
               {(filters || filtersActive) && (
                 <div className="flex flex-wrap items-center gap-2" aria-label="Фильтры расписания">
                   <TableFilterChip
@@ -945,8 +1312,25 @@ export function ScheduleClient({
                   )}
                 </div>
               )}
+              {showTasks && tasksError && (
+                <div
+                  role="alert"
+                  className="flex flex-wrap items-center gap-3 text-sm text-destructive"
+                >
+                  <span>Не удалось загрузить задачи</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                      onClick={() =>
+                        void refreshCalendarTasks().catch(() => {})
+                      }
+                  >
+                    Повторить
+                  </Button>
+                </div>
+              )}
               {templatesOpen && !templateView && (
-                <section aria-label="Шаблоны смен" className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-muted/50 px-3 py-2.5">
+                <section aria-label="Шаблоны смен" className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-muted/30 px-3 py-2.5">
                   <h2 className="shrink-0 text-xs font-semibold text-muted-foreground">Шаблоны смен</h2>
                   <div className="flex flex-wrap gap-1.5">
                     {data.templates.filter((t) => !t.archived).map((t) => (
@@ -956,8 +1340,12 @@ export function ScheduleClient({
                         size="sm"
                         draggable
                         className={cn("h-8 cursor-grab gap-1.5 px-2 active:cursor-grabbing", paletteBg(t.color), paletteText(t.color))}
-                        title={formatTemplateTimes(t)}
-                        onDragStart={(e) => e.dataTransfer.setData("application/sheerly-template", t.id)}
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("application/sheerly-template", t.id);
+                          e.dataTransfer.effectAllowed = "copy";
+                          startDrag({ kind: "template", template: t });
+                        }}
+                        onDragEnd={endDrag}
                         onClick={() => create(days[0], null, t)}
                       >
                         <GripVertical className="size-3 opacity-60" />
@@ -1054,40 +1442,53 @@ export function ScheduleClient({
                         ].map((s) => (
                           <tr key={s.id ?? "open"} className="group hover:bg-muted/30">
                             <th scope="row" className="sticky left-0 z-10 border-b bg-card px-4 py-3 text-left font-normal group-hover:bg-muted">
-                              <div className="flex items-center gap-3">
-                                {s.id ? (
-                                  <PersonAvatar name={s.label} src={s.avatar} />
+                              {(() => {
+                                const person = (
+                                  <>
+                                    {s.id ? (
+                                      <PersonAvatar name={s.label} src={s.avatar} />
+                                    ) : (
+                                      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                                        <Users className="size-4" />
+                                      </span>
+                                    )}
+                                    <div className="min-w-0">
+                                      <p className="break-words text-[13px] font-medium group-hover/person:text-brand">
+                                        {s.label}
+                                      </p>
+                                      <p className="truncate text-xs text-muted-foreground">
+                                        {s.role}
+                                      </p>
+                                    </div>
+                                  </>
+                                );
+                                return s.id && canOpenStaff ? (
+                                  <Link
+                                    href={`/people/staff/${s.id}?from=schedule`}
+                                    className="group/person -m-1 flex items-center gap-3 rounded-md p-1 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  >
+                                    {person}
+                                  </Link>
                                 ) : (
-                                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                                    <Users className="size-4" />
-                                  </span>
-                                )}
-                                <div className="min-w-0">
-                                  <p className="break-words text-[13px] font-medium">
-                                    {s.label}
-                                  </p>
-                                  <p className="truncate text-xs text-muted-foreground">
-                                    {s.role}
-                                  </p>
-                                </div>
-                              </div>
+                                  <div className="flex items-center gap-3">{person}</div>
+                                );
+                              })()}
                             </th>
                             {days.map((d) => (
+                              <ContextMenu key={d} modal={false}>
+                              <ContextMenuTrigger asChild disabled={!can("shift_create") && !can("checklist_edit")}>
                               <td
-                                key={d}
-                                onDragOver={(e) => {
-                                    if (
-                                      can("shift_edit") ||
-                                      can("shift_create")
-                                    )
-                                    e.preventDefault();
-                                }}
+                                onDragOver={(e) => dragOver(e, d, s.id)}
+                                onDragLeave={(e) => dragLeave(e, d, s.id)}
                                 onDrop={(e) => void drop(e, d, s.id)}
                                 className={cn(
-                                  "h-16 border-b border-l p-1.5 align-top",
+                                  "relative h-16 border-b border-l p-1.5 align-top transition-colors",
                                   d === today && "bg-brand/[0.025]",
+                                  dropTarget?.day === d && dropTarget.userId === s.id &&
+                                    (dropTarget.ok ? "bg-brand/[0.06]" : "bg-destructive/[0.04]"),
                                 )}
                               >
+                                {dropGhost(d, s.id)}
                                 <div className="grid gap-1.5">
                                   {personShifts(s.id, d).map((shift) => card(shift))}
                                   {weekTasks
@@ -1103,13 +1504,62 @@ export function ScheduleClient({
                                       size="sm"
                                       aria-label={`Добавить смену: ${s.label}, ${dayLabel(d)}`}
                                       onClick={() => create(d, s.id)}
-                                      className="h-8 w-full text-muted-foreground/70"
+                                      className={cn(
+                                        "h-8 w-full text-muted-foreground/70",
+                                        // Под «тенью» кнопку прячем, но место оставляем.
+                                        dropTarget?.day === d && dropTarget.userId === s.id && "invisible",
+                                      )}
                                     >
                                       <Plus className="size-3.5" />
                                     </Button>
                                   )}
                                 </div>
                               </td>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent>
+                                <ContextMenuLabel>
+                                  {s.label} · {dayLabel(d, { weekday: "short", day: "numeric", month: "short" })}
+                                </ContextMenuLabel>
+                                {occupied(s.id, d) ? (
+                                  <ContextMenuItem disabled>У сотрудника уже есть смена в этот день</ContextMenuItem>
+                                ) : (
+                                  <>
+                                    <ContextMenuItem onSelect={() => create(d, s.id)}>
+                                      <Plus />
+                                      Новая смена
+                                    </ContextMenuItem>
+                                    {cellTemplates(d).length > 0 && (
+                                      <ContextMenuSub>
+                                        <ContextMenuSubTrigger>
+                                          <Layers />
+                                          По шаблону
+                                        </ContextMenuSubTrigger>
+                                        <ContextMenuSubContent>
+                                          {cellTemplates(d).map((t) => (
+                                            <ContextMenuItem key={t.id} onSelect={() => void placeTemplate(t, d, s.id)}>
+                                              <ColorDot color={t.color} size="md" />
+                                              <span className="flex-1 truncate">{shiftTemplateLabel(t)}</span>
+                                              <span className="text-xs tabular-nums text-muted-foreground">
+                                                {(() => {
+                                                  const times = templateTimesFor(t, isoWeekday(d));
+                                                  return times ? `${times.start_time.slice(0, 5)}–${times.end_time.slice(0, 5)}` : "";
+                                                })()}
+                                              </span>
+                                            </ContextMenuItem>
+                                          ))}
+                                        </ContextMenuSubContent>
+                                      </ContextMenuSub>
+                                    )}
+                                  </>
+                                )}
+                                {can("checklist_edit") && (
+                                  <ContextMenuItem onSelect={() => setTaskAssign({ day: d })}>
+                                    <ListChecks />
+                                    Задача на день
+                                  </ContextMenuItem>
+                                )}
+                              </ContextMenuContent>
+                              </ContextMenu>
                             ))}
                             <td className="border-b border-l text-center text-xs font-medium tabular-nums">
                               {personShifts(s.id)
@@ -1176,6 +1626,7 @@ export function ScheduleClient({
                                         key={trial.id}
                                         trial={trial}
                                         timezone={data.timezone}
+                                        linked={data.permissions.includes("people.manage_candidates")}
                                       />
                                     ))}
                                 </div>
@@ -1243,21 +1694,47 @@ export function ScheduleClient({
                       )}
                   >
                     {days.map((d) => (
-                      <section key={d} className="overflow-hidden rounded-lg border bg-card">
-                        <h3 className={cn("border-b bg-muted/50 px-4 py-3 text-sm font-medium first-letter:uppercase", d === today && "text-brand")}>
-                          {dayLabel(d, {
-                            weekday: "long",
-                            day: "numeric",
-                            month: "long",
-                          })}
-                        </h3>
+                      <section
+                        key={d}
+                        // В списке смену переносят на другой день у того же
+                        // сотрудника; шаблоны сюда не бросают — нет сотрудника.
+                        onDragOver={(e) => dragItem?.kind === "shift" && dragOver(e, d, listDropUser)}
+                        onDragLeave={(e) => dragLeave(e, d, listDropUser)}
+                        onDrop={(e) => dragItem?.kind === "shift" && void drop(e, d, listDropUser)}
+                        className={cn(
+                          "overflow-hidden rounded-lg border bg-card transition-colors",
+                          dropTarget?.day === d && dropTarget.userId === listDropUser &&
+                            (dropTarget.ok ? "border-brand/40" : "border-destructive/40"),
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-2 border-b bg-muted/50 py-1.5 pl-4 pr-2">
+                          <h3 className={cn("py-1.5 text-sm font-medium first-letter:uppercase", d === today && "text-brand")}>
+                            {dayLabel(d, {
+                              weekday: "long",
+                              day: "numeric",
+                              month: "long",
+                            })}
+                          </h3>
+                          {can("shift_create") && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 text-muted-foreground"
+                              aria-label={`Добавить смену: ${dayLabel(d)}`}
+                              data-tip="Добавить смену"
+                              onClick={() => create(d)}
+                            >
+                              <Plus className="size-4" />
+                            </Button>
+                          )}
+                        </div>
                         <div className="space-y-2 p-3">
                           {weekShifts
                             .filter(
                               (s) =>
                                 dateInZone(s.starts_at, data.timezone) === d,
                             )
-                            .map((shift) => card(shift, canPlan ? "full" : "shift"))}
+                            .map((shift) => card(shift, "list"))}
                           {weekTasks
                             .filter((task) => task.business_date === d)
                             .map((task) => taskCard(task, false))}
@@ -1269,6 +1746,7 @@ export function ScheduleClient({
                                 trial={trial}
                                 timezone={data.timezone}
                                 showName
+                                linked={data.permissions.includes("people.manage_candidates")}
                               />
                             ))}
                           {!weekShifts.some(
@@ -1285,15 +1763,13 @@ export function ScheduleClient({
                                 Смен нет
                               </p>
                             )}
-                          {can("shift_create") && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => create(d)}
-                            >
-                              <Plus className="size-4 mr-2" />
-                              Добавить смену
-                            </Button>
+                          {/* Место под тень: появляется у всех дней сразу при
+                              начале переноса, поэтому при движении ничего не
+                              прыгает; тень — в дне под курсором. */}
+                          {dragItem?.kind === "shift" && (
+                            <div aria-hidden className="relative h-14">
+                              {dropGhost(d, listDropUser)}
+                            </div>
                           )}
                         </div>
                       </section>
@@ -1321,14 +1797,45 @@ export function ScheduleClient({
             onCopy={(template) =>
               setEditor({ type: "template", template, copy: true })
             }
-            onArchive={(template) =>
-              void save("template.archive", {
-                id: template.id,
-                version: template.version,
-              })
-            }
+            onArchive={(template) => {
+              const label = shiftTemplateLabel(template);
+              const run = () =>
+                save(
+                  "template.archive",
+                  { id: template.id, version: template.version },
+                  template.archived
+                    ? `Шаблон «${label}» восстановлен`
+                    : `Шаблон «${label}» в архиве`,
+                );
+              // Восстановление — сразу; архив — с объяснением, что это не удаление.
+              if (template.archived) return void run();
+              setConfirmation({
+                title: `Убрать шаблон «${label}» в архив?`,
+                description:
+                  "Это не удаление. Шаблон пропадёт из выбора при создании смен, а уже созданные по нему смены останутся в графике как есть. Вернуть шаблон можно в любой момент: фильтр «Статус → Архив», затем «Восстановить».",
+                confirmLabel: "Убрать в архив",
+                action: async () => {
+                  await run();
+                },
+              });
+            }}
           />
         )}
+      {taskAssign && (
+        <TaskAssignDrawer
+          data={data}
+          day={taskAssign.day}
+          template={taskAssign.template}
+          personName={name}
+          onClose={() => setTaskAssign(null)}
+          onDone={() => {
+            setTaskAssign(null);
+            // Назначенную задачу сразу видно в графике.
+            if (!showTasks) toggleTasks(true);
+            else void refreshCalendarTasks(true);
+          }}
+        />
+      )}
       {editor?.type === "shift" && (
         <ShiftEditor
           key={`${editor.shift?.id ?? "new"}-${editor.copy}`}
@@ -1336,6 +1843,7 @@ export function ScheduleClient({
           {...editor}
           onClose={() => setEditor(null)}
           save={save}
+          onEditTemplate={setTemplateOverlay}
         />
       )}
       {editor?.type === "template" && (
@@ -1344,8 +1852,59 @@ export function ScheduleClient({
           data={data}
           {...editor}
           onClose={() => setEditor(null)}
-          save={save}
+          save={saveTemplate(editor.template)}
         />
+      )}
+      {templateOverlay && (
+        <TemplateEditor
+          key={`overlay-${templateOverlay.id}`}
+          data={data}
+          template={templateOverlay}
+          onClose={() => setTemplateOverlay(null)}
+          save={saveTemplate(templateOverlay)}
+        />
+      )}
+      {applyTemplate && editor?.type !== "template" && !templateOverlay && (() => {
+        const template = data.templates.find((t) => t.id === applyTemplate.id);
+        return template ? (
+          <ApplyTemplateDialog
+            template={template}
+            previousTitle={applyTemplate.previousTitle}
+            shifts={data.shifts}
+            timezone={data.timezone}
+            onClose={() => setApplyTemplate(null)}
+            onApplied={refresh}
+          />
+        ) : null;
+      })()}
+      {dragItem?.kind === "shift" && can("shift_delete") && (
+        <div
+          role="region"
+          aria-label="Удалить смену"
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            if (!overTrash) setOverTrash(true);
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOverTrash(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            const shift = dragItem.shift;
+            endDrag();
+            confirmDelete(shift);
+          }}
+          className={cn(
+            "fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border-2 border-dashed px-5 py-3 text-sm font-medium shadow-lg transition-all animate-in fade-in-0 slide-in-from-bottom-4",
+            overTrash
+              ? "scale-105 border-destructive bg-destructive text-destructive-foreground"
+              : "border-destructive/40 bg-background text-destructive",
+          )}
+        >
+          <Trash2 className="size-4" />
+          {overTrash ? "Отпустите, чтобы удалить" : "Перетащите сюда, чтобы удалить"}
+        </div>
       )}
       {selected && (
         <EditDrawer
@@ -1354,53 +1913,33 @@ export function ScheduleClient({
             if (!o) setSelected(null);
           }}
           title={selectedTemplate ? shiftTemplateLabel(selectedTemplate) : selected.title}
-          description={`${dayLabel(dateInZone(selected.starts_at, data.timezone))} · ${timeInZone(selected.starts_at, data.timezone)}–${timeInZone(selected.ends_at, data.timezone)} · ${selected.published ? "Опубликована" : "Черновик"}`}
+          titleAccessory={
+            <DrawerStatus
+              label={selected.published ? "Опубликована" : "Черновик"}
+              tone={selected.published ? "success" : "neutral"}
+            />
+          }
+          description={[
+            dayLabel(dateInZone(selected.starts_at, data.timezone), { weekday: "long", day: "numeric", month: "long" }).replace(/^./, (c) => c.toUpperCase()),
+            `${timeInZone(selected.starts_at, data.timezone)}–${timeInZone(selected.ends_at, data.timezone)}`,
+            `${shiftHours(selected.starts_at, selected.ends_at).toLocaleString("ru", { maximumFractionDigits: 1 })} ч`,
+          ].join(" · ")}
           footer={
             <>
               {can("shift_delete") && (
                 <Button
                   variant="ghost"
-                  className="text-destructive mr-auto"
-                  aria-label="Удалить смену"
-                  onClick={() =>
-                    setConfirmation({
-                      title: "Удалить смену?",
-                      description:
-                        "Смена будет удалена из расписания. Смену с начатым выполнением удалить нельзя.",
-                      action: async () => {
-                        if (
-                          await save("shift.delete", {
-                            id: selected.id,
-                            version: selected.version,
-                          })
-                        )
-                          setSelected(null);
-                      },
-                    })
-                  }
+                  size="icon"
+                  className="mr-auto text-destructive hover:text-destructive"
+                  aria-label={selected.published ? "Удалить смену" : "Удалить черновик"}
+                  onClick={() => confirmDelete(selected)}
                 >
                   <Trash2 className="size-4" />
                 </Button>
               )}
-              {can("shift_copy") && (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setEditor({
-                      type: "shift",
-                      shift: selected,
-                      day: dateInZone(selected.starts_at, data.timezone),
-                      copy: true,
-                    });
-                    setSelected(null);
-                  }}
-                >
-                  <Copy className="size-4 mr-2" />
-                  Копировать
-                </Button>
-              )}
               {can("shift_edit") && (
                 <Button
+                  variant={!selected.published && can("shift_publish") ? "outline" : "default"}
                   onClick={() => {
                     setEditor({
                       type: "shift",
@@ -1413,95 +1952,50 @@ export function ScheduleClient({
                   Изменить
                 </Button>
               )}
+              {!selected.published && can("shift_publish") && (
+                <Button
+                  disabled={busy}
+                  onClick={async () => {
+                    if (await publishShifts([selected])) {
+                      toast.success("Смена опубликована");
+                      setSelected(null);
+                    }
+                  }}
+                >
+                  <Send />
+                  Опубликовать
+                </Button>
+              )}
             </>
           }
         >
-          <div className="space-y-2 text-sm">
-            <p>
-              {name(shiftAssignee(selected))}
-              {selected.payroll_employee_id && (
-                <span className="text-muted-foreground">
-                  {" "}
-                  · начисление по графику
-                </span>
-              )}
-            </p>
-            <p className="text-muted-foreground">
-              {data.roles.find((r) => r.id === selected.role_id)?.name ??
-                "Без позиции"}{" "}
-              ·{" "}
-              {data.departments.find((d) => d.id === selected.department_id)
-                ?.name ?? "Без подразделения"}
-            </p>
-            {selected.note && (
-              <p className="whitespace-pre-wrap pt-2">{selected.note}</p>
-            )}
-          </div>
-          {!selected.published && can("shift_publish") && (
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={async () => {
-                if (await publishShifts([selected])) setSelected(null);
-              }}
-            >
-              Опубликовать смену
-            </Button>
-          )}
-          {can("shift_assign") && !can("shift_edit") && (
-            <Field label="Назначить сотрудника">
-              <select
-                className={selectClass}
-                value={shiftAssignee(selected) ?? ""}
-                onChange={async (e) => {
+          <ShiftDetails
+            key={selected.id}
+            data={data}
+            shift={selected}
+            history={history}
+            historyHasMore={historyHasMore}
+            onLoadMoreHistory={loadMoreHistory}
+            personName={name}
+            assignControl={can("shift_assign") && !can("shift_edit") ? (
+              <EmployeePicker
+                data={data}
+                value={shiftAssignee(selected)}
+                includeCasual={data.permissions.includes("payroll.configure")}
+                onChange={async (next) => {
                   if (
                     await save("shift.assign", {
                       id: selected.id,
                       version: selected.version,
-                      ...assignmentFields(e.target.value || null),
-                      payroll_model_id: e.target.value.startsWith("payroll:")
-                        ? (data.casualEmployees?.find(
-                            (p) => p.id === e.target.value.slice(8),
-                          )?.model_id ?? null)
-                        : null,
+                      ...assignmentFields(next),
+                      payroll_model_id: casualPayModel(next, selected),
                     })
                   )
                     setSelected(null);
                 }}
-              >
-                <option value="">Без сотрудника</option>
-                {selected.payroll_employee_id && (
-                  <option value={shiftAssignee(selected)!}>
-                    {name(shiftAssignee(selected))}
-                  </option>
-                )}
-                {data.staff.filter((s) => s.show_in_schedule || s.user_id === selected.user_id).map((s) => (
-                  <option key={s.user_id} value={s.user_id}>
-                    {name(s.user_id)}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          )}
-          <details>
-            <summary className="cursor-pointer text-sm font-medium">
-              История изменений
-            </summary>
-            <div className="mt-4 space-y-3">
-              {history.map((e) => (
-                <div key={e.id} className="text-sm">
-                  <p>{eventLabels[e.action] ?? e.action}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {new Intl.DateTimeFormat("ru", {
-                      timeZone: data.timezone,
-                      dateStyle: "short",
-                      timeStyle: "short",
-                    }).format(new Date(e.created_at))}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </details>
+              />
+            ) : undefined}
+          />
         </EditDrawer>
       )}
       <Dialog
@@ -1524,6 +2018,7 @@ export function ScheduleClient({
               Отмена
             </Button>
             <Button
+              variant={confirmation?.destructive ? "destructive" : "default"}
               disabled={busy}
               onClick={async () => {
                 setBusy(true);
@@ -1535,9 +2030,7 @@ export function ScheduleClient({
                 }
               }}
             >
-              {confirmation?.title === "Удалить смену?"
-                ? "Удалить смену"
-                : "Опубликовать смены"}
+              {confirmation?.confirmLabel}
             </Button>
           </DialogFooter>
         </DialogContent>

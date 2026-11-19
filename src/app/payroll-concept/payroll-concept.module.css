@@ -264,16 +264,6 @@
   align-items: center;
 }
 
-.iconButton {
-  border: 0;
-  background: none;
-  color: hsl(var(--muted-foreground));
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-}
-
 .heading {
   display: flex;
   justify-content: space-between;
@@ -388,49 +378,6 @@
   font-style: normal;
   margin: 0 5px;
   color: hsl(var(--muted-foreground));
-}
-
-.tabs {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid hsl(var(--border));
-  margin-top: 29px;
-}
-.tabs > div {
-  display: flex;
-  gap: 27px;
-}
-.tabs button {
-  position: relative;
-  padding: 0 0 14px;
-  color: hsl(var(--muted-foreground));
-  background: none;
-  border: none;
-  font-size: 13px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.tabs button > span {
-  font-size: 10px;
-  background: hsl(var(--muted));
-  padding: 0 5px;
-  border-radius: 4px;
-  color: hsl(var(--muted-foreground));
-}
-.tabs .activeTab {
-  color: hsl(var(--muted-foreground));
-  font-weight: 600;
-}
-.activeTab:after {
-  content: "";
-  position: absolute;
-  height: 2px;
-  background: hsl(var(--muted));
-  bottom: -1px;
-  left: 0;
-  right: 0;
 }
 
 .analytics {
@@ -1111,38 +1058,6 @@
   color: hsl(var(--muted-foreground));
   margin-top: 21px;
 }
-.helpSteps {
-  margin-top: 25px;
-}
-.helpSteps > div {
-  display: flex;
-  gap: 16px;
-  padding: 14px 0;
-  border-bottom: 1px solid hsl(var(--border));
-}
-.helpSteps > div > span {
-  font-size: 13px;
-  color: hsl(var(--muted-foreground));
-}
-.helpSteps strong {
-  font-size: 15px;
-  font-weight: 500;
-  color: hsl(var(--foreground));
-}
-.helpSteps p {
-  font-size: 13px;
-  line-height: 1.7;
-  color: hsl(var(--muted-foreground));
-  margin: 5px 0 0;
-}
-.helpSteps .helpNote {
-  background: hsl(var(--brand) / 0.06);
-  font-size: 12px;
-  padding: 13px;
-  border-radius: 6px;
-  margin-top: 20px;
-  color: hsl(var(--muted-foreground));
-}
 @keyframes rise {
   from {
     opacity: 0;
@@ -1504,15 +1419,6 @@
   .metric small {
     font-size: 9px;
   }
-  .tabs {
-    margin-top: 23px;
-  }
-  .tabs > div {
-    gap: 25px;
-  }
-  .tabs button {
-    font-size: 13px;
-  }
   .analytics {
     margin-top: 20px;
     margin-bottom: 24px;
@@ -1566,9 +1472,6 @@
   }
   .employeeTotal strong {
     font-size: 28px;
-  }
-  .helpSteps strong {
-    font-size: 14px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1652,38 +1555,6 @@
 .monthPicker button:focus-visible {
   outline: 2px solid hsl(var(--brand));
   outline-offset: 3px;
-}
-.employeeTabs {
-  display: flex;
-  gap: 24px;
-  border-bottom: 1px solid hsl(var(--border));
-  margin-top: 22px;
-}
-.employeeTabs > button {
-  position: relative;
-  background: none;
-  border: 0;
-  font-size: 12px;
-  padding: 0 0 12px;
-  color: hsl(var(--muted-foreground));
-}
-.employeeTabs > button > span {
-  margin-left: 4px;
-  font-size: 10px;
-  color: hsl(var(--muted-foreground));
-}
-.employeeTabs > .employeeTabActive {
-  color: hsl(var(--foreground));
-  font-weight: 600;
-}
-.employeeTabActive:after {
-  content: "";
-  height: 2px;
-  background: hsl(var(--muted));
-  position: absolute;
-  bottom: -1px;
-  left: 0;
-  right: 0;
 }
 .shiftInspector {
   margin-top: 14px;
@@ -1861,14 +1732,6 @@
   color: hsl(var(--muted-foreground));
   font-size: 20px;
 }
-.tabs button {
-  font-size: 14px;
-  color: hsl(var(--muted-foreground));
-}
-.tabs .activeTab {
-  color: hsl(var(--foreground));
-}
-.activeTab:after,
 .legend i,
 .filterButton > i {
   background: hsl(var(--brand));
@@ -1889,8 +1752,7 @@
   background: hsl(var(--brand) / 0.06);
   border-color: hsl(var(--brand) / 0.2);
 }
-.rowChevron,
-.iconButton {
+.rowChevron {
   color: hsl(var(--muted-foreground));
 }
 .bonus {
@@ -1914,13 +1776,9 @@
 .dialog .breakdown strong {
   color: hsl(var(--foreground));
 }
-.employeeTabs > .employeeTabActive,
 .shiftBack,
 .fullDetailLink {
   color: hsl(var(--brand));
-}
-.employeeTabActive:after {
-  background: hsl(var(--brand));
 }
 @media (max-width: 1150px) {
   .metric {
@@ -2045,9 +1903,13 @@
     font-size: 16px;
   }
 }
+/* Шапка страницы: общий TablePageHeader, до показателей 16px. */
+.pageHeader {
+  margin-bottom: 16px;
+}
 .functionalControls {
   min-width: 0;
-  min-height: 40px;
+  min-height: 36px;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -2098,30 +1960,6 @@
   min-width: 0;
   white-space: normal;
 }
-.roleFilter > span {
-  display: block;
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-  margin-bottom: 10px;
-}
-.roleFilter > button {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-  text-align: left;
-  padding: 9px 10px;
-  border-radius: 6px;
-  font-size: 14px;
-  color: hsl(var(--foreground));
-}
-.roleFilter > button:hover {
-  background: hsl(var(--muted));
-}
-.roleFilter svg {
-  color: hsl(var(--brand));
-}
 .closeBody {
   margin: 20px 0;
   color: hsl(var(--muted-foreground));
@@ -2142,12 +1980,6 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-}
-.dialogActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 22px;
 }
 @media (max-width: 700px) {
   .functionalControls {
@@ -2172,6 +2004,7 @@
   }
 }
 .actionButton {
+  height: 36px;
   font-size: 13px;
   padding-left: 12px;
   padding-right: 12px;
@@ -2262,20 +2095,5 @@
   }
   .metric strong {
     font-size: 22px;
-  }
-}
-
-@media (max-width: 540px) {
-  .tabs > div {
-    display: grid;
-    width: 100%;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 4px 16px;
-  }
-  .tabs button {
-    min-height: 40px;
-    padding: 6px 0;
-    text-align: left;
-    line-height: 1.3;
   }
 }

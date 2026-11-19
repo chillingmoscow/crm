@@ -109,7 +109,7 @@ export function TrashItemRow({
         <Link
           href={`/knowledge/${row.slug}`}
           aria-label="Открыть для чтения"
-          title="Открыть для чтения"
+          data-tip="Открыть для чтения"
           className="inline-flex items-center justify-center size-8 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
         >
           <Eye className="size-4" />

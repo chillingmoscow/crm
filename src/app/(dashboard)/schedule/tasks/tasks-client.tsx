@@ -10,7 +10,7 @@ import {
 } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Plus, ArrowLeft, Camera, Trash2, X } from "lucide-react";
+import { Plus, Camera, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { DatePicker } from "@/components/ui/date-picker";
+import { TimePicker } from "@/components/ui/time-picker";
 import {
   Select,
   SelectContent,
@@ -25,7 +26,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import {
   Tabs,
   ProfileTabsList,
@@ -51,6 +51,7 @@ import {
 import { toast } from "sonner";
 import type { Answer, ChecklistItem } from "@/lib/schedule/types";
 import { dayLabel } from "@/lib/schedule/utils";
+import { countRu } from "@/lib/format/plural";
 import {
   missingItems,
   taskStatus,
@@ -62,13 +63,13 @@ import {
 import {
   loadTasks,
   saveTask,
-  saveTaskSettings,
   taskRunCommand,
   uploadTaskPhoto,
   taskPhotoUrl,
   taskHistory,
   retryTaskMessage,
 } from "./actions";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 
 const actionLabels: Record<string, string> = {
   "definition.created": "Создан шаблон задачи",
@@ -197,10 +198,6 @@ function SwitchRow({
     </div>
   );
 }
-function plural(count: number, one: string, few: string, many: string) {
-  const key = new Intl.PluralRules("ru-RU").select(count);
-  return key === "one" ? one : key === "few" ? few : many;
-}
 function newItem(kind: ChecklistItem["kind"] = "check"): ChecklistItem {
   return {
     id: crypto.randomUUID(),
@@ -315,9 +312,13 @@ function TaskScreen({
         url.href === window.location.href
       )
         return;
+      // Путь вида «//host/…» router.push понял бы как адрес другого сайта:
+      // перехватываем только обычные пути внутри приложения.
+      const path = url.pathname + url.search + url.hash;
+      if (!/^\/(?!\/)/.test(path)) return;
       event.preventDefault();
       event.stopPropagation();
-      setExitHref(url.pathname + url.search + url.hash);
+      setExitHref(path);
       setConfirmExit(true);
     };
     window.addEventListener("beforeunload", guard);
@@ -335,24 +336,24 @@ function TaskScreen({
     >
       <TaskPageTitle title={title} />
       <TaskHeaderActions>{actions}</TaskHeaderActions>
-      <PageBreadcrumb>
-        <a
-          href={backHref}
-          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 py-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          aria-disabled={busy}
-          onClick={(event) => {
-            event.preventDefault();
-            if (!busy) {
-              setExitHref(null);
-              if (dirty) setConfirmExit(true);
-              else onBack();
-            }
-          }}
-        >
-          <ArrowLeft className="size-4" />
-          {backLabel}
-        </a>
-      </PageBreadcrumb>
+      <Breadcrumbs
+        items={[
+          { label: "График работы" },
+          {
+            label: backLabel === "К графику" ? "Расписание" : "Задачи",
+            href: backHref,
+            onClick: (event) => {
+              event.preventDefault();
+              if (!busy) {
+                setExitHref(null);
+                if (dirty) setConfirmExit(true);
+                else onBack();
+              }
+            },
+          },
+          { label: title },
+        ]}
+      />
       {description && (
         <p className="text-sm leading-relaxed text-muted-foreground">
           {description}
@@ -395,7 +396,6 @@ export function TasksClient({
 }) {
   const [data, setData] = useState(initial);
   const [editor, setEditor] = useState<TaskDefinition | "new" | null>(null);
-  const [settings, setSettings] = useState(false);
   const wasActive = useRef(active);
   useEffect(() => {
     const returning = active && !wasActive.current;
@@ -415,10 +415,6 @@ export function TasksClient({
   }, [active]);
   const manage = data.permissions.includes("schedule.checklist_edit"),
     create = data.permissions.includes("schedule.checklist_create");
-  const canSettings =
-      manage &&
-      data.permissions.includes("payroll.configure") &&
-      data.permissions.includes("payroll.review");
   const refresh = async () => {
     const next = await loadTasks();
     setData(next);
@@ -426,30 +422,15 @@ export function TasksClient({
   };
     return (
     <>
-      <div hidden={!!editor || settings} className="space-y-4">
+      <div hidden={!!editor} className="space-y-4">
         <TaskPageTitle title={null} />
         <TaskList
         data={data}
           onOpen={setEditor}
           onCreate={create ? () => setEditor("new") : undefined}
-          onSettings={canSettings ? () => setSettings(true) : undefined}
           onRefresh={refresh}
       />
-      {manage && (!data.settings?.enabled_from || data.settings?.paused) && (
-        <p className="text-[13px] text-muted-foreground">
-          {data.settings?.paused
-            ? "Автоматическая обработка приостановлена."
-            : "Автоматическое назначение ещё не включено."}
-          {canSettings && (
-            <button
-              className="ml-1.5 hover:text-foreground hover:underline"
-              onClick={() => setSettings(true)}
-            >
-              Настроить
-            </button>
-          )}
-        </p>
-      )}
+      {manage && <TaskMessageErrors messages={data.messages} onSaved={async () => { await refresh(); }} />}
     </div>
       {editor ? (
         <DefinitionEditor
@@ -460,18 +441,6 @@ export function TasksClient({
           onSaved={async () => {
             await refresh();
             setEditor(null);
-          }}
-        />
-      ) : settings ? (
-        <SettingsEditor
-          data={data}
-          onClose={() => setSettings(false)}
-          onRefresh={async () => {
-            await refresh();
-          }}
-          onSaved={async () => {
-            await refresh();
-            setSettings(false);
           }}
         />
       ) : null}
@@ -648,8 +617,7 @@ function DefinitionEditor({
           title="Чек-лист"
           actions={
             <span className="text-[13px] text-muted-foreground">
-              {value.items.length}{" "}
-              {plural(value.items.length, "пункт", "пункта", "пунктов")}
+              {countRu(value.items.length, "пункт", "пункта", "пунктов")}
             </span>
           }
         >
@@ -1322,11 +1290,10 @@ export function TaskReport({
               />
             </Field>
             <Field label="Срок исправления при возврате">
-              <Input
-                type="datetime-local"
+              <DateTimeField
                 value={correctUntil}
-                onChange={(e) => {
-                  setCorrectUntil(e.target.value);
+                onChange={(next) => {
+                  setCorrectUntil(next);
                   setDirty(true);
                 }}
               />
@@ -1358,120 +1325,6 @@ export function TaskReport({
           </details>
         )}
       </div>
-    </TaskScreen>
-  );
-}
-function SettingsEditor({
-  data,
-  onClose,
-  onRefresh,
-  onSaved,
-}: {
-  data: TaskData;
-  onClose: () => void;
-  onRefresh: () => Promise<void>;
-  onSaved: () => Promise<void>;
-}) {
-  const [from, setFrom] = useState(data.settings?.enabled_from ?? ""),
-    [paused, setPaused] = useState(data.settings?.paused ?? false),
-    [stopped, setStopped] = useState(data.settings?.legacy_stopped ?? false),
-    [chat, setChat] = useState(data.settings?.chat_id ?? ""),
-    [reminders, setReminders] = useState(
-      data.settings?.reminder_chat_ids?.join(", ") ?? "",
-    ),
-    [busy, setBusy] = useState(false);
-  async function submit() {
-    setBusy(true);
-    try {
-      const r = await saveTaskSettings({
-        version: data.settings?.version,
-        enabled_from: from || null,
-        paused,
-        legacy_stopped: stopped,
-        chat_id: chat || null,
-        reminder_chat_ids: reminders.split(/[,;\s]+/).filter(Boolean),
-      });
-      if (r.error) toast.error(r.error);
-      else {
-        toast.success("Настройки сохранены");
-        await onSaved();
-      }
-    } catch {
-      toast.error("Не удалось сохранить настройки");
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <TaskScreen
-      title="Настройки задач"
-      onBack={onClose}
-      busy={busy}
-      dirty={
-        from !== (data.settings?.enabled_from ?? "") ||
-        paused !== (data.settings?.paused ?? false) ||
-        stopped !== (data.settings?.legacy_stopped ?? false) ||
-        chat !== (data.settings?.chat_id ?? "") ||
-        reminders !== (data.settings?.reminder_chat_ids?.join(", ") ?? "")
-      }
-      actions={
-        <Button disabled={busy} onClick={() => void submit()}>
-          {busy ? "Сохранение…" : "Сохранить настройки"}
-        </Button>
-      }
-    >
-      <fieldset disabled={busy} className="min-w-0 space-y-5">
-        <ProfileSection
-          title="Автоматическая обработка"
-          description="Перед включением сверьте переходный период и отключите прежние сценарии задач и напоминаний."
-        >
-          <Field label="Дата перехода">
-            <DatePicker
-              disabled={busy || Boolean(data.settings?.enabled_from)}
-              fromDate={new Date(data.today + "T00:00:00")}
-              value={from}
-              onChange={setFrom}
-              clearable={!data.settings?.enabled_from}
-            />
-          </Field>
-          <Check checked={stopped} onChange={setStopped} disabled={busy}>
-            Прежние сценарии задач, начислений и напоминаний отключены
-          </Check>
-          {from && (
-            <div className="border-t pt-4">
-              <SwitchRow
-                label="Обрабатывать задачи автоматически"
-                description="Пауза сохраняет дату перехода и существующие отчёты. Изменения применятся после сохранения."
-                checked={!paused}
-                disabled={busy}
-                onChange={(enabled) => setPaused(!enabled)}
-              />
-            </div>
-          )}
-        </ProfileSection>
-        <ProfileSection title="Уведомления">
-          <Field label="ID чата для списка задач">
-            <Input
-              value={chat}
-              onChange={(e) => setChat(e.target.value)}
-              placeholder="−100…"
-            />
-          </Field>
-          <Field label="Чаты напоминаний о сдаче графика">
-            <Textarea
-              rows={3}
-              value={reminders}
-              onChange={(e) => setReminders(e.target.value)}
-              placeholder="ID чатов через запятую"
-            />
-          </Field>
-          <p className="text-[13px] leading-snug text-muted-foreground">
-            Список задач: ежедневно в 12:00. Напоминания: понедельник и среда в
-            14:00 по времени заведения.
-          </p>
-        </ProfileSection>
-      </fieldset>
-      <TaskMessageErrors messages={data.messages} onSaved={onRefresh} />
     </TaskScreen>
   );
 }
@@ -1528,5 +1381,32 @@ function TaskMessageErrors({
         </div>
       ))}
     </ProfileSection>
+  );
+}
+
+/**
+ * Дата и время вместо нативного `datetime-local`: отдаёт ту же строку
+ * `YYYY-MM-DDTHH:mm` (локальное время устройства), а пока не выбрана
+ * одна из частей — пустую строку, как нативное поле с неполным значением.
+ */
+function DateTimeField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [date, setDate] = useState(value.slice(0, 10));
+  const [time, setTime] = useState(value.slice(11, 16));
+  const update = (nextDate: string, nextTime: string) => {
+    setDate(nextDate);
+    setTime(nextTime);
+    onChange(nextDate && nextTime ? `${nextDate}T${nextTime}` : "");
+  };
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_8rem] gap-2">
+      <DatePicker value={date} onChange={(next) => update(next, time)} />
+      <TimePicker value={time} onChange={(next) => update(date, next)} />
+    </div>
   );
 }

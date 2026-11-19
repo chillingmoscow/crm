@@ -8,6 +8,7 @@ import {
 import { processPayrollBonus } from "@/lib/payroll/bonus-worker";
 import { processAdjustmentNotification } from "@/lib/payroll/adjustment-notify-worker";
 import { processScheduleTasks } from "@/lib/schedule/tasks-worker";
+import { processAdeskSync } from "@/lib/payroll/adesk-worker";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -84,7 +85,26 @@ export async function POST(request: NextRequest) {
     } catch {
       finesErrors++;
     }
+    // An Adesk outage must not affect salary processing; failed payouts retry with backoff.
+    let adeskSynced = 0,
+      adeskErrors = 0;
+    try {
+      const adeskStarted = Date.now();
+      while (Date.now() - adeskStarted < 8000) {
+        const r = await processAdeskSync();
+        if (r.idle) break;
+        if (r.synced) adeskSynced++;
+        if (r.error) {
+          adeskErrors++;
+          break;
+        }
+      }
+    } catch {
+      adeskErrors++;
+    }
     return NextResponse.json({
+      adeskSynced,
+      adeskErrors,
       tasks: taskResult,
       taskErrors,
       finesSent,

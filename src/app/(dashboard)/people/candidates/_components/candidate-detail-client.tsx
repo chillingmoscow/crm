@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -24,7 +25,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tabs, ProfileTabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { CandidateDeleteDialog } from "./candidate-delete-dialog";
 import { formatPhoneDisplay, normalizePhone } from "@/lib/format/phone";
 import {
@@ -51,7 +52,6 @@ import { CandidateAppointmentDetails } from "./candidate-appointment-details";
 import { appointmentOutcomeLabel } from "@/lib/candidates/appointment-labels";
 import { CandidateAppointmentDrawer } from "./candidate-appointment-drawer";
 import { CandidateStatusCell } from "./candidate-status-cell";
-import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import { ProfileHeader } from "@/components/shared/profile-header";
 import { ProfileSection } from "@/components/shared/profile-section";
 import {
@@ -59,6 +59,8 @@ import {
   safeLink,
   wallTime,
 } from "./fields";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { ProfilePageFrame } from "@/components/shared/page-frame";
 const labels: Record<string, string> = {
   full_name: "ФИО",
   phone: "Телефон",
@@ -165,16 +167,14 @@ export function CandidateDetailClient({
   const ageLabel = c.age === null ? null : `${c.age} ${ageForm === "one" ? "год" : ageForm === "few" ? "года" : "лет"}`;
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      <PageBreadcrumb>
-        <nav aria-label="Навигация по разделам" className="flex min-w-0 items-center gap-2 text-sm">
-          <span className="shrink-0 text-muted-foreground">Люди</span>
-          <span aria-hidden="true" className="text-muted-foreground">/</span>
-          <Link href="/people/candidates" className="shrink-0 text-muted-foreground hover:text-foreground">Кандидаты</Link>
-          <span aria-hidden="true" className="text-muted-foreground">/</span>
-          <span aria-current="page" className="min-w-0 truncate" title={c.full_name}>{c.full_name}</span>
-        </nav>
-      </PageBreadcrumb>
-      <div className="mx-auto flex w-full min-w-0 max-w-[1120px] flex-col gap-6 px-6 pb-8 pt-4 md:px-8">
+      <Breadcrumbs
+        items={[
+          { label: "Люди" },
+          { label: "Кандидаты", href: "/people/candidates" },
+          { label: c.full_name },
+        ]}
+      />
+      <ProfilePageFrame>
         <ProfileHeader name={c.full_name} avatarUrl={photo} wrapName actions={
           <>
             {canEdit && !c.hired_user_id && !data.hire && ["new", "review", "interview"].includes(c.status) && (
@@ -189,16 +189,17 @@ export function CandidateDetailClient({
                 </Link>
               </Button>
             ) : permissions.hire && options.venues.some(v => v.can_hire) && !c.archived_at && (c.status === "trial" || data.hire?.state === "reserved") ? (
-              <Button
-                disabled={c.status !== "trial" && data.hire?.state !== "reserved"}
-                title={c.status !== "trial" ? "Приём на работу доступен на этапе «Стажировка»" : undefined}
-                onClick={() => setHiring(true)}
-              >
-                <UserCheck className="mr-2 h-4 w-4" />
-                {data.hire?.state === "reserved"
-                  ? "Продолжить оформление"
-                  : "Принять на работу"}
-              </Button>
+              <span data-tip={c.status !== "trial" ? "Приём на работу доступен на этапе «Стажировка»" : undefined} className="inline-flex">
+                <Button
+                  disabled={c.status !== "trial" && data.hire?.state !== "reserved"}
+                  onClick={() => setHiring(true)}
+                >
+                  <UserCheck className="mr-2 h-4 w-4" />
+                  {data.hire?.state === "reserved"
+                    ? "Продолжить оформление"
+                    : "Принять на работу"}
+                </Button>
+              </span>
             ) : null}
             {canEdit || permissions.owner ? (
               <DropdownMenu>
@@ -239,7 +240,7 @@ export function CandidateDetailClient({
             }}
             onRefresh={() => void refresh()}
           />
-          {c.archived_at && <span className="text-xs text-muted-foreground">В архиве</span>}
+          {c.archived_at && <StatusBadge>В архиве</StatusBadge>}
         </ProfileHeader>
         {data.related.length ? (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
@@ -271,14 +272,12 @@ export function CandidateDetailClient({
           </div>
         ) : null}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0">
-          <div className="overflow-x-auto">
-            <TabsList className="min-w-max justify-center">
-              <TabsTrigger value="profile">Анкета</TabsTrigger>
-              <TabsTrigger value="communication">Коммуникация</TabsTrigger>
-              <TabsTrigger value="history">Журнал</TabsTrigger>
-            </TabsList>
-          </div>
-          <TabsContent value="profile" className="mx-auto w-full max-w-[720px] space-y-5">
+          <ProfileTabsList>
+            <TabsTrigger value="profile">Анкета</TabsTrigger>
+            <TabsTrigger value="communication">Коммуникация</TabsTrigger>
+            <TabsTrigger value="history">Журнал</TabsTrigger>
+          </ProfileTabsList>
+          <TabsContent value="profile" className="space-y-5">
             <ProfileSection title="Личные данные и контакты">
               <dl className="grid min-w-0 gap-x-8 gap-y-5 sm:grid-cols-2">
                 <ProfileValue label="Телефон">
@@ -426,7 +425,7 @@ export function CandidateDetailClient({
             ) : null}
             <CandidateComments candidateId={c.id} comments={data.comments} viewerId={data.viewer_id} editable={canEdit} onSaved={async () => { await refresh(); }} />
           </TabsContent>
-          <TabsContent value="communication" className="mx-auto w-full max-w-[720px]">
+          <TabsContent value="communication">
             <div className="space-y-5">
               <ProfileSection title="Собеседование">
                   {latestInterview ? <CandidateAppointmentRow appointment={latestInterview} options={options} onOpen={() => setViewing(latestInterview)} />
@@ -440,7 +439,7 @@ export function CandidateDetailClient({
               </ProfileSection>
             </div>
           </TabsContent>
-          <TabsContent value="history" className="mx-auto w-full max-w-[720px]">
+          <TabsContent value="history">
             <ProfileSection title="Журнал" description="История изменений анкеты">
               <ol className="space-y-5">
                 {data.events.map((item) => (
@@ -525,8 +524,7 @@ export function CandidateDetailClient({
             </ProfileSection>
           </TabsContent>
         </Tabs>
-
-      </div>
+      </ProfilePageFrame>
       <CandidateDeleteDialog
         open={deleting}
         onOpenChange={setDeleting}

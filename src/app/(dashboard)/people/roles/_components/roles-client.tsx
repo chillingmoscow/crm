@@ -1,23 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  Plus,
-  Shield,
-  Search,
-  Settings2,
-  X,
-  Check,
-  Filter,
-  Lock,
-} from "lucide-react";
+  getCoreRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type ColumnDef,
+} from "@tanstack/react-table";
+import { arrayMove } from "@dnd-kit/sortable";
+import { Check, Lock, Plus, SearchX, Shield } from "lucide-react";
 import { iconForRole } from "./role-icons";
 import { IconPicker } from "./icon-picker";
 import { paletteText, type PaletteColor } from "@/lib/palette";
+import { pluralRu } from "@/lib/format/plural";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
-import { IconTooltip } from "@/components/ui/icon-tooltip";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EditDrawer } from "@/components/ui/edit-drawer";
@@ -28,8 +30,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Sparkles } from "lucide-react";
 import { createRole } from "../actions";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { PageFrame } from "@/components/shared/page-frame";
+import {
+  DataTable,
+  TableColumnManager,
+  TableConditions,
+  TableControls,
+  TableFilterChip,
+  TablePageHeader,
+  TablePagination,
+  TableSortPicker,
+  useTableState,
+} from "@/components/shared/table";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -70,188 +84,32 @@ type Props = {
   departments: DepartmentLite[];
 };
 
-// ── Column definitions ────────────────────────────────────────
+// ── Columns ──────────────────────────────────────────────────
 
 type ColKey = "name" | "department" | "staff" | "permissions" | "qr_import";
 
-const COL_DEFS: {
-  key: ColKey;
-  label: string;
-  width: string;
-  /** "center" centers both header label and cell content; default = left */
-  align?: "center";
-  required?: boolean;
-}[] = [
-  // Точно по дизайну MlKFD/RuvhI: name = 1fr, staff = 140, perms = 220
-  // (фиксированный — прогресс-бар не должен растягиваться на полэкрана),
-  // qr_import = 100. Gap между колонками — 16 (gap-4).
-  { key: "name",        label: "Должность",    width: "minmax(220px, 1fr)", required: true },
-  { key: "department",  label: "Подразделение",width: "160px" },
-  { key: "staff",       label: "Сотрудники",   width: "140px" },
-  { key: "permissions", label: "Права",        width: "220px" },
-  { key: "qr_import",   label: "Импорт из QR", width: "100px", align: "center" },
-];
-
-const DEFAULT_COLS: ColKey[] = ["name", "department", "staff", "permissions", "qr_import"];
-
-// ── Column settings dropdown ──────────────────────────────────
-
-function ColumnSettings({
-  visible,
-  onChange,
-}: {
-  visible: Set<ColKey>;
-  onChange: (k: ColKey, on: boolean) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, [open]);
-
-  return (
-    <div className="relative" ref={ref}>
-      <IconTooltip label="Столбцы таблицы">
-        <Button
-          variant="outline"
-          size="icon"
-          className="h-8 w-8"
-          onClick={() => setOpen((v) => !v)}
-        >
-          <Settings2 className="w-4 h-4" />
-        </Button>
-      </IconTooltip>
-      {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 bg-background border rounded-lg shadow-md p-2 min-w-[180px]">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground px-2 pb-1.5">
-            Столбцы таблицы
-          </p>
-          {COL_DEFS.filter((c) => !c.required).map((col) => (
-            <label
-              key={col.key}
-              className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted cursor-pointer text-sm select-none"
-            >
-              <input
-                type="checkbox"
-                checked={visible.has(col.key)}
-                onChange={(e) => onChange(col.key, e.target.checked)}
-                className="accent-primary"
-              />
-              {col.label}
-            </label>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-type RoleFilter = {
-  importedFromQr: "all" | "yes" | "no";
-  /** id подразделения, "__none__" — без подразделения, "all" — без фильтра. */
-  departmentId: string;
+const labels: Record<ColKey, string> = {
+  name: "Должность",
+  department: "Подразделение",
+  staff: "Сотрудники",
+  permissions: "Права",
+  qr_import: "Импорт из Quick Resto",
 };
-
-function RoleFilterPanel({
-  filter,
-  departments,
-  onChange,
-}: {
-  filter: RoleFilter;
-  departments: DepartmentLite[];
-  onChange: (next: RoleFilter) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, [open]);
-
-  const isActive =
-    filter.importedFromQr !== "all" || filter.departmentId !== "all";
-
-  return (
-    <div className="relative" ref={ref}>
-      <IconTooltip label={isActive ? "Фильтры (активны)" : "Фильтры"}>
-        <Button
-          variant="outline"
-          size="icon"
-          className={`h-8 w-8 ${isActive ? "border-primary text-primary" : ""}`}
-          onClick={() => setOpen((v) => !v)}
-        >
-          <Filter className="w-4 h-4" />
-        </Button>
-      </IconTooltip>
-      {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 bg-background border rounded-lg shadow-md p-3 min-w-[240px] space-y-3">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            Фильтры
-          </p>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Подразделение</Label>
-            <select
-              className="w-full h-8 rounded-md border border-input bg-background text-sm px-2 focus:outline-none focus:ring-1 focus:ring-ring"
-              value={filter.departmentId}
-              onChange={(e) =>
-                onChange({
-                  ...filter,
-                  departmentId: e.target.value,
-                })
-              }
-            >
-              <option value="all">Все</option>
-              <option value="__none__">Без подразделения</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Импорт из QR</Label>
-            <select
-              className="w-full h-8 rounded-md border border-input bg-background text-sm px-2 focus:outline-none focus:ring-1 focus:ring-ring"
-              value={filter.importedFromQr}
-              onChange={(e) =>
-                onChange({
-                  ...filter,
-                  importedFromQr: e.target.value as RoleFilter["importedFromQr"],
-                })
-              }
-            >
-              <option value="all">Все</option>
-              <option value="yes">Только импортированные</option>
-              <option value="no">Только созданные вручную</option>
-            </select>
-          </div>
-          {isActive ? (
-            <button
-              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
-              onClick={() =>
-                onChange({ importedFromQr: "all", departmentId: "all" })
-              }
-            >
-              Сбросить фильтры
-            </button>
-          ) : null}
-        </div>
-      )}
-    </div>
-  );
-}
+const columnConfig = [
+  { id: "name", defaultSize: 320 },
+  { id: "department", defaultSize: 200 },
+  { id: "staff", defaultSize: 160 },
+  { id: "permissions", defaultSize: 220 },
+  { id: "qr_import", defaultSize: 190 },
+];
+const sortFields: ColKey[] = [
+  "name",
+  "department",
+  "staff",
+  "permissions",
+  "qr_import",
+];
+const collator = new Intl.Collator("ru", { sensitivity: "base", numeric: true });
 
 // ── Main component ─────────────────────────────────────────────
 
@@ -270,41 +128,18 @@ export function RolesClient({
   const importedSet = useMemo(() => new Set(importedRoleIds), [importedRoleIds]);
   const [isPending, startTransition] = useTransition();
 
-  // Column visibility — persisted in localStorage
-  const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(() => {
-    if (typeof window === "undefined") return new Set(DEFAULT_COLS);
-    try {
-      const saved = localStorage.getItem("crm-roles-visible-cols");
-      if (saved) return new Set(JSON.parse(saved) as ColKey[]);
-    } catch {}
-    return new Set(DEFAULT_COLS);
+  const st = useTableState({
+    tableId: "people.roles",
+    legacyVisibilityKey: "crm-roles-visible-cols",
+    columns: columnConfig,
   });
-  const toggleCol = (key: ColKey, on: boolean) => {
-    setVisibleCols((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(key);
-      else next.delete(key);
-      try {
-        localStorage.setItem("crm-roles-visible-cols", JSON.stringify([...next]));
-      } catch {}
-      return next;
-    });
-  };
-  // Search
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const [filter, setFilter] = useState<RoleFilter>({
-    importedFromQr: "all",
-    departmentId: "all",
-  });
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filter, setFilter] = useState({ department: "", imported: "" });
   const departmentNameById = useMemo(
     () => new Map(departments.map((d) => [d.id, d.name])),
     [departments],
   );
-  useEffect(() => {
-    if (searchOpen) setTimeout(() => searchInputRef.current?.focus(), 50);
-  }, [searchOpen]);
+  const firstPage = () => st.setPagination((p) => ({ ...p, pageIndex: 0 }));
 
   // Create drawer
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -327,30 +162,36 @@ export function RolesClient({
     [roles],
   );
 
-  function getGrantedCount(roleId: string): number {
-    return rolePermissions.filter((rp) => rp.role_id === roleId && rp.granted).length;
-  }
+  const grantedByRole = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const rp of rolePermissions)
+      if (rp.granted) counts.set(rp.role_id, (counts.get(rp.role_id) ?? 0) + 1);
+    return counts;
+  }, [rolePermissions]);
 
-  // Filtering
-  const q = searchQuery.toLowerCase().trim();
+  const q = st.search.toLocaleLowerCase("ru").trim();
+  const hasFilters = !!(filter.department || filter.imported);
   const filteredRoles = roles.filter((r) => {
-    if (q && !r.name.toLowerCase().includes(q)) return false;
+    if (q && !r.name.toLocaleLowerCase("ru").includes(q)) return false;
     const imported = importedSet.has(r.id);
-    if (filter.importedFromQr === "yes" && !imported) return false;
-    if (filter.importedFromQr === "no" && imported) return false;
-    if (filter.departmentId === "__none__" && r.department_id) return false;
+    if (filter.imported === "yes" && !imported) return false;
+    if (filter.imported === "no" && imported) return false;
+    if (filter.department === "__none__" && r.department_id) return false;
     if (
-      filter.departmentId !== "all" &&
-      filter.departmentId !== "__none__" &&
-      r.department_id !== filter.departmentId
+      filter.department &&
+      filter.department !== "__none__" &&
+      r.department_id !== filter.department
     )
       return false;
     return true;
   });
-  const isFiltered =
-    q.length > 0 ||
-    filter.importedFromQr !== "all" ||
-    filter.departmentId !== "all";
+  const isFiltered = q.length > 0 || hasFilters;
+  const resetConditions = () => {
+    setFilter({ department: "", imported: "" });
+    st.setSearch("");
+    st.setSorting([]);
+    firstPage();
+  };
 
   function handleCreate() {
     const name = newRoleName.trim();
@@ -397,288 +238,339 @@ export function RolesClient({
     });
   }
 
-  // Cell renderers
-  const renderCell = (key: ColKey, role: Role) => {
-    switch (key) {
-      case "name": {
+  const total = permissions.length;
+  const columns: ColumnDef<Role>[] = [
+    {
+      id: "name",
+      header: labels.name,
+      size: 320,
+      minSize: 220,
+      enableHiding: false,
+      accessorFn: (r) => r.name,
+      sortingFn: (a, b) => collator.compare(a.original.name, b.original.name),
+      cell: ({ row }) => {
+        const role = row.original;
+        const RoleIcon = iconForRole(role.code, role.icon);
+        const tint = paletteText(role.icon_color as PaletteColor | null);
         const desc = role.comment?.trim();
-        const isSystem = role.venue_id === null;
         return (
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="font-medium text-sm truncate">{role.name}</span>
-              {isSystem && (
-                // Matches iXYPZ in design: lock 10 + 10/500 text muted-foreground,
-                // bg-secondary, NO border, NO uppercase, gap 4, padding [2,6].
-                <span className="inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">
-                  <Lock className="w-2.5 h-2.5" />
-                  <span className="text-[10px] font-medium leading-none">
+          // span, а не div: правило карточки на телефоне растягивает первый
+          // ребёнок div-обёртки имени на всю ширину (для бейджей сотрудника).
+          <span className="flex min-w-0 items-center gap-3">
+            <span
+              className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${
+                role.code === "owner"
+                  ? "bg-brand/10 text-brand"
+                  : `bg-muted ${tint || "text-muted-foreground"}`
+              }`}
+            >
+              <RoleIcon className="size-4" />
+            </span>
+            <div className="min-w-0">
+              <div className="flex min-w-0 items-center gap-2">
+                <Link
+                  href={`/people/roles/${role.id}`}
+                  className="truncate font-medium hover:underline"
+                  data-tip={role.name}
+                >
+                  {role.name}
+                </Link>
+                {role.venue_id === null && (
+                  <StatusBadge icon={<Lock />} className="shrink-0">
                     Системная
-                  </span>
-                </span>
+                  </StatusBadge>
+                )}
+              </div>
+              {desc && (
+                <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                  {desc}
+                </div>
               )}
             </div>
-            {desc && (
-              <div className="text-xs text-muted-foreground truncate mt-0.5">
-                {desc}
-              </div>
-            )}
-          </div>
+          </span>
         );
-      }
-      case "department": {
-        const name = role.department_id
-          ? departmentNameById.get(role.department_id) ?? null
-          : null;
-        if (!name) {
-          return <span className="text-sm text-muted-foreground">—</span>;
-        }
-        return (
-          <span className="text-[13px] text-foreground truncate">{name}</span>
+      },
+    },
+    {
+      id: "department",
+      header: labels.department,
+      size: 200,
+      minSize: 150,
+      accessorFn: (r) =>
+        r.department_id ? departmentNameById.get(r.department_id) : undefined,
+      sortUndefined: "last",
+      cell: ({ getValue }) => {
+        const name = getValue() as string | undefined;
+        return name ? (
+          <span className="block truncate" data-tip={name}>
+            {name}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
         );
-      }
-      case "staff": {
-        const count = staffCountByRole[role.id] ?? 0;
-        if (count === 0) {
-          return <span className="text-sm text-muted-foreground">—</span>;
-        }
-        const label =
-          count === 1
-            ? "сотрудник"
-            : count < 5
-            ? "сотрудника"
-            : "сотрудников";
-        return (
-          <div className="flex items-center gap-2 text-sm">
-            <span className="flex items-center justify-center size-6 rounded-full bg-violet-400 text-white text-[11px] font-semibold">
-              {count}
-            </span>
-            <span className="text-muted-foreground">{label}</span>
-          </div>
+      },
+    },
+    {
+      id: "staff",
+      header: labels.staff,
+      size: 160,
+      minSize: 120,
+      accessorFn: (r) => staffCountByRole[r.id] ?? 0,
+      cell: ({ getValue }) => {
+        const count = getValue() as number;
+        return count ? (
+          <span className="tabular-nums">
+            {count} {pluralRu(count, "сотрудник", "сотрудника", "сотрудников")}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
         );
-      }
-      case "permissions": {
-        const granted = getGrantedCount(role.id);
-        const total = permissions.length;
+      },
+    },
+    {
+      id: "permissions",
+      header: labels.permissions,
+      size: 220,
+      minSize: 160,
+      accessorFn: (r) => grantedByRole.get(r.id) ?? 0,
+      cell: ({ getValue }) => {
+        const granted = getValue() as number;
         const pct = total > 0 ? Math.round((granted / total) * 100) : 0;
-        const isFull = pct === 100;
         return (
-          // Per design (J6GKvm): width 220 fixed (set in COL_DEFS), text colors
-          // per state — count в foreground/600, percent в brand/500 при 100%
-          // (highlight) или muted/500 иначе. Bar 6px, brand fill, muted track.
-          <div className="flex flex-col gap-1.5 min-w-0">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[12px] font-semibold text-foreground">
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="font-medium tabular-nums">
                 {granted} из {total}
               </span>
               <span
-                className={`text-[11px] font-medium ${
-                  isFull ? "text-brand" : "text-muted-foreground"
-                }`}
+                className={`tabular-nums ${pct === 100 ? "text-brand" : "text-muted-foreground"}`}
               >
                 {pct}%
               </span>
             </div>
-            <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full rounded-full bg-brand transition-all"
+                className="h-full rounded-full bg-brand"
                 style={{ width: `${pct}%` }}
               />
             </div>
           </div>
         );
-      }
-      case "qr_import": {
-        const imported = importedSet.has(role.id);
-        return (
-          <div className="flex items-center" aria-label={imported ? "Да" : "Нет"}>
-            {imported ? (
-              <Check className="w-4 h-4 text-brand" />
-            ) : (
-              <X className="w-4 h-4 text-muted-foreground" />
-            )}
-          </div>
-        );
-      }
-    }
+      },
+    },
+    {
+      id: "qr_import",
+      header: labels.qr_import,
+      size: 190,
+      minSize: 170,
+      accessorFn: (r) => (importedSet.has(r.id) ? 1 : 0),
+      cell: ({ getValue }) =>
+        getValue() ? (
+          <span className="inline-flex items-center gap-1.5">
+            <Check className="size-4 text-brand" aria-hidden />
+            Да
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
+  ];
+  const table = useReactTable({
+    data: filteredRoles,
+    columns,
+    state: {
+      sorting: st.sorting,
+      pagination: st.pagination,
+      columnVisibility: { ...st.columnVisibility, name: true },
+      columnOrder: st.columnOrder,
+      columnSizing: st.columnSizing,
+    },
+    onSortingChange: st.setSorting,
+    onPaginationChange: st.setPagination,
+    onColumnVisibilityChange: st.setColumnVisibility,
+    onColumnSizingChange: st.setColumnSizing,
+    getRowId: (r) => r.id,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    autoResetPageIndex: false,
+  });
+  const changeSorting = (next: typeof st.sorting) => {
+    st.setSorting(next);
+    firstPage();
+  };
+  const openCreate = () => {
+    setNewRoleName("");
+    setSheetOpen(true);
   };
 
   return (
-    <div className="p-6 md:p-8 w-full">
-      {/* Header */}
-      <div className="flex items-end justify-between mb-6 gap-6 flex-wrap">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-3xl font-bold tracking-tight">Должности</h1>
-            <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-muted px-2 text-[12px] font-medium text-muted-foreground/80 tabular-nums">
-              {roles.length}
-            </span>
-          </div>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Управление должностями и настройка прав доступа
-            {isFiltered && ` · показано ${filteredRoles.length}`}
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Search */}
-          <div className="flex items-center gap-1">
-            {searchOpen && (
-              <div className="relative">
-                <Input
-                  ref={searchInputRef}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Поиск"
-                  className="h-8 w-48 text-sm pr-7"
+    <PageFrame>
+      <Breadcrumbs items={[{ label: "Люди" }, { label: "Должности" }]} />
+      <TablePageHeader
+        title="Должности"
+        count={isFiltered ? `${filteredRoles.length} из ${roles.length}` : roles.length}
+        actions={
+          <TableControls
+            search={{
+              value: st.search,
+              onChange: (v) => {
+                st.setSearch(v);
+                firstPage();
+              },
+              open: st.searchOpen,
+              onOpenChange: st.setSearchOpen,
+              placeholder: "Название должности",
+            }}
+            filters={{
+              active: hasFilters,
+              onClick: () => setFiltersOpen((v) => !v),
+            }}
+            sort={{
+              active: st.sorting.length > 0,
+              content: (
+                <TableSortPicker
+                  sorting={st.sorting}
+                  onChange={changeSorting}
+                  fields={sortFields}
+                  labels={labels}
                 />
-                {searchQuery && (
-                  <button
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => setSearchQuery("")}
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            )}
-            <IconTooltip label={searchOpen ? "Скрыть поиск" : "Поиск по должностям"}>
-              <Button
-                variant="outline"
-                size="icon"
-                className={`h-8 w-8 ${searchOpen ? "border-primary text-primary" : ""}`}
-                onClick={() => {
-                  if (searchOpen) setSearchQuery("");
-                  setSearchOpen((v) => !v);
-                }}
-              >
-                <Search className="w-4 h-4" />
+              ),
+            }}
+            columns={{
+              content: (
+                <TableColumnManager
+                  columns={st.columnOrder.map((id) => {
+                    const c = table.getColumn(id)!;
+                    return {
+                      id,
+                      label: labels[id as ColKey],
+                      visible: c.getIsVisible(),
+                      canHide: c.getCanHide(),
+                    };
+                  })}
+                  onVisibilityChange={(id, v) =>
+                    table.getColumn(id)?.toggleVisibility(v)
+                  }
+                  onMoveColumn={(a, b) =>
+                    st.setColumnOrder((order) =>
+                      arrayMove(order, order.indexOf(a), order.indexOf(b)),
+                    )
+                  }
+                  onReset={st.resetColumns}
+                />
+              ),
+            }}
+            primaryActions={
+              accountId ? (
+                <Button size="sm" className="h-9 gap-2" onClick={openCreate}>
+                  <Plus className="size-4" />
+                  Добавить
+                </Button>
+              ) : null
+            }
+          />
+        }
+      />
+      <TableConditions
+        label="Условия списка должностей"
+        open={filtersOpen}
+        hasFilters={hasFilters}
+        sorting={st.sorting}
+        onSortingChange={changeSorting}
+        sortFields={sortFields}
+        sortLabels={labels}
+        search={st.search}
+        onSearchClear={() => {
+          st.setSearch("");
+          firstPage();
+        }}
+        onReset={resetConditions}
+      >
+        {(filtersOpen || !!filter.department) && (
+          <TableFilterChip
+            label="Подразделение"
+            value={filter.department}
+            onChange={(v) => {
+              setFilter((f) => ({ ...f, department: v }));
+              firstPage();
+            }}
+            options={[
+              { value: "", label: "Все подразделения" },
+              { value: "__none__", label: "Без подразделения" },
+              ...departments.map((d) => ({ value: d.id, label: d.name })),
+            ]}
+          />
+        )}
+        {(filtersOpen || !!filter.imported) && (
+          <TableFilterChip
+            label="Импорт из Quick Resto"
+            value={filter.imported}
+            onChange={(v) => {
+              setFilter((f) => ({ ...f, imported: v }));
+              firstPage();
+            }}
+            options={[
+              { value: "", label: "Все должности" },
+              { value: "yes", label: "Только импортированные" },
+              { value: "no", label: "Только созданные вручную" },
+            ]}
+          />
+        )}
+      </TableConditions>
+
+      {roles.length === 0 ? (
+        <EmptyState
+          icon={Shield}
+          title="Должностей пока нет"
+          description="Создайте первую должность, чтобы назначать сотрудникам права и оплату"
+          action={
+            accountId ? (
+              <Button onClick={openCreate}>
+                <Plus className="mr-2 size-4" />
+                Добавить должность
               </Button>
-            </IconTooltip>
-          </div>
-
-          <RoleFilterPanel filter={filter} departments={departments} onChange={setFilter} />
-          <ColumnSettings visible={visibleCols} onChange={toggleCol} />
-
-          {accountId && (
-            <Button
-              size="sm"
-              onClick={() => {
-                setNewRoleName("");
-                setSheetOpen(true);
-              }}
-            >
-              <Plus className="w-4 h-4 mr-1.5" />
-              Добавить
+            ) : undefined
+          }
+        />
+      ) : filteredRoles.length === 0 ? (
+        <EmptyState
+          icon={SearchX}
+          title="Должности не найдены"
+          description="Измените условия поиска или сбросьте фильтры"
+          action={
+            <Button variant="outline" onClick={resetConditions}>
+              Очистить все
             </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Empty state */}
-      {roles.length === 0 && (
-        <div className="rounded-lg border border-dashed flex flex-col items-center justify-center p-16 text-center">
-          <Shield className="w-10 h-10 text-muted-foreground mb-3" />
-          <p className="text-sm font-medium">Нет должностей</p>
-          <p className="text-sm text-muted-foreground mt-1">Создайте первую должность</p>
-          {accountId && (
-            <Button
-              size="sm"
-              className="mt-4"
-              onClick={() => {
-                setNewRoleName("");
-                setSheetOpen(true);
-              }}
-            >
-              <Plus className="w-4 h-4 mr-1.5" />
-              Добавить должность
-            </Button>
-          )}
-        </div>
+          }
+        />
+      ) : (
+        <>
+          <DataTable
+            table={table}
+            label="Должности"
+            labels={labels}
+            onColumnSizingChange={st.setColumnSizing}
+            sorting={st.sorting}
+            onSortingChange={changeSorting}
+            sortable={sortFields}
+            onRowClick={(row) => router.push(`/people/roles/${row.original.id}`)}
+            empty={null}
+            mobile={{ label: "Карточки должностей", nameColumn: "name" }}
+          />
+          <TablePagination
+            pageIndex={st.pagination.pageIndex}
+            pageSize={st.pagination.pageSize}
+            total={filteredRoles.length}
+            onPageChange={(pageIndex) =>
+              st.setPagination((p) => ({ ...p, pageIndex }))
+            }
+            onPageSizeChange={(pageSize) =>
+              st.setPagination({ pageIndex: 0, pageSize })
+            }
+          />
+        </>
       )}
-
-      {/* Table */}
-      {roles.length > 0 && (() => {
-        const visibleColDefs = COL_DEFS.filter((c) => visibleCols.has(c.key));
-        // 36px icon + configurable cols (no trailing chevron — design dropped it)
-        const gridTemplate = `36px ${visibleColDefs
-          .map((c) => c.width)
-          .join(" ")}`;
-
-        return (
-          <div className="rounded-xl border bg-card overflow-hidden">
-            {/* Header row */}
-            <div
-              className="grid gap-4 px-5 py-3 bg-muted/60 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider border-b"
-              style={{ gridTemplateColumns: gridTemplate }}
-            >
-              <span aria-hidden />
-              {visibleColDefs.map((col) => (
-                <span
-                  key={col.key}
-                  className={col.align === "center" ? "text-center" : undefined}
-                >
-                  {col.label}
-                </span>
-              ))}
-            </div>
-
-            {/* Data rows */}
-            {filteredRoles.map((role) => {
-              const isOwner = role.code === "owner";
-              const RoleIcon = iconForRole(role.code, role.icon);
-              const tintClass = paletteText(role.icon_color as PaletteColor | null);
-              return (
-                <div
-                  key={role.id}
-                  role="button"
-                  tabIndex={0}
-                  className="grid gap-4 items-center px-5 py-3.5 border-b last:border-b-0 hover:bg-muted/30 transition-colors cursor-pointer focus-visible:outline-none focus-visible:bg-muted/50"
-                  style={{ gridTemplateColumns: gridTemplate }}
-                  onClick={() => router.push(`/people/roles/${role.id}`)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      router.push(`/people/roles/${role.id}`);
-                    }
-                  }}
-                >
-                  {/* Icon — owner всегда brand-tinted (системная роль),
-                      остальные — palette tint поверх muted фона (или default). */}
-                  <div
-                    className={`flex items-center justify-center size-9 rounded-lg ${
-                      isOwner
-                        ? "bg-brand/10 text-brand"
-                        : `bg-muted ${tintClass || "text-muted-foreground"}`
-                    }`}
-                  >
-                    <RoleIcon className="w-4 h-4" />
-                  </div>
-
-                  {visibleColDefs.map((col) => (
-                    <div
-                      key={col.key}
-                      className={`min-w-0 ${
-                        col.align === "center"
-                          ? "flex items-center justify-center"
-                          : ""
-                      }`}
-                    >
-                      {renderCell(col.key, role)}
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
-
-            {isFiltered && filteredRoles.length === 0 && (
-              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                Нет должностей, соответствующих поиску
-              </div>
-            )}
-          </div>
-        );
-      })()}
 
       {/* Create drawer (520px, design-system pattern) */}
       <EditDrawer
@@ -762,22 +654,12 @@ export function RolesClient({
               ))}
             </SelectContent>
           </Select>
-        </div>
-
-        {/* Hint card per design (sparkles + tip) */}
-        <div className="flex items-start gap-2.5 rounded-[10px] bg-secondary border border-border p-3.5">
-          <Sparkles className="w-4 h-4 text-brand shrink-0 mt-0.5" />
-          <div className="flex flex-col gap-0.5 min-w-0">
-            <p className="text-[12px] font-semibold text-secondary-foreground leading-tight">
-              Совет
-            </p>
-            <p className="text-[12px] text-muted-foreground leading-relaxed">
-              Скопируйте «Хостес» или «Официант», если новая роль похожа —
-              настроить только разницу прав быстрее, чем 48 чекбоксов с нуля.
-            </p>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            Скопируйте «Хостес» или «Официант», если новая роль похожа —
+            настроить только разницу прав быстрее, чем 48 чекбоксов с нуля.
+          </p>
         </div>
       </EditDrawer>
-    </div>
+    </PageFrame>
   );
 }

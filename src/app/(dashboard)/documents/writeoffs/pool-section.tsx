@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DrawerSection } from "@/components/ui/drawer-blocks";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -85,21 +86,19 @@ export function PoolSection({
   }
 
   return (
-    <section
-      className="space-y-4 rounded-xl border p-4"
-      aria-label="Кто платит"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold">Кто платит</h3>
-        {row.poolState === "unassigned" && (
+    <DrawerSection
+      title="Кто платит"
+      actions={
+        row.poolState === "unassigned" && (
           <Badge
             variant="outline"
             className={`font-normal ${WARNING_BADGE_CLASS}`}
           >
             Не разнесён
           </Badge>
-        )}
-      </div>
+        )
+      }
+    >
       <p className="break-words text-sm">
         {mark ? (
           row.pool
@@ -232,6 +231,6 @@ export function PoolSection({
       <p className="text-xs text-muted-foreground">
         Акт разносится целиком: разделить его по позициям нельзя.
       </p>
-    </section>
+    </DrawerSection>
   );
 }

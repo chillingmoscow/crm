@@ -57,7 +57,7 @@ export function SalesStatusBadge({
   return (
     <Badge
       variant="outline"
-      title={title ?? entry.description}
+      data-tip={title ?? entry.description}
       className={cn(
         "max-w-full gap-1 overflow-hidden whitespace-nowrap font-normal",
         entry.color,

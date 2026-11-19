@@ -11,6 +11,7 @@ import { queuePayroll } from "@/lib/payroll/sync";
 import { validateRates, tipBatch, tipMatch } from "@/lib/payroll/calculate";
 import { validDate, addDays, businessDate } from "@/lib/sales/time";
 import type {
+  AdeskSync,
   PayrollData,
   PaySettings,
   Payment,
@@ -47,14 +48,53 @@ export async function loadPayrollOverview(): Promise<PayrollData> {
   return loadPayrollData(true);
 }
 
-async function loadPayrollData(overview: boolean): Promise<PayrollData> {
+/**
+ * Зарплата одного сотрудника — для вкладки «Оплата» в его карточке.
+ * Читает только его начисления, записи, выплаты и переносы, а не всё
+ * заведение. Права те же, что у `loadPayroll`: запросы идут под RLS.
+ */
+export async function loadEmployeePayroll(userId: string): Promise<PayrollData> {
+  z.string().uuid().parse(userId);
+  return loadPayrollData(false, userId);
+}
+
+// Таблицы со столбцом employee_id: для одного сотрудника читаем только его строки.
+const EMPLOYEE_TABLES = new Set([
+  "attendanceRules",
+  "transfers",
+  "assignments",
+  "legacyPayments",
+  "accruals",
+  "adjustments",
+  "allocations",
+]);
+// Расчётному листу сотрудника не нужны: сырые отметки, график, касса, события.
+const EMPLOYEE_SKIPPED_TABLES = new Set([
+  "salaryLinks",
+  "scheduleReviews",
+  "plannedShifts",
+  "attendance",
+  "periods",
+  "cashbox",
+  "events",
+  "payments", // читаются ниже по выплатам самого сотрудника
+  "adeskSync", // читается ниже по тем же выплатам
+]);
+
+async function loadPayrollData(
+  overview: boolean,
+  employeeUserId?: string,
+): Promise<PayrollData> {
   const s = await scope();
   const manager = s.permissions.includes("payroll.view");
+  const single = employeeUserId !== undefined;
   const employeesRequest = (async () => {
-    const { data, error } = await s.db
+    let query = s.db
       .from<PayrollData["employees"]>("payroll_employees")
       .select("*")
       .eq("venue_id", s.venueId);
+    if (single) query = query.eq("local_user_id", employeeUserId);
+    const { data, error } = await query;
     if (error) throw new Error(error.message);
     const employees = data ?? [];
     const profileIds = [...new Set(employees.flatMap((e) => e.local_user_id ? [e.local_user_id] : []))];
@@ -81,15 +121,20 @@ async function loadPayrollData(overview: boolean): Promise<PayrollData> {
     adjustments: "payroll_adjustments",
     cashbox: "payroll_cashbox",
     payments: "payroll_payments",
+    adeskSync: "payroll_adesk_sync",
     allocations: "payroll_allocations",
     events: "payroll_events",
   } as const;
   // The monthly overview uses accruals and payments, including history for opening balances.
   // Raw attendance and rules are read by the detailed screens.
-  const overviewTables = new Set(["transfers", "legacyPayments", "accruals", "adjustments", "payments", "allocations"]);
+  const overviewTables = new Set(["transfers", "legacyPayments", "accruals", "adjustments", "payments", "adeskSync", "allocations"]);
+  // Для одного сотрудника сначала нужен его id: по нему фильтруются таблицы.
+  const employeeId = single ? ((await employeesRequest)[0]?.id ?? null) : null;
   const entriesRequest = Promise.all(
     Object.entries(tables).map(async ([key, table]) => {
       if (overview && !overviewTables.has(key)) return [key, []];
+      if (single && (EMPLOYEE_SKIPPED_TABLES.has(key) || !employeeId))
+        return [key, []];
       if (
         !manager &&
         [
@@ -99,17 +144,21 @@ async function loadPayrollData(overview: boolean): Promise<PayrollData> {
           "periods",
           "cashbox",
           "payments",
+          "adeskSync",
           "events",
         ].includes(key)
       )
         return [key, []];
       const rows: unknown[] = [];
       for (let start = 0; start < 20000; start += 1000) {
-        const { data, error } = await s.db
+        let query = s.db
           .from<unknown[]>(table)
           .select("*")
-          .eq("venue_id", s.venueId)
-          .order(key === "salaryLinks" ? "accrual_id" : "id")
+          .eq("venue_id", s.venueId);
+        if (single && EMPLOYEE_TABLES.has(key))
+          query = query.eq("employee_id", employeeId);
+        const { data, error } = await query
+          .order(key === "salaryLinks" ? "accrual_id" : key === "adeskSync" ? "payment_id" : "id")
           .range(start, start + 999);
         if (error) throw new Error(error.message);
         rows.push(...(data ?? []));
@@ -124,7 +173,9 @@ async function loadPayrollData(overview: boolean): Promise<PayrollData> {
     s.client.from("venues").select("timezone").eq("id", s.venueId).single(),
     s.client.from("roles").select("id,name").eq("venue_id", s.venueId).is("archived_at", null),
   ]);
-  const managerRequest = manager ? loadPayrollManagerData(s, overview) : null;
+  const managerRequest = manager
+    ? loadPayrollManagerData(s, overview || single, !single)
+    : null;
 
   const [entries, employees, [hours, venue, roleRows], managerData] = await Promise.all([
     entriesRequest, employeesRequest, metadataRequest, managerRequest,
@@ -135,6 +186,32 @@ async function loadPayrollData(overview: boolean): Promise<PayrollData> {
     PayrollData,
     keyof typeof tables
   >;
+  if (manager && single) {
+    // Выплаты сотрудника: только те, что закрывают его долг.
+    const ids = [...new Set(result.allocations.map((a) => a.payment_id))];
+    const payments: Payment[] = [];
+    for (let start = 0; start < ids.length; start += 100) {
+      const r = await s.db
+        .from<Payment[]>("payroll_payments")
+        .select("*")
+        .eq("venue_id", s.venueId)
+        .in("id", ids.slice(start, start + 100));
+      if (r.error) throw new Error(r.error.message);
+      payments.push(...(r.data ?? []));
+    }
+    result.payments = payments;
+    const sync: AdeskSync[] = [];
+    for (let start = 0; start < ids.length; start += 100) {
+      const r = await s.db
+        .from<AdeskSync[]>("payroll_adesk_sync")
+        .select("*")
+        .eq("venue_id", s.venueId)
+        .in("payment_id", ids.slice(start, start + 100));
+      if (r.error) throw new Error(r.error.message);
+      sync.push(...(r.data ?? []));
+    }
+    result.adeskSync = sync;
+  }
   if (!manager) {
     const ids = [...new Set(result.allocations.map((a) => a.payment_id))];
     if (ids.length) {
@@ -184,7 +261,11 @@ async function loadPayrollData(overview: boolean): Promise<PayrollData> {
     financeTransactions: managerData?.financeTransactions ?? [],
   };
 }
-async function loadPayrollManagerData(s: Awaited<ReturnType<typeof scope>>, overview: boolean) {
+async function loadPayrollManagerData(
+  s: Awaited<ReturnType<typeof scope>>,
+  overview: boolean,
+  withFinance = true,
+) {
   const [settings, sources, banks, categories, staff, financeTransactions] = await Promise.all([
     s.db.from<PaySettings>("payroll_settings").select("*").eq("venue_id", s.venueId).maybeSingle(),
     overview ? null : s.admin.from<PayrollData["sources"]>("payroll_source_days")
@@ -196,7 +277,7 @@ async function loadPayrollManagerData(s: Awaited<ReturnType<typeof scope>>, over
     overview ? null : s.client.from("finance_categories").select("id,name")
       .eq("account_id", s.accountId).eq("type", "expense").is("archived_at", null),
     !overview && s.permissions.includes("payroll.configure") ? loadPayrollStaff(s) : [],
-    loadPayrollFinanceTransactions(s),
+    withFinance ? loadPayrollFinanceTransactions(s) : [],
   ]);
   for (const result of [settings, sources, banks, categories]) {
     if (result?.error) throw new Error(result.error.message);
@@ -536,6 +617,13 @@ export async function reconcileTips(
   });
   if (r.error) throw new Error(r.error.message);
   return r.data;
+}
+/** Sends a payout to Adesk again after its cause (mapping, a duplicate) was fixed. */
+export async function retryPayrollAdeskSync(paymentId: string) {
+  const s = await scope("payroll.pay");
+  z.string().uuid().parse(paymentId);
+  const r = await s.db.rpc("payroll_retry_adesk_sync", { p_payment: paymentId });
+  if (r.error) throw new Error(r.error.message);
 }
 export async function cancelPayrollPayment(paymentId: string) {
   const s = await scope("payroll.pay");

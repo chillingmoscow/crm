@@ -6,6 +6,7 @@ import { PageFrame } from "@/components/shared/page-frame";
 import { TablePageHeader } from "@/components/shared/table";
 import type { TaskData } from "@/lib/schedule/tasks";
 import { TaskHeaderTarget, TaskTitleTarget } from "./task-header-actions";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 
 function TaskLoading() {
   return (
@@ -30,6 +31,13 @@ export function ScheduleTasksTab({ initial }: { initial: TaskData }) {
   const [headerTarget, setHeaderTarget] = useState<HTMLDivElement | null>(null);
   return (
     <TaskTitleTarget.Provider value={setTitle}>
+      {/* Как у «Расписания» и «Шаблонов смен»: путь раздела в верхней панели.
+          Экраны задачи и настроек ставят свою «← К задачам» — тогда не дублируем. */}
+      {title === null && (
+        <Breadcrumbs
+          items={[{ label: "График работы" }, { label: "Задачи" }]}
+        />
+      )}
       <PageFrame className="space-y-6">
         {title !== null && (
           <TablePageHeader

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Check, ChevronDown, ClipboardList } from "lucide-react";
 
 import { Checkbox } from "@/components/ui/checkbox";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { cn } from "@/lib/utils";
 import {
   INVENTORY_ACTS_TIERS,
@@ -56,9 +57,7 @@ export function InventoryActsPermissionSection({
         </div>
         <span className="text-sm font-semibold">Акты инвентаризации</span>
         {currentTier === "custom" ? (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200">
-            Свой набор
-          </span>
+          <StatusBadge tone="warning">Свой набор</StatusBadge>
         ) : null}
       </div>
 

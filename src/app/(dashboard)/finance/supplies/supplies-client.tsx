@@ -10,6 +10,7 @@ import {
 import {
   ArrowDown,
   ArrowUp,
+  CalendarDays,
   ChevronRight,
   RefreshCw,
   Settings2,
@@ -29,6 +30,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import {
+  DrawerAvatar,
+  DrawerSection,
+  DrawerStatus,
+  DrawerSummary,
+  DrawerSummaryItem,
+  DrawerSummaryTotal,
+  DrawerTimeline,
+  DrawerTimelineItem,
+} from "@/components/ui/drawer-blocks";
 import {
   Select,
   SelectTrigger,
@@ -113,15 +124,17 @@ function Value({ label, children }: { label: string; children: ReactNode }) {
     </div>
   );
 }
+function paymentStatusText(row: SupplyRow) {
+  return row.payment.state === "paid"
+    ? "Оплачено"
+    : row.payment.state === "partial"
+      ? "Частичная оплата"
+      : row.payment.state === "review"
+        ? "Проверить оплату"
+        : "Платёж не связан";
+}
 function Status({ row }: { row: SupplyRow }) {
-  const text =
-    row.payment.state === "paid"
-      ? "Оплачено"
-      : row.payment.state === "partial"
-        ? "Частичная оплата"
-        : row.payment.state === "review"
-          ? "Проверить оплату"
-          : "Платёж не связан";
+  const text = paymentStatusText(row);
   return (
     <span
       className={cn(
@@ -166,8 +179,8 @@ function History({
   timezone: string;
 }) {
   return (
-    <ol className="divide-y">
-      {entries.map((h) => {
+    <DrawerTimeline>
+      {entries.map((h, index) => {
         // Display names already identify these references. Keep technical IDs in the snapshot only.
         const changes = Object.keys(h.after_data ?? {}).filter(
           (key) =>
@@ -185,11 +198,13 @@ function History({
               JSON.stringify(h.after_data?.[key]),
         );
         return (
-          <li key={h.id} className="space-y-2 py-4 first:pt-0">
-            <p className="font-medium">{historyActions[h.action]}</p>
-            <p className="text-xs text-muted-foreground">
-              {h.actor_name} · {dateTime(h.created_at, timezone)}
-            </p>
+          <DrawerTimelineItem
+            key={h.id}
+            last={index === entries.length - 1}
+            avatar={<DrawerAvatar name={h.actor_name} />}
+            title={historyActions[h.action]}
+            meta={`${h.actor_name} · ${dateTime(h.created_at, timezone)}`}
+          >
             {h.action === "updated" && (
               <dl className="space-y-2">
                 {changes.map((key) => (
@@ -234,10 +249,10 @@ function History({
               </p>
             )}
             <p className="text-xs text-muted-foreground">{h.reason}</p>
-          </li>
+          </DrawerTimelineItem>
         );
       })}
-    </ol>
+    </DrawerTimeline>
   );
 }
 
@@ -869,6 +884,27 @@ export function SuppliesClient({
           setCardOpen(open);
         }}
         title={detail ? `Накладная ${detail.data.number}` : "Накладная"}
+        titleAccessory={
+          detail ? (
+            <>
+              <DrawerStatus
+                label={paymentStatusText(detail)}
+                tone={
+                  detail.payment.state === "paid"
+                    ? "success"
+                    : detail.payment.state === "unlinked"
+                      ? "neutral"
+                      : "warning"
+                }
+              />
+              {(detail.missing || !detail.data.processed) && (
+                <DrawerStatus
+                  label={detail.missing ? "Нет в источнике" : "Черновик"}
+                />
+              )}
+            </>
+          ) : undefined
+        }
         description={detail?.data.providerName ?? undefined}
       >
         {detailError ? (
@@ -885,16 +921,15 @@ export function SuppliesClient({
             <div className="h-64 rounded-lg bg-muted" />
           </div>
         ) : (
-          <div className="space-y-6 text-sm">
-            <div className="space-y-3 rounded-lg bg-brand/5 p-5">
-              <Status row={detail} />
-              <p className="text-3xl font-semibold tabular-nums">
+          <div className="space-y-5 text-sm">
+            <DrawerSummary label="Данные накладной">
+              <DrawerSummaryTotal label="Сумма накладной">
                 {money(detail.data.amountCents)}
-              </p>
-              <p className="text-xs text-muted-foreground">
+              </DrawerSummaryTotal>
+              <DrawerSummaryItem icon={<CalendarDays />} label="Дата и склад">
                 {day(detail.data.invoiceDate)} · {detail.data.storeTitle}
-              </p>
-            </div>
+              </DrawerSummaryItem>
+            </DrawerSummary>
             <Tabs value={detailTab} onValueChange={setDetailTab}>
               <TabsList className="w-full justify-start">
                 <TabsTrigger value="details">Детали</TabsTrigger>
@@ -1013,7 +1048,7 @@ export function SuppliesClient({
             className="h-64 rounded-lg bg-muted"
           />
         ) : (
-          <div className="space-y-6 text-sm">
+          <div className="space-y-5 text-sm">
             {config.sourceError && (
               <p
                 role="alert"
@@ -1022,56 +1057,62 @@ export function SuppliesClient({
                 {config.sourceError}
               </p>
             )}
-            <fieldset className="space-y-3">
-              <legend className="mb-3 font-medium">
-                Заведения Quick Resto
-              </legend>
-              {companies.length ? (
-                companies.map((company) => (
-                  <label key={company.id} className="flex items-center gap-3">
-                    <Checkbox
-                      checked={ids.includes(company.id)}
-                      disabled={saving || (!!oldRules && !!data.sourceVersion)}
-                      onCheckedChange={(checked) =>
-                        setIds((old) =>
-                          (checked
-                            ? [...old, company.id]
-                            : old.filter((id) => id !== company.id)
-                          ).sort((a, b) => a - b),
-                        )
-                      }
-                    />
-                    {company.name}
-                  </label>
-                ))
-              ) : (
-                <p className="text-muted-foreground">
-                  Нет доступных заведений источника.
-                </p>
-              )}
-            </fieldset>
-            <label className="flex items-center justify-between gap-4">
-              <span>Автоматически обновлять накладные</span>
-              <Switch
-                checked={autoRead}
-                disabled={saving}
-                onCheckedChange={setAutoRead}
-              />
-            </label>
-            <label className="flex flex-col gap-2">
-              <span className="font-medium">Интервал, минут</span>
-              <Input
-                type="number"
-                min={15}
-                max={1440}
-                value={interval}
-                disabled={saving}
-                onChange={(e) => setReadInterval(e.target.value)}
-              />
-            </label>
-            <label className="flex flex-col gap-2">
-              <span className="font-medium">Причина изменения</span>
+            <DrawerSection title="Заведения Quick Resto">
+              <fieldset className="space-y-3">
+                <legend className="sr-only">Заведения Quick Resto</legend>
+                {companies.length ? (
+                  companies.map((company) => (
+                    <label key={company.id} className="flex items-center gap-3">
+                      <Checkbox
+                        checked={ids.includes(company.id)}
+                        disabled={saving || (!!oldRules && !!data.sourceVersion)}
+                        onCheckedChange={(checked) =>
+                          setIds((old) =>
+                            (checked
+                              ? [...old, company.id]
+                              : old.filter((id) => id !== company.id)
+                            ).sort((a, b) => a - b),
+                          )
+                        }
+                      />
+                      {company.name}
+                    </label>
+                  ))
+                ) : (
+                  <p className="text-muted-foreground">
+                    Нет доступных заведений источника.
+                  </p>
+                )}
+              </fieldset>
+            </DrawerSection>
+            <DrawerSection title="Обновление">
+              <label className="flex items-center justify-between gap-4">
+                <span>Автоматически обновлять накладные</span>
+                <Switch
+                  checked={autoRead}
+                  disabled={saving}
+                  onCheckedChange={setAutoRead}
+                />
+              </label>
+              <label className="flex flex-col gap-2">
+                <span className="font-medium">Интервал, минут</span>
+                <Input
+                  type="number"
+                  min={15}
+                  max={1440}
+                  value={interval}
+                  disabled={saving}
+                  onChange={(e) => setReadInterval(e.target.value)}
+                />
+              </label>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Обновление читает накладные и оплаты из Quick Resto. Финансовые
+                операции и остатки счетов не меняются.
+              </p>
+            </DrawerSection>
+            <DrawerSection title="Причина изменения">
               <Textarea
+                aria-label="Причина изменения"
                 value={reason}
                 maxLength={1000}
                 rows={3}
@@ -1079,35 +1120,29 @@ export function SuppliesClient({
                 onChange={(e) => setReason(e.target.value)}
                 placeholder="Например, подключение накладных CHILLING"
               />
-            </label>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Обновление читает накладные и оплаты из Quick Resto. Финансовые
-              операции и остатки счетов не меняются.
-            </p>
+            </DrawerSection>
             {config.versions.length > 0 && (
-              <details className="border-t pt-4">
-                <summary className="cursor-pointer font-medium">
-                  История настроек
-                </summary>
-                <ol className="mt-3 divide-y">
-                  {config.versions.map((v) => (
-                    <li key={v.id} className="space-y-1 py-3">
-                      <p>
-                        Версия {v.version} ·{" "}
-                        {v.config.autoRead
+              <DrawerSection title="История настроек">
+                <DrawerTimeline>
+                  {config.versions.map((v, index) => (
+                    <DrawerTimelineItem
+                      key={v.id}
+                      last={index === config.versions.length - 1}
+                      avatar={<DrawerAvatar name={v.actor_name} />}
+                      title={`Версия ${v.version} · ${
+                        v.config.autoRead
                           ? `каждые ${v.config.intervalMinutes} мин.`
-                          : "обновление вручную"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {v.actor_name} · {dateTime(v.created_at, data.timezone)}
-                      </p>
-                      <p className="break-words text-xs text-muted-foreground">
+                          : "обновление вручную"
+                      }`}
+                      meta={`${v.actor_name} · ${dateTime(v.created_at, data.timezone)}`}
+                    >
+                      <p className="break-words text-muted-foreground">
                         {v.reason}
                       </p>
-                    </li>
+                    </DrawerTimelineItem>
                   ))}
-                </ol>
-              </details>
+                </DrawerTimeline>
+              </DrawerSection>
             )}
           </div>
         )}

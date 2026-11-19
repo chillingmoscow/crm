@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getCachedPermissions, getCachedUser } from "@/lib/supabase/server";
 import { ScheduleTasksTab } from "../_components/tasks-tab";
 import { loadTasks } from "./actions";
+
+export const metadata: Metadata = { title: "Задачи" };
 
 export default async function TasksPage() {
   const [user, permissions] = await Promise.all([

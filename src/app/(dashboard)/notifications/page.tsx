@@ -3,7 +3,7 @@ import appearance from "@/components/shared/workspace-appearance.module.css";
 import { NotificationBell } from "@/components/shared/notification-bell";
 import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 
-export const metadata: Metadata = { title: "Уведомления — Sheerly" };
+export const metadata: Metadata = { title: "Уведомления" };
 export default function NotificationsPage() {
   return (
     <div

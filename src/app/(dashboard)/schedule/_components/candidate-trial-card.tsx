@@ -5,21 +5,20 @@ import { timeInZone } from "@/lib/schedule/utils";
 import type { CandidateCalendarTrial } from "@/lib/schedule/types";
 import { cn } from "@/lib/utils";
 
-export function CandidateTrialCard({ trial, timezone, showName = false }: {
+export function CandidateTrialCard({ trial, timezone, showName = false, linked = true }: {
   trial: CandidateCalendarTrial;
   timezone: string;
   showName?: boolean;
+  /** Ссылка на карточку кандидата — только с правом работы с кандидатами. */
+  linked?: boolean;
 }) {
-  return (
-    <Link
-      href={`/people/candidates/${trial.candidate_id}`}
-      aria-label={`Стажировка: ${trial.full_name}`}
-      title={`Стажировка: ${trial.full_name}`}
-      className={cn(
+  const className = cn(
         "block min-w-0 space-y-1 rounded-lg p-2 text-xs outline-none transition-colors hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring",
         paletteBg("purple"), paletteText("purple"),
-      )}
-    >
+        !linked && "hover:opacity-100",
+      );
+  const body = (
+    <>
       <span className="flex min-w-0 items-center gap-1.5 font-medium">
         {showName && <CalendarDays className="size-3.5 shrink-0" />}
         <span className="min-w-0 truncate">Стажировка</span>
@@ -29,7 +28,18 @@ export function CandidateTrialCard({ trial, timezone, showName = false }: {
         {trial.starts_at ? timeInZone(trial.starts_at, timezone) : "Время не указано"}
         {trial.outcome === "passed" ? " · Пройдена" : ""}
       </span>
-      {trial.location && <span className="block break-words opacity-80">{trial.location}</span>}
+      {/* Место не показываем: график — по одному заведению, и стажировки
+          здесь только его; стажировки другого заведения — в его графике. */}
+    </>
+  );
+  const label = `Стажировка: ${trial.full_name}`;
+  return linked ? (
+    <Link href={`/people/candidates/${trial.candidate_id}`} aria-label={label} data-tip={label} className={className}>
+      {body}
     </Link>
+  ) : (
+    <div aria-label={label} data-tip={label} className={className}>
+      {body}
+    </div>
   );
 }

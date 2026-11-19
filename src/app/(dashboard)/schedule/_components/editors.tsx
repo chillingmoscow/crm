@@ -193,7 +193,9 @@ function Variants({
             <div
               role="group"
               aria-label={`Дни варианта ${index + 1}`}
-              className="flex min-w-0 flex-wrap gap-1"
+              // На телефоне промежуток 8 px: зона нажатия 44×44 у кнопки
+              // 28 px (`touch-target`) не залезает на соседний день.
+              className="flex min-w-0 flex-wrap gap-x-2 gap-y-3 sm:gap-1"
             >
               {WEEKDAYS.map((label, i) => {
                 const day = i + 1;
@@ -206,7 +208,7 @@ function Variants({
                     variant={on ? "default" : "outline"}
                     aria-pressed={on}
                     onClick={() => toggle(index, day)}
-                    className="h-8 min-w-7 px-1 text-xs sm:min-w-9 sm:px-2"
+                    className="touch-target h-8 min-w-7 px-1 text-xs sm:min-w-9 sm:px-2"
                   >
                     {label}
                   </Button>

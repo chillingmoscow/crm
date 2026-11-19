@@ -251,7 +251,7 @@ export function PayrollPaymentForm({
                   <button
                     type="button"
                     disabled={busy}
-                    className={s.removePerson}
+                    className={`${s.removePerson} touch-target`}
                     aria-label={`Убрать ${e.name}`}
                     onClick={() =>
                       setAmounts((prev) => {

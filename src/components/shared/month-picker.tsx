@@ -119,7 +119,7 @@ export function MonthPicker({
             type="button"
             aria-label="Предыдущий год"
             disabled={year <= Number(min.slice(0, 4))}
-            className="rounded p-1.5 hover:bg-muted disabled:opacity-30"
+            className="touch-target rounded p-1.5 hover:bg-muted disabled:opacity-30"
             onClick={() => setYear((y) => y - 1)}
           >
             <ChevronLeft size={16} />
@@ -129,7 +129,7 @@ export function MonthPicker({
             type="button"
             aria-label="Следующий год"
             disabled={year >= (max ? Number(max.slice(0, 4)) : 9999)}
-            className="rounded p-1.5 hover:bg-muted"
+            className="touch-target rounded p-1.5 hover:bg-muted disabled:opacity-30"
             onClick={() => setYear((y) => y + 1)}
           >
             <ChevronRight size={16} />

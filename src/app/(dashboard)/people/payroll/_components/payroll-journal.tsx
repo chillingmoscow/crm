@@ -838,7 +838,7 @@ export function PayrollEntryForm({
                       onChange={(event) => setAmounts((prev) => ({ ...prev, [e.id]: event.target.value }))} />
                     <span>{medium === "money" ? "₽" : "б."}</span>
                   </div>
-                  <button type="button" className={formStyle.removePerson} aria-label={`Убрать ${e.name}`}
+                  <button type="button" className={`${formStyle.removePerson} touch-target`} aria-label={`Убрать ${e.name}`}
                     disabled={busy} onClick={() => changeRecipients(Object.keys(amounts).filter((id) => id !== e.id))}>
                     <X size={15} />
                   </button>

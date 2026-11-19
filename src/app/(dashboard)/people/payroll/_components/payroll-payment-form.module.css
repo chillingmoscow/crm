@@ -363,6 +363,13 @@
 .removePerson:hover {
   color: hsl(var(--foreground));
 }
+/* На сенсорном экране кнопка шире (32 px), чтобы зона нажатия 44×44
+   (`touch-target`) не залезала на поле суммы слева: промежуток в строке 8 px. */
+@media (pointer: coarse) {
+  .removePerson {
+    min-width: 32px;
+  }
+}
 .categoryHint {
   color: hsl(var(--muted-foreground));
   font-size: 12px;

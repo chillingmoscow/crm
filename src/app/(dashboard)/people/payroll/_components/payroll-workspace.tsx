@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -279,14 +286,46 @@ export function PayrollWorkspace({
             role,
       ),
   );
-  const selectedPoint =
-    daily[
-      hoverDay ??
-        daily.reduce(
-          (best, d, i) => (d.value > daily[best].value ? i : best),
-          0,
-        )
-    ];
+  const peakDay = daily.reduce(
+    (best, d, i) => (d.value > daily[best].value ? i : best),
+    0,
+  );
+  const selectedPoint = daily[hoverDay ?? peakDay];
+  // График — одна остановка фокуса (role="slider"): день выбирают стрелками,
+  // а пальцем или мышью — по всей площади графика, ближайший к точке день.
+  const chartDayLabel = (day: number) =>
+    new Date(`${month}-${String(day).padStart(2, "0")}T12:00:00Z`).toLocaleDateString(
+      "ru-RU",
+      { day: "numeric", month: "long", timeZone: "UTC" },
+    );
+  const chartDayAt = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = rect.width ? (event.clientX - rect.left) / rect.width : 0;
+    return Math.min(days - 1, Math.max(0, Math.round(ratio * (days - 1))));
+  };
+  const chartKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const from = hoverDay ?? peakDay;
+    const step: Record<string, number> = {
+      ArrowRight: 1,
+      ArrowUp: 1,
+      ArrowLeft: -1,
+      ArrowDown: -1,
+      PageUp: 7,
+      PageDown: -7,
+    };
+    let next: number | null = null;
+    if (event.key in step) next = from + step[event.key];
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = days - 1;
+    else if (event.key === "Escape" && hoverDay !== null) {
+      event.preventDefault();
+      setHoverDay(null);
+      return;
+    }
+    if (next === null) return;
+    event.preventDefault();
+    setHoverDay(Math.min(days - 1, Math.max(0, next)));
+  };
   const groups = componentGroups(selected ? selectedDays : current);
 
   const roleFilters = {
@@ -488,6 +527,7 @@ export function PayrollWorkspace({
                     <PopoverContent className={s.monthPicker} align="start">
                       <div className={s.pickerHeading}>
                         <button
+                          className="touch-target"
                           aria-label="Предыдущий год"
                           onClick={() => setPickerYear(pickerYear - 1)}
                         >
@@ -495,6 +535,7 @@ export function PayrollWorkspace({
                         </button>
                         <strong>{pickerYear}</strong>
                         <button
+                          className="touch-target"
                           aria-label="Следующий год"
                           onClick={() => setPickerYear(pickerYear + 1)}
                         >
@@ -644,7 +685,35 @@ export function PayrollWorkspace({
                     </div>
                     <div
                       className={s.plot}
-                      onMouseLeave={() => setHoverDay(null)}
+                      role="slider"
+                      tabIndex={0}
+                      aria-label="День на графике начислений"
+                      aria-valuemin={1}
+                      aria-valuemax={days}
+                      aria-valuenow={selectedPoint.day}
+                      aria-valuetext={`${chartDayLabel(selectedPoint.day)}: ${formatRub(selectedPoint.value)}`}
+                      onFocus={() => setHoverDay((d) => d ?? peakDay)}
+                      onKeyDown={chartKeyDown}
+                      onPointerDown={(event) => {
+                        // Палец ведут по графику: захват держит события,
+                        // пока он не отпущен (вертикальный скролл не мешает —
+                        // touch-action: pan-y).
+                        if (event.pointerType !== "mouse") {
+                          event.currentTarget.setPointerCapture(event.pointerId);
+                        }
+                        setHoverDay(chartDayAt(event));
+                      }}
+                      onPointerMove={(event) => {
+                        if (
+                          event.pointerType === "mouse" ||
+                          event.currentTarget.hasPointerCapture(event.pointerId)
+                        ) {
+                          setHoverDay(chartDayAt(event));
+                        }
+                      }}
+                      onPointerLeave={(event) => {
+                        if (event.pointerType === "mouse") setHoverDay(null);
+                      }}
                     >
                       <svg
                         viewBox="0 0 720 145"
@@ -722,17 +791,6 @@ export function PayrollWorkspace({
                           </>
                         )}
                       </svg>
-                      <div className={s.chartTargets}>
-                        {daily.map((d, i) => (
-                          <button
-                            key={d.day}
-                            aria-label={`${d.day} число: ${formatRub(d.value)}`}
-                            onMouseEnter={() => setHoverDay(i)}
-                            onFocus={() => setHoverDay(i)}
-                            onClick={() => setHoverDay(i)}
-                          />
-                        ))}
-                      </div>
                     </div>
                   </div>
                   <div className={s.chartDates}>

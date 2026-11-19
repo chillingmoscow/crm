@@ -190,30 +190,23 @@
   width: 39px;
   padding: 0 0 4px;
 }
+/* График — одна фокусируемая область (role="slider"): день выбирается по
+   всей площади, пальцем можно вести по горизонтали, вертикальный скролл
+   страницы остаётся за браузером. */
 .plot {
   flex: 1;
   position: relative;
   min-width: 0;
+  touch-action: pan-y;
+}
+.plot:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 4px;
 }
 .plot > svg {
   height: 100%;
   width: 100%;
   overflow: visible;
-}
-.chartTargets {
-  position: absolute;
-  inset: 0;
-  display: flex;
-}
-.chartTargets > button {
-  flex: 1;
-  border: 0;
-  background: transparent;
-  border-radius: 2px;
-  min-width: 0;
-}
-.chartTargets > button:hover {
-  background: hsl(var(--brand) / 0.035);
 }
 .chartDates {
   display: flex;

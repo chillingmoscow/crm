@@ -31,10 +31,11 @@ const config: Config = {
   				foreground: 'hsl(var(--primary-foreground))'
   			},
   			brand: {
+  				// Заливка: кнопки, рамки, фокус, подложки bg-brand/N, графики.
   				DEFAULT: 'hsl(var(--brand))',
   				foreground: 'hsl(var(--brand-foreground))',
-  				// Текст на синей подложке (bg-brand/10, dark bg-brand/30) — AA 4.5:1.
-  				'tint-foreground': 'hsl(var(--brand-tint-foreground))'
+  				// Заливка кнопки при наведении: темнее brand, белый текст ≥ 4,5:1.
+  				hover: 'hsl(var(--brand-hover))'
   			},
   			secondary: {
   				DEFAULT: 'hsl(var(--secondary))',
@@ -71,6 +72,16 @@ const config: Config = {
   				'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
   				border: 'hsl(var(--sidebar-border))',
   				ring: 'hsl(var(--sidebar-ring))'
+  			}
+  		},
+  		// `text-brand` (и hover:/group-hover: варианты) берёт текстовый оттенок
+  		// --brand-text, а не заливку --brand: заливка как цвет текста не
+  		// дотягивает до WCAG AA на светлых поверхностях и на синей подложке.
+  		// Остальные brand-утилиты (bg-, border-, ring-, fill-, stroke-…) берут
+  		// --brand. Слияние глубокое: text-brand-foreground остаётся.
+  		textColor: {
+  			brand: {
+  				DEFAULT: 'hsl(var(--brand-text))'
   			}
   		},
   		borderRadius: {

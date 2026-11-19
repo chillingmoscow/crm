@@ -1412,7 +1412,7 @@ export function ScheduleClient({
                               scope="col"
                               className={cn(
                                 "border-b border-l px-2 py-3 text-center text-xs font-medium",
-                                d === today && "bg-brand/10 text-brand-tint-foreground",
+                                d === today && "bg-brand/10 text-brand",
                               )}
                             >
                               {dayLabel(d, { weekday: "short", day: "numeric" })}

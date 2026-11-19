@@ -17,8 +17,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { paletteText, type PaletteColor } from "@/lib/palette";
 import { pluralRu } from "@/lib/format/plural";
@@ -357,19 +357,21 @@ export function DepartmentsClient({
         }}
         onReset={resetConditions}
       >
-        <TableFilterChip
-          label="Руководитель"
-          value={headFilter}
-          onChange={(v) => {
-            setHeadFilter(v);
-            firstPage();
-          }}
-          options={[
-            { value: "", label: "Все подразделения" },
-            { value: "assigned", label: "Руководитель назначен" },
-            { value: "missing", label: "Без руководителя" },
-          ]}
-        />
+        {(filtersOpen || !!headFilter) && (
+          <TableFilterChip
+            label="Руководитель"
+            value={headFilter}
+            onChange={(v) => {
+              setHeadFilter(v);
+              firstPage();
+            }}
+            options={[
+              { value: "", label: "Все подразделения" },
+              { value: "assigned", label: "Руководитель назначен" },
+              { value: "missing", label: "Без руководителя" },
+            ]}
+          />
+        )}
       </TableConditions>
 
       {departments.length === 0 ? (
@@ -381,7 +383,7 @@ export function DepartmentsClient({
             canCreate ? (
               <Button onClick={openCreate}>
                 <Plus className="mr-2 size-4" />
-                Создать подразделение
+                Добавить подразделение
               </Button>
             ) : undefined
           }
@@ -435,34 +437,38 @@ export function DepartmentsClient({
           if (!open) resetForm();
         }}
         title="Новое подразделение"
-        description="Дайте подразделению имя и иконку. Должности и руководителя можно настроить после создания."
+        description="Должности и руководителя добавите в карточке подразделения после создания"
         footer={
           <>
             <Button variant="outline" onClick={() => setSheetOpen(false)}>
               Отмена
             </Button>
-            <Button onClick={handleCreate} disabled={isPending || !name.trim()}>
-              Создать
+            <Button
+              onClick={handleCreate}
+              disabled={isPending || !name.trim()}
+              data-tip={!name.trim() ? "Укажите название" : undefined}
+            >
+              {isPending ? "Создаём…" : "Создать подразделение"}
             </Button>
           </>
         }
       >
         <div className="flex items-end gap-2">
-          <div className="space-y-1.5 flex-1 min-w-0">
-            <Label htmlFor="new-dep-name" className="text-[13px] font-medium">
-              Название <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              id="new-dep-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Например: Бар"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleCreate();
-              }}
-            />
-          </div>
+          <Field id="new-dep-name" label="Название" required className="flex-1">
+            {(control) => (
+              <Input
+                {...control}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Например: Бар"
+                maxLength={120}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreate();
+                }}
+              />
+            )}
+          </Field>
           <DepartmentIconPicker
             value={icon}
             color={iconColor}
@@ -473,24 +479,17 @@ export function DepartmentsClient({
           />
         </div>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="new-dep-desc" className="text-[13px] font-medium">
-            Описание
-          </Label>
-          <Textarea
-            id="new-dep-desc"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Кто входит, чем занимается"
-            rows={3}
-          />
-        </div>
-
-        <p className="text-xs text-muted-foreground">
-          После создания зайдите в карточку подразделения, добавьте должности
-          на вкладке «Должности» и выберите руководящую — например,
-          «Бар-менеджер» для «Бара».
-        </p>
+        <Field id="new-dep-desc" label="Описание">
+          {(control) => (
+            <Textarea
+              {...control}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Кто входит, чем занимается"
+              rows={3}
+            />
+          )}
+        </Field>
       </EditDrawer>
     </PageFrame>
   );

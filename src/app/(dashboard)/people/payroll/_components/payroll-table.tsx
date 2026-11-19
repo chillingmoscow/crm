@@ -71,7 +71,7 @@ export function PayrollTable<T>({
   toolbarTargetId?: string;
   externalSearch?: { value: string; onChange: (value: string) => void };
   filters?: PayrollTableFilters;
-  exportAction?: { label: string; onClick: () => void };
+  exportAction?: { label: string; onClick: () => void; loading?: boolean };
   label?: string;
   /** Блок вместо таблицы, когда строк нет совсем. */
   empty?: React.ReactNode;

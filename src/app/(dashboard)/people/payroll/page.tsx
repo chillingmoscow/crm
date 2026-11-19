@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { loadPayrollOverview } from "@/app/(dashboard)/people/payroll/actions";
 import { validDate } from "@/lib/sales/time";
+import { createClient } from "@/lib/supabase/server";
 import { PayrollWorkspace } from "@/app/(dashboard)/people/payroll/_components/payroll-workspace";
 
 export const metadata: Metadata = { title: "Зарплата" };
@@ -21,12 +22,19 @@ export default async function PayrollPage({
           .toLocaleDateString("sv-SE", { timeZone: "Europe/Moscow" })
           .slice(0, 7);
   if (query.tab === "attendance") redirect(`/schedule?date=${month}-01`);
-  const data = await loadPayrollOverview();
+  const [data, supabase] = await Promise.all([loadPayrollOverview(), createClient()]);
+  // Название заведения — для шапки выгрузки ведомости.
+  const { data: venue } = await supabase
+    .from("venues")
+    .select("name")
+    .eq("id", data.venueId)
+    .maybeSingle();
   return (
     <PayrollWorkspace
       key={`${data.venueId}:${month}`}
       data={data}
       initialMonth={month}
+      venueName={venue?.name ?? null}
     />
   );
 }

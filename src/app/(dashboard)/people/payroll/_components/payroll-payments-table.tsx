@@ -63,7 +63,7 @@ export function PayrollPaymentsTable({
   onCancel: (id: string) => Promise<void>;
   toolbarTargetId?: string;
   tableId?: string;
-  exportAction?: { label: string; onClick: () => void };
+  exportAction?: { label: string; onClick: () => void; loading?: boolean };
   externalSearch?: { value: string; onChange: (value: string) => void };
   filters?: PayrollTableFilters;
 }) {

@@ -20,12 +20,12 @@ export function ProfileSection({
    * с tooltip'ом. tone:
    *   - "locked" — данными управляет сотрудник, для админа read-only
    *   - "info"   — placeholder-юзер, админ временно может править */
-  locked?: { tone: "locked" | "info" };
+  locked?: { tone: "locked" | "info"; message?: string };
   children: React.ReactNode;
 }) {
-  const lockMessage = locked?.tone === "locked"
+  const lockMessage = locked?.message ?? (locked?.tone === "locked"
     ? "Этими данными управляет сотрудник через свой профиль. Чтобы поменять — попросите его обновить."
-    : "Сотрудник пока не зарегистрирован. Заполните за него — позже он сможет обновлять сам.";
+    : "Сотрудник пока не зарегистрирован. Заполните за него — позже он сможет обновлять сам.");
   return (
     <section className="rounded-[14px] border bg-card p-5 flex flex-col gap-4">
       <header className="flex items-start justify-between gap-3">

@@ -4,6 +4,7 @@ import { ProfilePageFrame } from "@/components/shared/page-frame";
 import { ProfileHeader } from "@/components/shared/profile-header";
 import { ProfileSection } from "@/components/shared/profile-section";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { ProfileDangerAction } from "@/components/shared/profile-danger-zone";
 import { SaveBar } from "@/components/shared/save-bar";
 
 import { RoleCompensation } from "../../../payroll/_components/role-compensation";
@@ -719,28 +720,14 @@ export function RoleDetailPage({
           {/* ── Danger zone ───────────────────────────────────── */}
           {canDelete && (
             <TabsContent value="danger">
-              <div className="rounded-[14px] border bg-card p-6 flex flex-col gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <h3 className="text-base font-semibold text-foreground">
-                    Удалить должность
-                  </h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    Должность «{role.name}» будет удалена безвозвратно.
-                    Сотрудники этой должности потеряют доступ, поэтому
-                    переназначьте их перед удалением.
-                  </p>
-                </div>
-                <div>
-                  <Button
-                    variant="destructive"
-                    onClick={() => setConfirmDeleteOpen(true)}
-                    disabled={isPending}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Удалить должность
-                  </Button>
-                </div>
-              </div>
+              <ProfileDangerAction
+                icon={Trash2}
+                title="Удалить должность"
+                description="Должность удалится безвозвратно. Сотрудники этой должности потеряют доступ, поэтому переназначьте их перед удалением."
+                actionLabel="Удалить"
+                onAction={() => setConfirmDeleteOpen(true)}
+                disabled={isPending}
+              />
             </TabsContent>
           )}
         </Tabs>

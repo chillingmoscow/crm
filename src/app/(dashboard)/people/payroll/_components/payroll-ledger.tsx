@@ -40,6 +40,7 @@ export function PayrollLedger({
   actions,
   filters,
   onExport,
+  exporting = false,
 }: {
   data: PayrollData;
   month: string;
@@ -49,6 +50,7 @@ export function PayrollLedger({
   onEmployee: (row: Row) => void;
   actions: ReactNode;
   onExport: () => void;
+  exporting?: boolean;
   filters: PayrollTableFilters;
 }) {
   const columns = useMemo<ColumnDef<Row>[]>(
@@ -120,7 +122,7 @@ export function PayrollLedger({
       toolbarTargetId="payroll-workspace-controls"
       externalSearch={{ value: query, onChange: onQuery }}
       filters={filters}
-      exportAction={{ label: "Экспорт ведомости", onClick: onExport }}
+      exportAction={{ label: "Экспорт ведомости", onClick: onExport, loading: exporting }}
       totals={(visible) => {
         // Сумма по столбцу неизвестна, если хоть у одной строки в нём прочерк.
         const unknown = (id: string) =>

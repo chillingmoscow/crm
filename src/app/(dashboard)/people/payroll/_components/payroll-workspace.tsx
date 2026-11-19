@@ -9,14 +9,12 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowUpRight,
   CalendarX2,
   ChevronDown,
   ChevronRight,
-  Settings,
   Users,
   Plus,
 } from "lucide-react";
@@ -57,10 +55,10 @@ import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { Metric, MetricStrip } from "@/components/shared/metric-strip";
 import { EmptyState } from "@/components/ui/empty-state";
 import { TableFilterChip, TablePageHeader } from "@/components/shared/table";
-import { TooltipIconButton } from "@/components/shared/table/table-controls";
 import { Money, formatRub } from "@/components/shared/money";
 import { formatAmount, toKopecks } from "@/lib/format/amount";
 import { countRu } from "@/lib/format/plural";
+import { downloadBlob, xlsxBlob, type XlsxSheet } from "@/lib/export/xlsx";
 
 type Row = ReturnType<typeof statementRows>[number];
 const short = (n: number) =>
@@ -118,11 +116,13 @@ function CompositionList({ groups }: { groups: [string, number][] }) {
 export function PayrollWorkspace({
   data: initial,
   initialMonth,
+  venueName = null,
 }: {
   data: PayrollData;
   initialMonth: string;
+  /** Для шапки выгрузки ведомости. */
+  venueName?: string | null;
 }) {
-  const router = useRouter();
   const [data, setData] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
@@ -364,16 +364,6 @@ export function PayrollWorkspace({
       toast.error(e instanceof Error ? e.message : "Не удалось пересчитать недостачу", { id });
     }
   };
-  // Ставки, правила и автоматизации живут в карточке заведения; из ряда
-  // инструментов к ним прямой переход (на любой вкладке, перед «Добавить»).
-  const settingsButton = can("configure") ? (
-    <TooltipIconButton
-      label="Условия оплаты"
-      onClick={() => router.push(`/org/venues/${data.venueId}/payroll`)}
-    >
-      <Settings />
-    </TooltipIconButton>
-  ) : null;
   const tableActions = tab === "statement" ? (
     (can("pay") || can("review") || canRecalculateShortage) && <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -411,102 +401,72 @@ export function PayrollWorkspace({
     date.setUTCMonth(date.getUTCMonth() + direction);
     changeMonth(date.toISOString().slice(0, 7));
   };
-  const exportRows = () => {
-    const records = [
-      [
-        "Сотрудник",
-        "Должность",
-        "Смены",
-        "Начислено",
-        "Премии",
-        "Удержания",
-        "Перенос в этот месяц",
-        "Перенесено далее",
-        "Выплачено",
-        "К выплате",
-        "Чаевые",
-      ],
-      ...visible.map((r) => [
-        r.employee.name,
-        r.employee.role_name,
-        r.shifts,
-        r.earned,
-        r.bonuses,
-        r.deductions,
-        r.opening,
-        r.transferredOut,
-        historyPending ? "" : r.paid,
-        knownBalance ? r.remaining : "",
-        r.tips,
-      ]),
-    ];
-    const csv =
-      "\uFEFF" +
-      records
-        .map((row) =>
-          row
-            .map((v) => {
-              const cell =
-                typeof v === "string" && /^[=+@\-\t\r]/.test(v)
-                  ? `'${v}`
-                  : String(v);
-              return `"${cell.replaceAll('"', '""')}"`;
-            })
-            .join(";"),
-        )
-        .join("\r\n");
-    const url = URL.createObjectURL(
-      new Blob([csv], { type: "text/csv;charset=utf-8;" }),
+  // Выгрузка — то, что видно на экране: поиск и фильтр по должности
+  // учитываются, условия записаны в шапке файла.
+  const exportConditions = [
+    role ? `должность «${role}»` : null,
+    query.trim() ? `поиск «${query.trim()}»` : null,
+  ].filter((c): c is string => !!c);
+  const visiblePayments = () =>
+    paymentJournalRows(data, filteredPayments, monthStart, role).filter((row) =>
+      `${row.employee} ${row.kind} ${row.status}`
+        .toLowerCase()
+        .includes(query.toLowerCase()),
     );
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `Зарплата-${month}.csv`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+  const [exporting, setExporting] = useState(false);
+  const saveWorkbook = async (
+    build: () => Promise<{ sheets: XlsxSheet[]; fileName: string }>,
+  ) => {
+    setExporting(true);
+    try {
+      const { sheets, fileName } = await build();
+      downloadBlob(await xlsxBlob(sheets), fileName);
+    } catch {
+      toast.error("Не удалось сформировать файл. Повторите попытку");
+    } finally {
+      setExporting(false);
+    }
   };
-  const exportPayments = () => {
-    const records = [
-      ["Дата", "Сотрудник", "Статья", "Сумма", "Статус"],
-      ...paymentJournalRows(data, filteredPayments, monthStart, role)
-        .filter((row) =>
-          `${row.employee} ${row.kind} ${row.status}`
-            .toLowerCase()
-            .includes(query.toLowerCase()),
-        )
-        .map((row) => [
-          new Date(row.date).toLocaleDateString("ru-RU", {
-            timeZone: data.timezone,
-          }),
-          row.employee,
-          row.kind,
-          row.amount,
-          row.status,
-        ]),
-    ];
-    const csv =
-      "\uFEFF" +
-      records
-        .map((row) =>
-          row
-            .map((value) => {
-              const text =
-                typeof value === "string" && /^[=+@\-\t\r]/.test(value)
-                  ? `'${value}`
-                  : String(value);
-              return `"${text.replaceAll('"', '""')}"`;
-            })
-            .join(";"),
-        )
-        .join("\r\n");
-    const url = URL.createObjectURL(
-      new Blob([csv], { type: "text/csv;charset=utf-8;" }),
-    );
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `Выплаты-${month}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  const exportRows = () =>
+    saveWorkbook(async () => {
+      const { statementWorkbook, statementFileName } = await import(
+        "@/lib/payroll/statement-export"
+      );
+      return {
+        sheets: statementWorkbook({
+          venueName,
+          month: monthStart,
+          timezone: data.timezone,
+          generatedAt: new Date(),
+          rows: visible,
+          accruals: data.accruals,
+          attendance: data.attendance,
+          models: data.models,
+          roles: data.roles,
+          paidKnown: knownBalance,
+          conditions: exportConditions,
+          payments: visiblePayments(),
+        }),
+        fileName: statementFileName(monthStart, venueName),
+      };
+    });
+  const exportPayments = () =>
+    saveWorkbook(async () => {
+      const { paymentsWorkbook, paymentsFileName } = await import(
+        "@/lib/payroll/statement-export"
+      );
+      return {
+        sheets: paymentsWorkbook({
+          venueName,
+          month: monthStart,
+          timezone: data.timezone,
+          generatedAt: new Date(),
+          conditions: exportConditions,
+          payments: visiblePayments(),
+        }),
+        fileName: paymentsFileName(monthStart, venueName),
+      };
+    });
   return (
     <TooltipProvider>
       <div className={`${s.app} ${s.embedded}`}>
@@ -855,7 +815,7 @@ export function PayrollWorkspace({
                   query={query}
                   onQuery={setQuery}
                   onChange={reload}
-                  actions={settingsButton}
+                  
                 />
               ) : tab === "payments" ? (
                 <PayrollPaymentsTable
@@ -864,11 +824,12 @@ export function PayrollWorkspace({
                   financeMonth={monthStart}
                   financeRole={role}
                   busy={busy}
-                  actions={<>{settingsButton}{tableActions}</>}
+                  actions={tableActions}
                   toolbarTargetId="payroll-workspace-controls"
                   exportAction={{
                     label: "Экспорт выплат",
-                    onClick: exportPayments,
+                    onClick: () => void exportPayments(),
+                    loading: exporting,
                   }}
                   // Ключ сохранённых настроек столбцов: остался от прежнего названия
                   // экрана, менять нельзя — у всех сбросятся порядок и ширина столбцов.
@@ -886,13 +847,14 @@ export function PayrollWorkspace({
                   rows={tableRows}
                   query={query}
                   onQuery={setQuery}
-                  onExport={exportRows}
+                  onExport={() => void exportRows()}
+                  exporting={exporting}
                   onEmployee={(row) => {
                     setSelected(row);
                     setDay(null);
                     setEmployeeTab("summary");
                   }}
-                  actions={<>{settingsButton}{tableActions}</>}
+                  actions={tableActions}
                   filters={roleFilters}
                 />
               )}

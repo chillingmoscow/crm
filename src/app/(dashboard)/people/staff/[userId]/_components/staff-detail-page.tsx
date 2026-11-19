@@ -118,6 +118,7 @@ type Role = { id: string; name: string; code: string };
 
 import { StaffPayPanel } from "@/app/(dashboard)/people/payroll/_components/payroll-context";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { ProfileDangerAction } from "@/components/shared/profile-danger-zone";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { ProfilePageFrame } from "@/components/shared/page-frame";
 import { SaveBarScope, SaveBarSection } from "@/components/shared/save-bar";
@@ -1554,33 +1555,17 @@ export function StaffDetailPage({
           {/* ── Опасная зона ────────────────────────────────── */}
           {canFire && (
             <TabsContent value="danger">
-              <div className="rounded-[14px] border bg-card flex flex-wrap items-center gap-4 px-5 py-4">
-                <div className="flex items-center justify-center size-9 rounded-lg bg-destructive/10 shrink-0">
-                  <Lock className="w-4 h-4 text-destructive" />
-                </div>
-                <div className="flex flex-col gap-0.5 min-w-0 flex-[1_1_240px]">
-                  <p className="text-base font-semibold text-destructive leading-tight">
-                    Уволить сотрудника
-                  </p>
-                  <p className="text-[13px] text-muted-foreground leading-snug">
-                    Сотрудник потеряет доступ к заведению. Если это последнее
-                    заведение аккаунта, связанные записи Quick Resto будут
-                    удалены, а код замка отозван. Профиль и история
-                    сохраняются.
-                  </p>
-                </div>
-                <Button
-                  variant="destructive"
-                  className="shrink-0"
-                  onClick={() => {
-                    setFireError(null);
-                    setConfirmFire(true);
-                  }}
-                  disabled={isPending}
-                >
-                  Уволить
-                </Button>
-              </div>
+              <ProfileDangerAction
+                icon={Lock}
+                title="Уволить сотрудника"
+                description="Сотрудник потеряет доступ к заведению. Если это последнее заведение аккаунта, связанные записи Quick Resto будут удалены, а код замка отозван. Профиль и история сохраняются."
+                actionLabel="Уволить"
+                onAction={() => {
+                  setFireError(null);
+                  setConfirmFire(true);
+                }}
+                disabled={isPending}
+              />
             </TabsContent>
           )}
         </Tabs>

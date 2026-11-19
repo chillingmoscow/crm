@@ -2,7 +2,10 @@
 
 import { useMemo, type ReactNode } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { PayrollTable } from "@/app/(dashboard)/people/payroll/_components/payroll-table";
+import {
+  PayrollTable,
+  type PayrollTableFilters,
+} from "@/app/(dashboard)/people/payroll/_components/payroll-table";
 import { statementRows } from "@/lib/payroll/calculate";
 import type { PayrollData } from "@/lib/payroll/types";
 import { formatAmount } from "@/lib/format/amount";
@@ -46,7 +49,7 @@ export function PayrollLedger({
   onEmployee: (row: Row) => void;
   actions: ReactNode;
   onExport: () => void;
-  filters: { active: boolean; content: ReactNode };
+  filters: PayrollTableFilters;
 }) {
   const columns = useMemo<ColumnDef<Row>[]>(
     () =>
@@ -105,6 +108,7 @@ export function PayrollLedger({
   return (
     <PayrollTable
       id={`payroll.concept.statement.${data.venueId}`}
+      label="Ведомость"
       rows={rows}
       columns={columns}
       labels={labels}
@@ -118,8 +122,48 @@ export function PayrollLedger({
       toolbarTargetId="payroll-concept-controls"
       externalSearch={{ value: query, onChange: onQuery }}
       filters={filters}
-      scrollMode="page"
       exportAction={{ label: "Экспорт ведомости", onClick: onExport }}
+      totals={(visible) => {
+        // Сумма по столбцу неизвестна, если хоть у одной строки в нём прочерк.
+        const unknown = (id: string) =>
+          visible.some(
+            (record) =>
+              (["paid", "remaining"].includes(id) &&
+                data.legacyPayments.some(
+                  (p) =>
+                    p.employee_id === record.employee.id &&
+                    p.month === month &&
+                    p.state === "review",
+                )) ||
+              (["opening", "remaining"].includes(id) &&
+                !record.employee.opening_confirmed),
+          );
+        return Object.fromEntries(
+          numeric.map((id) => [
+            id,
+            unknown(id) ? (
+              <span className="text-muted-foreground">—</span>
+            ) : (
+              totalCell(
+                id,
+                visible.reduce(
+                  (sum, record) =>
+                    sum + Number(record[id as keyof Omit<Row, "employee">]),
+                  0,
+                ),
+              )
+            ),
+          ]),
+        );
+      }}
     />
   );
+}
+
+/** Итог столбца в том же виде, что и ячейки: смены числом, деньги через Money. */
+function totalCell(id: string, value: number) {
+  if (id === "shifts") return formatAmount(value, 0);
+  if (id === "bonuses") return <Money value={value} signed />;
+  if (id === "deductions") return <Money value={-value} signed />;
+  return <Money value={value} />;
 }

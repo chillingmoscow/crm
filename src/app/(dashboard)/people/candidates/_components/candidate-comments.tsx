@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ProfileSection } from "@/components/shared/profile-section";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
-import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { candidateError } from "@/lib/candidates/errors";
 import type { Comment } from "@/lib/candidates/types";
 import { commentCandidate, editCandidateComment } from "../actions";
@@ -71,21 +71,22 @@ export function CandidateComments({ candidateId, comments, viewerId, editable, o
       })}
       {!comments.length && !composing && <p className="text-sm text-muted-foreground">Комментариев пока нет.</p>}
     </ProfileSection>
-    <AlertDialog open={!!deleting} onOpenChange={(open) => { if (!open && !busy) setDeleting(null); }}>
-      <AlertDialogContent>
-        <AlertDialogHeader><AlertDialogTitle>Удалить комментарий?</AlertDialogTitle><AlertDialogDescription>Комментарий исчезнет из анкеты. Действие сохранится в журнале.</AlertDialogDescription></AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={busy}>Отмена</AlertDialogCancel>
-          <AlertDialogAction disabled={busy} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={(event) => {
-            event.preventDefault();
-            if (!deleting) return;
-            start(async () => {
-              try { await editCandidateComment(candidateId, deleting.id, deleting.revision, null, true); await onSaved(); setDeleting(null); }
-              catch (error) { toast.error(candidateError(error, "Не удалось удалить комментарий")); }
-            });
-          }}>Удалить</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <ConfirmDialog
+      open={!!deleting}
+      onOpenChange={(open) => { if (!open) setDeleting(null); }}
+      title="Удалить комментарий?"
+      description="Комментарий исчезнет из анкеты. Запись об удалении останется в журнале."
+      confirmLabel="Удалить комментарий"
+      pendingLabel="Удаляем…"
+      destructive
+      busy={busy}
+      onConfirm={() => {
+        if (!deleting) return;
+        start(async () => {
+          try { await editCandidateComment(candidateId, deleting.id, deleting.revision, null, true); await onSaved(); setDeleting(null); }
+          catch (error) { toast.error(candidateError(error, "Не удалось удалить комментарий")); }
+        });
+      }}
+    />
   </>;
 }

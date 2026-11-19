@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -24,7 +25,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tabs, ProfileTabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { CandidateDeleteDialog } from "./candidate-delete-dialog";
 import { formatPhoneDisplay, normalizePhone } from "@/lib/format/phone";
 import {
@@ -59,6 +60,7 @@ import {
   wallTime,
 } from "./fields";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { ProfilePageFrame } from "@/components/shared/page-frame";
 const labels: Record<string, string> = {
   full_name: "ФИО",
   phone: "Телефон",
@@ -172,7 +174,7 @@ export function CandidateDetailClient({
           { label: c.full_name },
         ]}
       />
-      <div className="mx-auto flex w-full min-w-0 max-w-[1120px] flex-col gap-6 px-6 pb-8 pt-4 md:px-8">
+      <ProfilePageFrame>
         <ProfileHeader name={c.full_name} avatarUrl={photo} wrapName actions={
           <>
             {canEdit && !c.hired_user_id && !data.hire && ["new", "review", "interview"].includes(c.status) && (
@@ -238,7 +240,7 @@ export function CandidateDetailClient({
             }}
             onRefresh={() => void refresh()}
           />
-          {c.archived_at && <span className="text-xs text-muted-foreground">В архиве</span>}
+          {c.archived_at && <StatusBadge>В архиве</StatusBadge>}
         </ProfileHeader>
         {data.related.length ? (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
@@ -270,14 +272,12 @@ export function CandidateDetailClient({
           </div>
         ) : null}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0">
-          <div className="overflow-x-auto">
-            <TabsList className="min-w-max justify-center">
-              <TabsTrigger value="profile">Анкета</TabsTrigger>
-              <TabsTrigger value="communication">Коммуникация</TabsTrigger>
-              <TabsTrigger value="history">Журнал</TabsTrigger>
-            </TabsList>
-          </div>
-          <TabsContent value="profile" className="mx-auto w-full max-w-[720px] space-y-5">
+          <ProfileTabsList>
+            <TabsTrigger value="profile">Анкета</TabsTrigger>
+            <TabsTrigger value="communication">Коммуникация</TabsTrigger>
+            <TabsTrigger value="history">Журнал</TabsTrigger>
+          </ProfileTabsList>
+          <TabsContent value="profile" className="space-y-5">
             <ProfileSection title="Личные данные и контакты">
               <dl className="grid min-w-0 gap-x-8 gap-y-5 sm:grid-cols-2">
                 <ProfileValue label="Телефон">
@@ -425,7 +425,7 @@ export function CandidateDetailClient({
             ) : null}
             <CandidateComments candidateId={c.id} comments={data.comments} viewerId={data.viewer_id} editable={canEdit} onSaved={async () => { await refresh(); }} />
           </TabsContent>
-          <TabsContent value="communication" className="mx-auto w-full max-w-[720px]">
+          <TabsContent value="communication">
             <div className="space-y-5">
               <ProfileSection title="Собеседование">
                   {latestInterview ? <CandidateAppointmentRow appointment={latestInterview} options={options} onOpen={() => setViewing(latestInterview)} />
@@ -439,7 +439,7 @@ export function CandidateDetailClient({
               </ProfileSection>
             </div>
           </TabsContent>
-          <TabsContent value="history" className="mx-auto w-full max-w-[720px]">
+          <TabsContent value="history">
             <ProfileSection title="Журнал" description="История изменений анкеты">
               <ol className="space-y-5">
                 {data.events.map((item) => (
@@ -524,8 +524,7 @@ export function CandidateDetailClient({
             </ProfileSection>
           </TabsContent>
         </Tabs>
-
-      </div>
+      </ProfilePageFrame>
       <CandidateDeleteDialog
         open={deleting}
         onOpenChange={setDeleting}

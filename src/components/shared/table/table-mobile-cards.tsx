@@ -3,10 +3,11 @@
 import type { ReactNode } from "react";
 import { flexRender, type Table, type Row } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
-import styles from "./people-table.module.css";
+import { isRowNavigationClick } from "./row-click";
+import styles from "./data-table.module.css";
 
 /** Mobile presentation of the same rows, selection, fields and ordering as the desktop table. */
-export function PeopleMobileCards<T>({
+export function TableMobileCards<T>({
   table,
   label,
   nameColumn,
@@ -22,8 +23,8 @@ export function PeopleMobileCards<T>({
   table: Table<T>;
   label: string;
   nameColumn: string;
-  photoColumn: string;
-  roleColumn: string;
+  photoColumn?: string;
+  roleColumn?: string;
   statusColumn?: string;
   labels: Record<string, string>;
   selection?: ReactNode;
@@ -37,7 +38,8 @@ export function PeopleMobileCards<T>({
       {selection}
       {rows.map((row) => {
         const cells = row.getVisibleCells();
-        const render = (id: string) => {
+        const render = (id: string | undefined) => {
+          if (!id) return null;
           const cell = cells.find((c) => c.column.id === id);
           return cell
             ? flexRender(cell.column.columnDef.cell, cell.getContext())
@@ -54,7 +56,7 @@ export function PeopleMobileCards<T>({
               "actions",
             ].includes(cell.column.id),
         );
-        const hasRole = cells.some((c) => c.column.id === roleColumn);
+        const hasRole = !!roleColumn && cells.some((c) => c.column.id === roleColumn);
         const hasStatus = cells.some((c) => c.column.id === statusColumn);
         return (
           <article
@@ -64,12 +66,7 @@ export function PeopleMobileCards<T>({
               row.getIsSelected() && styles.mobileCardSelected,
             )}
             onClick={(event) => {
-              if (
-                !(event.target as HTMLElement).closest(
-                  "button,a,input,[role=checkbox]",
-                )
-              )
-                onOpen?.(row);
+              if (isRowNavigationClick(event)) onOpen?.(row);
             }}
           >
             <div className="flex items-start gap-3">
@@ -87,7 +84,7 @@ export function PeopleMobileCards<T>({
                   {render("select")}
                 </label>
               ) : actionsPlacement === "header" ? (
-                <div className="flex h-9 shrink-0 items-center">
+                <div data-control-cell className="flex h-9 shrink-0 items-center">
                   {render("actions")}
                 </div>
               ) : null}
@@ -110,7 +107,9 @@ export function PeopleMobileCards<T>({
             )}
             {actionsPlacement === "footer" &&
               cells.some((cell) => cell.column.id === "actions") && (
-                <div className="mt-4 flex justify-end">{render("actions")}</div>
+                <div data-control-cell className="mt-4 flex justify-end">
+                  {render("actions")}
+                </div>
               )}
           </article>
         );

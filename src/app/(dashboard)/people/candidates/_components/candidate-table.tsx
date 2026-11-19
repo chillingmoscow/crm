@@ -9,7 +9,8 @@ import {
   type AppointmentOptions,
   type Candidate,
 } from "@/lib/candidates/types";
-import { dateLabel, plural } from "./fields";
+import { dateLabel } from "./fields";
+import { countRu } from "@/lib/format/plural";
 import {
   CandidateStatusCell,
   type CandidateStatusUpdate,
@@ -110,7 +111,7 @@ export function candidateColumns(
               ? formatPhoneDisplay(c.phone)
               : id === "age"
                 ? c.age
-                  ? `${c.age} ${plural(c.age, ["год", "года", "лет"])}`
+                  ? countRu(c.age, "год", "года", "лет")
                   : "Не указан"
                 : c[id as keyof Candidate];
         return (

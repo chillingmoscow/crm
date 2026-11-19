@@ -51,6 +51,7 @@ import {
 import { toast } from "sonner";
 import type { Answer, ChecklistItem } from "@/lib/schedule/types";
 import { dayLabel } from "@/lib/schedule/utils";
+import { countRu } from "@/lib/format/plural";
 import {
   missingItems,
   taskStatus,
@@ -197,10 +198,6 @@ function SwitchRow({
     </div>
   );
 }
-function plural(count: number, one: string, few: string, many: string) {
-  const key = new Intl.PluralRules("ru-RU").select(count);
-  return key === "one" ? one : key === "few" ? few : many;
-}
 function newItem(kind: ChecklistItem["kind"] = "check"): ChecklistItem {
   return {
     id: crypto.randomUUID(),
@@ -315,9 +312,13 @@ function TaskScreen({
         url.href === window.location.href
       )
         return;
+      // Путь вида «//host/…» router.push понял бы как адрес другого сайта:
+      // перехватываем только обычные пути внутри приложения.
+      const path = url.pathname + url.search + url.hash;
+      if (!/^\/(?!\/)/.test(path)) return;
       event.preventDefault();
       event.stopPropagation();
-      setExitHref(url.pathname + url.search + url.hash);
+      setExitHref(path);
       setConfirmExit(true);
     };
     window.addEventListener("beforeunload", guard);
@@ -616,8 +617,7 @@ function DefinitionEditor({
           title="Чек-лист"
           actions={
             <span className="text-[13px] text-muted-foreground">
-              {value.items.length}{" "}
-              {plural(value.items.length, "пункт", "пункта", "пунктов")}
+              {countRu(value.items.length, "пункт", "пункта", "пунктов")}
             </span>
           }
         >

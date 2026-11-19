@@ -1,3 +1,4 @@
+import type { StatusTone } from "@/components/ui/status-badge";
 import type { Appointment } from "./types";
 
 export const APPOINTMENT_TITLES = { interview: "Собеседование", trial: "Стажировка" };
@@ -8,10 +9,10 @@ const outcomes = {
 export function appointmentOutcomeLabel(kind: Appointment["kind"], outcome: string) {
   return outcomes[kind][outcome as Appointment["outcome"]] ?? "Не указан";
 }
-export const APPOINTMENT_OUTCOME_CLASSES = {
-  scheduled: "bg-brand/10 text-brand",
-  passed: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-  no_show: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
-  rejected: "bg-destructive/10 text-destructive",
-  canceled: "bg-muted text-muted-foreground",
+export const APPOINTMENT_OUTCOME_TONES: Record<Appointment["outcome"], StatusTone> = {
+  scheduled: "info",
+  passed: "success",
+  no_show: "warning",
+  rejected: "danger",
+  canceled: "neutral",
 };

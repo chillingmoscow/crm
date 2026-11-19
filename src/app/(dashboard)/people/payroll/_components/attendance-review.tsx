@@ -326,7 +326,6 @@ export function AttendanceReview({
       <PayrollTable
         id={`attendance.${data.venueId}`}
         label="Выходы сотрудников"
-        mobileCards
         defaultSort="date"
         rows={rows}
         columns={columns}

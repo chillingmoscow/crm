@@ -1,6 +1,5 @@
 "use client";
 import type { ReactNode } from "react";
-import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 export function Field({
   label,
@@ -9,9 +8,12 @@ export function Field({
   label: string;
   children: ReactNode;
 }) {
+  // Подпись как у общего `Field` (src/components/ui/field.tsx): 14px / 500,
+  // отступ 8px. Жирность только у текста подписи — иначе её наследует поле
+  // внутри `label`.
   return (
-    <label className="flex min-w-0 flex-col gap-1.5 text-[13px] font-medium">
-      {label}
+    <label className="flex min-w-0 flex-col gap-2 text-sm">
+      <span className="font-medium">{label}</span>
       {children}
     </label>
   );
@@ -42,26 +44,6 @@ export function FieldSelect({
         </SelectContent>
       </Select>
     </Field>
-  );
-}
-export function StatusBadge({
-  label,
-  className,
-}: {
-  label: string;
-  className?: string;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex min-w-0 max-w-full items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium transition-colors duration-150",
-        className,
-      )}
-    >
-      <span className="truncate" data-tip={label} data-tip-overflow>
-        {label}
-      </span>
-    </span>
   );
 }
 export function safeLink(value: string) {
@@ -118,14 +100,3 @@ export function wallTime(value: string, timezone: string) {
     .replace(" ", "T");
 }
 
-export function plural(n: number, forms: [string, string, string]) {
-  const a = Math.abs(n) % 100,
-    b = a % 10;
-  return a > 10 && a < 20
-    ? forms[2]
-    : b === 1
-      ? forms[0]
-      : b > 1 && b < 5
-        ? forms[1]
-        : forms[2];
-}

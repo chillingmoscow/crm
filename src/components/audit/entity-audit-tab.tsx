@@ -87,7 +87,7 @@ export function EntityAuditTab(props: EntityAuditTabProps) {
 
   if (!canView) {
     return (
-      <div className="mx-auto w-full max-w-[760px]">
+      <div className="mx-auto w-full max-w-[720px]">
         <EmptyState
           icon={ScrollText}
           title="Нет доступа"
@@ -106,7 +106,7 @@ export function EntityAuditTab(props: EntityAuditTabProps) {
         : "Здесь появятся события по этому объекту.";
     const Icon = props.mode === "actor" ? Activity : ScrollText;
     return (
-      <div className="mx-auto w-full max-w-[760px]">
+      <div className="mx-auto w-full max-w-[720px]">
         <EmptyState icon={Icon} title={emptyTitle} description={emptyDesc} />
       </div>
     );
@@ -117,7 +117,7 @@ export function EntityAuditTab(props: EntityAuditTabProps) {
   const hideEntity = props.mode === "entity";
 
   return (
-    <div className="mx-auto w-full max-w-[760px] flex flex-col gap-3">
+    <div className="mx-auto w-full max-w-[720px] flex flex-col gap-3">
       <ul className="flex flex-col rounded-md border bg-background overflow-hidden">
         {events.map((event) => (
           <AuditEventRow

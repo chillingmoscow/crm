@@ -777,11 +777,16 @@ export function ScheduleClient({
   /** Смена вернулась в свой же слот шаблона. */
   const sameSlot = (shift: Shift, template: ShiftTemplate, day: string) =>
     shift.template_id === template.id && dateInZone(shift.starts_at, data.timezone) === day;
+  /** Смена в слоте без сотрудника (карточка «Назначить») — её можно занять броском. */
+  const openSlotShift = (template: ShiftTemplate, day: string) => {
+    const shift = data.shifts.find((s) => sameSlot(s, template, day));
+    return shift && !shiftAssignee(shift) ? shift : undefined;
+  };
   /**
    * Вид «По шаблонам»: почему в слот «шаблон × день» бросить нельзя (null —
-   * можно). Сотрудник из полосы ставится в свободный слот работающего в этот
-   * день шаблона, если у него в этот день ещё нет смены; смена переносится
-   * только в слот своего шаблона на другой день.
+   * можно). Сотрудник из полосы ставится в слот работающего в этот день
+   * шаблона — пустой или со сменой без сотрудника, — если у него в этот день
+   * ещё нет смены; смена переносится только в слот своего шаблона на другой день.
    */
   const slotRefusal = (item: DragItem, template: ShiftTemplate, day: string): string | null => {
     if (item.kind === "template") return "Перетащите сотрудника";
@@ -790,7 +795,8 @@ export function ScheduleClient({
       return "Нет права";
     if (item.kind === "shift" && item.shift.template_id !== template.id) return "Другой шаблон";
     if (!templateTimesFor(template, isoWeekday(day))) return "Шаблон не работает в этот день";
-    if (templateTaken(template.id, day)) return "Шаблон уже занят";
+    const takesOpenShift = item.kind === "employee" && Boolean(openSlotShift(template, day));
+    if (templateTaken(template.id, day) && !takesOpenShift) return "Шаблон уже занят";
     const busy = item.kind === "employee"
       ? occupied(item.userId, day)
       : occupied(shiftAssignee(item.shift), day, item.shift.id);
@@ -807,8 +813,9 @@ export function ScheduleClient({
       setDropTarget({ day, templateId: template.id, ok });
   };
   /**
-   * Сотрудник в свободный слот — сразу черновик смены по шаблону (как шаблон
-   * в ячейку сотрудника); смена в слот своего шаблона на другой день —
+   * Сотрудник в пустой слот — сразу черновик смены по шаблону (как шаблон
+   * в ячейку сотрудника), в слот со сменой без сотрудника — назначение на
+   * неё (как «Назначить»); смена в слот своего шаблона на другой день —
    * перенос со временем шаблона на этот день.
    */
   const dropOnSlot = async (e: React.DragEvent, day: string, template: ShiftTemplate) => {
@@ -823,7 +830,9 @@ export function ScheduleClient({
       : shift ? { kind: "shift", shift } : null;
     if (!item || slotRefusal(item, template, day) !== null) return;
     if (item.kind === "employee") {
-      await placeTemplate(template, day, item.userId);
+      const open = openSlotShift(template, day);
+      if (open) await assignOpenShift(open, item.userId, day);
+      else await placeTemplate(template, day, item.userId);
       return;
     }
     if (item.kind !== "shift" || sameSlot(item.shift, template, day)) return;
@@ -837,6 +846,21 @@ export function ScheduleClient({
       end_time: times.end_time.slice(0, 5),
       ...assignmentFields(assignee),
       payroll_model_id: casualPayModel(assignee, item.shift),
+    });
+  };
+  /** Сотрудника — на смену без сотрудника. Разовый без однозначной ставки — через форму «Назначить». */
+  const assignOpenShift = async (shift: Shift, userId: string, day: string) => {
+    const casual = data.casualEmployees?.some((e) => `payroll:${e.id}` === userId);
+    const payModel = casualPayModel(userId, shift);
+    if (casual && !payModel) {
+      setEditor({ type: "shift", shift, day, templateSlot: true });
+      return;
+    }
+    await save("shift.assign", {
+      ...assignmentFields(userId),
+      payroll_model_id: payModel,
+      id: shift.id,
+      version: shift.version,
     });
   };
   const confirmDelete = (shift: Shift) =>
@@ -1088,17 +1112,20 @@ export function ScheduleClient({
       {text}
     </div>
   );
+  // Непрозрачная подложка: тень может лечь на карточку (смена без сотрудника
+  // в виде «По шаблонам»), а цвет шаблона полупрозрачный.
   const ghostBox = (color: string | null, times: string, title: string) => (
-    <div
-      aria-hidden
-      className={cn(
-        "pointer-events-none absolute inset-1.5 z-[1] flex flex-col gap-0.5 overflow-hidden rounded-md border-2 border-dashed border-current px-1.5 py-1.5",
-        paletteBg(color),
-        paletteText(color),
-      )}
-    >
-      <span className="truncate text-xs font-semibold tabular-nums">{times}</span>
-      <span className="truncate text-xs">{title}</span>
+    <div aria-hidden className="pointer-events-none absolute inset-1.5 z-[1] rounded-md bg-card">
+      <div
+        className={cn(
+          "flex h-full flex-col gap-0.5 overflow-hidden rounded-md border-2 border-dashed border-current px-1.5 py-1.5",
+          paletteBg(color),
+          paletteText(color),
+        )}
+      >
+        <span className="truncate text-xs font-semibold tabular-nums">{times}</span>
+        <span className="truncate text-xs">{title}</span>
+      </div>
     </div>
   );
   const dropGhost = (day: string, userId: string | null) => {
@@ -1136,7 +1163,12 @@ export function ScheduleClient({
     const t = templateTimesFor(template, isoWeekday(day));
     if (!t || dragItem.kind === "template") return null;
     const assignee = dragItem.kind === "employee" ? dragItem.userId : shiftAssignee(dragItem.shift);
-    return ghostBox(template.color, `${t.start_time.slice(0, 5)}–${t.end_time.slice(0, 5)}`, name(assignee));
+    // На смену без сотрудника встаёт с её временем — оно могло быть своим.
+    const open = dragItem.kind === "employee" ? openSlotShift(template, day) : undefined;
+    const times = open
+      ? `${timeInZone(open.starts_at, data.timezone)}–${timeInZone(open.ends_at, data.timezone)}`
+      : `${t.start_time.slice(0, 5)}–${t.end_time.slice(0, 5)}`;
+    return ghostBox(template.color, times, name(assignee));
   };
   const noData = (
     icon: typeof CalendarDays,

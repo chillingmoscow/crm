@@ -252,7 +252,7 @@ export function KbFloatingComposer({
                 "inline-flex items-center justify-center size-7 rounded-full",
                 "transition-colors",
                 canSubmit
-                  ? "bg-brand text-brand-foreground hover:bg-brand/90"
+                  ? "bg-brand text-brand-foreground hover:bg-brand-hover"
                   : "bg-muted text-muted-foreground cursor-not-allowed",
               )}
             >

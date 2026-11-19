@@ -7,6 +7,7 @@ import type { Json, VenueType, WorkingHours } from "@/types/database";
 import { randomUUID } from "crypto";
 import { decryptSecret, encryptSecret } from "@/lib/integrations/crypto";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { genderSchema } from "@/lib/people/gender";
 import { resolveDefaultVenueId } from "@/lib/inventory/default-venue";
 import { storeVenueBindingPatch } from "@/lib/inventory/store-venue-binding";
 import { storeDepartmentBindingPatch } from "@/lib/inventory/store-department-binding";
@@ -367,12 +368,15 @@ export async function saveProfile(data: {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
 
+  const gender = genderSchema.safeParse(data.gender);
+  if (!gender.success) return { error: gender.error.issues[0].message };
+
   const { error } = await supabase
     .from("profiles")
     .update({
       first_name:  data.firstName.trim(),
       last_name:   data.lastName.trim(),
-      gender:      data.gender,
+      gender:      gender.data,
       birth_date:  data.birthDate,
       phone:       data.phone.trim(),
       telegram_id: data.telegramId.trim(),

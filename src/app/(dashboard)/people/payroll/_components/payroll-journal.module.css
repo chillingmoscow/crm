@@ -26,7 +26,7 @@
 }
 .segment button[aria-pressed="true"] {
   background: hsl(var(--background));
-  color: hsl(var(--brand));
+  color: hsl(var(--brand-text));
   box-shadow: theme('boxShadow.sm');
 }
 .upload {
@@ -44,7 +44,7 @@
 }
 .upload:hover {
   border-color: hsl(var(--brand));
-  color: hsl(var(--brand));
+  color: hsl(var(--brand-text));
 }
 /* Поле файла прозрачное — обводку фокуса с клавиатуры рисует сама плитка. */
 .upload:has(input:focus-visible) {

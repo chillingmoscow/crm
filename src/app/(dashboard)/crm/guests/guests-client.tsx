@@ -110,7 +110,7 @@ function GuestAvatar({
   return (
     <span
       className={cn(
-        "flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 font-medium text-brand-tint-foreground",
+        "flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 font-medium text-brand",
         large ? "size-14 text-base" : "size-10 text-xs",
       )}
     >
@@ -652,7 +652,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                 <td className="hidden truncate px-4 py-4 sm:table-cell">
                   {g.data.groupTitle ?? "—"}
                   {g.data.discountPercent != null && (
-                    <span className="ml-2 rounded-full bg-brand/10 px-2 py-1 text-xs text-brand-tint-foreground">
+                    <span className="ml-2 rounded-full bg-brand/10 px-2 py-1 text-xs text-brand">
                       {g.data.discountPercent}%
                     </span>
                   )}

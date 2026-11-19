@@ -541,10 +541,31 @@ import { Button } from "@/components/ui/button";
 - Каждый: `cornerRadius 6` (`rounded-md`), 36×36 (32 на телефоне), hover `bg-accent`; активный — рамка brand и мягкий ореол, заливки нет
 - Tooltip обязателен для каждой кнопки
 
-### Permission/Settings list
-- Module group → `<Card>` с rounded-[14px], border
-- Header карточки: `bg-muted px-5 py-3.5` + icon-tile (28×28 brand-tint) + label + count pill «X из Y» + master switch
-- Rows: `flex items-center px-5 py-3 border-b last:border-b-0`, чекбокс/тоггл слева + текст 13px
+### Права доступа: уровни вместо простыни галок
+
+Эталон — вкладка «Права доступа» карточки должности
+(`src/app/(dashboard)/people/roles/[roleId]/_components/role-permissions-tab.tsx`,
+раздел — `permission-section.tsx`, раскладка уровней — `permission-modules.ts`).
+
+- Группа разделов («Гости и продажи», «Финансы», …) — `ProfileSection`
+  с заголовком группы; разделы внутри разделены `divide-y`.
+- Раздел — одна строка: плитка иконки 28×28 `rounded-lg` (`bg-brand/10
+  text-brand`, если доступ есть; `bg-muted text-muted-foreground`, если нет),
+  название 14px / 600 и справа выбор уровня. Под названием (отступ `pl-10`)
+  — что даёт текущий уровень, 13px `text-muted-foreground`.
+- Выбор уровня — outline-кнопка 36px с шевроном, меню — «Выпадающий список
+  вариантов» (`w-64 p-1`), в пункте название 14px и пояснение 12px
+  `text-muted-foreground`, выбранный — `bg-accent` и галочка справа.
+  Первый пункт «Нет доступа». Набор, не совпавший ни с одним уровнем,
+  кнопка называет «Свой набор»; отдельного пункта для него нет.
+- Уровни накопительные; последний — все права раздела. Это данные
+  (`permission-modules.ts`), не разметка: новый раздел описывается там.
+- Тонкая настройка — раскрывашка «Отдельные права · N из M» (13px / 500,
+  шеврон 16px), под ней список `rounded-[10px] border`, строки
+  `flex items-start gap-3 px-4 py-3 border-b last:border-b-0`, `Checkbox`
+  слева и текст 13px. Поиск раскрывает разделы с совпадениями сам.
+- ❌ Мастер-переключатель «всё в разделе», счётчик-пилюля «X из Y» в шапке,
+  кнопки «Выделить всё / Сбросить» на всю страницу.
 
 ### Top bar (общий header дашборда)
 

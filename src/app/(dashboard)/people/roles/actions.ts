@@ -328,3 +328,51 @@ export async function setRolePermission(
   revalidatePath("/people/roles");
   return { error: null };
 }
+
+/**
+ * Выставить несколько прав должности за один вызов — выбор уровня раздела
+ * на вкладке «Права доступа». Server actions с клиента идут по очереди,
+ * поэтому 20 отдельных `setRolePermission` при смене уровня — 20 круговых
+ * запросов подряд. Здесь проверка делается один раз, а RPC — параллельно.
+ * `failed` — id прав, которые записать не удалось (клиент откатывает их).
+ */
+export async function setRolePermissions(
+  roleId: string,
+  changes: { permissionId: string; granted: boolean }[],
+): Promise<{ error: string | null; failed: string[] }> {
+  if (changes.length === 0) return { error: null, failed: [] };
+  const allIds = changes.map((c) => c.permissionId);
+  if (changes.length > 500) return { error: "Слишком много изменений за раз", failed: allIds };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован", failed: allIds };
+
+  const { data: role } = await supabase
+    .from("roles")
+    .select("code")
+    .eq("id", roleId)
+    .maybeSingle();
+  if (role?.code === "owner")
+    return { error: "Нельзя редактировать должность Владелец", failed: allIds };
+
+  const results = await Promise.all(
+    changes.map(async (c) => {
+      const { error } = await supabase.rpc("set_effective_role_permission", {
+        p_role_id: roleId,
+        p_permission_id: c.permissionId,
+        p_granted: c.granted,
+      });
+      return { id: c.permissionId, error };
+    }),
+  );
+  const failedResults = results.filter((r) => r.error);
+
+  revalidatePath("/people/roles");
+  return {
+    error: failedResults[0]?.error?.message ?? null,
+    failed: failedResults.map((r) => r.id),
+  };
+}

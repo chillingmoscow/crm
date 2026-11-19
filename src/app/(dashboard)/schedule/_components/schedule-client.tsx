@@ -921,8 +921,10 @@ export function ScheduleClient({
     >
       {mode === "list" ? listCardBody(s, assignee, mark) : (
       <>
-      <span className={cn("whitespace-nowrap text-xs font-semibold tabular-nums", mark && "pr-5")}>
-        {timeInZone(s.starts_at, data.timezone)}–
+      {/* В узкой колонке (таблица на минимальной ширине) время переносится
+          после тире, а не обрезается: 12px «13:00–00:30» не всегда влезает. */}
+      <span className={cn("text-xs font-semibold tabular-nums", mark && "pr-5")}>
+        {timeInZone(s.starts_at, data.timezone)}–<wbr />
         {timeInZone(s.ends_at, data.timezone)}
       </span>
       {mode !== "template" && (

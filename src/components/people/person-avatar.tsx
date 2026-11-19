@@ -8,6 +8,7 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
 import { cn } from "@/lib/utils";
+import { personInitials } from "@/lib/format/initials";
 
 /**
  * One photo treatment for people lists: circular crop, complete image on inspection.
@@ -35,7 +36,7 @@ export function PersonAvatar({
   const previewSrc = pick(requestedPreview, fallbackSrc, src);
   const markFailed = (url: string) => setFailed((prev) => new Set(prev).add(url));
   const hasPhoto = !!src;
-  const initial = name.trim().charAt(0).toUpperCase() || "?";
+  const initial = personInitials(name);
   const fallback = (
     <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
       {initial}
@@ -66,7 +67,7 @@ export function PersonAvatar({
           onFocus={() => setOpen(true)}
           onBlur={() => setOpen(false)}
           className={cn(
-            // Пока фото грузится, под ним видна та же буква на сером круге,
+            // Пока фото грузится, под ним видны те же инициалы на сером круге,
             // что и у людей без фото, — ячейка не выглядит пустой.
             "relative flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-brand",
             faded && "opacity-50",

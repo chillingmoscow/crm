@@ -9,6 +9,7 @@ import {
   useCommentMentionDropdown,
   type KbCommentMention,
 } from "@/components/knowledge/blocks/kb-comment-mention-dropdown";
+import { personInitials } from "@/lib/format/initials";
 
 interface PageCommentComposerProps {
   currentUserName: string | null;
@@ -118,7 +119,7 @@ export function PageCommentComposer({
 
   const trimmed = text.trim();
   const canSubmit = trimmed.length > 0 && !submitting;
-  const initials = getInitials(currentUserName);
+  const initials = personInitials(currentUserName);
 
   // Кнопки показываем только когда есть что отправить или это режим
   // редактирования — иначе строка остаётся «лёгкой», как в Notion.
@@ -189,9 +190,3 @@ export function PageCommentComposer({
   );
 }
 
-function getInitials(name: string | null): string {
-  if (!name) return "?";
-  const parts = name.trim().split(/\s+/).slice(0, 2);
-  if (parts.length === 0) return "?";
-  return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
-}

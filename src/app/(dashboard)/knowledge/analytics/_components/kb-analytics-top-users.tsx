@@ -1,4 +1,5 @@
 import type { KbAnalyticsTopUser } from "@/lib/knowledge/analytics";
+import { personInitials } from "@/lib/format/initials";
 
 /** Топ-юзеров по активности в KB. Server-component. Рядом с топ-
  *  страницами на /knowledge/analytics. */
@@ -58,13 +59,7 @@ function Avatar({
   name: string;
   avatarUrl: string | null;
 }) {
-  const initials =
-    name
-      .split(" ")
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((p) => p[0]?.toUpperCase() ?? "")
-      .join("") || "?";
+  const initials = personInitials(name);
   if (avatarUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element

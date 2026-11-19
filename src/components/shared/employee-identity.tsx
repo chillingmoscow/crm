@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { personInitials } from "@/lib/format/initials";
+
 /** Shared employee identity for payroll and sales. */
 export function EmployeeIdentity({
   name,
@@ -15,7 +17,7 @@ export function EmployeeIdentity({
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   return (
     <span className="flex min-w-0 items-center gap-3">
-      <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 text-xs font-medium text-brand">
+      <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-medium text-muted-foreground">
         {avatarUrl && failedUrl !== avatarUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -25,12 +27,7 @@ export function EmployeeIdentity({
             onError={() => setFailedUrl(avatarUrl)}
           />
         ) : (
-          name
-            .trim()
-            .split(/\s+/)
-            .slice(0, 2)
-            .map((word) => word[0])
-            .join("")
+          personInitials(name)
         )}
       </span>
       <span className="flex min-w-0 flex-col gap-1">

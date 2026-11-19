@@ -2,6 +2,7 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { personInitials } from "@/lib/format/initials";
 
 /**
  * Блоки содержимого боковой панели (EditDrawer). Правила — в
@@ -149,7 +150,7 @@ export function DrawerAvatar({
       aria-hidden
       className={cn("flex shrink-0 items-center justify-center rounded-full bg-muted font-medium text-muted-foreground", box)}
     >
-      {name.trim().charAt(0).toUpperCase() || "?"}
+      {personInitials(name)}
     </span>
   );
 }

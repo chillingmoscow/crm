@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/popover";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { pluralRu } from "@/lib/format/plural";
+import { personInitials } from "@/lib/format/initials";
 
 interface EntityInfoPopoverProps {
   /** Заголовок попапа: «О должности», «О сотруднике» и т.д. */
@@ -98,13 +99,7 @@ function MiniAvatar({
   name: string | null | undefined;
   avatarUrl: string | null | undefined;
 }) {
-  const initials =
-    (name ?? "")
-      .split(" ")
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((p) => p[0]?.toUpperCase() ?? "")
-      .join("") || "?";
+  const initials = personInitials(name);
   if (avatarUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element

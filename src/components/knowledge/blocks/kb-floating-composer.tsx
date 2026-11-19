@@ -17,6 +17,7 @@ import {
   useCommentMentionDropdown,
 } from "@/components/knowledge/blocks/kb-comment-mention-dropdown";
 import { KbMobileCommentSheet } from "@/components/knowledge/blocks/kb-mobile-comment-sheet";
+import { personInitials } from "@/lib/format/initials";
 
 /**
  * Custom Notion-style floating composer для KB-комментариев. Заменяет
@@ -204,7 +205,7 @@ export function KbFloatingComposer({
 
   const trimmed = text.trim();
   const canSubmit = trimmed.length > 0 && !submitting;
-  const initials = getInitials(currentUserName);
+  const initials = personInitials(currentUserName);
 
   const inner = (
     <>
@@ -286,9 +287,3 @@ export function KbFloatingComposer({
   );
 }
 
-function getInitials(name: string | null): string {
-  if (!name) return "?";
-  const parts = name.trim().split(/\s+/).slice(0, 2);
-  if (parts.length === 0) return "?";
-  return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
-}

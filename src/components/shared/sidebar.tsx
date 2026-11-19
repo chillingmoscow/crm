@@ -68,6 +68,7 @@ import { KbNavLink } from "@/app/(dashboard)/knowledge/_components/kb-nav-link";
 import { cn } from "@/lib/utils";
 import { useWorkspaceAppearance } from "@/components/shared/workspace-appearance";
 import appearance from "@/components/shared/workspace-appearance.module.css";
+import { personInitials } from "@/lib/format/initials";
 
 type NavItem = {
   title: string;
@@ -1032,7 +1033,7 @@ function UserAvatar({
   size?: number;
 }) {
   const modern = useWorkspaceAppearance();
-  const initial = name.charAt(0).toUpperCase() || "?";
+  const initial = personInitials(name);
   if (avatarUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element

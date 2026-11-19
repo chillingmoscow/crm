@@ -14,6 +14,7 @@ import { loadPayroll } from "../actions";
 import { EmployeePay } from "./employee-pay";
 import { RefreshFailedNotice, useAutoRefresh } from "./auto-refresh";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { personInitials } from "@/lib/format/initials";
 
 export function EmployeePayrollPage({
   initial,
@@ -82,7 +83,7 @@ export function EmployeePayrollPage({
           {employee.avatar_url ? (
             <img src={employee.avatar_url} alt="" />
           ) : (
-            employee.name.trim().charAt(0).toUpperCase() || "?"
+            personInitials(employee.name)
           )}
         </span>
         <div>

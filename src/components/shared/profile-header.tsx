@@ -2,6 +2,7 @@ import Image from "next/image";
 import type { ReactNode } from "react";
 import { Camera } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { personInitials } from "@/lib/format/initials";
 
 /**
  * Шапка карточки сущности: аватар 56px, имя 28px / 700, под ним серая
@@ -45,7 +46,7 @@ export function ProfileHeader({
         aria-hidden
         className="flex h-14 w-14 items-center justify-center rounded-full bg-muted text-xl font-semibold text-muted-foreground"
       >
-        {name.charAt(0).toUpperCase()}
+        {personInitials(name)}
       </div>
     ));
   return (

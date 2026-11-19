@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { personInitials } from "@/lib/format/initials";
 
 /**
  * Read-only рендер BlockNote CommentBody для page-level комментариев.
@@ -46,7 +47,7 @@ export function CommentBodyRenderer({ body }: { body: unknown }) {
               ) {
                 const fullName = it.props.fullName ?? "Без имени";
                 const avatarUrl = it.props.avatarUrl ?? "";
-                const initials = getInitialsForChip(fullName);
+                const initials = personInitials(fullName);
                 return (
                   <Link
                     key={i}
@@ -78,11 +79,6 @@ export function CommentBodyRenderer({ body }: { body: unknown }) {
   );
 }
 
-function getInitialsForChip(name: string): string {
-  const parts = name.trim().split(/\s+/).slice(0, 2);
-  if (parts.length === 0) return "?";
-  return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
-}
 
 /** Reverse-derive plain text + `@FullName` placeholder для edit-mode.
  *  Используется PageCommentItem для pre-fill'а composer'а при «Edit». */

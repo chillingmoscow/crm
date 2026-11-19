@@ -38,6 +38,7 @@ import {
 } from "@/lib/people/gender";
 import { updateOwnProfile, type OwnProfile } from "../actions";
 import { requestEmailChange } from "../email-change-actions";
+import { personInitials } from "@/lib/format/initials";
 
 const schema = z.object({
   first_name:  z.string().min(1, "Обязательное поле"),
@@ -416,7 +417,7 @@ export function ProfileSettingsPage({
                 />
               ) : (
                 <div className="w-28 h-28 rounded-full bg-muted flex items-center justify-center text-3xl font-semibold text-muted-foreground ring-1 ring-border">
-                  {displayName.charAt(0).toUpperCase()}
+                  {personInitials(displayName)}
                 </div>
               )}
               <button

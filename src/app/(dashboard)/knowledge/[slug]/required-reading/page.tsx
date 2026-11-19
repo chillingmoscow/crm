@@ -10,6 +10,7 @@ import {
   getKbRequiredReadingStats,
   type KbRequiredReadingStatsRow,
 } from "@/lib/knowledge/required-reading";
+import { personInitials } from "@/lib/format/initials";
 
 /**
  * Sprint D / Phase 2 — Admin view «кто прочитал, кто нет».
@@ -183,13 +184,7 @@ function Avatar({
   name: string;
   avatarUrl: string | null;
 }) {
-  const initials =
-    name
-      .split(" ")
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((p) => p[0]?.toUpperCase() ?? "")
-      .join("") || "?";
+  const initials = personInitials(name);
   if (avatarUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element

@@ -72,15 +72,11 @@ export function PayrollLedger({
               p.month === month &&
               p.state === "review",
           );
-          if (
-            (["paid", "remaining"].includes(id) && pending) ||
-            (["opening", "remaining"].includes(id) &&
-              !record.employee.opening_confirmed)
-          )
+          if (["paid", "remaining"].includes(id) && pending)
             return (
               <span
                 className="text-muted-foreground"
-                data-tip="Сумма появится после уточнения выплат и переносов"
+                data-tip="Сумма появится после сверки прежних выплат"
               >
                 —
               </span>
@@ -130,15 +126,13 @@ export function PayrollLedger({
         const unknown = (id: string) =>
           visible.some(
             (record) =>
-              (["paid", "remaining"].includes(id) &&
-                data.legacyPayments.some(
-                  (p) =>
-                    p.employee_id === record.employee.id &&
-                    p.month === month &&
-                    p.state === "review",
-                )) ||
-              (["opening", "remaining"].includes(id) &&
-                !record.employee.opening_confirmed),
+              ["paid", "remaining"].includes(id) &&
+              data.legacyPayments.some(
+                (p) =>
+                  p.employee_id === record.employee.id &&
+                  p.month === month &&
+                  p.state === "review",
+              ),
           );
         return Object.fromEntries(
           numeric.map((id) => [

@@ -217,8 +217,7 @@ export function PayrollWorkspace({
   const historyPending = data.legacyPayments.some(
     (p) => p.month === monthStart && p.state === "review",
   );
-  const knownBalance =
-    !historyPending && active.every((r) => r.employee.opening_confirmed);
+  const knownBalance = !historyPending;
   const remaining = rows.reduce((sum, r) => sum + r.remaining, 0);
   const roles = [
     ...new Set(rows.map((r) => r.employee.role_name).filter(Boolean)),
@@ -417,7 +416,7 @@ export function PayrollWorkspace({
         r.earned,
         r.bonuses,
         r.deductions,
-        r.employee.opening_confirmed ? r.opening : "",
+        r.opening,
         r.transferredOut,
         historyPending ? "" : r.paid,
         knownBalance ? r.remaining : "",
@@ -625,7 +624,7 @@ export function PayrollWorkspace({
                   />
                 </strong>
                 {!knownBalance && (
-                  <small>Появится после сверки выплат и переносов</small>
+                  <small>Появится после сверки прежних выплат</small>
                 )}
               </div>
               <div className={s.metric}>

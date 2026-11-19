@@ -43,7 +43,7 @@ export type Payslip = {
   transferredOut: number;
   paid: number;
   remaining: number;
-  /** Остаток нельзя назвать, пока начальные данные не сверены. */
+  /** Остаток нельзя назвать, пока прежние выплаты месяца не сверены. */
   remainingKnown: boolean;
   payments: { date: string; amount: number }[];
   tips: number;
@@ -192,7 +192,7 @@ export function buildPayslip(
     transferredOut: row?.transferredOut ?? 0,
     paid: row?.paid ?? 0,
     remaining: row?.remaining ?? 0,
-    remainingKnown: employee.opening_confirmed && !legacyPending,
+    remainingKnown: !legacyPending,
     payments,
     tips: row?.tips ?? 0,
     tipPaid: row?.tipPaid ?? 0,

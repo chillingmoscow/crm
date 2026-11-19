@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import type { ShiftAttendanceMark, ShiftAttendanceState } from "@/lib/payroll/types";
 import { addDays } from "@/lib/sales/time";
+import type { ShiftReviewDecision } from "@/lib/payroll/shift-attendance";
 import { reviewShiftAttendance } from "../actions";
 
 const descriptions: Record<ShiftAttendanceState, string> = {
@@ -19,11 +20,13 @@ const descriptions: Record<ShiftAttendanceState, string> = {
   excluded: "Выход исключён из расчёта по решению управляющего.",
 };
 
-export function ShiftAttendancePopover({ shiftId, version, mark, canReview }: {
+export function ShiftAttendancePopover({ shiftId, version, mark, canReview, onReviewed }: {
   shiftId: string;
   version: number;
   mark: ShiftAttendanceMark;
   canReview: boolean;
+  /** Решение сохранено: сетка сразу меняет значок и пересчитывает уведомление. */
+  onReviewed?: (decision: ShiftReviewDecision, reason: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
@@ -45,7 +48,9 @@ export function ShiftAttendancePopover({ shiftId, version, mark, canReview }: {
   const failed = mark.sourceState === "error";
   const heading = mark.state === "excluded"
     ? "Смена не засчитана"
-    : mark.hasQuickResto
+    : mark.state === "included"
+      ? "Выход засчитан"
+      : mark.hasQuickResto
       ? mark.state === "missing" ? "Отметка не связана со сменой" : "Выход проверен"
       : "Нет отметки в Quick Resto";
   // Значок по состоянию: внимание — янтарный, решённое — нейтральная
@@ -59,14 +64,16 @@ export function ShiftAttendancePopover({ shiftId, version, mark, canReview }: {
     if (saving || pending || mark.sourceState !== "complete" || !mark.syncedAt) return;
     setSaving(true);
     try {
+      const text = reason.trim() || "Выход подтверждён по расписанию";
       await reviewShiftAttendance({
         shiftId,
         version,
         syncedAt: mark.syncedAt,
         decision,
-        reason: reason.trim() || "Выход подтверждён по расписанию",
+        reason: text,
       });
       setSavedAt(mark.syncedAt);
+      onReviewed?.(decision, text);
       toast.success("Решение сохранено. Начисления пересчитываются.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось сохранить решение");

@@ -8,6 +8,7 @@ import {
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { queuePayroll } from "@/lib/payroll/sync";
+import { attendanceReviewRows, needsAttendanceReview } from "@/lib/payroll/attendance-review-rows";
 import { validateRates, tipBatch, tipMatch } from "@/lib/payroll/calculate";
 import { validDate, addDays, businessDate } from "@/lib/sales/time";
 import type {
@@ -56,6 +57,75 @@ export async function loadPayrollOverview(): Promise<PayrollData> {
 export async function loadEmployeePayroll(userId: string): Promise<PayrollData> {
   z.string().uuid().parse(userId);
   return loadPayrollData(false, userId);
+}
+
+/**
+ * Сколько выходов ждут проверки по месяцам — для уведомлений в «Расписании»
+ * и «Зарплате». Тот же расчёт, что список «На проверке» в «Сверке отметок»
+ * (`attendanceReviewRows`), но читаются только нужные месяцы, а не вся
+ * история. Закрытый месяц не считается: решения в нём уже не принять.
+ */
+export async function loadAttendanceAttention(
+  months: string[],
+): Promise<{ month: string; count: number }[]> {
+  const list = z.array(z.string().regex(/^\d{4}-\d{2}$/)).min(1).max(3).parse([...new Set(months)]).sort();
+  const s = await scope();
+  if (!s.permissions.includes("payroll.view")) return [];
+  const from = `${list[0]}-01`;
+  const last = list[list.length - 1];
+  const to = addDays(`${addDays(`${last}-28`, 4).slice(0, 7)}-01`, -1);
+  const between = <Q extends { gte: (c: string, v: string) => Q; lte: (c: string, v: string) => Q }>(q: Q) =>
+    q.gte("business_date", from).lte("business_date", to);
+  const [hours, venue, attendance, shifts, sources, reviews, periods] = await Promise.all([
+    s.admin.from<{ day_start_hour: number }>("sales_settings")
+      .select("day_start_hour").eq("account_id", s.accountId).eq("venue_id", s.venueId).maybeSingle(),
+    s.client.from("venues").select("timezone").eq("id", s.venueId).single(),
+    // PostgREST отдаёт не больше 1000 строк за запрос — читаем страницами.
+    allPages((a, b) =>
+      between(s.db.from<PayrollData["attendance"]>("payroll_attendance").select("*").eq("venue_id", s.venueId))
+        .order("id").range(a, b)),
+    // Рабочий день может начаться накануне по календарю: берём запас в сутки.
+    allPages((a, b) =>
+      s.db.from<PayrollData["plannedShifts"]>("schedule_shifts").select("*")
+        .eq("venue_id", s.venueId).eq("published", true).not("user_id", "is", null)
+        .gte("starts_at", `${addDays(from, -1)}T00:00:00Z`).lt("starts_at", `${addDays(to, 2)}T00:00:00Z`)
+        .order("id").range(a, b)),
+    between(s.admin.from<PayrollData["sources"]>("payroll_source_days")
+      .select("business_date,state,error,synced_at,missing_shifts:source->missing_shifts")
+      .eq("account_id", s.accountId).eq("venue_id", s.venueId)),
+    between(s.db.from<PayrollData["scheduleReviews"]>("payroll_schedule_reviews").select("*").eq("venue_id", s.venueId)),
+    s.db.from<{ month: string; status: string }[]>("payroll_periods").select("month,status")
+      .eq("venue_id", s.venueId).in("month", list.map((m) => `${m}-01`)),
+  ]);
+  for (const r of [hours, venue, attendance, shifts, sources, reviews, periods])
+    if (r.error) throw new Error(r.error.message);
+  const input = {
+    attendance: attendance.data ?? [],
+    plannedShifts: shifts.data ?? [],
+    sources: sources.data ?? [],
+    scheduleReviews: reviews.data ?? [],
+    employees: [],
+    timezone: venue.data?.timezone ?? "Europe/Moscow",
+    dayStartHour: hours.data?.day_start_hour ?? 9,
+  };
+  const closed = new Set((periods.data ?? []).filter((p) => p.status !== "draft").map((p) => p.month.slice(0, 7)));
+  return list.map((month) => ({
+    month,
+    count: closed.has(month) ? 0 : attendanceReviewRows(input, month).filter(needsAttendanceReview).length,
+  }));
+}
+
+async function allPages<T>(
+  page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<{ data: T[]; error: { message: string } | null }> {
+  const rows: T[] = [];
+  for (let start = 0; start < 20000; start += 1000) {
+    const { data, error } = await page(start, start + 999);
+    if (error) return { data: [], error };
+    rows.push(...(data ?? []));
+    if ((data?.length ?? 0) < 1000) return { data: rows, error: null };
+  }
+  return { data: [], error: { message: "Слишком много записей за период" } };
 }
 
 // Таблицы со столбцом employee_id: для одного сотрудника читаем только его строки.

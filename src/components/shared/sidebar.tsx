@@ -17,7 +17,6 @@ import {
   ChevronsLeft,
   ChevronsRight,
   ChevronsUpDown,
-  ClipboardCheck,
   ClipboardList,
   Eye,
   FileBadge2,
@@ -69,6 +68,7 @@ import { cn } from "@/lib/utils";
 import { useWorkspaceAppearance } from "@/components/shared/workspace-appearance";
 import appearance from "@/components/shared/workspace-appearance.module.css";
 import { personInitials } from "@/lib/format/initials";
+import { avatarThumbUrl } from "@/lib/people/avatar-thumb";
 
 type NavItem = {
   title: string;
@@ -167,13 +167,6 @@ const NAV_SECTIONS: NavSection[] = [
         href: "/schedule/templates",
         icon: CalendarClock,
         permissions: ["schedule.template_create", "schedule.template_edit", "schedule.template_copy", "schedule.template_archive", "schedule.shift_create"],
-      },
-      {
-        // Страница сама пускает только с payroll.view (attendance/page.tsx).
-        title: "Сверка отметок",
-        href: "/schedule/attendance",
-        icon: ClipboardCheck,
-        permission: "payroll.view",
       },
     ],
   },
@@ -1038,7 +1031,7 @@ function UserAvatar({
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={avatarUrl}
+        src={avatarThumbUrl(avatarUrl) ?? avatarUrl}
         alt={name}
         className="w-full h-full object-cover"
         style={{ width: size, height: size }}

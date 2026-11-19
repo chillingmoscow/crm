@@ -189,7 +189,7 @@ export function TemplateWeek({
               Шаблоны смен · {rows.length}
             </th>
             {days.map((day) => (
-              <th key={day} scope="col" className={cn("border-b border-l px-2 py-3 text-center text-xs font-medium", day === today && "bg-brand/10 text-brand-tint-foreground")}>
+              <th key={day} scope="col" className={cn("border-b border-l px-2 py-3 text-center text-xs font-medium", day === today && "bg-brand/10 text-brand")}>
                 {dayLabel(day, { weekday: "short", day: "numeric" })}
               </th>
             ))}

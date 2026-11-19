@@ -67,7 +67,7 @@ export function AmountRangeFilter({ value, onChange }: Props) {
             className={cn(
               "rounded-full h-8 pl-3 pr-8 font-normal text-sm",
               hasValue
-                ? "bg-brand/10 border-brand/20 text-brand-tint-foreground hover:bg-brand/15 hover:text-brand-tint-foreground"
+                ? "bg-brand/10 border-brand/20 text-brand hover:bg-brand/15 hover:text-brand"
                 : "bg-muted/60 border-transparent text-muted-foreground hover:bg-muted"
             )}
           >
@@ -80,7 +80,7 @@ export function AmountRangeFilter({ value, onChange }: Props) {
             type="button"
             onClick={clear}
             aria-label="Сбросить сумму"
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand/90"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand-hover"
           >
             <X className="h-3 w-3" />
           </button>
@@ -127,7 +127,7 @@ export function AmountRangeFilter({ value, onChange }: Props) {
           >
             Очистить
           </Button>
-          <Button size="sm" className="bg-brand hover:bg-brand/90" onClick={apply}>
+          <Button size="sm" className="bg-brand hover:bg-brand-hover" onClick={apply}>
             Применить
           </Button>
         </div>

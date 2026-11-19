@@ -415,7 +415,7 @@ export function NotificationBell({
                     : "Уведомления"}
                 </span>
                 {unreadCount > 0 && (
-                  <span className="text-xs font-semibold bg-brand/10 text-brand-tint-foreground rounded-full px-1.5 leading-5">
+                  <span className="text-xs font-semibold bg-brand/10 text-brand rounded-full px-1.5 leading-5">
                     {unreadCount}
                   </span>
                 )}

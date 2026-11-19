@@ -125,7 +125,7 @@ export function MultiSelectFilter({
             className={cn(
               "rounded-full h-8 pl-3 pr-8 font-normal text-sm justify-start w-full",
               hasSelection
-                ? "bg-brand/10 border-brand/20 text-brand-tint-foreground hover:bg-brand/15 hover:text-brand-tint-foreground"
+                ? "bg-brand/10 border-brand/20 text-brand hover:bg-brand/15 hover:text-brand"
                 : "bg-muted/60 border-transparent text-muted-foreground hover:bg-muted"
             )}
           >
@@ -138,7 +138,7 @@ export function MultiSelectFilter({
             type="button"
             onClick={clearAll}
             aria-label="Сбросить фильтр"
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand/90"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand-hover"
           >
             <X className="h-3 w-3" />
           </button>

@@ -630,7 +630,7 @@ function TypePill({
       ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-900/50"
       : type === "expense"
         ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-900/50"
-        : "bg-brand/10 text-brand-tint-foreground border-brand/20";
+        : "bg-brand/10 text-brand border-brand/20";
 
   const Icon =
     type === "income" ? Plus : type === "expense" ? Minus : ArrowLeftRight;

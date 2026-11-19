@@ -79,8 +79,11 @@ function candidateQuery(s: CandidateScope, filters: ListFilters) {
     .eq("account_id", s.accountId)
     .neq("status", "hired");
   for (const sort of filters.sort ?? []) {
+    // «На этапе» сортируется по сроку: по возрастанию — кто перешёл позже,
+    // то есть дата перехода идёт в обратном порядке.
+    const byStageAge = sort.field === "stage_changed_at";
     query = query.order(sort.field === "status" ? "status_order" : sort.field, {
-      ascending: sort.direction === "asc",
+      ascending: byStageAge ? sort.direction !== "asc" : sort.direction === "asc",
       nullsFirst: false,
     });
   }

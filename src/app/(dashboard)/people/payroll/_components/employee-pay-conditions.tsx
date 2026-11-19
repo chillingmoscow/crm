@@ -3,17 +3,15 @@ import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { attendanceRuleAtDate } from "@/lib/payroll/attendance";
 import type { PayrollData, PayEmployee } from "@/lib/payroll/types";
-import { assignPayrollPosition, payrollCommand, setPayrollAttendanceSource } from "../actions";
+import { assignPayrollPosition, setPayrollAttendanceSource } from "../actions";
 import { PayrollDetailDialog } from "./payroll-detail-dialog";
 import form from "@/app/(dashboard)/people/payroll/_components/payroll-payment-form.module.css";
-import { Money } from "@/components/shared/money";
 import s from "./employee-pay.module.css";
 const dateLabel = (value: string) => new Date(`${value}T12:00:00Z`).toLocaleDateString("ru-RU", { timeZone: "UTC" });
 export function EmployeePayConditions({ data, employee, month, onChange }: {
@@ -22,13 +20,12 @@ export function EmployeePayConditions({ data, employee, month, onChange }: {
     month: string;
     onChange: () => Promise<void>;
 }) {
-    const [mode, setMode] = useState<"model" | "opening" | "attendance" | null>(null);
+    const [mode, setMode] = useState<"model" | "attendance" | null>(null);
     const [busy, setBusy] = useState(false);
     const [model, setModel] = useState(employee.role_id ?? "");
     const [from, setFrom] = useState(month);
     const [reason, setReason] = useState("");
     const [attendanceSource,setAttendanceSource]=useState<"quickresto"|"schedule"|"excluded">("quickresto");
-    const [opening, setOpening] = useState(String(employee.opening_balance));
     const configure = data.permissions.includes("payroll.configure");
     const casualCode = Boolean(employee.casual && employee.quickresto_id !== null && employee.quickresto_pin);
     const assignments = data.assignments.filter(a => a.employee_id === employee.id).sort((a, b) => b.valid_from.localeCompare(a.valid_from));
@@ -39,15 +36,13 @@ export function EmployeePayConditions({ data, employee, month, onChange }: {
     const tenureStart = data.settings?.experience_starts_on ?? data.experienceStartsOn;
     const sourceRule=attendanceRuleAtDate(data.attendanceRules??[],employee.id,new Date(monthEnd.getTime()-86400000).toISOString().slice(0,10));
     const latestSourceRule=(data.attendanceRules??[]).filter(r=>r.employee_id===employee.id).sort((a,b)=>b.valid_from.localeCompare(a.valid_from)||b.created_at.localeCompare(a.created_at)||b.id.localeCompare(a.id))[0];
-    const open = (next: typeof mode) => { setAttendanceSource(sourceRule?.source??"quickresto"); setModel(employee.role_id ?? ""); setOpening(String(employee.opening_balance)); setFrom(month); setReason(""); setMode(next); };
+    const open = (next: typeof mode) => { setAttendanceSource(sourceRule?.source??"quickresto"); setModel(employee.role_id ?? ""); setFrom(month); setReason(""); setMode(next); };
     const save = async () => {
         setBusy(true);
         try {
             if(mode==="attendance") await setPayrollAttendanceSource(employee.id,attendanceSource,from,reason,latestSourceRule?.id??null);
             if (mode === "model")
                 await assignPayrollPosition(employee.id, model, from);
-            if (mode === "opening")
-                await payrollCommand("employee", { id: employee.id, opening_balance: Number(opening), opening_confirmed: true });
             await onChange();
             setMode(null);
             toast.success("Условия сохранены");
@@ -68,15 +63,13 @@ export function EmployeePayConditions({ data, employee, month, onChange }: {
     : <Button variant="ghost" size="sm" onClick={() => open("model")}>Изменить должность</Button>)}</div></section>
   <section className={s.setting}><div><h3>Факт работы</h3><p>{sourceRule?.source==="excluded"?"Не участвует в зарплатном учёте":casualCode?`По отметкам Quick Resto · PIN ${employee.quickresto_pin}`:employee.casual||sourceRule?.source==="schedule"?"По опубликованному графику":"По отметкам Quick Resto"}</p><p>{sourceRule?.source==="excluded"?"Начисления за работу с выбранной даты отключены. Прежняя история сохраняется.":casualCode?"Есть отметка — считаем фактическое время и опоздание. Нет отметки — смена засчитывается по графику.":employee.casual?"Завершённая смена в графике учитывается как отработанная. Чтобы отметки на кассе шли в его зарплату, добавьте его в «Сотрудники → Добавить → Разовый» с тем же именем: он получит свой PIN.":sourceRule?.source==="schedule"?"Завершённая смена в графике учитывается как отработанная.":"График задаёт план, личная смена подтверждает выход."}</p></div>{configure&&!employee.casual&&<Button variant="outline" size="sm" onClick={()=>open("attendance")}>Изменить</Button>}</section>
   <section className={s.setting}><div><h3>Надбавка за стаж</h3><p>{tenureStart ? `${referenceDate < tenureStart ? "Начисление с" : "Начисляется с"} ${dateLabel(tenureStart)}` : "Дата начала начисления ещё не назначена"}</p><p>{employee.hired_on ? `Дата приёма: ${dateLabel(employee.hired_on)}. ` : ""}Сумма за выход определяется шкалой должности.</p></div></section>
-  {!employee.casual&&<section className={s.setting}><div><h3>Начальный остаток · {data.settings?.starts_on ? dateLabel(data.settings.starts_on) : "начало учёта"}</h3><p>{employee.opening_confirmed ? <><Money value={employee.opening_balance} fraction={!Number.isInteger(employee.opening_balance)} /> · подтверждён</> : "Не указан"}</p><p>Используется при первом расчёте. Переносы между месяцами оформляются отдельно.</p></div>{configure && <Button variant="outline" size="sm" onClick={() => open("opening")}>{employee.opening_confirmed ? "Изменить" : "Указать"}</Button>}</section>}
   <details className={s.issue}><summary>История условий</summary>{(data.attendanceRules??[]).filter(r=>r.employee_id===employee.id).map(r=><p key={r.id}>Факт работы с {dateLabel(r.valid_from)} · {r.source==="excluded"?"Не учитывать в зарплате":r.source==="schedule"?"График":"Quick Resto"} · {r.reason}</p>)}{assignments.map(a => <p key={a.id}>С {dateLabel(a.valid_from)} · {data.roles?.find(r => r.id === data.models.find(m => m.id === a.model_id)?.role_id)?.name ?? data.models.find(m => m.id === a.model_id)?.name ?? "Должность"}</p>)}{!assignments.length && <p>Сохранённых версий пока нет.</p>}</details>
   <PayrollDetailDialog open={Boolean(mode)} onOpenChange={v => { if (!v && !busy)
-        setMode(null); }} title={mode==="attendance"?"Факт работы":mode === "model" ? "Основная должность" : "Начальный остаток"} description="Условия оплаты сотрудника" employee={{ name: employee.name, role: employee.role_name, avatarUrl: employee.avatar_url }} footer={<><Button variant="outline" disabled={busy} onClick={() => setMode(null)}>Отмена</Button><Button disabled={busy || (mode==="attendance"&&(!from||reason.trim().length<3)) || (mode === "model" && (!model || !from)) || (mode === "opening" && (opening.trim() === "" || !Number.isFinite(Number(opening))))} onClick={() => void save()}>{busy ? "Сохраняем…" : "Сохранить"}</Button></>}>
+        setMode(null); }} title={mode==="attendance"?"Факт работы":"Основная должность"} description="Условия оплаты сотрудника" employee={{ name: employee.name, role: employee.role_name, avatarUrl: employee.avatar_url }} footer={<><Button variant="outline" disabled={busy} onClick={() => setMode(null)}>Отмена</Button><Button disabled={busy || (mode==="attendance"&&(!from||reason.trim().length<3)) || (mode === "model" && (!model || !from))} onClick={() => void save()}>{busy ? "Сохраняем…" : "Сохранить"}</Button></>}>
    <div className={form.form}>
     {mode==="attendance"&&<><div className="space-y-2"><Label>Источник</Label><Select value={attendanceSource} onValueChange={v=>setAttendanceSource(v as "quickresto"|"schedule"|"excluded")} disabled={busy}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent><SelectItem value="quickresto">Отметки Quick Resto</SelectItem><SelectItem value="schedule">Опубликованный график</SelectItem><SelectItem value="excluded">Не учитывать в зарплате</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Действует с</Label><DatePicker value={from} onChange={setFrom} clearable={false} disabled={busy}/></div><div className="space-y-2"><Label htmlFor="attendance-source-reason">Причина изменения</Label><Textarea id="attendance-source-reason" value={reason} onChange={e=>setReason(e.target.value)} disabled={busy}/></div></>}
 
     {mode === "model" && <><div className="space-y-2"><Label>Основная должность</Label><Select value={model} onValueChange={setModel} disabled={busy}><SelectTrigger><SelectValue placeholder="Выберите должность"/></SelectTrigger><SelectContent>{(data.roles ?? []).filter(r => data.models.some(m => m.role_id === r.id && m.is_role_default && !m.archived)).map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label htmlFor="employee-model-from">Действует с</Label><DatePicker id="employee-model-from" value={from} onChange={setFrom} clearable={false} disabled={busy}/></div></>}
-    {mode === "opening" && <><p className="text-[13px] leading-relaxed text-muted-foreground">Долг заведения укажите положительной суммой, переплату сотруднику — отрицательной. Остаток изменится после сохранения.</p><div className="space-y-2"><Label htmlFor="employee-opening">Сумма, ₽</Label><Input id="employee-opening" inputMode="decimal" type="number" step="0.01" value={opening} onChange={e => setOpening(e.target.value)} disabled={busy}/></div></>}
    </div>
   </PayrollDetailDialog>
  </div>;

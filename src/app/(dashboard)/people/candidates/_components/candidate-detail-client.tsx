@@ -190,17 +190,15 @@ export function CandidateDetailClient({
                 </Link>
               </Button>
             ) : permissions.hire && options.venues.some(v => v.can_hire) && (c.status === "trial" || data.hire?.state === "reserved") ? (
-              <span data-tip={c.status !== "trial" ? "Приём на работу доступен на этапе «Стажировка»" : undefined} className="inline-flex">
-                <Button
-                  disabled={c.status !== "trial" && data.hire?.state !== "reserved"}
-                  onClick={() => setHiring(true)}
-                >
-                  <UserCheck className="mr-2 h-4 w-4" />
-                  {data.hire?.state === "reserved"
-                    ? "Продолжить оформление"
-                    : "Принять на работу"}
-                </Button>
-              </span>
+              // Блок рисуется только на «Стажировке» или при начатом
+              // оформлении — в обоих случаях кнопка доступна, поэтому ни
+              // disabled, ни подсказки про этап здесь не нужно.
+              <Button onClick={() => setHiring(true)}>
+                <UserCheck />
+                {data.hire?.state === "reserved"
+                  ? "Продолжить оформление"
+                  : "Принять на работу"}
+              </Button>
             ) : null}
             {canEdit || permissions.owner ? (
               <DropdownMenu>

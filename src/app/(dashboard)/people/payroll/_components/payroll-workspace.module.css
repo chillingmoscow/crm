@@ -205,6 +205,24 @@
   min-width: 3px;
   transition: width 0.5s;
 }
+.roleBars > .moreRoles {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-size: 12px;
+  color: hsl(var(--brand-text));
+  text-align: left;
+}
+.roleBars > .moreRoles:hover {
+  text-decoration: underline;
+}
+.moreRoles strong {
+  color: hsl(var(--foreground));
+}
 .selectedRole {
   outline: 1px solid hsl(var(--brand));
   outline-offset: 5px;

@@ -73,7 +73,7 @@ export function EmployeePay({ data, employee, month, onChange, fullPage = false,
     const shifts = useMemo(() => accruals.filter(isShiftAccrual), [accruals]);
     const row = statementRows([employee], data.accruals, data.adjustments, data.payments, data.allocations, month, data.transfers, data.settings?.starts_on)[0];
     const pending = data.legacyPayments.some(p => p.employee_id === employee.id && p.month === month && p.state === "review");
-    const balanceKnown = !pending && employee.opening_confirmed;
+    const balanceKnown = !pending;
     const remaining = row?.remaining ?? 0;
     const canReview = data.permissions.includes("payroll.review"), canPay = data.permissions.includes("payroll.pay") && data.permissions.includes("finance.create_transaction");
     const setConditions = onConditionsOpenChange ?? setOwnConditions;
@@ -106,7 +106,7 @@ export function EmployeePay({ data, employee, month, onChange, fullPage = false,
   <MetricStrip label="Итоги за месяц">
    <Metric primary label="Начислено" icon={<ChevronRight size={16}/>} ariaLabel="Начислено: состав за месяц" onClick={() => setBreakdown(true)} value={<Money value={row?.earned ?? 0} />} hint={countRu(shifts.length, "смена", "смены", "смен")} />
    <Metric label="Выплачено" icon={<ChevronRight size={16}/>} ariaLabel="Выплачено: выплаты за месяц" onClick={() => setTab("payments")} value={<Money value={pending ? null : row?.paid ?? 0} />} hint={pending ? "Прежние выплаты ещё не сверены" : `${countRu(payments.length, "операция", "операции", "операций")} за месяц`} />
-   <Metric label={balanceKnown && toKopecks(remaining) < 0 ? "Переплата" : "К выплате"} value={<Money value={balanceKnown ? Math.abs(toKopecks(remaining)) : null} fraction="auto" />} hint={balanceKnown ? undefined : "Появится после сверки выплат и переносов"} />
+   <Metric label={balanceKnown && toKopecks(remaining) < 0 ? "Переплата" : "К выплате"} value={<Money value={balanceKnown ? Math.abs(toKopecks(remaining)) : null} fraction="auto" />} hint={balanceKnown ? undefined : "Появится после сверки прежних выплат"} />
    <Metric label="Чаевые" value={<Money value={row?.tips ?? 0} />} hint="Отдельно от зарплаты" />
   </MetricStrip>
   <div className={s.meta}><span>{shifts.length > 0 ? `В среднем ${formatRub((row?.earned ?? 0) / shifts.length)} за смену` : ""}</span>{!fullPage && <Button variant="ghost" size="sm" onClick={() => setConditions(true)}>Условия сотрудника</Button>}</div>
@@ -120,7 +120,7 @@ export function EmployeePay({ data, employee, month, onChange, fullPage = false,
   </Tabs>
   <PayrollDetailDialog open={breakdown} onOpenChange={setBreakdown} title="Начисления за месяц" description={new Date(`${month}T12:00:00Z`).toLocaleDateString("ru-RU", { month: "long", year: "numeric", timeZone: "UTC" })} employee={{ name: employee.name, role: employee.role_name, avatarUrl: employee.avatar_url }} amount={<Money value={row?.earned ?? 0} />} amountLabel="Всего начислено">
    {[...sums].map(([label, value]) => <div key={label} className={s.breakdown}><span>{label}</span><strong><Money value={value} /></strong></div>)}
-   <div className={s.breakdown}><span>Перенос в этот месяц</span><strong><Money value={employee.opening_confirmed ? row?.opening ?? 0 : null} /></strong></div>
+   <div className={s.breakdown}><span>Перенос в этот месяц</span><strong><Money value={row?.opening ?? 0} /></strong></div>
    {!!row?.transferredOut && <div className={s.breakdown}><span>Перенесено далее</span><strong><Money value={row.transferredOut} /></strong></div>}
    {issues.length > 0 && <details className={s.issue}><summary>Данные, требующие внимания · {issues.length}</summary>{issues.map(i => <p key={i}>{i}</p>)}</details>}
   </PayrollDetailDialog>

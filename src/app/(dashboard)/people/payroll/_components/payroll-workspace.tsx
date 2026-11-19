@@ -45,6 +45,7 @@ import { PayrollJournal, PayrollEntryForm, PayrollEntryMenuItems } from "./payro
 import { PayrollTransferDrawer } from "./payroll-transfer-drawer";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { PayrollLedger } from "./payroll-ledger";
+import { RefreshFailedNotice, useAutoRefresh } from "./auto-refresh";
 import { statementRows } from "@/lib/payroll/calculate";
 import type { Accrual, PayrollData } from "@/lib/payroll/types";
 import s from "./payroll-workspace.module.css";
@@ -67,6 +68,7 @@ const short = (n: number) =>
 const shiftCount = (n: number) => countRu(n, "смена", "смены", "смен");
 const staffCount = (n: number) =>
   countRu(n, "сотрудник", "сотрудника", "сотрудников");
+const ROLE_BARS = 4;
 const colors = [1, 0.72, 0.46, 0.28, 0.18].map(
   (alpha) => `hsl(var(--brand) / ${alpha})`,
 );
@@ -135,15 +137,7 @@ export function PayrollWorkspace({
     const next = await loadPayrollOverview();
     if (next.venueId === initial.venueId) setData(next);
   }, [initial.venueId]);
-  useEffect(() => {
-    let refreshing = false;
-    const timer = setInterval(() => {
-      if (refreshing || document.visibilityState !== "visible") return;
-      refreshing = true;
-      void reload().catch(() => {}).finally(() => { refreshing = false; });
-    }, 15000);
-    return () => clearInterval(timer);
-  }, [reload]);
+  const autoRefresh = useAutoRefresh(reload, 15000);
   const run = async (fn: () => Promise<unknown>, message: string) => {
     setBusy(true);
     try {
@@ -173,6 +167,9 @@ export function PayrollWorkspace({
   }, [initial.transfers]);
   const [query, setQuery] = useState("");
   const [role, setRole] = useState("");
+  // «Стоимость команды» показывает четыре крупнейшие должности; остальные
+  // сворачиваются в строку «Ещё N», а не пропадают молча.
+  const [allRoles, setAllRoles] = useState(false);
   const [selected, setSelected] = useState<Row | null>(null);
   const [day, setDay] = useState<Accrual | null>(null);
   const [employeeTab, setEmployeeTab] = useState("summary");
@@ -227,8 +224,7 @@ export function PayrollWorkspace({
   const historyPending = data.legacyPayments.some(
     (p) => p.month === monthStart && p.state === "review",
   );
-  const knownBalance =
-    !historyPending && active.every((r) => r.employee.opening_confirmed);
+  const knownBalance = !historyPending;
   const remaining = rows.reduce((sum, r) => sum + r.remaining, 0);
   const roles = [
     ...new Set(rows.map((r) => r.employee.role_name).filter(Boolean)),
@@ -437,7 +433,7 @@ export function PayrollWorkspace({
         r.earned,
         r.bonuses,
         r.deductions,
-        r.employee.opening_confirmed ? r.opening : "",
+        r.opening,
         r.transferredOut,
         historyPending ? "" : r.paid,
         knownBalance ? r.remaining : "",
@@ -547,6 +543,9 @@ export function PayrollWorkspace({
                 />
               }
             />
+            {autoRefresh.failed && (
+              <RefreshFailedNotice className="mb-4" {...autoRefresh} />
+            )}
             <MetricStrip label="Итоги за месяц">
               <Metric
                 primary
@@ -579,7 +578,7 @@ export function PayrollWorkspace({
                     fraction="auto"
                   />
                 }
-                hint={knownBalance ? undefined : "Появится после сверки выплат и переносов"}
+                hint={knownBalance ? undefined : "Появится после сверки прежних выплат"}
               />
               <Metric label="Чаевые" value={<Money value={tips} />} hint="Отдельно от зарплаты" />
             </MetricStrip>
@@ -768,9 +767,11 @@ export function PayrollWorkspace({
                     <Users size={17} />
                   </div>
                   <div className={s.roleBars}>
-                    {perRole.slice(0, 4).map((r, i) => (
+                    {(allRoles || perRole.length <= ROLE_BARS ? perRole : perRole.slice(0, ROLE_BARS)).map((r, i) => (
                       <button
                         key={r.name}
+                        type="button"
+                        aria-pressed={role === r.name}
                         onClick={() => {
                           setRole(role === r.name ? "" : r.name);
                         }}
@@ -778,7 +779,7 @@ export function PayrollWorkspace({
                       >
                         <div>
                           <span>
-                            <i style={{ background: colors[i] }} />
+                            <i style={{ background: colors[Math.min(i, colors.length - 1)] }} />
                             {r.name}
                           </span>
                           <strong><Money value={r.value} /></strong>
@@ -787,12 +788,31 @@ export function PayrollWorkspace({
                           <span
                             style={{
                               width: `${total ? (r.value / total) * 100 : 0}%`,
-                              background: colors[i],
+                              background: colors[Math.min(i, colors.length - 1)],
                             }}
                           />
                         </div>
                       </button>
                     ))}
+                    {perRole.length > ROLE_BARS && (
+                      <button
+                        type="button"
+                        className={s.moreRoles}
+                        aria-expanded={allRoles}
+                        onClick={() => setAllRoles((v) => !v)}
+                      >
+                        <span>
+                          {allRoles
+                            ? "Свернуть"
+                            : `Ещё ${countRu(perRole.length - ROLE_BARS, "должность", "должности", "должностей")}`}
+                        </span>
+                        {!allRoles && (
+                          <strong>
+                            <Money value={perRole.slice(ROLE_BARS).reduce((sum, r) => sum + r.value, 0)} />
+                          </strong>
+                        )}
+                      </button>
+                    )}
                   </div>
                   <div className={s.average}>
                     <span>

@@ -12,6 +12,7 @@ import s from "./employee-pay.module.css";
 import type { PayrollData } from "@/lib/payroll/types";
 import { loadPayroll } from "../actions";
 import { EmployeePay } from "./employee-pay";
+import { RefreshFailedNotice, useAutoRefresh } from "./auto-refresh";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 
 export function EmployeePayrollPage({
@@ -49,12 +50,7 @@ export function EmployeePayrollPage({
     }
     setData(next);
   }, [initial.venueId, router]);
-  useEffect(() => {
-    const timer = setInterval(() => {
-      if (document.visibilityState === "visible") void reload().catch(() => {});
-    }, 60000);
-    return () => clearInterval(timer);
-  }, [reload]);
+  const autoRefresh = useAutoRefresh(reload, 60000);
   const employee = data.employees.find(
     (employee) => employee.id === employeeId,
   );
@@ -106,6 +102,7 @@ export function EmployeePayrollPage({
           Условия сотрудника
         </Button>
       </div>
+      {autoRefresh.failed && <RefreshFailedNotice {...autoRefresh} />}
       <div className="flex flex-wrap items-center justify-between gap-3">
         {/* Период — как в списке «Зарплаты» и во вкладке «Оплата»:
             стрелки по месяцам и общий MonthPicker посередине. */}

@@ -26,6 +26,10 @@ import { pluralRu } from "@/lib/format/plural";
 import { ICON_REGISTRY } from "../../roles/_components/role-icons";
 import { createDepartment, type DepartmentSummary } from "../actions";
 import { DepartmentIconPicker } from "./department-icon-picker";
+import {
+  StaffStackCell,
+  type StaffStackMember,
+} from "@/components/people/staff-stack-cell";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { PageFrame } from "@/components/shared/page-frame";
 import {
@@ -63,12 +67,15 @@ const collator = new Intl.Collator("ru", { sensitivity: "base", numeric: true })
 
 interface Props {
   initialDepartments: DepartmentSummary[];
+  /** Активные сотрудники на должностях подразделения, по алфавиту. */
+  staffByDepartment: Record<string, StaffStackMember[]>;
   accountId: string | null;
   canManage: boolean;
 }
 
 export function DepartmentsClient({
   initialDepartments,
+  staffByDepartment,
   accountId,
   canManage,
 }: Props) {
@@ -239,9 +246,15 @@ export function DepartmentsClient({
       header: labels.staff,
       size: 160,
       minSize: 120,
-      accessorFn: (d) => d.staff_count,
-      cell: ({ getValue }) =>
-        count(getValue() as number, ["сотрудник", "сотрудника", "сотрудников"]),
+      // Число — по тому же списку, что и карточка по наведению, чтобы они
+      // не расходились.
+      accessorFn: (d) => staffByDepartment[d.id]?.length ?? 0,
+      cell: ({ row }) => (
+        <StaffStackCell
+          title={row.original.name}
+          staff={staffByDepartment[row.original.id] ?? []}
+        />
+      ),
     },
   ];
   const table = useReactTable({

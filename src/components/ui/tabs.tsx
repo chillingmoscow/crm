@@ -36,6 +36,11 @@ const ProfileTabsList = React.forwardRef<
     ref={ref}
     className={cn(
       "justify-start overflow-x-auto [&>button]:shrink-0 [&>button:first-child]:ml-auto [&>button:last-child]:mr-auto",
+      // Нижняя линия — внутренняя тень, а не рамка, и вкладки не сдвигаются
+      // на неё `-mb-px`. Иначе содержимое выше строки на 1px, и прокручиваемая
+      // строка показывает вертикальную полосу прокрутки. Подчёркивание
+      // активной вкладки рисуется поверх тени.
+      "border-b-0 shadow-[inset_0_-1px_0_hsl(var(--border))] [&>button]:mb-0",
       className,
     )}
     {...props}

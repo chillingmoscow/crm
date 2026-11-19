@@ -1,4 +1,5 @@
 import type { StatusTone } from "@/components/ui/status-badge";
+import type { AuditEvent } from "@/lib/audit/list";
 
 export const CANDIDATE_STAGES = {
   new: "Новая анкета",
@@ -89,6 +90,8 @@ export type CandidateFile = {
   id: string;
   name: string;
   state: "pending" | "ready" | "missing" | "error" | "external";
+  /** Причина неудачного переноса из очереди (`jobs.ts`), не для показа как есть. */
+  error?: string | null;
   storage_path: string | null;
   mime_type: string | null;
   original_url: string | null;
@@ -173,7 +176,8 @@ export type CandidateDetail = {
   viewer_id: string;
   candidate: Candidate;
   comments: Comment[];
-  events: CandidateEvent[];
+  /** Первая страница общего журнала по анкете (`EntityAuditTab`). */
+  audit: { events: AuditEvent[]; hasMore: boolean };
   /** Смены этапа и встречи за всю историю — для «Хода подбора». */
   stageEvents: CandidateEvent[];
   appointments: Appointment[];

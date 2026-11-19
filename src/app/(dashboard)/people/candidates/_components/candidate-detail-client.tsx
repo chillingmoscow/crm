@@ -1,22 +1,19 @@
 "use client";
 import Link from "next/link";
 import Image from "next/image";
-import { useState, useTransition, type ReactNode } from "react";
+import { useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   Pencil,
-  Plus,
   MoreHorizontal,
   CalendarPlus,
   UserCheck,
-  Paperclip,
   Trash2,
   Phone,
   ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { fileLabelFocusClass } from "@/components/ui/field-styles";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -33,14 +30,18 @@ import {
   type CandidatePermissions,
   type HiringOptions,
   type Appointment,
+  type CandidateFile,
 } from "@/lib/candidates/types";
 import {
   getCandidate,
   getCandidateOptions,
   uploadCandidateFile,
+  retryCandidateFile,
+  removeCandidateFile,
   deleteCandidate,
 } from "../actions";
-import { canScheduleCandidateTrial, interviewFeedbackEntries } from "@/lib/candidates/workflow";
+import { canScheduleCandidateTrial } from "@/lib/candidates/workflow";
+import { candidateFileProblem } from "@/lib/candidates/file-state";
 import { candidateError } from "@/lib/candidates/errors";
 import { CandidateForm } from "./candidate-form";
 import { HireDrawer } from "./hire-drawer";
@@ -48,52 +49,16 @@ import { StaffDoorCode } from "@/components/people/staff-door-code";
 import { CandidateComments } from "./candidate-comments";
 import { CandidateAppointmentRow } from "./candidate-appointment-row";
 import { CandidateAppointmentDetails } from "./candidate-appointment-details";
-import { appointmentOutcomeLabel } from "@/lib/candidates/appointment-labels";
 import { CandidateAppointmentDrawer } from "./candidate-appointment-drawer";
 import { CandidateStatusCell } from "./candidate-status-cell";
 import { CandidateTimeline } from "./candidate-timeline";
 import { ProfileHeader } from "@/components/shared/profile-header";
-import { ProfileSection } from "@/components/shared/profile-section";
-import {
-  dateLabel,
-  dateTimeLabel,
-  safeLink,
-  wallTime,
-} from "./fields";
+import { ProfileSection, ProfileSectionAddButton } from "@/components/shared/profile-section";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
+import { dateLabel, safeLink } from "./fields";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { ProfilePageFrame } from "@/components/shared/page-frame";
-const labels: Record<string, string> = {
-  full_name: "ФИО",
-  phone: "Телефон",
-  desired_position: "Желаемая должность",
-  age: "Возраст",
-  address: "Адрес",
-  social: "Социальные сети",
-  education: "Образование",
-  experience: "Опыт",
-  plans: "Планы",
-  family_status: "Семейное положение",
-  drivers_license: "Водительские права",
-  salary_expectation: "Ожидания по зарплате",
-  status: "Статус",
-  responsible_id: "Ответственный",
-  hired_user_id: "Сотрудник",
-  hired_venue_id: "Заведение",
-  hired_role_id: "Должность",
-  archived_at: "Архив",
-};
-const events: Record<string, string> = {
-  created: "Анкета добавлена",
-  updated: "Анкета изменена",
-  hired: "Принят на работу",
-  commented: "Добавлен комментарий",
-  comment_updated: "Комментарий изменён",
-  comment_deleted: "Комментарий удалён",
-  // Архива анкет больше нет; подписи нужны для старых записей истории.
-  archived: "Анкета архивирована",
-  restored: "Анкета восстановлена",
-  file_added: "Добавлен файл",
-};
 export function CandidateDetailClient({
   initial,
   initialOptions,
@@ -113,7 +78,10 @@ export function CandidateDetailClient({
     [meetingKind, setMeetingKind] = useState<Appointment["kind"]>("interview"),
     [activeTab, setActiveTab] = useState("profile"),
     [deleting, setDeleting] = useState(false),
+    [removingFile, setRemovingFile] = useState<CandidateFile | null>(null),
+    [removeError, setRemoveError] = useState<string | null>(null),
     [busy, start] = useTransition();
+  const fileInput = useRef<HTMLInputElement>(null);
   const c = data.candidate,
     photo = data.files.find((file) => file.url && file.mime_type?.startsWith("image/"))?.url,
     canEdit = permissions.manage;
@@ -136,25 +104,6 @@ export function CandidateDetailClient({
         toast.error(candidateError(e, "Не удалось сохранить изменения"));
       }
     });
-  const display = (field: string, value: unknown): string => {
-    if (value === null || value === undefined || value === "")
-      return "Не указано";
-    if (field === "status")
-      return value === "unknown"
-        ? "Не указан в прежней анкете"
-        : (STATUSES[value as keyof typeof STATUSES] ?? String(value));
-    if (field === "responsible_id")
-      return options.members.find((m) => m.id === value)?.name ?? "Сотрудник";
-    if (field === "hired_venue_id")
-      return options.venues.find((v) => v.id === value)?.name ?? "Заведение";
-    if (field === "hired_role_id")
-      return options.roles.find((r) => r.id === value)?.name ?? "Должность";
-    if (field === "hired_user_id") return "Создана карточка сотрудника";
-    if (field === "social" && typeof value === "object")
-      return Object.values(value).join(", ");
-    if (field === "archived_at") return dateLabel(String(value));
-    return String(value);
-  };
   const canTrial = canScheduleCandidateTrial(data.appointments, c.status);
   const latestInterview = data.appointments.find((appointment) => appointment.kind === "interview");
   const openMeeting = (kind: Appointment["kind"], appointment: Appointment | null = null) => {
@@ -309,11 +258,13 @@ export function CandidateDetailClient({
               </dl>
             </ProfileSection>
             <ProfileSection title="Фотографии и файлы" actions={canEdit ? (
-              <label className={`touch-target inline-flex cursor-pointer items-center gap-2 text-sm text-brand ${fileLabelFocusClass}`}>
-                <Paperclip className="h-4 w-4" />
-                Добавить
+              <>
+                <ProfileSectionAddButton disabled={busy} onClick={() => fileInput.current?.click()}>
+                  Добавить файл
+                </ProfileSectionAddButton>
                 <input
-                  className="sr-only"
+                  ref={fileInput}
+                  hidden
                   type="file"
                   accept="image/jpeg,image/png,image/webp,image/avif,image/gif,application/pdf"
                   disabled={busy}
@@ -330,11 +281,14 @@ export function CandidateDetailClient({
                     e.target.value = "";
                   }}
                 />
-              </label>
+              </>
             ) : null}>
               {data.files.length ? (
                 <div className="flex flex-wrap gap-4">
-                  {data.files.map((f) => (
+                  {data.files.map((f) => {
+                    const problem = f.url ? null : candidateFileProblem(f);
+                    const failed = f.state === "error" || f.state === "missing";
+                    return (
                     <div key={f.id} className="w-36 min-w-0">
                       {f.url && f.mime_type?.startsWith("image/") ? (
                         <a href={f.url} target="_blank" rel="noreferrer">
@@ -357,34 +311,76 @@ export function CandidateDetailClient({
                           Открыть PDF
                         </a>
                       ) : (
-                        <div className="flex h-28 items-center justify-center rounded-lg border bg-muted/30 p-3 text-center text-xs text-muted-foreground">
-                          {f.state === "external"
-                            ? "Папка с фотографиями в Google Drive"
-                            : f.state === "missing"
-                              ? "Исходный файл недоступен"
-                              : f.state === "error"
-                                ? "Не удалось перенести файл"
-                                : "Переносим файл…"}
+                        <div
+                          role={failed ? "alert" : undefined}
+                          className={`flex h-28 flex-col items-center justify-center gap-1 rounded-lg border p-3 text-center text-xs ${failed ? "border-destructive/30 bg-destructive/5" : "bg-muted/30 text-muted-foreground"}`}
+                        >
+                          <span className={failed ? "font-medium text-destructive" : undefined}>
+                            {problem?.title ?? "Переносим файл…"}
+                          </span>
+                          {problem?.reason ? (
+                            <span className="text-muted-foreground">{problem.reason}</span>
+                          ) : null}
                         </div>
                       )}
                       <p className="mt-1 break-words text-xs text-muted-foreground">
                         {f.name}
                       </p>
-                      {!f.url && f.original_url && safeLink(f.original_url) ? (
-                        <a
-                          href={safeLink(f.original_url)!}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs text-brand"
-                        >
-                          Открыть источник
-                        </a>
+                      {(!f.url && f.original_url && safeLink(f.original_url)) || (canEdit && (problem?.canRetry || problem?.canRemove)) ? (
+                        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                          {canEdit && problem?.canRetry ? (
+                            <button
+                              type="button"
+                              className="touch-target rounded-sm text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                              disabled={busy}
+                              onClick={() =>
+                                start(async () => {
+                                  try {
+                                    const outcome = await retryCandidateFile(c.id, f.id);
+                                    await refresh();
+                                    if (outcome === "ready") toast.success("Файл перенесён");
+                                    else if (outcome === "missing") toast.error("Файл удалён из исходного хранилища");
+                                    else toast.error("Перенести файл снова не удалось");
+                                  } catch (e) {
+                                    toast.error(candidateError(e, "Не удалось повторить перенос"));
+                                  }
+                                })
+                              }
+                            >
+                              Повторить
+                            </button>
+                          ) : null}
+                          {!f.url && f.original_url && safeLink(f.original_url) ? (
+                            <a
+                              href={safeLink(f.original_url)!}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-brand hover:underline"
+                            >
+                              Открыть источник
+                            </a>
+                          ) : null}
+                          {canEdit && problem?.canRemove ? (
+                            <button
+                              type="button"
+                              className="touch-target rounded-sm text-muted-foreground hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                              disabled={busy}
+                              onClick={() => {
+                                setRemoveError(null);
+                                setRemovingFile(f);
+                              }}
+                            >
+                              Убрать
+                            </button>
+                          ) : null}
+                        </div>
                       ) : null}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground">Файлов пока нет.</p>
+                <p className="text-sm text-muted-foreground">Файлов пока нет</p>
               )}
             </ProfileSection>
             {c.hired_user_id && permissions.owner ? (
@@ -399,97 +395,25 @@ export function CandidateDetailClient({
               <CandidateTimeline candidate={c} events={data.stageEvents} />
               <ProfileSection title="Собеседование">
                   {latestInterview ? <CandidateAppointmentRow appointment={latestInterview} options={options} onOpen={() => setViewing(latestInterview)} />
-                    : <p className="py-6 text-sm text-muted-foreground">Собеседование ещё не назначено.</p>}
+                    : <p className="py-6 text-sm text-muted-foreground">Собеседование ещё не назначено</p>}
               </ProfileSection>
               <ProfileSection title="Стажировки" actions={canEdit && canTrial && !c.hired_user_id && !data.hire && c.status === "trial" ? (
-                <Button variant="ghost" size="sm" aria-label="Добавить стажировку" className="-my-1.5 -mr-2 h-8 gap-1.5 px-2 text-brand hover:bg-brand/10 hover:text-brand" onClick={() => openMeeting("trial")}><Plus className="size-3.5" />Добавить</Button>
+                <ProfileSectionAddButton onClick={() => openMeeting("trial")}>Добавить стажировку</ProfileSectionAddButton>
               ) : undefined}>
                   {data.appointments.some((a) => a.kind === "trial") ? <div className="space-y-1">{data.appointments.filter((a) => a.kind === "trial").map((a) => <CandidateAppointmentRow key={a.id} appointment={a} options={options} onOpen={() => setViewing(a)} />)}</div>
-                    : <p className="py-6 text-sm text-muted-foreground">{canTrial ? "Стажировки ещё не назначены." : "Стажировки станут доступны после результата собеседования «Пройдено» с комментарием."}</p>}
+                    : <p className="py-6 text-sm text-muted-foreground">{canTrial ? "Стажировки ещё не назначены" : "Стажировки станут доступны после результата собеседования «Пройдено» с комментарием."}</p>}
               </ProfileSection>
             </div>
           </TabsContent>
           <TabsContent value="history">
-            <ProfileSection title="Журнал" description="История изменений анкеты">
-              <ol className="space-y-5">
-                {data.events.map((item) => (
-                  <li key={item.id} className="border-l-2 pl-4">
-                    <p className="text-sm font-medium">
-                      {item.kind.startsWith("appointment_")
-                        ? (item.details.after as Partial<Appointment> | undefined)?.kind === "trial"
-                          ? item.kind === "appointment_created" ? "Назначена стажировка" : "Стажировка изменена"
-                          : item.kind === "appointment_created" ? "Назначено собеседование" : "Собеседование изменено"
-                        : events[item.kind] ?? "Событие"}{" "}
-                      <span className="font-normal text-muted-foreground">
-                        · {item.actor_name}
-                      </span>
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {dateTimeLabel(item.created_at)}
-                    </p>
-                    {item.kind === "comment_updated" && <p className="mt-2 whitespace-pre-wrap break-words text-xs text-muted-foreground"><span className="line-through">{String(item.details.before ?? "")}</span> → {String(item.details.after ?? "")}</p>}
-                    {item.details.changes &&
-                      typeof item.details.changes === "object" ? (
-                      <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-                        {Object.entries(item.details.changes).map(
-                          ([field, change]) => {
-                            const v = change as { old: unknown; new: unknown };
-                            return (
-                              <li key={field}>
-                                {labels[field] ?? field}: {display(field, v.old)} →{" "}
-                                {display(field, v.new)}
-                              </li>
-                            );
-                          },
-                        )}
-                      </ul>
-                    ) : null}
-                    {item.kind.startsWith("appointment_") ? (
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        {(() => {
-                          const before = item.details.before as
-                            | Partial<Appointment>
-                            | null
-                            | undefined;
-                          const after = item.details.after as
-                            | Partial<Appointment>
-                            | undefined;
-                          const summary = (a: Partial<Appointment>) => {
-                            const date = a.appointment_date
-                              ? dateLabel(a.appointment_date)
-                              : "";
-                            const time = a.starts_at
-                              ? wallTime(
-                                a.starts_at,
-                                a.timezone ?? "Europe/Moscow",
-                              ).slice(11)
-                              : "";
-                            return [
-                              a.kind === "trial" ? "Стажировка" : "Собеседование",
-                              `${date}${time ? `, ${time}` : ""}`,
-                              a.outcome ? appointmentOutcomeLabel(a.kind === "trial" ? "trial" : "interview", a.outcome) : "",
-                              a.location,
-                              ...interviewFeedbackEntries(a.interview_feedback).map(([label, value]) => `${label}: ${value}`),
-                              a.notes,
-                            ]
-                              .filter(Boolean)
-                              .join(" · ");
-                          };
-                          return after
-                            ? `${before?.id ? `${summary(before)} → ` : ""}${summary(after)}`
-                            : "";
-                        })()}
-                      </p>
-                    ) : null}
-                  </li>
-                ))}
-              </ol>
-              {data.events.length >= 200 ? (
-                <p className="mt-4 text-xs text-muted-foreground">
-                  Показаны последние 200 событий.
-                </p>
-              ) : null}
-            </ProfileSection>
+            <EntityAuditTab
+              mode="entity"
+              entityType="candidate"
+              entityId={c.id}
+              canView
+              initialEvents={data.audit.events}
+              initialHasMore={data.audit.hasMore}
+            />
           </TabsContent>
         </Tabs>
       </ProfilePageFrame>
@@ -509,6 +433,37 @@ export function CandidateDetailClient({
           window.dispatchEvent(new Event("candidates:changed"));
           toast.success("Анкета удалена");
           router.push("/people/candidates");
+        }}
+      />
+      <ConfirmDialog
+        open={!!removingFile}
+        onOpenChange={(open) => {
+          if (!open && !busy) setRemovingFile(null);
+        }}
+        title="Убрать файл из анкеты?"
+        description={
+          removingFile
+            ? `«${removingFile.name}» так и не перенесён в анкету. Запись о нём исчезнет, отметка останется в журнале. Нужный файл можно добавить заново кнопкой «Добавить файл».`
+            : undefined
+        }
+        confirmLabel="Убрать файл"
+        pendingLabel="Убираем…"
+        destructive
+        busy={busy}
+        error={removeError}
+        onConfirm={() => {
+          if (!removingFile) return;
+          const file = removingFile;
+          start(async () => {
+            try {
+              await removeCandidateFile(c.id, file.id);
+              await refresh();
+              setRemovingFile(null);
+              toast.success("Файл убран");
+            } catch (e) {
+              setRemoveError(candidateError(e, "Не удалось убрать файл"));
+            }
+          });
         }}
       />
       {editing ? (

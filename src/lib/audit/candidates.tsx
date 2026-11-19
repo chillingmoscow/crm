@@ -259,6 +259,20 @@ export const candidateAuditSpecs: Record<string, AuditEventSpec> = {
       </p>
     ),
   },
+  "candidate.file.deleted": {
+    ...base,
+    icon: Trash2,
+    buildHeadline: (e) => (
+      <>
+        убрал(а) файл из анкеты <CandidateName event={e} />
+      </>
+    ),
+    buildDetails: (e) => (
+      <p className="text-xs text-muted-foreground">
+        {String(e.details.name_of_file ?? "")}
+      </p>
+    ),
+  },
   "candidate.hired": {
     ...base,
     icon: UserPlus,

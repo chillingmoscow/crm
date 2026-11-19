@@ -1,11 +1,11 @@
 "use client";
 import Image from "next/image";
 import { useState, useTransition } from "react";
-import { MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ProfileSection } from "@/components/shared/profile-section";
+import { ProfileSection, ProfileSectionAddButton } from "@/components/shared/profile-section";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { candidateError } from "@/lib/candidates/errors";
@@ -40,10 +40,10 @@ export function CandidateComments({ candidateId, comments, viewerId, editable, o
     </div>
   </form>;
   return <>
-    <ProfileSection title="Комментарии" actions={editable && <Button variant="ghost" size="sm" className="h-auto gap-1 p-0 text-brand hover:bg-transparent hover:text-brand/80"
-      aria-label="Добавить комментарий" disabled={busy || composing || !!editing} onClick={() => { setBody(""); setRequestKey(crypto.randomUUID()); setComposing(true); }}>
-      <Plus className="size-3.5" />Добавить
-    </Button>}>
+    <ProfileSection title="Комментарии" actions={editable && <ProfileSectionAddButton
+      disabled={busy || composing || !!editing} onClick={() => { setBody(""); setRequestKey(crypto.randomUUID()); setComposing(true); }}>
+      Добавить комментарий
+    </ProfileSectionAddButton>}>
       {composing && editor}
       {comments.map((comment) => {
         const author = comment.author_name || "Пользователь CRM";
@@ -70,7 +70,7 @@ export function CandidateComments({ candidateId, comments, viewerId, editable, o
           </div>
         </article>;
       })}
-      {!comments.length && !composing && <p className="text-sm text-muted-foreground">Комментариев пока нет.</p>}
+      {!comments.length && !composing && <p className="text-sm text-muted-foreground">Комментариев пока нет</p>}
     </ProfileSection>
     <ConfirmDialog
       open={!!deleting}

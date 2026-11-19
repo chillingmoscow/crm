@@ -1,7 +1,8 @@
 "use client";
 
-import type * as React from "react";
-import { Lock } from "lucide-react";
+import * as React from "react";
+import { Lock, Plus } from "lucide-react";
+import { Button, type ButtonProps } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 /** Shared section layout for staff and candidate profiles. */
@@ -60,3 +61,18 @@ export function ProfileSection({
     </section>
   );
 }
+
+/** Кнопка «Добавить …» в шапке секции (`actions`). Один вид для всех секций
+ *  профиля: outline 36px с плюсом, подпись — глагол с объектом
+ *  («Добавить файл», «Добавить покупку»). */
+export const ProfileSectionAddButton = React.forwardRef<
+  HTMLButtonElement,
+  Omit<ButtonProps, "variant" | "size" | "children" | "asChild"> & { children: string }
+>(function ProfileSectionAddButton({ children, type = "button", ...props }, ref) {
+  return (
+    <Button ref={ref} type={type} variant="outline" size="sm" {...props}>
+      <Plus className="size-4" />
+      {children}
+    </Button>
+  );
+});

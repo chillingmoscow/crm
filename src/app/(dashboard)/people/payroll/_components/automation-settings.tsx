@@ -226,7 +226,7 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
             config: parsed.data,
           });
           await reload();
-          toast.success("Настройки сохранены. Работа n8n не изменена");
+          toast.success("Настройки сохранены. Действующие автоматизации работают по-прежнему");
         } catch (e) {
           toast.error(
             e instanceof Error ? e.message : "Не удалось сохранить настройки",
@@ -249,8 +249,8 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
         </p>
         {record.current.version === 0 && (
           <p className="text-sm text-muted-foreground">
-            Заполнено по прежним настройкам CHILLING. Проверьте и сохраните для
-            этого заведения.
+            Заполнено по прежним настройкам. Проверьте и сохраните для этого
+            заведения.
           </p>
         )}
       </header>

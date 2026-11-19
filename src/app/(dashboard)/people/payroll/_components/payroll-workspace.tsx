@@ -9,13 +9,14 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowUpRight,
-  CalendarDays,
+  CalendarX2,
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
+  Settings,
   Users,
   Plus,
 } from "lucide-react";
@@ -25,11 +26,6 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -52,11 +48,15 @@ import { PayrollLedger } from "./payroll-ledger";
 import { statementRows } from "@/lib/payroll/calculate";
 import type { Accrual, PayrollData } from "@/lib/payroll/types";
 import s from "./payroll-workspace.module.css";
-import { PeriodStepper, periodTriggerClass } from "@/components/shared/period-stepper";
+import { PeriodStepper } from "@/components/shared/period-stepper";
+import { MonthPicker } from "@/components/shared/month-picker";
 import { PageFrame } from "@/components/shared/page-frame";
 import { recalculateInventoryDeduction } from "@/app/(dashboard)/inventory/_actions/deduction";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { Metric, MetricStrip } from "@/components/shared/metric-strip";
+import { EmptyState } from "@/components/ui/empty-state";
 import { TableFilterChip, TablePageHeader } from "@/components/shared/table";
+import { TooltipIconButton } from "@/components/shared/table/table-controls";
 import { Money, formatRub } from "@/components/shared/money";
 import { formatAmount, toKopecks } from "@/lib/format/amount";
 import { countRu } from "@/lib/format/plural";
@@ -120,6 +120,7 @@ export function PayrollWorkspace({
   data: PayrollData;
   initialMonth: string;
 }) {
+  const router = useRouter();
   const [data, setData] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
@@ -160,10 +161,6 @@ export function PayrollWorkspace({
     }
   };
   const [month, setMonth] = useState(initialMonth);
-  const [monthOpen, setMonthOpen] = useState(false);
-  const [pickerYear, setPickerYear] = useState(
-    Number(initialMonth.slice(0, 4)),
-  );
   const [tab, setTab] = useState("statement");
   useEffect(() => {
     if (new URLSearchParams(window.location.search).has("entry"))
@@ -182,6 +179,16 @@ export function PayrollWorkspace({
   const [composition, setComposition] = useState(false);
   const [hoverDay, setHoverDay] = useState<number | null>(null);
   const monthStart = `${month}-01`;
+  // Раньше начала зарплатного учёта листать нечего (как во вкладке «Оплата»);
+  // месяц из адреса остаётся доступным, даже если он раньше.
+  const minMonth = useMemo(() => {
+    const first = data.accruals.reduce<string | null>(
+      (min, a) => (min === null || a.business_date < min ? a.business_date : min),
+      null,
+    );
+    const start = `${(data.settings?.starts_on ?? first ?? `${initialMonth}-01`).slice(0, 7)}-01`;
+    return start < `${initialMonth}-01` ? start : `${initialMonth}-01`;
+  }, [data.accruals, data.settings?.starts_on, initialMonth]);
   const title = new Date(`${monthStart}T12:00:00Z`)
     .toLocaleDateString("ru-RU", {
       month: "long",
@@ -211,6 +218,9 @@ export function PayrollWorkspace({
     (r) => r.shifts || r.earned || r.paid || r.opening || r.transferredOut || r.tips,
   );
   const total = rows.reduce((sum, r) => sum + r.earned, 0);
+  // Пустой месяц (DS → «Состояния»): ни начислений, ни выплат, ни переносов —
+  // вместо нулевого графика и пустой ведомости одно пустое состояние.
+  const emptyMonth = tab === "statement" && active.length === 0;
   const paid = rows.reduce((sum, r) => sum + r.paid, 0);
   const tips = rows.reduce((sum, r) => sum + r.tips, 0);
   const shifts = rows.reduce((sum, r) => sum + r.shifts, 0);
@@ -358,6 +368,16 @@ export function PayrollWorkspace({
       toast.error(e instanceof Error ? e.message : "Не удалось пересчитать недостачу", { id });
     }
   };
+  // Ставки, правила и автоматизации живут в карточке заведения; из ряда
+  // инструментов к ним прямой переход (на любой вкладке, перед «Добавить»).
+  const settingsButton = can("configure") ? (
+    <TooltipIconButton
+      label="Условия оплаты"
+      onClick={() => router.push(`/org/venues/${data.venueId}/payroll`)}
+    >
+      <Settings />
+    </TooltipIconButton>
+  ) : null;
   const tableActions = tab === "statement" ? (
     (can("pay") || can("review") || canRecalculateShortage) && <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -504,68 +524,20 @@ export function PayrollWorkspace({
                 <PeriodStepper
                   previous="Предыдущий месяц"
                   next="Следующий месяц"
+                  previousDisabled={monthStart <= minMonth}
                   onPrevious={() => moveMonth(-1)}
                   onNext={() => moveMonth(1)}
                 >
-                  <Popover
-                    open={monthOpen}
-                    onOpenChange={(open) => {
-                      setMonthOpen(open);
-                      if (open) setPickerYear(Number(month.slice(0, 4)));
-                    }}
-                  >
-                    <PopoverTrigger asChild>
-                      <button
-                        className={periodTriggerClass}
-                        aria-label="Месяц ведомости"
-                      >
-                        <CalendarDays size={15} />
-                        <span>{title}</span>
-                        <ChevronDown size={12} />
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent className={s.monthPicker} align="start">
-                      <div className={s.pickerHeading}>
-                        <button
-                          className="touch-target"
-                          aria-label="Предыдущий год"
-                          onClick={() => setPickerYear(pickerYear - 1)}
-                        >
-                          <ChevronLeft size={16} />
-                        </button>
-                        <strong>{pickerYear}</strong>
-                        <button
-                          className="touch-target"
-                          aria-label="Следующий год"
-                          onClick={() => setPickerYear(pickerYear + 1)}
-                        >
-                          <ChevronRight size={16} />
-                        </button>
-                      </div>
-                      <div className={s.monthGrid}>
-                        {Array.from({ length: 12 }, (_, i) => {
-                          const value = `${pickerYear}-${String(i + 1).padStart(2, "0")}`;
-                          return (
-                            <button
-                              key={i}
-                              className={value === month ? s.selectedMonth : ""}
-                              onClick={() => {
-                                changeMonth(value);
-                                setMonthOpen(false);
-                              }}
-                            >
-                              {new Date(Date.UTC(pickerYear, i, 1))
-                                .toLocaleDateString("ru-RU", {
-                                  month: "short",
-                                  timeZone: "UTC",
-                                })
-                                .replace(".", "")}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
+                  {/* Тот же выбор месяца, что на странице расчёта сотрудника
+                      и во вкладке «Оплата»: общий MonthPicker. */}
+                  <MonthPicker
+                    variant="period"
+                    prefix=""
+                    ariaLabel="Месяц ведомости"
+                    value={monthStart}
+                    min={minMonth}
+                    onChange={(value) => changeMonth(value.slice(0, 7))}
+                  />
                 </PeriodStepper>
               }
               actions={
@@ -575,67 +547,42 @@ export function PayrollWorkspace({
                 />
               }
             />
-            <section className={s.metrics} aria-label="Итоги за месяц">
-              <button
-                className={`${s.metric} ${s.mainMetric}`}
+            <MetricStrip label="Итоги за месяц">
+              <Metric
+                primary
+                label="Начислено команде"
+                icon={<ArrowUpRight size={15} />}
+                ariaLabel="Начислено команде: состав начислений"
                 onClick={() => {
                   setSelected(null);
                   setComposition(true);
                 }}
-              >
-                <span className={s.metricLabel}>
-                  Начислено команде <ArrowUpRight size={15} />
-                </span>
-                <strong>
-                  <Money value={total} className={s.metricValue} />
-                </strong>
-                <small>
-                  {staffCount(active.length)}{" "}
-                  <i>·</i> {shiftCount(shifts)}
-                </small>
-              </button>
-              <div className={s.metric}>
-                <span className={s.metricLabel}>Выплачено</span>
-                <strong>
-                  <Money
-                    value={historyPending ? null : paid}
-                    className={s.metricValue}
-                  />
-                </strong>
-                {/* Причина прочерка написана текстом: подсказку по наведению
-                    не увидеть с клавиатуры и с телефона. */}
-                {historyPending ? (
-                  <small>Прежние выплаты ещё не сверены</small>
-                ) : (
-                  <small>
-                    {countRu(payments.length, "операция", "операции", "операций")}{" "}
-                    за месяц
-                  </small>
-                )}
-              </div>
-              <div className={s.metric}>
-                <span className={s.metricLabel}>
-                  {knownBalance && toKopecks(remaining) < 0 ? "Переплата" : "К выплате"}
-                </span>
-                <strong>
+                value={<Money value={total} />}
+                hint={`${staffCount(active.length)} · ${shiftCount(shifts)}`}
+              />
+              <Metric
+                label="Выплачено"
+                value={<Money value={historyPending ? null : paid} />}
+                // Причина прочерка написана текстом: подсказку по наведению
+                // не увидеть с клавиатуры и с телефона.
+                hint={
+                  historyPending
+                    ? "Прежние выплаты ещё не сверены"
+                    : `${countRu(payments.length, "операция", "операции", "операций")} за месяц`
+                }
+              />
+              <Metric
+                label={knownBalance && toKopecks(remaining) < 0 ? "Переплата" : "К выплате"}
+                value={
                   <Money
                     value={knownBalance ? Math.abs(toKopecks(remaining)) : null}
                     fraction="auto"
-                    className={s.metricValue}
                   />
-                </strong>
-                {!knownBalance && (
-                  <small>Появится после сверки выплат и переносов</small>
-                )}
-              </div>
-              <div className={s.metric}>
-                <span className={s.metricLabel}>Чаевые</span>
-                <strong>
-                  <Money value={tips} className={s.metricValue} />
-                </strong>
-                <small>Отдельно от зарплаты</small>
-              </div>
-            </section>
+                }
+                hint={knownBalance ? undefined : "Появится после сверки выплат и переносов"}
+              />
+              <Metric label="Чаевые" value={<Money value={tips} />} hint="Отдельно от зарплаты" />
+            </MetricStrip>
             {/* Вкладки представления: общий Tabs + workspace-tabs. Панель одна
                 на активную вкладку — как у Radix, неактивные не монтируются. */}
             <Tabs value={tab} onValueChange={changeTab} className={`${tabStyle.tabs} mt-6`}>
@@ -645,7 +592,16 @@ export function PayrollWorkspace({
                 <TabsTrigger value="journal">Начисления и удержания</TabsTrigger>
               </TabsList>
             <TabsContent value={tab} className="!mt-0">
-            {tab === "statement" && (
+            {emptyMonth ? (
+              <EmptyState
+                className="mt-6"
+                icon={CalendarX2}
+                title={`За ${title} начислений нет`}
+                description="Начисления появятся после первых смен месяца. Выплату или запись можно добавить и сейчас."
+                action={tableActions || undefined}
+              />
+            ) : null}
+            {tab === "statement" && !emptyMonth && (
               <section className={s.analytics}>
                 <div className={s.timeline}>
                   <div className={s.sectionTitle}>
@@ -861,7 +817,7 @@ export function PayrollWorkspace({
                 </div>
               </section>
             )}
-            <section className={`${s.ledger} ${s.functionalTable}`}>
+            {!emptyMonth && <section className={`${s.ledger} ${s.functionalTable}`}>
               {role && (
                 <div className={s.ledgerHeading}>
                   <button
@@ -879,6 +835,7 @@ export function PayrollWorkspace({
                   query={query}
                   onQuery={setQuery}
                   onChange={reload}
+                  actions={settingsButton}
                 />
               ) : tab === "payments" ? (
                 <PayrollPaymentsTable
@@ -887,7 +844,7 @@ export function PayrollWorkspace({
                   financeMonth={monthStart}
                   financeRole={role}
                   busy={busy}
-                  actions={tableActions}
+                  actions={<>{settingsButton}{tableActions}</>}
                   toolbarTargetId="payroll-workspace-controls"
                   exportAction={{
                     label: "Экспорт выплат",
@@ -915,11 +872,11 @@ export function PayrollWorkspace({
                     setDay(null);
                     setEmployeeTab("summary");
                   }}
-                  actions={tableActions}
+                  actions={<>{settingsButton}{tableActions}</>}
                   filters={roleFilters}
                 />
               )}
-            </section>
+            </section>}
             </TabsContent>
             </Tabs>
           </PageFrame>

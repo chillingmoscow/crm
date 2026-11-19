@@ -338,10 +338,10 @@ export function PayrollJournal({
         onRow={(r) => setSelectedId(r.id)}
         actions={
           <>
+            {actions}
             {canWrite && (
               <DropdownMenu><DropdownMenuTrigger asChild><Button><Plus size={15}/>Добавить запись</Button></DropdownMenuTrigger><DropdownMenuContent align="end"><PayrollEntryMenuItems onSelect={(kind) => {setCreateKind(kind);setCreating(true);}}/></DropdownMenuContent></DropdownMenu>
             )}
-            {actions}
           </>
         }
         filters={{

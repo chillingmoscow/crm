@@ -175,7 +175,7 @@ function Form({
     >
       <fieldset disabled={busy} className="min-w-0 space-y-5">
         <p className="rounded-lg bg-brand/5 p-3 text-sm text-muted-foreground">
-          Пока работает сверка: денежные операции продолжает создавать n8n.
+          Пока работает сверка: денежные операции продолжает создавать прежняя автоматизация.
         </p>
         <div className="space-y-2">
           <Label htmlFor="settlement-category">Статья выручки</Label>

@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PayrollMonthPicker } from "./payroll-month-picker";
+import { PeriodStepper } from "@/components/shared/period-stepper";
 import s from "./employee-pay.module.css";
 import type { PayrollData } from "@/lib/payroll/types";
 import { loadPayroll } from "../actions";
@@ -29,6 +30,16 @@ export function EmployeePayrollPage({
   const [conditionsOpen, setConditionsOpen] = useState(false);
   const router = useRouter();
   useEffect(() => setData(initial), [initial]);
+  const minMonth = `${(data.settings?.starts_on ?? month).slice(0, 7)}-01` < month
+    ? `${(data.settings?.starts_on ?? month).slice(0, 7)}-01`
+    : month;
+  const goTo = (value: string) =>
+    router.replace(`/people/payroll/${employeeId}?month=${value.slice(0, 7)}`);
+  const goMonth = (direction: number) => {
+    const date = new Date(`${month.slice(0, 7)}-01T12:00:00Z`);
+    date.setUTCMonth(date.getUTCMonth() + direction);
+    goTo(date.toISOString().slice(0, 7));
+  };
   const reload = useCallback(async () => {
     const next = await loadPayroll();
     if (next.venueId !== initial.venueId) {
@@ -66,11 +77,7 @@ export function EmployeePayrollPage({
           {employee.avatar_url ? (
             <img src={employee.avatar_url} alt="" />
           ) : (
-            employee.name
-              .split(/\s+/)
-              .slice(0, 2)
-              .map((w) => w[0])
-              .join("")
+            employee.name.trim().charAt(0).toUpperCase() || "?"
           )}
         </span>
         <div>
@@ -97,20 +104,24 @@ export function EmployeePayrollPage({
       </div>
       {autoRefresh.failed && <RefreshFailedNotice {...autoRefresh} />}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="w-fit min-w-44">
+        {/* Период — как в списке «Зарплаты» и во вкладке «Оплата»:
+            стрелки по месяцам и общий MonthPicker посередине. */}
+        <PeriodStepper
+          previous="Предыдущий месяц"
+          next="Следующий месяц"
+          previousDisabled={month.slice(0, 7) <= minMonth.slice(0, 7)}
+          onPrevious={() => goMonth(-1)}
+          onNext={() => goMonth(1)}
+        >
           <PayrollMonthPicker
-            variant="field"
+            variant="period"
             ariaLabel="Месяц расчёта сотрудника"
             prefix=""
             value={month}
-            min={data.settings?.starts_on ?? "2026-09-01"}
-            onChange={(value) =>
-              router.replace(
-                `/people/payroll/${employeeId}?month=${value.slice(0, 7)}`,
-              )
-            }
+            min={minMonth}
+            onChange={(value) => goTo(value)}
           />
-        </div>
+        </PeriodStepper>
         <div
           id="employee-payroll-controls"
           className="flex flex-wrap items-center gap-2"

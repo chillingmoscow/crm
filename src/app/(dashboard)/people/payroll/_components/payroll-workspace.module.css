@@ -36,74 +36,6 @@
   min-width: 0;
 }
 
-.metrics {
-  display: grid;
-  grid-template-columns: 1.25fr 1fr 1.1fr 1fr;
-  background: hsl(var(--card));
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: theme('boxShadow.DEFAULT');
-  animation: rise 0.45s ease both;
-}
-.metric {
-  padding: 20px 23px;
-  text-align: left;
-  border: 0;
-  border-right: 1px solid var(--line);
-  background: transparent;
-  min-width: 0;
-}
-.metric:last-child {
-  border: 0;
-}
-.mainMetric {
-  background: hsl(var(--brand) / 0.06);
-  transition: background 0.2s;
-}
-.mainMetric:hover {
-  background: hsl(var(--brand) / 0.1);
-}
-.metricLabel {
-  color: hsl(var(--muted-foreground));
-  font-size: 12px;
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: center;
-  white-space: nowrap;
-}
-.metricLabel > svg {
-  color: hsl(var(--muted-foreground));
-}
-.metric strong {
-  font-size: 28px;
-  font-weight: 600;
-  letter-spacing: -0.8px;
-  white-space: nowrap;
-  display: block;
-  margin-top: 13px;
-  font-variant-numeric: tabular-nums;
-}
-.metric strong > span {
-  font-size: 20px;
-  font-weight: 400;
-  color: hsl(var(--muted-foreground));
-  margin-left: 3px;
-}
-.metric small {
-  display: block;
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-  margin-top: 7px;
-  white-space: nowrap;
-}
-.metric small > i {
-  font-style: normal;
-  margin: 0 5px;
-  color: hsl(var(--muted-foreground));
-}
-
 .analytics {
   display: grid;
   grid-template-columns: 1.9fr 1fr;
@@ -546,12 +478,7 @@
   }
 }
 @media (min-width: 1500px) {
-  .metric strong {
-    font-size: 28px;
-  }
-  .metric {
-    padding: 25px 29px;
-  }
+
   .analytics {
     margin-top: 28px;
   }
@@ -580,18 +507,7 @@
     margin-left: 185px;
     width: calc(100% - 185px);
   }
-  .metric {
-    padding: 18px 15px;
-  }
-  .metric strong {
-    font-size: 20px;
-  }
-  .metricLabel {
-    font-size: 12px;
-  }
-  .metric small {
-    font-size: 12px;
-  }
+
   .analytics {
     grid-template-columns: 1.65fr 1fr;
   }
@@ -620,19 +536,7 @@
   .analytics {
     grid-template-columns: 1.5fr 1fr;
   }
-  .metric strong {
-    font-size: 20px;
-  }
-  .metric strong > span {
-    font-size: 16px;
-  }
-  .metric small {
-    white-space: normal;
-    min-height: 24px;
-  }
-  .metricLabel > svg {
-    display: none;
-  }
+
   .chartHeading {
     margin-top: 21px;
   }
@@ -672,26 +576,6 @@
   .average {
     padding-top: 14px;
   }
-  .metrics {
-    grid-template-columns: 1fr 1fr;
-  }
-  .metric {
-    padding: 18px 20px;
-  }
-  .metric:nth-child(2) {
-    border-right: none;
-  }
-  .metric:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--line);
-  }
-  .metric strong {
-    font-size: 28px;
-  }
-  .metric small {
-    min-height: 0;
-    font-size: 12px;
-    white-space: normal;
-  }
 
   .ledgerHeading {
     align-items: flex-start;
@@ -730,19 +614,6 @@
     width: 100%;
   }
 
-  .metric {
-    padding: 16px;
-  }
-  .metric strong {
-    font-size: 20px;
-    margin-top: 10px;
-  }
-  .metricLabel {
-    font-size: 12px;
-  }
-  .metric small {
-    font-size: 12px;
-  }
   .analytics {
     margin-top: 20px;
     margin-bottom: 24px;
@@ -799,58 +670,8 @@
     scroll-behavior: auto !important;
   }
 }
-.monthPicker {
-  background: hsl(var(--card)) !important;
-  color: hsl(var(--foreground)) !important;
-  border: 1px solid hsl(var(--border)) !important;
-  border-radius: 10px !important;
-  padding: 15px !important;
-  width: 280px !important;
-  box-shadow: theme('boxShadow.md') !important;
-  color-scheme: inherit;
-}
-.pickerHeading {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-bottom: 13px;
-  color: hsl(var(--foreground));
-  font-size: 14px;
-}
-.pickerHeading > button {
-  border: 0;
-  background: hsl(var(--muted));
-  border-radius: 6px;
-  display: grid;
-  place-items: center;
-  width: 27px;
-  height: 27px;
-  color: hsl(var(--muted-foreground));
-}
-.monthGrid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 5px;
-}
-.monthGrid > button {
-  padding: 10px 5px;
-  background: none;
-  border: 0;
-  border-radius: 6px;
-  text-transform: capitalize;
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-}
-.monthGrid > button:hover {
-  background: hsl(var(--brand) / 0.08);
-}
-.monthGrid > .selectedMonth {
-  background: hsl(var(--brand) / 0.12);
-  color: hsl(var(--muted-foreground));
-  font-weight: 600;
-}
-.dialog button:focus-visible,
-.monthPicker button:focus-visible {
+
+.dialog button:focus-visible {
   outline: 2px solid hsl(var(--brand));
   outline-offset: 3px;
 }
@@ -917,60 +738,15 @@
   color: hsl(var(--foreground));
   font-size: 12px;
 }
-.metricLabel {
-  color: hsl(var(--muted-foreground));
-}
+
 /* Экран «Зарплаты» на токенах темы приложения. */
 .app {
   font-size: 14px;
   background: hsl(var(--background));
 }
-.metrics {
-  border-radius: 12px;
-  box-shadow: none;
-}
-.metric {
-  min-height: 132px;
-  padding: 22px 24px;
-}
-.metric strong {
-  font-size: 28px;
-  font-weight: 600;
-  letter-spacing: -0.7px;
-}
-.metric strong > .metricValue {
-  font: inherit;
-  color: inherit;
-  letter-spacing: inherit;
-  margin: 0;
-}
-.metricLabel {
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-}
-.metric small {
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-}
-.mainMetric .metricLabel,
-.mainMetric .metricLabel > svg {
-  color: hsl(var(--brand-text));
-}
-.metric strong > span {
-  color: hsl(var(--muted-foreground));
-  font-size: 20px;
-}
+
 .legend i {
   background: hsl(var(--brand));
-}
-.monthGrid > .selectedMonth {
-  background: hsl(var(--brand) / 0.1);
-  color: hsl(var(--brand-text));
-  border-color: hsl(var(--brand) / 0.2);
-}
-.pickerHeading > button:hover,
-.monthGrid > button:hover {
-  background: hsl(var(--brand) / 0.06);
 }
 
 .appliedFilter {
@@ -981,8 +757,7 @@
 .selectedRole {
   outline-color: hsl(var(--brand) / 0.5);
 }
-.dialog,
-.monthPicker {
+.dialog {
   background: hsl(var(--popover)) !important;
   color: hsl(var(--popover-foreground)) !important;
 }
@@ -997,90 +772,7 @@
 .fullDetailLink {
   color: hsl(var(--brand-text));
 }
-@media (max-width: 1150px) {
-  .metric {
-    padding: 20px 17px;
-  }
-  .metric strong {
-    font-size: 28px;
-  }
-  .metric small {
-    font-size: 12px;
-  }
-}
-@media (max-width: 900px) {
-  .metric {
-    padding: 18px 15px;
-  }
-  .metric strong {
-    font-size: 20px;
-  }
-  .metric small {
-    font-size: 12px;
-    white-space: normal;
-  }
-  .metricLabel {
-    font-size: 12px;
-  }
-}
-@media (max-width: 700px) {
-  .metric {
-    min-height: 124px;
-    padding: 20px;
-  }
-  .metric strong {
-    font-size: 28px;
-  }
-  .metric small {
-    font-size: 12px;
-  }
-  .metricLabel {
-    font-size: 12px;
-  }
-}
-@media (max-width: 480px) {
-  .metric {
-    min-height: 124px;
-    padding: 18px 16px;
-  }
-  .metric strong {
-    font-size: 28px;
-  }
-  .metric small {
-    font-size: 12px;
-  }
-  .metricLabel {
-    font-size: 12px;
-  }
-}
-.metric {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
-}
-.metricLabel {
-  min-height: 18px;
-}
-.metricLabel > svg {
-  flex-shrink: 0;
-}
-.metric small {
-  margin-top: 8px;
-}
-@media (max-width: 900px) {
-  .metricLabel > svg {
-    display: none;
-  }
-}
-@media (max-width: 480px) {
-  .metric strong {
-    font-size: 20px;
-  }
-  .metric strong > span {
-    font-size: 16px;
-  }
-}
+
 /* Шапка страницы: общий TablePageHeader, до показателей 16px. */
 .pageHeader {
   margin-bottom: 16px;
@@ -1166,8 +858,7 @@
 }
 .app button:focus-visible,
 .app a:focus-visible,
-.dialog button:focus-visible,
-.monthPicker button:focus-visible {
+.dialog button:focus-visible {
   outline-width: 1px;
   outline-offset: 2px;
 }
@@ -1188,18 +879,7 @@
 .embedded {
   container: payroll-surface / inline-size;
 }
-@container payroll-surface (max-width: 950px) {
-  .metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .metric:nth-child(3) {
-    border-left: 0;
-    border-top: 1px solid var(--line);
-  }
-  .metric:nth-child(4) {
-    border-top: 1px solid var(--line);
-  }
-}
+
 @container payroll-surface (max-width: 760px) {
   .analytics {
     grid-template-columns: minmax(0, 1fr);
@@ -1211,15 +891,6 @@
   .distribution {
     padding: 22px;
   }
-  .metric strong {
-    font-size: 28px;
-  }
+
 }
-@container payroll-surface (max-width: 420px) {
-  .metric {
-    padding: 16px 12px;
-  }
-  .metric strong {
-    font-size: 20px;
-  }
-}
+

@@ -4,7 +4,7 @@ import { ChevronRight, Plus } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { statementRows } from "@/lib/payroll/calculate";
 import { componentAmount, shiftSalary, accrualOtherAmount, isShiftAccrual, accrualRole, componentLabels } from "@/lib/payroll/accrual-view";
 import type { PayrollData, PayEmployee, Accrual } from "@/lib/payroll/types";
@@ -14,7 +14,8 @@ import { PayrollPaymentsTable } from "./payroll-payments-table";
 import { EmployeeDocuments } from "../../staff/[userId]/_components/employee-documents";
 import { EmployeePayConditions } from "./employee-pay-conditions";
 import { cancelPayrollPayment } from "../actions";
-import { PayrollJournal, PayrollEntryForm } from "@/app/(dashboard)/people/payroll/_components/payroll-journal";
+import { PayrollJournal, PayrollEntryForm, PayrollEntryMenuItems } from "@/app/(dashboard)/people/payroll/_components/payroll-journal";
+import { PayrollTransferDrawer } from "./payroll-transfer-drawer";
 import { PayrollPaymentForm } from "@/app/(dashboard)/people/payroll/_components/payroll-payment-form";
 import paymentStyle from "@/app/(dashboard)/people/payroll/_components/payroll-payment-form.module.css";
 import s from "./employee-pay.module.css";
@@ -24,6 +25,7 @@ import { toast } from "sonner";
 import { Money, formatRub } from "@/components/shared/money";
 import { toKopecks } from "@/lib/format/amount";
 import { countRu } from "@/lib/format/plural";
+import { Metric, MetricStrip } from "@/components/shared/metric-strip";
 export const selectClass = "h-10 w-full rounded-md border bg-background px-3 text-base md:text-sm";
 const dateLabel = (date: string) => new Date(`${date}T12:00:00Z`).toLocaleDateString("ru-RU", { timeZone: "UTC" });
 const labels = { date: "Дата", role: "Должность", base: "Выход", percent: "Процент", extra: "Допродажи", other: "Надбавки и прочее", salary: "Начислено", tips: "Чаевые" };
@@ -48,6 +50,7 @@ export function EmployeePay({ data, employee, month, onChange, fullPage = false,
     const [payOpen, setPayOpen] = useState(false);
     const [entryKind, setEntryKind] = useState<"deduction" | "allowance">("deduction");
     const [entryOpen, setEntryOpen] = useState(false);
+    const [transferOpen, setTransferOpen] = useState(false);
     const [query, setQuery] = useState("");
     // Удаление выплаты удаляет и финансовую операцию: только через подтверждение.
     const [cancelId, setCancelId] = useState<string | null>(null);
@@ -98,15 +101,15 @@ export function EmployeePay({ data, employee, month, onChange, fullPage = false,
         { id: "tips", header: "Чаевые", accessorFn: a => a.tips, cell: ({ row }) => <Money value={row.original.tips} /> },
     ], [employee.role_name, data]);
     const issues = [...new Set(accruals.flatMap(a => a.issues))];
-    const actions = (canPay || canReview) ? <DropdownMenu><DropdownMenuTrigger asChild><Button><Plus />Добавить</Button></DropdownMenuTrigger><DropdownMenuContent align="end">{canPay && <DropdownMenuItem onSelect={() => setPayOpen(true)}>Выплата</DropdownMenuItem>}{canReview && <><DropdownMenuItem onSelect={() => { setEntryKind("allowance"); setEntryOpen(true); }}>Надбавка за месяц</DropdownMenuItem><DropdownMenuItem onSelect={() => { setEntryKind("deduction"); setEntryOpen(true); }}>Премия / штраф</DropdownMenuItem></>}</DropdownMenuContent></DropdownMenu> : undefined;
+    const actions = (canPay || canReview) ? <DropdownMenu><DropdownMenuTrigger asChild><Button><Plus />Добавить</Button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-56">{/* Тот же набор и порядок, что в «Добавить» списка «Зарплаты». */}{canPay && <DropdownMenuItem onSelect={() => setPayOpen(true)}>Выплата</DropdownMenuItem>}{canReview && <><PayrollEntryMenuItems onSelect={(kind) => { setEntryKind(kind); setEntryOpen(true); }}/><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => setTransferOpen(true)}>Перенести остаток</DropdownMenuItem></>}</DropdownMenuContent></DropdownMenu> : undefined;
     return <div className={s.workspace}>
-  <div className={s.stats}>
-   <button aria-label="Показать начисления за месяц" onClick={() => setBreakdown(true)}><span>Начислено<ChevronRight size={16}/></span><strong><Money value={row?.earned ?? 0} /></strong></button>
-   <button onClick={() => setTab("payments")}><span>Выплачено<ChevronRight size={16}/></span><strong><Money value={pending ? null : row?.paid ?? 0} /></strong></button>
-   <div><span>{balanceKnown && toKopecks(remaining) < 0 ? "Переплата" : "К выплате"}</span><strong><Money value={balanceKnown ? Math.abs(toKopecks(remaining)) : null} fraction="auto" /></strong></div>
-   <div><span>Чаевые</span><strong><Money value={row?.tips ?? 0} /></strong></div>
-  </div>
-  <div className={s.meta}><span>{countRu(shifts.length, "смена", "смены", "смен")}{shifts.length > 0 ? ` · В среднем ${formatRub((row?.earned ?? 0) / shifts.length)} за смену` : ""}</span>{!fullPage && <Button variant="ghost" size="sm" onClick={() => setConditions(true)}>Условия сотрудника</Button>}</div>
+  <MetricStrip label="Итоги за месяц">
+   <Metric primary label="Начислено" icon={<ChevronRight size={16}/>} ariaLabel="Начислено: состав за месяц" onClick={() => setBreakdown(true)} value={<Money value={row?.earned ?? 0} />} hint={countRu(shifts.length, "смена", "смены", "смен")} />
+   <Metric label="Выплачено" icon={<ChevronRight size={16}/>} ariaLabel="Выплачено: выплаты за месяц" onClick={() => setTab("payments")} value={<Money value={pending ? null : row?.paid ?? 0} />} hint={pending ? "Прежние выплаты ещё не сверены" : `${countRu(payments.length, "операция", "операции", "операций")} за месяц`} />
+   <Metric label={balanceKnown && toKopecks(remaining) < 0 ? "Переплата" : "К выплате"} value={<Money value={balanceKnown ? Math.abs(toKopecks(remaining)) : null} fraction="auto" />} hint={balanceKnown ? undefined : "Появится после сверки прежних выплат"} />
+   <Metric label="Чаевые" value={<Money value={row?.tips ?? 0} />} hint="Отдельно от зарплаты" />
+  </MetricStrip>
+  <div className={s.meta}><span>{shifts.length > 0 ? `В среднем ${formatRub((row?.earned ?? 0) / shifts.length)} за смену` : ""}</span>{!fullPage && <Button variant="ghost" size="sm" onClick={() => setConditions(true)}>Условия сотрудника</Button>}</div>
   {!fullPage && <div id={controlsId} className={s.controls}/>}
   <Tabs value={tab} onValueChange={setTab} className={tabStyle.tabs}>
    <TabsList aria-label="Расчёт сотрудника"><TabsTrigger value="shifts">Смены</TabsTrigger><TabsTrigger value="entries">Начисления и удержания</TabsTrigger><TabsTrigger value="payments">Выплаты</TabsTrigger>{documentsAvailable && <TabsTrigger value="documents">Документы</TabsTrigger>}</TabsList>
@@ -130,6 +133,7 @@ export function EmployeePay({ data, employee, month, onChange, fullPage = false,
   </PayrollDetailDialog>
   <PayrollDetailDialog open={conditionsOpen ?? ownConditions} onOpenChange={setConditions} title="Условия сотрудника" description={employee.name}><EmployeePayConditions data={data} employee={employee} month={month} onChange={onChange}/></PayrollDetailDialog>
   <ConfirmDialog open={Boolean(cancelId)} onOpenChange={open => { if (!open) setCancelId(null); }} title="Удалить выплату?" description="Финансовая операция будет помечена удалённой, а сумма вернётся в остаток к выплате сотруднику." confirmLabel="Удалить выплату" pendingLabel="Удаляем…" destructive busy={cancelBusy} onConfirm={() => void confirmCancel()}/>
+  {transferOpen && <PayrollTransferDrawer data={data} month={month} employeeId={employee.id} onClose={() => setTransferOpen(false)} onChange={onChange}/>}
   <PayrollEntryForm initialKind={entryKind} employeeId={employee.id} open={entryOpen} onOpenChange={setEntryOpen} data={data} month={month} onCreated={async () => { await onChange(); setTab("entries"); }}/>
   <PayrollDetailDialog open={payOpen} onOpenChange={setPayOpen} title="Добавить выплату" description="Запись выданной зарплаты" footer={<div id="payroll-payment-footer" className={paymentStyle.footerSlot}/>}><PayrollPaymentForm onCancel={() => setPayOpen(false)} data={data} month={month} initialEmployeeId={employee.id} onDone={async () => { setPayOpen(false); await onChange(); setTab("payments"); }}/></PayrollDetailDialog>
  </div>;

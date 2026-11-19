@@ -1,24 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Boxes,
-  Crown,
-  Filter,
-  Plus,
-  Search,
-  Settings2,
-  X,
-} from "lucide-react";
+  getCoreRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type ColumnDef,
+} from "@tanstack/react-table";
+import { arrayMove } from "@dnd-kit/sortable";
+import { Boxes, Crown, Plus, SearchX } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { EditDrawer } from "@/components/ui/edit-drawer";
-import { IconTooltip } from "@/components/ui/icon-tooltip";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { OptionSelect } from "@/components/ui/option-select";
 import { Textarea } from "@/components/ui/textarea";
 import { paletteText, type PaletteColor } from "@/lib/palette";
 import { pluralRu } from "@/lib/format/plural";
@@ -28,161 +28,36 @@ import { createDepartment, type DepartmentSummary } from "../actions";
 import { DepartmentIconPicker } from "./department-icon-picker";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { PageFrame } from "@/components/shared/page-frame";
-import { TablePageHeader } from "@/components/shared/table";
+import {
+  DataTable,
+  TableColumnManager,
+  TableConditions,
+  TableControls,
+  TableFilterChip,
+  TablePageHeader,
+  TablePagination,
+  TableSortPicker,
+  useTableState,
+} from "@/components/shared/table";
 
-// ── Column definitions ────────────────────────────────────────
+// ── Columns ──────────────────────────────────────────────────
 
 type ColKey = "name" | "head" | "roles" | "staff";
 
-const COL_DEFS: {
-  key: ColKey;
-  label: string;
-  width: string;
-  align?: "center";
-  required?: boolean;
-}[] = [
-  // По аналогии с roles list (MlKFD/RuvhI): name = 1fr, остальные —
-  // фиксированные. Gap 16 (gap-4).
-  { key: "name",  label: "Подразделение", width: "minmax(220px, 1fr)", required: true },
-  { key: "head",  label: "Руководитель",  width: "180px" },
-  { key: "roles", label: "Должности",     width: "140px" },
-  { key: "staff", label: "Сотрудники",    width: "140px" },
-];
-
-const DEFAULT_COLS: ColKey[] = ["name", "head", "roles", "staff"];
-
-// ── Column settings dropdown ──────────────────────────────────
-
-function ColumnSettings({
-  visible,
-  onChange,
-}: {
-  visible: Set<ColKey>;
-  onChange: (k: ColKey, on: boolean) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, [open]);
-
-  return (
-    <div className="relative" ref={ref}>
-      <IconTooltip label="Столбцы таблицы">
-        <Button
-          variant="outline"
-          size="icon"
-          className="h-8 w-8"
-          onClick={() => setOpen((v) => !v)}
-        >
-          <Settings2 className="w-4 h-4" />
-        </Button>
-      </IconTooltip>
-      {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 bg-background border rounded-lg shadow-md p-2 min-w-[180px]">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground px-2 pb-1.5">
-            Столбцы таблицы
-          </p>
-          {COL_DEFS.filter((c) => !c.required).map((col) => (
-            <label
-              key={col.key}
-              className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted cursor-pointer text-sm select-none"
-            >
-              <input
-                type="checkbox"
-                checked={visible.has(col.key)}
-                onChange={(e) => onChange(col.key, e.target.checked)}
-                className="accent-primary"
-              />
-              {col.label}
-            </label>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Filter dropdown ────────────────────────────────────────────
-
-type DepartmentFilter = {
-  head: "all" | "assigned" | "missing";
+const labels: Record<ColKey, string> = {
+  name: "Подразделение",
+  head: "Руководитель",
+  roles: "Должности",
+  staff: "Сотрудники",
 };
-
-function DepartmentFilterPanel({
-  filter,
-  onChange,
-}: {
-  filter: DepartmentFilter;
-  onChange: (next: DepartmentFilter) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => {
-      // Список селекта рендерится в портал вне панели — клик по пункту
-      // не должен закрывать фильтры.
-      if ((e.target as Element).closest?.("[data-radix-popper-content-wrapper]")) return;
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, [open]);
-
-  const isActive = filter.head !== "all";
-
-  return (
-    <div className="relative" ref={ref}>
-      <IconTooltip label={isActive ? "Фильтры (активны)" : "Фильтры"}>
-        <Button
-          variant="outline"
-          size="icon"
-          className={`h-8 w-8 ${isActive ? "border-primary text-primary" : ""}`}
-          onClick={() => setOpen((v) => !v)}
-        >
-          <Filter className="w-4 h-4" />
-        </Button>
-      </IconTooltip>
-      {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 bg-background border rounded-lg shadow-md p-3 min-w-[220px] space-y-3">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            Фильтры
-          </p>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Руководящая должность</Label>
-            <OptionSelect
-              aria-label="Руководящая должность"
-              className="h-8 w-full px-2"
-              value={filter.head}
-              onValueChange={(v) => onChange({ head: v as DepartmentFilter["head"] })}
-              options={[
-                { value: "all", label: "Все" },
-                { value: "assigned", label: "Назначена" },
-                { value: "missing", label: "Не назначена" },
-              ]}
-            />
-          </div>
-          {isActive && (
-            <button
-              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
-              onClick={() => onChange({ head: "all" })}
-            >
-              Сбросить фильтры
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+const columnConfig = [
+  { id: "name", defaultSize: 360 },
+  { id: "head", defaultSize: 220 },
+  { id: "roles", defaultSize: 160 },
+  { id: "staff", defaultSize: 160 },
+];
+const sortFields: ColKey[] = ["name", "head", "roles", "staff"];
+const collator = new Intl.Collator("ru", { sensitivity: "base", numeric: true });
 
 // ── Main component ─────────────────────────────────────────────
 
@@ -201,40 +76,14 @@ export function DepartmentsClient({
   const [departments, setDepartments] = useState(initialDepartments);
   const [isPending, startTransition] = useTransition();
 
-  // Column visibility — persisted в localStorage по аналогии с roles list.
-  const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(() => {
-    if (typeof window === "undefined") return new Set(DEFAULT_COLS);
-    try {
-      const saved = localStorage.getItem("crm-departments-visible-cols");
-      if (saved) return new Set(JSON.parse(saved) as ColKey[]);
-    } catch {}
-    return new Set(DEFAULT_COLS);
+  const st = useTableState({
+    tableId: "people.departments",
+    legacyVisibilityKey: "crm-departments-visible-cols",
+    columns: columnConfig,
   });
-  const toggleCol = (key: ColKey, on: boolean) => {
-    setVisibleCols((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(key);
-      else next.delete(key);
-      try {
-        localStorage.setItem(
-          "crm-departments-visible-cols",
-          JSON.stringify([...next]),
-        );
-      } catch {}
-      return next;
-    });
-  };
-
-  // Search
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (searchOpen) setTimeout(() => searchInputRef.current?.focus(), 50);
-  }, [searchOpen]);
-
-  // Filter
-  const [filter, setFilter] = useState<DepartmentFilter>({ head: "all" });
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [headFilter, setHeadFilter] = useState("");
+  const firstPage = () => st.setPagination((p) => ({ ...p, pageIndex: 0 }));
 
   // Create drawer
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -250,19 +99,24 @@ export function DepartmentsClient({
     setDescription("");
   }
 
-  // Filtering
-  const q = searchQuery.toLowerCase().trim();
+  const q = st.search.toLocaleLowerCase("ru").trim();
   const filteredDepartments = useMemo(
     () =>
       departments.filter((d) => {
-        if (q && !d.name.toLowerCase().includes(q)) return false;
-        if (filter.head === "assigned" && !d.head_role_id) return false;
-        if (filter.head === "missing" && d.head_role_id) return false;
+        if (q && !d.name.toLocaleLowerCase("ru").includes(q)) return false;
+        if (headFilter === "assigned" && !d.head_role_id) return false;
+        if (headFilter === "missing" && d.head_role_id) return false;
         return true;
       }),
-    [departments, q, filter.head],
+    [departments, q, headFilter],
   );
-  const isFiltered = q.length > 0 || filter.head !== "all";
+  const isFiltered = q.length > 0 || !!headFilter;
+  const resetConditions = () => {
+    setHeadFilter("");
+    st.setSearch("");
+    st.setSorting([]);
+    firstPage();
+  };
 
   function handleCreate() {
     const trimmed = name.trim();
@@ -301,229 +155,277 @@ export function DepartmentsClient({
     });
   }
 
-  // Cell renderers
-  const renderCell = (key: ColKey, d: DepartmentSummary) => {
-    switch (key) {
-      case "name": {
+  const count = (n: number, forms: [string, string, string]) =>
+    n ? (
+      <span className="tabular-nums">
+        {n} {pluralRu(n, ...forms)}
+      </span>
+    ) : (
+      <span className="text-muted-foreground">—</span>
+    );
+  const columns: ColumnDef<DepartmentSummary>[] = [
+    {
+      id: "name",
+      header: labels.name,
+      size: 360,
+      minSize: 220,
+      enableHiding: false,
+      accessorFn: (d) => d.name,
+      sortingFn: (a, b) => collator.compare(a.original.name, b.original.name),
+      cell: ({ row }) => {
+        const d = row.original;
+        const Icon = (d.icon && ICON_REGISTRY[d.icon]) || Boxes;
+        const tint = paletteText(d.icon_color as PaletteColor | null);
         const desc = d.description?.trim();
         return (
-          <div className="min-w-0">
-            <span className="font-medium text-sm truncate block">{d.name}</span>
-            {desc && (
-              <div className="text-xs text-muted-foreground truncate mt-0.5">
-                {desc}
-              </div>
-            )}
-          </div>
-        );
-      }
-      case "head": {
-        if (!d.head_role_name) {
-          return <span className="text-sm text-muted-foreground">—</span>;
-        }
-        return (
-          <div className="flex items-center gap-1.5 text-sm min-w-0">
-            <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-            <span className="font-medium truncate">{d.head_role_name}</span>
-          </div>
-        );
-      }
-      case "roles": {
-        if (d.roles_count === 0) {
-          return <span className="text-sm text-muted-foreground">—</span>;
-        }
-        const label = pluralRu(d.roles_count, "должность", "должности", "должностей");
-        return (
-          <div className="flex items-center gap-2 text-sm">
-            <span className="flex items-center justify-center size-6 rounded-full bg-violet-400 text-white text-[11px] font-semibold">
-              {d.roles_count}
+          // span, а не div: правило карточки на телефоне растягивает первый
+          // ребёнок div-обёртки имени на всю ширину (для бейджей сотрудника).
+          <span className="flex min-w-0 items-center gap-3">
+            <span
+              className={`flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted ${tint || "text-muted-foreground"}`}
+            >
+              <Icon className="size-4" />
             </span>
-            <span className="text-muted-foreground">{label}</span>
-          </div>
+            <div className="min-w-0">
+              <Link
+                href={`/people/departments/${d.id}`}
+                className="block truncate font-medium hover:underline"
+                data-tip={d.name}
+              >
+                {d.name}
+              </Link>
+              {desc && (
+                <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                  {desc}
+                </div>
+              )}
+            </div>
+          </span>
         );
-      }
-      case "staff": {
-        if (d.staff_count === 0) {
-          return <span className="text-sm text-muted-foreground">—</span>;
-        }
-        const label = pluralRu(d.staff_count, "сотрудник", "сотрудника", "сотрудников");
-        return (
-          <div className="flex items-center gap-2 text-sm">
-            <span className="flex items-center justify-center size-6 rounded-full bg-emerald-400 text-white text-[11px] font-semibold">
-              {d.staff_count}
+      },
+    },
+    {
+      id: "head",
+      header: labels.head,
+      size: 220,
+      minSize: 150,
+      accessorFn: (d) => d.head_role_name ?? undefined,
+      sortUndefined: "last",
+      cell: ({ getValue }) => {
+        const name = getValue() as string | undefined;
+        return name ? (
+          <span className="flex min-w-0 items-center gap-1.5">
+            <Crown className="size-3.5 shrink-0 text-amber-500" aria-hidden />
+            <span className="truncate" data-tip={name}>
+              {name}
             </span>
-            <span className="text-muted-foreground">{label}</span>
-          </div>
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
         );
-      }
-    }
+      },
+    },
+    {
+      id: "roles",
+      header: labels.roles,
+      size: 160,
+      minSize: 120,
+      accessorFn: (d) => d.roles_count,
+      cell: ({ getValue }) =>
+        count(getValue() as number, ["должность", "должности", "должностей"]),
+    },
+    {
+      id: "staff",
+      header: labels.staff,
+      size: 160,
+      minSize: 120,
+      accessorFn: (d) => d.staff_count,
+      cell: ({ getValue }) =>
+        count(getValue() as number, ["сотрудник", "сотрудника", "сотрудников"]),
+    },
+  ];
+  const table = useReactTable({
+    data: filteredDepartments,
+    columns,
+    state: {
+      sorting: st.sorting,
+      pagination: st.pagination,
+      columnVisibility: { ...st.columnVisibility, name: true },
+      columnOrder: st.columnOrder,
+      columnSizing: st.columnSizing,
+    },
+    onSortingChange: st.setSorting,
+    onPaginationChange: st.setPagination,
+    onColumnVisibilityChange: st.setColumnVisibility,
+    onColumnSizingChange: st.setColumnSizing,
+    getRowId: (d) => d.id,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    autoResetPageIndex: false,
+  });
+  const changeSorting = (next: typeof st.sorting) => {
+    st.setSorting(next);
+    firstPage();
+  };
+  const canCreate = !!accountId && canManage;
+  const openCreate = () => {
+    resetForm();
+    setSheetOpen(true);
   };
 
   return (
     <PageFrame>
       <Breadcrumbs items={[{ label: "Люди" }, { label: "Подразделения" }]} />
       <TablePageHeader
-        className="mb-4"
         title="Подразделения"
         count={isFiltered ? `${filteredDepartments.length} из ${departments.length}` : departments.length}
         actions={
-          <>
-            {/* Search */}
-          <div className="flex items-center gap-1">
-            {searchOpen && (
-              <div className="relative">
-                <Input
-                  ref={searchInputRef}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Поиск"
-                  className="h-8 w-48 text-sm pr-7"
+          <TableControls
+            search={{
+              value: st.search,
+              onChange: (v) => {
+                st.setSearch(v);
+                firstPage();
+              },
+              open: st.searchOpen,
+              onOpenChange: st.setSearchOpen,
+              placeholder: "Название подразделения",
+            }}
+            filters={{
+              active: !!headFilter,
+              onClick: () => setFiltersOpen((v) => !v),
+            }}
+            sort={{
+              active: st.sorting.length > 0,
+              content: (
+                <TableSortPicker
+                  sorting={st.sorting}
+                  onChange={changeSorting}
+                  fields={sortFields}
+                  labels={labels}
                 />
-                {searchQuery && (
-                  <button
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => setSearchQuery("")}
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            )}
-            <IconTooltip
-              label={searchOpen ? "Скрыть поиск" : "Поиск по подразделениям"}
-            >
-              <Button
-                variant="outline"
-                size="icon"
-                className={`h-8 w-8 ${searchOpen ? "border-primary text-primary" : ""}`}
-                onClick={() => {
-                  if (searchOpen) setSearchQuery("");
-                  setSearchOpen((v) => !v);
-                }}
-              >
-                <Search className="w-4 h-4" />
-              </Button>
-            </IconTooltip>
-          </div>
-
-          <DepartmentFilterPanel filter={filter} onChange={setFilter} />
-          <ColumnSettings visible={visibleCols} onChange={toggleCol} />
-
-          {accountId && canManage && (
-            <Button
-              size="sm"
-              onClick={() => {
-                resetForm();
-                setSheetOpen(true);
-              }}
-            >
-              <Plus className="w-4 h-4 mr-1.5" />
-              Добавить
-            </Button>
-          )}
-          </>
+              ),
+            }}
+            columns={{
+              content: (
+                <TableColumnManager
+                  columns={st.columnOrder.map((id) => {
+                    const c = table.getColumn(id)!;
+                    return {
+                      id,
+                      label: labels[id as ColKey],
+                      visible: c.getIsVisible(),
+                      canHide: c.getCanHide(),
+                    };
+                  })}
+                  onVisibilityChange={(id, v) =>
+                    table.getColumn(id)?.toggleVisibility(v)
+                  }
+                  onMoveColumn={(a, b) =>
+                    st.setColumnOrder((order) =>
+                      arrayMove(order, order.indexOf(a), order.indexOf(b)),
+                    )
+                  }
+                  onReset={st.resetColumns}
+                />
+              ),
+            }}
+            primaryActions={
+              canCreate ? (
+                <Button size="sm" className="h-9 gap-2" onClick={openCreate}>
+                  <Plus className="size-4" />
+                  Добавить
+                </Button>
+              ) : null
+            }
+          />
         }
       />
+      <TableConditions
+        label="Условия списка подразделений"
+        open={filtersOpen}
+        hasFilters={!!headFilter}
+        sorting={st.sorting}
+        onSortingChange={changeSorting}
+        sortFields={sortFields}
+        sortLabels={labels}
+        search={st.search}
+        onSearchClear={() => {
+          st.setSearch("");
+          firstPage();
+        }}
+        onReset={resetConditions}
+      >
+        <TableFilterChip
+          label="Руководитель"
+          value={headFilter}
+          onChange={(v) => {
+            setHeadFilter(v);
+            firstPage();
+          }}
+          options={[
+            { value: "", label: "Все подразделения" },
+            { value: "assigned", label: "Руководитель назначен" },
+            { value: "missing", label: "Без руководителя" },
+          ]}
+        />
+      </TableConditions>
 
-      {/* Empty state */}
-      {departments.length === 0 && (
-        <div className="rounded-lg border border-dashed flex flex-col items-center justify-center p-16 text-center">
-          <Boxes className="w-10 h-10 text-muted-foreground mb-3" />
-          <p className="text-sm font-medium">Нет подразделений</p>
-          <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-            Объедините похожие должности (например «Бармен», «Помощник бармена»,
-            «Старший бармен») в подразделение «Бар» и назначьте руководителя.
-          </p>
-          {accountId && canManage && (
-            <Button
-              size="sm"
-              className="mt-4"
-              onClick={() => {
-                resetForm();
-                setSheetOpen(true);
-              }}
-            >
-              <Plus className="w-4 h-4 mr-1.5" />
-              Создать подразделение
+      {departments.length === 0 ? (
+        <EmptyState
+          icon={Boxes}
+          title="Подразделений пока нет"
+          description="Объедините похожие должности в подразделение, например «Бар», и назначьте руководителя"
+          action={
+            canCreate ? (
+              <Button onClick={openCreate}>
+                <Plus className="mr-2 size-4" />
+                Создать подразделение
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : filteredDepartments.length === 0 ? (
+        <EmptyState
+          icon={SearchX}
+          title="Подразделения не найдены"
+          description="Измените условия поиска или сбросьте фильтры"
+          action={
+            <Button variant="outline" onClick={resetConditions}>
+              Очистить все
             </Button>
-          )}
-        </div>
+          }
+        />
+      ) : (
+        <>
+          <DataTable
+            table={table}
+            label="Подразделения"
+            labels={labels}
+            onColumnSizingChange={st.setColumnSizing}
+            sorting={st.sorting}
+            onSortingChange={changeSorting}
+            sortable={sortFields}
+            onRowClick={(row) =>
+              router.push(`/people/departments/${row.original.id}`)
+            }
+            empty={null}
+            mobile={{ label: "Карточки подразделений", nameColumn: "name" }}
+          />
+          <TablePagination
+            pageIndex={st.pagination.pageIndex}
+            pageSize={st.pagination.pageSize}
+            total={filteredDepartments.length}
+            onPageChange={(pageIndex) =>
+              st.setPagination((p) => ({ ...p, pageIndex }))
+            }
+            onPageSizeChange={(pageSize) =>
+              st.setPagination({ pageIndex: 0, pageSize })
+            }
+          />
+        </>
       )}
-
-      {/* Table */}
-      {departments.length > 0 &&
-        (() => {
-          const visibleColDefs = COL_DEFS.filter((c) => visibleCols.has(c.key));
-          // 36px icon + видимые колонки.
-          const gridTemplate = `36px ${visibleColDefs.map((c) => c.width).join(" ")}`;
-
-          return (
-            <div className="rounded-xl border bg-card overflow-hidden">
-              {/* Header row */}
-              <div
-                className="grid gap-4 px-5 py-3 bg-muted/60 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider border-b"
-                style={{ gridTemplateColumns: gridTemplate }}
-              >
-                <span aria-hidden />
-                {visibleColDefs.map((col) => (
-                  <span
-                    key={col.key}
-                    className={col.align === "center" ? "text-center" : undefined}
-                  >
-                    {col.label}
-                  </span>
-                ))}
-              </div>
-
-              {/* Data rows */}
-              {filteredDepartments.map((d) => {
-                const Icon = (d.icon && ICON_REGISTRY[d.icon]) || Boxes;
-                const tintClass = paletteText(d.icon_color as PaletteColor | null);
-                return (
-                  <div
-                    key={d.id}
-                    role="button"
-                    tabIndex={0}
-                    className="grid gap-4 items-center px-5 py-3.5 border-b last:border-b-0 hover:bg-muted/30 transition-colors cursor-pointer focus-visible:outline-none focus-visible:bg-muted/50"
-                    style={{ gridTemplateColumns: gridTemplate }}
-                    onClick={() => router.push(`/people/departments/${d.id}`)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        router.push(`/people/departments/${d.id}`);
-                      }
-                    }}
-                  >
-                    <div
-                      className={`flex items-center justify-center size-9 rounded-lg bg-muted ${tintClass || "text-muted-foreground"}`}
-                    >
-                      <Icon className="w-4 h-4" />
-                    </div>
-
-                    {visibleColDefs.map((col) => (
-                      <div
-                        key={col.key}
-                        className={`min-w-0 ${
-                          col.align === "center"
-                            ? "flex items-center justify-center"
-                            : ""
-                        }`}
-                      >
-                        {renderCell(col.key, d)}
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
-
-              {isFiltered && filteredDepartments.length === 0 && (
-                <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                  Нет подразделений, соответствующих поиску
-                </div>
-              )}
-            </div>
-          );
-        })()}
 
       {/* Create drawer */}
       <EditDrawer

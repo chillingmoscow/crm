@@ -64,8 +64,8 @@ function CalendarDropdown({
       <SelectTrigger
         aria-label={ariaLabel}
         className={cn(
-          "h-8 w-auto border-input bg-background px-2.5 text-sm font-medium",
-          "focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0",
+          // Фокус — общий для полей (из SelectTrigger), здесь только размер.
+          "h-8 w-auto px-2.5 text-sm font-medium",
           className,
         )}
       >

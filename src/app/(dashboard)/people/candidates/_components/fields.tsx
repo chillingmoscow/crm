@@ -8,9 +8,12 @@ export function Field({
   label: string;
   children: ReactNode;
 }) {
+  // Подпись как у общего `Field` (src/components/ui/field.tsx): 14px / 500,
+  // отступ 8px. Жирность только у текста подписи — иначе её наследует поле
+  // внутри `label`.
   return (
-    <label className="flex min-w-0 flex-col gap-1.5 text-[13px] font-medium">
-      {label}
+    <label className="flex min-w-0 flex-col gap-2 text-sm">
+      <span className="font-medium">{label}</span>
       {children}
     </label>
   );

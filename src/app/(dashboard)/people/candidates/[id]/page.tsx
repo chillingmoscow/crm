@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import {
   candidateScope,
@@ -6,6 +7,8 @@ import {
 } from "@/lib/candidates/data";
 import { uuid } from "@/lib/candidates/schema";
 import { CandidateDetailClient } from "../_components/candidate-detail-client";
+
+export const metadata: Metadata = { title: "Кандидат" };
 export const dynamic = "force-dynamic";
 export default async function CandidatePage({
   params,

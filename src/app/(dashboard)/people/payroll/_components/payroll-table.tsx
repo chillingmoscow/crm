@@ -1,27 +1,40 @@
 "use client";
-import { useMemo, useEffect, useState } from "react";
+import { useMemo, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
-  flexRender,
   getCoreRowModel,
   getSortedRowModel,
   getPaginationRowModel,
   useReactTable,
   type ColumnDef,
+  type SortingState,
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
-import { ArrowDown, ArrowUp } from "lucide-react";
 import {
-  TableControls,
+  DataTable,
   TableColumnManager,
+  TableConditions,
+  TableControls,
   TablePagination,
-  ResizableTableHead,
+  TableSortPicker,
   useTableState,
 } from "@/components/shared/table";
-import { createPortal } from "react-dom";
-import { PeopleMobileCards } from "@/components/people/people-mobile-cards";
-import { cn } from "@/lib/utils";
-import { OptionSelect } from "@/components/ui/option-select";
+
 const noHiddenColumns: string[] = [];
+
+/** Чипы фильтров для ряда условий; `active` — выбран хотя бы один фильтр. */
+export type PayrollTableFilters = {
+  active: boolean;
+  chips: React.ReactNode;
+  onReset: () => void;
+};
+
+/**
+ * Таблицы «Зарплаты» на общем каркасе `DataTable`. Состояние столбцов и
+ * страницы — `useTableState`; сортировка по умолчанию не навязывается:
+ * `defaultSort` задаёт только порядок строк, пока пользователь сам ничего не
+ * отсортировал, и не показывается пином.
+ */
 export function PayrollTable<T>({
   id,
   rows,
@@ -32,17 +45,16 @@ export function PayrollTable<T>({
   onRow,
   actions,
   defaultSort = "employee",
+  defaultSortDesc,
   hiddenColumns = noHiddenColumns,
   toolbarTargetId,
   externalSearch,
   filters,
-  defaultSortDesc,
   exportAction,
-  scrollMode = "contained",
-  minWidth = 600,
   label,
-  mobileCards,
   empty,
+  totals,
+  emptyText = "Нет записей за выбранный период",
 }: {
   id: string;
   rows: T[];
@@ -52,18 +64,20 @@ export function PayrollTable<T>({
   searchText: (row: T) => string;
   onRow?: (row: T) => void;
   actions?: React.ReactNode;
+  /** Порядок строк, пока сортировка не задана. */
   defaultSort?: string;
+  defaultSortDesc?: boolean;
   hiddenColumns?: string[];
   toolbarTargetId?: string;
   externalSearch?: { value: string; onChange: (value: string) => void };
-  filters?: { active?: boolean; content: React.ReactNode };
-  defaultSortDesc?: boolean;
+  filters?: PayrollTableFilters;
   exportAction?: { label: string; onClick: () => void };
-  scrollMode?: "contained" | "page";
-  minWidth?: number;
   label?: string;
-  mobileCards?: boolean;
+  /** Блок вместо таблицы, когда строк нет совсем. */
   empty?: React.ReactNode;
+  /** Строка итогов по видимым столбцам с учётом поиска и фильтров. */
+  totals?: (rows: T[]) => Partial<Record<string, React.ReactNode>>;
+  emptyText?: string;
 }) {
   const [toolbarTarget, setToolbarTarget] = useState<HTMLElement | null>(null);
   useEffect(() => {
@@ -81,13 +95,13 @@ export function PayrollTable<T>({
     [labels, hiddenColumns],
   );
   const st = useTableState({ tableId: id, columns: config });
-  const { setSorting } = st;
-  useEffect(() => {
-    setSorting([
-      { id: defaultSort, desc: defaultSortDesc ?? defaultSort === "date" },
-    ]);
-  }, [id, defaultSort, defaultSortDesc, setSorting]);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const searchValue = externalSearch?.value ?? st.search;
+  const setSearch = (v: string) => {
+    if (externalSearch) externalSearch.onChange(v);
+    else st.setSearch(v);
+    st.setPagination((p) => ({ ...p, pageIndex: 0 }));
+  };
   const filtered = useMemo(
     () =>
       rows.filter((r) =>
@@ -97,24 +111,69 @@ export function PayrollTable<T>({
       ),
     [rows, searchText, searchValue],
   );
+  const sortable = Object.keys(labels).filter((id) => id !== "actions");
+  const nameColumn = labels.employee ? "employee" : Object.keys(labels)[0];
+  // onRow и searchText вызывающие передают стрелками прямо в JSX. Через ref
+  // ячейка остаётся той же функцией между рендерами: иначе flexRender
+  // монтирует её заново (кнопка теряет фокус, аватары перерисовываются
+  // на каждый символ поиска).
+  const onRowRef = useRef(onRow);
+  onRowRef.current = onRow;
+  const searchTextRef = useRef(searchText);
+  searchTextRef.current = searchText;
+  const clickable = !!onRow;
+  const tableColumns = useMemo(
+    () =>
+      clickable
+        ? columns.map((column) =>
+            column.id === "employee" && column.cell
+              ? ({
+                  ...column,
+                  cell: (ctx) => {
+                    const render = column.cell;
+                    return (
+                      <button
+                        type="button"
+                        className="w-full min-w-0 text-left"
+                        onClick={() => onRowRef.current?.(ctx.row.original)}
+                        aria-label={`Открыть: ${searchTextRef.current(ctx.row.original)}`}
+                      >
+                        {typeof render === "function" ? render(ctx) : render}
+                      </button>
+                    );
+                  },
+                } satisfies ColumnDef<T>)
+              : column,
+          )
+        : columns,
+    [columns, clickable],
+  );
+  const changeSorting = (next: SortingState) => {
+    st.setSorting(next);
+    st.setPagination((p) => ({ ...p, pageIndex: 0 }));
+  };
   const table = useReactTable({
     data: filtered,
-    columns,
+    columns: tableColumns,
     state: {
-      sorting: st.sorting,
+      // Без сортировки пользователя строки идут в порядке defaultSort,
+      // но пина и стрелки в заголовке нет: это порядок, а не условие.
+      sorting: st.sorting.length
+        ? st.sorting
+        : labels[defaultSort]
+          ? [{ id: defaultSort, desc: defaultSortDesc ?? defaultSort === "date" }]
+          : [],
       pagination: st.pagination,
       columnVisibility: st.columnVisibility,
       columnOrder: st.columnOrder,
       columnSizing: st.columnSizing,
     },
-    onSortingChange: st.setSorting,
     onPaginationChange: st.setPagination,
     onColumnVisibilityChange: st.setColumnVisibility,
     onColumnSizingChange: st.setColumnSizing,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
-    columnResizeMode: "onChange",
     autoResetPageIndex: false,
   });
   const { setPagination } = st;
@@ -129,114 +188,33 @@ export function PayrollTable<T>({
         : current,
     );
   }, [filtered.length, st.pagination.pageSize, setPagination]);
-  const sort = (id: string, additive = false) =>
-    st.setSorting((old) => {
-      const existing = old.find((s) => s.id === id);
-      const next = !existing
-        ? { id, desc: false }
-        : !existing.desc
-          ? { id, desc: true }
-          : null;
-      if (!additive) return next ? [next] : [];
-      return !existing
-        ? [...old, { id, desc: false }]
-        : next
-          ? old.map((s) => (s.id === id ? next : s))
-          : old.filter((s) => s.id !== id);
-    });
   const controls = (
     <div className="flex flex-wrap justify-end gap-2">
       <TableControls
         search={{
           value: searchValue,
-          onChange: (v) => {
-            if (externalSearch) externalSearch.onChange(v);
-            else st.setSearch(v);
-            st.setPagination((p) => ({ ...p, pageIndex: 0 }));
-          },
+          onChange: setSearch,
           open: st.searchOpen,
           onOpenChange: st.setSearchOpen,
           placeholder: "Сотрудник или должность",
         }}
-        filters={filters}
+        filters={
+          filters
+            ? {
+                active: filters.active,
+                onClick: () => setFiltersOpen((v) => !v),
+              }
+            : undefined
+        }
         sort={{
           active: !!st.sorting.length,
           content: (
-            <div className="w-72 space-y-2 p-3">
-              <div className="flex items-center justify-between text-sm font-medium">
-                Сортировка
-                <button
-                  className="text-xs text-muted-foreground hover:text-foreground"
-                  onClick={() => st.setSorting([])}
-                >
-                  Сбросить
-                </button>
-              </div>
-              {st.sorting.map((item, index) => (
-                <div
-                  key={item.id}
-                  className="flex items-center gap-2 rounded-md border p-2 text-sm"
-                >
-                  <span className="text-xs text-muted-foreground">
-                    {index + 1}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">
-                    {labels[item.id]}
-                  </span>
-                  <button
-                    aria-label={`Изменить направление: ${labels[item.id]}`}
-                    onClick={() =>
-                      st.setSorting((old) =>
-                        old.map((s) =>
-                          s.id === item.id ? { ...s, desc: !s.desc } : s,
-                        ),
-                      )
-                    }
-                  >
-                    {item.desc ? "↓" : "↑"}
-                  </button>
-                  <button
-                    aria-label={`Повысить приоритет: ${labels[item.id]}`}
-                    disabled={!index}
-                    className="disabled:opacity-25"
-                    onClick={() =>
-                      st.setSorting((old) => arrayMove(old, index, index - 1))
-                    }
-                  >
-                    ↑
-                  </button>
-                  <button
-                    aria-label={`Убрать сортировку: ${labels[item.id]}`}
-                    onClick={() =>
-                      st.setSorting((old) =>
-                        old.filter((s) => s.id !== item.id),
-                      )
-                    }
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-              <OptionSelect
-                aria-label="Добавить уровень сортировки"
-                className="h-9 w-full px-2"
-                value=""
-                placeholder="Добавить уровень…"
-                onValueChange={(v) => {
-                  if (v) sort(v, true);
-                }}
-                options={Object.entries(labels)
-                  .filter(
-                    ([id]) =>
-                      id !== "actions" && !st.sorting.some((s) => s.id === id),
-                  )
-                  .map(([id, label]) => ({ value: id, label }))}
-              />
-              <p className="text-xs text-muted-foreground">
-                Клик по заголовку задаёт основной порядок. Shift + клик
-                добавляет уровень.
-              </p>
-            </div>
+            <TableSortPicker
+              sorting={st.sorting}
+              onChange={changeSorting}
+              fields={sortable}
+              labels={labels}
+            />
           ),
         }}
         columns={{
@@ -246,7 +224,7 @@ export function PayrollTable<T>({
                 id: c.id,
                 label: labels[c.id],
                 visible: c.getIsVisible(),
-                canHide: c.id !== "employee",
+                canHide: c.id !== nameColumn,
                 width: c.getSize(),
               }))}
               onVisibilityChange={(id, v) =>
@@ -266,135 +244,51 @@ export function PayrollTable<T>({
       />
     </div>
   );
+  const visibleRows = table.getSortedRowModel().rows.map((r) => r.original);
   return (
-    <div className="space-y-4 min-w-0">
+    <div className="min-w-0 space-y-4">
       {toolbarTargetId
         ? toolbarTarget
           ? createPortal(controls, toolbarTarget)
           : null
         : controls}
+      <TableConditions
+        label={`Условия таблицы «${label ?? "Зарплата"}»`}
+        open={filtersOpen}
+        hasFilters={!!filters?.active}
+        sorting={st.sorting}
+        onSortingChange={changeSorting}
+        sortFields={sortable}
+        sortLabels={labels}
+        search={searchValue}
+        onSearchClear={() => setSearch("")}
+        onReset={() => {
+          filters?.onReset();
+          setSearch("");
+          changeSorting([]);
+        }}
+      >
+        {filters?.chips}
+      </TableConditions>
       {!filtered.length && empty ? (
         empty
       ) : (
-        <div
-          className={cn(
-            "overflow-hidden rounded-xl border",
-            mobileCards && "hidden sm:block",
-          )}
-        >
-          <div
-            data-payroll-scroll={scrollMode}
-            className={cn(
-              "overflow-x-auto",
-              scrollMode === "contained" && "max-h-[65dvh] overflow-y-auto",
-            )}
-          >
-            <table
-              // TableConvert adds attributes before hydration; allow its table annotations.
-              suppressHydrationWarning
-              aria-label={label}
-              className="w-full table-fixed text-[13px] [&_thead]:text-xs [&_tbody_td]:px-4 [&_tbody_td]:py-4"
-              style={{ minWidth: Math.max(minWidth, table.getTotalSize()) }}
-            >
-              <ResizableTableHead
-                table={table}
-                isControlColumn={() => false}
-                isRightAligned={(id) => numeric.includes(id)}
-                sortableColumnIds={
-                  new Set(Object.keys(labels).filter((id) => id !== "actions"))
-                }
-                onSort={(id, event) => sort(id, event.shiftKey)}
-                headerIndicator={(id) => {
-                  const s = st.sorting.find((s) => s.id === id);
-                  return s ? (
-                    <span className="inline-flex items-center gap-0.5">
-                      {s.desc ? (
-                        <ArrowDown className="h-3 w-3" />
-                      ) : (
-                        <ArrowUp className="h-3 w-3" />
-                      )}
-                      {st.sorting.length > 1 && (
-                        <small>
-                          {st.sorting.findIndex((sort) => sort.id === id) + 1}
-                        </small>
-                      )}
-                    </span>
-                  ) : null;
-                }}
-                headerAriaSort={(id) => {
-                  const s = st.sorting.find((s) => s.id === id);
-                  return s ? (s.desc ? "descending" : "ascending") : "none";
-                }}
-              />
-              <tbody>
-                {table.getRowModel().rows.map((row) => (
-                  <tr
-                    key={row.id}
-                    className={cn(
-                      "border-b last:border-0 hover:bg-muted/40",
-                      onRow && "cursor-pointer",
-                    )}
-                    onClick={() => onRow?.(row.original)}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <td
-                        key={cell.id}
-                        className={cn(
-                          "px-3 py-4",
-                          numeric.includes(cell.column.id) &&
-                            "text-right tabular-nums",
-                        )}
-                      >
-                        {onRow && cell.column.id === "employee" ? (
-                          <button
-                            type="button"
-                            className="w-full text-left"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onRow(row.original);
-                            }}
-                            aria-label={`Открыть ${searchText(row.original)}`}
-                          >
-                            {flexRender(
-                              cell.column.columnDef.cell,
-                              cell.getContext(),
-                            )}
-                          </button>
-                        ) : (
-                          flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext(),
-                          )
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-                {!filtered.length && (
-                  <tr>
-                    <td
-                      colSpan={columns.length}
-                      className="p-12 text-center text-muted-foreground"
-                    >
-                      Нет записей за выбранный период
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-      {mobileCards && filtered.length > 0 && (
-        <PeopleMobileCards
+        <DataTable
           table={table}
-          label={label ?? "Карточки"}
-          nameColumn="employee"
-          photoColumn="__none"
-          roleColumn="__none"
-          statusColumn="status"
+          label={label ?? "Зарплата"}
           labels={labels}
-          empty={null}
+          onColumnSizingChange={st.setColumnSizing}
+          sorting={st.sorting}
+          onSortingChange={changeSorting}
+          sortable={sortable}
+          numeric={numeric}
+          onRowClick={onRow ? (row) => onRow(row.original) : undefined}
+          empty={emptyText}
+          totals={totals?.(visibleRows)}
+          mobile={{
+            nameColumn,
+            statusColumn: labels.status ? "status" : undefined,
+          }}
         />
       )}
       <TablePagination

@@ -1,12 +1,6 @@
-/* Каркас панели — общий EditDrawer. Здесь только оформление содержимого:
-   вкладки и списки внутри карточки записи. */
+/* Каркас панели — общий EditDrawer, вкладки — общий вид представления
+   (`workspace-tabs.module.css`, подключён в PayrollDetailDialog). Здесь
+   только оформление содержимого карточки записи. */
 .details { min-width: 0; font-size: 13px; }
-.details [role="tablist"] { display: flex; height: auto; width: 100%; justify-content: flex-start; gap: 22px; padding: 0; border-bottom: 1px solid hsl(var(--border)); border-radius: 0; background: transparent; color: hsl(var(--muted-foreground)); overflow-x: auto; }
-.details [role="tab"] { flex-shrink: 0; padding: 0 0 12px; border-radius: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; font-size: 12px; font-weight: 450; box-shadow: none; background: transparent; }
-.details [role="tab"][data-state="active"] { border-bottom-color: hsl(var(--brand)); color: hsl(var(--brand)); font-weight: 550; }
-.details [role="tabpanel"] { padding-top: 20px; margin-top: 0; }
 .details dl { border: 0; padding-block: 0; }
 .details dl > div { font-size: 13px; }
-@media (max-width: 639px) {
-  .details [role="tablist"] { gap: 18px; }
-}

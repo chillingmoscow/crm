@@ -123,7 +123,7 @@ export function DateRangeFilter({
               "rounded-full h-8 pl-3 font-normal text-sm",
               monthOnly ? "pr-3" : "pr-8",
               hasValue
-                ? "bg-brand/10 border-brand/20 text-brand-tint-foreground hover:bg-brand/15 hover:text-brand-tint-foreground"
+                ? "bg-brand/10 border-brand/20 text-brand hover:bg-brand/15 hover:text-brand"
                 : "bg-muted/60 border-transparent text-muted-foreground hover:bg-muted",
             )}
           >
@@ -136,7 +136,7 @@ export function DateRangeFilter({
             type="button"
             onClick={clear}
             aria-label="Сбросить даты"
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand/90"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand-hover"
           >
             <X className="h-3 w-3" />
           </button>
@@ -265,7 +265,7 @@ export function DateRangeFilter({
               <div className="flex justify-end pt-2 border-t">
                 <Button
                   size="sm"
-                  className="bg-brand hover:bg-brand/90"
+                  className="bg-brand hover:bg-brand-hover"
                   onClick={() => setOpen(false)}
                 >
                   Применить

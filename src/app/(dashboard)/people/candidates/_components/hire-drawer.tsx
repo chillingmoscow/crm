@@ -17,6 +17,7 @@ import {
   getCandidateOptions,
 } from "../actions";
 import { Field, FieldSelect, dateLabel } from "./fields";
+import { GENDER_OPTIONS, isGender } from "@/lib/people/gender";
 export function HireDrawer({
   detail,
   options: initialOptions,
@@ -48,6 +49,7 @@ export function HireDrawer({
       ),
     ),
     [role, setRole] = useState(String(old?.role_id ?? "")),
+    [gender, setGender] = useState(String(old?.gender ?? "")),
     [date, setDate] = useState(
       String(
         old?.employment_date ??
@@ -118,6 +120,7 @@ export function HireDrawer({
             role_id: role,
             first_name: first,
             last_name: last,
+            ...(existing ? {} : { gender }),
             employment_date: date,
             existing_user_id: existing || null,
             attendance_source: "quickresto",
@@ -173,6 +176,9 @@ export function HireDrawer({
               !v?.can_hire ||
               !role ||
               (!existing && !rule) ||
+              // Продолжение найма, начатого до обязательного пола, идёт
+              // с сохранённым входом — пол там может быть пустым.
+              (!existing && !locked && !isGender(gender)) ||
               showRole
             }
             onClick={hire}
@@ -188,14 +194,14 @@ export function HireDrawer({
       }
     >
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Имя *">
+        <Field label="Имя" required>
           <Input
             value={first}
             onChange={(e) => setFirst(e.target.value)}
             disabled={busy || locked}
           />
         </Field>
-        <Field label="Фамилия *">
+        <Field label="Фамилия" required>
           <Input
             value={last}
             onChange={(e) => setLast(e.target.value)}
@@ -203,8 +209,19 @@ export function HireDrawer({
           />
         </Field>
       </div>
+      {existing ? null : (
+        <FieldSelect
+          label="Пол"
+          required
+          value={gender}
+          disabled={busy || locked}
+          onChange={setGender}
+          options={[{ value: "", label: "Выберите пол" }, ...GENDER_OPTIONS]}
+        />
+      )}
       <FieldSelect
-        label="Заведение *"
+        required
+        label="Заведение"
         value={venue}
         disabled={busy || locked}
         onChange={(id) => {
@@ -222,7 +239,8 @@ export function HireDrawer({
       />
       <div className="flex flex-col gap-1.5">
         <FieldSelect
-          label="Должность *"
+          required
+          label="Должность"
           value={role}
           disabled={busy || locked || !!existing || showRole}
           onChange={setRole}
@@ -250,7 +268,7 @@ export function HireDrawer({
           </button>
         ) : null}
       </div>
-      <Field label="Дата трудоустройства *">
+      <Field label="Дата трудоустройства" required>
         <DatePicker
           value={date}
           disabled={busy || locked}
@@ -287,7 +305,7 @@ export function HireDrawer({
       ) : null}
       {showRole ? (
         <DrawerSection title="Новая должность">
-          <Field label="Название *">
+          <Field label="Название" required>
             <Input
               value={roleName}
               onChange={(e) => setRoleName(e.target.value)}

@@ -2,10 +2,12 @@
  *  суффиксу `action_code` (`<entity>.<verb>`) — без реестра сотен
  *  кодов: конвенция именования даёт тип действия из последнего
  *  сегмента. Используется фильтром «Действие» в общем журнале
- *  (`/org/audit`) — один набор категорий для всех разделов. */
+ *  (`/org/audit`) и во вкладках «Журнал» / «Активность» карточек —
+ *  один набор категорий для всех разделов. */
 
 export type AuditActionCategory =
   | "created"
+  | "staffing"
   | "changed"
   | "deleted"
   | "restored"
@@ -16,6 +18,7 @@ export const AUDIT_ACTION_CATEGORIES: {
   name: string;
 }[] = [
   { id: "created", name: "Создание" },
+  { id: "staffing", name: "Приём и увольнение" },
   { id: "changed", name: "Изменение" },
   { id: "deleted", name: "Удаление" },
   { id: "restored", name: "Восстановление" },
@@ -27,7 +30,9 @@ export const AUDIT_ACTION_CATEGORIES: {
  *  видишь только *.created). «Прочее»-категории намеренно нет:
  *  чистый фильтр по понятным типам действий. */
 const CATEGORY_SUFFIXES: Record<AuditActionCategory, string[]> = {
-  created: [".created"],
+  created: [".created", ".sent", ".imported"],
+  // Приём в команду (сотрудник, кандидат) и увольнение с закрытием доступов.
+  staffing: [".hired", ".fired", ".access_removed"],
   changed: [
     ".edited",
     ".renamed",
@@ -42,6 +47,16 @@ const CATEGORY_SUFFIXES: Record<AuditActionCategory, string[]> = {
     ".changed",
     ".commented",
     ".photo_added",
+    // `role.department_changed`, `department.head_changed`,
+    // `staff.account_details_updated`: суффикс после подчёркивания.
+    // В LIKE `_` — любой один символ, поэтому шаблон ловит и `.changed`.
+    "_changed",
+    "_updated",
+    ".assigned",
+    ".reviewed",
+    ".resolved",
+    ".unresolved",
+    ".expense_linked",
   ],
   deleted: [".deleted", ".archived", ".cancelled"],
   restored: [".restored"],

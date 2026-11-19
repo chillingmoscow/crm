@@ -17,6 +17,9 @@ interface AuditEventRowProps {
    *  избыточный link под timestamp'ом, когда журнал рендерится на
    *  карточке самой сущности. */
   hideEntity?: boolean;
+  /** Строки сгруппированы по дням (дата — в заголовке группы): под
+   *  строкой только время «14:05» (с `exactTime` — с секундами). */
+  timeOnly?: boolean;
   /** `kb.delete_pages` — показывает компактную кнопку-восстановление
    *  у удалённой KB-страницы (которая ещё в корзине). */
   canRestoreKb?: boolean;
@@ -27,6 +30,7 @@ export function AuditEventRow({
   hideEntity = false,
   canRestoreKb = false,
   exactTime = false,
+  timeOnly = false,
   timeZone,
 }: AuditEventRowProps) {
   const {
@@ -70,7 +74,16 @@ export function AuditEventRow({
             })}
           >
             {event.details.source_precision === "day"
-              ? new Date(event.created_at).toLocaleDateString("ru-RU", { timeZone })
+              ? timeOnly
+                ? "В течение дня"
+                : new Date(event.created_at).toLocaleDateString("ru-RU", { timeZone })
+              : timeOnly
+              ? new Date(event.created_at).toLocaleTimeString("ru-RU", {
+                  timeZone,
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  ...(exactTime ? { second: "2-digit" as const } : {}),
+                })
               : exactTime
               ? new Date(event.created_at).toLocaleString("ru-RU", {
                   timeZone,

@@ -269,6 +269,8 @@ export function DepartmentDetailPage({
         <EntityInfoPopover
           title="О подразделении"
           id={department.id}
+          createdLabel="Создано"
+          updatedLabel="Изменено"
           createdAt={department.created_at}
           createdByName={createdByName}
           updatedAt={department.updated_at}

@@ -185,8 +185,18 @@ interface Props {
 }
 
 // ── Helpers ───────────────────────────────────────────────────
+/** Что входит в журнал сотрудника (см. `listAuditEvents` для `staff`):
+ *  сама карточка, участие в зарплатном учёте, медкнижка и сведения для
+ *  автоматизаций, рабочая форма. Варианты фильтра «Раздел». */
+const STAFF_JOURNAL_SECTIONS = [
+  { value: "staff", label: "Данные сотрудника" },
+  { value: "payroll_employee", label: "Участие в зарплатном учёте" },
+  { value: "payroll_automation_person", label: "Медкнижка и сведения для автоматизаций" },
+  { value: "payroll_uniform", label: "Рабочая форма" },
+];
 
 // ── Component ─────────────────────────────────────────────────
+
 
 export function StaffDetailPage({
   candidateId,
@@ -840,8 +850,10 @@ export function StaffDetailPage({
         <EntityInfoPopover
           title="О сотруднике"
           id={profile.id}
+          createdLabel="Аккаунт создан"
           createdAt={userCreatedAt}
           createdByName={null}
+          updatedLabel="В заведении с"
           updatedAt={joinedAt}
           updatedByName={null}
         />
@@ -1518,6 +1530,7 @@ export function StaffDetailPage({
                 mode="entity"
                 entityType="staff"
                 entityId={profile.id}
+                sections={STAFF_JOURNAL_SECTIONS}
                 canView={canViewAudit}
                 initialEvents={documentAudit?.events ?? initialAuditEvents}
                 initialHasMore={documentAudit?.hasMore ?? initialAuditHasMore}

@@ -9,9 +9,10 @@
  * место рядом с колокольчиком в header дашборда (через
  * <PageHeaderActions>).
  *
- * Содержимое: 5 строк — ID, Создана, Создал, Изменена, Изменил.
- * Создал/Изменил подсвечиваются brand-blue (как в дизайне),
- * пустые значения отрисовываются как «—».
+ * Содержимое: до 5 строк — ID, Создана, Создал, Изменена, Изменил.
+ * Создал/Изменил подсвечиваются brand-blue (как в дизайне). Строка без
+ * значения не выводится: пустое «—» ничего не сообщает. Подписи дат
+ * задаются под род и смысл сущности (`createdLabel`/`updatedLabel`).
  *
  * KB-overrides (см. usage в knowledge/[slug]/page.tsx):
  * - createdByLabel/updatedByLabel — KB зовёт их «Автор»/«Редактор»
@@ -38,6 +39,12 @@ interface EntityInfoPopoverProps {
   createdByName: string | null;
   updatedAt: string | null;
   updatedByName: string | null;
+
+  /** Подпись даты создания: «Создана» (должность), «Создано»
+   *  (подразделение), «Аккаунт создан» (сотрудник). */
+  createdLabel?: string;
+  /** Подпись второй даты: «Изменена» или, например, «В заведении с». */
+  updatedLabel?: string;
 
   // ─── KB-style overrides (опциональны, defaults сохраняют поведение
   //     для существующих entities — должности и т.д.) ───
@@ -129,6 +136,8 @@ export function EntityInfoPopover({
   createdByName,
   updatedAt,
   updatedByName,
+  createdLabel = "Создана",
+  updatedLabel = "Изменена",
   createdByLabel = "Создал",
   updatedByLabel = "Изменил",
   createdByAvatarUrl = null,
@@ -136,28 +145,36 @@ export function EntityInfoPopover({
   showTime = false,
   relativeUpdatedAt = false,
 }: EntityInfoPopoverProps) {
-  const rows: Row[] = [
+  const candidates: (Omit<Row, "value"> & { value: string | null })[] = [
     { label: "ID", value: id.slice(0, 8) },
-    { label: "Создана", value: formatDate(createdAt, showTime) },
+    {
+      label: createdLabel,
+      value: createdAt ? formatDate(createdAt, showTime) : null,
+    },
     {
       label: createdByLabel,
-      value: createdByName ?? "—",
+      value: createdByName,
       isUser: true,
       avatarUrl: createdByAvatarUrl,
     },
     {
-      label: "Изменена",
-      value: relativeUpdatedAt
-        ? formatRelativeRu(updatedAt)
-        : formatDate(updatedAt, showTime),
+      label: updatedLabel,
+      value: !updatedAt
+        ? null
+        : relativeUpdatedAt
+          ? formatRelativeRu(updatedAt)
+          : formatDate(updatedAt, showTime),
     },
     {
       label: updatedByLabel,
-      value: updatedByName ?? "—",
+      value: updatedByName,
       isUser: true,
       avatarUrl: updatedByAvatarUrl,
     },
   ];
+  const rows = candidates.filter(
+    (row): row is Row => !!row.value && row.value !== "—",
+  );
 
   return (
     <Popover>
@@ -191,12 +208,12 @@ export function EntityInfoPopover({
               <dt className="text-muted-foreground">{r.label}</dt>
               <dd
                 className={
-                  r.isUser && r.value !== "—"
+                  r.isUser
                     ? "inline-flex items-center gap-1.5 font-medium text-brand"
                     : "font-medium text-foreground text-right"
                 }
               >
-                {r.isUser && r.value !== "—" && (
+                {r.isUser && (
                   <MiniAvatar name={r.value} avatarUrl={r.avatarUrl ?? null} />
                 )}
                 {r.value}

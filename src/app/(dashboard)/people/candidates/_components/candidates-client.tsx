@@ -199,14 +199,27 @@ export function CandidatesClient({
       setList((current) => ({
         ...current,
         rows: current.rows.map((c) =>
-          c.id === saved.id ? { ...c, ...saved } : c,
+          c.id === saved.id
+            ? {
+                ...c,
+                ...saved,
+                // Смена этапа обнуляет срок «На этапе»: сервер ставит
+                // stage_changed_at = now(), но команда его не возвращает.
+                stage_changed_at:
+                  saved.status !== c.status
+                    ? new Date().toISOString()
+                    : c.stage_changed_at,
+              }
+            : c,
         ),
       }));
       // Only a status-dependent filter/order needs a quiet server reconciliation.
       if (
         saved.status === "hired" ||
         status.length > 0 ||
-        st.sorting.some((sort) => sort.id === "status")
+        st.sorting.some(
+          (sort) => sort.id === "status" || sort.id === "stage_changed_at",
+        )
       )
         refreshList();
       window.dispatchEvent(new Event("candidates:changed"));

@@ -16,6 +16,7 @@ export const CANDIDATE_SORT_FIELDS = [
   "full_name",
   "desired_position",
   "status",
+  "stage_changed_at",
   "phone",
   "submitted_at",
   "age",
@@ -66,6 +67,8 @@ export type Candidate = {
   source_id: string | null;
   source_url: string | null;
   submitted_at: string;
+  /** Когда кандидат перешёл на нынешний этап; для новой анкеты — дата заявки. */
+  stage_changed_at: string;
   created_at: string;
   updated_at: string;
   revision: number;

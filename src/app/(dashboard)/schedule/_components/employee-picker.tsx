@@ -17,6 +17,7 @@ import { dateInZone } from "@/lib/schedule/utils";
 import { CASUAL_RECENT_DAYS, splitCasualEmployees } from "@/lib/schedule/casual-recency";
 import type { ScheduleData } from "@/lib/schedule/types";
 import { personInitials } from "@/lib/format/initials";
+import { avatarThumbUrl } from "@/lib/people/avatar-thumb";
 
 type Option = {
   value: string;
@@ -83,7 +84,7 @@ export function employeeOptions(
 
 function Avatar({ name, src }: { name: string; src?: string | null }) {
   return src ? (
-    <img src={src} alt="" className="size-7 shrink-0 rounded-full object-cover" />
+    <img src={avatarThumbUrl(src) ?? src} alt="" className="size-7 shrink-0 rounded-full object-cover" />
   ) : (
     <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
       {personInitials(name)}

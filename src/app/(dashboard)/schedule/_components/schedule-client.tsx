@@ -78,6 +78,8 @@ import type {
 import { loadShiftAttendance, loadSchedule, scheduleCommand, shiftHistoryPage } from "../actions";
 import { ShiftAttendancePopover } from "./shift-attendance-popover";
 import type { ShiftAttendanceMark } from "@/lib/payroll/types";
+import { reviewedMark, type ShiftReviewDecision } from "@/lib/payroll/shift-attendance";
+import { AttendanceAttentionNotice } from "@/app/(dashboard)/people/payroll/_components/attendance-attention";
 import {
   ShiftEditor,
   TemplateEditor,
@@ -101,6 +103,7 @@ import { toast } from "sonner";
 import { TemplateList } from "./template-list";
 import { ViewMenu } from "./view-menu";
 import { TemplateWeek } from "./template-week";
+import { gridScrollClass, useGridFits } from "./use-grid-fits";
 import { TemplateName } from "./template-name";
 import { TaskHeaderTarget, TaskTitleTarget } from "./task-header-actions";
 import {
@@ -367,6 +370,18 @@ export function ScheduleClient({
       clearInterval(timer);
     };
   }, [tab, canViewAttendance, week, data.shifts]);
+  // Решение по смене сохранено: значок меняется сразу, не дожидаясь
+  // пересчёта дня; уведомление «ждут проверки» перечитывается.
+  const [attentionKey, setAttentionKey] = useState(0);
+  const weekGrid = useGridFits();
+  const markReviewed = (shiftId: string, decision: ShiftReviewDecision, reason: string) => {
+    setAttendance((prev) => {
+      const mark = prev?.marks[shiftId];
+      if (!prev || !mark) return prev;
+      return { ...prev, marks: { ...prev.marks, [shiftId]: { ...reviewedMark(mark, decision, reason), sourceState: "pending" } } };
+    });
+    setAttentionKey((key) => key + 1);
+  };
   const attendanceMark = (shift: Shift) => {
     if (!canViewAttendance || !shift.published || !shiftAssignee(shift) || attendance?.week !== week) return;
     const mark = attendance.marks[shift.id];
@@ -1059,18 +1074,41 @@ export function ScheduleClient({
     >
       {mode === "list" ? listCardBody(s, assignee, mark) : (
       <>
-      {/* В узкой колонке (таблица на минимальной ширине) время переносится
-          после тире, а не обрезается: 12px «13:00–00:30» не всегда влезает. */}
-      <span className={cn("text-xs font-semibold tabular-nums", mark && "pr-5")}>
-        {timeInZone(s.starts_at, data.timezone)}–<wbr />
-        {timeInZone(s.ends_at, data.timezone)}
-      </span>
-      {mode !== "template" && (
-        template
-          ? <span className="text-xs"><TemplateName {...template} /></span>
-          : <span className={cn("text-xs", mode === "shift" && "truncate")}>{s.title}</span>
+      {mode === "template" ? (
+        <>
+          {/* «По шаблонам» строка — уже смена, поэтому в карточке главное —
+              кто работает: фото и имя крупно, время ниже и тише. */}
+          <span className={cn("flex min-w-0 items-center gap-1", mark && "pr-5")}>
+            {assignee && (
+              <DrawerAvatar
+                name={assigneeLabel}
+                src={data.staff.find((p) => p.user_id === assignee)?.avatar_url}
+                size="sm"
+              />
+            )}
+            {/* Длинная фамилия в узкой колонке переносится по слогам с дефисом,
+                а не обрывается посреди слова. */}
+            <span className="min-w-0 hyphens-auto break-words text-[13px] font-semibold leading-tight">{assigneeLabel}</span>
+          </span>
+          <span className="text-xs tabular-nums opacity-75">
+            {timeInZone(s.starts_at, data.timezone)}–<wbr />
+            {timeInZone(s.ends_at, data.timezone)}
+          </span>
+        </>
+      ) : (
+        <>
+          {/* В узкой колонке (таблица на минимальной ширине) время переносится
+              после тире, а не обрезается: 12px «13:00–00:30» не всегда влезает. */}
+          <span className={cn("text-xs font-semibold tabular-nums", mark && "pr-5")}>
+            {timeInZone(s.starts_at, data.timezone)}–<wbr />
+            {timeInZone(s.ends_at, data.timezone)}
+          </span>
+          {template
+            ? <span className="text-xs"><TemplateName {...template} /></span>
+            : <span className={cn("text-xs", mode === "shift" && "truncate")}>{s.title}</span>}
+          {mode === "full" && <span className="break-words text-xs">{assigneeLabel}</span>}
+        </>
       )}
-      {mode !== "shift" && <span className={cn("break-words text-xs", mode === "template" && "font-medium")}>{assigneeLabel}</span>}
       {!s.published && (
         <span className="flex gap-1 items-center text-xs">
           {/* Точка в подписи 12px — `ColorDot` sm, цвета текста карточки. */}
@@ -1081,7 +1119,15 @@ export function ScheduleClient({
       </>
       )}
     </button>
-    {mark && <ShiftAttendancePopover shiftId={s.id} version={s.version} mark={mark} canReview={data.permissions.includes("payroll.review")} />}
+    {mark && (
+      <ShiftAttendancePopover
+        shiftId={s.id}
+        version={s.version}
+        mark={mark}
+        canReview={data.permissions.includes("payroll.review")}
+        onReviewed={(decision, reason) => markReviewed(s.id, decision, reason)}
+      />
+    )}
     </div>
     </ContextMenuTrigger>
     <ContextMenuContent>
@@ -1492,6 +1538,14 @@ export function ScheduleClient({
                   )}
                 </div>
               )}
+              {/* Месяц сегодняшнего дня и месяцы показанной недели: невыверенный
+                  выход прошлой недели виден, даже когда листаешь вперёд. */}
+              {canViewAttendance && (
+                <AttendanceAttentionNotice
+                  months={[today.slice(0, 7), days[0].slice(0, 7), days[6].slice(0, 7)]}
+                  refreshKey={attentionKey}
+                />
+              )}
               {showTasks && tasksError && (
                 <div
                   role="alert"
@@ -1591,8 +1645,10 @@ export function ScheduleClient({
               ) : (
                 <>
                   <div
+                    ref={weekGrid.ref}
                     className={cn(
-                      "hidden max-h-[72dvh] overflow-auto rounded-lg border bg-card md:block",
+                      "hidden rounded-lg border bg-card md:block",
+                      gridScrollClass(weekGrid.fits),
                       view === "list" && "md:hidden",
                     )}
                   >

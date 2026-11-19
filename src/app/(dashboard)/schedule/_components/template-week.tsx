@@ -9,6 +9,7 @@ import type { TaskOccurrence } from "@/lib/schedule/tasks";
 import { dateInZone, dayLabel } from "@/lib/schedule/utils";
 import { isoWeekday } from "./editors";
 import { TemplateName } from "./template-name";
+import { gridScrollClass, useGridFits } from "./use-grid-fits";
 import { DROP_OK_CELL_CLASS, DROP_REFUSED_CELL_CLASS, TODAY_CELL_CLASS } from "./grid-row-person";
 
 /** Перетаскивание в слот «шаблон × день» (только таблица, на md+). */
@@ -40,6 +41,7 @@ export function TemplateWeek({
   renderTask: (task: TaskOccurrence) => ReactNode;
   empty: ReactNode;
 }) {
+  const grid = useGridFits();
   const active = new Map(templates.map((template) => [template.id, template]));
   const cells = new Map<string, Shift>();
   const otherShifts = new Map<string, Shift[]>();
@@ -192,10 +194,14 @@ export function TemplateWeek({
       })}
     </div>
     <div
+      ref={grid.ref}
       role="region"
       aria-label="Календарь по шаблонам смен"
-      tabIndex={0}
-      className="hidden max-h-[72dvh] overflow-auto rounded-lg border bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:block"
+      tabIndex={grid.fits ? undefined : 0}
+      className={cn(
+        "hidden rounded-lg border bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:block",
+        gridScrollClass(grid.fits),
+      )}
     >
       <table aria-label="Расписание по шаблонам" className="w-full min-w-[900px] table-fixed border-separate border-spacing-0">
         <thead className="sticky top-0 z-20">

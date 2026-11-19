@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { personInitials } from "@/lib/format/initials";
+import { avatarThumbUrl } from "@/lib/people/avatar-thumb";
 
 /**
  * Блоки содержимого боковой панели (EditDrawer). Правила — в
@@ -144,7 +145,7 @@ export function DrawerAvatar({
 }) {
   const box = size === "sm" ? "size-5 text-[10px]" : "size-8 text-xs";
   return src ? (
-    <img src={src} alt="" className={cn("shrink-0 rounded-full object-cover", box)} />
+    <img src={avatarThumbUrl(src) ?? src} alt="" className={cn("shrink-0 rounded-full object-cover", box)} />
   ) : (
     <span
       aria-hidden

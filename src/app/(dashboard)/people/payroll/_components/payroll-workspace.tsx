@@ -1,5 +1,6 @@
 "use client";
 
+import { AttendanceAttentionNotice } from "./attendance-attention";
 import {
   useCallback,
   useEffect,
@@ -37,6 +38,7 @@ import { paymentJournalRows } from "@/lib/payroll/payment-journal";
 import { PayrollPaymentsTable } from "@/app/(dashboard)/people/payroll/_components/payroll-payments-table";
 import {
   loadPayrollOverview,
+  loadStatementExportData,
   cancelPayrollPayment,
 } from "@/app/(dashboard)/people/payroll/actions";
 import { PayrollJournal, PayrollEntryForm, PayrollEntryMenuItems } from "./payroll-journal";
@@ -429,9 +431,12 @@ export function PayrollWorkspace({
   };
   const exportRows = () =>
     saveWorkbook(async () => {
-      const { statementWorkbook, statementFileName } = await import(
-        "@/lib/payroll/statement-export"
-      );
+      // Обзор «Зарплаты» грузится без отметок и моделей оплаты: для часов
+      // и должности в смене дочитываем их за месяц только при выгрузке.
+      const [{ statementWorkbook, statementFileName }, extra] = await Promise.all([
+        import("@/lib/payroll/statement-export"),
+        loadStatementExportData(monthStart),
+      ]);
       return {
         sheets: statementWorkbook({
           venueName,
@@ -440,8 +445,8 @@ export function PayrollWorkspace({
           generatedAt: new Date(),
           rows: visible,
           accruals: data.accruals,
-          attendance: data.attendance,
-          models: data.models,
+          attendance: extra.attendance,
+          models: extra.models,
           roles: data.roles,
           paidKnown: knownBalance,
           conditions: exportConditions,
@@ -505,6 +510,9 @@ export function PayrollWorkspace({
             />
             {autoRefresh.failed && (
               <RefreshFailedNotice className="mb-4" {...autoRefresh} />
+            )}
+            {can("view") && (
+              <AttendanceAttentionNotice className="mb-4" months={[monthStart.slice(0, 7)]} />
             )}
             <MetricStrip label="Итоги за месяц">
               <Metric
@@ -815,7 +823,6 @@ export function PayrollWorkspace({
                   query={query}
                   onQuery={setQuery}
                   onChange={reload}
-                  
                 />
               ) : tab === "payments" ? (
                 <PayrollPaymentsTable

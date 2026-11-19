@@ -9,11 +9,14 @@ import {
 } from "@/components/ui/hover-card";
 import { cn } from "@/lib/utils";
 import { personInitials } from "@/lib/format/initials";
+import { avatarThumbUrl } from "@/lib/people/avatar-thumb";
 
 /**
  * One photo treatment for people lists: circular crop, complete image on inspection.
  * `src` may be a resized copy; `previewSrc` is the larger copy for the hover card and
  * `fallbackSrc` the original, used when a resized copy fails to load.
+ * A public original passed as `src` is shrunk automatically (`avatarThumbUrl`):
+ * the circle loads a 96px copy, the hover card and a failed copy use the original.
  */
 export function PersonAvatar({
   src: requestedSrc,
@@ -32,8 +35,9 @@ export function PersonAvatar({
   const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set());
   const pick = (...urls: Array<string | null | undefined>) =>
     urls.find((url): url is string => !!url && !failed.has(url)) ?? null;
-  const src = pick(requestedSrc, fallbackSrc);
-  const previewSrc = pick(requestedPreview, fallbackSrc, src);
+  const thumb = avatarThumbUrl(requestedSrc);
+  const src = pick(thumb, requestedSrc, fallbackSrc);
+  const previewSrc = pick(requestedPreview, fallbackSrc, requestedSrc, src);
   const markFailed = (url: string) => setFailed((prev) => new Set(prev).add(url));
   const hasPhoto = !!src;
   const initial = personInitials(name);

@@ -259,6 +259,8 @@ export type PayrollData = {
   roles?: {id:string;name:string}[];
   transfers: PayrollTransfer[];
   venueId: string;
+  /** Название заведения — для шапки выгрузки ведомости. */
+  venueName?: string | null;
   timezone: string;
   dayStartHour: number;
   scheduleReviews: ScheduleReview[];

@@ -37,7 +37,6 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Button } from "@/components/ui/button";
-import { PersonAvatar } from "@/components/people/person-avatar";
 import { Calendar } from "@/components/ui/calendar";
 import { PeriodStepper, periodTriggerClass } from "@/components/shared/period-stepper";
 import { TableControls, TableIconButton, TablePageHeader } from "@/components/shared/table";
@@ -92,6 +91,12 @@ import { ShiftDetails } from "./shift-details";
 import { DrawerAvatar, DrawerStatus } from "@/components/ui/drawer-blocks";
 import { templateTimesFor } from "@/lib/schedule/template-times";
 import { CandidateTrialCard } from "./candidate-trial-card";
+import {
+  DROP_OK_CELL_CLASS,
+  DROP_REFUSED_CELL_CLASS,
+  GridRowPerson,
+  TODAY_CELL_CLASS,
+} from "./grid-row-person";
 import { toast } from "sonner";
 import { TemplateList } from "./template-list";
 import { ViewMenu } from "./view-menu";
@@ -126,6 +131,8 @@ type Editor =
       template?: ShiftTemplate;
       templateSlot?: boolean;
       copy?: boolean;
+      /** Форма открыта из просмотра смены: отмена возвращает к просмотру. */
+      returnTo?: string;
     }
   | { type: "template"; template?: ShiftTemplate; copy?: boolean };
 type DragItem =
@@ -333,6 +340,8 @@ export function ScheduleClient({
   const canOpenStaff =
     data.permissions.includes("people.view_staff") &&
     data.permissions.includes("people.view_staff_details");
+  // Карточку кандидата открывает только тот, кто работает с кандидатами.
+  const canOpenCandidates = data.permissions.includes("people.manage_candidates");
   const [attendance, setAttendance] = useState<{
     week: string;
     marks: Record<string, ShiftAttendanceMark>;
@@ -375,7 +384,7 @@ export function ScheduleClient({
       setData(await loadSchedule());
     } catch (e) {
       toast.error(
-        e instanceof Error ? e.message : "Не удалось обновить график",
+        e instanceof Error ? e.message : "Не удалось обновить расписание",
       );
       throw e;
     }
@@ -898,7 +907,7 @@ export function ScheduleClient({
     setConfirmation({
       title: shift.published ? "Удалить смену?" : "Удалить черновик смены?",
       description: shift.published
-        ? `${name(shiftAssignee(shift))} больше не увидит эту смену в графике. Если смена уже засчитана в зарплату, начисление за этот день пересчитается. Нельзя удалить смену с начатым чек-листом или уже выплаченную.`
+        ? `${name(shiftAssignee(shift))} больше не увидит эту смену в расписании. Если смена уже засчитана в зарплату, начисление за этот день пересчитается. Нельзя удалить смену с начатым чек-листом или уже выплаченную.`
         : "Черновик ещё не видели сотрудники — он просто исчезнет из расписания.",
       confirmLabel: shift.published ? "Удалить смену" : "Удалить черновик",
       destructive: true,
@@ -1064,7 +1073,8 @@ export function ScheduleClient({
       {mode !== "shift" && <span className={cn("break-words text-xs", mode === "template" && "font-medium")}>{assigneeLabel}</span>}
       {!s.published && (
         <span className="flex gap-1 items-center text-xs">
-          <span className="size-1.5 rounded-full bg-current" />
+          {/* Точка в подписи 12px — `ColorDot` sm, цвета текста карточки. */}
+          <ColorDot color={null} size="sm" className="border-0 bg-current" />
           Черновик
         </span>
       )}
@@ -1630,37 +1640,13 @@ export function ScheduleClient({
                         ].map((s) => (
                           <tr key={s.id ?? "open"} className="group hover:bg-muted/30">
                             <th scope="row" className="sticky left-0 z-10 border-b bg-card px-4 py-3 text-left font-normal group-hover:bg-muted">
-                              {(() => {
-                                const person = (
-                                  <>
-                                    {s.id ? (
-                                      <PersonAvatar name={s.label} src={s.avatar} />
-                                    ) : (
-                                      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                                        <Users className="size-4" />
-                                      </span>
-                                    )}
-                                    <div className="min-w-0">
-                                      <p className="break-words text-[13px] font-medium group-hover/person:text-brand">
-                                        {s.label}
-                                      </p>
-                                      <p className="truncate text-xs text-muted-foreground">
-                                        {s.role}
-                                      </p>
-                                    </div>
-                                  </>
-                                );
-                                return s.id && canOpenStaff ? (
-                                  <Link
-                                    href={`/people/staff/${s.id}?from=schedule`}
-                                    className="group/person -m-1 flex items-center gap-3 rounded-md p-1 outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                  >
-                                    {person}
-                                  </Link>
-                                ) : (
-                                  <div className="flex items-center gap-3">{person}</div>
-                                );
-                              })()}
+                              <GridRowPerson
+                                name={s.label}
+                                subtitle={s.role}
+                                avatarSrc={s.avatar}
+                                icon={s.id ? undefined : <Users className="size-4" />}
+                                href={s.id && canOpenStaff ? `/people/staff/${s.id}?from=schedule` : null}
+                              />
                             </th>
                             {days.map((d) => (
                               <ContextMenu key={d} modal={false}>
@@ -1671,9 +1657,9 @@ export function ScheduleClient({
                                 onDrop={(e) => void drop(e, d, s.id)}
                                 className={cn(
                                   "relative h-16 border-b border-l p-1.5 align-top transition-colors",
-                                  d === today && "bg-brand/[0.025]",
+                                  d === today && TODAY_CELL_CLASS,
                                   dropTarget?.day === d && dropTarget.userId === s.id &&
-                                    (dropTarget.ok ? "bg-brand/[0.06]" : "bg-destructive/[0.04]"),
+                                    (dropTarget.ok ? DROP_OK_CELL_CLASS : DROP_REFUSED_CELL_CLASS),
                                 )}
                               >
                                 {dropGhost(d, s.id)}
@@ -1775,31 +1761,28 @@ export function ScheduleClient({
                           </tr>
                         )}
                         {trialCandidates.map((candidate) => (
+                            // Строка стажировки устроена как строка сотрудника:
+                            // аватар, имя 13px, подпись 12px, те же отступы ячеек.
                             <tr
                               key={candidate.candidate_id}
+                              className="group hover:bg-muted/30"
                             >
-                            <th scope="row" className="sticky left-0 z-10 border-b bg-card px-4 py-3 text-left font-normal">
-                              <Link
-                                href={`/people/candidates/${candidate.candidate_id}`}
-                                className="block break-words text-xs font-medium hover:underline"
-                              >
-                                {candidate.full_name}
-                              </Link>
-                              <span className="mt-1 block text-xs text-muted-foreground">
-                                {candidate.hired_user_id
-                                  ? "Принят на работу"
-                                  : "Кандидат"}
-                                {candidate.desired_position
-                                  ? ` · ${candidate.desired_position}`
-                                  : ""}
-                              </span>
+                            <th scope="row" className="sticky left-0 z-10 border-b bg-card px-4 py-3 text-left font-normal group-hover:bg-muted">
+                              <GridRowPerson
+                                name={candidate.full_name}
+                                subtitle={`${candidate.hired_user_id ? "Принят на работу" : "Кандидат"}${candidate.desired_position ? ` · ${candidate.desired_position}` : ""}`}
+                                href={canOpenCandidates ? `/people/candidates/${candidate.candidate_id}` : null}
+                              />
                             </th>
                             {days.map((day) => (
                                 <td
                                   key={day}
-                                  className="border-b border-l p-2 align-top"
+                                  className={cn(
+                                    "h-16 border-b border-l p-1.5 align-top",
+                                    day === today && TODAY_CELL_CLASS,
+                                  )}
                                 >
-                                <div className="space-y-2">
+                                <div className="grid gap-1.5">
                                   {weekTrials
                                     .filter(
                                       (trial) =>
@@ -1812,7 +1795,7 @@ export function ScheduleClient({
                                         key={trial.id}
                                         trial={trial}
                                         timezone={data.timezone}
-                                        linked={data.permissions.includes("people.manage_candidates")}
+                                        linked={canOpenCandidates}
                                       />
                                     ))}
                                 </div>
@@ -1824,7 +1807,10 @@ export function ScheduleClient({
                           </tr>
                         ))}
                       </tbody>
-                      <tfoot>
+                      {/* Итоги прижаты к низу окна сетки: при длинном списке
+                          последняя строка не обрезается контейнером, а строки
+                          прокручиваются под ней (как под закреплённой шапкой). */}
+                      <tfoot className="sticky bottom-0 z-20 [&_td]:shadow-[0_-1px_0_hsl(var(--border))] [&_th]:shadow-[0_-1px_0_hsl(var(--border))]">
                         <tr className="bg-muted">
                           <th scope="row" className="sticky left-0 z-10 bg-muted px-4 py-3 text-left text-xs font-medium">
                             Всего часов
@@ -1928,7 +1914,7 @@ export function ScheduleClient({
                                 trial={trial}
                                 timezone={data.timezone}
                                 showName
-                                linked={data.permissions.includes("people.manage_candidates")}
+                                linked={canOpenCandidates}
                               />
                             ))}
                           {!weekShifts.some(
@@ -1994,7 +1980,7 @@ export function ScheduleClient({
               setConfirmation({
                 title: `Убрать шаблон «${label}» в архив?`,
                 description:
-                  "Это не удаление. Шаблон пропадёт из выбора при создании смен, а уже созданные по нему смены останутся в графике как есть. Вернуть шаблон можно в любой момент: кнопка архива над списком, затем «Восстановить».",
+                  "Это не удаление. Шаблон пропадёт из выбора при создании смен, а уже созданные по нему смены останутся в расписании как есть. Вернуть шаблон можно в любой момент: кнопка архива над списком, затем «Восстановить».",
                 confirmLabel: "Убрать в архив",
                 action: async () => {
                   await run();
@@ -2012,22 +1998,31 @@ export function ScheduleClient({
           onClose={() => setTaskAssign(null)}
           onDone={() => {
             setTaskAssign(null);
-            // Назначенную задачу сразу видно в графике.
+            // Назначенную задачу сразу видно в расписании.
             if (!showTasks) toggleTasks(true);
             else void refreshCalendarTasks(true);
           }}
         />
       )}
-      {editor?.type === "shift" && (
-        <ShiftEditor
-          key={`${editor.shift?.id ?? "new"}-${editor.copy}`}
-          data={data}
-          {...editor}
-          onClose={() => setEditor(null)}
-          save={save}
-          onEditTemplate={setTemplateOverlay}
-        />
-      )}
+      {editor?.type === "shift" && (() => {
+        const { returnTo, ...shiftEditor } = editor;
+        return (
+          <ShiftEditor
+            key={`${editor.shift?.id ?? "new"}-${editor.copy}`}
+            data={data}
+            {...shiftEditor}
+            onClose={() => setEditor(null)}
+            // «Изменить» из просмотра: «Отмена» возвращает к просмотру той же
+            // смены (со свежими данными), а не закрывает всё.
+            onCancel={returnTo ? () => {
+              setEditor(null);
+              setSelected(data.shifts.find((s) => s.id === returnTo) ?? null);
+            } : undefined}
+            save={save}
+            onEditTemplate={setTemplateOverlay}
+          />
+        );
+      })()}
       {editor?.type === "template" && (
         <TemplateEditor
           key={`${editor.template?.id ?? "new"}-${editor.copy}`}
@@ -2131,6 +2126,7 @@ export function ScheduleClient({
                       type: "shift",
                       shift: selected,
                       day: dateInZone(selected.starts_at, data.timezone),
+                      returnTo: selected.id,
                     });
                     setSelected(null);
                   }}

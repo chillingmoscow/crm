@@ -129,36 +129,17 @@
 .person:last-child {
   border-bottom: 0;
 }
-.avatar {
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: hsl(var(--brand) / 0.08);
-  color: hsl(var(--brand-text));
-  font-size: 12px;
-  font-weight: 500;
-}
 .identity {
   min-width: 0;
   flex: 1;
-}
-.identity > div {
   display: flex;
-  gap: 5px;
-  align-items: center;
-  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
 }
-.identity strong {
-  display: block;
-  font-size: 13px;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.5;
+/* Строка сотрудника — общий `EmployeeIdentity` (аватар 36px + 12px отступ);
+   месяц выплаты и предупреждение стоят под именем, а не под аватаром. */
+.identity > :not(:first-child) {
+  margin-left: 48px;
 }
 .identity small {
   display: block;
@@ -300,19 +281,11 @@
   .comment textarea {
     font-size: 16px;
   }
-  .identity strong {
-    font-size: 12px;
-  }
   .identity small {
     font-size: 12px;
   }
   .person {
     gap: 8px;
-  }
-  .avatar {
-    width: 28px;
-    height: 28px;
-    font-size: 12px;
   }
   .amountInput {
     width: 88px;
@@ -350,7 +323,6 @@
   margin-top: 12px;
 }
 .selectedPeople .person {
-  grid-template-columns: 32px minmax(0, 1fr) 105px 20px;
   padding: 16px 0;
 }
 .removePerson {

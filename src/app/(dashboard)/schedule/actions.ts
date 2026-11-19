@@ -268,7 +268,7 @@ export async function loadSchedule(
     hiddenRoles,
   ])
     if (r.error)
-      throw new Error("Не удалось загрузить график: " + r.error.message);
+      throw new Error("Не удалось загрузить расписание: " + r.error.message);
   const hidden = new Set(hiddenRoles.data?.map((entry) => entry.role_id));
   return {
     venueId,

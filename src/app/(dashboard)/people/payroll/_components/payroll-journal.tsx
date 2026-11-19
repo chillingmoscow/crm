@@ -12,8 +12,6 @@ import {
   AlertTriangle,
   Gift,
   Coins,
-  Pencil,
-  MoreHorizontal,
   X,
 } from "lucide-react";
 import Image from "next/image";
@@ -23,6 +21,8 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Field } from "@/components/ui/field";
+import { AmountInput } from "@/components/finance/amount-input";
 import { Switch } from "@/components/ui/switch";
 import { PayrollMonthPicker } from "@/app/(dashboard)/people/payroll/_components/payroll-month-picker";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -79,6 +79,13 @@ const deleteObjects: Record<string, string> = {
   inventory: "удержание за недостачу",
   warning: "предупреждение",
   correction: "корректировку",
+};
+/** Записи, которые можно править, и заголовок формы правки (существительное). */
+const editTitles: Record<string, string> = {
+  allowance: "Редактирование надбавки",
+  bonus: "Редактирование премии",
+  deduction: "Редактирование штрафа",
+  warning: "Редактирование предупреждения",
 };
 const labels = {
   date: "Дата",
@@ -164,8 +171,9 @@ export function PayrollJournal({
     [deleteError, setDeleteError] = useState("");
   const [photoPreview, setPhotoPreview] = useState<{url:string;name:string} | null>(null);
   const [editing, setEditing] = useState(false);
-  const [editAmount, setEditAmount] = useState("");
+  const [editAmount, setEditAmount] = useState<number | null>(null);
   const [editReason, setEditReason] = useState("");
+  const [editError, setEditError] = useState("");
   const [editExpected, setEditExpected] = useState({amount:0,reason:""});
   const [detailTab, setDetailTab] = useState("details");
   const selection = useRef(selectedId);
@@ -180,6 +188,56 @@ export function PayrollJournal({
   ), [data.payments]);
   const selectedPaid = !!selected && paidBonuses.has(selected.id);
   const canWrite = data.permissions.includes("payroll.review");
+  const entryLive = canWrite && !!selected && !selected.deleted_at;
+  const canEditSelected = entryLive && Object.hasOwn(editTitles, selected.kind);
+  const canDeleteSelected = entryLive && !selectedPaid;
+  const editAmountLocked =
+    !!selected &&
+    (selectedPaid ||
+      (selected.external_state === "done" && selected.medium === "bonus"));
+  const editValid =
+    !!selected &&
+    editReason.trim().length >= 3 &&
+    (selected.kind === "warning" || (editAmount ?? 0) > 0);
+  const startEdit = () => {
+    if (!selected) return;
+    setDeleting(false);
+    setEditError("");
+    setEditAmount(Math.abs(Number(selected.amount)));
+    setEditReason(selected.reason);
+    setEditExpected({ amount: Number(selected.amount), reason: selected.reason });
+    setEditing(true);
+  };
+  const saveEdit = async () => {
+    if (!selected || busy || !editValid) return;
+    setBusy(true);
+    setEditError("");
+    try {
+      await updatePayrollEntry({
+        id: selected.id,
+        amount: selected.kind === "warning" ? 0 : (editAmount ?? 0),
+        reason: editReason,
+        expected_amount: editExpected.amount,
+        expected_reason: editExpected.reason,
+      });
+    } catch (e) {
+      // Ошибка сохранения остаётся в панели, ввод не теряется.
+      setEditError(e instanceof Error ? e.message : "Не удалось сохранить");
+      setBusy(false);
+      return;
+    }
+    setEditing(false);
+    setDetailTab("details");
+    toast.success("Запись изменена");
+    try {
+      await onChange();
+      await reloadDetail();
+    } catch {
+      // Список обновится при следующем автообновлении.
+    } finally {
+      setBusy(false);
+    }
+  };
   const reloadDetail = async () => {
     if (!selectedId) return;
     const next = await loadPayrollEntry(selectedId);
@@ -404,10 +462,10 @@ export function PayrollJournal({
       <PayrollDetailDialog
         open={Boolean(selected)}
         onOpenChange={(open) => { if (!open && !busy) setSelectedId(null); }}
-        title={selected ? (kindLabels[selected.kind] ?? "Запись") : "Запись"}
+        title={selected ? (editing ? (editTitles[selected.kind] ?? "Редактирование записи") : (kindLabels[selected.kind] ?? "Запись")) : "Запись"}
         description={selected ? selected.kind === "allowance" ? new Date(`${selected.business_date}T12:00:00Z`).toLocaleDateString("ru-RU", {month:"long",year:"numeric",timeZone:"UTC"}) : dateLabel(selected.business_date) : ""}
         employee={selected ? (() => { const e = data.employees.find((e) => e.id === selected.employee_id); return {name:e?.name ?? "Сотрудник", role:e?.role_name, avatarUrl:e?.avatar_url}; })() : undefined}
-        amount={selected ? entryAmount(selected, true) : undefined}
+        amount={selected && !editing ? entryAmount(selected, true) : undefined}
         amountLabel={selected?.kind === "warning" ? "Без денежного удержания" : selected?.kind === "allowance" ? "Надбавка за месяц" : selected?.kind === "bonus" ? "Сумма премии" : selected?.kind === "correction" ? "Сумма корректировки" : "Сумма удержания"}
         status={selected && (selected.deleted_at || selectedPaid || detail?.notification) ? <span className="flex flex-wrap items-center justify-end gap-2">
           {selected.deleted_at && <StatusBadge>Удалено</StatusBadge>}
@@ -417,21 +475,71 @@ export function PayrollJournal({
             data-tip={detail.notification.last_error ?? undefined}
           ><StatusBadge tone="warning">{detail.notification.final ? "Не будет отправлено" : "Не отправлено в чат"}</StatusBadge></span>}
         </span> : undefined}
-        actions={canWrite && selected && !selected.deleted_at ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" disabled={busy} aria-label="Действия с записью"><MoreHorizontal size={18}/></Button></DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {["bonus","deduction","warning","allowance"].includes(selected.kind) && <DropdownMenuItem onSelect={() => {
-                setDeleting(false); setEditing(true); setDetailTab("details");
-                setEditAmount(String(Math.abs(Number(selected.amount)))); setEditReason(selected.reason);
-                setEditExpected({amount:Number(selected.amount),reason:selected.reason});
-              }}><Pencil size={15} className="mr-2"/>Изменить</DropdownMenuItem>}
-              {!selectedPaid && <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => {setEditing(false);setDeleteReason("");setDeleteError("");setDeleting(true);}}><Trash2 size={15} className="mr-2"/>Удалить запись</DropdownMenuItem>}
-            </DropdownMenuContent>
-          </DropdownMenu>
+        // Действия — только в подвале (DS «Боковая панель»): в просмотре
+        // слева удаление, справа «Изменить»; в правке — «Отмена» и «Сохранить».
+        // Без единой кнопки подвал не рисуем. У кнопок свои `key`: иначе
+        // React переиспользует «Изменить» как «Сохранить» (type="submit"), и
+        // тот же клик мышью сразу отправляет форму правки.
+        footer={selected && editing ? (
+          <>
+            <Button key="cancel" variant="outline" disabled={busy} onClick={() => { setEditing(false); setEditError(""); }}>Отмена</Button>
+            <Button key="save" type="submit" form="payroll-entry-edit" disabled={busy || !editValid} className="min-w-28">
+              {busy ? "Сохраняем…" : "Сохранить"}
+            </Button>
+          </>
+        ) : canEditSelected || canDeleteSelected ? (
+          <>
+            {canDeleteSelected && (
+              <Button
+                key="delete"
+                variant="ghost"
+                size="icon"
+                className="mr-auto text-destructive hover:text-destructive"
+                disabled={busy}
+                aria-label={`Удалить ${deleteObject}`}
+                data-tip={`Удалить ${deleteObject}`}
+                onClick={() => { setDeleteReason(""); setDeleteError(""); setDeleting(true); }}
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            )}
+            {canEditSelected && <Button key="edit" disabled={busy} onClick={startEdit}>Изменить</Button>}
+          </>
         ) : undefined}
       >
-        {selected && (
+        {selected && editing && (
+          <form
+            id="payroll-entry-edit"
+            className="flex flex-col gap-5"
+            onSubmit={(event) => { event.preventDefault(); void saveEdit(); }}
+          >
+            {selected.kind !== "warning" && (
+              <Field
+                id="edit-payroll-amount"
+                label="Сумма"
+                required
+                hint={selectedPaid ? "Сумму выплаченной премии можно изменить после отмены выплаты в разделе «Выплаты»" : editAmountLocked ? "Бонусная операция уже проведена, сумму изменить нельзя" : undefined}
+              >
+                {(control) => (
+                  <AmountInput
+                    id={control.id}
+                    value={editAmount}
+                    onChange={setEditAmount}
+                    currency={selected.medium === "bonus" ? "б." : "RUB"}
+                    disabled={busy || editAmountLocked}
+                  />
+                )}
+              </Field>
+            )}
+            <Field id="edit-payroll-reason" label="Основание" required>
+              {(control) => (
+                <Textarea {...control} value={editReason} onChange={(e) => setEditReason(e.target.value)} maxLength={4000} disabled={busy}/>
+              )}
+            </Field>
+            {editError && <p role="alert" className="text-sm text-destructive">{editError}</p>}
+          </form>
+        )}
+        {selected && !editing && (
           <div className="space-y-6">
             <Tabs value={detailTab} onValueChange={setDetailTab}>
               <TabsList>
@@ -452,14 +560,7 @@ export function PayrollJournal({
                 {selectedPaid && canWrite && <p className="text-xs text-muted-foreground">
                   Чтобы изменить сумму или удалить премию, сначала отмените её в разделе «Выплаты».
                 </p>}
-                {editing ? <div className="space-y-4">
-                  {selected.kind !== "warning" && <div className="space-y-2"><Label htmlFor="edit-payroll-amount">Сумма, {selected.medium === "bonus" ? "б." : "₽"}</Label><Input id="edit-payroll-amount" inputMode="decimal" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} disabled={busy || selectedPaid || selected.external_state === "done" && selected.medium === "bonus"}/></div>}
-                  <div className="space-y-2"><Label htmlFor="edit-payroll-reason">Основание</Label><Textarea id="edit-payroll-reason" value={editReason} onChange={(e) => setEditReason(e.target.value)} maxLength={4000} disabled={busy}/></div>
-                  <div className="flex gap-2"><Button size="sm" disabled={busy || editReason.trim().length < 3 || (selected.kind !== "warning" && !(Number(editAmount.replace(/\s/g, "").replace(",", ".")) > 0))} onClick={() => void run(async () => {
-                    await updatePayrollEntry({id:selected.id, amount:selected.kind === "warning" ? 0 : Number(editAmount.replace(/\s/g, "").replace(",", ".")), reason:editReason, expected_amount:editExpected.amount, expected_reason:editExpected.reason});
-                    await onChange(); await reloadDetail(); setEditing(false); toast.success("Запись изменена");
-                  })}>Сохранить</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(false)}>Отмена</Button></div>
-                </div> : <p className="text-sm leading-relaxed whitespace-pre-wrap">{selected.reason}</p>}
+                <p className="text-sm leading-relaxed whitespace-pre-wrap">{selected.reason}</p>
             {selected.kind === "warning" && (
               <p className="text-sm text-muted-foreground">
                 Предупреждений за месяц:{" "}

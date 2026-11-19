@@ -48,7 +48,7 @@ export function employeeOptions(
       hint: s.role_name,
       avatar: s.avatar_url,
       disabled: busy(s.user_id),
-      disabledHint: busy(s.user_id) ? "уже в графике" : undefined,
+      disabledHint: busy(s.user_id) ? "уже в расписании" : undefined,
     }));
   const casuals = data.casualEmployees ?? [];
   const keep = value?.startsWith("payroll:") ? [value.slice(8)] : [];
@@ -70,7 +70,7 @@ export function employeeOptions(
       name: e.name,
       hint: `${e.role_name} · разовый`,
       disabled: busy(key),
-      disabledHint: busy(key) ? "уже в графике" : undefined,
+      disabledHint: busy(key) ? "уже в расписании" : undefined,
     };
   };
   return {

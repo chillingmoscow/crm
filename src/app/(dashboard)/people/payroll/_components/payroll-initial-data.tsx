@@ -1,5 +1,8 @@
 "use client";
 import { useState } from "react";
+import { ListChecks } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ProfileSection } from "@/components/shared/profile-section";
 import type { PayrollData } from "@/lib/payroll/types";
 import { DateRangeFilter } from "@/components/shared/date-range-filter";
 import { loadPayroll } from "../actions";
@@ -29,51 +32,60 @@ export function PayrollInitialData({ venueId }: { venueId: string }) {
       setLoading(false);
     }
   };
+  const [open, setOpen] = useState(false);
   return (
-    <details
-      className="rounded-xl border"
-      onToggle={(event) => {
-        if (event.currentTarget.open && !data && !loading) void reload();
-      }}
+    <ProfileSection
+      title="Первоначальные данные по зарплате"
+      description="Разовая сверка выплат, сделанных до начала работы в Sheerly. Выберите счёт и статью расхода, затем подтвердите записи. После этого они попадут в ведомость."
+      actions={
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-expanded={open}
+          onClick={() => {
+            setOpen(!open);
+            // Выплаты читаются при первом раскрытии.
+            if (!open && !data && !loading) void reload();
+          }}
+        >
+          <ListChecks />
+          {open ? "Скрыть выплаты" : "Показать выплаты"}
+        </Button>
+      }
     >
-      <summary className="cursor-pointer p-4 text-sm font-medium">
-        Первоначальные данные по зарплате
-      </summary>
-      <div className="space-y-4 border-t p-4">
-        <p className="text-sm text-muted-foreground">
-          Разовая сверка выплат, сделанных до начала работы в Sheerly. Выберите
-          счёт и статью расхода, затем подтвердите записи. После этого они
-          попадут в ведомость.
-        </p>
-        {error && <p className="text-sm text-muted-foreground">{error}</p>}
-        {loading && (
-          <p className="text-sm text-muted-foreground">Загружаем выплаты…</p>
-        )}
-        {data && month && (
-          <>
-            <DateRangeFilter
-              monthOnly
-              ariaLabel="Месяц прежних выплат"
-              value={{ start: new Date(`${month}T12:00:00`), end: null }}
-              presetLabel={null}
-              onChange={(value) => {
-                if (value.start)
-                  setMonth(
-                    `${value.start.getFullYear()}-${String(value.start.getMonth() + 1).padStart(2, "0")}-01`,
-                  );
-              }}
-            />
-            <LegacyPayments data={data} month={month} onChange={reload} />
-            {!data.legacyPayments.some(
-              (p) => p.month === month && p.state === "review",
-            ) && (
-              <p className="text-sm text-muted-foreground">
-                За выбранный месяц нет выплат, требующих сверки.
-              </p>
-            )}
-          </>
-        )}
-      </div>
-    </details>
+      {open && (
+        <div className="space-y-4">
+          {error && <p className="text-sm text-muted-foreground">{error}</p>}
+          {loading && (
+            <p className="text-sm text-muted-foreground">Загружаем выплаты…</p>
+          )}
+          {data && month && (
+            <>
+              <DateRangeFilter
+                monthOnly
+                ariaLabel="Месяц прежних выплат"
+                value={{ start: new Date(`${month}T12:00:00`), end: null }}
+                presetLabel={null}
+                onChange={(value) => {
+                  if (value.start)
+                    setMonth(
+                      `${value.start.getFullYear()}-${String(value.start.getMonth() + 1).padStart(2, "0")}-01`,
+                    );
+                }}
+              />
+              <LegacyPayments data={data} month={month} onChange={reload} />
+              {!data.legacyPayments.some(
+                (p) => p.month === month && p.state === "review",
+              ) && (
+                <p className="text-sm text-muted-foreground">
+                  За выбранный месяц нет выплат, требующих сверки
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </ProfileSection>
   );
 }

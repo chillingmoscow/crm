@@ -100,7 +100,7 @@ export function EmployeeStrip({
       ))}
       {!groups.length && (
         <p className="text-sm text-muted-foreground">
-          {query ? "Сотрудник не найден" : "Сотрудников для графика пока нет"}
+          {query ? "Сотрудник не найден" : "Сотрудников для расписания пока нет"}
         </p>
       )}
     </section>

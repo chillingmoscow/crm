@@ -9,6 +9,7 @@ import type { TaskOccurrence } from "@/lib/schedule/tasks";
 import { dateInZone, dayLabel } from "@/lib/schedule/utils";
 import { isoWeekday } from "./editors";
 import { TemplateName } from "./template-name";
+import { DROP_OK_CELL_CLASS, DROP_REFUSED_CELL_CLASS, TODAY_CELL_CLASS } from "./grid-row-person";
 
 /** Перетаскивание в слот «шаблон × день» (только таблица, на md+). */
 export type SlotDrop = {
@@ -98,7 +99,7 @@ export function TemplateWeek({
   );
   const cellClass = (day: string) => cn(
     "h-16 border-b border-l p-1.5 align-top",
-    day === today && "bg-brand/[0.025]",
+    day === today && TODAY_CELL_CLASS,
   );
   /** Пустой слот: тихое время слота; «+» при наведении и фокусе, на телефоне
    *  виден всегда (наведения нет). */
@@ -231,8 +232,8 @@ export function TemplateWeek({
                 const tdClass = cn(
                   cellClass(day),
                   "relative transition-colors",
-                  drop?.target === "ok" && "bg-brand/[0.06]",
-                  drop?.target === "refused" && "bg-destructive/[0.04]",
+                  drop?.target === "ok" && DROP_OK_CELL_CLASS,
+                  drop?.target === "refused" && DROP_REFUSED_CELL_CLASS,
                 );
                 if (!times) return <td key={day} className={tdClass} {...dropProps}>{drop?.ghost}</td>;
                 const time = `${times.start_time.slice(0, 5)}–${times.end_time.slice(0, 5)}`;

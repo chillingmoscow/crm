@@ -341,7 +341,7 @@ function TaskScreen({
         items={[
           { label: "График работы" },
           {
-            label: backLabel === "К графику" ? "Расписание" : "Задачи",
+            label: backLabel === "К расписанию" ? "Расписание" : "Задачи",
             href: backHref,
             onClick: (event) => {
               event.preventDefault();
@@ -1100,7 +1100,7 @@ export function TaskReport({
   return (
     <TaskScreen
       onBack={onClose}
-      backLabel="К графику"
+      backLabel="К расписанию"
       backHref="/schedule"
       dirty={dirty}
       busy={busy}

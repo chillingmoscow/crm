@@ -7,6 +7,8 @@ import {
   getPaginationRowModel,
   useReactTable,
   type ColumnDef,
+  type OnChangeFn,
+  type RowSelectionState,
   type SortingState,
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
@@ -19,6 +21,7 @@ import {
   TableSortPicker,
   useTableState,
 } from "@/components/shared/table";
+import { Checkbox } from "@/components/ui/checkbox";
 
 const noHiddenColumns: string[] = [];
 
@@ -27,6 +30,18 @@ export type PayrollTableFilters = {
   active: boolean;
   chips: React.ReactNode;
   onReset: () => void;
+};
+
+/** Выбор строк для массовых действий: чекбокс в первом столбце. */
+export type PayrollTableSelection<T> = {
+  value: RowSelectionState;
+  onChange: OnChangeFn<RowSelectionState>;
+  getRowId: (row: T) => string;
+  canSelect: (row: T) => boolean;
+  /** Доступное имя чекбокса строки: «Выбрать выход: …». */
+  rowLabel: (row: T) => string;
+  /** Доступное имя чекбокса «все на странице». */
+  pageLabel: string;
 };
 
 /**
@@ -54,6 +69,7 @@ export function PayrollTable<T>({
   label,
   empty,
   totals,
+  selection,
   emptyText = "Нет записей за выбранный период",
 }: {
   id: string;
@@ -77,6 +93,7 @@ export function PayrollTable<T>({
   empty?: React.ReactNode;
   /** Строка итогов по видимым столбцам с учётом поиска и фильтров. */
   totals?: (rows: T[]) => Partial<Record<string, React.ReactNode>>;
+  selection?: PayrollTableSelection<T>;
   emptyText?: string;
 }) {
   const [toolbarTarget, setToolbarTarget] = useState<HTMLElement | null>(null);
@@ -122,10 +139,35 @@ export function PayrollTable<T>({
   const searchTextRef = useRef(searchText);
   searchTextRef.current = searchText;
   const clickable = !!onRow;
-  const tableColumns = useMemo(
-    () =>
-      clickable
-        ? columns.map((column) =>
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+  const selectable = !!selection;
+  const tableColumns = useMemo(() => {
+    const withSelect: ColumnDef<T>[] = selectable
+      ? [
+          {
+            id: "select",
+            size: 44,
+            minSize: 44,
+            maxSize: 44,
+            enableHiding: false,
+            enableResizing: false,
+            enableSorting: false,
+            cell: ({ row }) => (
+              <Checkbox
+                checked={row.getIsSelected()}
+                disabled={!row.getCanSelect()}
+                onCheckedChange={(checked) => row.toggleSelected(checked === true)}
+                aria-label={selectionRef.current?.rowLabel(row.original)}
+                className="align-middle"
+              />
+            ),
+          },
+          ...columns,
+        ]
+      : columns;
+    return clickable
+        ? withSelect.map((column) =>
             column.id === "employee" && column.cell
               ? ({
                   ...column,
@@ -145,9 +187,8 @@ export function PayrollTable<T>({
                 } satisfies ColumnDef<T>)
               : column,
           )
-        : columns,
-    [columns, clickable],
-  );
+        : withSelect;
+  }, [columns, clickable, selectable]);
   const changeSorting = (next: SortingState) => {
     st.setSorting(next);
     st.setPagination((p) => ({ ...p, pageIndex: 0 }));
@@ -165,9 +206,17 @@ export function PayrollTable<T>({
           : [],
       pagination: st.pagination,
       columnVisibility: st.columnVisibility,
-      columnOrder: st.columnOrder,
+      columnOrder: selection ? ["select", ...st.columnOrder] : st.columnOrder,
       columnSizing: st.columnSizing,
+      ...(selection ? { rowSelection: selection.value } : {}),
     },
+    ...(selection
+      ? {
+          getRowId: (row: T) => selection.getRowId(row),
+          enableRowSelection: (row: { original: T }) => selection.canSelect(row.original),
+          onRowSelectionChange: selection.onChange,
+        }
+      : {}),
     onPaginationChange: st.setPagination,
     onColumnVisibilityChange: st.setColumnVisibility,
     onColumnSizingChange: st.setColumnSizing,
@@ -283,11 +332,47 @@ export function PayrollTable<T>({
           sortable={sortable}
           numeric={numeric}
           onRowClick={onRow ? (row) => onRow(row.original) : undefined}
+          renderControlHeader={
+            selection
+              ? (header) =>
+                  header.column.id === "select" ? (
+                    <Checkbox
+                      checked={
+                        table.getIsAllPageRowsSelected() ||
+                        (table.getIsSomePageRowsSelected() && "indeterminate")
+                      }
+                      onCheckedChange={(checked) =>
+                        table.toggleAllPageRowsSelected(checked === true)
+                      }
+                      disabled={!table.getRowModel().rows.some((row) => row.getCanSelect())}
+                      aria-label={selection.pageLabel}
+                      className="align-middle"
+                    />
+                  ) : null
+              : undefined
+          }
           empty={emptyText}
           totals={totals?.(visibleRows)}
           mobile={{
             nameColumn,
             statusColumn: labels.status ? "status" : undefined,
+            // С чекбоксом в шапке карточки действия строки уходят в подвал.
+            actionsPlacement: selection ? "footer" : undefined,
+            selection: selection && table.getRowModel().rows.some((row) => row.getCanSelect()) ? (
+              <label className="flex min-h-10 items-center gap-3 text-sm text-muted-foreground">
+                <Checkbox
+                  checked={
+                    table.getIsAllPageRowsSelected() ||
+                    (table.getIsSomePageRowsSelected() && "indeterminate")
+                  }
+                  onCheckedChange={(checked) =>
+                    table.toggleAllPageRowsSelected(checked === true)
+                  }
+                  aria-label={selection.pageLabel}
+                />
+                Выбрать все на странице
+              </label>
+            ) : undefined,
           }}
         />
       )}

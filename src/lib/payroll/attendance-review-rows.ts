@@ -90,6 +90,9 @@ export function attendanceReviewRows(
         Date.parse(review.snapshot.ends_at) === Date.parse(s.ends_at)
           ? review
           : null;
+      // «Засчитать» из сверки или расписания — выход по графику; запись без
+      // решения или «не учитывать» — смена не оплачивается (невыход).
+      const included = reviewed?.decision === "include";
       return {
         id: s.id,
         employee: e?.name ?? s.title,
@@ -97,8 +100,8 @@ export function attendanceReviewRows(
         role: e?.role_name ?? "",
         date: day,
         plan: `${time(s.starts_at)}–${time(s.ends_at)}`,
-        actual: "—",
-        status: reviewed ? "ignored" : "missing",
+        actual: included ? `${time(s.starts_at)}–${time(s.ends_at)}` : "—",
+        status: included ? "confirmed" : reviewed ? "ignored" : "missing",
         issue:
           reviewed?.reason ??
           (source?.state === "complete"
@@ -106,7 +109,7 @@ export function attendanceReviewRows(
             : "Источник ещё не проверен. Отсутствие данных не означает невыход."),
         attendance: null,
         plannedShift: s,
-        noShow: !!reviewed,
+        noShow: !!reviewed && !included,
         awaitingSource: !reviewed && source?.state !== "complete",
       };
     });
@@ -123,4 +126,33 @@ export function attendanceReviewRows(
 /** Строка ждёт решения: данные за день получены, а выход не подтверждён и не исключён. */
 export function needsAttendanceReview(row: AttendanceReviewRow) {
   return !row.awaitingSource && !["confirmed", "ignored"].includes(row.status);
+}
+
+export type AttendanceDecision = "confirm" | "ignore";
+
+/**
+ * Можно ли принять решение по строке прямо сейчас. `null` — можно; иначе
+ * причина, которую показываем на неактивной кнопке. Права и закрытый месяц
+ * проверяет вызывающий: здесь только то, что зависит от самой строки.
+ */
+export function attendanceDecisionBlock(
+  row: AttendanceReviewRow,
+  decision: AttendanceDecision,
+  { canReviewSchedule }: { canReviewSchedule: boolean },
+): string | null {
+  if (row.awaitingSource) return "Данные Quick Resto за этот день ещё не получены";
+  if (row.attendance) {
+    if (!row.attendance.employee_id)
+      return "Сначала свяжите сотрудника Quick Resto с карточкой сотрудника";
+    if (decision === "confirm" && !row.attendance.ends_at)
+      return "Смена в Quick Resto не закрыта: закройте её на кассе";
+    return null;
+  }
+  if (row.plannedShift) {
+    if (row.noShow || row.status === "confirmed") return "Решение по смене уже принято";
+    if (decision === "confirm" && !canReviewSchedule)
+      return "Засчитать смену можно с правом просмотра всего расписания";
+    return null;
+  }
+  return "Для этой строки решение недоступно";
 }

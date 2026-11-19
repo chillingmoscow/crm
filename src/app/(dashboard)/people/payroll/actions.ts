@@ -546,6 +546,153 @@ export async function payrollCommand(
   }
   return r.data;
 }
+const attendanceDecisionSchema = z.object({
+  decision: z.enum(["confirm", "ignore"]),
+  reason: z.string().trim().min(3, "Укажите основание").max(1000),
+  items: z
+    .array(
+      z.discriminatedUnion("kind", [
+        z.object({
+          kind: z.literal("attendance"),
+          id: z.string().uuid(),
+          version: z.number().int(),
+        }),
+        z.object({
+          kind: z.literal("shift"),
+          id: z.string().uuid(),
+          version: z.number().int().positive(),
+          synced_at: z.string().datetime({ offset: true }),
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          starts_at: z.string(),
+          ends_at: z.string(),
+          user_id: z.string().uuid(),
+        }),
+      ]),
+    )
+    .min(1)
+    .max(200),
+});
+export type AttendanceDecisionInput = z.input<typeof attendanceDecisionSchema>;
+export type AttendanceDecisionResult = {
+  done: string[];
+  failed: { id: string; message: string }[];
+  /** Решения сохранены, но пересчёт не поставлен: показать, а не терять решения. */
+  warning?: string;
+};
+/**
+ * Решение «Сверки отметок» по одной или нескольким строкам. Отметка Quick
+ * Resto — проверка факта (подтвердить / не учитывать); смена без отметки —
+ * «засчитать по графику» или «подтвердить невыход». Каждая строка — своя
+ * транзакция с теми же проверками, что и при решении из панели: ошибка одной
+ * строки не откатывает остальные. Пересчёт затронутых дней ставится один раз.
+ */
+export async function reviewAttendanceDecisions(
+  input: AttendanceDecisionInput,
+): Promise<AttendanceDecisionResult> {
+  const value = attendanceDecisionSchema.parse(input);
+  const s = await scope("payroll.review");
+  const result: AttendanceDecisionResult = { done: [], failed: [] };
+  const touched = new Set<string>();
+  const marks = value.items.filter((item) => item.kind === "attendance");
+  const shifts = value.items.filter((item) => item.kind === "shift");
+  const run = async (id: string, call: () => PromiseLike<{ error: { message: string } | null }>) => {
+    const { error } = await call();
+    if (error) result.failed.push({ id, message: error.message });
+    else result.done.push(id);
+    return !error;
+  };
+  for (const item of marks)
+    await run(item.id, () =>
+      s.db.rpc("payroll_command", {
+        p_action: "attendance",
+        p_input: {
+          id: item.id,
+          version: item.version,
+          status: value.decision === "confirm" ? "confirmed" : "ignored",
+          reason: value.reason,
+        },
+      }),
+    );
+  for (const item of shifts) {
+    // «Засчитать» смену без отметки — то же решение, что в расписании: оно
+    // само переводит день в пересчёт. Невыход пересчитываем ниже.
+    const ok = await run(item.id, () =>
+      value.decision === "confirm"
+        ? s.db.rpc("payroll_review_schedule_shift", {
+            p_shift: item.id,
+            p_version: item.version,
+            p_synced_at: item.synced_at,
+            p_decision: "include",
+            p_reason: value.reason,
+          })
+        : s.db.rpc("payroll_command", {
+            p_action: "missing_shift",
+            p_input: {
+              id: item.id,
+              date: item.date,
+              starts_at: item.starts_at,
+              ends_at: item.ends_at,
+              user_id: item.user_id,
+              reason: value.reason,
+            },
+          }),
+    );
+    if (ok && value.decision === "ignore") touched.add(item.date);
+  }
+  try {
+    await queueDecidedDays(s, marks.filter((item) => result.done.includes(item.id)), touched);
+  } catch (error) {
+    result.warning = `Решения сохранены, но пересчёт не поставлен в очередь: ${
+      error instanceof Error ? error.message : "ошибка"
+    }. Обновите период вручную.`;
+  }
+  return result;
+}
+async function queueDecidedDays(
+  s: Awaited<ReturnType<typeof scope>>,
+  doneMarks: { id: string }[],
+  touched: Set<string>,
+) {
+  if (doneMarks.length) {
+    const facts = await s.admin
+      .from<{ business_date: string }[]>("payroll_attendance")
+      .select("business_date")
+      .in("id", doneMarks.map((item) => item.id))
+      .eq("venue_id", s.venueId)
+      .eq("account_id", s.accountId);
+    if (facts.error) throw new Error(facts.error.message);
+    // Отметка, перешедшая через границу дня, влияет и на следующий день.
+    for (const fact of facts.data ?? []) {
+      touched.add(fact.business_date);
+      touched.add(addDays(fact.business_date, 1));
+    }
+  }
+  if (!touched.size) return;
+  const [days, periods] = await Promise.all([
+    s.admin
+      .from<{ business_date: string }[]>("payroll_source_days")
+      .select("business_date")
+      .eq("venue_id", s.venueId)
+      .eq("account_id", s.accountId)
+      .eq("state", "complete")
+      .in("business_date", [...touched]),
+    s.admin
+      .from<{ month: string; status: string }[]>("payroll_periods")
+      .select("month,status")
+      .eq("venue_id", s.venueId)
+      .eq("account_id", s.accountId),
+  ]);
+  if (days.error || periods.error) throw new Error((days.error ?? periods.error)!.message);
+  const dates = (days.data ?? [])
+    .map((day) => day.business_date)
+    .filter(
+      (date) =>
+        !(periods.data ?? []).some(
+          (period) => period.status !== "draft" && period.month.slice(0, 7) === date.slice(0, 7),
+        ),
+    );
+  if (dates.length) await queuePayroll(s.accountId, s.venueId, dates);
+}
 export async function refreshPayroll(from: string, to: string) {
   const s = await scope("payroll.sync");
   const sales = await s.admin

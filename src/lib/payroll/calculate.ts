@@ -238,8 +238,11 @@ export function statementRows(
           .filter((t) => t.from_month === month)
           .reduce((sum, t) => sum + Number(t.amount), 0),
       );
+      // Как в базе (распределение выплат): неподтверждённый начальный
+      // остаток не учитывается. После миграции 352 таких сотрудников нет.
       const opening = round(
-        (month === startsOn ? Number(e.opening_balance) : 0) + transferredIn,
+        (month === startsOn && e.opening_confirmed ? Number(e.opening_balance) : 0) +
+          transferredIn,
       );
       const earned = round(current.reduce((s, a) => s + Number(a.salary), 0)),
         tips = round(current.reduce((s, a) => s + Number(a.tips), 0)),

@@ -46,6 +46,15 @@
   border-color: hsl(var(--brand));
   color: hsl(var(--brand));
 }
+/* Поле файла прозрачное — обводку фокуса с клавиатуры рисует сама плитка. */
+.upload:has(input:focus-visible) {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+.upload:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
 .upload input {
   position: absolute;
   inset: 0;

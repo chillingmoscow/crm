@@ -32,7 +32,9 @@ const config: Config = {
   			},
   			brand: {
   				DEFAULT: 'hsl(var(--brand))',
-  				foreground: 'hsl(var(--brand-foreground))'
+  				foreground: 'hsl(var(--brand-foreground))',
+  				// Текст на синей подложке (bg-brand/10, dark bg-brand/30) — AA 4.5:1.
+  				'tint-foreground': 'hsl(var(--brand-tint-foreground))'
   			},
   			secondary: {
   				DEFAULT: 'hsl(var(--secondary))',

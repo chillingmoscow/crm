@@ -194,6 +194,7 @@ export function AttachmentUploader({
                   size="sm"
                   onClick={() => handleDownload(att.fileId)}
                   disabled={busyFileId === att.fileId}
+                  aria-label={`Открыть ${att.name}`}
                   data-tip="Открыть"
                 >
                   <Download className="h-4 w-4" />
@@ -205,6 +206,7 @@ export function AttachmentUploader({
                     size="sm"
                     onClick={() => handleDetach(att.fileId)}
                     disabled={busyFileId === att.fileId}
+                    aria-label={`Открепить ${att.name}`}
                     data-tip="Открепить"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -217,6 +219,7 @@ export function AttachmentUploader({
                     size="sm"
                     onClick={() => handleHardDelete(att.fileId)}
                     disabled={busyFileId === att.fileId}
+                    aria-label={`Удалить файл ${att.name} навсегда`}
                     data-tip="Удалить файл навсегда"
                     className="text-destructive hover:text-destructive"
                   >

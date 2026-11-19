@@ -41,7 +41,7 @@ export function ViewMenu({
               size="icon"
               aria-label={`Вид расписания: ${current}`}
               className={cn(
-                "h-8 w-8 border-border text-muted-foreground hover:border-brand/40 hover:bg-background hover:text-foreground sm:h-9 sm:w-9 [&_svg]:h-3.5 [&_svg]:w-3.5 sm:[&_svg]:h-4 sm:[&_svg]:w-4",
+                "touch-target h-8 w-8 border-border text-muted-foreground hover:border-brand/40 hover:bg-background hover:text-foreground sm:h-9 sm:w-9 [&_svg]:h-3.5 [&_svg]:w-3.5 sm:[&_svg]:h-4 sm:[&_svg]:w-4",
                 open && "border-brand text-foreground shadow-[0_0_0_2px_hsl(var(--brand)/0.16)]",
               )}
             >

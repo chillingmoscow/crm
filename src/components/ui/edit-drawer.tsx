@@ -86,7 +86,7 @@ export function EditDrawer({
             <div className="flex shrink-0 items-center gap-1">
               {headerActions}
               <SheetClose
-                className="flex items-center justify-center size-8 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors shrink-0"
+                className="touch-target flex items-center justify-center size-8 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors shrink-0"
                 aria-label="Закрыть"
               >
                 <X className="w-[18px] h-[18px]" />

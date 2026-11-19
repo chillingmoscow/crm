@@ -47,7 +47,7 @@ export function TableRowMenu({ actions, onOpenChange }: TableRowMenuProps) {
       <Tooltip delayDuration={450}>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
-            <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-foreground/80 hover:text-foreground">
+            <Button type="button" variant="ghost" size="icon" className="touch-target h-8 w-8 text-foreground/80 hover:text-foreground">
               <MoreHorizontal className="h-4 w-4" />
               <span className="sr-only">Действия строки</span>
             </Button>

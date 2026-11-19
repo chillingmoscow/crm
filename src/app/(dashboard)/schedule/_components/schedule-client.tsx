@@ -1412,7 +1412,7 @@ export function ScheduleClient({
                               scope="col"
                               className={cn(
                                 "border-b border-l px-2 py-3 text-center text-xs font-medium",
-                                d === today && "bg-brand/10 text-brand",
+                                d === today && "bg-brand/10 text-brand-tint-foreground",
                               )}
                             >
                               {dayLabel(d, { weekday: "short", day: "numeric" })}
@@ -1721,7 +1721,7 @@ export function ScheduleClient({
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="size-8 text-muted-foreground"
+                              className="touch-target size-8 text-muted-foreground"
                               aria-label={`Добавить смену: ${dayLabel(d)}`}
                               data-tip="Добавить смену"
                               onClick={() => create(d)}

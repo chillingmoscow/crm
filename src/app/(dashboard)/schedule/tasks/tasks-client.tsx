@@ -12,6 +12,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Plus, Camera, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { fileLabelFocusClass } from "@/components/ui/field-styles";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -1233,7 +1234,7 @@ export function TaskReport({
                       />
                     )}
                   {editable && (
-                    <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-primary">
+                    <label className={`touch-target inline-flex cursor-pointer items-center gap-2 text-sm text-primary ${fileLabelFocusClass}`}>
                       <Camera className="h-4 w-4" />
                       {answers[i.id] ? "Заменить фото" : "Добавить фото"}
                       <input

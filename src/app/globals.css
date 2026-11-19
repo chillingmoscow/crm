@@ -16,6 +16,9 @@
     --primary-foreground: 214 100% 97%;/* #eff6ff */
     --brand: 215 89% 51%;              /* #1570EF — Sheerly brand. ALL CTAs use this */
     --brand-foreground: 0 0% 100%;
+    /* Синий текст на синей подложке (`bg-brand/10`, карточки смен, плитки
+       палитры «Синий»): brand на ней даёт 3,8:1, этот — 5,2:1 (WCAG AA). */
+    --brand-tint-foreground: 215 89% 42%;
     --secondary: 240 5% 96%;           /* #f4f4f5 */
     --secondary-foreground: 240 6% 10%;/* #18181b */
     --muted: 240 5% 96%;
@@ -108,6 +111,8 @@
        sheerly.pen → t6BIlw "Принципы тёмной темы" (rules 3 + 5). */
     --brand: 217 91% 60%;              /* #3b82f6 — lighter than light brand */
     --brand-foreground: 0 0% 100%;
+    /* На `bg-brand/30` поверх карточки brand даёт 3,2:1; этот — 6:1. */
+    --brand-tint-foreground: 217 91% 78%;
     --secondary: 240 4% 16%;           /* #27272a */
     --secondary-foreground: 0 0% 98%;
     --muted: 240 4% 16%;
@@ -934,6 +939,31 @@ input:-webkit-autofill {
 @media (hover: none), (pointer: coarse) {
   .hide-on-coarse-pointer {
     display: none !important;
+  }
+}
+
+/* Утилита: зона нажатия не меньше 44×44 на сенсорном экране (DS «Кнопки»).
+ * Видимый размер элемента не меняется и раскладка не сдвигается: на
+ * coarse-pointer невидимый ::before расширяет область нажатия до 44×44
+ * вокруг центра элемента (элемент крупнее 44 остаётся как есть).
+ * Позиционирование: без своего класса элемент становится relative; `absolute`
+ * / `fixed` / `sticky` из классов сильнее — у :where нулевая специфичность.
+ * Свой ::before у элемента с этим классом не использовать.
+ * Соседние цели не должны залезать на видимую часть друг друга: промежуток
+ * между ними — не меньше (44 − размер) / 2 (у кнопки 32 px — gap 6 px). Предок
+ * с overflow: hidden обрезает зону — у края такого контейнера оставляй место. */
+:where(.touch-target) {
+  position: relative;
+}
+@media (pointer: coarse) {
+  .touch-target::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
   }
 }
 

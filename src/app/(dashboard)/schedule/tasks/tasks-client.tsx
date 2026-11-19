@@ -1105,7 +1105,7 @@ export function TaskReport({
       dirty={dirty}
       busy={busy}
       title={o.snapshot.name}
-      description={`${o.planned ? "План" : taskStatus[o.status]} · ${o.employee_name || "Без назначения"}`}
+      description={`${o.planned ? "План" : taskStatus[o.status]} · ${o.employee_name || "Без сотрудника"}`}
       actions={
         <div className="flex w-full flex-wrap justify-end gap-2">
           {editable && (

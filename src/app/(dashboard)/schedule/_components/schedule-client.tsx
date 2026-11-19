@@ -165,6 +165,22 @@ export function ScheduleClient({
   useEffect(() => {
     if (initialDate) setWeek(weekStart(initialDate));
   }, [initialDate]);
+  // Пояс заведения показываем, только если он не совпадает с поясом
+  // устройства, и смещением («UTC+3»), а не техническим именем. Считается
+  // после монтирования: на сервере пояс устройства неизвестен.
+  const [venueOffset, setVenueOffset] = useState<string | null>(null);
+  useEffect(() => {
+    const offset = (timeZone?: string) =>
+      new Intl.DateTimeFormat("ru-RU", { timeZone, timeZoneName: "shortOffset" })
+        .formatToParts(new Date())
+        .find((p) => p.type === "timeZoneName")?.value ?? "";
+    try {
+      const venue = offset(data.timezone);
+      setVenueOffset(venue && venue !== offset() ? venue.replace("GMT", "UTC") : null);
+    } catch {
+      setVenueOffset(null);
+    }
+  }, [data.timezone]);
   const [showTasks, setShowTasks] = useState(
     initialShowTasks ?? !initial.permissions.includes("schedule.view_all"),
   );
@@ -248,8 +264,21 @@ export function ScheduleClient({
   const [view, setView] = useState(
     initial.permissions.includes("schedule.view_all") ? initialView ?? "week" : "week",
   );
+  // Выбранный вид запоминается на устройстве, как показ задач: «Список»
+  // открывается списком и при следующем заходе. Вид из адреса важнее.
+  const viewKey = `schedule.view.${initial.venueId}.${initial.userId}`;
+  useEffect(() => {
+    if (initialView || !initial.permissions.includes("schedule.view_all")) return;
+    try {
+      const saved = localStorage.getItem(viewKey);
+      if (saved === "list" || saved === "templates" || saved === "week") setView(saved);
+    } catch {}
+  }, [initialView, initial.permissions, viewKey]);
   const changeView = (next: string) => {
     setView(next);
+    try {
+      localStorage.setItem(viewKey, next);
+    } catch {}
     const url = new URL(window.location.href);
     if (next === "templates") url.searchParams.set("view", next);
     else url.searchParams.delete("view");
@@ -589,7 +618,7 @@ export function ScheduleClient({
       data-tip={
         task.planned
           ? `Появится у сотрудника в день смены · ${task.employee_name || "смена ещё не назначена"}`
-          : `${task.employee_name || "Без назначения"} · ${taskStatus[task.status]}`
+          : `${task.employee_name || "Без сотрудника"} · ${taskStatus[task.status]}`
       }
       className={cn(
         "flex w-full items-start gap-1.5 rounded-md border bg-background px-2 py-2 text-left text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -612,7 +641,7 @@ export function ScheduleClient({
         </span>
         {!compact && (
           <span className="mt-1 block text-[13px] text-muted-foreground">
-            {task.employee_name || "Без назначения"} · {taskStatus[task.status]}
+            {task.employee_name || "Без сотрудника"} · {taskStatus[task.status]}
           </span>
         )}
       </span>
@@ -941,7 +970,7 @@ export function ScheduleClient({
     const title = template ? template.name : s.title;
     const subtitle = template?.subtitle ?? null;
     const avatar = data.staff.find((p) => p.user_id === assignee)?.avatar_url;
-    const person = assignee ? name(assignee) : "Сотрудник не назначен";
+    const person = assignee ? name(assignee) : "Без сотрудника";
     const hours = Math.round(shiftHours(s.starts_at, s.ends_at) * 10) / 10;
     return (
       <>
@@ -1591,7 +1620,7 @@ export function ScheduleClient({
                                 {
                                   id: null,
                                   label: "Без сотрудника",
-                                  role: "Требуется назначение",
+                                  role: "",
                                   avatar: null,
                                 },
                               ]
@@ -1729,9 +1758,7 @@ export function ScheduleClient({
                                     ),
                                   0,
                                 )
-                                .toLocaleString("ru", {
-                                  maximumFractionDigits: 1,
-                                })}
+                                .toLocaleString("ru", { maximumFractionDigits: 1 })}{" "}ч
                             </td>
                           </tr>
                         ))}
@@ -1820,9 +1847,7 @@ export function ScheduleClient({
                                     ),
                                   0,
                                 )
-                                .toLocaleString("ru", {
-                                  maximumFractionDigits: 1,
-                                })}
+                                .toLocaleString("ru", { maximumFractionDigits: 1 })}{" "}ч
                             </td>
                           ))}
                           <td className="border-l text-center text-xs font-semibold">
@@ -1836,9 +1861,7 @@ export function ScheduleClient({
                                   ),
                                 0,
                               )
-                              .toLocaleString("ru", {
-                                maximumFractionDigits: 1,
-                              })}
+                              .toLocaleString("ru", { maximumFractionDigits: 1 })}{" "}ч
                           </td>
                         </tr>
                       </tfoot>
@@ -1935,7 +1958,7 @@ export function ScheduleClient({
                 </>
               )}
               <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-                <span>Часовой пояс: {data.timezone}</span>
+                {venueOffset && <span>Время заведения: {venueOffset}</span>}
                 {showTasks && calendarTasks && calendarTasksWeek === week && (
                   <span>Задач на неделе: {weekTasks.length}</span>
                 )}
@@ -1969,7 +1992,7 @@ export function ScheduleClient({
               setConfirmation({
                 title: `Убрать шаблон «${label}» в архив?`,
                 description:
-                  "Это не удаление. Шаблон пропадёт из выбора при создании смен, а уже созданные по нему смены останутся в графике как есть. Вернуть шаблон можно в любой момент: фильтр «Статус → Архив», затем «Восстановить».",
+                  "Это не удаление. Шаблон пропадёт из выбора при создании смен, а уже созданные по нему смены останутся в графике как есть. Вернуть шаблон можно в любой момент: кнопка архива над списком, затем «Восстановить».",
                 confirmLabel: "Убрать в архив",
                 action: async () => {
                   await run();

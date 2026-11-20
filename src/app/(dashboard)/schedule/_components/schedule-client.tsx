@@ -111,6 +111,7 @@ import {
 import { toast } from "sonner";
 import { TemplateList } from "./template-list";
 import { ViewMenu } from "./view-menu";
+import { ScheduleImageMenu } from "./schedule-image-menu";
 import { TemplateWeek } from "./template-week";
 import { gridScrollClass, useGridFits } from "./use-grid-fits";
 import { TemplateName } from "./template-name";
@@ -1470,6 +1471,13 @@ export function ScheduleClient({
                       onChange={changeView}
                       canPlan={canPlan}
                     />
+                    {canPlan && (
+                      <ScheduleImageMenu
+                        week={week}
+                        department={department === "all" ? null : department}
+                        venueId={data.venueId}
+                      />
+                    )}
                   </>
                 }
                 primaryActions={

@@ -175,4 +175,41 @@ revoke execute on function public.get_fired_staff(uuid) from public, anon;
 grant execute on function public.get_venue_staff(uuid) to authenticated, service_role;
 grant execute on function public.get_fired_staff(uuid) to authenticated, service_role;
 
+-- Email коллеги отдавала и карточная RPC get_staff_profile_identity: она
+-- проверяла только people.view_staff. Карточка сотрудника и так закрыта
+-- правом view_staff_details, поэтому то же условие здесь ничего не ломает.
+-- Тело функции то же, что в 304, плюс одна проверка.
+create or replace function private.staff_profile_identity(p_user_id uuid)
+returns jsonb
+language plpgsql
+stable security definer
+set search_path to ''
+as $function$
+declare
+  v uuid := public.get_active_venue_id();
+  a uuid := public.get_active_account_id();
+  result jsonb;
+begin
+  if auth.uid() is null or v is null or a is null
+    or not public.has_permission('people.view_staff')
+    or not public.has_permission('people.view_staff_details')
+    or not exists(select 1 from public.user_venue_roles caller
+      where caller.user_id=auth.uid() and caller.venue_id=v and caller.status='active')
+    or not exists(select 1 from public.venues venue
+      where venue.id=v and venue.account_id=a and venue.archived_at is null)
+  then raise exception 'Нет доступа к карточке сотрудника' using errcode='42501';end if;
+
+  select jsonb_build_object(
+    'id',u.id,'email',coalesce(u.email,''),
+    'email_confirmed',u.email_confirmed_at is not null,
+    'needs_password_setup',coalesce(u.raw_user_meta_data->'needs_password_setup'='true'::jsonb,false),
+    'from_candidate',nullif(u.raw_app_meta_data->>'candidate_hire_id','') is not null,
+    'created_at',case when isfinite(u.created_at) then u.created_at else null end
+  ) into result
+  from auth.users u join public.profiles p on p.id=u.id
+  where u.id=p_user_id and exists(select 1 from public.user_venue_roles target
+    where target.user_id=u.id and target.venue_id=v and target.status in ('active','fired'));
+  return result;
+end $function$;
+
 commit;

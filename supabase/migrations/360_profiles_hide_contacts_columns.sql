@@ -60,6 +60,14 @@ begin
 
   revoke select on public.profiles from anon, authenticated;
   execute format('grant select (%s) on public.profiles to anon, authenticated', visible);
+
+  -- REVOKE/GRANT от роли, которая не владеет таблицей, выдают только WARNING
+  -- и ничего не меняют. Проверяем результат, а не надеемся на него.
+  if has_column_privilege('authenticated', 'public.profiles', 'phone', 'SELECT')
+    or has_column_privilege('anon', 'public.profiles', 'phone', 'SELECT')
+  then
+    raise exception 'Контакты в profiles остались открытыми: применяйте миграцию от владельца таблицы (supabase_admin)';
+  end if;
 end $$;
 
 commit;

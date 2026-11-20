@@ -167,7 +167,7 @@ const SCHEDULE_SHIFTS: PermissionSectionDef = {
     {
       id: "view",
       label: VIEW,
-      description: "Видит расписание всей команды",
+      description: "Видит черновики, стажировки кандидатов и историю смен (опубликованный график видят все)",
       add: ["schedule.view_all"],
     },
     {

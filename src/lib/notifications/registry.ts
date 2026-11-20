@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  ArrowLeftRight,
   AtSign,
   Bell,
   BookOpen,
@@ -16,6 +17,7 @@ import {
   UserCheck,
   UserMinus,
   UserPlus,
+  XCircle,
   type LucideIcon,
 } from "lucide-react";
 
@@ -183,6 +185,44 @@ const REGISTRY: Record<string, NotificationTypeSpec> = {
     category: "schedule",
     icon: UserMinus,
     iconColor: "text-amber-600",
+    verb: null,
+  },
+
+  // График: заявка на замену смены (миграция 358).
+  "schedule.swap_offered": {
+    category: "schedule",
+    icon: ArrowLeftRight,
+    iconColor: "text-brand",
+    verb: null,
+  },
+  "schedule.swap_requested": {
+    category: "schedule",
+    icon: ArrowLeftRight,
+    iconColor: "text-amber-600",
+    verb: null,
+  },
+  "schedule.swap_answered": {
+    category: "schedule",
+    icon: MessageCircle,
+    iconColor: "text-brand",
+    verb: null,
+  },
+  "schedule.swap_approved": {
+    category: "schedule",
+    icon: CheckCircle2,
+    iconColor: "text-emerald-600",
+    verb: null,
+  },
+  "schedule.swap_rejected": {
+    category: "schedule",
+    icon: XCircle,
+    iconColor: "text-destructive",
+    verb: null,
+  },
+  "schedule.swap_cancelled": {
+    category: "schedule",
+    icon: RotateCcw,
+    iconColor: "text-muted-foreground",
     verb: null,
   },
 

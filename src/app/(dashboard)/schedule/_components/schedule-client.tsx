@@ -23,6 +23,7 @@ import {
   UserPlus,
   CalendarPlus,
   Clock,
+  ArrowLeftRight,
 } from "lucide-react";
 import { TaskAssignDrawer } from "./task-assign-drawer";
 import {
@@ -90,6 +91,14 @@ import { EmployeePicker } from "./employee-picker";
 import { EmployeeStrip } from "./employee-strip";
 import { ApplyTemplateDialog } from "./apply-template-dialog";
 import { ShiftDetails } from "./shift-details";
+import {
+  shiftSwap,
+  SwapFooterActions,
+  SwapRequestDrawer,
+  SwapRequestsButton,
+  SwapSection,
+} from "./shift-swap";
+import { canRequestSwap } from "@/lib/schedule/shift-swaps";
 import { DrawerAvatar, DrawerStatus } from "@/components/ui/drawer-blocks";
 import { templateTimesFor } from "@/lib/schedule/template-times";
 import { CandidateTrialCard } from "./candidate-trial-card";
@@ -155,6 +164,7 @@ export function ScheduleClient({
   initialShowTasks,
   initialDate,
   initialView,
+  initialSwap,
 }: {
   initial: ScheduleData;
   section?: "calendar" | "templates";
@@ -163,6 +173,8 @@ export function ScheduleClient({
   initialDate?: string;
   /** Вид из адреса (`?view=`) важнее запомненного на устройстве. */
   initialView?: "templates" | "list" | "week";
+  /** Заявка на замену из уведомления (`?swap=`): открыть её смену. */
+  initialSwap?: string;
 }) {
   const [data, setData] = useState(initial);
   const tab = section;
@@ -323,6 +335,17 @@ export function ScheduleClient({
     setOverTrash(false);
   };
   const [selected, setSelected] = useState<Shift | null>(null);
+  /** Смена, для которой сотрудник ищет замену (панель «Замена смены»). */
+  const [swapFor, setSwapFor] = useState<Shift | null>(null);
+  const openedSwap = useRef(false);
+  useEffect(() => {
+    if (!initialSwap || openedSwap.current) return;
+    openedSwap.current = true;
+    const swap = data.swaps.find((entry) => entry.id === initialSwap);
+    const shift = swap && data.shifts.find((entry) => entry.id === swap.shift_id);
+    if (shift) setSelected(shift);
+    else toast.info("Заявка на замену больше недоступна");
+  }, [initialSwap, data.swaps, data.shifts]);
   const [confirmation, setConfirmation] = useState<{
     title: string;
     description: string;
@@ -524,9 +547,9 @@ export function ScheduleClient({
   const trialCandidates = [
     ...new Map(weekTrials.map((trial) => [trial.candidate_id, trial])).values(),
   ];
+  // Опубликованный график видят все; без права планирования своя строка — первой.
   const staff = roster.filter(
     (s) =>
-      (canPlan || s.user_id === data.userId) &&
       ((!s.user_id.startsWith("payroll:") && s.show_in_schedule) ||
         weekShifts.some((shift) => shiftAssignee(shift) === s.user_id)) &&
       (department === "all" ||
@@ -537,6 +560,10 @@ export function ScheduleClient({
         )) &&
       matchingStaff.has(s.user_id),
   );
+  if (!canPlan) {
+    const mine = staff.findIndex((s) => s.user_id === data.userId);
+    if (mine > 0) staff.unshift(...staff.splice(mine, 1));
+  }
   const rosterIds = new Set(roster.map((person) => person.user_id));
   const visibleStaffIds = new Set(staff.map((person) => person.user_id));
   const taskRowId = (task: TaskOccurrence) =>
@@ -986,11 +1013,31 @@ export function ScheduleClient({
   const shiftTemplate = (shift: Shift) =>
     shift.template_id ? templatesById.get(shift.template_id) : undefined;
   const selectedTemplate = selected ? shiftTemplate(selected) : undefined;
+  const selectedSwap = selected ? shiftSwap(data.swaps, selected.id) : null;
+  const selectedSwapActive =
+    !!selectedSwap && selectedSwap.status === "pending" && Date.parse(selected!.ends_at) > Date.now();
+  // У управляющего главная кнопка при открытой заявке — «Утвердить замену».
+  const selectedSwapDecision = selectedSwapActive && can("shift_assign");
+  const selectedCanRequestSwap =
+    !!selected && !selectedSwapActive && canRequestSwap(selected, data.userId, false, Date.now()) &&
+    !data.runs.some((run) => run.shift_id === selected.id);
   /**
    * Смена в виде «Список» — как в календаре: время колонкой слева, полоска
    * цвета шаблона, название и сотрудник; статус — только у черновика
    * (опубликованная — обычное состояние, её не подписываем).
    */
+  /** Пометка «есть открытая заявка на замену» в карточке смены. */
+  const swapMark = (s: Shift) => {
+    const swap = shiftSwap(data.swaps, s.id);
+    if (swap?.status !== "pending" || Date.parse(s.ends_at) <= Date.now()) return null;
+    const tip = `Заявка на замену: вместо — ${name(swap.to_user_id)}`;
+    return (
+      <span data-tip={tip} className="inline-flex shrink-0 align-middle">
+        <ArrowLeftRight aria-hidden className="size-3.5" />
+        <span className="sr-only">{tip}</span>
+      </span>
+    );
+  };
   const listCardBody = (s: Shift, assignee: string | null, mark: unknown) => {
     const template = shiftTemplate(s);
     const title = template ? template.name : s.title;
@@ -1012,6 +1059,7 @@ export function ScheduleClient({
             <span className={cn("truncate text-sm font-semibold", !assignee && "font-normal text-muted-foreground")}>
               {person}
             </span>
+            {swapMark(s)}
             {/* На телефоне бейдж — в этой строке, справа он резал бы имя. */}
             {!s.published && (
               <span className="shrink-0 sm:hidden">
@@ -1089,6 +1137,7 @@ export function ScheduleClient({
             {/* Длинная фамилия в узкой колонке переносится по слогам с дефисом,
                 а не обрывается посреди слова. */}
             <span className="min-w-0 hyphens-auto break-words text-[13px] font-semibold leading-tight">{assigneeLabel}</span>
+            {swapMark(s)}
           </span>
           <span className="text-xs tabular-nums opacity-75">
             {timeInZone(s.starts_at, data.timezone)}–<wbr />
@@ -1102,6 +1151,7 @@ export function ScheduleClient({
           <span className={cn("text-xs font-semibold tabular-nums", mark && "pr-5")}>
             {timeInZone(s.starts_at, data.timezone)}–<wbr />
             {timeInZone(s.ends_at, data.timezone)}
+            {swapMark(s) && <> {swapMark(s)}</>}
           </span>
           {template
             ? <span className="text-xs"><TemplateName {...template} /></span>
@@ -1371,6 +1421,7 @@ export function ScheduleClient({
             period={periodControls}
             actions={
               <>
+              {can("shift_assign") && <SwapRequestsButton data={data} onOpen={setSelected} />}
               {pendingReports}
               <TableControls
                 search={{
@@ -2160,7 +2211,8 @@ export function ScheduleClient({
           // Без единой кнопки подвал не рисуем: иначе у сотрудника без прав
           // внизу панели остаётся пустая полоса с рамкой.
           footer={
-            can("shift_delete") || can("shift_edit") || (!selected.published && can("shift_publish")) ? (
+            can("shift_delete") || can("shift_edit") || (!selected.published && can("shift_publish")) ||
+            selectedSwapActive || selectedCanRequestSwap ? (
             <>
               {can("shift_delete") && (
                 <Button
@@ -2174,9 +2226,23 @@ export function ScheduleClient({
                   <Trash2 className="size-4" />
                 </Button>
               )}
+              {(selectedSwapActive || selectedCanRequestSwap) && (
+                <SwapFooterActions
+                  data={data}
+                  shift={selected}
+                  swap={selectedSwap}
+                  canRequest={selectedCanRequestSwap}
+                  onRequest={() => {
+                    setSwapFor(selected);
+                    setSelected(null);
+                  }}
+                  refresh={refresh}
+                  onDone={() => setSelected(null)}
+                />
+              )}
               {can("shift_edit") && (
                 <Button
-                  variant={!selected.published && can("shift_publish") ? "outline" : "default"}
+                  variant={(!selected.published && can("shift_publish")) || selectedSwapDecision ? "outline" : "default"}
                   onClick={() => {
                     setEditor({
                       type: "shift",
@@ -2216,6 +2282,8 @@ export function ScheduleClient({
             historyHasMore={historyHasMore}
             onLoadMoreHistory={loadMoreHistory}
             personName={name}
+            showHistory={canPlan}
+            swap={selectedSwap ? <SwapSection data={data} swap={selectedSwap} shift={selected} /> : undefined}
             assignControl={can("shift_assign") && !can("shift_edit") ? (
               <EmployeePicker
                 data={data}
@@ -2236,6 +2304,9 @@ export function ScheduleClient({
             ) : undefined}
           />
         </EditDrawer>
+      )}
+      {swapFor && (
+        <SwapRequestDrawer data={data} shift={swapFor} refresh={refresh} onClose={() => setSwapFor(null)} />
       )}
       <Dialog
         open={!!confirmation}

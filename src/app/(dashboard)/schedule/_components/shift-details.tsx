@@ -43,6 +43,8 @@ export function ShiftDetails({
   onLoadMoreHistory,
   personName,
   assignControl,
+  swap,
+  showHistory = true,
 }: {
   data: ScheduleData;
   shift: Shift;
@@ -54,6 +56,10 @@ export function ShiftDetails({
   personName: (key: string | null) => string;
   /** Выбор сотрудника для тех, кто может только назначать. */
   assignControl?: ReactNode;
+  /** Раздел заявки на замену, если она есть. */
+  swap?: ReactNode;
+  /** История — служебные данные планировщика; сотруднику её не показываем. */
+  showHistory?: boolean;
 }) {
   const [visible, setVisible] = useState(HISTORY_PAGE);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -147,6 +153,9 @@ export function ShiftDetails({
         )}
       </DrawerSummary>
 
+      {swap}
+
+      {showHistory && (
       <DrawerSection title="История изменений">
         {history === null ? (
           <div className="space-y-3" aria-label="Загрузка истории">
@@ -189,6 +198,7 @@ export function ShiftDetails({
           </>
         )}
       </DrawerSection>
+      )}
     </>
   );
 }

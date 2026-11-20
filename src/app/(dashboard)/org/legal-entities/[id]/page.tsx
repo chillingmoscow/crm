@@ -1,11 +1,11 @@
-import Link from "next/link";
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
 
 import {
   createClient,
   getCachedActiveAccountId,
   getCachedPermissionChecker,
+  getCachedUser,
 } from "@/lib/supabase/server";
 import {
   getLegalEntity,
@@ -15,10 +15,11 @@ import {
 } from "@/lib/org/legal-entities";
 import { isDadataConfigured } from "@/lib/dadata/client";
 import { listAuditEvents } from "@/lib/audit/list";
-import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
 import { LegalEntityDetailClient } from "./_components/legal-entity-detail";
-import { LegalEntityVenues } from "./_components/legal-entity-venues";
-import { LegalEntityDetailTabs } from "./_components/legal-entity-tabs";
+
+export const metadata: Metadata = { title: "Юрлицо" };
+
+type AuditProfile = { id: string; first_name: string | null; last_name: string | null };
 
 export default async function LegalEntityDetailPage({
   params,
@@ -26,11 +27,7 @@ export default async function LegalEntityDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const [user, supabase] = await Promise.all([getCachedUser(), createClient()]);
   if (!user) redirect("/login");
 
   const can = await getCachedPermissionChecker();
@@ -39,96 +36,66 @@ export default async function LegalEntityDetailPage({
   const { row, error } = await getLegalEntity(id);
   if (error || !row) redirect("/org/legal-entities");
 
-  // Manage / delete permissions are checked separately so the form
-  // can show read-only state for users who can view but not edit.
-  //
-  // canManageVenues is checked too because the venues section attaches
-  // and detaches by writing to venues.default_legal_entity_id, and that
-  // mutation is gated by the venues_update RLS policy on
-  // org.manage_venues (migration 034 §7.2). A user with manage_legal_
-  // entities but without manage_venues (e.g. accountant per matrix)
-  // would see actionable buttons and then hit RLS errors on click —
-  // hide them instead.
-  const [{ rows: venues }, { rows: legalEntities }, archiveImpact, activeAccountId] =
+  // Привязка заведений пишет venues.default_legal_entity_id — это
+  // политика venues_update (org.manage_venues, миграция 034 §7.2), а не
+  // права на юрлица. Бухгалтер с manage_legal_entities без manage_venues
+  // получил бы ошибку RLS — кнопки ему не показываем.
+  const canManage = Boolean(can("org.manage_legal_entities"));
+  const canDelete = Boolean(can("org.delete_legal_entity"));
+  const canManageVenues = Boolean(can("org.manage_venues"));
+  const canViewAudit = Boolean(can("org.view_audit"));
+
+  const activeAccountId = await getCachedActiveAccountId();
+  const [{ rows: venues }, { rows: legalEntities }, archiveImpact, { data: isOwner }, auditResult] =
     await Promise.all([
-      listAccountVenues(),
+      listAccountVenues({ liveOnly: true }),
       listLegalEntities(),
       getLegalEntityArchiveImpact(id),
-      getCachedActiveAccountId(),
+      // Архив, восстановление и удаление проверяют владельца на сервере
+      // (assertLegalEntityOwner) — гейтим ими же, а не canManage.
+      activeAccountId
+        ? supabase.rpc("is_account_owner", { p_account_id: activeAccountId })
+        : Promise.resolve({ data: false }),
+      canViewAudit
+        ? listAuditEvents({ entityType: "legal_entity", entityId: id })
+        : Promise.resolve({ events: [], hasMore: false, error: null }),
     ]);
-  const canManage = can("org.manage_legal_entities");
-  const canDelete = can("org.delete_legal_entity");
-  const canManageVenues = can("org.manage_venues");
-  const canViewAudit = can("org.view_audit");
 
-  // Codex P2 #373: archive/restore/delete actions требуют owner-check
-  // (assertLegalEntityOwner), а UI рендерил DangerZone по canManage →
-  // не-owner с manage-permission видел кнопки, но получал toast.error
-  // на submit. Гейтим по фактическому owner-check.
-  const { data: isOwner } = activeAccountId
-    ? await supabase.rpc("is_account_owner", { p_account_id: activeAccountId })
-    : { data: false };
+  // Кто создал и менял — для «О юрлице» в верхней панели. created_by /
+  // updated_by есть в таблице, но не в LegalEntityRow.
+  const audit = row as unknown as { created_by?: string | null; updated_by?: string | null };
+  const auditIds = [audit.created_by, audit.updated_by].filter((v): v is string => !!v);
+  const { data: profiles } = auditIds.length
+    ? await supabase.from("profiles").select("id, first_name, last_name").in("id", auditIds)
+    : { data: [] as AuditProfile[] };
+  const profileName = (uid: string | null | undefined) => {
+    const p = (profiles as AuditProfile[] | null)?.find((x) => x.id === uid);
+    if (!p) return null;
+    const first = (p.first_name ?? "").trim();
+    const last = (p.last_name ?? "").trim();
+    if (!first && !last) return null;
+    return last ? `${first} ${last.charAt(0)}.`.trim() : first;
+  };
 
-  const auditResult = canViewAudit
-    ? await listAuditEvents({ entityType: "legal_entity", entityId: id })
-    : { events: [], hasMore: false, error: null };
-
-  // id → display name lookup so the venues section can show "currently
-  // attached to <other LE>" rows informatively.
   const legalEntityNames: Record<string, string> = {};
-  for (const le of legalEntities) {
-    legalEntityNames[le.id] = le.short_name ?? le.name;
-  }
+  for (const le of legalEntities) legalEntityNames[le.id] = le.short_name ?? le.name;
 
   return (
-    <div className="p-6 md:p-8 w-full max-w-4xl">
-      <Link
-        href="/org/legal-entities"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        К списку юрлиц
-      </Link>
-
-      <h1 className="text-2xl font-semibold mb-1">{row.name}</h1>
-      <p className="text-muted-foreground text-sm mb-6">
-        {row.inn ? `ИНН ${row.inn}` : "ИНН не указан"}
-        {row.kpp ? ` • КПП ${row.kpp}` : ""}
-      </p>
-
-      <LegalEntityDetailTabs
-        canViewAudit={Boolean(canViewAudit)}
-        main={
-          <>
-            <LegalEntityDetailClient
-              row={row}
-              canManage={!!canManage}
-              canDelete={!!canDelete}
-              canArchive={!!isOwner}
-              archiveImpact={archiveImpact}
-              dadataEnabled={isDadataConfigured()}
-            />
-            <div className="mt-6">
-              <LegalEntityVenues
-                legalEntityId={row.id}
-                venues={venues}
-                legalEntityNames={legalEntityNames}
-                readOnly={!canManageVenues}
-              />
-            </div>
-          </>
-        }
-        history={
-          <EntityAuditTab
-            mode="entity"
-            entityType="legal_entity"
-            entityId={row.id}
-            canView={Boolean(canViewAudit)}
-            initialEvents={auditResult.events}
-            initialHasMore={auditResult.hasMore}
-          />
-        }
-      />
-    </div>
+    <LegalEntityDetailClient
+      row={row}
+      venues={venues}
+      legalEntityNames={legalEntityNames}
+      canManage={canManage}
+      canDelete={canDelete}
+      canManageVenues={canManageVenues}
+      isOwner={Boolean(isOwner)}
+      canViewAudit={canViewAudit}
+      archiveImpact={archiveImpact}
+      dadataEnabled={isDadataConfigured()}
+      initialAuditEvents={auditResult.events}
+      initialAuditHasMore={auditResult.hasMore}
+      createdByName={profileName(audit.created_by)}
+      updatedByName={profileName(audit.updated_by)}
+    />
   );
 }

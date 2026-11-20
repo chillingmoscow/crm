@@ -2,6 +2,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { checked, integrationInput, integrationScope } from "@/lib/integrations/settings";
+import { writeAuditEvent } from "@/lib/audit/write";
 
 /**
  * Сообщения о задачах и графике в Telegram — по заведению: куда и когда
@@ -71,7 +72,7 @@ const schema = z.object({
 export async function saveScheduleMessages(input: unknown) {
   const s = await integrationScope();
   const value = integrationInput(schema, input);
-  const venue = checked(await s.db.from<{ id: string }>("venues").select("id")
+  const venue = checked(await s.db.from<{ id: string; name: string }>("venues").select("id,name")
     .eq("account_id", s.accountId).eq("id", value.venue_id).is("archived_at", null).maybeSingle());
   if (!venue) throw new Error("Заведение недоступно");
   // Только чаты из списка «Чаты» этой организации.
@@ -81,9 +82,11 @@ export async function saveScheduleMessages(input: unknown) {
       .eq("account_id", s.accountId).is("archived_at", null).in("chat_id", wanted)) ?? [];
     if (known.length !== wanted.length) throw new Error("Выбран чат, которого нет в списке чатов");
   }
-  checked(await s.db.from("schedule_task_settings").upsert({
+  const previous = checked(await s.db.from<Row>("schedule_task_settings")
+    .select("venue_id,chat_id,daily_days,daily_time,reminder_chat_ids,schedule_open_day,schedule_deadline_day,schedule_time")
+    .eq("account_id", s.accountId).eq("venue_id", value.venue_id).maybeSingle());
+  const next: Row = {
     venue_id: value.venue_id,
-    account_id: s.accountId,
     chat_id: value.chat_id,
     daily_days: [...new Set(value.daily_days)].sort((a, b) => a - b),
     daily_time: value.daily_time,
@@ -91,6 +94,65 @@ export async function saveScheduleMessages(input: unknown) {
     schedule_open_day: value.schedule_open_day,
     schedule_deadline_day: value.schedule_deadline_day,
     schedule_time: value.schedule_time,
+  };
+  checked(await s.db.from("schedule_task_settings").upsert({
+    ...next,
+    account_id: s.accountId,
   }, { onConflict: "venue_id" }));
+
+  const before: Row = {
+    ...DEFAULTS,
+    ...previous,
+    venue_id: value.venue_id,
+    daily_time: hhmm(previous?.daily_time ?? DEFAULTS.daily_time),
+    schedule_time: hhmm(previous?.schedule_time ?? DEFAULTS.schedule_time),
+  };
+  const changes = await messageChanges(s.db, s.accountId, before, next);
+  if (changes.length > 0) {
+    await writeAuditEvent({
+      accountId: s.accountId,
+      venueId: value.venue_id,
+      userId: s.user.id,
+      actionCode: "schedule.messages.updated",
+      entityType: "venue",
+      entityId: value.venue_id,
+      details: { venue_name: venue.name, changes },
+    });
+  }
   revalidatePath("/settings/integrations/telegram");
+}
+
+const WEEKDAYS = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
+const weekday = (d: number) => WEEKDAYS[d - 1] ?? String(d);
+
+/** Изменения для журнала — уже в словах: дни недели и названия чатов. */
+async function messageChanges(
+  db: Awaited<ReturnType<typeof integrationScope>>["db"],
+  accountId: string,
+  before: Row,
+  after: Row,
+) {
+  const ids = [...new Set([
+    before.chat_id, after.chat_id, ...before.reminder_chat_ids, ...after.reminder_chat_ids,
+  ].filter((id): id is string => !!id))];
+  const chats = ids.length
+    ? checked(await db.from<{ chat_id: string; title: string }[]>("telegram_chats")
+      .select("chat_id,title").eq("account_id", accountId).in("chat_id", ids)) ?? []
+    : [];
+  const title = new Map(chats.map((c) => [c.chat_id, c.title || c.chat_id]));
+  const chatList = (list: string[]) => list.map((id) => title.get(id) ?? id).join(", ") || null;
+  const view = (r: Row): Record<string, string | null> => ({
+    chat_id: r.chat_id ? (title.get(r.chat_id) ?? r.chat_id) : null,
+    daily_days: r.daily_days.map(weekday).join(", "),
+    daily_time: r.daily_time,
+    reminder_chat_ids: chatList(r.reminder_chat_ids),
+    schedule_open_day: weekday(r.schedule_open_day),
+    schedule_deadline_day: weekday(r.schedule_deadline_day),
+    schedule_time: r.schedule_time,
+  });
+  const old = view(before);
+  const now = view(after);
+  return Object.keys(now)
+    .filter((field) => old[field] !== now[field])
+    .map((field) => ({ field, old: old[field], new: now[field] }));
 }

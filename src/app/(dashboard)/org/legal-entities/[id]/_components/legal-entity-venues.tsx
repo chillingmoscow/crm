@@ -1,193 +1,161 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
 import Link from "next/link";
-import { ExternalLink, Loader2, Link as LinkIcon, Unlink } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Building2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  ProfileSection,
+  ProfileSectionAddButton,
+} from "@/components/shared/profile-section";
 import {
   attachVenueToLegalEntity,
   detachVenueFromLegalEntity,
   type AccountVenueRow,
 } from "@/lib/org/legal-entities";
 
-type LegalEntityNameMap = Record<string, string>;
+function VenueTile() {
+  return (
+    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+      <Building2 className="size-4" />
+    </span>
+  );
+}
 
-type Props = {
-  legalEntityId: string;
-  /** All venues of the active account (with their current default_legal_entity_id). */
-  venues: AccountVenueRow[];
-  /** id → name lookup for showing where a venue is currently attached. */
-  legalEntityNames: LegalEntityNameMap;
-  /** When true, attach/detach buttons are hidden (read-only mode). */
-  readOnly?: boolean;
-};
-
+/**
+ * Заведения юрлица: у кого оно «по умолчанию». Привязка меняет поле
+ * заведения, поэтому кнопки — по праву правки заведений, а не юрлиц.
+ */
 export function LegalEntityVenues({
   legalEntityId,
   venues,
   legalEntityNames,
-  readOnly = false,
-}: Props) {
+  canEdit,
+}: {
+  legalEntityId: string;
+  /** Действующие заведения аккаунта с их текущим юрлицом. */
+  venues: AccountVenueRow[];
+  legalEntityNames: Record<string, string>;
+  canEdit: boolean;
+}) {
   const router = useRouter();
-  const [busyVenueId, setBusyVenueId] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [attachOpen, setAttachOpen] = useState(false);
 
   const attached = venues.filter((v) => v.default_legal_entity_id === legalEntityId);
-  const others   = venues.filter((v) => v.default_legal_entity_id !== legalEntityId);
+  const others = venues.filter((v) => v.default_legal_entity_id !== legalEntityId);
 
-  const onAttach = async (venueId: string) => {
-    setBusyVenueId(venueId);
-    const { error } = await attachVenueToLegalEntity(legalEntityId, venueId);
-    setBusyVenueId(null);
-    if (error) {
-      toast.error(error);
-      return;
-    }
-    toast.success("Заведение прикреплено");
-    router.refresh();
-  };
-
-  const onDetach = async (venueId: string) => {
-    setBusyVenueId(venueId);
-    const { error } = await detachVenueFromLegalEntity(venueId);
-    setBusyVenueId(null);
-    if (error) {
-      toast.error(error);
-      return;
-    }
-    toast.success("Заведение откреплено");
-    router.refresh();
+  const run = (venueId: string, action: () => Promise<{ error: string | null }>, done: string) => {
+    setBusyId(venueId);
+    startTransition(async () => {
+      const { error } = await action();
+      setBusyId(null);
+      if (error) {
+        toast.error(error);
+        return;
+      }
+      toast.success(done);
+      setAttachOpen(false);
+      router.refresh();
+    });
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Заведения</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {/* Currently attached */}
-        <div className="space-y-2">
-          <div className="text-sm font-medium text-muted-foreground">
-            Прикреплены к этому юрлицу
-          </div>
-          {attached.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic">
-              Пока ни одно заведение не указывает это юрлицо как «по умолчанию».
-            </p>
-          ) : (
-            <ul className="divide-y rounded-md border bg-background">
-              {attached.map((v) => (
-                <li
-                  key={v.id}
-                  className="flex items-center justify-between gap-3 px-3 py-2"
-                >
-                  <Link
-                    href={`/org/venues/${v.id}`}
-                    className="flex items-center gap-1.5 text-sm hover:underline underline-offset-2"
-                  >
-                    {v.name}
-                    <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-                  </Link>
-                  {!readOnly && (
-                    <Button
+    <ProfileSection
+      title="Заведения"
+      description="Юрлицо подставляется в финансовые документы этих заведений по умолчанию"
+      actions={
+        canEdit ? (
+          <Popover open={attachOpen} onOpenChange={setAttachOpen}>
+            <PopoverTrigger asChild>
+              <ProfileSectionAddButton
+                disabled={isPending || others.length === 0}
+                data-tip={
+                  others.length === 0
+                    ? venues.length === 0
+                      ? "В аккаунте пока нет заведений"
+                      : "Все заведения уже работают через это юрлицо"
+                    : undefined
+                }
+              >
+                Привязать заведение
+              </ProfileSectionAddButton>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-64 max-w-[calc(100vw-24px)] p-1">
+              <div className="max-h-72 overflow-y-auto" aria-label="Заведения аккаунта">
+                {others.map((v) => {
+                  const current = v.default_legal_entity_id
+                    ? legalEntityNames[v.default_legal_entity_id] ?? "другое юрлицо"
+                    : null;
+                  return (
+                    <button
+                      key={v.id}
                       type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onDetach(v.id)}
-                      disabled={busyVenueId === v.id}
+                      disabled={isPending}
+                      onClick={() =>
+                        run(
+                          v.id,
+                          () => attachVenueToLegalEntity(legalEntityId, v.id),
+                          `«${v.name}» теперь работает через это юрлицо`,
+                        )
+                      }
+                      className="flex w-full flex-col items-start gap-0.5 rounded-md px-3 py-2 text-left text-sm outline-none hover:bg-accent focus-visible:bg-accent disabled:opacity-50"
                     >
-                      {busyVenueId === v.id ? (
-                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Unlink className="mr-1.5 h-3.5 w-3.5" />
-                      )}
-                      Открепить
-                    </Button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {/* Other venues — visible in both modes; attach buttons hide when
-            the caller is read-only. View-only users still need to see the
-            full account ↔ legal-entity topology, just without action
-            buttons. */}
-        {others.length > 0 && (
-          <div className="space-y-2">
-            <div className="text-sm font-medium text-muted-foreground">
-              Остальные заведения аккаунта
-            </div>
-            <ul className="divide-y rounded-md border bg-background">
-              {others.map((v) => {
-                const currentLeName = v.default_legal_entity_id
-                  ? legalEntityNames[v.default_legal_entity_id] ?? "другое юрлицо"
-                  : null;
-                return (
-                  <li
-                    key={v.id}
-                    className="flex items-center justify-between gap-3 px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <Link
-                        href={`/org/venues/${v.id}`}
-                        className="text-sm hover:underline underline-offset-2"
-                      >
-                        {v.name}
-                      </Link>
-                      {currentLeName && (
-                        <div className="text-xs text-muted-foreground">
-                          Сейчас: {currentLeName}
-                        </div>
-                      )}
-                    </div>
-                    {!readOnly && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onAttach(v.id)}
-                        disabled={busyVenueId === v.id}
-                        data-tip={
-                          currentLeName
-                            ? `Заведение перейдёт от «${currentLeName}» к этому юрлицу`
-                            : undefined
-                        }
-                      >
-                        {busyVenueId === v.id ? (
-                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <LinkIcon className="mr-1.5 h-3.5 w-3.5" />
-                        )}
-                        {currentLeName ? "Перепривязать" : "Привязать"}
-                      </Button>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        )}
-
-        {others.length === 0 && attached.length === 0 && (
-          <p className="text-sm text-muted-foreground italic">
-            В аккаунте пока нет заведений.
-            {!readOnly && (
-              <>
-                {" "}Создайте первое в разделе{" "}
-                <Link href="/org/venues" className="underline underline-offset-2">
-                  Заведения
-                </Link>
-                .
-              </>
-            )}
-          </p>
-        )}
-      </CardContent>
-    </Card>
+                      <span className="w-full truncate">{v.name}</span>
+                      {current ? (
+                        <span className="w-full truncate text-xs text-muted-foreground">
+                          Сейчас: {current}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
+        ) : undefined
+      }
+    >
+      {attached.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          {venues.length === 0 ? "В аккаунте пока нет заведений" : "Заведений пока нет"}
+        </p>
+      ) : (
+        <ul className="-mx-2 flex flex-col">
+          {attached.map((v) => (
+            <li key={v.id} className="flex min-w-0 items-center gap-3 rounded-lg px-2 py-2">
+              <VenueTile />
+              <Link
+                href={`/org/venues/${v.id}`}
+                className="min-w-0 flex-1 truncate text-sm font-medium hover:underline"
+                data-tip={v.name}
+              >
+                {v.name}
+              </Link>
+              {canEdit ? (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="touch-target size-8 shrink-0 text-muted-foreground hover:text-destructive"
+                  onClick={() =>
+                    run(v.id, () => detachVenueFromLegalEntity(v.id), `«${v.name}» отвязано от юрлица`)
+                  }
+                  disabled={isPending && busyId === v.id}
+                  aria-label={`Отвязать заведение «${v.name}»`}
+                  data-tip="Отвязать заведение"
+                >
+                  <X className="size-4" />
+                </Button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </ProfileSection>
   );
 }

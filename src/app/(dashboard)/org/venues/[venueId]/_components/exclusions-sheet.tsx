@@ -4,35 +4,16 @@ import { FolderTree, Loader2, Package, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { DatePicker } from "@/components/ui/date-picker";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { Field } from "@/components/ui/field";
+import { OptionSelect } from "@/components/ui/option-select";
+import { EditDrawer } from "@/components/ui/edit-drawer";
+import { DrawerSection } from "@/components/ui/drawer-blocks";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { MonthPicker } from "@/components/shared/month-picker";
+import { useSaveSection } from "@/components/shared/save-bar";
+import { formatDayMonth } from "@/lib/format/date";
+import { countRu, pluralRu } from "@/lib/format/plural";
 import {
   addExclusionRule,
   applyPendingExclusionRules,
@@ -59,11 +40,25 @@ type Loaded = {
 
 function KindIcon({ kind }: { kind: "product" | "group" | "legacy_name" }) {
   const Icon = kind === "group" ? FolderTree : Package;
-  return <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />;
+  return (
+    <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+  );
 }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("ru-RU");
+/** Путь группы и число товаров в ней: «Бар / Сиропы · 12 товаров». */
+function itemMeta(i: {
+  kind: string;
+  path: string | null;
+  productCount: number | null;
+}) {
+  return [
+    i.path,
+    i.kind === "group" && i.productCount !== null
+      ? countRu(i.productCount, "товар", "товара", "товаров")
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /** Первое число месяца выбранной даты (YYYY-MM-01). */
@@ -72,11 +67,22 @@ function monthStart(value: string) {
 }
 
 /**
- * Строка «Исключения · N» с кнопкой «Открыть» и окном со списком правил, и
+ * Строка «Исключения · N» с кнопкой «Открыть» и панелью со списком правил, и
  * граница заведения «Исключения меняют акты начиная с».
+ *
+ * Список открывается всем, кто видит результаты инвентаризации; добавлять,
+ * удалять и применять исключения можно только с правом на правку итогов
+ * (`canEdit` из загрузчика). Граница сохраняется общей полосой `SaveBar`
+ * карточки заведения.
  */
-export function ExclusionsRow({ venueId }: { venueId: string }) {
-  const isMobile = useIsMobile();
+export function ExclusionsRow({
+  venueId,
+  today,
+}: {
+  venueId: string;
+  /** Сегодня в поясе заведения (`YYYY-MM-DD`): месяц по умолчанию для границы. */
+  today?: string;
+}) {
   const [data, setData] = useState<Loaded | null>(null);
   const [loadError, setLoadError] = useState("");
   const [open, setOpen] = useState(false);
@@ -90,8 +96,9 @@ export function ExclusionsRow({ venueId }: { venueId: string }) {
 
   const [removing, setRemoving] = useState<ExclusionListItem | null>(null);
   const [removeReason, setRemoveReason] = useState("");
+  const [removeError, setRemoveError] = useState<string | null>(null);
   const [confirmApply, setConfirmApply] = useState(false);
-  const [savingFrom, setSavingFrom] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     const res = await listExclusionRules({ venueId });
@@ -163,22 +170,27 @@ export function ExclusionsRow({ venueId }: { venueId: string }) {
   }
 
   async function remove() {
-    if (!removing) return;
-    if (!removeReason.trim()) {
-      toast.error("Укажите основание");
-      return;
-    }
+    if (!removing || !removeReason.trim()) return;
     setBusy(true);
+    setRemoveError(null);
     try {
       const res = await removeExclusionRule({
         ruleId: removing.id,
         reason: removeReason.trim(),
       });
-      if (report(res, "Удалено")) {
-        setRemoving(null);
-        setRemoveReason("");
-        await reload();
+      if (res.error) {
+        setRemoveError(res.error);
+        return;
       }
+      toast.success("Удалено");
+      if (res.notice) toast.message(res.notice);
+      setRemoving(null);
+      setRemoveReason("");
+      await reload();
+    } catch (e) {
+      setRemoveError(
+        e instanceof Error ? e.message : "Не удалось удалить исключение",
+      );
     } finally {
       setBusy(false);
     }
@@ -186,34 +198,67 @@ export function ExclusionsRow({ venueId }: { venueId: string }) {
 
   async function apply() {
     setBusy(true);
+    setApplyError(null);
     try {
       const res = await applyPendingExclusionRules();
-      if (report(res, "Применено")) await reload();
+      if (res.error) {
+        setApplyError(res.error);
+        return;
+      }
+      toast.success("Применено");
+      if (res.notice) toast.message(res.notice);
+      setConfirmApply(false);
+      await reload();
+    } catch (e) {
+      setApplyError(
+        e instanceof Error ? e.message : "Не удалось применить исключения",
+      );
     } finally {
       setBusy(false);
-      setConfirmApply(false);
     }
   }
 
-  async function saveFrom(value: string) {
-    const from = value ? monthStart(value) : null;
+  // ── Граница «Исключения меняют акты начиная с» — через общую полосу ──
+  const canEdit = !!data?.canEdit;
+  const savedFrom = data?.exclusionsFrom ?? null;
+  const [fromDraft, setFromDraft] = useState<string | null>(savedFrom);
+  const [savingFrom, setSavingFrom] = useState(false);
+  useEffect(() => {
+    setFromDraft(savedFrom);
+  }, [savedFrom]);
+  const defaultMonth = monthStart(
+    today ?? new Date().toLocaleDateString("sv-SE"),
+  );
+  async function saveFrom() {
     setSavingFrom(true);
     try {
-      const res = await setInventoryExclusionsFrom({ venueId, from });
+      const res = await setInventoryExclusionsFrom({ venueId, from: fromDraft });
       if (res.error) {
         toast.error(res.error);
-        return;
+        return false;
       }
       setData((d) => (d ? { ...d, exclusionsFrom: res.from ?? null } : d));
-      toast.success("Сохранено");
+      toast.success("Граница исключений сохранена");
+      return true;
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : "Не удалось сохранить границу исключений",
+      );
+      return false;
     } finally {
       setSavingFrom(false);
     }
   }
+  const saveBar = useSaveSection({
+    dirty: canEdit && !!data && fromDraft !== savedFrom,
+    saving: savingFrom,
+    save: saveFrom,
+    reset: () => setFromDraft(savedFrom),
+  });
 
   const rules = data?.items.filter((i) => i.kind !== "legacy_name") ?? [];
   const legacy = data?.items.filter((i) => i.kind === "legacy_name") ?? [];
-  const canEdit = !!data?.canEdit;
+  const fromDisabled = !data || !canEdit || savingFrom;
 
   return (
     <>
@@ -232,22 +277,48 @@ export function ExclusionsRow({ venueId }: { venueId: string }) {
         </Button>
       </div>
 
-      <div className="max-w-sm space-y-2">
-        <Label htmlFor="exclusions-from">Исключения меняют акты начиная с</Label>
-        <DatePicker
-          id="exclusions-from"
-          value={data?.exclusionsFrom ?? ""}
-          onChange={(v) => void saveFrom(v)}
-          disabled={!data || !canEdit || savingFrom}
-          placeholder="Со всех незакрытых месяцев"
-        />
-        <p className="text-xs leading-5 text-muted-foreground">
+      <div className="flex flex-col gap-2">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field id="exclusions-from-mode" label="Исключения меняют акты">
+            {(control) => (
+              <OptionSelect
+                {...control}
+                value={fromDraft ? "from" : "all"}
+                disabled={fromDisabled}
+                onValueChange={(v) =>
+                  setFromDraft(v === "from" ? (savedFrom ?? defaultMonth) : null)
+                }
+                options={[
+                  { value: "all", label: "Всех незакрытых месяцев" },
+                  { value: "from", label: "Начиная с месяца" },
+                ]}
+              />
+            )}
+          </Field>
+          {fromDraft && (
+            <Field id="exclusions-from" label="Начиная с" required>
+              {(control) => (
+                <MonthPicker
+                  {...control}
+                  variant="field"
+                  prefix=""
+                  min="2020-01-01"
+                  value={fromDraft}
+                  disabled={fromDisabled}
+                  onChange={(month) => setFromDraft(monthStart(month))}
+                />
+              )}
+            </Field>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">
           Акты более ранних месяцев не меняются, даже если зарплата за них не
           зафиксирована.
         </p>
       </div>
+      {saveBar}
 
-      <Sheet
+      <EditDrawer
         open={open}
         onOpenChange={(v) => {
           setOpen(v);
@@ -256,291 +327,250 @@ export function ExclusionsRow({ venueId }: { venueId: string }) {
             setMatching(null);
           }
         }}
+        title="Исключения"
+        description="Товары и группы, которые не попадают в результаты инвентаризации"
       >
-        <SheetContent
-          side={isMobile ? "bottom" : "right"}
-          className="flex max-h-[90dvh] w-full flex-col gap-4 overflow-hidden p-0 sm:max-h-none sm:max-w-lg"
-        >
-          <SheetHeader className="px-6 pr-12 pt-6">
-            <SheetTitle>Исключения</SheetTitle>
-            <SheetDescription>
-              Товары и группы, которые не попадают в результаты инвентаризации.
-            </SheetDescription>
-          </SheetHeader>
+        {loadError && (
+          <p role="alert" className="text-sm text-destructive">
+            {loadError}
+          </p>
+        )}
 
-          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 pb-6">
-            {loadError && (
-              <p role="alert" className="text-sm text-destructive">
-                {loadError}
-              </p>
-            )}
+        {canEdit && data && data.pendingRetro > 0 && (
+          <div className="flex flex-col gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+            <p className="min-w-0">
+              {countRu(data.pendingRetro, "изменение", "изменения", "изменений")}{" "}
+              исключений ещё{" "}
+              {pluralRu(data.pendingRetro, "не применено", "не применены", "не применены")}{" "}
+              к прошлым актам
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => {
+                setApplyError(null);
+                setConfirmApply(true);
+              }}
+            >
+              Применить
+            </Button>
+          </div>
+        )}
 
-            {canEdit && data && data.pendingRetro > 0 && (
-              <div className="flex flex-col gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="min-w-0 text-sm">
-                  {data.pendingRetro} изменений исключений ещё не применены к прошлым актам
-                </p>
+        {canEdit && (
+          <div className="space-y-2">
+            {matching && (
+              <div className="flex items-center justify-between gap-2 rounded-md bg-muted px-3 py-2 text-sm">
+                <span className="min-w-0 truncate">
+                  Сопоставляем: «{matching.name}»
+                </span>
                 <Button
                   type="button"
+                  variant="ghost"
                   size="sm"
-                  disabled={busy}
-                  onClick={() => setConfirmApply(true)}
+                  onClick={() => setMatching(null)}
                 >
-                  Применить
+                  Отмена
                 </Button>
               </div>
             )}
-
-            {canEdit && (
-              <div className="space-y-2">
-                {matching && (
-                  <div className="flex items-center justify-between gap-2 rounded-md bg-muted px-3 py-2 text-sm">
-                    <span className="min-w-0 truncate">
-                      Сопоставляем: «{matching.name}»
-                    </span>
-                    <Button
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-3 top-3 size-4 text-muted-foreground"
+                aria-hidden
+              />
+              <Input
+                role="combobox"
+                aria-expanded={candidates.length > 0}
+                aria-label="Найти товар или группу"
+                placeholder="Найти товар или группу"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="min-w-0 pl-9"
+                disabled={busy}
+              />
+              {searching && (
+                <Loader2 className="absolute right-3 top-3 size-4 animate-spin text-muted-foreground" />
+              )}
+            </div>
+            {query.trim().length >= 2 && !searching && candidates.length === 0 && (
+              <p className="px-1 text-sm text-muted-foreground">Ничего не найдено</p>
+            )}
+            {candidates.length > 0 && (
+              <ul
+                role="listbox"
+                aria-label="Результаты поиска"
+                className="max-h-64 divide-y overflow-y-auto overscroll-contain rounded-lg border"
+              >
+                {candidates.map((c) => (
+                  <li key={`${c.kind}:${c.id}`} role="option" aria-selected={false}>
+                    <button
                       type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setMatching(null)}
+                      disabled={busy}
+                      onClick={() => void add(c)}
+                      className="flex w-full min-w-0 items-start gap-2 px-3 py-2.5 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none disabled:opacity-50"
                     >
-                      Отмена
-                    </Button>
-                  </div>
-                )}
-                <div className="relative">
-                  <Search
-                    className="pointer-events-none absolute left-3 top-3 size-4 text-muted-foreground"
-                    aria-hidden
-                  />
-                  <Input
-                    role="combobox"
-                    aria-expanded={candidates.length > 0}
-                    aria-label="Найти товар или группу"
-                    placeholder="Найти товар или группу"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    className="min-w-0 pl-9"
-                    disabled={busy}
-                  />
-                  {searching && (
-                    <Loader2 className="absolute right-3 top-3 size-4 animate-spin text-muted-foreground" />
-                  )}
-                </div>
-                {query.trim().length >= 2 && !searching && candidates.length === 0 && (
-                  <p className="px-1 text-sm text-muted-foreground">Ничего не найдено</p>
-                )}
-                {candidates.length > 0 && (
-                  <ul
-                    role="listbox"
-                    aria-label="Результаты поиска"
-                    className="max-h-64 divide-y overflow-y-auto overscroll-contain rounded-lg border"
-                  >
-                    {candidates.map((c) => (
-                      <li key={`${c.kind}:${c.id}`} role="option" aria-selected={false}>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => void add(c)}
-                          className="flex w-full min-w-0 items-start gap-2 px-3 py-2.5 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none disabled:opacity-50"
-                        >
-                          <KindIcon kind={c.kind} />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm">{c.name}</span>
-                            {(c.path || c.productCount !== null) && (
-                              <span className="block truncate text-xs text-muted-foreground">
-                                {[
-                                  c.path,
-                                  c.kind === "group" && c.productCount !== null
-                                    ? `${c.productCount} товаров`
-                                    : null,
-                                ]
-                                  .filter(Boolean)
-                                  .join(" · ")}
-                              </span>
-                            )}
+                      <KindIcon kind={c.kind} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm">{c.name}</span>
+                        {itemMeta(c) && (
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {itemMeta(c)}
                           </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-
-            {data && rules.length === 0 && (
-              <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
-                Исключений пока нет
-              </p>
-            )}
-            {rules.length > 0 && (
-              <ul className="divide-y rounded-lg border">
-                {rules.map((r) => (
-                  <li key={r.id} className="flex min-w-0 items-start gap-2 p-3">
-                    <KindIcon kind={r.kind} />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{r.name}</p>
-                      {(r.path || r.productCount !== null) && (
-                        <p className="truncate text-xs text-muted-foreground">
-                          {[
-                            r.path,
-                            r.kind === "group" && r.productCount !== null
-                              ? `${r.productCount} товаров`
-                              : null,
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </p>
-                      )}
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {[
-                          SOURCE_LABEL[r.source],
-                          r.createdByName,
-                          formatDate(r.createdAt),
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </p>
-                    </div>
-                    {canEdit && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`Удалить исключение ${r.name}`}
-                        disabled={busy}
-                        onClick={() => {
-                          setRemoveReason("");
-                          setRemoving(r);
-                        }}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    )}
+                        )}
+                      </span>
+                    </button>
                   </li>
                 ))}
               </ul>
             )}
-
-            {legacy.length > 0 && (
-              <section className="space-y-2">
-                <h3 className="text-sm font-semibold">
-                  Не найдено в Quick Resto — выберите вручную
-                </h3>
-                <ul className="divide-y rounded-lg border">
-                  {legacy.map((r) => (
-                    <li
-                      key={r.id}
-                      className="flex min-w-0 flex-wrap items-center gap-2 p-3"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm">{r.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {SOURCE_LABEL[r.source]}
-                        </p>
-                      </div>
-                      {canEdit && (
-                        <div className="flex shrink-0 gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            disabled={busy}
-                            onClick={() => {
-                              setMatching(r);
-                              setQuery(r.name);
-                            }}
-                          >
-                            Сопоставить
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            disabled={busy}
-                            onClick={() => {
-                              setRemoveReason("");
-                              setRemoving(r);
-                            }}
-                          >
-                            Удалить
-                          </Button>
-                        </div>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
           </div>
-        </SheetContent>
-      </Sheet>
+        )}
 
-      <Dialog
+        {data && rules.length === 0 && (
+          <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+            Исключений пока нет
+          </p>
+        )}
+        {rules.length > 0 && (
+          <ul className="divide-y rounded-lg border">
+            {rules.map((r) => (
+              <li key={r.id} className="flex min-w-0 items-start gap-2 p-3">
+                <KindIcon kind={r.kind} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{r.name}</p>
+                  {itemMeta(r) && (
+                    <p className="truncate text-xs text-muted-foreground">
+                      {itemMeta(r)}
+                    </p>
+                  )}
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {[
+                      SOURCE_LABEL[r.source],
+                      r.createdByName,
+                      formatDayMonth(r.createdAt),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                </div>
+                {canEdit && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Удалить исключение ${r.name}`}
+                    data-tip="Удалить исключение"
+                    disabled={busy}
+                    onClick={() => {
+                      setRemoveReason("");
+                      setRemoveError(null);
+                      setRemoving(r);
+                    }}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {legacy.length > 0 && (
+          <DrawerSection title="Не найдено в Quick Resto: выберите вручную">
+            <ul className="divide-y rounded-lg border">
+              {legacy.map((r) => (
+                <li
+                  key={r.id}
+                  className="flex min-w-0 flex-wrap items-center gap-2 p-3"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm">{r.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {SOURCE_LABEL[r.source]}
+                    </p>
+                  </div>
+                  {canEdit && (
+                    <div className="flex shrink-0 gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => {
+                          setMatching(r);
+                          setQuery(r.name);
+                        }}
+                      >
+                        Сопоставить
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => {
+                          setRemoveReason("");
+                          setRemoveError(null);
+                          setRemoving(r);
+                        }}
+                      >
+                        Удалить
+                      </Button>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </DrawerSection>
+        )}
+      </EditDrawer>
+
+      <ConfirmDialog
         open={!!removing}
         onOpenChange={(v) => {
-          if (!v && !busy) setRemoving(null);
+          if (!v) setRemoving(null);
         }}
+        title={`Удалить исключение «${removing?.name ?? ""}»?`}
+        description="Позиция снова попадёт в результаты инвентаризации."
+        confirmLabel="Удалить исключение"
+        pendingLabel="Удаляем…"
+        destructive
+        busy={busy}
+        confirmDisabled={!removeReason.trim()}
+        error={removeError}
+        onConfirm={() => void remove()}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Удалить исключение</DialogTitle>
-            <DialogDescription>{removing?.name}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="exclusion-remove-reason">Основание</Label>
+        <Field id="exclusion-remove-reason" label="Основание" required>
+          {(control) => (
             <Textarea
-              id="exclusion-remove-reason"
+              {...control}
               rows={3}
               maxLength={1000}
               value={removeReason}
               onChange={(e) => setRemoveReason(e.target.value)}
-              className="text-base md:text-sm"
             />
-          </div>
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={() => setRemoving(null)}
-            >
-              Отмена
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={busy || !removeReason.trim()}
-              onClick={() => void remove()}
-            >
-              Удалить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          )}
+        </Field>
+      </ConfirmDialog>
 
-      <AlertDialog open={confirmApply} onOpenChange={setConfirmApply}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Применить исключения</AlertDialogTitle>
-            <AlertDialogDescription>
-              Акты незакрытых месяцев будут пересчитаны
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Отмена</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={busy}
-              onClick={(e) => {
-                e.preventDefault();
-                void apply();
-              }}
-            >
-              Применить
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={confirmApply}
+        onOpenChange={setConfirmApply}
+        title="Применить исключения к прошлым актам?"
+        description={
+          data
+            ? `${countRu(data.pendingRetro, "изменение", "изменения", "изменений")} исключений. Акты незакрытых месяцев будут пересчитаны.`
+            : "Акты незакрытых месяцев будут пересчитаны."
+        }
+        confirmLabel="Применить исключения"
+        pendingLabel="Применяем…"
+        busy={busy}
+        error={applyError}
+        onConfirm={() => void apply()}
+      />
     </>
   );
 }

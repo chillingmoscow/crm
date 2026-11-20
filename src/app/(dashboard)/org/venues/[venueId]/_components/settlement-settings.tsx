@@ -5,50 +5,53 @@ import { toast } from "sonner";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { DrawerSection } from "@/components/ui/drawer-blocks";
 import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { OptionSelect } from "@/components/ui/option-select";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select";
+import { ProfileSection } from "@/components/shared/profile-section";
+import { formatDayMonthTime } from "@/lib/format/date";
 import {
   loadSettlementConfiguration,
   saveSettlementConfiguration,
   type SettlementConfiguration,
 } from "@/app/(dashboard)/sales/shifts/settlement-actions";
 import type { SettlementSettings } from "@/lib/sales/settlement";
+import { RuleHistory } from "./rule-history";
+
+/** Сообщение загрузчика, когда сверка пользователю недоступна. */
+const NO_ACCESS = "Сверка доступна владельцу в выбранном заведении";
+
 type Choice = { id: string; name: string };
+/** Выпадающий список поля формы: подпись, обязательность и связь — через `Field`. */
 function Picker({
   id,
+  label,
   value,
   onChange,
   items,
   placeholder,
 }: {
   id: string;
+  label: string;
   value: string;
   onChange: (v: string) => void;
   items: Choice[];
   placeholder: string;
 }) {
   return (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger id={id} className="w-full">
-        <SelectValue placeholder={placeholder} />
-      </SelectTrigger>
-      <SelectContent>
-        {items.map((x) => (
-          <SelectItem key={x.id} value={x.id}>
-            {x.name}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <Field id={id} label={label} required>
+      {(control) => (
+        <OptionSelect
+          {...control}
+          value={value}
+          onValueChange={onChange}
+          placeholder={placeholder}
+          options={items.map((x) => ({ value: x.id, label: x.name }))}
+        />
+      )}
+    </Field>
   );
 }
 function Form({
@@ -81,7 +84,8 @@ function Form({
     [reason, setReason] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null),
-    [newId, setNewId] = useState("");
+    [newId, setNewId] = useState(""),
+    [newIdError, setNewIdError] = useState<string | null>(null);
   const [fees, setFees] = useState<Record<number, string>>(
     Object.fromEntries(
       config.methods.map((m) => [m.paymentTypeId, String(m.feePercent)]),
@@ -168,30 +172,28 @@ function Form({
             disabled={busy || !reason.trim()}
             onClick={() => void submit()}
           >
-            {busy ? "Сохраняем…" : "Сохранить правила"}
+            {busy ? "Сохраняем…" : "Сохранить"}
           </Button>
         </>
       }
     >
-      <fieldset disabled={busy} className="min-w-0 space-y-5">
+      <fieldset disabled={busy} className="flex min-w-0 flex-col gap-5">
         <p className="rounded-lg bg-brand/5 p-3 text-sm text-muted-foreground">
           Пока работает сверка: денежные операции продолжает создавать прежняя автоматизация.
         </p>
-        <div className="space-y-2">
-          <Label htmlFor="settlement-category">Статья выручки</Label>
-          <Picker
-            id="settlement-category"
-            value={config.revenueCategoryId}
-            onChange={(v) => setConfig((c) => ({ ...c, revenueCategoryId: v }))}
-            items={categories("income")}
-            placeholder="Выберите статью"
-          />
-        </div>
+        <Picker
+          id="settlement-category"
+          label="Статья выручки"
+          value={config.revenueCategoryId}
+          onChange={(v) => setConfig((c) => ({ ...c, revenueCategoryId: v }))}
+          items={categories("income")}
+          placeholder="Выберите статью"
+        />
         <DrawerSection title="Способы оплаты">
           {config.methods.length === 0 && (
             <p className="text-sm text-muted-foreground">
               Прочитайте завершённый день в продажах, чтобы получить список
-              способов оплаты.
+              способов оплаты
             </p>
           )}
           {config.methods.length > 0 && (
@@ -210,6 +212,7 @@ function Form({
                       variant="ghost"
                       size="icon"
                       aria-label={`Убрать способ №${m.paymentTypeId}`}
+                      data-tip="Убрать способ оплаты"
                       onClick={() =>
                         setConfig((c) => ({
                           ...c,
@@ -222,12 +225,9 @@ function Form({
                       <Trash2 className="size-4" />
                     </Button>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor={`settlement-bank-${m.paymentTypeId}`}>
-                      Куда учитывать
-                    </Label>
-                    <Picker
+                  <Picker
                       id={`settlement-bank-${m.paymentTypeId}`}
+                      label="Куда учитывать"
                       value={m.excluded ?? m.bankAccountId ?? ""}
                       onChange={(v) =>
                         setMethod(
@@ -244,31 +244,30 @@ function Form({
                       ]}
                       placeholder="Выберите счёт или исключение"
                     />
-                  </div>
                   {!m.excluded && (
                     <div className="grid gap-3 sm:grid-cols-[110px_1fr]">
-                      <div className="space-y-2">
-                        <Label htmlFor={`settlement-fee-${m.paymentTypeId}`}>
-                          Комиссия, %
-                        </Label>
-                        <Input
-                          id={`settlement-fee-${m.paymentTypeId}`}
-                          inputMode="decimal"
-                          value={fees[m.paymentTypeId] ?? "0"}
-                          onChange={(e) =>
-                            setFees((f) => ({
-                              ...f,
-                              [m.paymentTypeId]: e.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor={`settlement-fee-mode-${m.paymentTypeId}`}>
-                          Учёт комиссии
-                        </Label>
-                        <Picker
+                      <Field
+                        id={`settlement-fee-${m.paymentTypeId}`}
+                        label="Комиссия, %"
+                        required
+                      >
+                        {(control) => (
+                          <Input
+                            {...control}
+                            inputMode="decimal"
+                            value={fees[m.paymentTypeId] ?? "0"}
+                            onChange={(e) =>
+                              setFees((f) => ({
+                                ...f,
+                                [m.paymentTypeId]: e.target.value,
+                              }))
+                            }
+                          />
+                        )}
+                      </Field>
+                      <Picker
                           id={`settlement-fee-mode-${m.paymentTypeId}`}
+                          label="Учёт комиссии"
                           value={m.feeAccounting}
                           onChange={(v) =>
                             setMethod(m.paymentTypeId, {
@@ -281,25 +280,31 @@ function Form({
                           ]}
                           placeholder="Выберите способ"
                         />
-                      </div>
                     </div>
                   )}
                 </div>
               ))}
             </div>
           )}
+          <div className="space-y-2">
           <div className="flex gap-2">
             <Input
               aria-label="Номер способа оплаты Quick Resto"
+              aria-invalid={newIdError ? true : undefined}
+              aria-describedby={newIdError ? "settlement-new-id-error" : undefined}
               inputMode="numeric"
               placeholder="Номер способа в Quick Resto"
               value={newId}
-              onChange={(e) => setNewId(e.target.value)}
+              onChange={(e) => {
+                setNewId(e.target.value);
+                setNewIdError(null);
+              }}
             />
             <Button
               variant="outline"
               size="icon"
               aria-label="Добавить способ оплаты"
+              data-tip="Добавить способ оплаты"
               onClick={() => {
                 const id = Number(newId);
                 if (
@@ -307,7 +312,7 @@ function Form({
                   !Number.isSafeInteger(id) ||
                   config.methods.some((m) => m.paymentTypeId === id)
                 ) {
-                  toast.error("Укажите уникальный номер способа оплаты");
+                  setNewIdError("Укажите уникальный номер способа оплаты");
                   return;
                 }
                 setConfig((c) => ({
@@ -329,6 +334,16 @@ function Form({
               <Plus className="size-4" />
             </Button>
           </div>
+          {newIdError && (
+            <p
+              id="settlement-new-id-error"
+              role="alert"
+              className="text-xs text-destructive"
+            >
+              {newIdError}
+            </p>
+          )}
+          </div>
         </DrawerSection>
         <DrawerSection
           title="Личное потребление"
@@ -344,19 +359,22 @@ function Form({
         >
           {personalEnabled && (
             <>
-              <div className="space-y-2">
-                <Label htmlFor="settlement-payer">
-                  Номер плательщика Quick Resto
-                </Label>
-                <Input
-                  id="settlement-payer"
-                  inputMode="numeric"
-                  value={personal.payerId}
-                  onChange={(e) =>
-                    setPersonal((p) => ({ ...p, payerId: e.target.value }))
-                  }
-                />
-              </div>
+              <Field
+                id="settlement-payer"
+                label="Номер плательщика Quick Resto"
+                required
+              >
+                {(control) => (
+                  <Input
+                    {...control}
+                    inputMode="numeric"
+                    value={personal.payerId}
+                    onChange={(e) =>
+                      setPersonal((p) => ({ ...p, payerId: e.target.value }))
+                    }
+                  />
+                )}
+              </Field>
               {(
                 [
                   ["bankAccountId", "Счёт", data.banks],
@@ -368,16 +386,15 @@ function Form({
                   ],
                 ] as const
               ).map(([key, label, items]) => (
-                <div key={key} className="space-y-2">
-                  <Label htmlFor={`settlement-personal-${key}`}>{label}</Label>
-                  <Picker
-                    id={`settlement-personal-${key}`}
-                    value={personal[key]}
-                    onChange={(v) => setPersonal((p) => ({ ...p, [key]: v }))}
-                    items={items}
-                    placeholder="Выберите значение"
-                  />
-                </div>
+                <Picker
+                  key={key}
+                  id={`settlement-personal-${key}`}
+                  label={label}
+                  value={personal[key]}
+                  onChange={(v) => setPersonal((p) => ({ ...p, [key]: v }))}
+                  items={items}
+                  placeholder="Выберите значение"
+                />
               ))}
             </>
           )}
@@ -396,18 +413,17 @@ function Form({
         >
           {null}
         </DrawerSection>
-        <DrawerSection title="Основание изменения">
-          <Label htmlFor="settlement-reason" className="sr-only">
-            Основание изменения
-          </Label>
-          <Textarea
-            id="settlement-reason"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Что изменили и почему"
-            maxLength={1000}
-          />
-        </DrawerSection>
+        <Field id="settlement-reason" label="Основание изменения" required>
+          {(control) => (
+            <Textarea
+              {...control}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Что изменили и почему"
+              maxLength={1000}
+            />
+          )}
+        </Field>
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}
@@ -434,58 +450,57 @@ export function SettlementSettingsSection({ venueId }: { venueId: string }) {
       live = false;
     };
   }, [venueId]);
+  // Нет права — секции нет (как у «Проведения финансовых операций»).
+  if (error === NO_ACCESS) return null;
   const current = data?.versions[0];
   return (
-    <section className="space-y-4 rounded-lg border p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="font-semibold">Поступления и личное потребление</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {current
-              ? `Версия ${current.version} · ${current.auto_read ? "ежедневная сверка" : "ручная сверка"}`
-              : "Сопоставление способов оплаты со счетами"}
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={!data}
-          onClick={() =>
-            void loadSettlementConfiguration(venueId)
-              .then((d) => {
-                setData(d);
-                setOpen(true);
-              })
-              .catch((e) => toast.error(e.message))
-          }
-        >
-          <Settings2 className="mr-2 size-4" />
-          Настроить
-        </Button>
-      </div>
+    <ProfileSection
+      title="Поступления и личное потребление"
+      description={
+        current
+          ? `Версия ${current.version} · ${current.auto_read ? "ежедневная сверка" : "ручная сверка"}`
+          : "Сопоставление способов оплаты со счетами"
+      }
+      actions={
+        data ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              void loadSettlementConfiguration(venueId)
+                .then((d) => {
+                  setData(d);
+                  setOpen(true);
+                })
+                .catch((e) => toast.error(e.message))
+            }
+          >
+            <Settings2 />
+            Настроить
+          </Button>
+        ) : null
+      }
+    >
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       )}
-      {current && (
-        <details className="border-t pt-4 text-sm">
-          <summary className="cursor-pointer text-muted-foreground">
-            История правил
-          </summary>
-          <ol className="mt-3 divide-y">
+      {data && current && (
+        <RuleHistory count={data.versions.length}>
+          <ol className="divide-y text-sm">
             {data.versions.map((v) => (
               <li key={v.id} className="space-y-1 py-3">
                 <p>
                   Версия {v.version} · {v.actor_name}
                 </p>
                 <p className="text-muted-foreground">
-                  {new Date(v.created_at).toLocaleString("ru-RU")} · {v.reason}
+                  {formatDayMonthTime(v.created_at)} · {v.reason}
                 </p>
               </li>
             ))}
           </ol>
-        </details>
+        </RuleHistory>
       )}
       {open && data && (
         <Form
@@ -497,6 +512,6 @@ export function SettlementSettingsSection({ venueId }: { venueId: string }) {
           }}
         />
       )}
-    </section>
+    </ProfileSection>
   );
 }

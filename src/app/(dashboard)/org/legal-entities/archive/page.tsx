@@ -1,14 +1,14 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
-import { Button } from "@/components/ui/button";
 import {
   ArchivedLegalEntitiesClient,
   type ArchivedLegalEntityRow,
 } from "./_components/archived-legal-entities-client";
+
+export const metadata: Metadata = { title: "Архив юрлиц" };
 
 export default async function LegalEntitiesArchivePage() {
   const supabase = await createClient();
@@ -33,12 +33,13 @@ export default async function LegalEntitiesArchivePage() {
     .from<Array<{
       id: string;
       name: string;
+      short_name: string | null;
       legal_form: string;
       inn: string | null;
       archived_at: string | null;
       archived_by: string | null;
     }>>("legal_entities")
-    .select("id, name, legal_form, inn, archived_at, archived_by")
+    .select("id, name, short_name, legal_form, inn, archived_at, archived_by")
     .eq("account_id", activeAccountId as string)
     .order("archived_at", { ascending: false });
 
@@ -56,7 +57,8 @@ export default async function LegalEntitiesArchivePage() {
       .select("id, first_name, last_name")
       .in("id", archivedByIds);
     (profiles ?? []).forEach((p) => {
-      const display = `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() || "—";
+      const display = `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim();
+      if (!display) return;
       profileNameMap.set(p.id, display);
     });
   }
@@ -64,38 +66,12 @@ export default async function LegalEntitiesArchivePage() {
   const list: ArchivedLegalEntityRow[] = archived.map((r) => ({
     id: r.id,
     name: r.name,
+    short_name: r.short_name,
     legal_form: r.legal_form,
     inn: r.inn,
     archived_at: r.archived_at,
-    archived_by_name: r.archived_by ? profileNameMap.get(r.archived_by) ?? "—" : "—",
+    archived_by_name: r.archived_by ? profileNameMap.get(r.archived_by) ?? null : null,
   }));
 
-  return (
-    <div className="p-6 md:p-8 w-full max-w-5xl">
-      <Button
-        asChild
-        variant="ghost"
-        size="sm"
-        className="-ml-2 mb-4 gap-1.5 text-muted-foreground hover:text-foreground"
-      >
-        <Link href="/org/legal-entities">
-          <ArrowLeft className="w-4 h-4" />
-          Юрлица
-        </Link>
-      </Button>
-
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold">Архив юрлиц</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Архивированные юрлица скрыты из всех выборов и списков. История
-          по существующим счетам, транзакциям и заведениям сохраняется.
-          Восстановите, чтобы вернуть в работу. «Удалить навсегда» возможно
-          только если у юрлица не осталось финансовых привязок —
-          в большинстве случаев архивации достаточно.
-        </p>
-      </div>
-
-      <ArchivedLegalEntitiesClient rows={list} />
-    </div>
-  );
+  return <ArchivedLegalEntitiesClient rows={list} />;
 }

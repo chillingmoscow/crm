@@ -1,188 +1,407 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import {
+  getCoreRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type ColumnDef,
+} from "@tanstack/react-table";
+import { arrayMove } from "@dnd-kit/sortable";
+import { Archive, ArchiveRestore, FileBadge2, SearchX, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { RotateCcw, AlertTriangle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { HardDeleteConfirmDialog } from "@/components/shared/hard-delete-confirm-dialog";
+import { PageFrame } from "@/components/shared/page-frame";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+  DataTable,
+  ROW_MENU_COLUMN_SIZE,
+  TableColumnManager,
+  TableConditions,
+  TableControls,
+  TableIconButton,
+  TablePageHeader,
+  TablePagination,
+  TableRowMenu,
+  TableSortPicker,
+  useTableState,
+} from "@/components/shared/table";
+import { formatDateCell } from "@/lib/format/date";
 import {
-  HardDeleteConfirmDialog,
-  type DeleteImpact,
-  type DeleteRestriction,
-} from "@/components/shared/hard-delete-confirm-dialog";
-import {
-  restoreLegalEntity,
   deleteLegalEntity,
   getLegalEntityArchiveImpact,
+  restoreLegalEntity,
   type LegalEntityArchiveImpact,
 } from "@/lib/org/legal-entities";
+import { legalFormLabel } from "@/lib/org/legal-entity-labels";
+import {
+  legalEntityDeleteImpact,
+  legalEntityDeleteRestrictions,
+} from "../../[id]/_components/legal-entity-danger-zone";
 
 export type ArchivedLegalEntityRow = {
   id: string;
   name: string;
+  short_name: string | null;
   legal_form: string;
   inn: string | null;
   archived_at: string;
-  archived_by_name: string;
+  archived_by_name: string | null;
 };
 
-const LEGAL_FORM_LABELS: Record<string, string> = {
-  IP: "ИП", OOO: "ООО", AO: "АО", PAO: "ПАО", NKO: "НКО", OTHER: "Иное",
+type ColKey = "name" | "inn" | "archived_at" | "archived_by";
+const labels: Record<ColKey, string> = {
+  name: "Юрлицо",
+  inn: "ИНН",
+  archived_at: "В архиве с",
+  archived_by: "Кто архивировал",
 };
-
-function formatDate(iso: string) {
-  try {
-    return new Intl.DateTimeFormat("ru-RU", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(new Date(iso));
-  } catch {
-    return iso;
-  }
-}
+const columnConfig = [
+  { id: "name", defaultSize: 360 },
+  { id: "inn", defaultSize: 150 },
+  { id: "archived_at", defaultSize: 150 },
+  { id: "archived_by", defaultSize: 200 },
+  { id: "actions", defaultSize: ROW_MENU_COLUMN_SIZE },
+];
+const sortFields: ColKey[] = ["name", "inn", "archived_at", "archived_by"];
+const collator = new Intl.Collator("ru", { sensitivity: "base", numeric: true });
+const displayName = (r: ArchivedLegalEntityRow) => r.short_name?.trim() || r.name;
+const dash = <span className="text-muted-foreground">—</span>;
 
 export function ArchivedLegalEntitiesClient({ rows }: { rows: ArchivedLegalEntityRow[] }) {
   const router = useRouter();
-  const [restorePending, startRestoreTransition] = useTransition();
-  const [restoreTarget, setRestoreTarget] = useState<ArchivedLegalEntityRow | null>(null);
+  const st = useTableState({ tableId: "org.legal-entities.archive", columns: columnConfig });
+  const firstPage = () => st.setPagination((p) => ({ ...p, pageIndex: 0 }));
 
+  const [restoreTarget, setRestoreTarget] = useState<ArchivedLegalEntityRow | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [restoring, startRestore] = useTransition();
   const [deleteTarget, setDeleteTarget] = useState<ArchivedLegalEntityRow | null>(null);
   const [deleteImpact, setDeleteImpact] = useState<LegalEntityArchiveImpact | null>(null);
 
-  const handleOpenDelete = async (row: ArchivedLegalEntityRow) => {
-    setDeleteTarget(row);
+  const q = st.search.toLocaleLowerCase("ru").trim();
+  const filtered = useMemo(
+    () =>
+      rows.filter(
+        (r) =>
+          !q ||
+          [r.name, r.short_name ?? "", r.inn ?? ""].some((v) =>
+            v.toLocaleLowerCase("ru").includes(q),
+          ),
+      ),
+    [rows, q],
+  );
+
+  const openDelete = async (row: ArchivedLegalEntityRow) => {
     setDeleteImpact(null);
-    const impact = await getLegalEntityArchiveImpact(row.id);
-    setDeleteImpact(impact);
+    setDeleteTarget(row);
+    setDeleteImpact(await getLegalEntityArchiveImpact(row.id));
   };
 
-  const handleRestore = (row: ArchivedLegalEntityRow) => {
-    startRestoreTransition(async () => {
-      const result = await restoreLegalEntity(row.id);
-      if (result.error) {
-        toast.error(result.error);
+  const restore = () => {
+    if (!restoreTarget) return;
+    const target = restoreTarget;
+    setRestoreError(null);
+    startRestore(async () => {
+      const { error } = await restoreLegalEntity(target.id);
+      if (error) {
+        setRestoreError(error);
         return;
       }
-      toast.success(`Юрлицо «${row.name}» восстановлено`);
+      toast.success(`Юрлицо «${displayName(target)}» восстановлено`);
       setRestoreTarget(null);
       router.refresh();
     });
   };
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    const result = await deleteLegalEntity(deleteTarget.id, {
-      confirmName: deleteTarget.name,
-    });
-    if (result.error) {
-      toast.error(result.error);
-      return;
-    }
-    toast.success(`Юрлицо «${deleteTarget.name}» удалено`);
-    setDeleteTarget(null);
-    setDeleteImpact(null);
-    router.refresh();
+  const columns: ColumnDef<ArchivedLegalEntityRow>[] = [
+    {
+      id: "name",
+      header: labels.name,
+      size: 360,
+      minSize: 220,
+      enableHiding: false,
+      accessorFn: displayName,
+      sortingFn: (a, b) => collator.compare(displayName(a.original), displayName(b.original)),
+      cell: ({ row }) => {
+        const r = row.original;
+        const subtitle = [legalFormLabel(r.legal_form), r.short_name?.trim() ? r.name : null]
+          .filter(Boolean)
+          .join(" · ");
+        return (
+          <span className="flex min-w-0 items-center gap-3">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <FileBadge2 className="size-4" />
+            </span>
+            <div className="min-w-0">
+              <Link
+                href={`/org/legal-entities/${r.id}`}
+                className="block truncate font-medium hover:underline"
+                data-tip={displayName(r)}
+              >
+                {displayName(r)}
+              </Link>
+              <div className="mt-0.5 truncate text-xs text-muted-foreground" data-tip={subtitle}>
+                {subtitle}
+              </div>
+            </div>
+          </span>
+        );
+      },
+    },
+    {
+      id: "inn",
+      header: labels.inn,
+      size: 150,
+      minSize: 100,
+      accessorFn: (r) => r.inn ?? undefined,
+      sortUndefined: "last",
+      cell: ({ getValue }) => {
+        const v = getValue() as string | undefined;
+        return v ? <span className="tabular-nums">{v}</span> : dash;
+      },
+    },
+    {
+      id: "archived_at",
+      header: labels.archived_at,
+      size: 150,
+      minSize: 120,
+      accessorFn: (r) => r.archived_at,
+      cell: ({ getValue }) => (
+        <span className="tabular-nums">{formatDateCell(getValue() as string) ?? "—"}</span>
+      ),
+    },
+    {
+      id: "archived_by",
+      header: labels.archived_by,
+      size: 200,
+      minSize: 150,
+      accessorFn: (r) => r.archived_by_name ?? undefined,
+      sortUndefined: "last",
+      cell: ({ getValue }) => {
+        const v = getValue() as string | undefined;
+        return v ? <span className="block truncate" data-tip={v}>{v}</span> : dash;
+      },
+    },
+    {
+      id: "actions",
+      size: ROW_MENU_COLUMN_SIZE,
+      minSize: ROW_MENU_COLUMN_SIZE,
+      maxSize: ROW_MENU_COLUMN_SIZE,
+      enableHiding: false,
+      enableResizing: false,
+      cell: ({ row }) => (
+        <TableRowMenu
+          actions={[
+            {
+              label: "Восстановить",
+              icon: <ArchiveRestore />,
+              onSelect: () => {
+                setRestoreError(null);
+                setRestoreTarget(row.original);
+              },
+            },
+            {
+              label: "Удалить навсегда",
+              icon: <Trash2 />,
+              destructive: true,
+              separatorBefore: true,
+              onSelect: () => void openDelete(row.original),
+            },
+          ]}
+        />
+      ),
+    },
+  ];
+
+  const table = useReactTable({
+    data: filtered,
+    columns,
+    state: {
+      sorting: st.sorting,
+      pagination: st.pagination,
+      columnVisibility: { ...st.columnVisibility, name: true, actions: true },
+      columnOrder: st.columnOrder,
+      columnSizing: st.columnSizing,
+    },
+    onSortingChange: st.setSorting,
+    onPaginationChange: st.setPagination,
+    onColumnVisibilityChange: st.setColumnVisibility,
+    onColumnSizingChange: st.setColumnSizing,
+    getRowId: (r) => r.id,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    autoResetPageIndex: false,
+  });
+  const changeSorting = (next: typeof st.sorting) => {
+    st.setSorting(next);
+    firstPage();
+  };
+  const resetConditions = () => {
+    st.setSearch("");
+    st.setSorting([]);
+    firstPage();
   };
 
-  if (rows.length === 0) {
-    return (
-      <div className="rounded-md border bg-muted/20 px-6 py-12 text-center">
-        <p className="text-sm text-muted-foreground">Архив пуст</p>
-      </div>
-    );
-  }
-
   return (
-    <>
-      <div className="overflow-hidden rounded-md border">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-            <tr>
-              <th className="px-3 py-2 text-left font-medium">Название</th>
-              <th className="px-3 py-2 text-left font-medium">Форма</th>
-              <th className="px-3 py-2 text-left font-medium">ИНН</th>
-              <th className="px-3 py-2 text-left font-medium">Архивировано</th>
-              <th className="px-3 py-2 text-left font-medium">Кем</th>
-              <th className="px-3 py-2 text-right font-medium">Действия</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.id} className="border-t">
-                <td className="px-3 py-2.5 font-medium">{row.name}</td>
-                <td className="px-3 py-2.5 text-muted-foreground">
-                  {LEGAL_FORM_LABELS[row.legal_form] ?? row.legal_form}
-                </td>
-                <td className="px-3 py-2.5 text-muted-foreground">{row.inn ?? "—"}</td>
-                <td className="px-3 py-2.5 text-muted-foreground">{formatDate(row.archived_at)}</td>
-                <td className="px-3 py-2.5 text-muted-foreground">{row.archived_by_name}</td>
-                <td className="px-3 py-2.5">
-                  <div className="flex items-center justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setRestoreTarget(row)}
-                      disabled={restorePending}
-                    >
-                      <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                      Восстановить
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
-                      onClick={() => handleOpenDelete(row)}
-                    >
-                      <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />
-                      Удалить навсегда
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+    <PageFrame className="flex min-w-0 flex-col gap-4">
+      <Breadcrumbs
+        items={[
+          { label: "Организация" },
+          { label: "Юридические лица", href: "/org/legal-entities" },
+          { label: "Архив" },
+        ]}
+      />
+      <TablePageHeader
+        title="Юридические лица в архиве"
+        count={q ? `${filtered.length} из ${rows.length}` : rows.length}
+        actions={
+          <TableControls
+            search={{
+              value: st.search,
+              onChange: (v) => {
+                st.setSearch(v);
+                firstPage();
+              },
+              open: st.searchOpen,
+              onOpenChange: st.setSearchOpen,
+              placeholder: "Название или ИНН",
+            }}
+            sort={{
+              active: st.sorting.length > 0,
+              content: (
+                <TableSortPicker
+                  sorting={st.sorting}
+                  onChange={changeSorting}
+                  fields={sortFields}
+                  labels={labels}
+                />
+              ),
+            }}
+            columns={{
+              content: (
+                <TableColumnManager
+                  columns={st.columnOrder
+                    .filter((id) => id !== "actions")
+                    .map((id) => {
+                      const c = table.getColumn(id)!;
+                      return {
+                        id,
+                        label: labels[id as ColKey],
+                        visible: c.getIsVisible(),
+                        canHide: c.getCanHide(),
+                      };
+                    })}
+                  onVisibilityChange={(id, v) => table.getColumn(id)?.toggleVisibility(v)}
+                  onMoveColumn={(a, b) =>
+                    st.setColumnOrder((order) => arrayMove(order, order.indexOf(a), order.indexOf(b)))
+                  }
+                  onReset={st.resetColumns}
+                />
+              ),
+            }}
+            secondaryActions={
+              <TableIconButton
+                label="Вернуться к действующим юрлицам"
+                active
+                onClick={() => router.push("/org/legal-entities")}
+              >
+                <Archive />
+              </TableIconButton>
+            }
+          />
+        }
+      />
+      <TableConditions
+        label="Условия архива юрлиц"
+        open={false}
+        hasFilters={false}
+        sorting={st.sorting}
+        onSortingChange={changeSorting}
+        sortFields={sortFields}
+        sortLabels={labels}
+        search={st.search}
+        onSearchClear={() => {
+          st.setSearch("");
+          firstPage();
+        }}
+        onReset={resetConditions}
+      />
 
-      <AlertDialog open={!!restoreTarget} onOpenChange={(open) => !open && setRestoreTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Восстановить юрлицо?</AlertDialogTitle>
-            <AlertDialogDescription>
-              «{restoreTarget?.name}» снова появится во всех выборах и списках.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={restorePending}>Отмена</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                if (restoreTarget) handleRestore(restoreTarget);
-              }}
-              disabled={restorePending}
-            >
-              Восстановить
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {rows.length === 0 ? (
+        <EmptyState
+          icon={Archive}
+          title="Архив пуст"
+          description="Сюда попадают юрлица, которые больше не используются. Их история сохраняется"
+          action={
+            <Button variant="outline" onClick={() => router.push("/org/legal-entities")}>
+              К действующим юрлицам
+            </Button>
+          }
+        />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon={SearchX}
+          title="Юрлица не найдены"
+          description="Измените условия поиска"
+          action={
+            <Button variant="outline" onClick={resetConditions}>
+              Очистить все
+            </Button>
+          }
+        />
+      ) : (
+        <>
+          <DataTable
+            table={table}
+            label="Юридические лица в архиве"
+            labels={labels}
+            onColumnSizingChange={st.setColumnSizing}
+            sorting={st.sorting}
+            onSortingChange={changeSorting}
+            sortable={sortFields}
+            onRowClick={(row) => router.push(`/org/legal-entities/${row.original.id}`)}
+            empty={null}
+            mobile={{ label: "Карточки юрлиц в архиве", nameColumn: "name" }}
+          />
+          <TablePagination
+            pageIndex={st.pagination.pageIndex}
+            pageSize={st.pagination.pageSize}
+            total={filtered.length}
+            onPageChange={(pageIndex) => st.setPagination((p) => ({ ...p, pageIndex }))}
+            onPageSizeChange={(pageSize) => st.setPagination({ pageIndex: 0, pageSize })}
+          />
+        </>
+      )}
+
+      <ConfirmDialog
+        open={!!restoreTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRestoreTarget(null);
+            setRestoreError(null);
+          }
+        }}
+        title={restoreTarget ? `Восстановить юрлицо «${displayName(restoreTarget)}»?` : ""}
+        description="Юрлицо снова появится в выборах при создании счетов, операций и заведений"
+        confirmLabel="Восстановить юрлицо"
+        pendingLabel="Восстанавливаем…"
+        busy={restoring}
+        error={restoreError}
+        onConfirm={restore}
+      />
 
       {deleteTarget ? (
         <HardDeleteConfirmDialog
-          open={!!deleteTarget}
+          open
           onOpenChange={(open) => {
             if (!open) {
               setDeleteTarget(null);
@@ -191,45 +410,20 @@ export function ArchivedLegalEntitiesClient({ rows }: { rows: ArchivedLegalEntit
           }}
           entityGenitive="юрлицо"
           entityName={deleteTarget.name}
-          impact={buildDeleteImpact(deleteImpact)}
-          restrictedBy={buildRestrictedBy(deleteImpact)}
-          onConfirm={handleDelete}
+          impact={deleteImpact ? legalEntityDeleteImpact(deleteImpact) : []}
+          restrictedBy={deleteImpact ? legalEntityDeleteRestrictions(deleteImpact) : []}
+          onConfirm={async () => {
+            const result = await deleteLegalEntity(deleteTarget.id, {
+              confirmName: deleteTarget.name,
+            });
+            if (result.error) return { error: result.error };
+            toast.success(`Юрлицо «${displayName(deleteTarget)}» удалено`);
+            setDeleteTarget(null);
+            setDeleteImpact(null);
+            router.refresh();
+          }}
         />
       ) : null}
-    </>
+    </PageFrame>
   );
-}
-
-function buildDeleteImpact(impact: LegalEntityArchiveImpact | null): DeleteImpact[] {
-  if (!impact) return [];
-  return [
-    { label: "Документов", count: impact.attachments, tone: "cascade" },
-  ];
-}
-
-function buildRestrictedBy(impact: LegalEntityArchiveImpact | null): DeleteRestriction[] {
-  if (!impact) return [];
-  const out: DeleteRestriction[] = [];
-  if (impact.bankAccounts > 0) {
-    out.push({
-      label: "Банк-счетов",
-      count: impact.bankAccounts,
-      hint: "Удалите или перепривяжите счета к другому юрлицу.",
-    });
-  }
-  if (impact.transactions > 0) {
-    out.push({
-      label: "Транзакций",
-      count: impact.transactions,
-      hint: "Финансовая история блокирует — используйте «Восстановить» и продолжайте архивировать.",
-    });
-  }
-  if (impact.venuesAsDefault > 0) {
-    out.push({
-      label: "Заведений",
-      count: impact.venuesAsDefault,
-      hint: "Смените юрлицо по умолчанию в карточке каждого заведения.",
-    });
-  }
-  return out;
 }

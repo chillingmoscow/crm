@@ -48,7 +48,7 @@ export function AuditEventRow({
       : "female";
 
   return (
-    <li className="flex items-start gap-3 px-4 py-3 border-b last:border-b-0 hover:bg-accent/40 transition-colors">
+    <li className="flex items-start gap-3 border-b px-4 py-3 transition-colors last:border-b-0 hover:bg-muted/30">
       <span
         className={cn(
           "shrink-0 inline-flex items-center justify-center size-8 rounded-full mt-0.5",
@@ -65,7 +65,7 @@ export function AuditEventRow({
           <span className="text-foreground">{genderizeNode(headline, gender)}</span>
         </div>
         {details && <div className="pl-0.5">{genderizeNode(details, gender)}</div>}
-        <div className="text-[12px] text-muted-foreground flex items-center gap-2 flex-wrap">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <time
             dateTime={event.created_at}
             data-tip={new Date(event.created_at).toLocaleString("ru-RU", {

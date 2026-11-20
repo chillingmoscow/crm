@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { autoRecalculateInventoryDeduction } from "../deduction-service";
 import { getCachedPermissionChecker } from "@/lib/supabase/server";
+import { writeAuditEvent, writeAuditEvents } from "@/lib/audit/write";
 import {
   actionErrorMessage,
   assertDocumentVisible,
@@ -53,17 +54,18 @@ export async function deleteInventoryDocument(input: {
     await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
 
     const { data: deleted, error } = await admin
-      .from<Array<{ id: string }>>("documents")
+      .from<DeletedDocument[]>("documents")
       .delete()
       .eq("id", input.documentId)
       .eq("account_id", ctx.accountId)
       .neq("status", "processed")
       .is("results_snapshot_at", null)
-      .select("id");
+      .select(DELETED_DOCUMENT_COLUMNS);
     if (error) return { error: error.message };
     // Ноль удалённых строк при видимом акте = сработало условие: акт успели
     // провести или зафиксировать.
     if ((deleted ?? []).length === 0) return { error: DELETE_BLOCKED_MESSAGE };
+    if (ctx.user) await logDeletedDocuments(admin, ctx, deleted ?? []);
     revalidatePath("/documents/inventory");
     return { error: null };
   } catch (e) {
@@ -101,14 +103,15 @@ export async function bulkDeleteInventoryDocuments(input: {
     if (visibleIds.length === 0) return { deleted: 0, error: "Акты не найдены" };
 
     const { data: deletedRows, error } = await admin
-      .from<Array<{ id: string }>>("documents")
+      .from<DeletedDocument[]>("documents")
       .delete()
       .eq("account_id", ctx.accountId)
       .in("id", visibleIds)
       .neq("status", "processed")
       .is("results_snapshot_at", null)
-      .select("id");
+      .select(DELETED_DOCUMENT_COLUMNS);
     if (error) return { deleted: 0, error: error.message };
+    if (ctx.user) await logDeletedDocuments(admin, ctx, deletedRows ?? []);
 
     const deletedCount = (deletedRows ?? []).length;
     if (deletedCount === 0) return { deleted: 0, error: DELETE_BLOCKED_MESSAGE };
@@ -148,10 +151,17 @@ export async function updateInventoryDocumentNote(input: {
   try {
     await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
     const { data: document } = await admin
-      .from<{ id: string; assigned_to: string | null; reviewer_id: string | null; archived_at: string | null }>(
-        "documents",
-      )
-      .select("id, assigned_to, reviewer_id, archived_at")
+      .from<{
+        id: string;
+        assigned_to: string | null;
+        reviewer_id: string | null;
+        archived_at: string | null;
+        note: string | null;
+        document_number: string | null;
+        invoice_date: string | null;
+        venue_id: string | null;
+      }>("documents")
+      .select("id, assigned_to, reviewer_id, archived_at, note, document_number, invoice_date, venue_id")
       .eq("id", input.documentId)
       .eq("account_id", ctx.accountId)
       .maybeSingle();
@@ -166,12 +176,27 @@ export async function updateInventoryDocumentNote(input: {
     if (!canEdit) throw new Error("Недостаточно прав для редактирования комментария");
 
     const note = text(input.note);
+    if ((document.note ?? null) === (note ?? null)) return { error: null };
     const { error } = await admin
       .from("documents")
       .update({ note })
       .eq("id", input.documentId)
       .eq("account_id", ctx.accountId);
     if (error) throw new Error(error.message);
+
+    await writeAuditEvent({
+      accountId: ctx.accountId,
+      venueId: document.venue_id ?? ctx.venueId,
+      userId: ctx.user.id,
+      actionCode: "inventory.document_note_updated",
+      entityType: "inventory_document",
+      entityId: input.documentId,
+      details: {
+        number: document.document_number,
+        date: document.invoice_date,
+        changes: [{ field: "note", old: document.note, new: note }],
+      },
+    });
 
     revalidatePath(`/documents/inventory/${input.documentId}/overview`);
     return { error: null };
@@ -202,8 +227,8 @@ export async function updateInventoryStoreVenue(input: {
 
   // Прежнее заведение: после смены удержания надо пересчитать и в нём (акты склада из него ушли).
   const { data: before } = await admin
-    .from<{ local_venue_id: string | null }>("stores")
-    .select("local_venue_id")
+    .from<{ local_venue_id: string | null; title: string | null }>("stores")
+    .select("local_venue_id, title")
     .eq("id", input.storeId)
     .eq("account_id", ctx.accountId)
     .maybeSingle();
@@ -215,6 +240,26 @@ export async function updateInventoryStoreVenue(input: {
     .eq("account_id", ctx.accountId);
 
   if (error) return { error: error.message };
+
+  if (ctx.user && (before?.local_venue_id ?? null) !== (input.venueId || null)) {
+    const venueNames = await venueNamesById(admin, ctx.accountId, [
+      before?.local_venue_id ?? null,
+      input.venueId || null,
+    ]);
+    await writeAuditEvent({
+      accountId: ctx.accountId,
+      venueId: input.venueId || before?.local_venue_id || ctx.venueId,
+      userId: ctx.user.id,
+      actionCode: "store.venue_changed",
+      entityType: "store",
+      entityId: input.storeId,
+      details: {
+        title: before?.title ?? null,
+        old_venue_name: before?.local_venue_id ? venueNames.get(before.local_venue_id) ?? null : null,
+        new_venue_name: input.venueId ? venueNames.get(input.venueId) ?? null : null,
+      },
+    });
+  }
 
   // Пропагация venue в documents.venue_id — на уровне БД (триггер
   // trg_stores_propagate_venue_to_documents, миграция 194), атомарно
@@ -298,12 +343,55 @@ export async function updateInventoryStoreDepartment(input: {
     // RPC, а не прямой UPDATE: authenticated не имеет права писать в stores, а
     // история изменений привязки пишется триггером от имени вызывающего
     // (auth.uid()), поэтому вызываем клиентом пользователя, не service-role.
+    const { data: storeBefore } = await admin
+      .from<{
+        title: string | null;
+        local_venue_id: string | null;
+        department_scope: string | null;
+        department_id: string | null;
+      }>("stores")
+      .select("title, local_venue_id, department_scope, department_id")
+      .eq("id", input.storeId)
+      .eq("account_id", ctx.accountId)
+      .maybeSingle();
+
     const { error } = await asLooseDb(ctx.supabase).rpc("set_store_department", {
       p_store_id: input.storeId,
       p_scope: input.scope,
       p_department_id: input.departmentId || null,
     });
     if (error) return { error: error.message };
+
+    if (
+      ctx.user &&
+      storeBefore &&
+      (storeBefore.department_scope !== input.scope ||
+        (storeBefore.department_id ?? null) !== (input.departmentId || null))
+    ) {
+      let departmentName: string | null = null;
+      if (input.departmentId) {
+        const { data: department } = await admin
+          .from<{ name: string | null }>("departments")
+          .select("name")
+          .eq("id", input.departmentId)
+          .maybeSingle();
+        departmentName = department?.name ?? null;
+      }
+      await writeAuditEvent({
+        accountId: ctx.accountId,
+        venueId: storeBefore.local_venue_id ?? ctx.venueId,
+        userId: ctx.user.id,
+        actionCode: "store.department_changed",
+        entityType: "store",
+        entityId: input.storeId,
+        details: {
+          title: storeBefore.title,
+          old_scope: storeBefore.department_scope,
+          new_scope: input.scope,
+          new_department_name: departmentName,
+        },
+      });
+    }
 
     // Привязка склада меняет плательщика в месяцах его актов. Выключено по умолчанию
     // (INVENTORY_DEDUCTION_AUTOPOST); привязка уже сохранена и от пересчёта не зависит.
@@ -314,4 +402,59 @@ export async function updateInventoryStoreDepartment(input: {
   } catch (error) {
     return { error: actionErrorMessage(error, "Не удалось сохранить привязку склада") };
   }
+}
+
+const DELETED_DOCUMENT_COLUMNS =
+  "id, document_number, invoice_date, venue_id, store:stores(title)";
+
+type DeletedDocument = {
+  id: string;
+  document_number: string | null;
+  invoice_date: string | null;
+  venue_id: string | null;
+  store: { title: string | null } | Array<{ title: string | null }> | null;
+};
+
+/** Удалённый акт уносит каскадом и свой журнал решений, поэтому след
+ *  остаётся только в общем журнале: номер, дата и склад на момент удаления. */
+async function logDeletedDocuments(
+  admin: ReturnType<typeof asLooseDb>,
+  ctx: { accountId: string | null; venueId: string | null; user: { id: string } | null },
+  rows: DeletedDocument[],
+) {
+  const { accountId, user } = ctx;
+  if (!accountId || !user) return;
+  await writeAuditEvents(
+    rows.map((row) => {
+      const store = Array.isArray(row.store) ? row.store[0] : row.store;
+      return {
+        accountId,
+        venueId: row.venue_id ?? ctx.venueId,
+        userId: user.id,
+        actionCode: "inventory.document_deleted",
+        entityType: "inventory_document",
+        entityId: row.id,
+        details: {
+          number: row.document_number,
+          date: row.invoice_date,
+          store_title: store?.title ?? null,
+        },
+      };
+    }),
+  );
+}
+
+async function venueNamesById(
+  admin: ReturnType<typeof asLooseDb>,
+  accountId: string,
+  ids: Array<string | null>,
+): Promise<Map<string, string>> {
+  const wanted = ids.filter((id): id is string => Boolean(id));
+  if (wanted.length === 0) return new Map();
+  const { data } = await admin
+    .from<Array<{ id: string; name: string }>>("venues")
+    .select("id, name")
+    .eq("account_id", accountId)
+    .in("id", wanted);
+  return new Map((data ?? []).map((v) => [v.id, v.name]));
 }

@@ -5,6 +5,8 @@ import { StaffHelp } from "@/app/(dashboard)/people/staff/_components/staff-help
 import { CandidatesHelp } from "@/app/(dashboard)/people/candidates/_components/candidates-help";
 import { RolesHelp } from "@/app/(dashboard)/people/roles/_components/roles-help";
 import { DepartmentsHelp } from "@/app/(dashboard)/people/departments/_components/departments-help";
+import { LegalEntitiesHelp } from "@/app/(dashboard)/org/legal-entities/_components/legal-entities-help";
+import { VenuesHelp } from "@/app/(dashboard)/org/venues/_components/venues-help";
 import { AttendanceHelp } from "@/app/(dashboard)/schedule/attendance/attendance-help";
 import {
   ScheduleHelp,
@@ -17,6 +19,7 @@ import { SalesShiftsHelp } from "@/app/(dashboard)/sales/shifts/_components/sale
 import { IntegrationsHelp, OfficeCodesHelp, QuickRestoHelp, TelegramHelp, TildaHelp } from "@/app/(dashboard)/settings/integrations/_components/integrations-help";
 
 import { InventoryActsHelp } from "@/app/(dashboard)/documents/inventory/_components/inventory-acts-help";
+import { AuditHelp } from "@/app/(dashboard)/org/audit/_components/audit-help";
 
 /**
  * Реестр контекстной справки для кнопки «?» в топ-баре (page-help-button).
@@ -52,15 +55,20 @@ export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
   { match: p => p === "/people/roles" || p.startsWith("/people/roles/"), title: "Должности", Content: RolesHelp },
   { match: p => p === "/people/departments" || p.startsWith("/people/departments/"), title: "Подразделения", Content: DepartmentsHelp },
   { match: p => p === "/notifications", title: "Уведомления", Content: NotificationsHelp },
+  { match: p => p === "/org/legal-entities" || p.startsWith("/org/legal-entities/"), title: "Юридические лица", Content: LegalEntitiesHelp },
+  // /org/venues/[id]/payroll — «Условия оплаты», к ним относится справка «Зарплаты» ниже.
+  { match: p => p === "/org/venues" || (p.startsWith("/org/venues/") && !p.endsWith("/payroll")), title: "Заведения", Content: VenuesHelp },
   { match: (p) => p === "/schedule", title: "Расписание", Content: ScheduleHelp },
   { match: (p) => p === "/schedule/templates", title: "Шаблоны смен", Content: ScheduleTemplatesHelp },
   { match: (p) => p === "/schedule/tasks", title: "Задачи", Content: ScheduleTasksHelp },
   { match: (p) => p === "/schedule/attendance", title: "Сверка отметок", Content: AttendanceHelp },
   {
-    // Ведомость — /people/payroll, расчёт сотрудника — /people/payroll/[id].
+    // Ведомость — /people/payroll, расчёт сотрудника — /people/payroll/[id],
+    // условия оплаты заведения — /org/venues/[id]/payroll.
     match: (p) =>
       p === "/people/payroll" ||
-      p.startsWith("/people/payroll/"),
+      p.startsWith("/people/payroll/") ||
+      /^\/org\/venues\/[^/]+\/payroll$/.test(p),
     title: "Зарплата",
     Content: PayrollHelp,
   },
@@ -75,6 +83,7 @@ export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
     title: "Акты инвентаризации",
     Content: InventoryActsHelp,
   },
+  { match: (p) => p === "/org/audit", title: "Журнал событий", Content: AuditHelp },
 ];
 
 /** Справка для текущего пути или null, если её нет. */

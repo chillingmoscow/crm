@@ -39,6 +39,7 @@ import {
 import { updateOwnProfile, type OwnProfile } from "../actions";
 import { requestEmailChange } from "../email-change-actions";
 import { personInitials } from "@/lib/format/initials";
+import { avatarImageUrl } from "@/lib/people/avatar-thumb";
 
 const schema = z.object({
   first_name:  z.string().min(1, "Обязательное поле"),
@@ -411,7 +412,7 @@ export function ProfileSettingsPage({
             <div className="relative">
               {avatarUrl ? (
                 <img
-                  src={avatarUrl}
+                  src={avatarImageUrl(avatarUrl, 256)}
                   alt={displayName}
                   className="w-28 h-28 rounded-full object-cover bg-muted ring-1 ring-border"
                 />

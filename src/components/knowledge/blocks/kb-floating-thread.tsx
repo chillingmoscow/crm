@@ -42,6 +42,7 @@ import {
 } from "@/components/knowledge/blocks/kb-comment-mention-dropdown";
 import { KbMobileCommentSheet } from "@/components/knowledge/blocks/kb-mobile-comment-sheet";
 import { personInitials } from "@/lib/format/initials";
+import { avatarImageUrl } from "@/lib/people/avatar-thumb";
 
 /**
  * Custom Notion-style thread popover с поддержкой:
@@ -765,7 +766,7 @@ function Avatar({
   const inner = user?.avatarUrl ? (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={user.avatarUrl}
+      src={avatarImageUrl(user.avatarUrl, 96)}
       alt=""
       className="size-7 rounded-full object-cover bg-muted shrink-0"
     />
@@ -844,7 +845,7 @@ function CommentBodyRenderer({ body }: { body: unknown }) {
                     {avatarUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={avatarUrl}
+                        src={avatarImageUrl(avatarUrl, 96)}
                         alt=""
                         className="size-[14px] rounded-full object-cover bg-muted shrink-0"
                       />

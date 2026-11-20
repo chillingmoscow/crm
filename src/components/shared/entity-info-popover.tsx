@@ -30,6 +30,7 @@ import {
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { pluralRu } from "@/lib/format/plural";
 import { personInitials } from "@/lib/format/initials";
+import { avatarImageUrl } from "@/lib/people/avatar-thumb";
 
 interface EntityInfoPopoverProps {
   /** Заголовок попапа: «О должности», «О сотруднике» и т.д. */
@@ -109,7 +110,7 @@ function MiniAvatar({
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={avatarUrl}
+        src={avatarImageUrl(avatarUrl, 64)}
         alt={name ?? ""}
         className="size-4 rounded-full object-cover bg-muted shrink-0"
       />

@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { validDate } from "@/lib/sales/time";
 import { z } from "zod";
+import { mediaUrl } from "@/lib/storage/media";
 
 async function db() {
   const client = await createClient();
@@ -127,7 +128,7 @@ export async function loadPayrollEntry(
   id: string,
 ): Promise<PayrollEntryDetail> {
   uuid.parse(id);
-  const { client, database } = await db();
+  const { database } = await db();
   // Parent RLS prevents probing attachments for another employee or venue.
   const parent = await database
     .from<{id:string;created_at:string;created_by:string|null;managed:boolean}>("payroll_adjustments")
@@ -192,15 +193,13 @@ export async function loadPayrollEntry(
     notification: !notification.error && notification.data?.state === "error"
       ? { final: notification.data.attempts >= NOTIFY_MAX_ATTEMPTS, last_error: notification.data.last_error }
       : null,
-    photos: await Promise.all(
-      (photos.data ?? []).map(async (p) => {
-        const signed = await client.storage
-          .from("payroll-photos")
-          .createSignedUrl(p.storage_path, 900);
-        if (signed.error) throw new Error(signed.error.message);
-        return { id: p.id, name: p.name, url: signed.data.signedUrl };
-      }),
-    ),
+    // Строки фото уже отобраны с правами пользователя; файл читается от его
+    // имени. Постоянный адрес — браузер держит фото месяц.
+    photos: (photos.data ?? []).map((p) => ({
+      id: p.id,
+      name: p.name,
+      url: mediaUrl("payroll-photos", p.storage_path),
+    })),
   };
 }
 export async function uploadPayrollPhoto(id: string, form: FormData) {

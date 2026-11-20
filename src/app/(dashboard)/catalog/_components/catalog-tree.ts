@@ -13,7 +13,10 @@ export type CatalogGroup = {
   externalId: string;
   name: string;
   parentGroupId: string | null;
+  /** Уменьшенная копия фото для строки. */
   imageUrl: string | null;
+  /** Крупная копия для просмотра при наведении. */
+  previewUrl: string | null;
 };
 
 export type CatalogProduct = {
@@ -26,7 +29,10 @@ export type CatalogProduct = {
   currentPrimeCost: number | null;
   storeQuantity: number | null;
   groupId: string | null;
+  /** Уменьшенная копия фото для строки. */
   imageUrl: string | null;
+  /** Крупная копия для просмотра при наведении. */
+  previewUrl: string | null;
   /** Удалена в Quick Resto: видна только в архиве. */
   archived: boolean;
 };

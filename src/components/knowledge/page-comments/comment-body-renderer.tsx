@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { personInitials } from "@/lib/format/initials";
+import { avatarImageUrl } from "@/lib/people/avatar-thumb";
 
 /**
  * Read-only рендер BlockNote CommentBody для page-level комментариев.
@@ -57,7 +58,7 @@ export function CommentBodyRenderer({ body }: { body: unknown }) {
                     {avatarUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={avatarUrl}
+                        src={avatarImageUrl(avatarUrl, 64)}
                         alt=""
                         className="size-[14px] rounded-full object-cover bg-muted shrink-0"
                       />

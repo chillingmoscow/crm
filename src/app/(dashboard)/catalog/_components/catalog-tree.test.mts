@@ -16,6 +16,7 @@ const group = (id: string, name: string, parentGroupId: string | null = null): C
   name,
   parentGroupId,
   imageUrl: null,
+  previewUrl: null,
 });
 
 const product = (
@@ -34,6 +35,7 @@ const product = (
   storeQuantity: null,
   groupId,
   imageUrl: null,
+  previewUrl: null,
   archived: false,
   ...extra,
 });

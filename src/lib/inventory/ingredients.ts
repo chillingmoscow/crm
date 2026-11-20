@@ -2,6 +2,7 @@ import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { mediaUrl } from "@/lib/storage/media";
 import {
   buildIngredientHistory,
   frozenDocumentIds,
@@ -92,7 +93,8 @@ type ProductRow = {
   archived_at: string | null;
 };
 
-async function signImageUrl(accountId: string, fileId: string | null): Promise<string | null> {
+/** Постоянный адрес фото позиции (`mediaUrl`): браузер держит его месяц. */
+async function productImageUrl(accountId: string, fileId: string | null): Promise<string | null> {
   if (!fileId) return null;
   const admin = asLooseDb(createAdminClient());
   const { data: file } = await admin
@@ -102,10 +104,8 @@ async function signImageUrl(accountId: string, fileId: string | null): Promise<s
     .eq("id", fileId)
     .maybeSingle();
   if (!file?.storage_path) return null;
-  const { data: signed } = await admin.storage
-    .from("account-attachments")
-    .createSignedUrl(file.storage_path, 60 * 60);
-  return signed?.signedUrl ?? null;
+  // Доступ проверил вызывающий (право на номенклатуру, файл этого аккаунта).
+  return mediaUrl("account-attachments", file.storage_path, { access: "admin" });
 }
 
 export async function getIngredientDetail(
@@ -138,7 +138,7 @@ export async function getIngredientDetail(
     groupName = group?.name ?? null;
   }
 
-  const imageUrl = await signImageUrl(accountId, product.primary_image_file_id);
+  const imageUrl = await productImageUrl(accountId, product.primary_image_file_id);
 
   return {
     id: product.id,

@@ -10,6 +10,7 @@ import {
   type KbCommentMention,
 } from "@/components/knowledge/blocks/kb-comment-mention-dropdown";
 import { personInitials } from "@/lib/format/initials";
+import { avatarImageUrl } from "@/lib/people/avatar-thumb";
 
 interface PageCommentComposerProps {
   currentUserName: string | null;
@@ -130,7 +131,7 @@ export function PageCommentComposer({
       {currentUserAvatarUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={currentUserAvatarUrl}
+          src={avatarImageUrl(currentUserAvatarUrl, 96)}
           alt=""
           className="size-6 rounded-full object-cover bg-muted shrink-0"
         />

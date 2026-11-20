@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { History } from "lucide-react";
 import { formatAmount } from "@/lib/format/amount";
 import { personInitials } from "@/lib/format/initials";
+import { avatarImageUrl } from "@/lib/people/avatar-thumb";
 
 export type InventoryResultJournalEvent = {
   id: string;
@@ -165,7 +166,7 @@ export function InventoryResultJournal({
           <div key={event.id} className="flex gap-3 rounded-lg border bg-card p-3 text-sm">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-medium">
               {event.actor?.avatar_url ? (
-                <img src={event.actor.avatar_url} alt="" className="h-full w-full object-cover" />
+                <img src={avatarImageUrl(event.actor.avatar_url, 96)} alt="" className="h-full w-full object-cover" />
               ) : (
                 actorInitials(event.actor, event.created_by)
               )}

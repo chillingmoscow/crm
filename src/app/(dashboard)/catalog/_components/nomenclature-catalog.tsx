@@ -10,6 +10,7 @@ import {
 } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { chunk, fetchAllRows } from "@/lib/supabase/fetch-all";
+import { mediaUrl } from "@/lib/storage/media";
 import { CatalogTable } from "./catalog-table";
 import type { CatalogGroup, CatalogProduct } from "./catalog-tree";
 
@@ -35,14 +36,18 @@ type ProductRow = {
   archived_at: string | null;
 };
 
+type ImageUrls = { thumb: string; preview: string };
+
 /**
- * Подписанные ссылки на фото. id и пути режем на части: фото может быть у
- * каждой из тысячи позиций, а список id в `.in(...)` уходит в URL запроса.
+ * Адреса фото: уменьшенная копия для строки и крупная для просмотра при
+ * наведении. Адреса постоянные (`mediaUrl`) — браузер держит фото месяц.
+ * id режем на части: фото может быть у каждой из тысячи позиций, а список id
+ * в `.in(...)` уходит в URL запроса.
  */
-async function createSignedImageUrls(accountId: string, fileIds: string[]) {
+async function loadImageUrls(accountId: string, fileIds: string[]) {
   const uniqueIds = Array.from(new Set(fileIds.filter(Boolean)));
-  const imageUrlByFileId = new Map<string, string>();
-  if (uniqueIds.length === 0) return imageUrlByFileId;
+  const urlsByFileId = new Map<string, ImageUrls>();
+  if (uniqueIds.length === 0) return urlsByFileId;
 
   const admin = asLooseDb(createAdminClient());
   const fileRows = (
@@ -57,25 +62,22 @@ async function createSignedImageUrls(accountId: string, fileIds: string[]) {
       }),
     )
   ).flat();
-  if (fileRows.length === 0) return imageUrlByFileId;
 
-  // Батч-подпись: один запрос к storage на пачку путей вместо N round-trip'ов
-  // (createSignedUrl в Promise.all раньше тормозил каталог и refresh после
-  // загрузки фото). Реальный клиент: у loose-обёртки нет типа createSignedUrls.
-  const storage = createAdminClient().storage.from("account-attachments");
-  const signedByPath = new Map<string, string>();
-  for (const paths of chunk(fileRows.map((file) => file.storage_path), 500)) {
-    const { data: signedList } = await storage.createSignedUrls(paths, 60 * 60);
-    for (const entry of signedList ?? []) {
-      if (entry.path && entry.signedUrl) signedByPath.set(entry.path, entry.signedUrl);
-    }
-  }
+  // Доступ проверен выше (право на номенклатуру, файл этого аккаунта) —
+  // файл читается служебным ключом, как и раньше подпись.
   for (const file of fileRows) {
-    const url = signedByPath.get(file.storage_path);
-    if (url) imageUrlByFileId.set(file.id, url);
+    urlsByFileId.set(file.id, {
+      thumb: mediaUrl("account-attachments", file.storage_path, {
+        access: "admin",
+        transform: { width: 96, height: 96, resize: "cover" },
+      }),
+      preview: mediaUrl("account-attachments", file.storage_path, {
+        access: "admin",
+        transform: { width: 640, resize: "contain" },
+      }),
+    });
   }
-
-  return imageUrlByFileId;
+  return urlsByFileId;
 }
 
 /**
@@ -190,7 +192,7 @@ export async function NomenclatureCatalog({
   const productRows = products.filter(
     (row) => row.archived_at || !venueIngredientIds || venueIngredientIds.has(row.id),
   );
-  const imageUrlByFileId = await createSignedImageUrls(
+  const imageUrlByFileId = await loadImageUrls(
     accountId,
     [
       ...groups.map((group) => group.primary_image_file_id ?? ""),
@@ -204,7 +206,10 @@ export async function NomenclatureCatalog({
     name: group.name,
     parentGroupId: group.parent_group_id,
     imageUrl: group.primary_image_file_id
-      ? imageUrlByFileId.get(group.primary_image_file_id) ?? null
+      ? imageUrlByFileId.get(group.primary_image_file_id)?.thumb ?? null
+      : null,
+    previewUrl: group.primary_image_file_id
+      ? imageUrlByFileId.get(group.primary_image_file_id)?.preview ?? null
       : null,
   }));
 
@@ -219,7 +224,10 @@ export async function NomenclatureCatalog({
     storeQuantity: product.store_quantity_kg,
     groupId: product.group_id,
     imageUrl: product.primary_image_file_id
-      ? imageUrlByFileId.get(product.primary_image_file_id) ?? null
+      ? imageUrlByFileId.get(product.primary_image_file_id)?.thumb ?? null
+      : null,
+    previewUrl: product.primary_image_file_id
+      ? imageUrlByFileId.get(product.primary_image_file_id)?.preview ?? null
       : null,
     archived: Boolean(product.archived_at),
   }));

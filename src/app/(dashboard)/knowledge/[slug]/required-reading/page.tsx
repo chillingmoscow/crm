@@ -11,6 +11,7 @@ import {
   type KbRequiredReadingStatsRow,
 } from "@/lib/knowledge/required-reading";
 import { personInitials } from "@/lib/format/initials";
+import { avatarImageUrl } from "@/lib/people/avatar-thumb";
 
 /**
  * Sprint D / Phase 2 — Admin view «кто прочитал, кто нет».
@@ -189,7 +190,7 @@ function Avatar({
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={avatarUrl}
+        src={avatarImageUrl(avatarUrl, 96)}
         alt={name}
         className="size-7 rounded-full object-cover bg-muted shrink-0"
       />

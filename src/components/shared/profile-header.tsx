@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Camera } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { personInitials } from "@/lib/format/initials";
+import { avatarImageUrl } from "@/lib/people/avatar-thumb";
 
 /**
  * Шапка карточки сущности: аватар 56px, имя 28px / 700, под ним серая
@@ -35,7 +36,7 @@ export function ProfileHeader({
     (avatarUrl ? (
       <Image
         unoptimized
-        src={avatarUrl}
+        src={avatarImageUrl(avatarUrl, 128)}
         alt=""
         width={56}
         height={56}

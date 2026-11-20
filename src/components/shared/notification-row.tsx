@@ -11,6 +11,7 @@ import type {
   NotificationActor,
 } from "@/app/(dashboard)/notifications/actions";
 import { personInitials } from "@/lib/format/initials";
+import { avatarImageUrl } from "@/lib/people/avatar-thumb";
 
 /**
  * Notion-style строка уведомления для bell'а.
@@ -99,7 +100,7 @@ export function KbNotificationRow({
         {actor?.avatar_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={actor.avatar_url}
+            src={avatarImageUrl(actor.avatar_url, 96)}
             alt=""
             className="size-7 rounded-full object-cover"
           />

@@ -53,6 +53,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [`src/lib/supabase/client.ts`](src/lib/supabase/client.ts) — браузерный клиент.
 - [`src/lib/supabase/admin.ts`](src/lib/supabase/admin.ts) — service-role (только сервер).
 - [`src/lib/supabase/middleware.ts`](src/lib/supabase/middleware.ts) — refresh-сессии для middleware.
+- **Картинки в интерфейсе — с кэшем браузера на месяц.** Приватные (каталог, акты, кандидаты, гости, задачи, база знаний) — постоянным адресом `mediaUrl()` из [`src/lib/storage/media.ts`](src/lib/storage/media.ts) (маршрут `/api/media`), а не подписанной ссылкой: подпись меняется на каждый заход, и браузер качает фото заново. Фото людей из публичного бакета — через `avatarThumbUrl` / `avatarImageUrl` ([`src/lib/people/avatar-thumb.ts`](src/lib/people/avatar-thumb.ts)), оптимизатор держит копию 30 дней. Документы, аудио и видео — по-прежнему подписанной ссылкой.
 - Типы БД: [`src/types/database.ts`](src/types/database.ts) (плюс доменные `finance.ts`, `knowledge.ts`). Регенерируется через `pnpm regen:types` — скрипт прогоняет `supabase gen types --local` и дописывает hand-added блок (`WorkingHours`, enum-алиасы). Полный regen иногда заваливает существующий код более строгими null-типами на чужих файлах (`src/lib/knowledge/pages.ts`, `src/lib/supabase/server.ts`); в этом случае либо точечно правьте те места, либо чёрри-пикайте новые блоки руками вместо полной перезаписи.
 
 ### Permissions

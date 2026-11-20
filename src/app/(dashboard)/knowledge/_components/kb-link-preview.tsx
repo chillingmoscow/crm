@@ -12,6 +12,7 @@ import {
   type KbStaffPreview,
 } from "@/lib/knowledge/preview";
 import { personInitials } from "@/lib/format/initials";
+import { avatarImageUrl } from "@/lib/people/avatar-thumb";
 
 // Sprint D Phase 7 — inline-preview tooltip для KB-ссылок. Цель:
 // при hover на @-mention или kb-link показать заголовок + иконку +
@@ -232,7 +233,7 @@ function StaffPreviewBody({ data }: { data: KbStaffPreview }) {
       {data.avatar_url ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={data.avatar_url}
+          src={avatarImageUrl(data.avatar_url, 96)}
           alt=""
           className="size-9 rounded-full object-cover bg-muted shrink-0"
         />

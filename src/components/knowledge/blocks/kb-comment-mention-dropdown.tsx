@@ -17,6 +17,7 @@ import { searchKbMentions, type KbMentionPerson } from "@/lib/knowledge/mentions
 import { cn } from "@/lib/utils";
 import { avatarDotClass } from "@/lib/avatar-color";
 import { personInitials } from "@/lib/format/initials";
+import { avatarImageUrl } from "@/lib/people/avatar-thumb";
 
 /**
  * @-mention dropdown для plain-textarea-композеров комментариев.
@@ -350,7 +351,7 @@ function DropdownList({
                 {it.avatar_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={it.avatar_url}
+                    src={avatarImageUrl(it.avatar_url, 96)}
                     alt=""
                     className="size-6 rounded-full object-cover bg-muted shrink-0"
                   />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -23,6 +23,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { Money } from "@/components/shared/money";
@@ -104,19 +105,204 @@ function treePad(px: number): CSSProperties {
   return { "--tree-pad": `${px}px` } as CSSProperties;
 }
 
-function Thumb({ url, type }: { url: string | null; type: "group" | "product" }) {
+/**
+ * Фото в строке 36px; при наведении (или фокусе, или нажатии на телефоне) —
+ * крупно, как у кандидатов (`PersonAvatar`). Без фото — значок вида.
+ */
+function Thumb({
+  url,
+  previewUrl,
+  type,
+  name,
+}: {
+  url: string | null;
+  previewUrl: string | null;
+  type: "group" | "product";
+  name: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [failed, setFailed] = useState(false);
   const Icon = type === "group" ? Folder : Package;
-  return (
-    <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground">
-      {url ? (
-        // Подписанная ссылка хранилища: оптимизатор next/image её не ждёт.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={url} alt="" loading="lazy" className="size-full object-cover" />
-      ) : (
+  const tile =
+    "relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground";
+  if (!url || failed) {
+    return (
+      <span className={tile}>
         <Icon className="size-4" aria-hidden />
-      )}
-    </span>
+      </span>
+    );
+  }
+  return (
+    <HoverCard open={open} onOpenChange={setOpen} openDelay={150} closeDelay={80}>
+      <HoverCardTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Увеличить фото: ${name}`}
+          aria-expanded={open}
+          onClick={(event) => {
+            event.stopPropagation();
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setOpen(false)}
+          className={cn(tile, "outline-none focus-visible:ring-2 focus-visible:ring-brand/30")}
+        >
+          {/* Пока фото грузится, под ним виден значок — ячейка не пустая. */}
+          <Icon className="size-4" aria-hidden />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={url}
+            alt=""
+            width={36}
+            height={36}
+            loading="lazy"
+            decoding="async"
+            onError={() => setFailed(true)}
+            className="absolute inset-0 size-full object-cover"
+          />
+        </button>
+      </HoverCardTrigger>
+      <HoverCardContent
+        side="bottom"
+        align="start"
+        collisionPadding={16}
+        className="w-80 max-w-[calc(100vw-32px)] p-2"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={previewUrl ?? url}
+          alt={`Фото: ${name}`}
+          width={300}
+          height={300}
+          className="max-h-[60dvh] w-full rounded-md object-contain"
+        />
+      </HoverCardContent>
+    </HoverCard>
   );
+}
+
+type SavedView = {
+  expanded: string[];
+  archived: boolean;
+  photo: "" | "with" | "without";
+  search: string;
+  sorting: SortingState;
+  scrollY: number;
+};
+
+function readSavedView(key: string): SavedView | null {
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as Partial<SavedView>;
+    return {
+      expanded: Array.isArray(v.expanded) ? v.expanded.filter((id) => typeof id === "string") : [],
+      archived: v.archived === true,
+      photo: v.photo === "with" || v.photo === "without" ? v.photo : "",
+      search: typeof v.search === "string" ? v.search : "",
+      sorting: Array.isArray(v.sorting)
+        ? v.sorting.filter(
+            (s): s is { id: string; desc: boolean } =>
+              Boolean(s) && typeof s.id === "string" && typeof s.desc === "boolean",
+          )
+        : [],
+      scrollY: typeof v.scrollY === "number" && v.scrollY > 0 ? v.scrollY : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeSavedView(key: string, view: SavedView) {
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify(view));
+  } catch {
+    // Приватный режим или запрет хранилища — список просто откроется свёрнутым.
+  }
+}
+
+/**
+ * Возврат из карточки позиции — на то же место: раскрытые категории, поиск,
+ * фильтры, сортировка и прокрутка хранятся во вкладке браузера
+ * (sessionStorage) и восстанавливаются при следующем открытии раздела. В
+ * новой вкладке или после закрытия браузера список открывается с начала.
+ */
+function useRestoredView({
+  key,
+  expanded,
+  archived,
+  photoFilter,
+  search,
+  sorting,
+  restore,
+}: {
+  key: string;
+  expanded: Set<string>;
+  archived: boolean;
+  photoFilter: "" | "with" | "without";
+  search: string;
+  sorting: SortingState;
+  restore: (view: SavedView) => void;
+}) {
+  const [restored, setRestored] = useState(false);
+  const pendingScroll = useRef(0);
+  const scrollY = useRef(0);
+  const restoreRef = useRef(restore);
+  restoreRef.current = restore;
+
+  // Восстановление — после гидратации: на сервере хранилища нет, и первая
+  // отрисовка должна совпасть с серверной.
+  useEffect(() => {
+    const saved = readSavedView(key);
+    if (saved) {
+      restoreRef.current(saved);
+      pendingScroll.current = saved.scrollY;
+      scrollY.current = saved.scrollY;
+    }
+    setRestored(true);
+  }, [key]);
+
+  // Прокрутка — когда строки восстановленного дерева уже отрисованы.
+  useEffect(() => {
+    if (!restored || pendingScroll.current <= 0) return;
+    const y = pendingScroll.current;
+    pendingScroll.current = 0;
+    requestAnimationFrame(() => window.scrollTo({ top: y }));
+  }, [restored]);
+
+  const snapshot = (): SavedView => ({
+    expanded: Array.from(expanded),
+    archived,
+    photo: photoFilter,
+    search,
+    sorting,
+    scrollY: scrollY.current,
+  });
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+
+  // До восстановления не пишем: иначе пустое начальное состояние затёрло бы
+  // сохранённое.
+  useEffect(() => {
+    if (restored) writeSavedView(key, snapshotRef.current());
+  }, [key, restored, expanded, archived, photoFilter, search, sorting]);
+
+  useEffect(() => {
+    if (!restored) return;
+    let frame = 0;
+    const onScroll = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        scrollY.current = window.scrollY;
+        writeSavedView(key, snapshotRef.current());
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, [key, restored]);
 }
 
 type Props = {
@@ -155,6 +341,24 @@ export function CatalogTable({
   const [archived, setArchived] = useState(false);
   const [photoFilter, setPhotoFilter] = useState<"" | "with" | "without">("");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  useRestoredView({
+    key: `sheerly.catalog.view.${config.kind}`,
+    expanded,
+    archived,
+    photoFilter,
+    search: st.search,
+    sorting: st.sorting,
+    restore: (view) => {
+      setExpanded(new Set(view.expanded));
+      setArchived(view.archived);
+      setPhotoFilter(view.photo);
+      if (view.search) {
+        st.setSearch(view.search);
+        st.setSearchOpen(true);
+      }
+      st.setSorting(view.sorting);
+    },
+  });
 
   const index = useMemo(() => indexCatalog(groups, products), [groups, products]);
   const rows = useMemo(
@@ -231,7 +435,7 @@ export function CatalogTable({
                   className={cn("size-4 transition-transform", item.expanded && "rotate-90")}
                 />
               </button>
-              <Thumb url={group.imageUrl} type="group" />
+              <Thumb url={group.imageUrl} previewUrl={group.previewUrl} type="group" name={group.name} />
               <span className="min-w-0">
                 <span className="block truncate font-medium" data-tip={group.name}>
                   {group.name}
@@ -251,7 +455,12 @@ export function CatalogTable({
             // фото позиции стоит на шаг правее фото своей категории.
             style={treePad(item.depth * INDENT + CHEVRON_SLOT)}
           >
-            <Thumb url={product.imageUrl} type="product" />
+            <Thumb
+              url={product.imageUrl}
+              previewUrl={product.previewUrl}
+              type="product"
+              name={product.name}
+            />
             <Link
               href={productHref(product)}
               className="block min-w-0 truncate hover:underline"

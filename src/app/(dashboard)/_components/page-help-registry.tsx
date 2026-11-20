@@ -17,6 +17,7 @@ import { SalesShiftsHelp } from "@/app/(dashboard)/sales/shifts/_components/sale
 import { IntegrationsHelp, OfficeCodesHelp, QuickRestoHelp, TelegramHelp, TildaHelp } from "@/app/(dashboard)/settings/integrations/_components/integrations-help";
 
 import { InventoryActsHelp } from "@/app/(dashboard)/documents/inventory/_components/inventory-acts-help";
+import { CatalogHelp } from "@/app/(dashboard)/catalog/_components/catalog-help";
 
 /**
  * Реестр контекстной справки для кнопки «?» в топ-баре (page-help-button).
@@ -74,6 +75,12 @@ export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
       p === "/documents/inventory" || p.startsWith("/documents/inventory/"),
     title: "Акты инвентаризации",
     Content: InventoryActsHelp,
+  },
+  {
+    // Три вида номенклатуры и их карточки делят одну справку.
+    match: (p) => p.startsWith("/catalog/"),
+    title: "Номенклатура",
+    Content: CatalogHelp,
   },
 ];
 

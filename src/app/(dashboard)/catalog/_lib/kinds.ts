@@ -1,5 +1,3 @@
-import "server-only";
-
 /**
  * Разделы каталога номенклатуры.
  *
@@ -11,7 +9,8 @@ import "server-only";
  *
  * Все три раздела рисует один компонент, отличаются они только этим конфигом.
  * Плодить три почти одинаковые страницы смысла нет: разойдутся при первой же
- * правке.
+ * правке. Конфиг — обычные данные без серверных зависимостей: его передают в
+ * клиентские компоненты пропсом.
  */
 export type CatalogKind = "ingredient" | "dish" | "semi_finished";
 
@@ -19,14 +18,17 @@ export type CatalogKindConfig = {
   kind: CatalogKind;
   /** Сегмент пути: /catalog/<slug> */
   slug: string;
+  /** Название раздела — как в боковом меню. */
   title: string;
-  description: string;
-  /** Родительный падеж множественного числа — для пустых состояний. */
-  genitivePlural: string;
-  /** Что показывать в счётчике списка: «114 групп · 1218 ингредиентов». */
+  /** Формы для счётчиков: «1 ингредиент», «2 ингредиента», «5 ингредиентов». */
   countNoun: { one: string; few: string; many: string };
-  /** Именительный падеж единственного числа — для текстов внутри карточки. */
+  /** Именительный падеж единственного числа: «Ингредиент», «Блюдо». */
   itemNoun: string;
+  /** Заголовок сведений о карточке в верхней панели: «Об ингредиенте». */
+  aboutTitle: string;
+  /** Подписи дат в сведениях — под род существительного. */
+  addedLabel: string;
+  syncedLabel: string;
 };
 
 export const CATALOG_KINDS: Record<CatalogKind, CatalogKindConfig> = {
@@ -34,31 +36,31 @@ export const CATALOG_KINDS: Record<CatalogKind, CatalogKindConfig> = {
     kind: "ingredient",
     slug: "ingredients",
     title: "Ингредиенты",
-    description:
-      "Дерево групп и ингредиентов Quick Resto с локальными фото для инвентаризации.",
-    genitivePlural: "ингредиентов",
     countNoun: { one: "ингредиент", few: "ингредиента", many: "ингредиентов" },
     itemNoun: "Ингредиент",
+    aboutTitle: "Об ингредиенте",
+    addedLabel: "Добавлен",
+    syncedLabel: "Синхронизирован",
   },
   dish: {
     kind: "dish",
     slug: "dishes",
     title: "Блюда",
-    description:
-      "Дерево категорий и блюд Quick Resto. Блюда участвуют в актах инвентаризации и пересорте наравне с ингредиентами.",
-    genitivePlural: "блюд",
     countNoun: { one: "блюдо", few: "блюда", many: "блюд" },
     itemNoun: "Блюдо",
+    aboutTitle: "О блюде",
+    addedLabel: "Добавлено",
+    syncedLabel: "Синхронизировано",
   },
   semi_finished: {
     kind: "semi_finished",
     slug: "semi-products",
     title: "Полуфабрикаты",
-    description:
-      "Дерево категорий и полуфабрикатов Quick Resto: премиксы, настойки, сиропы и заготовки.",
-    genitivePlural: "полуфабрикатов",
     countNoun: { one: "полуфабрикат", few: "полуфабриката", many: "полуфабрикатов" },
     itemNoun: "Полуфабрикат",
+    aboutTitle: "О полуфабрикате",
+    addedLabel: "Добавлен",
+    syncedLabel: "Синхронизирован",
   },
 };
 

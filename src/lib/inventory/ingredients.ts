@@ -39,6 +39,7 @@ export type IngredientDetail = {
   imageFileId: string | null;
   imageUrl: string | null;
   syncedAt: string | null;
+  createdAt: string | null;
   archivedAt: string | null;
 };
 
@@ -87,6 +88,7 @@ type ProductRow = {
   local_description: string | null;
   primary_image_file_id: string | null;
   synced_at: string | null;
+  created_at: string | null;
   archived_at: string | null;
 };
 
@@ -115,7 +117,7 @@ export async function getIngredientDetail(
   const { data: product } = await admin
     .from<ProductRow>("ingredients")
     .select(
-      "id, external_id, name, item_title, group_id, article, barcode, measure_unit_name, current_prime_cost, store_quantity_kg, stock_limit, local_description, primary_image_file_id, synced_at, archived_at",
+      "id, external_id, name, item_title, group_id, article, barcode, measure_unit_name, current_prime_cost, store_quantity_kg, stock_limit, local_description, primary_image_file_id, synced_at, created_at, archived_at",
     )
     .eq("account_id", accountId)
     .eq("id", ingredientId)
@@ -155,6 +157,7 @@ export async function getIngredientDetail(
     imageFileId: product.primary_image_file_id,
     imageUrl,
     syncedAt: product.synced_at,
+    createdAt: product.created_at ?? null,
     archivedAt: product.archived_at,
   };
 }

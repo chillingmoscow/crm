@@ -6,20 +6,26 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { LocalDateTime } from "@/components/shared/local-date-time";
+import { LocalDateTime, useLocalDateTime } from "@/components/shared/local-date-time";
 import { syncQuickRestoInventory } from "@/app/(dashboard)/inventory/_actions/sync";
 
 type Props = {
   canSync: boolean;
   lastSyncedAt: string | null;
+  /**
+   * `toolbar` — кнопка 36px для ряда инструментов списка: время последней
+   * синхронизации уходит в подсказку, отдельной строки под кнопкой нет.
+   */
+  variant?: "default" | "toolbar";
 };
 
-// Полная синхронизация QuickResto (группы, ингредиенты, склады, акты).
+// Полная синхронизация Quick Resto (группы, ингредиенты, склады, акты).
 // Гранулярная синхронизация по типу позиции — отдельная задача (бэклог,
 // требует расширения scope в syncQuickRestoInventory на бэкенде).
-export function InventorySyncButton({ canSync, lastSyncedAt }: Props) {
+export function InventorySyncButton({ canSync, lastSyncedAt, variant = "default" }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const lastSyncedText = useLocalDateTime(lastSyncedAt, "datetime", "ещё не было");
 
   const runSync = () => {
     startTransition(async () => {
@@ -49,6 +55,27 @@ export function InventorySyncButton({ canSync, lastSyncedAt }: Props) {
       }
     });
   };
+
+  if (variant === "toolbar") {
+    if (!canSync) return null;
+    return (
+      <Button
+        type="button"
+        size="sm"
+        className="h-9 gap-2"
+        onClick={runSync}
+        disabled={isPending}
+        data-tip={`Последняя синхронизация: ${lastSyncedText}`}
+      >
+        {isPending ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : (
+          <RefreshCw className="size-4" />
+        )}
+        {isPending ? "Синхронизируем…" : "Синхронизировать"}
+      </Button>
+    );
+  }
 
   return (
     <div className="flex flex-col items-end gap-1">

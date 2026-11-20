@@ -1,5 +1,9 @@
+import type { Metadata } from "next";
+
 import { CATALOG_KINDS } from "../_lib/kinds";
 import { NomenclatureCatalog } from "../_components/nomenclature-catalog";
+
+export const metadata: Metadata = { title: "Ингредиенты" };
 
 export default async function IngredientsCatalogPage({
   searchParams,

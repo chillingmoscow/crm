@@ -108,6 +108,14 @@
     padding-top: 14px;
     border-top: 1px solid hsl(var(--border));
   }
+  /* Пустое значение (строка-группа дерева, ячейка без данных) — без строки. */
+  .cardFields > div:has(> dd:empty) {
+    display: none;
+  }
+  /* …а если пусто всё — без блока полей и линии над ним. */
+  .cardFields:not(:has(> div > dd:not(:empty))) {
+    display: none;
+  }
   .cardFields > div {
     display: grid;
     grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);

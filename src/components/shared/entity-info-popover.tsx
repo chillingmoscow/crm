@@ -57,6 +57,11 @@ interface EntityInfoPopoverProps {
   updatedByAvatarUrl?: string | null;
   /** Когда true — даты отображаются с HH:mm. */
   showTime?: boolean;
+  /**
+   * Свои строки сразу после ID — например, код позиции во внешней системе.
+   * Строка без значения, как и остальные, не выводится.
+   */
+  extraRows?: { label: string; value: string | null }[];
   /** Когда true — «Изменена» отображается относительно («5 мин назад»). */
   relativeUpdatedAt?: boolean;
 }
@@ -139,9 +144,11 @@ export function EntityInfoPopover({
   updatedByAvatarUrl = null,
   showTime = false,
   relativeUpdatedAt = false,
+  extraRows = [],
 }: EntityInfoPopoverProps) {
   const candidates: (Omit<Row, "value"> & { value: string | null })[] = [
     { label: "ID", value: id.slice(0, 8) },
+    ...extraRows,
     {
       label: createdLabel,
       value: createdAt ? formatDate(createdAt, showTime) : null,

@@ -131,7 +131,18 @@ export function TemplateList({
         return (
           <span className="flex max-w-full items-center gap-2.5">
             <ColorDot color={template.color} />
-            <TemplateName {...template} />
+            {/* Настоящая кнопка в первой ячейке: строку можно открыть с клавиатуры. */}
+            {canEdit ? (
+              <button
+                type="button"
+                onClick={() => onEdit(template)}
+                className="min-w-0 text-left hover:underline"
+              >
+                <TemplateName {...template} />
+              </button>
+            ) : (
+              <TemplateName {...template} />
+            )}
           </span>
         );
       },

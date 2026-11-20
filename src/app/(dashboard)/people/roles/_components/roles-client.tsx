@@ -468,7 +468,7 @@ export function RolesClient({
               accountId ? (
                 <Button size="sm" className="h-9 gap-2" onClick={openCreate}>
                   <Plus className="size-4" />
-                  Добавить
+                  Добавить должность
                 </Button>
               ) : null
             }

@@ -19,6 +19,7 @@ import {
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { taskMissing, taskStatus, taskStatusTone } from "./task-status";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   ROW_MENU_COLUMN_SIZE,
@@ -81,15 +82,8 @@ export function TaskList({
   const assignee = (t: TaskDefinition) =>
     data.templates.find((x) => x.id === t.template_id)?.name ?? "Не назначено";
   const recurrence = (t: TaskDefinition) => taskRecurrenceLabel(t.recurrence) ?? "Не настроено";
-  /** Чего не хватает, чтобы задачу можно было включить. */
-  const missing = (t: TaskDefinition) =>
-    [
-      !t.template_id && "шаблона смены",
-      !t.recurrence && "повтора",
-      !t.items.some((i) => i.kind !== "info") && "пунктов чек-листа",
-    ].filter(Boolean) as string[];
-  const statusOf = (t: TaskDefinition) =>
-    t.enabled ? "Работает" : missing(t).length ? "Не настроена" : "Черновик";
+  const missing = taskMissing;
+  const statusOf = taskStatus;
   const q = st.search.trim().toLocaleLowerCase("ru"),
     active = !!shift || !!status;
   const rows = data.definitions.filter(
@@ -124,8 +118,16 @@ export function TaskList({
       sortingFn: (a, b) => collator.compare(a.original.name, b.original.name),
       // Только название: счётчики пунктов и фото — шум; чего не хватает —
       // в статусе «Не настроена».
+      // Настоящая кнопка в первой ячейке: строку можно открыть с клавиатуры.
       cell: ({ row }) => (
-        <span className="block max-w-full truncate font-medium">{row.original.name}</span>
+        <button
+          type="button"
+          onClick={() => onOpen(row.original)}
+          className="block max-w-full truncate text-left font-medium hover:underline"
+          data-tip={row.original.name}
+        >
+          {row.original.name}
+        </button>
       ),
     },
     {
@@ -194,7 +196,7 @@ export function TaskList({
           >
             <DrawerStatus
               label={status}
-              tone={status === "Работает" ? "success" : status === "Не настроена" ? "warning" : "neutral"}
+              tone={taskStatusTone(status)}
             />
           </span>
         );

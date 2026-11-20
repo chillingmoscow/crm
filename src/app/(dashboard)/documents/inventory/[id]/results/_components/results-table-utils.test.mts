@@ -7,6 +7,8 @@ import {
   isOpenDifference,
   resultSortToDirection,
   resultSortToField,
+  resultSortsToSorting,
+  sortingToResultSorts,
   type ResultSortMode,
 } from "./results-table-utils.ts";
 
@@ -36,6 +38,32 @@ test("combineResultSort round-trip по всем режимам", () => {
   for (const mode of ALL_MODES) {
     assert.equal(combineResultSort(resultSortToField(mode), resultSortToDirection(mode)), mode);
   }
+});
+
+test("resultSortsToSorting / sortingToResultSorts — round-trip и порядок", () => {
+  const sorts: ResultSortMode[] = ["sum_desc", "empty_first", "name_asc"];
+  const sorting = resultSortsToSorting(sorts);
+  assert.deepEqual(sorting, [
+    { id: "sum", desc: true },
+    { id: "empty", desc: false },
+    { id: "name", desc: false },
+  ]);
+  assert.deepEqual(sortingToResultSorts(sorting), sorts);
+  for (const mode of ALL_MODES) {
+    assert.deepEqual(sortingToResultSorts(resultSortsToSorting([mode])), [mode]);
+  }
+});
+
+test("sortingToResultSorts отбрасывает неизвестные поля и повторы", () => {
+  assert.deepEqual(
+    sortingToResultSorts([
+      { id: "group", desc: true },
+      { id: "unknown", desc: false },
+      { id: "group", desc: false },
+      { id: "empty", desc: true },
+    ]),
+    ["group_desc", "empty_last"],
+  );
 });
 
 test("hasDifference: ненулевая разница → true", () => {

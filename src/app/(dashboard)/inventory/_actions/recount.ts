@@ -63,6 +63,22 @@ export async function setRecountFlag(input: {
       requireOpen: true,
     });
 
+    // Позицию в активном пересорте на пересчёт не отправляем (справка
+    // «Пересчёт»): пересчитанный факт сдвинул бы уже сведённый пересорт, а
+    // «Пересчитают другим днём» потом всё равно отказал бы. Снять пометку
+    // можно всегда.
+    if (input.needsRecount) {
+      const resorted = await getActiveResortItemIds({
+        admin,
+        accountId: ctx.accountId,
+        documentId: document.id,
+        itemIds: [input.itemId],
+      });
+      if (resorted.size > 0) {
+        return { error: "Позиция в активном пересорте. Чтобы отправить её на пересчёт, сначала отмените пересорт" };
+      }
+    }
+
     const { error } = await admin
       .from("document_items")
       .update({
@@ -126,8 +142,22 @@ export async function bulkSetRecountFlag(input: {
       .eq("account_id", ctx.accountId)
       .eq("document_id", document.id)
       .in("id", itemIds);
-    const items = itemsRaw ?? [];
+    let items = itemsRaw ?? [];
     if (items.length === 0) return { updated: 0, error: null };
+
+    // Позиции в активном пересорте на пересчёт не отмечаем — см. setRecountFlag.
+    if (input.needsRecount) {
+      const resorted = await getActiveResortItemIds({
+        admin,
+        accountId: ctx.accountId,
+        documentId: document.id,
+        itemIds: items.map((item) => item.id),
+      });
+      items = items.filter((item) => !resorted.has(item.id));
+      if (items.length === 0) {
+        return { updated: 0, error: "Выбранные позиции в активном пересорте. Сначала отмените пересорт" };
+      }
+    }
 
     const { error } = await admin
       .from("document_items")

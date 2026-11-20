@@ -77,7 +77,7 @@ export function IngredientOverviewSheet({
         <div className="py-10 text-sm text-destructive">{error}</div>
       ) : !data ? (
         <div className="py-10 text-sm text-muted-foreground">
-          Ингредиент не найден в каталоге.
+          Ингредиент не найден в каталоге
         </div>
       ) : (
         <div className="space-y-4">
@@ -85,7 +85,7 @@ export function IngredientOverviewSheet({
             {data.imageUrl ? (
               <img src={data.imageUrl} alt={data.name} className="h-full w-full object-cover" />
             ) : (
-              <span className="text-xs text-muted-foreground">нет фото</span>
+              <span className="text-xs text-muted-foreground">Нет фото</span>
             )}
           </div>
 

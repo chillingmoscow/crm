@@ -2,23 +2,16 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { cn } from "@/lib/utils";
-import { pluralRu } from "@/lib/format/plural";
+import { formatDayMonth } from "@/lib/format/date";
+import { countRu } from "@/lib/format/plural";
 import { returnDocumentForRecount, splitDocumentForRecount } from "@/app/(dashboard)/inventory/_actions/recount";
 import { defaultRecountMode, isoDay, recountGapDays } from "@/lib/inventory/recount-split";
 
@@ -61,7 +54,7 @@ export function RecountSplitDialog({ documentId, documentInvoiceDate, flaggedCou
   const gapDays = recountGapDays(documentInvoiceDate, recountDate);
 
   const rowsLabel = useMemo(
-    () => `${flaggedCount} ${pluralRu(flaggedCount, "строка", "строки", "строк")}`,
+    () => countRu(flaggedCount, "строка", "строки", "строк"),
     [flaggedCount],
   );
 
@@ -73,14 +66,15 @@ export function RecountSplitDialog({ documentId, documentInvoiceDate, flaggedCou
           ? await returnDocumentForRecount({ documentId })
           : await splitDocumentForRecount({ documentId, recountDate });
       if (result.error) {
+        // Ошибка остаётся в диалоге (DS «Modal»): тост исчезает, а открытый
+        // диалог выглядел бы как «кнопка не работает».
         setError(result.error);
-        toast.error(result.error);
         return;
       }
       toast.success(
         mode === "inplace"
-          ? `Акт отправлен на пересчёт (${rowsLabel})`
-          : `Позиции вынесены в акт пересчёта на ${recountDate} (${rowsLabel})`,
+          ? `Акт отправлен на пересчёт · ${rowsLabel}`
+          : `Позиции вынесены в акт пересчёта на ${formatDayMonth(recountDate) ?? recountDate} · ${rowsLabel}`,
       );
       setOpen(false);
       router.refresh();
@@ -88,38 +82,45 @@ export function RecountSplitDialog({ documentId, documentInvoiceDate, flaggedCou
   };
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) setError(null);
-      }}
-    >
-      <DialogTrigger asChild>
-        <Button type="button" variant="outline" disabled={disabled || flaggedCount === 0}>
-          <RotateCcw className="mr-2 h-4 w-4" />
-          Отправить на пересчёт{flaggedCount > 0 ? ` (${flaggedCount})` : ""}
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Пересчёт: {rowsLabel}</DialogTitle>
-          <DialogDescription>
-            Когда пересчёт делают позже даты акта, факт сравнивается с остатком на дату акта —
-            поставка между датами превратится в излишек, а продажи в недостачу.
-          </DialogDescription>
-        </DialogHeader>
-
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        disabled={disabled || flaggedCount === 0}
+        onClick={() => {
+          setError(null);
+          setOpen(true);
+        }}
+      >
+        <RotateCcw className="mr-2 h-4 w-4" />
+        Отправить на пересчёт{flaggedCount > 0 ? ` · ${flaggedCount}` : ""}
+      </Button>
+      <ConfirmDialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setError(null);
+        }}
+        title={`Отправить на пересчёт ${rowsLabel}?`}
+        description="Когда пересчёт делают позже даты акта, факт сравнивается с остатком на дату акта: поставка между датами превратится в излишек, а продажи в недостачу."
+        confirmLabel={mode === "inplace" ? "Отправить на пересчёт" : "Вынести в акт пересчёта"}
+        pendingLabel={mode === "inplace" ? "Отправляем…" : "Выносим…"}
+        busy={isPending}
+        confirmDisabled={mode === "split" && !recountDate}
+        error={error}
+        onConfirm={submit}
+      >
         <div className="space-y-3">
           <button
             type="button"
+            aria-pressed={mode === "inplace"}
             onClick={() => {
               setMode("inplace");
               setError(null);
             }}
             className={cn(
               "w-full rounded-lg border p-3 text-left transition-colors",
-              mode === "inplace" ? "border-primary bg-muted/40" : "border-border hover:bg-muted/30",
+              mode === "inplace" ? "border-brand bg-brand/5" : "border-border hover:bg-muted/30",
             )}
           >
             <div className="text-sm font-medium">Пересчитают сегодня</div>
@@ -134,11 +135,12 @@ export function RecountSplitDialog({ documentId, documentInvoiceDate, flaggedCou
           <div
             className={cn(
               "rounded-lg border transition-colors",
-              mode === "split" ? "border-primary bg-muted/40" : "border-border hover:bg-muted/30",
+              mode === "split" ? "border-brand bg-brand/5" : "border-border hover:bg-muted/30",
             )}
           >
             <button
               type="button"
+              aria-pressed={mode === "split"}
               onClick={() => {
                 setMode("split");
                 setError(null);
@@ -147,16 +149,14 @@ export function RecountSplitDialog({ documentId, documentInvoiceDate, flaggedCou
             >
               <div className="text-sm font-medium">Пересчитают другим днём</div>
               <div className="mt-1 text-xs text-muted-foreground">
-                Отмеченные позиции переезжают в отдельный акт пересчёта с датой пересчёта — Quick
+                Отмеченные позиции переезжают в отдельный акт пересчёта с датой пересчёта, и Quick
                 Resto посчитает по ним остаток на эту дату. Из текущего акта они удаляются, и его
                 можно проводить сразу.
               </div>
             </button>
             {mode === "split" ? (
               <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
-                <Label htmlFor="recount-date" className="text-xs">
-                  Дата пересчёта
-                </Label>
+                <Label htmlFor="recount-date">Дата пересчёта</Label>
                 <DatePicker
                   id="recount-date"
                   value={recountDate}
@@ -166,30 +166,14 @@ export function RecountSplitDialog({ documentId, documentInvoiceDate, flaggedCou
                 />
                 {gapDays !== null && gapDays > 0 ? (
                   <span className="text-xs text-muted-foreground">
-                    на {gapDays} {pluralRu(gapDays, "день", "дня", "дней")} позже даты акта
+                    на {countRu(gapDays, "день", "дня", "дней")} позже даты акта
                   </span>
                 ) : null}
               </div>
             ) : null}
           </div>
         </div>
-
-        {error ? (
-          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-            {error}
-          </div>
-        ) : null}
-
-        <DialogFooter>
-          <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={isPending}>
-            Отмена
-          </Button>
-          <Button type="button" onClick={submit} disabled={isPending || (mode === "split" && !recountDate)}>
-            {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            {mode === "inplace" ? "Отправить на пересчёт" : "Вынести в акт пересчёта"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </ConfirmDialog>
+    </>
   );
 }

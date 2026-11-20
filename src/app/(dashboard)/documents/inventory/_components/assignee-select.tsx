@@ -178,7 +178,7 @@ export function AssigneeAvatar({ name, muted = false }: { name: string; muted?: 
     <div
       aria-hidden="true"
       className={cn(
-        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-medium",
+        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-medium",
         muted ? "bg-muted text-muted-foreground" : "bg-brand/15 text-brand",
       )}
     >

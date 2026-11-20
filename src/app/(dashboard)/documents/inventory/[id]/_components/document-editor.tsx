@@ -7,16 +7,12 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition 
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
-  Check,
+  Eye,
   Loader2,
-  Plus,
-  Search as SearchIcon,
-  Trash2,
+  Lock,
+  PackageOpen,
+  SearchX,
   WifiOff,
-  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -27,21 +23,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { TableControls, TableControlPin } from "@/components/shared/table";
+  TableConditions,
+  TableControls,
+  TableFilterChip,
+  TableSortPicker,
+} from "@/components/shared/table";
+import { formatDayMonthTime } from "@/lib/format/date";
+import { countRu } from "@/lib/format/plural";
 import { cn } from "@/lib/utils";
 import { markInventoryDraftStarted, submitInventoryDocumentDraft } from "@/app/(dashboard)/inventory/_actions/draft";
 import { isInventoryFormLocked } from "@/lib/inventory/act-status";
@@ -147,6 +139,51 @@ function combineFormSort(field: FormSortField, direction: "asc" | "desc"): FormS
   return direction === "asc" ? "empty_first" : "empty_last";
 }
 
+// Ряд условий (TableConditions / TableSortPicker) говорит на языке TanStack
+// `SortingState` — `{ id, desc }[]`. Форма хранит режимы (`name_asc`,
+// `empty_first`, …): переходники держат обе формы в соответствии, порядок
+// элементов = приоритет, «пустые сверху» = asc.
+type FormSortingEntry = { id: string; desc: boolean };
+
+function formSortsToSorting(sorts: readonly FormSortMode[]): FormSortingEntry[] {
+  return sorts.map((mode) => ({
+    id: formSortToField(mode),
+    desc: formSortToDirection(mode) === "desc",
+  }));
+}
+
+function sortingToFormSorts(sorting: readonly FormSortingEntry[]): FormSortMode[] {
+  const seen = new Set<FormSortField>();
+  const next: FormSortMode[] = [];
+  for (const entry of sorting) {
+    const field = entry.id as FormSortField;
+    if (!FORM_SORT_FIELDS.includes(field) || seen.has(field)) continue;
+    seen.add(field);
+    next.push(combineFormSort(field, entry.desc ? "desc" : "asc"));
+  }
+  return next;
+}
+
+// «Черновик сохранён в 14:05» — без секунд. Черновик из IndexedDB может быть
+// и вчерашним: тогда с датой («16 ноября, 14:05»).
+const draftTimeFormat = new Intl.DateTimeFormat("ru-RU", {
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+function formatDraftSavedAt(iso: string): string | null {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  const now = new Date();
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  return sameDay
+    ? `Черновик сохранён в ${draftTimeFormat.format(date)}`
+    : `Черновик сохранён ${formatDayMonthTime(date)}`;
+}
+
 // Фильтр «Заполненность» — какие строки показывать в форме акта.
 // «all»     — все позиции (дефолт),
 // «filled»  — только те, где actual_amount уже введён,
@@ -160,6 +197,11 @@ const FILL_STATE_LABEL: Record<FillState, string> = {
   filled: "Только заполненные",
   empty:  "Только пустые",
 };
+const FILL_STATE_OPTIONS = (Object.keys(FILL_STATE_LABEL) as FillState[]).map((state) => ({
+  // «Все позиции» = пустое значение чипа: фильтр не выбран.
+  value: state === DEFAULT_FILL_STATE ? "" : state,
+  label: FILL_STATE_LABEL[state],
+}));
 
 function openDraftDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -288,7 +330,7 @@ const ItemRow = memo(function ItemRow({
       className={cn(
         "grid grid-cols-[64px_1fr_auto] items-center gap-3 rounded-lg border p-2 transition-colors",
         needsRecount
-          ? "border-rose-300 bg-rose-500/5 dark:border-rose-500/40 dark:bg-rose-500/10"
+          ? "border-destructive/30 bg-destructive/5"
           : isFilled
             ? "border-brand/30 bg-brand/5 dark:border-brand/40 dark:bg-brand/10"
             : "border-border bg-background",
@@ -314,24 +356,23 @@ const ItemRow = memo(function ItemRow({
         </button>
       ) : (
         <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-md border bg-muted">
-          <span className="text-xs text-muted-foreground">нет фото</span>
+          <span className="text-xs text-muted-foreground">Нет фото</span>
         </div>
       )}
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
           <div className="min-w-0 break-words text-sm font-medium">{item.productName}</div>
           {needsRecount ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
-              <AlertTriangle className="h-3 w-3" />
+            <StatusBadge tone="danger" icon={<AlertTriangle />}>
               Пересчёт
-            </span>
+            </StatusBadge>
           ) : null}
         </div>
         {item.groupPath ? (
           <div className="mt-1 truncate text-xs text-muted-foreground">{item.groupPath}</div>
         ) : null}
         {needsRecount && item.recountNote ? (
-          <div className="mt-1 text-[11px] italic text-rose-700 dark:text-rose-300">
+          <div className="mt-1 text-xs italic text-destructive">
             «{item.recountNote}»
           </div>
         ) : null}
@@ -358,10 +399,15 @@ export function InventoryDocumentEditor({
   document,
   groups,
   items,
+  canFill,
 }: {
   document: EditorDocument;
   groups: EditorGroup[];
   items: EditorItem[];
+  /** Может ли текущий пользователь заполнять акт: управляющий актами или
+      назначенный исполнитель (та же проверка, что у отправки). Иначе форма
+      только для чтения, а черновик на устройстве не читается и не пишется. */
+  canFill: boolean;
 }) {
   const router = useRouter();
   // Акт вернули на пересчёт: отмеченные строки перезаполняются с нуля, и
@@ -558,6 +604,12 @@ export function InventoryDocumentEditor({
   }, []);
 
   useEffect(() => {
+    // Тот, кто заполнять не может, черновик не трогает: ни своих значений,
+    // ни чужих (если на устройстве считали этот акт) ему не показываем.
+    if (!canFill) {
+      setLoaded(true);
+      return;
+    }
     let alive = true;
     void (async () => {
       const draft = await readDraft(draftKey);
@@ -620,7 +672,7 @@ export function InventoryDocumentEditor({
   }, [draftKey]);
 
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || !canFill) return;
     const timeout = window.setTimeout(() => {
       const nextSavedAt = new Date().toISOString();
       void writeDraft(draftKey, { values, savedAt: nextSavedAt });
@@ -640,7 +692,7 @@ export function InventoryDocumentEditor({
       }
     }, 250);
     return () => window.clearTimeout(timeout);
-  }, [document, draftKey, items, loaded, values]);
+  }, [canFill, document, draftKey, items, loaded, values]);
 
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
@@ -667,15 +719,18 @@ export function InventoryDocumentEditor({
   const hasRecountFilter = recountOnly;
   const hasActiveFilters = hasGroupFilter || hasFillFilter || hasRecountFilter;
   const hasSortActive = sorts.length > 0;
-  const hasSearch = searchQuery.trim().length > 0;
-  const hasAnyActive = hasActiveFilters || hasSortActive || hasSearch;
-  // search-пин показываем только когда уже видны другие pin-row контролы —
-  // 1-в-1 эталон documents-table.tsx.
-  const showSearchPin = hasSearch && (filtersVisible || hasSortActive || hasActiveFilters);
-
-  const selectedGroupPath = useMemo(
-    () => groups.find((group) => group.id === selectedGroupId)?.path ?? null,
-    [groups, selectedGroupId],
+  // Ряд условий — общий TableConditions: ему нужна TanStack-форма сортировки.
+  const sorting = useMemo(() => formSortsToSorting(sorts), [sorts]);
+  const changeSorting = useCallback(
+    (next: FormSortingEntry[]) => setSorts(sortingToFormSorts(next)),
+    [],
+  );
+  const groupOptions = useMemo(
+    () => [
+      { value: "", label: "Все группы акта" },
+      ...groups.map((group) => ({ value: group.id, label: group.path })),
+    ],
+    [groups],
   );
 
   // В режиме пересчёта исполнитель работает ТОЛЬКО с отмеченными строками:
@@ -727,7 +782,7 @@ export function InventoryDocumentEditor({
 
   const submit = () => {
     if (!online) {
-      toast.error("Нет соединения. Черновик сохранен на устройстве.");
+      toast.error("Нет соединения. Черновик сохранён на устройстве");
       return;
     }
 
@@ -767,7 +822,7 @@ export function InventoryDocumentEditor({
       await deleteDraft(draftKey);
       toast.success(result.resultsHasLineAmounts
         ? "Акт отправлен в Quick Resto"
-        : "Акт отправлен, но QR не вернул построчные итоги");
+        : "Акт отправлен, но Quick Resto не вернул итоги по строкам");
       router.refresh();
     });
   };
@@ -792,20 +847,30 @@ export function InventoryDocumentEditor({
   const unfilledCount = totalCount - filledCount;
   const hasUnfilled = totalCount > 0 && unfilledCount > 0;
 
+  // Форма только для чтения: акт ушёл дальше по статусу ИЛИ у человека нет
+  // права заполнять этот акт (см. canFill).
+  const readOnly = formLocked || !canFill;
+  // Фильтр «Только на пересчёт» — только когда акт реально вернули на
+  // пересчёт. На первом счёте needs_recount ставит триггер по расхождению с
+  // Quick Resto ещё до подсчёта: фильтр по нему показал бы исполнителю, какие
+  // строки расходятся с расчётным остатком (подсветку там тоже не показываем).
+  const showRecountFilter = isRecountPending && flaggedItemsCount > 0;
+  const draftLabel = savedAt ? formatDraftSavedAt(savedAt) : null;
+
   return (
-    <div className="mx-auto flex w-full max-w-[720px] flex-1 flex-col px-3 py-3 md:px-6 md:py-5">
+    // Поля страницы даёт PageFrame в layout акта — своих отступов нет.
+    // Колонка 720px — форма заполнения (DS «Ширина контента»).
+    <div className="mx-auto flex w-full max-w-[720px] flex-1 flex-col">
       {/* Баннер режима «пересчёт»: акт вернули, исполнитель видит подсказку
           какие именно строки требуют повторного счёта. */}
       {isRecountPending ? (
-        <div className="mb-4 flex items-start gap-3 rounded-lg border border-rose-300 bg-rose-500/5 px-4 py-3 dark:border-rose-500/40 dark:bg-rose-500/10">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700 dark:text-rose-300" />
-          <div className="min-w-0 text-sm">
-            <div className="font-medium text-rose-700 dark:text-rose-200">
-              Акт вернули на пересчёт
-            </div>
-            <p className="mt-0.5 text-rose-700/90 dark:text-rose-300/90">
+        <div className="mb-4 flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="min-w-0">
+            <div className="font-medium">Акт вернули на пересчёт</div>
+            <p className="mt-0.5">
               {flaggedItemsCount > 0
-                ? `Перепроверьте отмеченные позиции (${flaggedItemsCount} ${flaggedItemsCount === 1 ? "строка" : "строк"}) и завершите акт.`
+                ? `Перепроверьте отмеченные позиции (${countRu(flaggedItemsCount, "строка", "строки", "строк")}) и завершите акт.`
                 : "Перепроверьте позиции и завершите акт."}
             </p>
           </div>
@@ -815,14 +880,25 @@ export function InventoryDocumentEditor({
       {/* Баннер «заполнение закрыто»: акт ушёл на проверку / проведён /
           финализирован — форма только для чтения. */}
       {formLocked ? (
-        <div className="mb-4 flex items-start gap-3 rounded-lg border bg-muted/40 px-4 py-3">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-          <div className="min-w-0 text-sm">
+        <div className="mb-4 flex items-start gap-3 rounded-lg border bg-muted/40 p-3 text-sm">
+          <Lock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <div className="min-w-0">
             <div className="font-medium">Заполнение закрыто</div>
             <p className="mt-0.5 text-muted-foreground">
-              Акт уже отправлен на проверку. Изменить факт нельзя — итоги
-              ведёт проверяющий. Если нужно пересчитать позиции, проверяющий
-              вернёт акт на пересчёт.
+              Акт уже отправлен на проверку, изменить факт нельзя: итоги ведёт
+              проверяющий. Если нужно пересчитать позиции, проверяющий вернёт
+              акт на пересчёт.
+            </p>
+          </div>
+        </div>
+      ) : !canFill ? (
+        <div className="mb-4 flex items-start gap-3 rounded-lg border bg-muted/40 p-3 text-sm">
+          <Eye className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <div className="min-w-0">
+            <div className="font-medium">Форма только для чтения</div>
+            <p className="mt-0.5 text-muted-foreground">
+              Заполнять акт могут исполнитель, проверяющий или управляющий актами.
+              Чтобы внести данные, попросите назначить вас исполнителем или проверяющим.
             </p>
           </div>
         </div>
@@ -832,29 +908,26 @@ export function InventoryDocumentEditor({
           остаются вверху при прокрутке длинного списка позиций. Скролл —
           оконный (форма не в overflow-контейнере), поэтому sticky top-0. */}
       <div className="sticky top-0 z-20 bg-background pt-3 pb-2">
-      {/* Шапка с back-кнопкой, табами, номером, статусом и контекстом
-          склада/позиций — в shared layout (см. inventory/[id]/layout.tsx).
-          Здесь: слева — статус draft'а / offline, справа — контролы. */}
+      {/* Шапка с номером, статусом и вкладками — в shared layout
+          (inventory/[id]/layout.tsx). Здесь: слева — черновик / офлайн,
+          справа — контролы. */}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {!online ? (
-            <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-1 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
-              <WifiOff className="mr-1 h-3 w-3" />
-              Оффлайн
-            </span>
+            <StatusBadge tone="warning" icon={<WifiOff />}>
+              Офлайн
+            </StatusBadge>
           ) : null}
-          {savedAt ? <span>Черновик {new Date(savedAt).toLocaleTimeString("ru-RU")}</span> : null}
+          {draftLabel ? <span>{draftLabel}</span> : null}
         </div>
 
-        {/* Контролы — search / filters-toggle / sort-popover.
-            Паттерн 1-в-1 с /documents/inventory. */}
         <TableControls
           search={{
             value: searchQuery,
             onChange: setSearchQuery,
             open: searchOpen,
             onOpenChange: setSearchOpen,
-            placeholder: "Поиск",
+            placeholder: "Название, артикул, штрих-код или группа",
           }}
           filters={{
             active: hasActiveFilters,
@@ -863,130 +936,71 @@ export function InventoryDocumentEditor({
           }}
           sort={{
             active: hasSortActive,
-            content: <SortFieldPanel sorts={sorts} onChange={setSorts} />,
+            content: (
+              <TableSortPicker
+                sorting={sorting}
+                onChange={changeSorting}
+                fields={FORM_SORT_FIELDS}
+                labels={FORM_SORT_FIELD_LABEL}
+              />
+            ),
           }}
         />
       </div>
 
-      {/* Pin-row — порядок 1-в-1 с эталоном documents-table.tsx:
-          Сортировка → divider → Фильтры (Группа) → divider → Поиск → «Очистить все». */}
-      {/* Pin-row НЕ показываем, если активен только поиск (без фильтров/
-          сортировки) — иначе торчит одинокая «Очистить все». */}
-      {(filtersVisible || hasSortActive || hasActiveFilters || flaggedItemsCount > 0) ? (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          {/* Тоггл «Только на пересчёт» — доступен, когда есть отмеченные
-              строки (в первую очередь на пересчёте). Простой on/off-пин, без
-              поповера. */}
-          {flaggedItemsCount > 0 ? (
-            <button
-              type="button"
-              onClick={() => setRecountOnly((v) => !v)}
-              aria-pressed={recountOnly}
-              className={cn(
-                "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors",
-                recountOnly
-                  ? "border-rose-300 bg-rose-500/10 text-rose-700 hover:bg-rose-500/15 dark:border-rose-500/40 dark:text-rose-300"
-                  : "border-transparent bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground",
-              )}
-            >
-              <AlertTriangle className="h-3.5 w-3.5" />
-              Только на пересчёт
-            </button>
+      {/* Ряд условий — общий TableConditions (DS «List-страница»): правила
+          видимости зашиты в нём, один поиск ряд не открывает. Выбранный
+          фильтр виден и при свёрнутом ряде. */}
+      <div className="mb-4 empty:hidden">
+        <TableConditions
+          label="Условия формы акта"
+          open={filtersVisible}
+          hasFilters={hasActiveFilters}
+          sorting={sorting}
+          onSortingChange={changeSorting}
+          sortFields={FORM_SORT_FIELDS}
+          sortLabels={FORM_SORT_FIELD_LABEL}
+          search={searchQuery}
+          onSearchClear={() => {
+            setSearchQuery("");
+            setSearchOpen(false);
+          }}
+          onReset={onClearAll}
+        >
+          {showRecountFilter && (filtersVisible || recountOnly) ? (
+            <TableFilterChip
+              label="Пересчёт"
+              value={recountOnly ? "only" : ""}
+              onChange={(value) => setRecountOnly(value === "only")}
+              options={[
+                { value: "", label: "Все позиции" },
+                { value: "only", label: "Только на пересчёт" },
+              ]}
+            />
           ) : null}
-
-          {flaggedItemsCount > 0 && (hasSortActive || filtersVisible || showSearchPin) ? <PinDivider /> : null}
-
-          {hasSortActive ? (
-            <TableControlPin
-              active
-              icon={
-                sorts.length === 1
-                  ? formSortToDirection(sorts[0]) === "asc"
-                    ? <ArrowUp className="h-3.5 w-3.5" />
-                    : <ArrowDown className="h-3.5 w-3.5" />
-                  : <ArrowUpDown className="h-3.5 w-3.5" />
-              }
-              label={
-                sorts.length === 1
-                  ? FORM_SORT_FIELD_LABEL[formSortToField(sorts[0])]
-                  : `${sorts.length} сортировки`
-              }
-              onClear={() => setSorts([])}
-              clearLabel="Сбросить сортировку"
-              contentClassName="w-auto p-3"
-            >
-              <SortPinEditor sorts={sorts} onChange={setSorts} />
-            </TableControlPin>
+          {filtersVisible || hasFillFilter ? (
+            <TableFilterChip
+              label="Заполненность"
+              value={fillState === DEFAULT_FILL_STATE ? "" : fillState}
+              onChange={(value) => setFillState((value || DEFAULT_FILL_STATE) as FillState)}
+              options={FILL_STATE_OPTIONS}
+            />
           ) : null}
-
-          {hasSortActive && (filtersVisible || showSearchPin) ? <PinDivider /> : null}
-
-          {filtersVisible ? (
-            <>
-              <TableControlPin
-                active={hasFillFilter}
-                label={hasFillFilter ? `Заполненность: ${FILL_STATE_LABEL[fillState]}` : "Заполненность"}
-                onClear={hasFillFilter ? () => setFillState(DEFAULT_FILL_STATE) : undefined}
-                clearLabel="Сбросить заполненность"
-              >
-                <FillStatePicker value={fillState} onChange={setFillState} />
-              </TableControlPin>
-
-              <TableControlPin
-                active={hasGroupFilter}
-                label={hasGroupFilter && selectedGroupPath ? `Группа: ${selectedGroupPath}` : "Группа"}
-                onClear={hasGroupFilter ? () => setSelectedGroupId("") : undefined}
-                clearLabel="Сбросить группу"
-              >
-                <GroupPicker
-                  value={selectedGroupId}
-                  groups={groups}
-                  onChange={setSelectedGroupId}
-                />
-              </TableControlPin>
-            </>
+          {groups.length > 0 && (filtersVisible || hasGroupFilter) ? (
+            <TableFilterChip
+              label="Группа"
+              value={selectedGroupId}
+              onChange={setSelectedGroupId}
+              searchPlaceholder="Найти группу"
+              options={groupOptions}
+            />
           ) : null}
+        </TableConditions>
+      </div>
 
-          {filtersVisible && showSearchPin ? <PinDivider /> : null}
-
-          {showSearchPin ? (
-            <TableControlPin
-              active
-              icon={<SearchIcon className="h-3.5 w-3.5" />}
-              label={`Поиск: ${searchQuery.trim()}`}
-              onClear={() => { setSearchQuery(""); setSearchOpen(false); }}
-              clearLabel="Очистить поиск"
-            >
-              <div className="space-y-2 p-2">
-                <Input
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="Поиск"
-                  className="h-8"
-                />
-                <p className="text-xs text-muted-foreground">
-                  По названию, артикулу, штрих-коду и группе.
-                </p>
-              </div>
-            </TableControlPin>
-          ) : null}
-
-          {hasAnyActive ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-8 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
-              onClick={onClearAll}
-            >
-              Очистить все
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-
-      {/* Прогресс заполнения — пока акт ещё заполняется (форма не залочена). */}
-      {!formLocked && totalCount > 0 ? (
+      {/* Прогресс заполнения — пока акт заполняется и его может заполнять
+          этот человек (черновик локальный, у зрителя прогресса нет). */}
+      {!readOnly && totalCount > 0 ? (
         <div className="mb-3">
           <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
             <span>Заполнено {filledCount} из {totalCount}</span>
@@ -1005,9 +1019,20 @@ export function InventoryDocumentEditor({
 
       <div className="space-y-2">
         {visibleItems.length === 0 ? (
-          <div className="rounded-lg border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
-            По текущему поиску и группе позиций нет.
-          </div>
+          items.length === 0 ? (
+            <EmptyState icon={PackageOpen} title="В акте нет позиций" />
+          ) : (
+            <EmptyState
+              icon={SearchX}
+              title="Позиций не найдено"
+              description="Измените поиск или условия"
+              action={
+                <Button type="button" variant="outline" onClick={onClearAll}>
+                  Сбросить поиск и фильтры
+                </Button>
+              }
+            />
+          )
         ) : visibleItems.map((item) => (
           <ItemRow
             key={item.id}
@@ -1015,7 +1040,7 @@ export function InventoryDocumentEditor({
             value={values[item.id] ?? ""}
             // На пересчёте редактируем только отмеченные строки; остальные
             // read-only (исполнитель не трогает то, что не просили считать).
-            disabled={formLocked || (isRecountPending && !item.needsRecount)}
+            disabled={readOnly || (isRecountPending && !item.needsRecount)}
             // Подсветку и бейдж «Пересчёт» показываем ТОЛЬКО когда акт реально
             // вернули на пересчёт (recount_pending) — тогда это «куда смотреть
             // в первую очередь». На первом счёте (Новый/Назначен/В работе)
@@ -1029,39 +1054,37 @@ export function InventoryDocumentEditor({
         ))}
       </div>
 
-      {/* Submit-кнопка — паттерн detail-страницы из spec §«Entity detail page»:
-          форма-действие живёт в футере формы, правым выравниванием, default
-          Button (не full-width, не sticky). Эталон — /people/staff/[userId].
-          На recount_pending — text меняется на «Завершить пересчёт». */}
-      <div className="mt-6 flex justify-end pt-1">
-        {formLocked ? (
-          <p className="text-sm text-muted-foreground">
-            Заполнение закрыто — акт на проверке.
-          </p>
-        ) : (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex">
-                  <Button
-                    type="button"
-                    disabled={isPending || !loaded || hasUnfilled}
-                    onClick={submit}
-                  >
-                    {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                    {isRecountPending ? "Завершить пересчёт" : "Завершить"}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              {hasUnfilled ? (
-                <TooltipContent>
-                  Заполните все строки: осталось {unfilledCount}
-                </TooltipContent>
-              ) : null}
-            </Tooltip>
-          </TooltipProvider>
-        )}
-      </div>
+      {/* Действие формы — в футере, правым выравниванием, default Button.
+          На recount_pending — «Завершить пересчёт». У закрытой формы и у
+          того, кто заполнять не может, кнопки нет: причина — в плашке сверху. */}
+      {!readOnly ? (
+        <div className="mt-6 flex flex-wrap items-center justify-end gap-3 pt-1">
+          {hasUnfilled ? (
+            // Причина неактивной кнопки — текстом рядом, а не только в
+            // подсказке (DS «Кнопки»).
+            <span className="text-sm text-muted-foreground">
+              Осталось заполнить: {countRu(unfilledCount, "позиция", "позиции", "позиций")}
+            </span>
+          ) : null}
+          <span
+            className="inline-flex"
+            data-tip={hasUnfilled ? `Заполните все строки: осталось ${unfilledCount}` : undefined}
+          >
+            <Button
+              type="button"
+              disabled={isPending || !loaded || hasUnfilled}
+              onClick={submit}
+            >
+              {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {isPending
+                ? "Отправляем…"
+                : isRecountPending
+                  ? "Завершить пересчёт"
+                  : "Завершить"}
+            </Button>
+          </span>
+        </div>
+      ) : null}
 
       <Dialog open={previewImage !== null} onOpenChange={(open) => { if (!open) setPreviewImage(null); }}>
         <DialogContent className="max-w-md">
@@ -1077,294 +1100,6 @@ export function InventoryDocumentEditor({
           ) : null}
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-// ─── Sub-components ──────────────────────────────────────────────────────────
-
-function PinDivider() {
-  return <div className="mx-1 h-6 w-px bg-border" aria-hidden="true" />;
-}
-
-/**
- * Popover из шапки таблицы (TableControls.sort.content). Эталон 1-в-1 с
- * SortFieldPanel из documents-table.tsx: title «СОРТИРОВКА», список полей,
- * клик на свободном — APPEND с asc, уже добавленные показывают «Добавлено»
- * и disabled-стиль.
- */
-function SortFieldPanel({
-  sorts,
-  onChange,
-}: {
-  sorts: FormSortMode[];
-  onChange: (next: FormSortMode[]) => void;
-}) {
-  const usedFields = new Set(sorts.map((mode) => formSortToField(mode)));
-  return (
-    <div className="space-y-3">
-      <p className="px-3 pt-2 text-[11px] uppercase tracking-wide text-muted-foreground">
-        Сортировка
-      </p>
-      <div className="space-y-1">
-        {FORM_SORT_FIELDS.map((field) => {
-          const used = usedFields.has(field);
-          return (
-            <button
-              key={field}
-              type="button"
-              onClick={() => {
-                if (used) return;
-                onChange([...sorts, combineFormSort(field, "asc")]);
-              }}
-              className={cn(
-                "flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
-                used ? "bg-accent text-muted-foreground" : null,
-              )}
-            >
-              <span>{FORM_SORT_FIELD_LABEL[field]}</span>
-              {used ? <span className="text-xs">Добавлено</span> : null}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Контент пина активной сортировки. Эталон 1-в-1 с SortPinEditor из
- * documents-table.tsx: каждая сортировка — строка с field-Select +
- * direction-Select (↑/↓) + крестик. Кнопки: «+ Добавить сортировку»
- * (раскрывает список неиспользованных полей) и «🗑 Удалить сортировку»
- * (очищает всё).
- */
-function SortPinEditor({
-  sorts,
-  onChange,
-}: {
-  sorts: FormSortMode[];
-  onChange: (next: FormSortMode[]) => void;
-}) {
-  const [showAdd, setShowAdd] = useState(false);
-
-  const unusedFields = FORM_SORT_FIELDS.filter(
-    (field) => !sorts.some((mode) => formSortToField(mode) === field),
-  );
-
-  const updateAt = (index: number, next: FormSortMode) => {
-    onChange(sorts.map((mode, i) => (i === index ? next : mode)));
-  };
-
-  const replaceField = (index: number, field: FormSortField) => {
-    const currentDirection = formSortToDirection(sorts[index]);
-    updateAt(index, combineFormSort(field, currentDirection));
-  };
-
-  const removeAt = (index: number) => {
-    onChange(sorts.filter((_, i) => i !== index));
-  };
-
-  return (
-    <div className="w-[min(420px,calc(100vw-3rem))] space-y-3">
-      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-        Сортировка
-      </p>
-
-      <div className="space-y-2">
-        {sorts.map((mode, index) => {
-          const field = formSortToField(mode);
-          const direction = formSortToDirection(mode);
-          return (
-            <div key={`${field}-${index}`} className="grid grid-cols-[1fr_72px_32px] items-center gap-2">
-              <Select
-                value={field}
-                onValueChange={(value) => replaceField(index, value as FormSortField)}
-              >
-                <SelectTrigger className="h-9">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {FORM_SORT_FIELDS.map((option) => {
-                    const disabled = sorts.some(
-                      (other, otherIndex) => otherIndex !== index && formSortToField(other) === option,
-                    );
-                    return (
-                      <SelectItem key={option} value={option} disabled={disabled}>
-                        {FORM_SORT_FIELD_LABEL[option]}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-
-              <Select
-                value={direction}
-                onValueChange={(value) =>
-                  updateAt(index, combineFormSort(field, value as "asc" | "desc"))
-                }
-              >
-                <SelectTrigger
-                  className="h-9 w-[72px] justify-center gap-1 px-2"
-                  aria-label={direction === "asc" ? "По возрастанию" : "По убыванию"}
-                >
-                  {direction === "asc" ? (
-                    <ArrowUp className="h-4 w-4" />
-                  ) : (
-                    <ArrowDown className="h-4 w-4" />
-                  )}
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="asc">
-                    <span className="inline-flex items-center gap-2">
-                      <ArrowUp className="h-3.5 w-3.5" /> По возрастанию
-                    </span>
-                  </SelectItem>
-                  <SelectItem value="desc">
-                    <span className="inline-flex items-center gap-2">
-                      <ArrowDown className="h-3.5 w-3.5" /> По убыванию
-                    </span>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                onClick={() => removeAt(index)}
-                aria-label="Удалить сортировку"
-              >
-                <XCircle className="h-4 w-4" />
-              </Button>
-            </div>
-          );
-        })}
-      </div>
-
-      {showAdd && unusedFields.length > 0 ? (
-        <div className="rounded-lg border bg-background p-2">
-          {unusedFields.map((field) => (
-            <button
-              key={field}
-              type="button"
-              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
-              onClick={() => {
-                onChange([...sorts, combineFormSort(field, "asc")]);
-                setShowAdd(false);
-              }}
-            >
-              <ArrowUp className="h-4 w-4 text-muted-foreground" />
-              {FORM_SORT_FIELD_LABEL[field]}
-            </button>
-          ))}
-        </div>
-      ) : null}
-
-      <div className="space-y-1 border-t pt-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
-          disabled={unusedFields.length === 0}
-          onClick={() => setShowAdd((current) => !current)}
-        >
-          <Plus className="h-4 w-4" />
-          Добавить сортировку
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start gap-2 text-muted-foreground hover:text-destructive"
-          onClick={() => onChange([])}
-        >
-          <Trash2 className="h-4 w-4" />
-          Удалить сортировку
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Контент popover'а Группа-фильтра. Эталон — VenuePicker/StorePicker
- * в documents-table.tsx (max-h + overflow-y, кнопки rounded-sm
- * px-3 py-2). Иерархия групп — paddingLeft по depth.
- */
-function GroupPicker({
-  value,
-  groups,
-  onChange,
-}: {
-  value: string;
-  groups: EditorGroup[];
-  onChange: (groupId: string) => void;
-}) {
-  if (groups.length === 0) {
-    return (
-      <div className="px-3 py-2 text-sm text-muted-foreground">
-        В акте нет групп ингредиентов.
-      </div>
-    );
-  }
-  return (
-    <div className="max-h-64 space-y-0.5 overflow-y-auto p-1">
-      <button
-        type="button"
-        onClick={() => onChange("")}
-        className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
-      >
-        <span className="truncate">Все группы акта</span>
-        {value === "" ? <Check className="h-4 w-4 shrink-0" /> : null}
-      </button>
-      {groups.map((group) => (
-        <button
-          key={group.id}
-          type="button"
-          onClick={() => onChange(group.id)}
-          className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
-          style={{ paddingLeft: 12 + Math.min(group.depth, 8) * 12 }}
-        >
-          <span className="truncate">{group.path}</span>
-          {value === group.id ? <Check className="h-4 w-4 shrink-0" /> : null}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/**
- * Контент popover'а Заполненность-фильтра. Three-state: все / только
- * заполненные / только пустые.
- */
-function FillStatePicker({
-  value,
-  onChange,
-}: {
-  value: FillState;
-  onChange: (next: FillState) => void;
-}) {
-  const options: { value: FillState; label: string }[] = [
-    { value: "all",    label: "Все позиции" },
-    { value: "filled", label: "Только заполненные" },
-    { value: "empty",  label: "Только пустые" },
-  ];
-  return (
-    <div className="space-y-0.5 p-1">
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          onClick={() => onChange(option.value)}
-          className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
-        >
-          <span className="truncate">{option.label}</span>
-          {value === option.value ? <Check className="h-4 w-4 shrink-0" /> : null}
-        </button>
-      ))}
     </div>
   );
 }

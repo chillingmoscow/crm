@@ -610,7 +610,14 @@ export async function syncQuickRestoInventory(input?: {
             invoice_date: dateText(document.invoiceDate),
             store_id: storeId,
             external_store_id: externalStoreId,
-            status: nextStatus,
+            // Статус существующего акта пишем, только когда Quick Resto его
+            // провёл. Иначе upsert вернул бы статус, прочитанный ДО сетевых
+            // запросов к backoffice (секунды): исполнитель за это время сдаёт
+            // акт → синхронизация откатывала его в in_progress, а менеджер,
+            // назначивший исполнителя, получал обратно synced. Для
+            // непроведённого акта resolveStatusAfterSync и так сохраняет
+            // текущий статус — значит, его просто не трогаем.
+            ...(!existing || nextStatus === "processed" ? { status: nextStatus } : {}),
             processed: Boolean(document.processed),
             base_last_update_date: dateText(document.lastUpdateDate),
             last_qr_update_date: dateText(document.lastUpdateDate),

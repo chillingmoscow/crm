@@ -9,6 +9,8 @@ test("раздел события определяется по префиксу
   assert.equal(auditModuleOf("cash.control.synced"), "finance");
   assert.equal(auditModuleOf("candidate.hired"), "candidates");
   assert.equal(auditModuleOf("kb_thread.resolved"), "kb");
+  assert.equal(auditModuleOf("schedule.shifts.published"), "schedule");
+  assert.equal(auditModuleOf("schedule.swap.approved"), "schedule");
   assert.equal(auditModuleOf("unknown.thing"), null);
 });
 

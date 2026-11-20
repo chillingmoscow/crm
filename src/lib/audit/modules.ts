@@ -23,6 +23,7 @@ export const AUDIT_MODULES: {
   },
   { id: "payroll", name: "Зарплата", prefixes: ["payroll."] },
   { id: "finance", name: "Финансы", prefixes: ["finance.", "cash."] },
+  { id: "schedule", name: "Расписание", prefixes: ["schedule."] },
   { id: "sales", name: "Продажи", prefixes: ["sales."] },
   {
     id: "stock",

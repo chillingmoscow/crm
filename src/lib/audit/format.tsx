@@ -40,6 +40,7 @@ import { auditFallbackHeadline, formatAuditDate as formatDate } from "./labels";
 import {guestAuditSpecs} from "./guests";
 import { candidateAuditSpecs } from "./candidates";
 import { catalogAuditSpecs } from "./catalog";
+import { scheduleAuditSpecs } from "./schedule";
 import { ChangeLines } from "./change-lines";
 
 /** Заголовок KB-страницы в фразе события: кликабельная ссылка, если
@@ -239,6 +240,7 @@ function payrollTransferSpec(verb: string): AuditEventSpec {
 const SPECS: Record<string, AuditEventSpec> = {
   ...guestAuditSpecs,
   ...catalogAuditSpecs,
+  ...scheduleAuditSpecs,
   "integration.updated": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => <>изменил(а) настройки интеграции{e.details.provider === "quickresto" ? " Quick Resto" : e.details.provider === "adesk" ? " Adesk" : e.details.provider === "telegram" ? " Telegram" : e.details.provider === "office_codes" ? " «Коды замка»" : ""}</>,

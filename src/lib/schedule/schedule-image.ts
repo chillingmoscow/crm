@@ -79,15 +79,15 @@ export type ScheduleImage = {
 };
 
 /**
- * Размеры картинки — шкала дизайн-системы ×2 (макет 720px, картинка 1440px):
- * кегли 26/24 — это 13/12. Ширина выбрана под столбец дня: в нём должно
- * помещаться имя до ~10 букв. Telegram показывает фото во всю ширину
- * телефона, по нажатию — во весь экран с увеличением.
+ * Размеры картинки — шкала дизайн-системы ×2 (макет 1024px, картинка 2048px):
+ * кегли 26/24 — это 13/12. Ширина выбрана под столбец дня: в нём должны
+ * помещаться имя и фамилия (~15 букв в строке). Telegram показывает фото во
+ * всю ширину телефона, по нажатию — во весь экран с увеличением.
  */
 export const LAYOUT = {
-  width: 1440,
+  width: 2048,
   pad: 32,
-  labelCol: 220,
+  labelCol: 260,
   header: 150,
   headRow: 64,
   empty: 200,
@@ -141,11 +141,13 @@ export function slotTime(start: string, end: string, width = SLOT_TEXT): string[
   return textWidth(one, LAYOUT.font) <= width ? [one] : [`${short(start)}–`, short(end)];
 }
 
-/** Имя — первое слово в первой строке, остальное во второй: столбец дня узкий. */
-export function slotName(name: string): string[] {
+/** Имя и фамилия в одну строку; не влезают — имя в первой строке, остальное во второй. */
+export function slotName(name: string, width = SLOT_TEXT): string[] {
   const words = name.trim().split(/\s+/).filter(Boolean);
   if (!words.length) return ["Сотрудник"];
-  return words.length === 1 ? words : [words[0], words.slice(1).join(" ")];
+  const full = words.join(" ");
+  if (words.length === 1 || textWidth(full, LAYOUT.font) <= width) return [full];
+  return [words[0], words.slice(1).join(" ")];
 }
 
 /** Название шаблона в одну-две строки по словам; что не влезло — в конец второй строки (там «…»). */
@@ -159,6 +161,19 @@ export function labelLines(text: string, width = LABEL_TEXT, size: number = LAYO
     else lines.push(word);
   }
   return lines;
+}
+
+/**
+ * Не больше стольких сотрудников в ячейке; остальные — карточкой «+N ещё».
+ * Так высота строки ограничена: иначе мероприятие на 40 человек дало бы
+ * картинку, которую Telegram не примет.
+ */
+export const MAX_SLOTS_PER_CELL = 6;
+export function capCell(slots: ImageSlot[]): ImageSlot[] {
+  if (slots.length <= MAX_SLOTS_PER_CELL) return slots;
+  const shown = slots.slice(0, MAX_SLOTS_PER_CELL - 1);
+  const rest = slots.length - shown.length;
+  return [...shown, { color: shown[0].color, title: null, name: [`+${rest} ещё`], time: [] }];
 }
 
 export const slotHeight = (slot: ImageSlot) =>
@@ -230,7 +245,7 @@ export function buildImageRows(input: ScheduleImageInput): ImageRow[] {
           name: slotName(people.get(personKey(s)!) ?? ""),
           time: slotTime(timeInZone(s.starts_at, input.timezone), timeInZone(s.ends_at, input.timezone)),
         })),
-    );
+    ).map(capCell);
   const rows: ImageRow[] = [...templates.values()]
     .filter((t) => byRow.has(t.id))
     .sort((a, b) => collator.compare(a.name, b.name) || collator.compare(a.subtitle, b.subtitle))

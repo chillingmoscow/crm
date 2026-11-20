@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  LAYOUT,
+  MAX_SLOTS_PER_CELL,
   buildImageRows,
   buildScheduleImage,
   labelLines,
@@ -101,8 +103,8 @@ test("buildImageRows: ячейка — сотрудники и время по �
   assert.equal(cook.days.length, 7);
   assert.deepEqual(cook.days[0], []);
   assert.deepEqual(cook.days[1], [
-    { color: "orange", title: null, name: ["Анна", "Белова"], time: ["09:30–22"] },
-    { color: "orange", title: null, name: ["Вера", "Глебова"], time: ["09:30–22"] },
+    { color: "orange", title: null, name: ["Анна Белова"], time: ["09:30–22"] },
+    { color: "orange", title: null, name: ["Вера Глебова"], time: ["09:30–22"] },
     { color: "orange", title: null, name: ["Гоша"], time: ["18–0"] },
   ]);
 });
@@ -120,9 +122,13 @@ test("slotTime, slotName, labelLines: текст раскладывается п
   assert.deepEqual(slotTime("10:00", "22:00"), ["10–22"]);
   assert.deepEqual(slotTime("09:00", "22:00"), ["9–22"]);
   assert.deepEqual(slotTime("10:30", "22:00"), ["10:30–22"]);
-  assert.deepEqual(slotTime("10:30", "22:30"), ["10:30–", "22:30"]);
-  assert.deepEqual(slotTime("10:30", "22:30"), ["10:30–", "22:30"]);
-  assert.deepEqual(slotName("Анна Мария Белова"), ["Анна", "Мария Белова"]);
+  assert.deepEqual(slotTime("10:30", "22:30"), ["10:30–22:30"]);
+  assert.deepEqual(slotTime("10:30", "22:30", 120), ["10:30–", "22:30"]);
+  assert.deepEqual(slotTime("10:30", "22:30"), ["10:30–22:30"]);
+  assert.deepEqual(slotTime("10:30", "22:30", 120), ["10:30–", "22:30"]);
+  assert.deepEqual(slotName("Анна Белова"), ["Анна Белова"]);
+  assert.deepEqual(slotName("Григорий Константинопольский"), ["Григорий", "Константинопольский"]);
+  assert.deepEqual(slotName("Анна Белова", 100), ["Анна", "Белова"]);
   assert.deepEqual(slotName("  "), ["Сотрудник"]);
   assert.deepEqual(labelLines("Бар"), ["Бар"]);
   assert.deepEqual(labelLines("Старший повар горячего цеха"), ["Старший", "повар горячего цеха"]);
@@ -151,6 +157,17 @@ test("splitImageParts: делит по высоте, строку не реже�
   // Строка выше предела — на отдельной картинке целиком.
   assert.deepEqual(splitImageParts([small, big, small], h * 2).map((p) => p.rows.map((r) => r.key)), [["a"], ["b"], ["a"]]);
   assert.deepEqual(splitImageParts([]), [{ rows: [] }]);
+});
+
+test("buildImageRows: много людей в один день — «+N ещё», высота строки ограничена", () => {
+  const crowd = Array.from({ length: 40 }, (_, i) =>
+    shift({ user_id: `x${i}`, template_id: null, title: "Банкет на всю ночь с фуршетом" }),
+  );
+  const [other] = buildImageRows(input(crowd));
+  const monday = other.days[0];
+  assert.equal(monday.length, MAX_SLOTS_PER_CELL);
+  assert.deepEqual(monday[MAX_SLOTS_PER_CELL - 1].name, [`+${40 - (MAX_SLOTS_PER_CELL - 1)} ещё`]);
+  assert.ok(rowHeight(other) <= LAYOUT.maxBody, "строка помещается на одну картинку");
 });
 
 test("weekPeriodLabel: месяц и год пишутся один раз, если совпадают", () => {

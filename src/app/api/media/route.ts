@@ -1,7 +1,11 @@
 import type { NextRequest } from "next/server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient, getCachedUser } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedUser,
+} from "@/lib/supabase/server";
 import { MEDIA_MAX_AGE_SECONDS, readMediaRequest } from "@/lib/storage/media";
 
 /**
@@ -21,6 +25,17 @@ export async function GET(request: NextRequest) {
 
   const user = await getCachedUser();
   if (!user) return new Response(null, { status: 401, headers: NO_STORE });
+
+  // Служебным ключом читаем только файлы аккаунта, в котором пользователь
+  // сейчас работает (путь вложений начинается с id аккаунта): иначе выданный
+  // однажды адрес открывался бы вошедшему пользователю любого другого
+  // аккаунта. Режим `user` проверяют правила самого хранилища.
+  if (media.access === "admin") {
+    const accountId = await getCachedActiveAccountId();
+    if (!accountId || !media.path.startsWith(`${accountId}/`)) {
+      return new Response(null, { status: 404, headers: NO_STORE });
+    }
+  }
 
   const client = media.access === "admin" ? createAdminClient() : await createClient();
   const bucket = client.storage.from(media.bucket);

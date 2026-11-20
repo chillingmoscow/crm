@@ -9,34 +9,48 @@ import {
   useTransition,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Search, ScrollText, X } from "lucide-react";
+import { RotateCcw, ScrollText, SearchX } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { EmptyState } from "@/components/ui/empty-state";
-import { cn } from "@/lib/utils";
-import { AuditEventRow } from "@/components/audit/audit-event-row";
-import { groupEventsByDate } from "@/lib/audit/group-by-date";
-import type { AuditEvent } from "@/lib/audit/list";
-import { loadAuditFeedPage } from "@/lib/audit/feed";
-
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { PageFrame } from "@/components/shared/page-frame";
+import { TablePageHeader } from "@/components/shared/table/table-page-header";
+import { TableControls } from "@/components/shared/table/table-controls";
+import { TableConditions } from "@/components/shared/table/table-conditions";
+import { TableFilterChip } from "@/components/shared/table/table-filter-chip";
 import {
   DateRangeFilter,
   type DateRangeValue,
 } from "@/components/shared/date-range-filter";
-import {
-  MultiSelectFilter,
-  type MultiSelectItem,
-} from "@/app/(dashboard)/finance/transactions/_components/filters/multi-select-filter";
+import { AuditEventRow } from "@/components/audit/audit-event-row";
+import { cn } from "@/lib/utils";
+import { groupEventsByDate } from "@/lib/audit/group-by-date";
+import type { AuditEvent } from "@/lib/audit/list";
+import { loadAuditFeedPage } from "@/lib/audit/feed";
 import { AUDIT_ACTION_CATEGORIES } from "@/lib/audit/action-categories";
+import { AUDIT_MODULES } from "@/lib/audit/modules";
 import { AUDIT_SECTIONS } from "@/lib/audit/sections";
-
 import type { AuditStaffOption } from "@/lib/audit/search-staff";
 
-const SECTION_OPTIONS: MultiSelectItem[] = AUDIT_SECTIONS;
+const MODULE_OPTIONS = AUDIT_MODULES.map((m) => ({ value: m.id, label: m.name }));
+const ACTION_OPTIONS = AUDIT_ACTION_CATEGORIES.map((c) => ({
+  value: c.id,
+  label: c.name,
+}));
+const OBJECT_OPTIONS = AUDIT_SECTIONS.map((s) => ({ value: s.id, label: s.name }));
 
-const FILTERS_VISIBLE_STORAGE_KEY = "org-audit.filters-visible";
+/** Ключи URL, которые сбрасывает «Очистить все». */
+const FILTER_KEYS = [
+  "q",
+  "sections",
+  "types",
+  "actions",
+  "staff",
+  "from",
+  "to",
+  "date_preset",
+] as const;
 
 interface Props {
   events: AuditEvent[];
@@ -45,6 +59,8 @@ interface Props {
   staffOptions: AuditStaffOption[];
   /** `kb.delete_pages` — для restore-кнопки у удалённых KB-страниц. */
   canRestoreKb?: boolean;
+  /** Часовой пояс заведения: дни ленты и время в строках. */
+  timeZone: string;
 }
 
 export function AuditPageClient({
@@ -53,13 +69,16 @@ export function AuditPageClient({
   error,
   staffOptions,
   canRestoreKb = false,
+  timeZone,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const [isNavigating, startNavigation] = useTransition();
 
   // ── URL state (single source of truth) ────────────────────────
   const urlQ = searchParams.get("q") ?? "";
+  const urlSections = parseCsv(searchParams.get("sections"));
   const urlTypes = parseCsv(searchParams.get("types"));
   const urlActions = parseCsv(searchParams.get("actions"));
   const urlStaff = parseCsv(searchParams.get("staff"));
@@ -68,36 +87,34 @@ export function AuditPageClient({
   const urlDatePreset = searchParams.get("date_preset") ?? null;
 
   const updateUrl = useCallback(
-    (patch: Record<string, string | null>) => {
+    (patch: Partial<Record<(typeof FILTER_KEYS)[number], string | null>>) => {
       const params = new URLSearchParams(searchParams.toString());
       for (const [key, value] of Object.entries(patch)) {
-        if (value === null || value === "") {
+        if (value === null || value === undefined || value === "") {
           params.delete(key);
         } else {
           params.set(key, value);
         }
       }
-      // Сброс курсора пагинации при любом изменении фильтра.
-      params.delete("before_at");
-      params.delete("before_id");
       const qs = params.toString();
-      router.replace(`${pathname}${qs ? `?${qs}` : ""}`);
+      startNavigation(() => {
+        router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
+      });
     },
     [searchParams, pathname, router],
   );
 
-  // ── Search ────────────────────────────────────────────────────
+  // ── Search (debounced into URL) ───────────────────────────────
   const [searchDraft, setSearchDraft] = useState(urlQ);
-  const [searchExpanded, setSearchExpanded] = useState(!!urlQ);
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [searchOpen, setSearchOpen] = useState(Boolean(urlQ));
 
-  // Sync обратно из URL (back/forward).
+  // Sync обратно из URL (back/forward, «Очистить все»).
   useEffect(() => {
     setSearchDraft(urlQ);
   }, [urlQ]);
 
   useEffect(() => {
-    if (searchDraft === urlQ) return;
+    if (searchDraft.trim() === urlQ) return;
     const t = setTimeout(() => {
       updateUrl({ q: searchDraft.trim() || null });
     }, 350);
@@ -105,24 +122,20 @@ export function AuditPageClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchDraft]);
 
-  // ── Filter chips bar visibility (persisted) ───────────────────
-  const [filtersVisible, setFiltersVisible] = useState(true);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const stored = window.localStorage.getItem(FILTERS_VISIBLE_STORAGE_KEY);
-    if (stored !== null) setFiltersVisible(stored === "true");
-  }, []);
-  const toggleFiltersVisibility = () => {
-    setFiltersVisible((v) => {
-      const next = !v;
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(FILTERS_VISIBLE_STORAGE_KEY, String(next));
-      }
-      return next;
-    });
-  };
+  // ── Conditions row ────────────────────────────────────────────
+  // Скрыт по умолчанию, открывается кнопкой фильтров; выбранный фильтр
+  // виден всегда (design-system → «List-страница»).
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
-  // ── Computed bits ─────────────────────────────────────────────
+  const hasDate = Boolean(urlFrom || urlTo);
+  const hasFilters =
+    urlSections.length > 0 ||
+    urlTypes.length > 0 ||
+    urlActions.length > 0 ||
+    urlStaff.length > 0 ||
+    hasDate;
+  const isFiltered = hasFilters || Boolean(urlQ);
+
   const dateRange = useMemo<DateRangeValue>(
     () => ({
       start: urlFrom ? parseIsoDate(urlFrom) : null,
@@ -131,42 +144,37 @@ export function AuditPageClient({
     [urlFrom, urlTo],
   );
 
-  const staffMultiSelectItems = useMemo<MultiSelectItem[]>(
-    () =>
-      staffOptions.map((s) => ({
-        id: s.id,
-        name: s.name,
-      })),
+  const staffChipOptions = useMemo(
+    () => staffOptions.map((s) => ({ value: s.id, label: s.name })),
     [staffOptions],
   );
 
-  const activeFilterCount =
-    (urlTypes.length > 0 ? 1 : 0) +
-    (urlActions.length > 0 ? 1 : 0) +
-    (urlStaff.length > 0 ? 1 : 0) +
-    (urlFrom || urlTo ? 1 : 0) +
-    (urlQ ? 1 : 0);
+  const resetAll = () => {
+    setSearchDraft("");
+    updateUrl(Object.fromEntries(FILTER_KEYS.map((k) => [k, null])));
+  };
 
-  // ── Client-side pagination state ──────────────────────────────
-  // Изначальная страница приезжает с сервера (events prop). «Загрузить
-  // ещё» дёргает loadAuditFeedPage с курсором и append'ит — без полной
-  // навигации, скролл сохраняется.
+  // ── Pagination («Показать события старее») ────────────────────
+  // Первая страница приезжает с сервера. Следующие догружаются тем же
+  // loadAuditFeedPage с курсором и дописываются в конец без навигации.
   //
-  // При смене любого фильтра URL меняется → page.tsx ре-рендерится →
-  // events/hasMore приезжают новые → reset через useEffect ниже.
-  //
-  // Гонка load-more × filter change: если пользователь кликнул
-  // «Загрузить ещё», а потом сразу сменил фильтр, старый запрос мог бы
-  // долететь и append'нуть устаревшие события. Защищаемся через
-  // request-key: на старте сохраняем подпись текущих фильтров, при
-  // приземлении результата сверяем с ref'ом — несовпадение значит
-  // фильтры успели измениться, результат игнорируем.
+  // Гонка «догрузка × смена фильтра»: старый ответ мог бы дописать
+  // события другого фильтра. На старте запоминаем подпись фильтров и
+  // выбрасываем ответ, если она успела измениться.
   const [accumulated, setAccumulated] = useState<AuditEvent[]>(events);
   const [accumulatedHasMore, setAccumulatedHasMore] = useState(hasMore);
-  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  const [loadMoreFailed, setLoadMoreFailed] = useState(false);
   const [isLoadingMore, startLoadMore] = useTransition();
 
-  const filtersKey = `${urlQ}|${urlTypes.join(",")}|${urlActions.join(",")}|${urlStaff.join(",")}|${urlFrom}|${urlTo}`;
+  const filtersKey = [
+    urlQ,
+    urlSections.join(","),
+    urlTypes.join(","),
+    urlActions.join(","),
+    urlStaff.join(","),
+    urlFrom,
+    urlTo,
+  ].join("|");
   const filtersKeyRef = useRef(filtersKey);
   useEffect(() => {
     filtersKeyRef.current = filtersKey;
@@ -175,216 +183,199 @@ export function AuditPageClient({
   useEffect(() => {
     setAccumulated(events);
     setAccumulatedHasMore(hasMore);
-    setLoadMoreError(null);
+    setLoadMoreFailed(false);
   }, [events, hasMore]);
 
   const onLoadMore = () => {
     const last = accumulated[accumulated.length - 1];
     if (!last) return;
     const snapshotKey = filtersKey;
+    setLoadMoreFailed(false);
     startLoadMore(async () => {
-      const result = await loadAuditFeedPage({
-        q: urlQ || undefined,
-        types: urlTypes.length > 0 ? urlTypes.join(",") : undefined,
-        actions: urlActions.length > 0 ? urlActions.join(",") : undefined,
-        staff: urlStaff.length > 0 ? urlStaff.join(",") : undefined,
-        from: urlFrom || undefined,
-        to: urlTo || undefined,
-        beforeAt: last.created_at,
-        beforeId: last.id,
-      });
-      // Stale guard: фильтры успели поменяться — выбрасываем результат,
-      // accumulator сейчас уже соответствует новому фильтру.
-      if (snapshotKey !== filtersKeyRef.current) return;
-      if (result.error) {
-        setLoadMoreError(result.error);
-        return;
+      try {
+        const result = await loadAuditFeedPage({
+          q: urlQ || undefined,
+          sections: csvOrUndefined(urlSections),
+          types: csvOrUndefined(urlTypes),
+          actions: csvOrUndefined(urlActions),
+          staff: csvOrUndefined(urlStaff),
+          from: urlFrom || undefined,
+          to: urlTo || undefined,
+          beforeAt: last.created_at,
+          beforeId: last.id,
+          timeZone,
+        });
+        if (snapshotKey !== filtersKeyRef.current) return;
+        if (result.error) {
+          setLoadMoreFailed(true);
+          return;
+        }
+        setAccumulated((prev) => [...prev, ...result.events]);
+        setAccumulatedHasMore(result.hasMore);
+      } catch {
+        if (snapshotKey === filtersKeyRef.current) setLoadMoreFailed(true);
       }
-      setAccumulated((prev) => [...prev, ...result.events]);
-      setAccumulatedHasMore(result.hasMore);
     });
   };
 
-  const groups = useMemo(() => groupEventsByDate(accumulated), [accumulated]);
-  const hasFilters = activeFilterCount > 0;
-  const isInitialLoad = !searchParams.get("before_at");
+  const groups = useMemo(
+    () => groupEventsByDate(accumulated, timeZone),
+    [accumulated, timeZone],
+  );
 
   // ── Render ────────────────────────────────────────────────────
   return (
-    <div className="p-6 md:p-8 w-full">
-      {/* Header */}
-      <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Журнал событий</h1>
-          <p className="text-muted-foreground mt-1 text-sm">
-            История действий по аккаунту: обработка кандидатов, приём и увольнение сотрудников,
-            смена должностей, обновление контактов и HR-данных, изменения
-            в базе знаний
-          </p>
-        </div>
+    <PageFrame className="space-y-4">
+      <Breadcrumbs
+        items={[{ label: "Организация" }, { label: "Журнал событий" }]}
+      />
+      <TablePageHeader
+        title="Журнал событий"
+        actions={
+          <TableControls
+            search={{
+              value: searchDraft,
+              onChange: setSearchDraft,
+              open: searchOpen,
+              onOpenChange: setSearchOpen,
+              placeholder: "Сотрудник, должность, страница, счёт…",
+            }}
+            filters={{
+              active: hasFilters,
+              label: filtersOpen ? "Скрыть фильтры" : "Показать фильтры",
+              onClick: () => setFiltersOpen((v) => !v),
+            }}
+          />
+        }
+      />
 
-        <div className="flex items-center gap-1.5">
-          {/* Expandable search */}
-          <div className="flex items-center">
-            {searchExpanded || searchDraft ? (
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  ref={searchInputRef}
-                  autoFocus
-                  value={searchDraft}
-                  onChange={(e) => setSearchDraft(e.target.value)}
-                  onBlur={() => {
-                    if (!searchDraft) setSearchExpanded(false);
-                  }}
-                  placeholder="Поиск по сотрудникам и страницам…"
-                  className="pl-9 pr-8 h-9 w-72"
-                />
-                {searchDraft && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearchDraft("");
-                      updateUrl({ q: null });
-                      searchInputRef.current?.focus();
-                    }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
-                    aria-label="Очистить поиск"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-            ) : (
-              <IconButton
-                onClick={() => setSearchExpanded(true)}
-                aria-label="Поиск"
-              >
-                <Search className="h-4 w-4" />
-              </IconButton>
-            )}
-          </div>
-
-          <IconButton
-            onClick={toggleFiltersVisibility}
-            active={activeFilterCount > 0}
-            badge={activeFilterCount}
-            aria-label={filtersVisible ? "Скрыть фильтры" : "Показать фильтры"}
-          >
-            <FilterIcon />
-          </IconButton>
-        </div>
-      </div>
-
-      {/* Filter chips bar */}
-      {filtersVisible && (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
+      <TableConditions
+        label="Условия журнала"
+        open={filtersOpen}
+        hasFilters={hasFilters}
+        sorting={[]}
+        onSortingChange={() => {}}
+        sortFields={[]}
+        sortLabels={{}}
+        search={urlQ}
+        onSearchClear={() => {
+          setSearchDraft("");
+          updateUrl({ q: null });
+        }}
+        onReset={resetAll}
+      >
+        {(filtersOpen || hasDate) && (
           <DateRangeFilter
+            ariaLabel="Период"
             value={dateRange}
             presetLabel={urlDatePreset}
-            onChange={(next, preset) => {
+            onChange={(next, preset) =>
               updateUrl({
                 from: next.start ? toIsoDate(next.start) : null,
                 to: next.end ? toIsoDate(next.end) : null,
                 date_preset: preset,
-              });
-            }}
+              })
+            }
           />
-
-          <MultiSelectFilter
-            placeholder="Раздел"
-            items={SECTION_OPTIONS}
-            selectedIds={urlTypes}
-            onChange={(ids) => {
-              updateUrl({ types: ids.length > 0 ? ids.join(",") : null });
-            }}
+        )}
+        {(filtersOpen || urlSections.length > 0) && (
+          <TableFilterChip
+            label="Раздел"
+            multiple
+            value={urlSections}
+            options={MODULE_OPTIONS}
+            onChange={(ids) => updateUrl({ sections: ids.join(",") || null })}
           />
-
-          <MultiSelectFilter
-            placeholder="Действие"
-            items={AUDIT_ACTION_CATEGORIES}
-            selectedIds={urlActions}
-            onChange={(ids) => {
-              updateUrl({ actions: ids.length > 0 ? ids.join(",") : null });
-            }}
+        )}
+        {urlTypes.length > 0 && (
+          <TableFilterChip
+            label="Объект"
+            multiple
+            value={urlTypes}
+            options={OBJECT_OPTIONS}
+            onChange={(ids) => updateUrl({ types: ids.join(",") || null })}
           />
-
-          <MultiSelectFilter
-            placeholder="Сотрудники"
-            items={staffMultiSelectItems}
-            selectedIds={urlStaff}
-            onChange={(ids) => {
-              updateUrl({ staff: ids.length > 0 ? ids.join(",") : null });
-            }}
+        )}
+        {(filtersOpen || urlActions.length > 0) && (
+          <TableFilterChip
+            label="Действие"
+            multiple
+            value={urlActions}
+            options={ACTION_OPTIONS}
+            onChange={(ids) => updateUrl({ actions: ids.join(",") || null })}
           />
+        )}
+        {(filtersOpen || urlStaff.length > 0) && (
+          <TableFilterChip
+            label="Сотрудники"
+            multiple
+            value={urlStaff}
+            options={staffChipOptions}
+            searchPlaceholder="Найти сотрудника"
+            onChange={(ids) => updateUrl({ staff: ids.join(",") || null })}
+          />
+        )}
+      </TableConditions>
 
-          {urlQ && (
-            <Chip
-              label={`Поиск: «${urlQ}»`}
-              onClear={() => {
-                setSearchDraft("");
-                updateUrl({ q: null });
-              }}
-            />
-          )}
-
-          {hasFilters && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="rounded-full h-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
-              onClick={() => {
-                setSearchDraft("");
-                updateUrl({
-                  q: null,
-                  types: null,
-                  actions: null,
-                  staff: null,
-                  from: null,
-                  to: null,
-                  date_preset: null,
-                });
-              }}
-            >
-              Очистить все
-            </Button>
-          )}
+      {error ? (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+        >
+          Не удалось загрузить журнал
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => startNavigation(() => router.refresh())}
+          >
+            <RotateCcw className="mr-2 size-3.5" />
+            Повторить
+          </Button>
         </div>
-      )}
-
-      {/* Content */}
-      {error && (
-        <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          Не удалось загрузить журнал: {error}
-        </div>
-      )}
-
-      {!error && accumulated.length === 0 && isInitialLoad && (
+      ) : accumulated.length === 0 ? (
         <EmptyState
-          icon={ScrollText}
-          title={hasFilters ? "Ничего не найдено" : "Пока пусто"}
+          icon={isFiltered ? SearchX : ScrollText}
+          title={isFiltered ? "Событий не найдено" : "Событий пока нет"}
           description={
-            hasFilters
-              ? "Попробуйте изменить фильтры или сбросить их"
-              : "Сюда будут попадать события по всем модулям. Появятся, как только сотрудники начнут действовать в системе"
+            isFiltered
+              ? "Измените условия поиска или сбросьте фильтры"
+              : "Здесь появятся действия сотрудников во всех разделах: кто, когда и что изменил"
           }
+          action={
+            isFiltered ? (
+              <Button variant="outline" onClick={resetAll}>
+                Очистить все
+              </Button>
+            ) : undefined
+          }
+          className={cn(isNavigating && "opacity-50")}
         />
-      )}
-
-      {!error && groups.length > 0 && (
-        <div className="flex flex-col gap-5">
+      ) : (
+        <div
+          className={cn(
+            "flex flex-col gap-5 transition-opacity",
+            isNavigating && "pointer-events-none opacity-50",
+          )}
+          aria-busy={isNavigating}
+        >
           {groups.map((group) => (
-            <section key={group.dayKey} className="flex flex-col gap-2">
-              <h2 className="text-[13px] font-semibold text-muted-foreground uppercase tracking-wide px-1">
+            <section
+              key={group.dayKey}
+              className="flex flex-col gap-2"
+              aria-label={group.title}
+            >
+              <h2 className="px-1 text-[13px] font-medium text-muted-foreground">
                 {group.title}
               </h2>
-              <ul className="flex flex-col rounded-md border bg-background overflow-hidden">
+              <ul className="flex flex-col overflow-hidden rounded-lg border bg-card">
                 {group.events.map((event) => (
                   <AuditEventRow
                     key={event.id}
                     event={event}
                     canRestoreKb={canRestoreKb}
+                    timeOnly
+                    timeZone={timeZone}
                   />
                 ))}
               </ul>
@@ -393,97 +384,39 @@ export function AuditPageClient({
         </div>
       )}
 
-      {loadMoreError && (
-        <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          Не удалось загрузить больше: {loadMoreError}
+      {loadMoreFailed && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+        >
+          Не удалось загрузить события
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={onLoadMore}
+          >
+            <RotateCcw className="mr-2 size-3.5" />
+            Повторить
+          </Button>
         </div>
       )}
 
-      {accumulatedHasMore && accumulated.length > 0 && (
-        <div className="flex justify-center pt-4">
+      {!error && accumulatedHasMore && accumulated.length > 0 && (
+        <div className="flex justify-center">
           <Button
             type="button"
             variant="ghost"
             size="sm"
             onClick={onLoadMore}
-            disabled={isLoadingMore}
+            disabled={isLoadingMore || isNavigating}
             className="text-muted-foreground hover:text-foreground"
           >
-            {isLoadingMore ? "Загружаем…" : "Загрузить ещё"}
+            {isLoadingMore ? "Загружаем…" : "Показать события старее"}
           </Button>
         </div>
       )}
-    </div>
-  );
-}
-
-// ─── Subcomponents ────────────────────────────────────────────────
-
-function IconButton({
-  children,
-  onClick,
-  active,
-  badge,
-  ...rest
-}: {
-  children: React.ReactNode;
-  onClick?: () => void;
-  active?: boolean;
-  badge?: number;
-} & React.HTMLAttributes<HTMLElement>) {
-  const className = cn(
-    "relative inline-flex items-center justify-center h-9 w-9 rounded-md border border-border bg-background text-muted-foreground hover:bg-muted transition-colors",
-    active && "bg-brand/10 border-brand/20 text-brand",
-  );
-  const tooltipLabel =
-    typeof rest["aria-label"] === "string" ? rest["aria-label"] : undefined;
-  const inner = (
-    <button type="button" onClick={onClick} className={className} {...rest}>
-      {children}
-      {badge !== undefined && badge > 0 && (
-        <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full border-2 border-background bg-destructive text-[10px] font-semibold text-destructive-foreground">
-          {badge}
-        </span>
-      )}
-    </button>
-  );
-  return tooltipLabel ? (
-    <IconTooltip label={tooltipLabel}>{inner}</IconTooltip>
-  ) : (
-    inner
-  );
-}
-
-function FilterIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-    </svg>
-  );
-}
-
-function Chip({ label, onClear }: { label: string; onClear: () => void }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-brand/10 border border-brand/20 text-brand text-sm pl-3 pr-1.5 py-0.5 h-8">
-      <span className="truncate max-w-[200px]">{label}</span>
-      <button
-        type="button"
-        onClick={onClear}
-        aria-label="Очистить"
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand-hover"
-      >
-        <X className="h-3 w-3" />
-      </button>
-    </span>
+    </PageFrame>
   );
 }
 
@@ -495,6 +428,10 @@ function parseCsv(value: string | null): string[] {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+function csvOrUndefined(values: string[]): string | undefined {
+  return values.length > 0 ? values.join(",") : undefined;
 }
 
 function parseIsoDate(value: string): Date | null {

@@ -3,9 +3,15 @@
 import { listAuditEvents, type AuditEvent, type AuditFilterGroup } from "@/lib/audit/list";
 import { searchAuditEntities } from "@/lib/audit/search-staff";
 import { categoriesToLikePatterns } from "@/lib/audit/action-categories";
+import { modulesToLikePatterns } from "@/lib/audit/modules";
+import { zonedDayStartIso } from "@/lib/audit/day-bounds";
 
 export interface AuditFeedParams {
   q?: string;
+  /** CSV разделов журнала (модулей): `payroll,finance`. */
+  sections?: string;
+  /** CSV типов объекта (`entity_type`). В интерфейсе фильтра нет — его
+   *  ставят ссылки из модулей («Журнал переносов», журнал базы знаний). */
   types?: string;
   /** CSV категорий действия (created/changed/deleted/restored/moved). */
   actions?: string;
@@ -14,6 +20,8 @@ export interface AuditFeedParams {
   to?: string;
   beforeAt?: string;
   beforeId?: string;
+  /** Часовой пояс заведения: в нём считаются сутки фильтра «Период». */
+  timeZone?: string;
 }
 
 /** Резолв URL-параметров общего журнала в запрос к listAuditEvents.
@@ -73,13 +81,21 @@ export async function loadAuditFeedPage(params: AuditFeedParams): Promise<{
   const actionLikePatterns = categoriesToLikePatterns(
     parseCsv(params.actions),
   );
-  const fromDate = params.from ? startOfDayISO(params.from) : undefined;
-  const toDate = params.to ? endOfDayISO(params.to) : undefined;
+  const moduleLikePatterns = modulesToLikePatterns(parseCsv(params.sections));
+  const timeZone = params.timeZone || "Europe/Moscow";
+  const fromDate = params.from
+    ? (zonedDayStartIso(params.from, timeZone) ?? undefined)
+    : undefined;
+  const toDate = params.to
+    ? (zonedDayStartIso(params.to, timeZone, 1) ?? undefined)
+    : undefined;
 
   return listAuditEvents({
     entityTypes,
     actionLikePatterns:
       actionLikePatterns.length > 0 ? actionLikePatterns : undefined,
+    moduleLikePatterns:
+      moduleLikePatterns.length > 0 ? moduleLikePatterns : undefined,
     filterGroups,
     fromDate,
     toDate,
@@ -94,16 +110,4 @@ function parseCsv(value: string | undefined): string[] {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-}
-
-function startOfDayISO(yyyyMmDd: string): string {
-  const [y, m, d] = yyyyMmDd.split("-").map(Number);
-  if (!y || !m || !d) return yyyyMmDd;
-  return new Date(y, m - 1, d, 0, 0, 0, 0).toISOString();
-}
-
-function endOfDayISO(yyyyMmDd: string): string {
-  const [y, m, d] = yyyyMmDd.split("-").map(Number);
-  if (!y || !m || !d) return yyyyMmDd;
-  return new Date(y, m - 1, d + 1, 0, 0, 0, 0).toISOString();
 }

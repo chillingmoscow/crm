@@ -1,31 +1,44 @@
-/** Разделы журнала — типы объектов (`audit_logs.entity_type`) с
- *  человеческими названиями. Фильтр «Раздел» в общем журнале
- *  (`/org/audit`) и во вкладке «Активность» карточки сотрудника. */
+/** Типы объектов журнала (`audit_logs.entity_type`) с человеческими
+ *  названиями. Фильтр «Раздел» во вкладке «Активность» карточки
+ *  сотрудника и чип «Объект» общего журнала, когда в него пришли по
+ *  ссылке из модуля (`/org/audit?types=payroll_transfer`).
+ *
+ *  Разделы общего журнала (модули) — в `modules.ts`. */
 export const AUDIT_SECTIONS: { id: string; name: string }[] = [
   { id: "candidate", name: "Кандидаты" },
   { id: "staff", name: "Сотрудники" },
   { id: "invitation", name: "Приглашения" },
   { id: "role", name: "Должности" },
   { id: "department", name: "Подразделения" },
-  { id: "transaction", name: "Транзакции" },
-  { id: "payroll_employee", name:"Участие в зарплатном учёте" },
+  { id: "payroll_employee", name: "Участие в зарплатном учёте" },
   { id: "payroll_adjustment", name: "Начисления и удержания" },
-  { id: "payroll_automation_person", name:"Медкнижки и сведения для автоматизаций" },
-  { id: "payroll_uniform", name:"Рабочая форма" },
-  { id:"payroll_execution",name:"Режим автоматизаций" },
-  { id:"payroll_bonus_operation",name:"Бонусные операции" },
-  { id: "payroll_automation_run", name:"Расчёты автоматизаций" },
+  { id: "payroll_automation_person", name: "Медкнижки и сведения для автоматизаций" },
+  { id: "payroll_uniform", name: "Рабочая форма" },
+  { id: "payroll_execution", name: "Режим автоматизаций" },
+  { id: "payroll_bonus_operation", name: "Бонусные операции" },
+  { id: "payroll_automation_run", name: "Расчёты автоматизаций" },
   { id: "payroll_automation_settings", name: "Настройки мотивации" },
   { id: "payroll_attendance_rule", name: "Учёт выходов" },
+  { id: "payroll_attendance", name: "Проверка выходов" },
+  { id: "payroll_schedule_review", name: "Сверка с расписанием" },
   { id: "payroll_position", name: "Назначения должностей" },
   { id: "payroll_rule", name: "Условия оплаты должностей" },
   { id: "payroll_transfer", name: "Переносы зарплаты" },
   { id: "payroll_import", name: "Импорт зарплаты" },
-  { id: "integration", name: "Интеграции" },
-  { id: "sales_settings", name: "Настройки продаж" },
+  { id: "transaction", name: "Транзакции" },
   { id: "bank_account", name: "Счета" },
   { id: "finance_category", name: "Статьи" },
   { id: "counterparty", name: "Контрагенты" },
+  { id: "sales_day_comment", name: "Комментарии к сменам продаж" },
+  { id: "sales_additional_rules", name: "Правила допродаж" },
+  { id: "sales_settings", name: "Настройки продаж" },
+  { id: "ingredient", name: "Номенклатура" },
+  { id: "ingredient_group", name: "Группы номенклатуры" },
+  { id: "store", name: "Склады" },
+  { id: "inventory_document", name: "Акты инвентаризации" },
+  { id: "stock_writeoff_source", name: "Списания" },
+  { id: "guest", name: "Гости" },
+  { id: "integration", name: "Интеграции" },
   { id: "venue", name: "Заведения" },
   { id: "legal_entity", name: "Юрлица" },
   { id: "account", name: "Аккаунт" },

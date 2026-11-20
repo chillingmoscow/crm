@@ -15,6 +15,7 @@ import {
 import { SalesShiftsHelp } from "@/app/(dashboard)/sales/shifts/_components/sales-shifts-help";
 
 import { InventoryActsHelp } from "@/app/(dashboard)/documents/inventory/_components/inventory-acts-help";
+import { AuditHelp } from "@/app/(dashboard)/org/audit/_components/audit-help";
 
 /**
  * Реестр контекстной справки для кнопки «?» в топ-баре (page-help-button).
@@ -68,6 +69,7 @@ export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
     title: "Акты инвентаризации",
     Content: InventoryActsHelp,
   },
+  { match: (p) => p === "/org/audit", title: "Журнал событий", Content: AuditHelp },
 ];
 
 /** Справка для текущего пути или null, если её нет. */

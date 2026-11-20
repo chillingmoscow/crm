@@ -34,7 +34,8 @@ export type FiredStaffMember = {
   role_code:    string;
   first_name:   string | null;
   last_name:    string | null;
-  email:        string;
+  /** null без people.view_staff_details (миграция 359). */
+  email:        string | null;
   avatar_url:   string | null;
   fired_at:     string;
   fired_reason: string | null;
@@ -50,7 +51,10 @@ export type StaffMember = {
   department_name:   string | null;
   first_name:        string | null;
   last_name:         string | null;
-  email:             string;
+  /** Контакты, пол, даты и медкнижка коллег — null без
+   *  people.view_staff + people.view_staff_details (миграция 359); свою
+   *  строку сотрудник получает целиком. */
+  email:             string | null;
   /** auth.users.email_confirmed_at !== null. false = invite ещё не принят
    *  или сотрудник создан без email (placeholder). */
   email_confirmed:   boolean;
@@ -120,21 +124,6 @@ export async function getStaff(venueId: string): Promise<StaffMember[]> {
   });
   if (error) return [];
   return (data ?? []) as StaffMember[];
-}
-
-export async function getStaffProfile(
-  userId: string
-): Promise<StaffProfile | null> {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("profiles")
-    .select(
-      "id, first_name, last_name, phone, telegram_id, gender, birth_date, birth_date_set_at, address, avatar_url"
-    )
-    .eq("id", userId)
-    .returns<StaffProfile[]>()
-    .maybeSingle();
-  return data ?? null;
 }
 
 export async function updateStaffProfile(

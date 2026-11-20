@@ -76,7 +76,10 @@ export default async function InvitePage({
 
   // Check whether the profile is already complete.
   // Required fields: first_name, last_name, phone, telegram_id
-  const { data: profile } = await supabase
+  // Телефон, Telegram, дату рождения и адрес из profiles пользовательский
+  // клиент не читает (миграция 360) — свой профиль берём admin-клиентом
+  // по id из проверенной сессии.
+  const { data: profile } = await db
     .from("profiles")
     .select("first_name, last_name, phone, telegram_id")
     .eq("id", user.id)

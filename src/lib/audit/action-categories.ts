@@ -57,6 +57,8 @@ const CATEGORY_SUFFIXES: Record<AuditActionCategory, string[]> = {
     ".resolved",
     ".unresolved",
     ".expense_linked",
+    ".supplier_added",
+    ".supplier_removed",
   ],
   deleted: [".deleted", ".archived", ".cancelled"],
   restored: [".restored"],

@@ -36,9 +36,11 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import type { AuditEntitySnapshot, AuditEvent } from "@/lib/audit/list";
-import { auditFallbackHeadline, auditFieldValueLabel, auditFieldLabel, formatAuditDate as formatDate } from "./labels";
+import { auditFallbackHeadline, formatAuditDate as formatDate } from "./labels";
 import {guestAuditSpecs} from "./guests";
 import { candidateAuditSpecs } from "./candidates";
+import { catalogAuditSpecs } from "./catalog";
+import { ChangeLines } from "./change-lines";
 
 /** Заголовок KB-страницы в фразе события: кликабельная ссылка, если
  *  страница ещё существует и не в корзине; иначе — просто выделенный
@@ -204,73 +206,6 @@ function InvitationEmail({ event }: { event: AuditEvent }) {
   return <strong className="font-medium">{invitationEmailFromEvent(event)}</strong>;
 }
 
-function formatFieldValue(field: string, value: unknown): string {
-  if (value === null || value === undefined || value === "") return "—";
-  if (
-    ["hired_on","birthday","examined_on","valid_until"].includes(field) ||
-    field === "birth_date" ||
-    field === "employment_date" ||
-    field === "medical_book_date" ||
-    field === "business_date" ||
-    field === "deleted_at"
-  ) {
-    return formatDate(value);
-  }
-  if (field === "passport_photos") {
-    if (Array.isArray(value)) {
-      return value.length === 0 ? "—" : `${value.length} фото`;
-    }
-    return "—";
-  }
-  if (typeof value === "string") {
-    const label = auditFieldValueLabel(field, value);
-    if (label !== null) return label;
-    // Длинный текст усекаем, чтобы строка не разрослась на полстраницы.
-    if (value.length > 60) return value.slice(0, 60) + "…";
-    return value;
-  }
-  if (typeof value === "boolean") return value ? "Да" : "Нет";
-  return String(value);
-}
-
-interface FieldChange {
-  field: string;
-  old: unknown;
-  new: unknown;
-}
-
-function changeList(details: Record<string, unknown>): FieldChange[] {
-  const raw = details.changes;
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((c) => {
-      const obj = c as Record<string, unknown>;
-      const field = typeof obj.field === "string" ? obj.field : null;
-      if (!field) return null;
-      return { field, old: obj.old, new: obj.new };
-    })
-    .filter((x): x is FieldChange => x !== null);
-}
-
-function ChangeLines({ details }: { details: Record<string, unknown> }) {
-  const changes = changeList(details);
-  if (changes.length === 0) return null;
-  return (
-    <ul className="text-[12px] text-muted-foreground flex flex-col gap-0.5">
-      {changes.map((c, i) => (
-        <li key={`${c.field}-${i}`} className="leading-snug">
-          <span className="text-foreground">{auditFieldLabel(c.field)}:</span>{" "}
-          <span className="line-through">{formatFieldValue(c.field, c.old)}</span>
-          {" → "}
-          <span className="font-medium text-foreground">
-            {formatFieldValue(c.field, c.new)}
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 function payrollAdjustmentSpec(verb: string, icon: LucideIcon): AuditEventSpec {
   return {
     icon,
@@ -303,6 +238,7 @@ function payrollTransferSpec(verb: string): AuditEventSpec {
 
 const SPECS: Record<string, AuditEventSpec> = {
   ...guestAuditSpecs,
+  ...catalogAuditSpecs,
   "integration.updated": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => <>изменил(а) настройки интеграции{e.details.provider === "quickresto" ? " Quick Resto" : e.details.provider === "adesk" ? " Adesk" : e.details.provider === "telegram" ? " Telegram" : e.details.provider === "office_codes" ? " «Коды замка»" : ""}</>,
@@ -427,7 +363,7 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildDetails: e => <div className="text-xs text-muted-foreground"><p>Версия {Number(e.details.version??0)}</p><p>{String(e.details.reason??'')}</p></div>,
   },
   "cash.control.alert_sent": {
-    icon: AlertTriangle, iconClass: "text-amber-600 bg-amber-500/10",
+    icon: AlertTriangle, iconClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
     buildHeadline: () => <>уведомил(а) о расхождении кассы</>,
     buildDetails: e => <p className="text-xs text-muted-foreground">{formatDate(e.details.date)} · {e.details.kind === "open" ? "открытие" : "закрытие"} · {Number(e.details.diffCents ?? 0) / 100} ₽ · получателей: {Number(e.details.recipients ?? 0)}</p>,
   },
@@ -488,7 +424,17 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "sales.settings.updated": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
-    buildHeadline: () => <>изменил(а) настройки продаж</>,
+    buildHeadline: (e) => <>{e.details.created ? "настроил(а) продажи заведения" : "изменил(а) настройки продаж"}</>,
+    buildDetails: (e) => (
+      <>
+        <ChangeLines details={e.details} />
+        {Number(e.details.other_fields ?? 0) > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Изменены сопоставления с Quick Resto: {Number(e.details.other_fields)}
+          </p>
+        )}
+      </>
+    ),
   },
   "sales.statistics.refresh_requested": {
     icon: RotateCcw, iconClass: "text-brand bg-brand/10",
@@ -642,7 +588,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   // ── staff ──────────────────────────────────────────────────
   "staff.hired": {
     icon: UserPlus,
-    iconClass: "text-emerald-600 bg-emerald-50",
+    iconClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
     buildHeadline: (e) => {
       const role = (e.details.role_name as string) || "";
       return role ? (
@@ -699,7 +645,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "staff.role_changed": {
     icon: ArrowLeftRight,
-    iconClass: "text-violet-600 bg-violet-50",
+    iconClass: "bg-violet-500/10 text-violet-700 dark:text-violet-400",
     buildHeadline: (e) => {
       const oldRole = (e.details.old_role_name as string) || "—";
       const newRole = (e.details.new_role_name as string) || "—";
@@ -715,7 +661,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "staff.profile_updated": {
     icon: IdCard,
-    iconClass: "text-blue-600 bg-blue-50",
+    iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => (
       <>
         обновил(а) контакты у <StaffName event={e} />
@@ -725,7 +671,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "staff.account_details_updated": {
     icon: IdCard,
-    iconClass: "text-blue-600 bg-blue-50",
+    iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => (
       <>
         обновил(а) HR-данные у <StaffName event={e} />
@@ -737,7 +683,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   // ── invitation ─────────────────────────────────────────────
   "invitation.sent": {
     icon: Mail,
-    iconClass: "text-blue-600 bg-blue-50",
+    iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => {
       const role = (e.details.role_name as string) || "";
       return role ? (
@@ -754,7 +700,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "invitation.accepted": {
     icon: MailCheck,
-    iconClass: "text-emerald-600 bg-emerald-50",
+    iconClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
     buildHeadline: (e) => (
       <>
         принял(а) приглашение (<InvitationEmail event={e} />)
@@ -774,7 +720,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   // ── role ───────────────────────────────────────────────────
   "role.created": {
     icon: ShieldPlus,
-    iconClass: "text-emerald-600 bg-emerald-50",
+    iconClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
     buildHeadline: (e) => (
       <>
         создал(а) должность <RoleName event={e} />
@@ -783,7 +729,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "role.department_changed": {
     icon: FileEdit,
-    iconClass: "text-blue-600 bg-blue-50",
+    iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => (
       <>изменил(а) подразделение должности <RoleName event={e} /></>
     ),
@@ -797,7 +743,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "role.renamed": {
     icon: FileEdit,
-    iconClass: "text-blue-600 bg-blue-50",
+    iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => {
       const oldName = (e.details.old_name as string) || "";
       const newName = (e.details.new_name as string) || "";
@@ -822,7 +768,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "role.permissions_changed": {
     icon: Key,
-    iconClass: "text-amber-600 bg-amber-50",
+    iconClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
     buildHeadline: (e) => {
       const desc =
         (e.details.permission_description as string) ||
@@ -861,7 +807,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   // ── department ─────────────────────────────────────────────
   "department.created": {
     icon: Boxes,
-    iconClass: "text-emerald-600 bg-emerald-50",
+    iconClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
     buildHeadline: (e) => (
       <>
         создал(а) подразделение <DepartmentName event={e} />
@@ -870,7 +816,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "department.renamed": {
     icon: FileEdit,
-    iconClass: "text-blue-600 bg-blue-50",
+    iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => {
       const oldName = (e.details.old_name as string) || "";
       const newName = (e.details.new_name as string) || "";
@@ -886,7 +832,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "department.head_changed": {
     icon: Crown,
-    iconClass: "text-amber-600 bg-amber-50",
+    iconClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
     buildHeadline: (e) => {
       const had = Boolean(e.details.old_head_role_id);
       const has = Boolean(e.details.new_head_role_id);
@@ -914,7 +860,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   // ── finance.transaction ────────────────────────────────────
   "finance.transaction.created": {
     icon: CircleArrowUp,
-    iconClass: "text-emerald-600 bg-emerald-50",
+    iconClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
     buildHeadline: (e) => {
       const txType = e.details.type as string | undefined;
       const amount = formatAmount(e.details.amount, (e.details.currency as string) || "RUB");
@@ -940,7 +886,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "finance.transaction.updated": {
     icon: Pencil,
-    iconClass: "text-blue-600 bg-blue-50",
+    iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => (
       <>
         изменил(а) транзакцию <TxRef event={e} />
@@ -974,7 +920,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   // ── finance.bank_account ───────────────────────────────────
   "finance.bank_account.created": {
     icon: CreditCard,
-    iconClass: "text-emerald-600 bg-emerald-50",
+    iconClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
     buildHeadline: (e) => (
       <>
         создал(а) счёт{" "}
@@ -984,7 +930,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "finance.bank_account.updated": {
     icon: Pencil,
-    iconClass: "text-blue-600 bg-blue-50",
+    iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => (
       <>
         изменил(а) счёт{" "}
@@ -1017,7 +963,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   // ── finance.category ───────────────────────────────────────
   "finance.category.created": {
     icon: Tag,
-    iconClass: "text-emerald-600 bg-emerald-50",
+    iconClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
     buildHeadline: (e) => {
       const t = e.details.type as string | undefined;
       const typeLabel = t === "income" ? "доходов" : t === "expense" ? "расходов" : "";
@@ -1031,7 +977,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "finance.category.updated": {
     icon: Pencil,
-    iconClass: "text-blue-600 bg-blue-50",
+    iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => (
       <>
         изменил(а) статью{" "}
@@ -1064,7 +1010,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   // ── finance.counterparty ───────────────────────────────────
   "finance.counterparty.created": {
     icon: Building2,
-    iconClass: "text-emerald-600 bg-emerald-50",
+    iconClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
     buildHeadline: (e) => {
       const inn = e.details.inn as string | undefined;
       return (
@@ -1078,7 +1024,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "finance.counterparty.updated": {
     icon: Pencil,
-    iconClass: "text-blue-600 bg-blue-50",
+    iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => (
       <>
         изменил(а) контрагента{" "}
@@ -1111,7 +1057,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   // ── venues ─────────────────────────────────────────────────
   "venue.created": {
     icon: Store,
-    iconClass: "text-emerald-600 bg-emerald-50",
+    iconClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
     buildHeadline: (e) => (
       <>
         создал(а) заведение{" "}
@@ -1121,7 +1067,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "venue.updated": {
     icon: Pencil,
-    iconClass: "text-blue-600 bg-blue-50",
+    iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => (
       <>
         изменил(а) заведение{" "}
@@ -1144,7 +1090,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   // ── legal_entities ─────────────────────────────────────────
   "legal_entity.created": {
     icon: Landmark,
-    iconClass: "text-emerald-600 bg-emerald-50",
+    iconClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
     buildHeadline: (e) => {
       const inn = e.details.inn as string | undefined;
       return (
@@ -1158,7 +1104,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "legal_entity.updated": {
     icon: Pencil,
-    iconClass: "text-blue-600 bg-blue-50",
+    iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => (
       <>
         изменил(а) юрлицо{" "}
@@ -1201,7 +1147,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   // ── accounts ───────────────────────────────────────────────
   "account.updated": {
     icon: Settings2,
-    iconClass: "text-blue-600 bg-blue-50",
+    iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => (
       <>
         изменил(а) настройки аккаунта{" "}
@@ -1218,7 +1164,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   // использует свой KbAuditEventRow.
   "kb_page.created": {
     icon: FilePlus2,
-    iconClass: "text-emerald-600 bg-emerald-50",
+    iconClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
     buildHeadline: (e) => (
       <>
         создал(а) страницу{" "}
@@ -1228,7 +1174,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "kb_page.edited": {
     icon: Pencil,
-    iconClass: "text-sky-600 bg-sky-50",
+    iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => (
       <>
         изменил(а) страницу{" "}
@@ -1238,7 +1184,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "kb_page.renamed": {
     icon: FileEdit,
-    iconClass: "text-blue-600 bg-blue-50",
+    iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => (
       <>
         переименовал(а):{" "}
@@ -1252,7 +1198,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "kb_page.moved": {
     icon: ArrowRightFromLine,
-    iconClass: "text-violet-600 bg-violet-50",
+    iconClass: "bg-violet-500/10 text-violet-700 dark:text-violet-400",
     buildHeadline: (e) => (
       <>
         переместил(а) страницу{" "}
@@ -1283,7 +1229,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "kb_page.locked": {
     icon: Lock,
-    iconClass: "text-amber-600 bg-amber-50",
+    iconClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
     buildHeadline: (e) => (
       <>
         закрыл(а) страницу{" "}
@@ -1304,7 +1250,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "kb_page.required_reading_toggled": {
     icon: BookOpen,
-    iconClass: "text-amber-600 bg-amber-50",
+    iconClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
     buildHeadline: (e) => {
       const newValue = Boolean(
         (e.details as { new_value?: boolean; enabled?: boolean }).new_value ??
@@ -1332,28 +1278,28 @@ const SPECS: Record<string, AuditEventSpec> = {
 // inventory_document в AuditEntitySnapshot не резолвится, поэтому фраза без
 // ссылки — просто человекочитаемое действие.
 const INVENTORY_EVENT_SPECS: Array<[string, string, LucideIcon, string]> = [
-  ["draft_started", "начал(а) заполнение акта инвентаризации", FileEdit, "text-sky-600 bg-sky-50"],
-  ["submitted", "завершил(а) акт инвентаризации", CircleArrowUp, "text-emerald-600 bg-emerald-50"],
-  ["assignee_changed", "сменил(а) исполнителя акта инвентаризации", UserPlus, "text-blue-600 bg-blue-50"],
-  ["reviewer_changed", "сменил(а) проверяющего акта инвентаризации", IdCard, "text-blue-600 bg-blue-50"],
-  ["recount_marked", "отметил(а) позицию акта на пересчёт", RotateCcw, "text-amber-600 bg-amber-50"],
+  ["draft_started", "начал(а) заполнение акта инвентаризации", FileEdit, "text-brand bg-brand/10"],
+  ["submitted", "завершил(а) акт инвентаризации", CircleArrowUp, "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"],
+  ["assignee_changed", "сменил(а) исполнителя акта инвентаризации", UserPlus, "text-brand bg-brand/10"],
+  ["reviewer_changed", "сменил(а) проверяющего акта инвентаризации", IdCard, "text-brand bg-brand/10"],
+  ["recount_marked", "отметил(а) позицию акта на пересчёт", RotateCcw, "bg-amber-500/10 text-amber-700 dark:text-amber-400"],
   ["recount_unmarked", "снял(а) отметку пересчёта в акте", RotateCcw, "text-muted-foreground bg-muted"],
-  ["returned_for_recount", "вернул(а) акт инвентаризации на пересчёт", RotateCcw, "text-amber-600 bg-amber-50"],
-  ["resort_created", "создал(а) пересорт в акте инвентаризации", ArrowLeftRight, "text-violet-600 bg-violet-50"],
+  ["returned_for_recount", "вернул(а) акт инвентаризации на пересчёт", RotateCcw, "bg-amber-500/10 text-amber-700 dark:text-amber-400"],
+  ["resort_created", "создал(а) пересорт в акте инвентаризации", ArrowLeftRight, "bg-violet-500/10 text-violet-700 dark:text-violet-400"],
   ["resort_voided", "отменил(а) пересорт в акте инвентаризации", RotateCcw, "text-muted-foreground bg-muted"],
-  ["suggestion_applied", "применил(а) подсказку пересорта", ArrowLeftRight, "text-violet-600 bg-violet-50"],
+  ["suggestion_applied", "применил(а) подсказку пересорта", ArrowLeftRight, "bg-violet-500/10 text-violet-700 dark:text-violet-400"],
   ["suggestion_dismissed", "скрыл(а) подсказку пересорта", Activity, "text-muted-foreground bg-muted"],
-  ["results_finalized", "подвёл(а) итоги акта инвентаризации", Lock, "text-emerald-600 bg-emerald-50"],
-  ["results_reopened", "переоткрыл(а) итоги акта инвентаризации", LockOpen, "text-amber-600 bg-amber-50"],
-  ["results_refreshed", "обновил(а) итоги акта инвентаризации", RotateCcw, "text-sky-600 bg-sky-50"],
-  ["comment_updated", "оставил(а) комментарий к позиции акта", Pencil, "text-sky-600 bg-sky-50"],
-  ["exclude_enabled", "исключил(а) позицию из итогов акта", Archive, "text-amber-600 bg-amber-50"],
+  ["results_finalized", "подвёл(а) итоги акта инвентаризации", Lock, "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"],
+  ["results_reopened", "переоткрыл(а) итоги акта инвентаризации", LockOpen, "bg-amber-500/10 text-amber-700 dark:text-amber-400"],
+  ["results_refreshed", "обновил(а) итоги акта инвентаризации", RotateCcw, "text-brand bg-brand/10"],
+  ["comment_updated", "оставил(а) комментарий к позиции акта", Pencil, "text-brand bg-brand/10"],
+  ["exclude_enabled", "исключил(а) позицию из итогов акта", Archive, "bg-amber-500/10 text-amber-700 dark:text-amber-400"],
   ["exclude_disabled", "вернул(а) позицию в итог акта", RotateCcw, "text-muted-foreground bg-muted"],
-  ["persistent_exclusion_enabled", "добавил(а) автоисключение позиции", ShieldX, "text-amber-600 bg-amber-50"],
+  ["persistent_exclusion_enabled", "добавил(а) автоисключение позиции", ShieldX, "bg-amber-500/10 text-amber-700 dark:text-amber-400"],
   ["persistent_exclusion_disabled", "убрал(а) автоисключение позиции", ShieldPlus, "text-muted-foreground bg-muted"],
-  ["description_updated", "изменил(а) описание ингредиента", Pencil, "text-sky-600 bg-sky-50"],
-  ["supplier_added", "добавил(а) поставщика ингредиента", FilePlus2, "text-emerald-600 bg-emerald-50"],
-  ["supplier_updated", "изменил(а) поставщика ингредиента", Pencil, "text-sky-600 bg-sky-50"],
+  ["description_updated", "изменил(а) описание ингредиента", Pencil, "text-brand bg-brand/10"],
+  ["supplier_added", "добавил(а) поставщика ингредиента", FilePlus2, "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"],
+  ["supplier_updated", "изменил(а) поставщика ингредиента", Pencil, "text-brand bg-brand/10"],
   ["supplier_removed", "удалил(а) поставщика ингредиента", Trash2, "text-destructive bg-destructive/10"],
 ];
 
@@ -1363,10 +1309,39 @@ const INVENTORY_SPECS: Record<string, AuditEventSpec> = Object.fromEntries(
     {
       icon,
       iconClass,
-      buildHeadline: () => <>{phrase}</>,
+      buildHeadline: (e) => (
+        <>
+          {phrase}
+          <InventoryDocumentRef event={e} />
+        </>
+      ),
     } satisfies AuditEventSpec,
   ]),
 );
+
+/** «№ 12 от 05.11.2026» — ссылка на акт, если он ещё доступен. */
+function InventoryDocumentRef({ event }: { event: AuditEvent }) {
+  const entity = event.entity;
+  if (event.entity_type !== "inventory_document" || !entity) return null;
+  if (entity.type !== "inventory_document") return null;
+  const label = [
+    entity.number ? `№ ${entity.number}` : "без номера",
+    entity.date ? `от ${formatDate(entity.date.slice(0, 10))}` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    <>
+      {" "}
+      <Link
+        href={`/documents/inventory/${entity.id}`}
+        className="font-medium hover:underline"
+      >
+        {label}
+      </Link>
+    </>
+  );
+}
 
 export function describeAuditEvent(event: AuditEvent): {
   icon: LucideIcon;

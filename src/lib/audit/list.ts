@@ -89,6 +89,26 @@ export type AuditEntitySnapshot =
       type: "account";
       id: string;
       name: string;
+    }
+  | {
+      type: "inventory_document";
+      id: string;
+      number: string | null;
+      date: string | null;
+      archived_at: string | null;
+    }
+  | {
+      type: "ingredient";
+      id: string;
+      name: string;
+      /** ingredient / dish / semi_product — раздел каталога для ссылки. */
+      kind: string | null;
+      archived_at: string | null;
+    }
+  | {
+      type: "store";
+      id: string;
+      title: string;
     };
 
 export interface AuditEvent {
@@ -154,6 +174,9 @@ export async function listAuditEvents(input?: {
   /** like-паттерны по action_code (`*` = `%`), OR. Кросс-модульный
    *  фильтр по категории действия в общем журнале. */
   actionLikePatterns?: string[];
+  /** like-паттерны по префиксу action_code (раздел журнала), OR.
+   *  Отдельным `.or()` — с категорией действия комбинируется через AND. */
+  moduleLikePatterns?: string[];
   /** Массив (entity_id OR user_id) групп, AND-комбинируемых. */
   filterGroups?: AuditFilterGroup[];
   /** ISO timestamp, нижняя граница `created_at >= fromDate`. */
@@ -271,6 +294,11 @@ export async function listAuditEvents(input?: {
   if (input?.actionLikePatterns && input.actionLikePatterns.length > 0) {
     query = query.or(
       input.actionLikePatterns.map((p) => `action_code.like.${p}`).join(","),
+    );
+  }
+  if (input?.moduleLikePatterns && input.moduleLikePatterns.length > 0) {
+    query = query.or(
+      input.moduleLikePatterns.map((p) => `action_code.like.${p}`).join(","),
     );
   }
   // Каждая группа → отдельный `.or()` или `.in()` — PostgREST AND-итит
@@ -593,6 +621,73 @@ export async function listAuditEvents(input?: {
         type: "account",
         id: a.id,
         name: a.name,
+      });
+    }
+  }
+
+  // ── inventory / catalog snapshots ────────────────────────────
+  // Таблицы читаются пользовательским клиентом: без права на склад RLS
+  // вернёт пусто, и строка покажется без ссылки — как удалённый объект.
+  const loose = asLooseDb(supabase);
+  const documentIds = idsByType.get("inventory_document");
+  if (documentIds && documentIds.size > 0) {
+    const { data: docRows } = await loose
+      .from<
+        Array<{
+          id: string;
+          document_number: string | null;
+          invoice_date: string | null;
+          archived_at: string | null;
+        }>
+      >("documents")
+      .select("id, document_number, invoice_date, archived_at")
+      .in("id", Array.from(documentIds));
+    for (const d of docRows ?? []) {
+      snapshotsByKey.set(`inventory_document:${d.id}`, {
+        type: "inventory_document",
+        id: d.id,
+        number: d.document_number,
+        date: d.invoice_date,
+        archived_at: d.archived_at,
+      });
+    }
+  }
+
+  const ingredientIds = idsByType.get("ingredient");
+  if (ingredientIds && ingredientIds.size > 0) {
+    const { data: ingRows } = await loose
+      .from<
+        Array<{
+          id: string;
+          name: string;
+          kind: string | null;
+          archived_at: string | null;
+        }>
+      >("ingredients")
+      .select("id, name, kind, archived_at")
+      .in("id", Array.from(ingredientIds));
+    for (const i of ingRows ?? []) {
+      snapshotsByKey.set(`ingredient:${i.id}`, {
+        type: "ingredient",
+        id: i.id,
+        name: i.name,
+        kind: i.kind,
+        archived_at: i.archived_at,
+      });
+    }
+  }
+
+  const storeIds = idsByType.get("store");
+  if (storeIds && storeIds.size > 0) {
+    const { data: storeRows } = await loose
+      .from<Array<{ id: string; title: string }>>("stores")
+      .select("id, title")
+      .in("id", Array.from(storeIds));
+    for (const st of storeRows ?? []) {
+      snapshotsByKey.set(`store:${st.id}`, {
+        type: "store",
+        id: st.id,
+        title: st.title,
       });
     }
   }

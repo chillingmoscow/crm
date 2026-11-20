@@ -5,6 +5,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
+import { writeAuditEvent } from "@/lib/audit/write";
 import {
   getIngredientDetail,
   listIngredientHistory,
@@ -36,13 +37,8 @@ export async function uploadInventoryProductImage(formData: FormData): Promise<{
   if (!file.type.startsWith("image/")) return { error: "Можно загрузить только изображение" };
 
   const admin = asLooseDb(createAdminClient());
-  const { data: product } = await admin
-    .from<{ id: string }>("ingredients")
-    .select("id")
-    .eq("id", productId)
-    .eq("account_id", ctx.accountId)
-    .maybeSingle();
-  if (!product?.id) return { error: "Ингредиент не найден" };
+  const product = await loadIngredientRef(admin, ctx.accountId, productId);
+  if (!product) return { error: "Ингредиент не найден" };
 
   const storagePath = buildStoragePath(ctx.accountId, file.name);
   const { error: uploadError } = await admin.storage
@@ -78,6 +74,25 @@ export async function uploadInventoryProductImage(formData: FormData): Promise<{
     .eq("account_id", ctx.accountId);
   if (productError) return { error: productError.message };
 
+  const replaced = Boolean(product.primary_image_file_id);
+  await writeIngredientJournal({
+    admin,
+    accountId: ctx.accountId,
+    ingredientId: productId,
+    eventType: "photo_updated",
+    payload: { fileName: file.name, replaced },
+    actorId: ctx.user.id,
+  });
+  await writeAuditEvent({
+    accountId: ctx.accountId,
+    venueId: ctx.venueId,
+    userId: ctx.user.id,
+    actionCode: "catalog.ingredient.photo_updated",
+    entityType: "ingredient",
+    entityId: productId,
+    details: { name: product.name, kind: product.kind, replaced },
+  });
+
   revalidatePath("/catalog/ingredients");
   revalidatePath(`/catalog/ingredients/${productId}`);
   return { error: null };
@@ -95,8 +110,13 @@ export async function uploadInventoryProductGroupImage(formData: FormData): Prom
 
   const admin = asLooseDb(createAdminClient());
   const { data: group } = await admin
-    .from<{ id: string }>("ingredient_groups")
-    .select("id")
+    .from<{
+      id: string;
+      name: string | null;
+      kind: string | null;
+      primary_image_file_id: string | null;
+    }>("ingredient_groups")
+    .select("id, name, kind, primary_image_file_id")
     .eq("id", groupId)
     .eq("account_id", ctx.accountId)
     .maybeSingle();
@@ -136,6 +156,20 @@ export async function uploadInventoryProductGroupImage(formData: FormData): Prom
     .eq("account_id", ctx.accountId);
   if (groupError) return { error: groupError.message };
 
+  await writeAuditEvent({
+    accountId: ctx.accountId,
+    venueId: ctx.venueId,
+    userId: ctx.user.id,
+    actionCode: "catalog.ingredient_group.photo_updated",
+    entityType: "ingredient_group",
+    entityId: groupId,
+    details: {
+      name: group.name,
+      kind: group.kind,
+      replaced: Boolean(group.primary_image_file_id),
+    },
+  });
+
   revalidatePath("/catalog/ingredients");
   return { error: null };
 }
@@ -163,14 +197,42 @@ async function writeIngredientJournal(input: {
   });
 }
 
-async function assertOwnedIngredient(admin: LooseDb, accountId: string, ingredientId: string) {
+type IngredientRef = {
+  id: string;
+  name: string;
+  kind: string | null;
+  local_description: string | null;
+  primary_image_file_id: string | null;
+};
+
+/** Позиция номенклатуры этого аккаунта (или null): проверка владения и
+ *  название/вид для записи в журнал. */
+async function loadIngredientRef(
+  admin: LooseDb,
+  accountId: string,
+  ingredientId: string,
+): Promise<IngredientRef | null> {
   const { data } = await admin
-    .from<{ id: string }>("ingredients")
-    .select("id")
+    .from<IngredientRef>("ingredients")
+    .select("id, name, kind, local_description, primary_image_file_id")
     .eq("id", ingredientId)
     .eq("account_id", accountId)
     .maybeSingle();
-  return Boolean(data?.id);
+  return data?.id ? data : null;
+}
+
+async function counterpartyName(
+  admin: LooseDb,
+  accountId: string,
+  counterpartyId: string,
+): Promise<string | null> {
+  const { data } = await admin
+    .from<{ name: string | null }>("counterparties")
+    .select("name")
+    .eq("id", counterpartyId)
+    .eq("account_id", accountId)
+    .maybeSingle();
+  return data?.name ?? null;
 }
 
 async function assertOwnedCounterparty(admin: LooseDb, accountId: string, counterpartyId: string) {
@@ -250,9 +312,10 @@ export async function updateIngredientDescription(input: {
   const description = typeof input.description === "string" ? input.description.trim() : "";
 
   const admin = asLooseDb(createAdminClient());
-  if (!(await assertOwnedIngredient(admin, ctx.accountId, ingredientId))) {
-    return { error: "Ингредиент не найден" };
-  }
+  const ingredient = await loadIngredientRef(admin, ctx.accountId, ingredientId);
+  if (!ingredient) return { error: "Ингредиент не найден" };
+  const before = ingredient.local_description ?? "";
+  if (before === description) return { error: null };
 
   const { error } = await admin
     .from("ingredients")
@@ -268,6 +331,21 @@ export async function updateIngredientDescription(input: {
     eventType: "description_updated",
     payload: { hasText: description.length > 0 },
     actorId: ctx.user.id,
+  });
+  await writeAuditEvent({
+    accountId: ctx.accountId,
+    venueId: ctx.venueId,
+    userId: ctx.user.id,
+    actionCode: "catalog.ingredient.description_updated",
+    entityType: "ingredient",
+    entityId: ingredientId,
+    details: {
+      name: ingredient.name,
+      kind: ingredient.kind,
+      changes: [
+        { field: "local_description", old: before || null, new: description || null },
+      ],
+    },
   });
 
   revalidatePath(`/catalog/ingredients/${ingredientId}`);
@@ -291,9 +369,8 @@ export async function addIngredientSupplier(input: {
   if (!counterpartyId) return { error: "Выберите контрагента-поставщика" };
 
   const admin = asLooseDb(createAdminClient());
-  if (!(await assertOwnedIngredient(admin, ctx.accountId, ingredientId))) {
-    return { error: "Ингредиент не найден" };
-  }
+  const ingredient = await loadIngredientRef(admin, ctx.accountId, ingredientId);
+  if (!ingredient) return { error: "Ингредиент не найден" };
   if (!(await assertOwnedCounterparty(admin, ctx.accountId, counterpartyId))) {
     return { error: "Контрагент не найден" };
   }
@@ -323,6 +400,20 @@ export async function addIngredientSupplier(input: {
     payload: { counterpartyId },
     actorId: ctx.user.id,
   });
+  await writeAuditEvent({
+    accountId: ctx.accountId,
+    venueId: ctx.venueId,
+    userId: ctx.user.id,
+    actionCode: "catalog.ingredient.supplier_added",
+    entityType: "ingredient",
+    entityId: ingredientId,
+    details: {
+      name: ingredient.name,
+      kind: ingredient.kind,
+      counterparty_id: counterpartyId,
+      counterparty_name: await counterpartyName(admin, ctx.accountId, counterpartyId),
+    },
+  });
 
   revalidatePath(`/catalog/ingredients/${ingredientId}`);
   return { error: null };
@@ -343,21 +434,24 @@ export async function updateIngredientSupplier(input: {
 
   const admin = asLooseDb(createAdminClient());
   const { data: existing } = await admin
-    .from<{ id: string; ingredient_id: string }>("ingredient_suppliers")
-    .select("id, ingredient_id")
+    .from<SupplierRow>("ingredient_suppliers")
+    .select(
+      "id, ingredient_id, counterparty_id, supplier_article, supplier_price, is_preferred, note",
+    )
     .eq("id", supplierId)
     .eq("account_id", ctx.accountId)
     .maybeSingle();
   if (!existing?.id) return { error: "Связка поставщика не найдена" };
 
+  const next = {
+    supplier_article: text(input.supplierArticle),
+    supplier_price: priceNum(input.supplierPrice),
+    is_preferred: Boolean(input.isPreferred),
+    note: text(input.note),
+  };
   const { error } = await admin
     .from("ingredient_suppliers")
-    .update({
-      supplier_article: text(input.supplierArticle),
-      supplier_price: priceNum(input.supplierPrice),
-      is_preferred: Boolean(input.isPreferred),
-      note: text(input.note),
-    })
+    .update(next)
     .eq("id", supplierId)
     .eq("account_id", ctx.accountId);
   if (error) return { error: error.message };
@@ -370,6 +464,25 @@ export async function updateIngredientSupplier(input: {
     payload: { supplierId },
     actorId: ctx.user.id,
   });
+  const changes = supplierChanges(existing, next);
+  if (changes.length > 0) {
+    const ingredient = await loadIngredientRef(admin, ctx.accountId, existing.ingredient_id);
+    await writeAuditEvent({
+      accountId: ctx.accountId,
+      venueId: ctx.venueId,
+      userId: ctx.user.id,
+      actionCode: "catalog.ingredient.supplier_updated",
+      entityType: "ingredient",
+      entityId: existing.ingredient_id,
+      details: {
+        name: ingredient?.name ?? null,
+        kind: ingredient?.kind ?? null,
+        counterparty_id: existing.counterparty_id,
+        counterparty_name: await counterpartyName(admin, ctx.accountId, existing.counterparty_id),
+        changes,
+      },
+    });
+  }
 
   revalidatePath(`/catalog/ingredients/${existing.ingredient_id}`);
   return { error: null };
@@ -408,7 +521,50 @@ export async function removeIngredientSupplier(input: {
     payload: { counterpartyId: existing.counterparty_id },
     actorId: ctx.user.id,
   });
+  const ingredient = await loadIngredientRef(admin, ctx.accountId, existing.ingredient_id);
+  await writeAuditEvent({
+    accountId: ctx.accountId,
+    venueId: ctx.venueId,
+    userId: ctx.user.id,
+    actionCode: "catalog.ingredient.supplier_removed",
+    entityType: "ingredient",
+    entityId: existing.ingredient_id,
+    details: {
+      name: ingredient?.name ?? null,
+      kind: ingredient?.kind ?? null,
+      counterparty_id: existing.counterparty_id,
+      counterparty_name: await counterpartyName(admin, ctx.accountId, existing.counterparty_id),
+    },
+  });
 
   revalidatePath(`/catalog/ingredients/${existing.ingredient_id}`);
   return { error: null };
+}
+
+type SupplierRow = {
+  id: string;
+  ingredient_id: string;
+  counterparty_id: string;
+  supplier_article: string | null;
+  supplier_price: number | string | null;
+  is_preferred: boolean;
+  note: string | null;
+};
+
+/** Изменённые поля связки «ингредиент — поставщик» для строки журнала. */
+function supplierChanges(
+  before: SupplierRow,
+  after: Pick<SupplierRow, "supplier_article" | "supplier_price" | "is_preferred" | "note">,
+): Array<{ field: string; old: unknown; new: unknown }> {
+  const out: Array<{ field: string; old: unknown; new: unknown }> = [];
+  const price = (v: unknown) => (v === null || v === undefined || v === "" ? null : Number(v));
+  if ((before.supplier_article ?? null) !== (after.supplier_article ?? null))
+    out.push({ field: "supplier_article", old: before.supplier_article, new: after.supplier_article });
+  if (price(before.supplier_price) !== price(after.supplier_price))
+    out.push({ field: "supplier_price", old: price(before.supplier_price), new: price(after.supplier_price) });
+  if (Boolean(before.is_preferred) !== Boolean(after.is_preferred))
+    out.push({ field: "is_preferred", old: Boolean(before.is_preferred), new: Boolean(after.is_preferred) });
+  if ((before.note ?? null) !== (after.note ?? null))
+    out.push({ field: "note", old: before.note, new: after.note });
+  return out;
 }

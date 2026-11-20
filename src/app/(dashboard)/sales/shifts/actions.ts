@@ -1,4 +1,5 @@
 "use server";
+import { writeAuditEvent } from "@/lib/audit/write";
 import {
   createClient,
   getCachedPermissions,
@@ -321,6 +322,11 @@ export async function saveSalesSettings(
   if (active.error) throw new Error(active.error.message);
   if (active.count)
     throw new Error("Дождитесь окончания пересчёта перед изменением правил");
+  const before = await admin
+    .from<Record<string, unknown>>("sales_settings")
+    .select(Object.keys(values).join(","))
+    .eq("venue_id", s.venueId)
+    .maybeSingle();
   const r = await admin.from("sales_settings").upsert({
     ...values,
     account_id: s.accountId,
@@ -328,6 +334,7 @@ export async function saveSalesSettings(
     updated_at: new Date().toISOString(),
   });
   if (r.error) throw new Error(r.error.message);
+  await logSalesSettingsChange(s, before.data ?? null, values);
   if (values.enabled)
     await enqueueDay(
       s.accountId,
@@ -355,4 +362,38 @@ export async function exportSalesRows(ids: string[]) {
     result.push(...(r.data ?? []));
   }
   return result;
+}
+
+/** Запись в общий журнал: что поменялось в настройках продаж. Поля с
+ *  числовыми идентификаторами Quick Resto в строку не выводим — только
+ *  факт, что они изменились. */
+async function logSalesSettingsChange(
+  s: { accountId: string; venueId: string; user: { id: string } },
+  before: Record<string, unknown> | null,
+  after: Record<string, unknown>,
+) {
+  const same = (a: unknown, b: unknown) =>
+    JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  const changed = Object.keys(after).filter(
+    (key) => !before || !same(before[key], after[key]),
+  );
+  if (before && changed.length === 0) return;
+  const shown = ["enabled", "day_start_hour"];
+  await writeAuditEvent({
+    accountId: s.accountId,
+    venueId: s.venueId,
+    userId: s.user.id,
+    actionCode: "sales.settings.updated",
+    entityType: "sales_settings",
+    entityId: s.venueId,
+    details: {
+      created: !before,
+      changes: before
+        ? changed
+            .filter((key) => shown.includes(key))
+            .map((key) => ({ field: `sales_${key}`, old: before[key], new: after[key] }))
+        : [],
+      other_fields: changed.filter((key) => !shown.includes(key)).length,
+    },
+  });
 }

@@ -63,6 +63,8 @@ const SECTIONS: Record<string, string> = {
   legal_entity: "Юрлица", account: "Аккаунт", invitation: "Приглашения",
   kb_page: "База знаний", kb_thread: "База знаний",
   candidate: "Кандидаты", crm:"Гости",
+  catalog: "Номенклатура", store: "Склады", schedule: "Расписание",
+  cash: "Финансы", stock: "Склад",
 };
 
 /** A new backend event must not expose its technical code in the journal. */
@@ -106,6 +108,17 @@ const FIELD_LABELS: Record<string, string> = {
   external_state: "обработка бонусов",
   employee_id: "сотрудник",
   kind: "тип записи",
+  // catalog
+  local_description: "описание",
+  supplier_article: "артикул поставщика",
+  supplier_price: "цена поставщика",
+  is_preferred: "основной поставщик",
+  note: "заметка",
+  // sales settings
+  sales_enabled: "автообновление продаж",
+  sales_day_start_hour: "начало рабочих суток, час",
+  // stores
+  local_venue_id: "заведение",
   // finance (общие)
   name: "название",
   type: "тип",

@@ -175,6 +175,8 @@ export function SupportReportDialog({
                   size="sm"
                   onClick={() => handleFile(null)}
                   disabled={isPending}
+                  aria-label={`Убрать файл ${file.name}`}
+                  data-tip="Убрать файл"
                 >
                   <X className="h-4 w-4" />
                 </Button>

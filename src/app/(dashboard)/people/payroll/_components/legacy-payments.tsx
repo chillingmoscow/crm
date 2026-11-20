@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { OptionSelect } from "@/components/ui/option-select";
 import type { PayrollData } from "@/lib/payroll/types";
-import { money } from "@/lib/sales/format";
+import { Money } from "@/components/shared/money";
+import { countRu } from "@/lib/format/plural";
 import { confirmLegacyPayment } from "../actions";
 import { selectClass } from "./employee-pay";
 export function LegacyPayments({
@@ -25,14 +26,15 @@ export function LegacyPayments({
     .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
   if (!rows.length) return null;
   return (
-    <section className="space-y-4 rounded-xl border p-4">
+    // Блок внутри секции «Первоначальные данные по зарплате»: без своей рамки.
+    <div className="space-y-4">
       <div>
-        <h2 className="font-medium">
+        <h3 className="text-sm font-semibold">
           Прежние выплаты · требуется подтверждение
-        </h2>
+        </h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          {rows.length} записей ·{" "}
-          {money(rows.reduce((s, p) => s + Number(p.amount), 0))} ₽. Ещё не
+          {countRu(rows.length, "запись", "записи", "записей")} ·{" "}
+          <Money value={rows.reduce((s, p) => s + Number(p.amount), 0)} />. Ещё не
           включены в «Выплачено». Подтверждение создаст расход в финансах;
           повторное подтверждение не создаст его снова.
         </p>
@@ -79,7 +81,7 @@ export function LegacyPayments({
             <div>
               <p className="text-sm font-medium">
                 {data.employees.find((e) => e.id === p.employee_id)?.name} ·{" "}
-                {money(Number(p.amount))} ₽
+                <Money value={Number(p.amount)} fraction={!Number.isInteger(Number(p.amount))} />
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 {new Date(p.occurred_at).toLocaleDateString("ru-RU", {
@@ -117,6 +119,6 @@ export function LegacyPayments({
           </div>
         ))}
       </div>
-    </section>
+    </div>
   );
 }

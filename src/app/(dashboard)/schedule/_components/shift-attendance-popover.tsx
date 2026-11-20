@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { CircleAlert } from "lucide-react";
+import { CircleAlert, CircleCheck, CircleMinus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import type { ShiftAttendanceMark, ShiftAttendanceState } from "@/lib/payroll/types";
 import { addDays } from "@/lib/sales/time";
+import type { ShiftReviewDecision } from "@/lib/payroll/shift-attendance";
 import { reviewShiftAttendance } from "../actions";
 
 const descriptions: Record<ShiftAttendanceState, string> = {
@@ -19,11 +20,13 @@ const descriptions: Record<ShiftAttendanceState, string> = {
   excluded: "Выход исключён из расчёта по решению управляющего.",
 };
 
-export function ShiftAttendancePopover({ shiftId, version, mark, canReview }: {
+export function ShiftAttendancePopover({ shiftId, version, mark, canReview, onReviewed }: {
   shiftId: string;
   version: number;
   mark: ShiftAttendanceMark;
   canReview: boolean;
+  /** Решение сохранено: сетка сразу меняет значок и пересчитывает уведомление. */
+  onReviewed?: (decision: ShiftReviewDecision, reason: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
@@ -45,21 +48,32 @@ export function ShiftAttendancePopover({ shiftId, version, mark, canReview }: {
   const failed = mark.sourceState === "error";
   const heading = mark.state === "excluded"
     ? "Смена не засчитана"
-    : mark.hasQuickResto
+    : mark.state === "included"
+      ? "Выход засчитан"
+      : mark.hasQuickResto
       ? mark.state === "missing" ? "Отметка не связана со сменой" : "Выход проверен"
       : "Нет отметки в Quick Resto";
+  // Значок по состоянию: внимание — янтарный, решённое — нейтральная
+  // галочка, исключённая из расчёта смена — приглушённый минус.
+  const attention = failed || mark.crossBoundary || mark.state === "missing";
+  const Icon = attention ? CircleAlert : mark.state === "excluded" ? CircleMinus : CircleCheck;
+  const tone = attention
+    ? "text-amber-700 hover:bg-amber-500/15 dark:text-amber-300"
+    : "text-muted-foreground hover:bg-accent";
   const save = async (decision: "include" | "exclude") => {
     if (saving || pending || mark.sourceState !== "complete" || !mark.syncedAt) return;
     setSaving(true);
     try {
+      const text = reason.trim() || "Выход подтверждён по расписанию";
       await reviewShiftAttendance({
         shiftId,
         version,
         syncedAt: mark.syncedAt,
         decision,
-        reason: reason.trim() || "Выход подтверждён по расписанию",
+        reason: text,
       });
       setSavedAt(mark.syncedAt);
+      onReviewed?.(decision, text);
       toast.success("Решение сохранено. Начисления пересчитываются.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось сохранить решение");
@@ -82,7 +96,7 @@ export function ShiftAttendancePopover({ shiftId, version, mark, canReview }: {
           aria-label={heading}
           aria-haspopup="dialog"
           aria-expanded={open}
-          className="absolute right-0.5 top-0.5 grid size-6 place-items-center rounded text-amber-700 hover:bg-amber-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-amber-300"
+          className={`touch-target absolute right-0.5 top-0.5 grid size-6 place-items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${tone}`}
           onPointerEnter={(event) => {
             if (event.pointerType !== "mouse") return;
             clearClose();
@@ -99,7 +113,7 @@ export function ShiftAttendancePopover({ shiftId, version, mark, canReview }: {
             }
           }}
         >
-          <CircleAlert aria-hidden="true" className="size-3.5" />
+          <Icon aria-hidden="true" className="size-3.5" />
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -141,8 +155,8 @@ export function ShiftAttendancePopover({ shiftId, version, mark, canReview }: {
               />
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" disabled={saving || mark.state === "included" || mark.crossBoundary} onClick={() => void save("include")}>Засчитать</Button>
-              <Button size="sm" variant="outline" disabled={saving || mark.state === "excluded" || reason.trim().length < 3} onClick={() => void save("exclude")}>Не засчитывать</Button>
+              <Button size="sm" disabled={saving || mark.state === "included" || mark.crossBoundary} onClick={() => void save("include")}>Подтвердить выход</Button>
+              <Button size="sm" variant="outline" disabled={saving || mark.state === "excluded" || reason.trim().length < 3} onClick={() => void save("exclude")}>Не учитывать</Button>
             </div>
           </>
         )}

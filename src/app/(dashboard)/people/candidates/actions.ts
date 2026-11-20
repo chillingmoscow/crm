@@ -18,6 +18,7 @@ import type {
 } from "@/lib/candidates/types";
 import { CANDIDATE_SORT_FIELDS } from "@/lib/candidates/types";
 import { provisionCandidateHire } from "@/lib/candidates/provision";
+import { transferCandidateFile } from "@/lib/candidates/jobs";
 const result = <T>(r: {
   data: T | null;
   error: { message: string } | null;
@@ -59,7 +60,9 @@ export async function countNewCandidates() {
   return typeof count === "number" ? count : 0;
 }
 export async function getCandidate(id: string) {
-  return candidateDetail(uuid.parse(id));
+  const detail = await candidateDetail(uuid.parse(id));
+  if (!detail) throw new Error("Анкета не найдена");
+  return detail;
 }
 export async function getCandidateOptions() {
   return candidateOptions();
@@ -151,12 +154,8 @@ export async function editCandidateComment(candidateId: string, commentId: strin
   }));
   revalidatePath("/people/candidates", "layout");
 }
-export async function candidateLifecycle(
-  id: string,
-  action: "archive" | "restore" | "delete",
-) {
-  z.enum(["archive", "restore", "delete"]).parse(action);
-  return command(action, uuid.parse(id), {});
+export async function deleteCandidate(id: string) {
+  return command("delete", uuid.parse(id), {});
 }
 export async function deleteCandidates(ids: string[]) {
   const selected = z.array(uuid).min(1).max(100).parse(ids);
@@ -227,6 +226,67 @@ export async function uploadCandidateFile(id: string, form: FormData) {
   );
   revalidatePath("/people/candidates", "layout");
 }
+type CandidateFileRow = {
+  id: string;
+  account_id: string;
+  candidate_id: string;
+  name: string;
+  state: string;
+  original_url: string | null;
+  storage_path: string | null;
+  attempts: number;
+};
+async function candidateFileRow(candidateId: string, fileId: string) {
+  const s = await candidateScope();
+  const file = result(
+    await s.db
+      .from<CandidateFileRow>("candidate_files")
+      .select("id,account_id,candidate_id,name,state,original_url,storage_path,attempts")
+      .eq("id", uuid.parse(fileId))
+      .eq("candidate_id", uuid.parse(candidateId))
+      .eq("account_id", s.accountId)
+      .maybeSingle(),
+  );
+  if (!file) throw new Error("Файл не найден. Обновите страницу");
+  return { s, file };
+}
+/** «Повторить» у файла, который очередь не смогла перенести. */
+export async function retryCandidateFile(candidateId: string, fileId: string) {
+  const { s, file } = await candidateFileRow(candidateId, fileId);
+  if (file.state !== "error") throw new Error("Файл уже не ждёт повтора. Обновите страницу");
+  const outcome = await transferCandidateFile(s.admin, createAdminClient(), file);
+  revalidatePath("/people/candidates", "layout");
+  return outcome;
+}
+/** «Убрать» запись о файле, который так и не попал в хранилище. */
+export async function removeCandidateFile(candidateId: string, fileId: string) {
+  const { s, file } = await candidateFileRow(candidateId, fileId);
+  if (file.state !== "error" && file.state !== "missing")
+    throw new Error("Убрать можно только файл, который не удалось перенести");
+  result(
+    await s.admin
+      .from("candidate_files")
+      .delete()
+      .eq("id", file.id)
+      .eq("account_id", s.accountId),
+  );
+  // Перенос мог успеть загрузить копию до сбоя записи — убираем и её.
+  const paths = [
+    `${file.account_id}/${file.candidate_id}/${file.id}`,
+    file.storage_path,
+  ].filter((p): p is string => Boolean(p));
+  await createAdminClient().storage.from("candidate-files").remove([...new Set(paths)]);
+  result(
+    await s.admin.from("candidate_events").insert({
+      account_id: s.accountId,
+      candidate_id: file.candidate_id,
+      actor_id: s.user.id,
+      kind: "file_removed",
+      details: { name: file.name },
+    }),
+  );
+  revalidatePath("/people/candidates", "layout");
+}
 export async function hireCandidate(id: string, input: unknown) {
   const s = await candidateScope();
   if (!s.permissions.hire) throw new Error("Нет права принимать кандидатов");
@@ -243,6 +303,20 @@ export async function hireCandidate(id: string, input: unknown) {
     revalidatePath("/people/candidates", "layout");
     revalidatePath("/schedule");
     return { user_id: payload.existing_user_id };
+  }
+  if (!payload.gender) {
+    // Без пола — только продолжение найма, начатого до того, как пол стал
+    // обязательным: его сохранённый вход нельзя менять.
+    const unfinished = result(
+      await s.admin
+        .from<{ state: string }>("candidate_hires")
+        .select("state")
+        .eq("account_id", s.accountId)
+        .eq("candidate_id", uuid.parse(id))
+        .neq("state", "complete")
+        .maybeSingle(),
+    );
+    if (!unfinished) throw new Error("Укажите пол");
   }
   const hire = result(
     await s.db.rpc("candidate_begin_hire", {

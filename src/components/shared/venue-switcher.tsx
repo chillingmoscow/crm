@@ -127,7 +127,7 @@ export function VenueSwitcher({ venues, activeVenueId }: Props) {
                   {activeVenue?.venue_name ?? "Выберите заведение"}
                 </span>
                 {activeVenue?.role_name && (
-                  <span className="truncate text-[11px] text-muted-foreground leading-tight">
+                  <span className="truncate text-xs text-muted-foreground leading-tight">
                     {modern ? activeVenue.role_name : venueSubtitle(activeVenue)}
                   </span>
                 )}
@@ -139,10 +139,10 @@ export function VenueSwitcher({ venues, activeVenueId }: Props) {
             align="start"
             side={collapsed ? "right" : "bottom"}
             sideOffset={8}
-            className={cn("w-[min(18rem,calc(100vw-1.5rem))] rounded-[10px] p-1.5", modern && appearance.venueMenu)}
+            className={cn("w-[min(18rem,calc(100vw-1.5rem))] p-1.5", modern && appearance.venueMenu)}
           >
             <div className={modern ? appearance.venueMenuHeading : "px-2 py-1.5"}>
-              <span className={modern ? undefined : "text-[11px] font-semibold tracking-wider uppercase text-muted-foreground"}>
+              <span className={modern ? undefined : "text-xs font-semibold tracking-wider uppercase text-muted-foreground"}>
                 {modern ? "Заведения" : "Ваши заведения"}
               </span>
               {modern && <span>{venues.length}</span>}
@@ -168,7 +168,7 @@ export function VenueSwitcher({ venues, activeVenueId }: Props) {
                       <span className="truncate text-[13px] font-bold leading-tight">
                         {venue.venue_name}
                       </span>
-                      <span className="truncate text-[11px] text-muted-foreground leading-tight">
+                      <span className="truncate text-xs text-muted-foreground leading-tight">
                         {venueSubtitle(venue)}
                       </span>
                     </div>

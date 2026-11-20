@@ -5,6 +5,7 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import { shiftTemplateLabel } from "@/lib/schedule/types";
 import { readTaskOccurrences } from "@/lib/schedule/task-occurrences";
 import { revalidatePath } from "next/cache";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { z } from "zod";
 import { addDays, dateInZone, weekStart } from "@/lib/schedule/utils";
 import {
@@ -13,7 +14,6 @@ import {
   type TaskData,
   type TaskDefinition,
   type TaskOccurrence,
-  type TaskSettings,
   type TaskMessage,
   type TaskPreview,
 } from "@/lib/schedule/tasks";
@@ -96,13 +96,8 @@ export async function loadTasks(): Promise<TaskData> {
       .order("name"),
     readTaskOccurrences(occurrencesQuery),
     db
-      .from<TaskSettings>("schedule_task_settings")
-      .select("*")
-      .eq("venue_id", venueId)
-      .maybeSingle(),
-    db
-      .from<{ id: string; name: string; subtitle: string }[]>("schedule_templates")
-      .select("id,name,subtitle")
+      .from<{ id: string; name: string; subtitle: string; color: string }[]>("schedule_templates")
+      .select("id,name,subtitle,color")
       .eq("venue_id", venueId)
       .eq("archived", false)
       .order("name").order("subtitle"),
@@ -121,11 +116,10 @@ export async function loadTasks(): Promise<TaskData> {
     venueId,
     definitions: results[0].data ?? [],
     occurrences: results[1].data ?? [],
-    settings: results[2].data,
-    templates: (results[3].data ?? []).map((template) => ({
-      id: template.id, name: shiftTemplateLabel(template),
+    templates: (results[2].data ?? []).map((template) => ({
+      id: template.id, name: shiftTemplateLabel(template), color: template.color,
     })),
-    messages: results[4].data ?? [],
+    messages: results[3].data ?? [],
     permissions,
     userId: user.id,
     today,
@@ -149,6 +143,70 @@ export async function loadTaskInstructionPages() {
     id, title, slug, parent_id,
   }));
 }
+/** Задачи для быстрого назначения из графика: только названия. */
+export async function loadTaskChoices(): Promise<{
+  tasks: { id: string; name: string }[];
+}> {
+  const { db, venueId } = await context();
+  const definitions = await db
+    .from<{ id: string; name: string }[]>("schedule_task_definitions")
+    .select("id,name")
+    .eq("venue_id", venueId)
+    .is("deleted_at", null)
+    .order("name");
+  if (definitions.error) throw new Error(definitions.error.message);
+  return { tasks: definitions.data ?? [] };
+}
+
+/**
+ * Разово поставить задачу на день: по шаблону смены или по должности.
+ * Задание сразу привязывается к смене обычным обработчиком задач; если он
+ * недоступен, привязка случится на следующем запуске по расписанию.
+ */
+export async function assignTaskOnce(input: {
+  definitionId: string;
+  date: string;
+  templateId?: string | null;
+  roleId?: string | null;
+}) {
+  try {
+    const value = z
+      .object({
+        definitionId: z.string().uuid(),
+        date: taskDate,
+        templateId: z.string().uuid().nullable().optional(),
+        roleId: z.string().uuid().nullable().optional(),
+      })
+      .refine((v) => !!v.templateId !== !!v.roleId, "Выберите шаблон смены или должность")
+      .parse(input);
+    const { db } = await context();
+    const r = await db.rpc("schedule_task_assign_once", {
+      p_definition: value.definitionId,
+      p_date: value.date,
+      p_template: value.templateId ?? null,
+      p_role: value.roleId ?? null,
+    });
+    if (r.error) throw new Error(r.error.message);
+    // Сразу привязываем задание к смене — тем же обработчиком, что и крон
+    // (без рассылки сообщений). Если не вышло, привяжет следующий запуск.
+    await asLooseDb(createAdminClient()).rpc("schedule_process_tasks").then(
+      () => undefined,
+      () => undefined,
+    );
+    revalidatePath("/schedule");
+    return { ok: true as const };
+  } catch (e) {
+    return {
+      error:
+        e instanceof z.ZodError
+          ? (e.issues[0]?.message ?? "Проверьте поля")
+          : e instanceof Error
+            ? e.message
+            : "Не удалось назначить задачу",
+    };
+  }
+}
+
 export async function deleteTask(input: { id: string; version: number }) {
   try {
     const value = z
@@ -192,43 +250,6 @@ export async function saveTask(input: unknown) {
           : e instanceof Error
             ? e.message
             : "Не удалось сохранить задачу",
-    };
-  }
-}
-export async function saveTaskSettings(input: unknown) {
-  try {
-    const value = z
-      .object({
-        version: z.number().int().positive().optional(),
-        enabled_from: z
-          .string()
-          .regex(/^\d{4}-\d{2}-\d{2}$/)
-          .nullable(),
-        paused: z.boolean().default(false),
-        legacy_stopped: z.boolean(),
-        chat_id: z
-          .string()
-          .regex(/^-?\d{1,20}$/)
-          .nullable(),
-        reminder_chat_ids: z.array(z.string().regex(/^-?\d{1,20}$/)).max(30),
-      })
-      .parse(input);
-    const { db } = await context();
-    const result = await db.rpc("schedule_task_command", {
-      p_action: "settings.save",
-      p_input: value,
-    });
-    if (result.error) throw new Error(result.error.message);
-    revalidatePath("/schedule");
-    return { ok: true };
-  } catch (e) {
-    return {
-      error:
-        e instanceof z.ZodError
-          ? "Проверьте дату и ID чатов"
-          : e instanceof Error
-            ? e.message
-            : "Не удалось сохранить настройки",
     };
   }
 }

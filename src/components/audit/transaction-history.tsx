@@ -79,6 +79,7 @@ export function TransactionHistory({
       initialHasMore={result.hasMore}
       exactTime
       timeZone={result.timeZone}
+      filterable={false}
     />
   );
 }

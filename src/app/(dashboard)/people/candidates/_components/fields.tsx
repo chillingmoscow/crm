@@ -1,17 +1,26 @@
 "use client";
 import type { ReactNode } from "react";
-import { cn } from "@/lib/utils";
+import { RequiredMark } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 export function Field({
   label,
+  required = false,
   children,
 }: {
   label: string;
+  /** Обязательное поле — отметка как у общего `Field`. */
+  required?: boolean;
   children: ReactNode;
 }) {
+  // Подпись как у общего `Field` (src/components/ui/field.tsx): 14px / 500,
+  // отступ 8px. Жирность только у текста подписи — иначе её наследует поле
+  // внутри `label`.
   return (
-    <label className="flex min-w-0 flex-col gap-1.5 text-[13px] font-medium">
-      {label}
+    <label className="flex min-w-0 flex-col gap-2 text-sm">
+      <span className="font-medium">
+        {label}
+        {required && <RequiredMark />}
+      </span>
       {children}
     </label>
   );
@@ -22,46 +31,28 @@ export function FieldSelect({
   onChange,
   options,
   disabled = false,
+  required = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   options: { value: string; label: string }[];
   disabled?: boolean;
+  required?: boolean;
 }) {
   return (
-    <Field label={label}>
+    <Field label={label} required={required}>
       <Select
         value={value || "__empty__"}
         onValueChange={(next) => onChange(next === "__empty__" ? "" : next)}
         disabled={disabled}
       >
-        <SelectTrigger aria-label={label} className="h-10 min-w-0 text-base font-normal sm:text-sm"><SelectValue /></SelectTrigger>
+        <SelectTrigger aria-label={label} aria-required={required || undefined} className="h-10 min-w-0 text-base font-normal sm:text-sm"><SelectValue /></SelectTrigger>
         <SelectContent>
           {options.map((option) => <SelectItem key={option.value} value={option.value || "__empty__"}>{option.label}</SelectItem>)}
         </SelectContent>
       </Select>
     </Field>
-  );
-}
-export function StatusBadge({
-  label,
-  className,
-}: {
-  label: string;
-  className?: string;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex min-w-0 max-w-full items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium transition-colors duration-150",
-        className,
-      )}
-    >
-      <span className="truncate" data-tip={label}>
-        {label}
-      </span>
-    </span>
   );
 }
 export function safeLink(value: string) {
@@ -72,13 +63,41 @@ export function safeLink(value: string) {
     return null;
   }
 }
+const ZONE = "Europe/Moscow";
+const yearOf = (d: Date) =>
+  new Intl.DateTimeFormat("ru-RU", { year: "numeric", timeZone: ZONE }).format(d);
+/**
+ * Даты модуля по DS («Деньги, числа, даты»): в карточке и ленте — «17 ноября»
+ * (год только если не текущий), в ячейке таблицы — `ДД.ММ.ГГГГ`.
+ */
 export function dateLabel(value: string) {
+  const d = new Date(value);
   return new Intl.DateTimeFormat("ru-RU", {
     day: "numeric",
-    month: "short",
+    month: "long",
+    ...(yearOf(d) === yearOf(new Date()) ? {} : { year: "numeric" as const }),
+    timeZone: ZONE,
+  })
+    .format(d)
+    .replace(/\s*г\.$/, "");
+}
+export function dateCell(value: string) {
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
     year: "numeric",
-    timeZone: "Europe/Moscow",
+    timeZone: ZONE,
   }).format(new Date(value));
+}
+/** «17 ноября, 14:03» — время события без секунд. */
+export function dateTimeLabel(value: string) {
+  const d = new Date(value);
+  const time = new Intl.DateTimeFormat("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: ZONE,
+  }).format(d);
+  return `${dateLabel(value)}, ${time}`;
 }
 export function localTimeToISO(value: string, timezone: string) {
   if (!value) return null;
@@ -118,14 +137,3 @@ export function wallTime(value: string, timezone: string) {
     .replace(" ", "T");
 }
 
-export function plural(n: number, forms: [string, string, string]) {
-  const a = Math.abs(n) % 100,
-    b = a % 10;
-  return a > 10 && a < 20
-    ? forms[2]
-    : b === 1
-      ? forms[0]
-      : b > 1 && b < 5
-        ? forms[1]
-        : forms[2];
-}

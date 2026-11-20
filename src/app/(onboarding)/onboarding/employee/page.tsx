@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 import { EmployeeOnboarding } from "./_components/employee-onboarding";
 import type { ProfileInitialData } from "../_components/step-profile";
@@ -23,7 +24,10 @@ export default async function EmployeeOnboardingPage() {
   if (!membership?.venue_id) redirect("/dashboard");
 
   // Fetch current profile data
-  const { data: profile } = await supabase
+  // Телефон, Telegram, дату рождения и адрес из profiles пользовательский
+  // клиент не читает (миграция 360) — свой профиль берём admin-клиентом
+  // по id из проверенной сессии.
+  const { data: profile } = await createAdminClient()
     .from("profiles")
     .select("first_name, last_name, photo_url, avatar_url, gender, birth_date, phone, telegram_id, address")
     .eq("id", user.id)

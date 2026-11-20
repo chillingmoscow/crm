@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { assignInventoryDocument } from "@/app/(dashboard)/inventory/_actions/assignment";
+import { personInitials } from "@/lib/format/initials";
 
 const UNASSIGNED_VALUE = "__unassigned__";
 
@@ -172,13 +173,7 @@ export function PersonChip({
 }
 
 export function AssigneeAvatar({ name, muted = false }: { name: string; muted?: boolean }) {
-  const initials =
-    name
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
-      .join("") || "?";
+  const initials = personInitials(name);
   return (
     <div
       aria-hidden="true"

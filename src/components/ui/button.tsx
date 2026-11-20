@@ -11,10 +11,12 @@ const buttonVariants = cva(
       variant: {
         // Default = brand blue (#1570EF) — used for ALL CTAs per Sheerly DS.
         // For non-CTA "neutral primary" actions, use `secondary` or `outline`.
-        default: "bg-brand text-brand-foreground hover:bg-brand/90",
-        brand: "bg-brand text-brand-foreground hover:bg-brand/90",
+        // Неактивная заливная кнопка серая, а не выцветшая синяя/красная:
+        // так видно, что действие недоступно, а не «почти доступно».
+        default: "bg-brand text-brand-foreground hover:bg-brand-hover disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100",
+        brand: "bg-brand text-brand-foreground hover:bg-brand-hover disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100",
         destructive:
-          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100",
         outline:
           "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
         secondary:

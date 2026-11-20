@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Plus, Trash2, Clock3, ChevronDown } from "lucide-react";
+import { Plus, Trash2, Clock3 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,9 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { OptionSelect } from "@/components/ui/option-select";
 import { previewLateness } from "@/lib/payroll/discipline";
+import { ProfileSection } from "@/components/shared/profile-section";
+import { useSaveSection } from "@/components/shared/save-bar";
+import { SettingsDisclosure } from "./settings-disclosure";
 import {
   loadDisciplineSettings,
   saveDisciplineSettings,
@@ -21,54 +24,8 @@ type NumericKey =
   | "late_max"
   | "missing_amount"
   | "unclosed_amount";
-export function DisciplineSettings() {
-  const [data, setData] = useState<Settings | null>(null);
-  const [saved, setSaved] = useState<Settings | null>(null);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [example, setExample] = useState(22);
-  useEffect(() => {
-    let alive = true;
-    loadDisciplineSettings()
-      .then((value) => {
-        if (!alive) return;
-        if (!value) {
-          setError(
-            "Настройки автоматических правил ещё не созданы для заведения.",
-          );
-          return;
-        }
-        setData(value);
-        setSaved(value);
-      })
-      .catch((e) => {
-        if (alive) setError(e.message);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
-  if (error)
-    return (
-      <p
-        role="alert"
-        className="rounded-xl border p-5 text-sm text-destructive"
-      >
-        {error}
-      </p>
-    );
-  if (!data)
-    return (
-      <div
-        aria-label="Загрузка правил"
-        aria-busy="true"
-        className="h-64 animate-pulse rounded-xl border bg-muted/30"
-      />
-    );
-  const change = (patch: Partial<Settings>) =>
-    setData((current) => current && { ...current, ...patch });
-  const dirty = JSON.stringify(data) !== JSON.stringify(saved);
-  const invalid =
+function isInvalid(data: Settings) {
+  return (
     data.late_step < 1 ||
     data.late_step > 120 ||
     data.late_grace < 0 ||
@@ -88,7 +45,89 @@ export function DisciplineSettings() {
         s.amount <= 0 ||
         s.amount > 1e6 ||
         (i > 0 && s.count <= data.warning_steps[i - 1].count),
+    )
+  );
+}
+export function DisciplineSettings() {
+  const [data, setData] = useState<Settings | null>(null);
+  const [saved, setSaved] = useState<Settings | null>(null);
+  const [error, setError] = useState("");
+  const [missing, setMissing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [example, setExample] = useState(22);
+  useEffect(() => {
+    let alive = true;
+    loadDisciplineSettings()
+      .then((value) => {
+        if (!alive) return;
+        if (!value) {
+          setMissing(true);
+          return;
+        }
+        setData(value);
+        setSaved(value);
+      })
+      .catch((e) => {
+        if (alive) setError(e.message);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const dirty = !!data && JSON.stringify(data) !== JSON.stringify(saved);
+  const invalid = !!data && isInvalid(data);
+  const save = async () => {
+    if (!data || invalid) return false;
+    setBusy(true);
+    try {
+      await saveDisciplineSettings(data);
+      const next = await loadDisciplineSettings();
+      if (!next) throw new Error("Не удалось прочитать сохранённые правила");
+      setData(next);
+      setSaved(next);
+      toast.success("Правила сохранены");
+      return true;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось сохранить");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+  // Сохранение — общей полосой `SaveBar` экрана настроек оплаты.
+  const saveBar = useSaveSection({
+    dirty,
+    saving: busy,
+    blocked: invalid ? "Проверьте суммы и порядок порогов в автоматических правилах" : null,
+    save,
+    reset: () => setData(saved),
+  });
+  if (missing)
+    return (
+      <ProfileSection title="Автоматические правила">
+        <p className="text-sm text-muted-foreground">
+          Правила для заведения ещё не созданы
+        </p>
+      </ProfileSection>
     );
+  if (error)
+    return (
+      <ProfileSection title="Автоматические правила">
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      </ProfileSection>
+    );
+  if (!data)
+    return (
+      <div
+        aria-label="Загрузка правил"
+        aria-busy="true"
+        className="h-64 animate-pulse rounded-[14px] border bg-muted/30"
+      />
+    );
+  const change = (patch: Partial<Settings>) =>
+    setData((current) => current && { ...current, ...patch });
   const preview = previewLateness(example * 60, data);
   const outcome = (kind: typeof preview.kind) =>
     ({
@@ -127,29 +166,32 @@ export function DisciplineSettings() {
     </div>
   );
   return (
-    <section
-      id="automatic-payroll-rules"
-      className="scroll-mt-6 overflow-hidden rounded-xl border"
-    >
-      <header className="flex items-start justify-between gap-5 border-b p-5">
-        <div>
-          <h2 className="font-semibold">Автоматические правила</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Действуют с {data.valid_from.split("-").reverse().join(".")} ·
-            прежние записи сохраняются
-          </p>
-        </div>
+    <div id="automatic-payroll-rules" className="scroll-mt-6">
+    <ProfileSection
+      title="Автоматические правила"
+      description={`Действуют с ${data.valid_from.split("-").reverse().join(".")} · прежние записи сохраняются`}
+      actions={
         <Switch
           aria-label="Автоматические правила"
           disabled={busy}
           checked={data.enabled}
           onCheckedChange={(enabled) => change({ enabled })}
         />
-      </header>
-      <fieldset disabled={busy} className="min-w-0">
-        <section className="p-5">
+      }
+    >
+      <form
+        className="flex min-w-0 flex-col gap-5"
+        onSubmit={(event) => {
+          // Enter в поле сохраняет, как кнопка в полосе.
+          event.preventDefault();
+          if (dirty && !invalid && !busy) void save();
+        }}
+      >
+      <button type="submit" className="sr-only" tabIndex={-1} aria-hidden="true" />
+      <fieldset disabled={busy} className="flex min-w-0 flex-col gap-5">
+        <section>
           <div className="mb-5 flex items-center justify-between gap-4">
-            <h3 className="flex items-center gap-2 font-medium">
+            <h3 className="flex items-center gap-2 text-sm font-semibold">
               <Clock3 className="size-4 text-muted-foreground" />
               Опоздания
             </h3>
@@ -212,7 +254,7 @@ export function DisciplineSettings() {
                 <p className="text-sm text-muted-foreground">
                   {outcome(preview.kind)}
                 </p>
-                <p className="mt-1 text-2xl font-semibold tabular-nums">
+                <p className="mt-1 text-xl font-semibold tabular-nums">
                   {preview.kind === "deduction"
                     ? `${money(preview.amount)} ${data.late_bonus ? "бонусов / ₽" : "₽"}`
                     : "0 ₽"}
@@ -254,8 +296,8 @@ export function DisciplineSettings() {
             не начисляется.
           </p>
         </section>
-        <section className="border-t p-5">
-          <h3 className="font-medium">Предупреждения</h3>
+        <section className="border-t pt-5">
+          <h3 className="text-sm font-semibold">Предупреждения</h3>
           <p className="mt-1 text-sm text-muted-foreground">
             Считаются за месяц. Каждый достигнутый порог добавляет отдельный
             штраф.
@@ -353,12 +395,9 @@ export function DisciplineSettings() {
             </Button>
           </fieldset>
         </section>
-        <details className="group border-t">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-            Другие случаи
-            <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" />
-          </summary>
-          <div className="grid gap-6 px-5 pb-5 sm:grid-cols-2">
+        <div className="border-t pt-5">
+        <SettingsDisclosure title="Другие случаи">
+          <div className="grid gap-6 sm:grid-cols-2">
             <div className="space-y-4">
               <div className="flex items-center justify-between gap-3">
                 <Label htmlFor="missing-clockin-enabled">
@@ -404,43 +443,22 @@ export function DisciplineSettings() {
               </fieldset>
             </div>
           </div>
-        </details>
-      </fieldset>
-      <footer className="flex flex-wrap items-center justify-between gap-4 border-t bg-muted/10 p-5">
-        <div className="max-w-xl text-xs text-muted-foreground">
-          <p>
-            Фактическое списание и изменения состояния бонусной операции отражаются в истории записи.
-          </p>
-          {invalid && (
-            <p role="alert" className="mt-1 text-destructive">
-              Проверьте суммы и порядок порогов. Период — от 1 до 120 минут.
-            </p>
-          )}
+        </SettingsDisclosure>
         </div>
-        <Button
-          disabled={busy || !dirty || invalid}
-          onClick={async () => {
-            setBusy(true);
-            try {
-              await saveDisciplineSettings(data);
-              const next = await loadDisciplineSettings();
-              if (!next)
-                throw new Error("Не удалось прочитать сохранённые правила");
-              setData(next);
-              setSaved(next);
-              toast.success("Правила сохранены");
-            } catch (e) {
-              toast.error(
-                e instanceof Error ? e.message : "Не удалось сохранить",
-              );
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          {busy ? "Сохраняем…" : "Сохранить правила"}
-        </Button>
-      </footer>
-    </section>
+      </fieldset>
+      <div className="max-w-xl text-xs text-muted-foreground">
+        <p>
+          Фактическое списание и изменения состояния бонусной операции отражаются в истории записи.
+        </p>
+        {invalid && (
+          <p role="alert" className="mt-1 text-destructive">
+            Проверьте суммы и порядок порогов. Период: от 1 до 120 минут.
+          </p>
+        )}
+      </div>
+      {saveBar}
+      </form>
+    </ProfileSection>
+    </div>
   );
 }

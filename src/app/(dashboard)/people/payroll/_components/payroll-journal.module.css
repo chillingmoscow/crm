@@ -1,0 +1,133 @@
+
+.kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.deleted {
+  color: hsl(var(--muted-foreground));
+  text-decoration: line-through;
+}
+.segment {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+  background: hsl(var(--muted) / 0.55);
+}
+.segment button {
+  flex: 1;
+  padding: 9px 5px;
+  font-size: 12px;
+  border-radius: 6px;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.segment button[aria-pressed="true"] {
+  background: hsl(var(--background));
+  color: hsl(var(--brand-text));
+  box-shadow: theme('boxShadow.sm');
+}
+.upload {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px;
+  border: 1px dashed hsl(var(--border));
+  border-radius: 8px;
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+}
+.upload:hover {
+  border-color: hsl(var(--brand));
+  color: hsl(var(--brand-text));
+}
+/* Поле файла прозрачное — обводку фокуса с клавиатуры рисует сама плитка. */
+.upload:has(input:focus-visible) {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+.upload:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.upload input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+}
+.parallel {
+  font-size: 12px;
+  line-height: 1.6;
+  color: hsl(var(--muted-foreground));
+  padding: 12px 14px;
+  background: hsl(var(--muted) / 0.4);
+  border-radius: 8px;
+}
+.comment {
+  padding-bottom: 16px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.comment > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+.comment strong {
+  font-weight: 500;
+}
+.comment time,
+.history time {
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+}
+.comment p {
+  font-size: 13px;
+  line-height: 1.6;
+  margin-top: 8px;
+  white-space: pre-wrap;
+}
+.photos {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.photos img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 8px;
+}
+.history {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  padding-bottom: 20px;
+  line-height: 1.8;
+}
+.history strong {
+  font-weight: 500;
+}
+.historyDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: hsl(var(--brand) / 0.4);
+  margin-top: 7px;
+  flex-shrink: 0;
+}
+@media (max-width: 639px) {
+  .photos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .comment > div { flex-wrap: wrap; gap: 3px 12px; }
+  .upload { padding: 11px; font-size: 12px; }
+}
+
+.addPhoto { aspect-ratio: 1; min-height: 0; padding: 0; }
+.photos button { overflow: hidden; border-radius: 8px; }

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import {
   createClient,
@@ -7,6 +8,8 @@ import {
 import { StaffClient } from "./_components/staff-client";
 import { getStaff, getPendingInvitations, getFiredStaff } from "./actions";
 import { getCasualStaff } from "@/lib/payroll/casual-list";
+
+export const metadata: Metadata = { title: "Сотрудники" };
 
 export default async function StaffPage({
   searchParams,
@@ -79,9 +82,17 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
 
   const activeRoleCode =
     (uvr?.roles as { code: string } | null)?.code ?? null;
-  const canEdit = ["owner", "manager", "admin"].includes(activeRoleCode ?? "");
-  // The till PIN column: codes are shown only to those who add staff.
-  const pinResult = canEdit
+  // То же право, что проверяют карточка сотрудника и серверные действия:
+  // раньше здесь сверялся код должности, и человек с правом на своей должности
+  // не видел «Добавить» в списке.
+  const canEdit = can("people.edit_staff");
+  // Тот же набор, что открывает карточку сотрудника: без него сервер не отдаёт
+  // контакты и даты коллег (миграция 359), а карточка редиректит.
+  const canSeeStaffDetails =
+    can("people.view_staff") && can("people.view_staff_details");
+  // The till PIN column: codes are shown only to the venue's senior roles.
+  const canSeePins = ["owner", "manager", "admin"].includes(activeRoleCode ?? "");
+  const pinResult = canSeePins
     ? ((await db
         .from("user_venue_roles")
         .select("id, terminal_pin")
@@ -129,7 +140,8 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       departments={departments ?? []}
       venueId={venueId}
       currentUserId={user.id}
-      activeRoleCode={activeRoleCode}
+      canEditStaff={canEdit}
+      canSeeStaffDetails={canSeeStaffDetails}
       casual={casual}
       openAddCasual={(await searchParams).add === "casual" && canEdit && !!casual}
     />

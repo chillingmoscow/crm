@@ -30,6 +30,7 @@ import {
   type DateRangeValue,
 } from "@/components/shared/date-range-filter";
 import {
+  ROW_MENU_COLUMN_SIZE,
   ResizableTableHead,
   TableColumnManager,
   TableControlPin,
@@ -72,7 +73,7 @@ const stateColumns = [
     defaultVisible: !hidden.has(id),
   })),
   { id: "status", defaultSize: 140 },
-  { id: "actions", defaultSize: 48 },
+  { id: "actions", defaultSize: ROW_MENU_COLUMN_SIZE },
 ];
 type SortMode = `${string}:${"asc" | "desc"}`;
 const sortMap = Object.fromEntries(
@@ -323,8 +324,9 @@ export function ShiftsClient({
       },
       {
         id: "actions",
-        size: 48,
-        minSize: 48,
+        size: ROW_MENU_COLUMN_SIZE,
+        minSize: ROW_MENU_COLUMN_SIZE,
+        maxSize: ROW_MENU_COLUMN_SIZE,
         enableResizing: false,
         cell: ({ row }) => (
           <TableRowMenu

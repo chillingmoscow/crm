@@ -7,9 +7,9 @@ import { DrawerSection, DrawerStatus, DrawerSummary, DrawerSummaryItem } from "@
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
-import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
+import { useDiscardGuard } from "@/components/shared/discard-changes-dialog";
 import type { Appointment, AppointmentOptions } from "@/lib/candidates/types";
-import { APPOINTMENT_TITLES, appointmentOutcomeLabel } from "@/lib/candidates/appointment-labels";
+import { APPOINTMENT_OUTCOME_TONES, APPOINTMENT_TITLES, appointmentOutcomeLabel } from "@/lib/candidates/appointment-labels";
 import { appointmentError } from "@/lib/candidates/errors";
 import { saveCandidateAppointmentResult } from "../actions";
 import { dateLabel, safeLink, wallTime, Field, FieldSelect } from "./fields";
@@ -17,7 +17,6 @@ import { dateLabel, safeLink, wallTime, Field, FieldSelect } from "./fields";
 import { PUNCTUALITY_LABELS, SMILE_LABELS, APPEARANCE_OPTIONS, COMMUNICATION_OPTIONS, feedbackOptions } from "@/lib/candidates/interview-feedback";
 
 const resultOptions = ["passed", "no_show", "rejected", "canceled"] as const;
-const outcomeTone = { scheduled: "info", passed: "success", no_show: "warning", rejected: "danger", canceled: "neutral" } as const;
 function initialReport(a: Appointment) {
   return {
     outcome: a.outcome === "scheduled" ? "" : a.outcome,
@@ -40,17 +39,16 @@ export function CandidateAppointmentDetails({ candidateId, appointment: a, candi
   onClose: () => void; onSchedule: () => void; onSaved: () => Promise<void>;
 }) {
   const [report, setReport] = useState(() => initialReport(a));
-  const [pendingAction, setPendingAction] = useState<"close" | "schedule" | null>(null);
   const [busy, start] = useTransition();
   const change = (field: keyof Report, value: string) => setReport((current) => ({ ...current, [field]: value }));
   const payload = reportPayload(a, report);
   const dirty = JSON.stringify(payload) !== JSON.stringify(reportPayload(a, initialReport(a)));
   const commentRequired = a.kind === "interview" && ["passed", "rejected"].includes(report.outcome);
   const futureResult = commentRequired && !!a.starts_at && new Date(a.starts_at).getTime() > Date.now();
+  const { guard, dialog } = useDiscardGuard(editable && dirty, "В результате есть несохранённые изменения.");
   const requestAction = (action: "close" | "schedule") => {
     if (busy) return;
-    if (editable && dirty) setPendingAction(action);
-    else if (action === "close") onClose(); else onSchedule();
+    guard(action === "close" ? onClose : onSchedule);
   };
   const venue = options.venues.find((value) => value.id === a.venue_id)?.name;
   const interviewer = options.members.find((value) => value.id === a.interviewer_id)?.name;
@@ -64,7 +62,7 @@ export function CandidateAppointmentDetails({ candidateId, appointment: a, candi
   });
   return <>
     <EditDrawer open title={APPOINTMENT_TITLES[a.kind]} description={candidateName}
-      titleAccessory={<DrawerStatus label={appointmentOutcomeLabel(a.kind, a.outcome)} tone={outcomeTone[a.outcome]} />}
+      titleAccessory={<DrawerStatus label={appointmentOutcomeLabel(a.kind, a.outcome)} tone={APPOINTMENT_OUTCOME_TONES[a.outcome]} />}
       onOpenChange={(open) => { if (!open) requestAction("close"); }}
       footer={<><Button variant="outline" disabled={busy} onClick={() => requestAction("close")}>Закрыть</Button>{editable && <Button disabled={busy || !dirty || !report.outcome || (commentRequired && !report.notes.trim()) || futureResult} onClick={save}>Сохранить</Button>}</>}>
       <DrawerSummary label="Данные назначения">
@@ -102,10 +100,6 @@ export function CandidateAppointmentDetails({ candidateId, appointment: a, candi
         </div>
       </DrawerSection>}
     </EditDrawer>
-    <AlertDialog open={!!pendingAction} onOpenChange={(open) => { if (!open) setPendingAction(null); }}>
-      <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Не сохранять изменения?</AlertDialogTitle><AlertDialogDescription>В результате есть несохранённые изменения.</AlertDialogDescription></AlertDialogHeader>
-        <AlertDialogFooter><AlertDialogCancel>Продолжить редактирование</AlertDialogCancel><AlertDialogAction onClick={() => { const action = pendingAction; setPendingAction(null); if (action === "schedule") onSchedule(); else onClose(); }}>Не сохранять</AlertDialogAction></AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    {dialog}
   </>;
 }

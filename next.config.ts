@@ -47,6 +47,11 @@ const nextConfig: NextConfig = {
     },
   },
   images: {
+    // Через оптимизатор идут только уменьшенные фото людей (avatarThumbUrl;
+    // остальные <Image> — unoptimized). Их адреса неизменяемые: новое фото
+    // сотрудника получает новый ?t=, у Glide — новый путь. Поэтому браузер
+    // может держать копию неделю, а не час (по заголовку исходника).
+    minimumCacheTTL: 60 * 60 * 24 * 7,
     remotePatterns: [
       // Self-hosted Supabase storage (production)
       { protocol: "https", hostname: supabaseHostname },
@@ -56,6 +61,9 @@ const nextConfig: NextConfig = {
       // Common OAuth avatar providers
       { protocol: "https", hostname: "lh3.googleusercontent.com" },
       { protocol: "https", hostname: "avatars.githubusercontent.com" },
+      // Фото сотрудников, перенесённые из Glide (avatarThumbUrl уменьшает их
+      // через оптимизатор — без этого шаблона он вернёт 400).
+      { protocol: "https", hostname: "storage.googleapis.com", pathname: "/glide-prod.appspot.com/**" },
     ],
   },
   async redirects() {
@@ -75,6 +83,9 @@ const nextConfig: NextConfig = {
       { source: "/knowledge/analytics/:slug*",   destination: "/knowledge/dashboard/:slug*",   permanent: true },
       // KB: отдельный журнал убран — общий журнал с фильтром раздела.
       { source: "/knowledge/audit",              destination: "/org/audit?types=kb_page",      permanent: true },
+      // Рабочий экран «Зарплаты» жил под адресом прототипа. Query (?month,
+      // ?entry из уведомлений) переносится автоматически.
+      { source: "/payroll-concept",          destination: "/people/payroll", permanent: true },
       { source: "/staff",                    destination: "/people/staff",  permanent: true },
       { source: "/staff/:path*",             destination: "/people/staff/:path*", permanent: true },
       { source: "/settings/roles",           destination: "/people/roles",  permanent: true },

@@ -6,9 +6,11 @@ import {
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import type { Payment, PayrollData } from "@/lib/payroll/types";
+import type { AdeskSync, Payment, PayrollData } from "@/lib/payroll/types";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
+  AlertCircle,
   Check,
   Loader2,
   MoreHorizontal,
@@ -24,9 +26,10 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import { loadPayrollTransactionDetails } from "../actions";
-import { money } from "@/lib/sales/format";
-import { PayrollTable } from "./payroll-table";
+import { loadPayrollTransactionDetails, retryPayrollAdeskSync } from "../actions";
+import { Money } from "@/components/shared/money";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { PayrollTable, type PayrollTableFilters } from "./payroll-table";
 import { PayrollEmployeeCell } from "./payroll-employee-cell";
 const labels = {
   date: "Дата",
@@ -48,7 +51,6 @@ export function PayrollPaymentsTable({
   externalSearch,
   filters,
   exportAction,
-  scrollMode,
   financeMonth,
   financeRole,
 }: {
@@ -61,10 +63,9 @@ export function PayrollPaymentsTable({
   onCancel: (id: string) => Promise<void>;
   toolbarTargetId?: string;
   tableId?: string;
-  exportAction?: { label: string; onClick: () => void };
-  scrollMode?: "contained" | "page";
+  exportAction?: { label: string; onClick: () => void; loading?: boolean };
   externalSearch?: { value: string; onChange: (value: string) => void };
-  filters?: { active?: boolean; content: React.ReactNode };
+  filters?: PayrollTableFilters;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const rows = useMemo(
@@ -85,10 +86,7 @@ export function PayrollPaymentsTable({
               })}
             </time>
           ) : id === "amount" ? (
-            <span className="font-semibold tabular-nums">
-              {money(row.original.amount)}{" "}
-              <span className="font-normal text-muted-foreground">₽</span>
-            </span>
+            <Money value={row.original.amount} className="font-semibold" />
           ) : id === "employee" ? (
             <PayrollEmployeeCell
               name={row.original.employee}
@@ -96,20 +94,31 @@ export function PayrollPaymentsTable({
               avatarUrl={row.original.avatarUrl}
             />
           ) : id === "status" ? (
-            <PaymentStatus posted={row.original.posted} />
+            <span className="inline-flex items-center gap-2">
+              <PaymentStatus posted={row.original.posted} />
+              {["error", "review"].includes(
+                data.adeskSync?.find((x) => x.payment_id === row.original.id)?.state ?? "",
+              ) && (
+                <AlertCircle
+                  className="size-3.5 text-muted-foreground"
+                  aria-label="Не отправлена в Adesk"
+                />
+              )}
+            </span>
           ) : id === "kind" && row.original.bonus ? (
             <span>{row.original.kind} <small className="text-muted-foreground">· Премия</small></span>
           ) : (
             row.original[id as "employee" | "kind" | "status"]
           ),
       })),
-    [data.timezone],
+    [data.timezone, data.adeskSync],
   );
   const selected = rows.find((row) => row.id === selectedId);
   return (
     <>
       <PayrollTable
         id={tableId ?? `payroll.payments.${data.venueId}`}
+        label="Выплаты"
         rows={rows}
         onRow={(row) => setSelectedId(row.id)}
         columns={columns}
@@ -121,8 +130,16 @@ export function PayrollPaymentsTable({
         externalSearch={externalSearch}
         filters={filters}
         exportAction={exportAction}
-        scrollMode={scrollMode}
         actions={actions}
+        totals={(visible) => ({
+          amount: (
+            <Money
+              value={visible
+                .filter((row) => row.posted)
+                .reduce((sum, row) => sum + row.amount, 0)}
+            />
+          ),
+        })}
       />
       {selected && (
         <PaymentDetails
@@ -143,12 +160,75 @@ export function PayrollPaymentsTable({
 
 function PaymentStatus({ posted }: { posted: boolean }) {
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${posted ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}
+    <StatusBadge
+      tone={posted ? "success" : "neutral"}
+      icon={posted ? <Check /> : <Trash2 />}
     >
-      {posted ? <Check size={12} /> : <Trash2 size={12} />}
       {posted ? "Проведена" : "Удалена"}
-    </span>
+    </StatusBadge>
+  );
+}
+const ADESK_MAX_ATTEMPTS = 10;
+function AdeskStatus({
+  sync,
+  posted,
+  canRetry,
+}: {
+  sync: AdeskSync | undefined;
+  posted: boolean;
+  canRetry: boolean;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [retried, setRetried] = useState(false);
+  // Historical payouts came from Glide and are already in Adesk; tips are not mirrored.
+  if (!sync) return null;
+  const waiting = retried || ["pending", "sending"].includes(sync.state);
+  const stopped =
+    sync.state === "review" ||
+    (sync.state === "error" && sync.attempts >= ADESK_MAX_ATTEMPTS);
+  const text = waiting
+    ? "Ждёт отправки"
+    : sync.state === "synced"
+      ? posted
+        ? `Отправлена · № ${sync.adesk_id}`
+        : "Удалена из Adesk"
+      : sync.state === "review"
+        ? "Нужна проверка"
+        : stopped
+          ? "Не отправлена"
+          : "Не отправлена, повторим автоматически";
+  return (
+    <div className="mb-5 space-y-2 rounded-xl border px-4 py-3 text-sm">
+      <div className="flex items-center justify-between gap-4">
+        <span className="text-muted-foreground">Adesk</span>
+        <span className="text-right font-medium">{text}</span>
+      </div>
+      {!waiting && sync.state !== "synced" && sync.last_error && (
+        <p className="text-muted-foreground">{sync.last_error}</p>
+      )}
+      {!waiting && stopped && canRetry && (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await retryPayrollAdeskSync(sync.payment_id);
+              setRetried(true);
+              toast.success("Выплата снова отправится в Adesk в течение минуты");
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : "Не удалось повторить отправку");
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy && <Loader2 className="mr-2 size-3.5 animate-spin" />}
+          Отправить снова
+        </Button>
+      )}
+    </div>
   );
 }
 function PaymentDetails({
@@ -202,7 +282,7 @@ function PaymentDetails({
         role: row.roleName,
         avatarUrl: row.avatarUrl,
       }}
-      amount={<>{money(row.amount)} ₽</>}
+      amount={<Money value={row.amount} fraction />}
       amountLabel="Выдано сотруднику"
       status={<PaymentStatus posted={row.posted} />}
       footer={
@@ -271,12 +351,17 @@ function PaymentDetails({
                 >
                   <dt className="text-muted-foreground">{label}</dt>
                   <dd className="whitespace-nowrap font-medium tabular-nums">
-                    {money(Number(value))} ₽
+                    <Money value={Number(value)} fraction />
                   </dd>
                 </div>
               ))}
             </dl>
           )}
+          <AdeskStatus
+            sync={data.adeskSync?.find((x) => x.payment_id === row.id)}
+            posted={row.posted}
+            canRetry={data.permissions.includes("payroll.pay")}
+          />
           {error ? (
             <p className="text-sm text-destructive">{error}</p>
           ) : details ? (

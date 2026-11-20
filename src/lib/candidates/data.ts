@@ -8,6 +8,7 @@ import {
 } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { listAuditEvents } from "@/lib/audit/list";
 import type {
   Candidate,
   CandidateDetail,
@@ -79,17 +80,21 @@ function candidateQuery(s: CandidateScope, filters: ListFilters) {
     .eq("account_id", s.accountId)
     .neq("status", "hired");
   for (const sort of filters.sort ?? []) {
+    // «На этапе» сортируется по сроку: по возрастанию — кто перешёл позже,
+    // то есть дата перехода идёт в обратном порядке.
+    const byStageAge = sort.field === "stage_changed_at";
+    // У отказанных срока нет («—»): при сортировке по сроку — в конец списка.
+    if (byStageAge) query = query.order("stage_waiting", { ascending: false });
     query = query.order(sort.field === "status" ? "status_order" : sort.field, {
-      ascending: sort.direction === "asc",
+      ascending: byStageAge ? sort.direction !== "asc" : sort.direction === "asc",
       nullsFirst: false,
     });
   }
   if (!filters.sort?.some((s) => s.field === "submitted_at"))
     query = query.order("submitted_at", { ascending: false });
   query = query.order("id", { ascending: false });
-  query = filters.archive
-    ? query.or("archived_at.not.is.null")
-    : query.is("archived_at", null);
+  // Архива анкет нет, но в данных могут остаться записи с archived_at: они скрыты.
+  query = query.is("archived_at", null);
   const search = (filters.search ?? "")
     .replace(/[,()%_*\\]/g, " ")
     .trim()
@@ -158,32 +163,54 @@ export async function candidatePhotos(ids: string[]): Promise<Record<string, Can
   if (!avatarPaths.size) return {};
 
   const bucket = s.client.storage.from("candidate-files");
-  const sign = (path: string, transform: { width: number; height?: number; resize: "cover" | "contain" }) =>
-    bucket.createSignedUrl(path, 1800, { transform }).then((r) => r.data?.signedUrl ?? null);
-  const [{ data: originals }, resized] = await Promise.all([
-    bucket.createSignedUrls([...avatarPaths.values()], 1800),
-    Promise.all([...avatarPaths].map(async ([id, path]) => {
-      const [photo_thumb_url, photo_preview_url] = await Promise.all([
-        sign(path, { width: 96, height: 96, resize: "cover" }),
-        sign(path, { width: 640, resize: "contain" }),
-      ]);
-      return { id, path, photo_thumb_url, photo_preview_url };
-    })),
-  ]);
-  const originalByPath = new Map(originals?.map((file) => [file.path, file.signedUrl]));
-  return Object.fromEntries(resized.map(({ id, path, ...photos }) => [
-    id, { ...photos, photo_url: originalByPath.get(path) ?? null },
-  ]));
+  type Transform = { width: number; height?: number; resize: "cover" | "contain" };
+  const sign = (path: string, transform?: Transform) =>
+    stableSignedUrl(`${path}|${JSON.stringify(transform ?? null)}`, (ttl) =>
+      (transform ? bucket.createSignedUrl(path, ttl, { transform }) : bucket.createSignedUrl(path, ttl))
+        .then((r) => r.data?.signedUrl ?? null));
+  const photos = await Promise.all([...avatarPaths].map(async ([id, path]) => {
+    const [photo_thumb_url, photo_preview_url, photo_url] = await Promise.all([
+      sign(path, { width: 96, height: 96, resize: "cover" }),
+      sign(path, { width: 640, resize: "contain" }),
+      sign(path),
+    ]);
+    return [id, { photo_thumb_url, photo_preview_url, photo_url }] as const;
+  }));
+  return Object.fromEntries(photos);
+}
+
+/*
+ * Подпись ссылки содержит время выдачи: новая подпись на каждый заход в
+ * «Кандидатов» = новый адрес, и браузер заново качает те же фото. Поэтому
+ * подпись переиспользуется, пока до её конца больше часа: адрес не меняется,
+ * фото берутся из кэша браузера. Ключ — путь и размер копии; доступ к файлу
+ * проверен выше запросом под правами пользователя, подпись его не расширяет.
+ */
+const PHOTO_URL_TTL_SECONDS = 6 * 60 * 60;
+const PHOTO_URL_REUSE_MS = (PHOTO_URL_TTL_SECONDS - 60 * 60) * 1000;
+const signedPhotoUrls = new Map<string, { url: string; reuseUntil: number }>();
+async function stableSignedUrl(
+  key: string,
+  sign: (ttlSeconds: number) => Promise<string | null>,
+): Promise<string | null> {
+  const now = Date.now();
+  const cached = signedPhotoUrls.get(key);
+  if (cached && cached.reuseUntil > now) return cached.url;
+  const url = await sign(PHOTO_URL_TTL_SECONDS);
+  if (!url) return null;
+  if (signedPhotoUrls.size > 5000) {
+    for (const [k, v] of signedPhotoUrls) if (v.reuseUntil <= now) signedPhotoUrls.delete(k);
+  }
+  signedPhotoUrls.set(key, { url, reuseUntil: now + PHOTO_URL_REUSE_MS });
+  return url;
 }
 export async function candidateList(
   filters: ListFilters = {},
 ): Promise<CandidatePage> {
   const s = await candidateScope();
-  if (filters.archive && !s.permissions.owner)
-    throw new Error("Архив доступен владельцу");
   return candidatePage(s, filters);
 }
-export async function candidateDetail(id: string): Promise<CandidateDetail> {
+export async function candidateDetail(id: string): Promise<CandidateDetail | null> {
   const s = await candidateScope();
   uuid.parse(id);
   const candidate = check(
@@ -192,11 +219,11 @@ export async function candidateDetail(id: string): Promise<CandidateDetail> {
       .select("*")
       .eq("id", id)
       .eq("account_id", s.accountId)
-      .single(),
+      .is("archived_at", null)
+      .maybeSingle(),
   );
-  if (candidate.archived_at && !s.permissions.owner)
-    throw new Error("Анкета в архиве");
-  const [comments, events, appointments, files, related, hire] =
+  if (!candidate) return null;
+  const [comments, audit, appointments, files, related, hire, stageEvents] =
     await Promise.all([
       s.db
         .from<Comment[]>("candidate_comments")
@@ -205,13 +232,9 @@ export async function candidateDetail(id: string): Promise<CandidateDetail> {
         .eq("account_id", s.accountId)
         .is("deleted_at", null)
         .order("created_at"),
-      s.db
-        .from<CandidateEvent[]>("candidate_events")
-        .select("*")
-        .eq("candidate_id", id)
-        .eq("account_id", s.accountId)
-        .order("created_at", { ascending: false })
-        .limit(200),
+      // Журнал — общий (audit_logs), как у сотрудника и должности; события
+      // анкеты читаются с доступом к кандидатам (миграция 354).
+      listAuditEvents({ entityType: "candidate", entityId: id }),
       appointmentQuery(s, id),
       s.db
         .from<CandidateFile[]>("candidate_files")
@@ -226,6 +249,7 @@ export async function candidateDetail(id: string): Promise<CandidateDetail> {
             .eq("account_id", s.accountId)
             .eq("phone_normalized", candidate.phone_normalized)
             .neq("id", id)
+            .is("archived_at", null)
             .limit(20)
         : Promise.resolve({ data: [], error: null }),
       s.admin
@@ -234,13 +258,28 @@ export async function candidateDetail(id: string): Promise<CandidateDetail> {
         .eq("account_id", s.accountId)
         .eq("candidate_id", id)
         .maybeSingle(),
+      // «Ход подбора» — смены этапа и встречи за всю историю: журнал
+      // постраничный, и у кандидата с длинной перепиской ранние шаги
+      // выпали бы из хода.
+      s.db
+        .from<CandidateEvent[]>("candidate_events")
+        .select("*")
+        .eq("candidate_id", id)
+        .eq("account_id", s.accountId)
+        .or(
+          "kind.in.(appointment_created,appointment_updated),details->changes->status.not.is.null",
+        )
+        .order("created_at", { ascending: true })
+        // Потолок на всякий случай: смен этапа и встреч у кандидата единицы;
+        // сортировка от ранних сохраняет начало хода.
+        .limit(1000),
     ]);
   const cs = check(comments) ?? [],
-    es = check(events) ?? [],
+    ss = check(stageEvents) ?? [],
     fs = check(files) ?? [];
   const authorIds = [
     ...new Set(
-      [...cs.map((c) => c.author_id), ...es.map((e) => e.actor_id)].filter(
+      [...cs.map((c) => c.author_id), ...ss.map((e) => e.actor_id)].filter(
         (id): id is string => Boolean(id),
       ),
     ),
@@ -286,7 +325,8 @@ export async function candidateDetail(id: string): Promise<CandidateDetail> {
       author_name:
         names.get(c.author_id ?? "") ?? c.source_author ?? "Импорт из Notion",
     })),
-    events: es.map((e) => ({
+    audit: { events: audit.events, hasMore: audit.hasMore },
+    stageEvents: ss.map((e) => ({
       ...e,
       actor_name: names.get(e.actor_id ?? "") ?? "Система",
     })),

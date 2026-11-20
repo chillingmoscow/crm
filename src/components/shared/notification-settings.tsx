@@ -78,7 +78,7 @@ export function NotificationSettings() {
                 <div className="text-[13px] font-medium leading-tight text-foreground">
                   На этом устройстве
                 </div>
-                <div className="text-[11px] leading-tight text-muted-foreground">
+                <div className="text-xs leading-tight text-muted-foreground">
                   {denied
                     ? "Заблокированы в настройках браузера"
                     : "Приходят при закрытом приложении"}

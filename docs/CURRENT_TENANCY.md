@@ -211,9 +211,9 @@ get_active_venue_id() = profiles.active_venue_id  WHERE есть user_venue_role
 get_active_account_id() = venues[active_venue_id].account_id
 
 -- Текущая роль и её эффективные права
-has_permission(code) = есть user_venue_roles.role_id, у которой
-                       либо в account_role_permissions[active_account_id] granted=true,
-                       либо (если override нет) в role_permissions granted=true
+has_permission(code) = есть user_venue_roles.role_id (status='active',
+                       venue = get_active_venue_id()), у которой
+                       в role_permissions granted=true
 ```
 
 **Следствия:**

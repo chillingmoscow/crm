@@ -62,6 +62,8 @@ export function OptionSelect({
   contentClassName,
   "aria-label": ariaLabel,
   "aria-describedby": ariaDescribedBy,
+  "aria-invalid": ariaInvalid,
+  "aria-required": ariaRequired,
 }: {
   value: string;
   onValueChange: (value: string) => void;
@@ -74,11 +76,13 @@ export function OptionSelect({
   id?: string;
   name?: string;
   required?: boolean;
-  /** Классы триггера (по умолчанию h-10, как у `<Input>`). */
+  /** Классы триггера (высота и вид по умолчанию — как у `<Input>`, задаёт `SelectTrigger`). */
   className?: string;
   contentClassName?: string;
   "aria-label"?: string;
   "aria-describedby"?: string;
+  "aria-invalid"?: boolean;
+  "aria-required"?: boolean;
 }) {
   const all = [...(options ?? []), ...(groups ?? []).flatMap((g) => g.options)];
   const known = all.some((o) => o.value === value);
@@ -105,7 +109,9 @@ export function OptionSelect({
         onPointerDown={(event) => {
           if (event.currentTarget.matches(":disabled")) event.preventDefault();
         }}
-        className={cn("h-10 bg-background text-left shadow-none", className)}
+        aria-invalid={ariaInvalid}
+        aria-required={ariaRequired}
+        className={cn("text-left", className)}
       >
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>

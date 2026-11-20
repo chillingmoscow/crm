@@ -102,6 +102,8 @@ export interface AuditEvent {
     id: string;
     name: string;
     avatar_url: string | null;
+    /** Пол из профиля: по нему журнал выбирает «изменил» / «изменила». */
+    gender?: string | null;
   } | null;
   /** Снимок сущности на текущий момент (`null` если она hard-удалена
    *  или entity_type не зарегистрирован в snapshot-fetchers). */
@@ -196,7 +198,7 @@ export async function listAuditEvents(input?: {
       entity_id,
       details,
       created_at,
-      actor:profiles!audit_logs_user_id_fkey (id, first_name, last_name, avatar_url)
+      actor:profiles!audit_logs_user_id_fkey (id, first_name, last_name, avatar_url, gender)
       `,
     )
     .order("created_at", { ascending: false })
@@ -322,6 +324,7 @@ export async function listAuditEvents(input?: {
           first_name: string | null;
           last_name: string | null;
           avatar_url: string | null;
+          gender: string | null;
         }
       | null
       | Array<{
@@ -329,6 +332,7 @@ export async function listAuditEvents(input?: {
           first_name: string | null;
           last_name: string | null;
           avatar_url: string | null;
+          gender: string | null;
         }>;
   };
 
@@ -614,6 +618,7 @@ export async function listAuditEvents(input?: {
             id: actorRaw.id,
             name: actorName ?? "Без имени",
             avatar_url: actorRaw.avatar_url,
+            gender: actorRaw.gender,
           }
         : null,
       entity: snapshotKey ? (snapshotsByKey.get(snapshotKey) ?? null) : null,

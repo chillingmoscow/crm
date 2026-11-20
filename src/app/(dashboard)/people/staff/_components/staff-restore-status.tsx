@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { restoreStaff, retryStaffTermination } from "../actions";
 
 /** An unfinished «Восстановить»: shows the step error and continues the same restore. */
@@ -28,12 +29,12 @@ export function StaffRestoreStatus({
     <div className="space-y-3 border-t pt-4 text-sm" role="status">
       <div className="flex flex-wrap items-center gap-2">
         <span className="flex-1 font-medium">Возврат сотрудника</span>
-        <span
-          className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs ${error ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"}`}
+        <StatusBadge
+          tone={error ? "danger" : "neutral"}
+          icon={<Icon className={error ? undefined : "animate-spin motion-reduce:animate-none"} />}
         >
-          <Icon className={`size-3.5 ${error ? "" : "animate-spin motion-reduce:animate-none"}`} />
           {error ? "Требует внимания" : "В процессе"}
-        </span>
+        </StatusBadge>
       </div>
       <p className="text-xs leading-relaxed text-muted-foreground">
         Доступ вернётся после восстановления записей Quick Resto и выдачи нового

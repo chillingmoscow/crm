@@ -15,7 +15,15 @@
     --primary: 225 72% 48%;            /* #1d4ed8 — DS accent blue. NOT for CTAs */
     --primary-foreground: 214 100% 97%;/* #eff6ff */
     --brand: 215 89% 51%;              /* #1570EF — Sheerly brand. ALL CTAs use this */
-    --brand-foreground: 0 0% 100%;
+    --brand-foreground: 0 0% 100%;     /* белый на brand — 4,6:1 */
+    /* Заливка brand-кнопки при наведении. Темнее, а не прозрачнее:
+       `bg-brand/90` светлел до 3,9:1 с белым текстом, этот — 5,4:1. */
+    --brand-hover: 215 89% 46%;
+    /* Синий ТЕКСТ — ссылки, активные вкладки и пункты, иконки, текст на
+       синей подложке. Заливка brand как текст даёт 4,4:1 на фоне и 3,8:1
+       на `bg-brand/10`; этот — 5,8:1 и 5:1 (WCAG AA везде, где лежит
+       синий текст). В Tailwind его берёт `text-brand`. */
+    --brand-text: 215 89% 43%;
     --secondary: 240 5% 96%;           /* #f4f4f5 */
     --secondary-foreground: 240 6% 10%;/* #18181b */
     --muted: 240 5% 96%;
@@ -79,7 +87,7 @@
     --palette-green-fg:   #047857;
     --palette-green-bg:   #d1fae5;
     --palette-green-dot:  #10b981;
-    --palette-blue-fg:    hsl(var(--brand));
+    --palette-blue-fg:    hsl(var(--brand-text));
     --palette-blue-bg:    hsl(var(--brand) / 0.10);
     --palette-blue-dot:   hsl(var(--brand));
     --palette-purple-fg:  #6d28d9;
@@ -106,8 +114,14 @@
     --primary-foreground: 214 100% 97%;
     /* Dark variants chosen to keep contrast on dark surfaces — see
        sheerly.pen → t6BIlw "Принципы тёмной темы" (rules 3 + 5). */
-    --brand: 217 91% 60%;              /* #3b82f6 — lighter than light brand */
+    /* Заливка та же, что в светлой: на прежнем #3b82f6 белый текст кнопок
+       был 3,6:1, на этом — 4,6:1. Рамки и фокус на тёмных поверхностях —
+       3,9:1 и выше (норма для не-текста 3:1). */
+    --brand: 215 89% 51%;
     --brand-foreground: 0 0% 100%;
+    --brand-hover: 215 89% 46%;
+    /* Синий текст светлее заливки: 7,4:1 на карточке, 4,9:1 на `bg-brand/30`. */
+    --brand-text: 217 91% 72%;
     --secondary: 240 4% 16%;           /* #27272a */
     --secondary-foreground: 0 0% 98%;
     --muted: 240 4% 16%;
@@ -160,7 +174,7 @@
     --palette-green-fg:   #6ee7b7;
     --palette-green-bg:   rgba(6, 78, 59, 0.55);
     --palette-green-dot:  #10b981;
-    --palette-blue-fg:    hsl(var(--brand));
+    --palette-blue-fg:    hsl(var(--brand-text));
     --palette-blue-bg:    hsl(var(--brand) / 0.30);
     --palette-blue-dot:   hsl(var(--brand));
     --palette-purple-fg:  #c4b5fd;
@@ -185,11 +199,22 @@
      iOS показывал «чёрную полосу» справа при отдалении и масштабировал
      страницу. overflow-x:hidden на html+body клампит ширину к экрану;
      широкие блоки скроллятся внутри своих overflow-x-auto контейнеров.
-     hidden (не clip) — надёжно на iOS Safari и не ломает sticky-шапки
-     (липнут к вьюпорту, т.к. вертикальный скролл остаётся страничным). */
+     hidden (не clip) — надёжно на iOS Safari. */
   html,
   body {
     overflow-x: hidden;
+  }
+  /* Но hidden на body ломает sticky-шапки: overflow html уходит вьюпорту, а
+     hidden на body делает сам body scroll-контейнером (overflow-y становится
+     auto). Он растянут по содержимому и никогда не скроллится, поэтому
+     position: sticky внутри него не срабатывает — шапки таблиц уезжают
+     вместе со страницей. clip, в отличие от hidden, scroll-контейнер не
+     создаёт. Меняем только от 640px: на телефоне списки показаны карточками
+     и закреплять нечего, а iOS-фикс выше остаётся нетронутым. */
+  @media (min-width: 640px) {
+    body {
+      overflow-x: clip;
+    }
   }
   body {
     @apply bg-background text-foreground;
@@ -926,6 +951,31 @@ input:-webkit-autofill {
   }
 }
 
+/* Утилита: зона нажатия не меньше 44×44 на сенсорном экране (DS «Кнопки»).
+ * Видимый размер элемента не меняется и раскладка не сдвигается: на
+ * coarse-pointer невидимый ::before расширяет область нажатия до 44×44
+ * вокруг центра элемента (элемент крупнее 44 остаётся как есть).
+ * Позиционирование: без своего класса элемент становится relative; `absolute`
+ * / `fixed` / `sticky` из классов сильнее — у :where нулевая специфичность.
+ * Свой ::before у элемента с этим классом не использовать.
+ * Соседние цели не должны залезать на видимую часть друг друга: промежуток
+ * между ними — не меньше (44 − размер) / 2 (у кнопки 32 px — gap 6 px). Предок
+ * с overflow: hidden обрезает зону — у края такого контейнера оставляй место. */
+:where(.touch-target) {
+  position: relative;
+}
+@media (pointer: coarse) {
+  .touch-target::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
+}
+
 /* Hover-hold tooltip — popover справа от пункта slash-меню, появляется
  * через ~1.2 сек удержания курсора. Рендерится в document.body
  * (createPortal), поэтому селектор глобальный. */
@@ -1192,7 +1242,7 @@ input:-webkit-autofill {
 }
 .kb-mobile-toolbar-blocktype[data-open] {
   border-color: hsl(var(--brand) / 0.6);
-  color: hsl(var(--brand));
+  color: hsl(var(--brand-text));
 }
 .kb-mobile-toolbar-blocktype-label {
   overflow: hidden;
@@ -1390,7 +1440,7 @@ input:-webkit-autofill {
   top: 50%;
   transform: translateY(-50%);
   font-size: 16px;
-  color: hsl(var(--brand));
+  color: hsl(var(--brand-text));
 }
 .kb-mobile-fullsheet-body {
   flex: 1;
@@ -2083,7 +2133,7 @@ input:-webkit-autofill {
   font-weight: 600;
 }
 .bn-sheerly .kb-gallery-add-btn:hover {
-  background-color: hsl(var(--brand) / 0.9);
+  background-color: hsl(var(--brand-hover));
   color: hsl(var(--brand-foreground));
 }
 .bn-sheerly .kb-gallery-settings-btn {
@@ -2659,7 +2709,7 @@ button.kb-gallery-menu-item {
   color: hsl(var(--foreground));
 }
 .bn-sheerly .kb-collection-view-tab[data-active] svg {
-  color: hsl(var(--brand));
+  color: hsl(var(--brand-text));
 }
 .bn-sheerly .kb-collection-view-tab {
   cursor: grab;
@@ -3000,7 +3050,7 @@ button.kb-gallery-menu-item {
 .kb-collection-layout-card[data-active] {
   border-color: hsl(var(--brand));
   background-color: hsl(var(--brand) / 0.08);
-  color: hsl(var(--brand));
+  color: hsl(var(--brand-text));
   box-shadow: inset 0 0 0 1px hsl(var(--brand) / 0.2);
 }
 .kb-collection-layout-card:disabled {
@@ -3067,7 +3117,7 @@ button.kb-gallery-menu-item {
   font-weight: 600;
 }
 .bn-sheerly .kb-collection-add-btn:hover {
-  background-color: hsl(var(--brand) / 0.9);
+  background-color: hsl(var(--brand-hover));
   color: hsl(var(--brand-foreground));
 }
 .bn-sheerly .kb-collection-list {
@@ -3501,7 +3551,7 @@ button.kb-gallery-menu-item {
   .kb-collection-table-title-col
   .kb-collection-table-heading
   svg:last-child {
-  color: hsl(var(--brand));
+  color: hsl(var(--brand-text));
 }
 .bn-sheerly .kb-collection-table-add-field-spacer {
   min-width: 0;
@@ -3768,13 +3818,13 @@ button.kb-gallery-menu-item {
 }
 .kb-collection-view-row[data-active] {
   background-color: hsl(var(--brand) / 0.09);
-  color: hsl(var(--brand));
+  color: hsl(var(--brand-text));
 }
 .kb-collection-view-row svg {
   color: hsl(var(--muted-foreground));
 }
 .kb-collection-view-row[data-active] svg {
-  color: hsl(var(--brand));
+  color: hsl(var(--brand-text));
 }
 .kb-collection-filters-editor,
 .kb-collection-sorts-editor,
@@ -3946,7 +3996,7 @@ button.kb-gallery-menu-item {
   font-weight: 650;
 }
 .kb-collection-property-visibility-heading button {
-  color: hsl(var(--brand));
+  color: hsl(var(--brand-text));
   font-weight: 600;
 }
 .kb-collection-property-visibility-row {
@@ -4154,7 +4204,7 @@ button.kb-gallery-menu-item {
   color: hsl(var(--muted-foreground));
 }
 .kb-collection-column-type-option[data-active] svg:last-child {
-  color: hsl(var(--brand));
+  color: hsl(var(--brand-text));
 }
 .kb-collection-column-create-btn {
   width: 100%;
@@ -4166,7 +4216,7 @@ button.kb-gallery-menu-item {
   font-weight: 650;
 }
 .kb-collection-column-create-btn:hover {
-  background-color: hsl(var(--brand) / 0.9);
+  background-color: hsl(var(--brand-hover));
   color: hsl(var(--brand-foreground));
 }
 .kb-collection-field-type:focus,

@@ -1,10 +1,13 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { loadPayroll, reconcileTips } from "../actions";
+import { loadEmployeePayroll, loadPayroll, reconcileTips } from "../actions";
 import type { PayrollData } from "@/lib/payroll/types";
-import { money } from "@/lib/sales/format";
-import { EmployeePay, selectClass } from "./employee-pay";
+import { Money } from "@/components/shared/money";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { selectClass } from "./employee-pay";
+import { StaffPaySheet } from "./staff-pay-sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,33 +15,94 @@ import { OptionSelect } from "@/components/ui/option-select";
 import { DayTeamList } from "@/app/(dashboard)/sales/_components/day-team";
 import { nativeDayMembers } from "@/lib/sales/day-context";
 import { toast } from "sonner";
+/** Вкладка «Оплата» в карточке сотрудника: расчётный лист за выбранный месяц. */
 export function StaffPayPanel({ userId }: { userId: string }) {
   const [data, setData] = useState<PayrollData | null>(null),
-    [error, setError] = useState("");
-  const reload = async () => setData(await loadPayroll());
-  useEffect(() => {
-    void reload().catch((e) => setError(e.message));
+    [error, setError] = useState(""),
+    [picked, setPicked] = useState<string | null>(null);
+  // Только зарплата этого сотрудника: полную ведомость заведения ради одной
+  // вкладки не читаем.
+  const reload = useCallback(async () => {
+    setData(await loadEmployeePayroll(userId));
   }, [userId]);
+  const load = useCallback(() => {
+    setError("");
+    void reload().catch((e) =>
+      setError(e instanceof Error ? e.message : "Не удалось загрузить расчёт"),
+    );
+  }, [reload]);
+  useEffect(() => {
+    setData(null);
+    setPicked(null);
+    load();
+  }, [userId, load]);
+  const shell = "mx-auto flex w-full max-w-[720px] flex-col gap-5";
   if (error)
-    return <p className="p-5 text-sm text-muted-foreground">{error}</p>;
-  const employee = data?.employees.find((e) => e.local_user_id === userId);
+    return (
+      <div className={shell}>
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm"
+        >
+          <span>Не удалось загрузить расчёт. {error}</span>
+          <Button variant="outline" size="sm" onClick={load}>
+            Повторить
+          </Button>
+        </div>
+      </div>
+    );
+  if (!data)
+    return (
+      <div className={shell} aria-busy="true" aria-label="Загружаем расчёт">
+        <Skeleton className="h-9 w-52" />
+        <Skeleton className="h-[148px] rounded-[14px]" />
+        <Skeleton className="h-[220px] rounded-[14px]" />
+        <Skeleton className="h-[120px] rounded-[14px]" />
+      </div>
+    );
+  const employee = data.employees.find((e) => e.local_user_id === userId);
+  if (!employee)
+    return (
+      <div className={shell}>
+        <section className="rounded-[14px] border bg-card p-5">
+          <h2 className="text-base font-semibold">Расчёта пока нет</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Карточка сотрудника ещё не связана с зарплатой.
+            {data.permissions.includes("payroll.view") && (
+              <>
+                {" "}
+                Свяжите её в разделе{" "}
+                <Link href="/people/payroll" className="font-medium text-brand hover:underline">
+                  Зарплата
+                </Link>
+                .
+              </>
+            )}
+          </p>
+        </section>
+      </div>
+    );
+  // Открываем текущий месяц заведения, а не месяц начала учёта.
+  const current = `${(data.asOfDate ?? new Date().toISOString()).slice(0, 7)}-01`;
+  const firstAccrual = data.accruals
+    .filter((a) => a.employee_id === employee.id)
+    .reduce<string | null>(
+      (min, a) => (min === null || a.business_date < min ? a.business_date : min),
+      null,
+    );
+  const earliest = `${(data.settings?.starts_on ?? firstAccrual ?? current).slice(0, 7)}-01`;
+  const min = earliest > current ? current : earliest;
+  const month = picked && picked >= min && picked <= current ? picked : current;
   return (
-    <div className="rounded-xl border p-5">
-      {data && employee ? (
-        <EmployeePay
-          data={data}
-          employee={employee}
-          month={data.settings?.starts_on ?? "2026-09-01"}
-          onChange={reload}
-        />
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          {data
-            ? "Условия оплаты пока не связаны с карточкой сотрудника. Сопоставьте её в ведомости."
-            : "Загружаем условия оплаты…"}
-        </p>
-      )}
-    </div>
+    <StaffPaySheet
+      data={data}
+      employee={employee}
+      month={month}
+      minMonth={min}
+      maxMonth={current}
+      onMonth={setPicked}
+      onChange={reload}
+    />
   );
 }
 export function PayrollDayPanel({ date }: { date: string }) {
@@ -96,15 +160,27 @@ export function PayrollDayPanel({ date }: { date: string }) {
             </p>
           )}
           {cash.map((c) => (
-            <p className="text-sm" key={c.id}>
-              Инкассация №{c.external_id} · {money(Number(c.amount))} ₽ ·{" "}
-              {c.state === "posted"
-                ? "Учтена"
-                : c.state === "cancelled"
-                  ? "Отменена"
-                  : c.recognition === "ambiguous"
-                    ? "Неоднозначный комментарий"
-                    : "Выдача не подтверждена"}
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" key={c.id}>
+              <span>
+                Инкассация №{c.external_id} · <Money value={Number(c.amount)} />
+              </span>
+              <StatusBadge
+                tone={
+                  c.state === "posted"
+                    ? "success"
+                    : c.state === "cancelled"
+                      ? "neutral"
+                      : "warning"
+                }
+              >
+                {c.state === "posted"
+                  ? "Учтена"
+                  : c.state === "cancelled"
+                    ? "Отменена"
+                    : c.recognition === "ambiguous"
+                      ? "Неоднозначный комментарий"
+                      : "Выдача не подтверждена"}
+              </StatusBadge>
             </p>
           ))}
           {data.permissions.includes("payroll.pay") &&

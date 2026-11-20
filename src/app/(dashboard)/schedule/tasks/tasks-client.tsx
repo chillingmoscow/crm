@@ -10,8 +10,9 @@ import {
 } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Plus, ArrowLeft, Camera, Trash2, X } from "lucide-react";
+import { Camera, ListChecks, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { fileLabelFocusClass } from "@/components/ui/field-styles";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -26,14 +27,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import {
   Tabs,
   ProfileTabsList,
   TabsTrigger,
   TabsContent,
 } from "@/components/ui/tabs";
-import { ProfileSection } from "@/components/shared/profile-section";
+import {
+  ProfileSection,
+  ProfileSectionAddButton,
+} from "@/components/shared/profile-section";
+import { ProfileHeader } from "@/components/shared/profile-header";
+import { ProfileDangerAction } from "@/components/shared/profile-danger-zone";
+import { SaveBar } from "@/components/shared/save-bar";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
   TaskHeaderActions,
   TaskPageTitle,
@@ -42,16 +50,14 @@ import { InstructionPagePicker, InstructionBody } from "./instruction-page";
 import { TaskList } from "./task-list";
 import { DeleteTaskDialog } from "./delete-task-dialog";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
+  taskMissing,
+  taskStatus as definitionStatus,
+  taskStatusTone,
+} from "./task-status";
 import { toast } from "sonner";
 import type { Answer, ChecklistItem } from "@/lib/schedule/types";
 import { dayLabel } from "@/lib/schedule/utils";
+import { countRu } from "@/lib/format/plural";
 import {
   missingItems,
   taskStatus,
@@ -63,13 +69,13 @@ import {
 import {
   loadTasks,
   saveTask,
-  saveTaskSettings,
   taskRunCommand,
   uploadTaskPhoto,
   taskPhotoUrl,
   taskHistory,
   retryTaskMessage,
 } from "./actions";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 
 const actionLabels: Record<string, string> = {
   "definition.created": "Создан шаблон задачи",
@@ -198,10 +204,6 @@ function SwitchRow({
     </div>
   );
 }
-function plural(count: number, one: string, few: string, many: string) {
-  const key = new Intl.PluralRules("ru-RU").select(count);
-  return key === "one" ? one : key === "few" ? few : many;
-}
 function newItem(kind: ChecklistItem["kind"] = "check"): ChecklistItem {
   return {
     id: crypto.randomUUID(),
@@ -222,6 +224,12 @@ function ChecklistText({
   ...props
 }: React.ComponentProps<typeof Textarea>) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  const focusOnMount = props.autoFocus;
+  // Новый пункт появляется в конце списка, а внизу экрана его закрывает
+  // полоса сохранения: ставим поле в середину экрана.
+  useEffect(() => {
+    if (focusOnMount) ref.current?.scrollIntoView({ block: "center" });
+  }, [focusOnMount]);
   useLayoutEffect(() => {
     const field = ref.current;
     if (!field) return;
@@ -316,9 +324,13 @@ function TaskScreen({
         url.href === window.location.href
       )
         return;
+      // Путь вида «//host/…» router.push понял бы как адрес другого сайта:
+      // перехватываем только обычные пути внутри приложения.
+      const path = url.pathname + url.search + url.hash;
+      if (!/^\/(?!\/)/.test(path)) return;
       event.preventDefault();
       event.stopPropagation();
-      setExitHref(url.pathname + url.search + url.hash);
+      setExitHref(path);
       setConfirmExit(true);
     };
     window.addEventListener("beforeunload", guard);
@@ -332,28 +344,28 @@ function TaskScreen({
     <section
       ref={screen}
       tabIndex={-1}
-      className={wide ? "w-full space-y-5 outline-none" : "mx-auto w-full max-w-[720px] space-y-5 outline-none"}
+      className={wide ? "w-full space-y-6 outline-none" : "mx-auto w-full max-w-[720px] space-y-6 outline-none"}
     >
       <TaskPageTitle title={title} />
       <TaskHeaderActions>{actions}</TaskHeaderActions>
-      <PageBreadcrumb>
-        <a
-          href={backHref}
-          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 py-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          aria-disabled={busy}
-          onClick={(event) => {
-            event.preventDefault();
-            if (!busy) {
-              setExitHref(null);
-              if (dirty) setConfirmExit(true);
-              else onBack();
-            }
-          }}
-        >
-          <ArrowLeft className="size-4" />
-          {backLabel}
-        </a>
-      </PageBreadcrumb>
+      <Breadcrumbs
+        items={[
+          { label: "График работы" },
+          {
+            label: backLabel === "К расписанию" ? "Расписание" : "Задачи",
+            href: backHref,
+            onClick: (event) => {
+              event.preventDefault();
+              if (!busy) {
+                setExitHref(null);
+                if (dirty) setConfirmExit(true);
+                else onBack();
+              }
+            },
+          },
+          { label: title },
+        ]}
+      />
       {description && (
         <p className="text-sm leading-relaxed text-muted-foreground">
           {description}
@@ -363,26 +375,16 @@ function TaskScreen({
       {showFooterActions && actions && (
         <div className="flex flex-wrap justify-end gap-2 pb-3">{actions}</div>
       )}
-      <Dialog open={confirmExit} onOpenChange={setConfirmExit}>
-        <DialogContent hideClose>
-          <DialogHeader>
-            <DialogTitle>Выйти без сохранения?</DialogTitle>
-            <DialogDescription>
-              Несохранённые изменения будут потеряны.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmExit(false)}>
-              Продолжить редактирование
-            </Button>
-            <Button
-              onClick={() => (exitHref ? router.push(exitHref) : onBack())}
-            >
-              Выйти без сохранения
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Тот же текст, что у общего useLeaveGuard: один вопрос на весь продукт. */}
+      <ConfirmDialog
+        open={confirmExit}
+        onOpenChange={setConfirmExit}
+        title="Не сохранять изменения?"
+        description="Несохранённые изменения будут потеряны."
+        confirmLabel="Уйти без сохранения"
+        destructive
+        onConfirm={() => (exitHref ? router.push(exitHref) : onBack())}
+      />
     </section>
   );
 }
@@ -396,7 +398,6 @@ export function TasksClient({
 }) {
   const [data, setData] = useState(initial);
   const [editor, setEditor] = useState<TaskDefinition | "new" | null>(null);
-  const [settings, setSettings] = useState(false);
   const wasActive = useRef(active);
   useEffect(() => {
     const returning = active && !wasActive.current;
@@ -416,10 +417,6 @@ export function TasksClient({
   }, [active]);
   const manage = data.permissions.includes("schedule.checklist_edit"),
     create = data.permissions.includes("schedule.checklist_create");
-  const canSettings =
-      manage &&
-      data.permissions.includes("payroll.configure") &&
-      data.permissions.includes("payroll.review");
   const refresh = async () => {
     const next = await loadTasks();
     setData(next);
@@ -427,30 +424,15 @@ export function TasksClient({
   };
     return (
     <>
-      <div hidden={!!editor || settings} className="space-y-4">
+      <div hidden={!!editor} className="space-y-4">
         <TaskPageTitle title={null} />
         <TaskList
         data={data}
           onOpen={setEditor}
           onCreate={create ? () => setEditor("new") : undefined}
-          onSettings={canSettings ? () => setSettings(true) : undefined}
           onRefresh={refresh}
       />
-      {manage && (!data.settings?.enabled_from || data.settings?.paused) && (
-        <p className="text-[13px] text-muted-foreground">
-          {data.settings?.paused
-            ? "Автоматическая обработка приостановлена."
-            : "Автоматическое назначение ещё не включено."}
-          {canSettings && (
-            <button
-              className="ml-1.5 hover:text-foreground hover:underline"
-              onClick={() => setSettings(true)}
-            >
-              Настроить
-            </button>
-          )}
-        </p>
-      )}
+      {manage && <TaskMessageErrors messages={data.messages} onSaved={async () => { await refresh(); }} />}
     </div>
       {editor ? (
         <DefinitionEditor
@@ -461,18 +443,6 @@ export function TasksClient({
           onSaved={async () => {
             await refresh();
             setEditor(null);
-          }}
-        />
-      ) : settings ? (
-        <SettingsEditor
-          data={data}
-          onClose={() => setSettings(false)}
-          onRefresh={async () => {
-            await refresh();
-          }}
-          onSaved={async () => {
-            await refresh();
-            setSettings(false);
           }}
         />
       ) : null}
@@ -526,6 +496,8 @@ function DefinitionEditor({
   const [equipmentTexts, setEquipmentTexts] = useState(() =>
     value.equipment_groups.map((group) => group.join(", ")),
   );
+  // Пункт, добавленный кнопкой в шапке раздела: фокус на нём, а не в начале списка.
+  const [focusItem, setFocusItem] = useState<string | null>(null);
   const [expandedHints, setExpandedHints] = useState(() =>
     value.items.filter((point) => point.hint).map((point) => point.id),
   );
@@ -580,43 +552,76 @@ function DefinitionEditor({
       setBusy(false);
     }
   }
+  const status = definitionStatus(task === "new" ? value : task);
+  // Шапка показывает сохранённое название, как карточки должности и
+  // подразделения: правка видна в поле, а не в заголовке.
+  const title = task === "new" ? "Новая задача" : task.name;
+  function reset() {
+    if (task === "new") {
+      onClose();
+      return;
+    }
+    setValue(task);
+    setEquipmentTexts(task.equipment_groups.map((group) => group.join(", ")));
+    setExpandedHints(task.items.filter((point) => point.hint).map((point) => point.id));
+    setDirty(false);
+  }
   return (
     <TaskScreen
-      wide
-      showFooterActions={false}
       title={task === "new" ? "Новая задача" : task.name}
       onBack={onClose}
       dirty={dirty}
       busy={busy}
-      actions={
-        editable && (
-          <>
-            {task !== "new" && (
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() => setDeleting(true)}
-                className="gap-2 text-destructive hover:text-destructive"
-              >
-                <Trash2 className="size-4" />
-                Удалить задачу
-              </Button>
-            )}
-          <Button disabled={busy} onClick={() => void submit()}>
-            {busy ? "Сохранение…" : "Сохранить задачу"}
-          </Button>
-          </>
-        )
-      }
     >
+      {/* Карточка сущности по канону: плитка вместо фото, статус под названием. */}
+      <ProfileHeader
+        name={title}
+        wrapName
+        avatar={
+          <div
+            aria-hidden
+            className="flex size-14 items-center justify-center rounded-[14px] bg-muted text-muted-foreground"
+          >
+            <ListChecks className="size-7" />
+          </div>
+        }
+      >
+        {task !== "new" && (
+          <span
+            className="inline-flex"
+            data-tip={
+              status === "Не настроена"
+                ? `Не хватает: ${taskMissing(task).join(", ")}`
+                : undefined
+            }
+          >
+            <StatusBadge tone={taskStatusTone(status)}>{status}</StatusBadge>
+          </span>
+        )}
+      </ProfileHeader>
       <Tabs defaultValue="main" className="w-full">
         <ProfileTabsList>
           <TabsTrigger value="main">Основное</TabsTrigger>
           <TabsTrigger value="checklist">Чек-лист</TabsTrigger>
           <TabsTrigger value="settings">Настройки</TabsTrigger>
+          {editable && task !== "new" && (
+            <TabsTrigger value="danger">Опасная зона</TabsTrigger>
+          )}
         </ProfileTabsList>
+        {editable && task !== "new" && (
+          <TabsContent value="danger">
+            <ProfileDangerAction
+              icon={Trash2}
+              title="Удалить задачу"
+              description="Задача исчезнет из списка, будущие незаполненные задания отменятся. Задания на сегодня, отчёты, история и начисления сохранятся."
+              actionLabel="Удалить"
+              onAction={() => setDeleting(true)}
+              disabled={busy}
+            />
+          </TabsContent>
+        )}
         <fieldset disabled={!editable || busy} className="min-w-0">
-          <TabsContent value="main" className="mx-auto w-full max-w-[720px] space-y-5">
+          <TabsContent value="main" className="space-y-5">
         <ProfileSection title="Основное">
           <Field label="Название">
             <Input
@@ -644,14 +649,26 @@ function DefinitionEditor({
               )}
         </ProfileSection>
           </TabsContent>
-          <TabsContent value="checklist" className="mx-auto w-full max-w-[720px] space-y-5">
+          <TabsContent value="checklist" className="space-y-5">
         <ProfileSection
           title="Чек-лист"
+          description={
+            value.items.length
+              ? countRu(value.items.length, "пункт", "пункта", "пунктов")
+              : "Пунктов пока нет"
+          }
           actions={
-            <span className="text-[13px] text-muted-foreground">
-              {value.items.length}{" "}
-              {plural(value.items.length, "пункт", "пункта", "пунктов")}
-            </span>
+            editable ? (
+              <ProfileSectionAddButton
+                onClick={() => {
+                  const next = newItem();
+                  setFocusItem(next.id);
+                  set("items", [...value.items, next]);
+                }}
+              >
+                Добавить пункт
+              </ProfileSectionAddButton>
+            ) : undefined
           }
         >
           <div className="divide-y">
@@ -666,6 +683,7 @@ function DefinitionEditor({
                   </span>
                   <div className="min-w-0 flex-1 space-y-2">
                     <ChecklistText
+                      autoFocus={x.id === focusItem}
                       aria-label={`Пункт ${i + 1}`}
                       value={x.title}
                       onChange={(e) => item(i, { title: e.target.value })}
@@ -800,17 +818,9 @@ function DefinitionEditor({
               </div>
             ))}
           </div>
-          <Button
-            variant="outline"
-            className="self-start"
-            onClick={() => set("items", [...value.items, newItem()])}
-          >
-            <Plus className="mr-2 size-4" />
-            Добавить пункт
-          </Button>
         </ProfileSection>
           </TabsContent>
-          <TabsContent value="settings" className="mx-auto w-full max-w-[720px] space-y-5">
+          <TabsContent value="settings" className="space-y-5">
         <ProfileSection title="Выполнение">
           <Field label="Шаблон смены">
             <TaskSelect
@@ -830,15 +840,15 @@ function DefinitionEditor({
                 Задачу получит сотрудник, назначенный на этот шаблон в
                 расписании.
           </p>
-          <Check
+          <SwitchRow
+            label="Требуется приёмка"
+            description="Выполнение засчитывается после проверки управляющим. Без приёмки — сразу после сдачи отчёта."
             checked={value.review_mode === "manager"}
             onChange={(required) =>
               set("review_mode", required ? "manager" : "auto")
             }
             disabled={!editable || busy}
-          >
-            Требуется приёмка
-          </Check>
+          />
         </ProfileSection>
 
         <ProfileSection title="Повторение">
@@ -990,6 +1000,15 @@ function DefinitionEditor({
           </TabsContent>
       </fieldset>
       </Tabs>
+      {editable && (
+        <SaveBar
+          dirty={dirty}
+          saving={busy}
+          blocked={!value.name.trim() ? "Укажите название задачи" : null}
+          onSave={() => void submit()}
+          onReset={reset}
+        />
+      )}
       <DeleteTaskDialog
         task={deleting && task !== "new" ? task : null}
         onClose={() => setDeleting(false)}
@@ -1132,12 +1151,12 @@ export function TaskReport({
   return (
     <TaskScreen
       onBack={onClose}
-      backLabel="К графику"
+      backLabel="К расписанию"
       backHref="/schedule"
       dirty={dirty}
       busy={busy}
       title={o.snapshot.name}
-      description={`${o.planned ? "План" : taskStatus[o.status]} · ${o.employee_name || "Без назначения"}`}
+      description={`${o.planned ? "План" : taskStatus[o.status]} · ${o.employee_name || "Без сотрудника"}`}
       actions={
         <div className="flex w-full flex-wrap justify-end gap-2">
           {editable && (
@@ -1266,7 +1285,7 @@ export function TaskReport({
                       />
                     )}
                   {editable && (
-                    <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-primary">
+                    <label className={`touch-target inline-flex cursor-pointer items-center gap-2 text-sm text-primary ${fileLabelFocusClass}`}>
                       <Camera className="h-4 w-4" />
                       {answers[i.id] ? "Заменить фото" : "Добавить фото"}
                       <input
@@ -1358,120 +1377,6 @@ export function TaskReport({
           </details>
         )}
       </div>
-    </TaskScreen>
-  );
-}
-function SettingsEditor({
-  data,
-  onClose,
-  onRefresh,
-  onSaved,
-}: {
-  data: TaskData;
-  onClose: () => void;
-  onRefresh: () => Promise<void>;
-  onSaved: () => Promise<void>;
-}) {
-  const [from, setFrom] = useState(data.settings?.enabled_from ?? ""),
-    [paused, setPaused] = useState(data.settings?.paused ?? false),
-    [stopped, setStopped] = useState(data.settings?.legacy_stopped ?? false),
-    [chat, setChat] = useState(data.settings?.chat_id ?? ""),
-    [reminders, setReminders] = useState(
-      data.settings?.reminder_chat_ids?.join(", ") ?? "",
-    ),
-    [busy, setBusy] = useState(false);
-  async function submit() {
-    setBusy(true);
-    try {
-      const r = await saveTaskSettings({
-        version: data.settings?.version,
-        enabled_from: from || null,
-        paused,
-        legacy_stopped: stopped,
-        chat_id: chat || null,
-        reminder_chat_ids: reminders.split(/[,;\s]+/).filter(Boolean),
-      });
-      if (r.error) toast.error(r.error);
-      else {
-        toast.success("Настройки сохранены");
-        await onSaved();
-      }
-    } catch {
-      toast.error("Не удалось сохранить настройки");
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <TaskScreen
-      title="Настройки задач"
-      onBack={onClose}
-      busy={busy}
-      dirty={
-        from !== (data.settings?.enabled_from ?? "") ||
-        paused !== (data.settings?.paused ?? false) ||
-        stopped !== (data.settings?.legacy_stopped ?? false) ||
-        chat !== (data.settings?.chat_id ?? "") ||
-        reminders !== (data.settings?.reminder_chat_ids?.join(", ") ?? "")
-      }
-      actions={
-        <Button disabled={busy} onClick={() => void submit()}>
-          {busy ? "Сохранение…" : "Сохранить настройки"}
-        </Button>
-      }
-    >
-      <fieldset disabled={busy} className="min-w-0 space-y-5">
-        <ProfileSection
-          title="Автоматическая обработка"
-          description="Перед включением сверьте переходный период и отключите прежние сценарии задач и напоминаний."
-        >
-          <Field label="Дата перехода">
-            <DatePicker
-              disabled={busy || Boolean(data.settings?.enabled_from)}
-              fromDate={new Date(data.today + "T00:00:00")}
-              value={from}
-              onChange={setFrom}
-              clearable={!data.settings?.enabled_from}
-            />
-          </Field>
-          <Check checked={stopped} onChange={setStopped} disabled={busy}>
-            Прежние сценарии задач, начислений и напоминаний отключены
-          </Check>
-          {from && (
-            <div className="border-t pt-4">
-              <SwitchRow
-                label="Обрабатывать задачи автоматически"
-                description="Пауза сохраняет дату перехода и существующие отчёты. Изменения применятся после сохранения."
-                checked={!paused}
-                disabled={busy}
-                onChange={(enabled) => setPaused(!enabled)}
-              />
-            </div>
-          )}
-        </ProfileSection>
-        <ProfileSection title="Уведомления">
-          <Field label="ID чата для списка задач">
-            <Input
-              value={chat}
-              onChange={(e) => setChat(e.target.value)}
-              placeholder="−100…"
-            />
-          </Field>
-          <Field label="Чаты напоминаний о сдаче графика">
-            <Textarea
-              rows={3}
-              value={reminders}
-              onChange={(e) => setReminders(e.target.value)}
-              placeholder="ID чатов через запятую"
-            />
-          </Field>
-          <p className="text-[13px] leading-snug text-muted-foreground">
-            Список задач: ежедневно в 12:00. Напоминания: понедельник и среда в
-            14:00 по времени заведения.
-          </p>
-        </ProfileSection>
-      </fieldset>
-      <TaskMessageErrors messages={data.messages} onSaved={onRefresh} />
     </TaskScreen>
   );
 }

@@ -1,4 +1,5 @@
 "use client";
+import { ColorDot } from "@/components/ui/color-dot";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -20,7 +21,11 @@ import {
   Eye,
   Pencil,
   UserPlus,
+  CalendarPlus,
+  Clock,
+  ArrowLeftRight,
 } from "lucide-react";
+import { TaskAssignDrawer } from "./task-assign-drawer";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -33,10 +38,8 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Button } from "@/components/ui/button";
-import { PersonAvatar } from "@/components/people/person-avatar";
 import { Calendar } from "@/components/ui/calendar";
 import { PeriodStepper, periodTriggerClass } from "@/components/shared/period-stepper";
-import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import { TableControls, TableIconButton, TablePageHeader } from "@/components/shared/table";
 import { TableFilterChip } from "@/components/shared/table/table-filter-chip";
 import {
@@ -76,6 +79,8 @@ import type {
 import { loadShiftAttendance, loadSchedule, scheduleCommand, shiftHistoryPage } from "../actions";
 import { ShiftAttendancePopover } from "./shift-attendance-popover";
 import type { ShiftAttendanceMark } from "@/lib/payroll/types";
+import { reviewedMark, type ShiftReviewDecision } from "@/lib/payroll/shift-attendance";
+import { AttendanceAttentionNotice } from "@/app/(dashboard)/people/payroll/_components/attendance-attention";
 import {
   ShiftEditor,
   TemplateEditor,
@@ -83,15 +88,32 @@ import {
   isoWeekday,
 } from "./editors";
 import { EmployeePicker } from "./employee-picker";
+import { EmployeeStrip } from "./employee-strip";
 import { ApplyTemplateDialog } from "./apply-template-dialog";
 import { ShiftDetails } from "./shift-details";
+import {
+  shiftSwap,
+  SwapFooterActions,
+  SwapRequestDrawer,
+  SwapRequestsButton,
+  SwapSection,
+} from "./shift-swap";
+import { canRequestSwap } from "@/lib/schedule/shift-swaps";
 import { DrawerAvatar, DrawerStatus } from "@/components/ui/drawer-blocks";
 import { templateTimesFor } from "@/lib/schedule/template-times";
 import { CandidateTrialCard } from "./candidate-trial-card";
+import {
+  DROP_OK_CELL_CLASS,
+  DROP_REFUSED_CELL_CLASS,
+  GridRowPerson,
+  TODAY_CELL_CLASS,
+} from "./grid-row-person";
 import { toast } from "sonner";
 import { TemplateList } from "./template-list";
 import { ViewMenu } from "./view-menu";
+import { ScheduleImageMenu } from "./schedule-image-menu";
 import { TemplateWeek } from "./template-week";
+import { gridScrollClass, useGridFits } from "./use-grid-fits";
 import { TemplateName } from "./template-name";
 import { TaskHeaderTarget, TaskTitleTarget } from "./task-header-actions";
 import {
@@ -100,6 +122,7 @@ import {
   type TaskOccurrence,
 } from "@/lib/schedule/tasks";
 import { loadCalendarTasks } from "../tasks/actions";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 const CalendarTaskReport = dynamic(
   () => import("../tasks/tasks-client").then((module) => module.TaskReport),
   {
@@ -121,12 +144,20 @@ type Editor =
       template?: ShiftTemplate;
       templateSlot?: boolean;
       copy?: boolean;
+      /** Форма открыта из просмотра смены: отмена возвращает к просмотру. */
+      returnTo?: string;
     }
   | { type: "template"; template?: ShiftTemplate; copy?: boolean };
 type DragItem =
   | { kind: "shift"; shift: Shift }
-  | { kind: "template"; template: ShiftTemplate };
-type DropTarget = { day: string; userId: string | null; ok: boolean };
+  | { kind: "template"; template: ShiftTemplate }
+  /** Сотрудник из полосы вида «По шаблонам». */
+  | { kind: "employee"; userId: string };
+/** Ячейка под курсором: сотрудник × день или (вид «По шаблонам») шаблон × день. */
+type DropTarget = { day: string; ok: boolean } & (
+  | { userId: string | null; templateId?: undefined }
+  | { templateId: string; userId?: undefined }
+);
 export function ScheduleClient({
   initial,
   section = "calendar",
@@ -134,13 +165,17 @@ export function ScheduleClient({
   initialShowTasks,
   initialDate,
   initialView,
+  initialSwap,
 }: {
   initial: ScheduleData;
   section?: "calendar" | "templates";
   initialCalendarTasks?: CalendarTaskData | null;
   initialShowTasks?: boolean;
   initialDate?: string;
-  initialView?: "templates";
+  /** Вид из адреса (`?view=`) важнее запомненного на устройстве. */
+  initialView?: "templates" | "list" | "week";
+  /** Заявка на замену из уведомления (`?swap=`): открыть её смену. */
+  initialSwap?: string;
 }) {
   const [data, setData] = useState(initial);
   const tab = section;
@@ -154,6 +189,22 @@ export function ScheduleClient({
   useEffect(() => {
     if (initialDate) setWeek(weekStart(initialDate));
   }, [initialDate]);
+  // Пояс заведения показываем, только если он не совпадает с поясом
+  // устройства, и смещением («UTC+3»), а не техническим именем. Считается
+  // после монтирования: на сервере пояс устройства неизвестен.
+  const [venueOffset, setVenueOffset] = useState<string | null>(null);
+  useEffect(() => {
+    const offset = (timeZone?: string) =>
+      new Intl.DateTimeFormat("ru-RU", { timeZone, timeZoneName: "shortOffset" })
+        .formatToParts(new Date())
+        .find((p) => p.type === "timeZoneName")?.value ?? "";
+    try {
+      const venue = offset(data.timezone);
+      setVenueOffset(venue && venue !== offset() ? venue.replace("GMT", "UTC") : null);
+    } catch {
+      setVenueOffset(null);
+    }
+  }, [data.timezone]);
   const [showTasks, setShowTasks] = useState(
     initialShowTasks ?? !initial.permissions.includes("schedule.view_all"),
   );
@@ -229,21 +280,38 @@ export function ScheduleClient({
   }, [showTasks, tab, week, refreshCalendarTasks]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [filters, setFilters] = useState(false);
-  const [templatesOpen, setTemplatesOpen] = useState(false);
+  /** Полоса шаблонов («По сотрудникам») или сотрудников («По шаблонам»). */
+  const [stripOpen, setStripOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [department, setDepartment] = useState("all");
   const [publication, setPublication] = useState("all");
-  const [view, setView] = useState(
+  const [view, setView] = useState<string>(
     initial.permissions.includes("schedule.view_all") ? initialView ?? "week" : "week",
   );
+  // Выбранный вид запоминается на устройстве, как показ задач: «Список»
+  // открывается списком и при следующем заходе. Вид из адреса важнее.
+  const viewKey = `schedule.view.${initial.venueId}.${initial.userId}`;
+  useEffect(() => {
+    if (initialView || !initial.permissions.includes("schedule.view_all")) return;
+    try {
+      const saved = localStorage.getItem(viewKey);
+      if (saved === "list" || saved === "templates" || saved === "week") setView(saved);
+    } catch {}
+  }, [initialView, initial.permissions, viewKey]);
   const changeView = (next: string) => {
     setView(next);
+    try {
+      localStorage.setItem(viewKey, next);
+    } catch {}
     const url = new URL(window.location.href);
     if (next === "templates") url.searchParams.set("view", next);
     else url.searchParams.delete("view");
     window.history.replaceState(null, "", url);
   };
   const [editor, setEditor] = useState<Editor | null>(null);
+  /** «Задача на день»: день и, из меню смены, её шаблон. */
+  const [taskAssign, setTaskAssign] = useState<{ day: string; template?: string | null } | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
   const [templateOverlay, setTemplateOverlay] = useState<ShiftTemplate | null>(null);
   const [applyTemplate, setApplyTemplate] = useState<{
     id: string;
@@ -268,6 +336,17 @@ export function ScheduleClient({
     setOverTrash(false);
   };
   const [selected, setSelected] = useState<Shift | null>(null);
+  /** Смена, для которой сотрудник ищет замену (панель «Замена смены»). */
+  const [swapFor, setSwapFor] = useState<Shift | null>(null);
+  const openedSwap = useRef(false);
+  useEffect(() => {
+    if (!initialSwap || openedSwap.current) return;
+    openedSwap.current = true;
+    const swap = data.swaps.find((entry) => entry.id === initialSwap);
+    const shift = swap && data.shifts.find((entry) => entry.id === swap.shift_id);
+    if (shift) setSelected(shift);
+    else toast.info("Заявка на замену больше недоступна");
+  }, [initialSwap, data.swaps, data.shifts]);
   const [confirmation, setConfirmation] = useState<{
     title: string;
     description: string;
@@ -285,6 +364,11 @@ export function ScheduleClient({
   const canPlan = can("view_all");
   const templateView = canPlan && view === "templates";
   const canViewAttendance = canPlan && data.permissions.includes("payroll.view");
+  const canOpenStaff =
+    data.permissions.includes("people.view_staff") &&
+    data.permissions.includes("people.view_staff_details");
+  // Карточку кандидата открывает только тот, кто работает с кандидатами.
+  const canOpenCandidates = data.permissions.includes("people.manage_candidates");
   const [attendance, setAttendance] = useState<{
     week: string;
     marks: Record<string, ShiftAttendanceMark>;
@@ -310,6 +394,18 @@ export function ScheduleClient({
       clearInterval(timer);
     };
   }, [tab, canViewAttendance, week, data.shifts]);
+  // Решение по смене сохранено: значок меняется сразу, не дожидаясь
+  // пересчёта дня; уведомление «ждут проверки» перечитывается.
+  const [attentionKey, setAttentionKey] = useState(0);
+  const weekGrid = useGridFits();
+  const markReviewed = (shiftId: string, decision: ShiftReviewDecision, reason: string) => {
+    setAttendance((prev) => {
+      const mark = prev?.marks[shiftId];
+      if (!prev || !mark) return prev;
+      return { ...prev, marks: { ...prev.marks, [shiftId]: { ...reviewedMark(mark, decision, reason), sourceState: "pending" } } };
+    });
+    setAttentionKey((key) => key + 1);
+  };
   const attendanceMark = (shift: Shift) => {
     if (!canViewAttendance || !shift.published || !shiftAssignee(shift) || attendance?.week !== week) return;
     const mark = attendance.marks[shift.id];
@@ -327,12 +423,12 @@ export function ScheduleClient({
       setData(await loadSchedule());
     } catch (e) {
       toast.error(
-        e instanceof Error ? e.message : "Не удалось обновить график",
+        e instanceof Error ? e.message : "Не удалось обновить расписание",
       );
       throw e;
     }
   }, []);
-  const save: Save = async (action, input) => {
+  const save: Save = async (action, input, success) => {
     try {
       const r = await scheduleCommand(action, input);
       if (r.error) {
@@ -347,7 +443,7 @@ export function ScheduleClient({
         );
         return true;
       }
-      toast.success("Изменения сохранены");
+      toast.success(success ?? "Изменения сохранены");
       return true;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Не удалось сохранить");
@@ -452,9 +548,9 @@ export function ScheduleClient({
   const trialCandidates = [
     ...new Map(weekTrials.map((trial) => [trial.candidate_id, trial])).values(),
   ];
+  // Опубликованный график видят все; без права планирования своя строка — первой.
   const staff = roster.filter(
     (s) =>
-      (canPlan || s.user_id === data.userId) &&
       ((!s.user_id.startsWith("payroll:") && s.show_in_schedule) ||
         weekShifts.some((shift) => shiftAssignee(shift) === s.user_id)) &&
       (department === "all" ||
@@ -465,6 +561,10 @@ export function ScheduleClient({
         )) &&
       matchingStaff.has(s.user_id),
   );
+  if (!canPlan) {
+    const mine = staff.findIndex((s) => s.user_id === data.userId);
+    if (mine > 0) staff.unshift(...staff.splice(mine, 1));
+  }
   const rosterIds = new Set(roster.map((person) => person.user_id));
   const visibleStaffIds = new Set(staff.map((person) => person.user_id));
   const taskRowId = (task: TaskOccurrence) =>
@@ -565,35 +665,36 @@ export function ScheduleClient({
     <button
       key={task.id}
       onClick={() => setSelectedTask(task)}
-      aria-label={`Задача: ${task.snapshot.name}, ${task.planned ? "План" : taskStatus[task.status]}`}
-      data-tip={`${task.snapshot.name} · ${task.employee_name || "Без назначения"} · ${taskStatus[task.status]}`}
+      aria-label={`Задача: ${task.snapshot.name}, ${task.planned ? "запланирована" : taskStatus[task.status]}`}
+      // Будущая регулярная задача ещё не создана — пунктир и часы вместо
+      // непонятного «План»; кто получит — в подсказке.
+      data-tip={
+        task.planned
+          ? `Появится у сотрудника в день смены · ${task.employee_name || "смена ещё не назначена"}`
+          : `${task.employee_name || "Без сотрудника"} · ${taskStatus[task.status]}`
+      }
       className={cn(
         "flex w-full items-start gap-1.5 rounded-md border bg-background px-2 py-2 text-left text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        task.planned && "border-dashed text-muted-foreground",
         task.status === "completed" && "text-muted-foreground",
         task.status === "missed" && "border-destructive/30",
       )}
     >
-      {task.status === "completed" ? (
+      {task.planned ? (
+        <Clock className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      ) : task.status === "completed" ? (
         <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
       ) : (
         <ListChecks className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
       )}
       <span className="min-w-0 flex-1">
-        <span
-          className={
-            compact ? "line-clamp-2 leading-4" : "block text-sm font-medium"
-          }
-        >
+        {/* Название целиком — без обрезки. */}
+        <span className={cn("break-words", compact ? "leading-4" : "block text-sm font-medium")}>
           {task.snapshot.name}
-          {task.planned && (
-            <span className="ml-1 text-[10px] font-normal text-muted-foreground">
-              План
-            </span>
-          )}
         </span>
         {!compact && (
           <span className="mt-1 block text-[13px] text-muted-foreground">
-            {task.employee_name || "Без назначения"} · {taskStatus[task.status]}
+            {task.employee_name || "Без сотрудника"} · {taskStatus[task.status]}
           </span>
         )}
       </span>
@@ -737,7 +838,7 @@ export function ScheduleClient({
         !occupied(userId, day) &&
         !templateTaken(item.template.id, day) &&
         templateTimesFor(item.template, isoWeekday(day)) !== null
-      : can("shift_edit") && !occupied(userId, day, item.shift.id);
+      : item.kind === "shift" && can("shift_edit") && !occupied(userId, day, item.shift.id);
   const dragOver = (e: React.DragEvent, day: string, userId: string | null) => {
     if (!dragItem) return;
     const ok = sameCell(dragItem, day, userId) || canDrop(dragItem, day, userId);
@@ -748,17 +849,108 @@ export function ScheduleClient({
     if (dropTarget?.day !== day || dropTarget.userId !== userId || dropTarget.ok !== ok)
       setDropTarget({ day, userId, ok });
   };
-  const dragLeave = (e: React.DragEvent, day: string, userId: string | null) => {
+  /** row — сотрудник (вид «По сотрудникам») или шаблон (вид «По шаблонам»). */
+  const dragLeave = (e: React.DragEvent, day: string, row: string | null) => {
     if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
     setDropTarget((current) =>
-      current?.day === day && current.userId === userId ? null : current,
+      current?.day === day && (current.templateId ?? current.userId) === row ? null : current,
     );
+  };
+  /** Смена вернулась в свой же слот шаблона. */
+  const sameSlot = (shift: Shift, template: ShiftTemplate, day: string) =>
+    shift.template_id === template.id && dateInZone(shift.starts_at, data.timezone) === day;
+  /** Смена в слоте без сотрудника (карточка «Назначить») — её можно занять броском. */
+  const openSlotShift = (template: ShiftTemplate, day: string) => {
+    const shift = data.shifts.find((s) => sameSlot(s, template, day));
+    return shift && !shiftAssignee(shift) ? shift : undefined;
+  };
+  /**
+   * Вид «По шаблонам»: почему в слот «шаблон × день» бросить нельзя (null —
+   * можно). Сотрудник из полосы ставится в слот работающего в этот день
+   * шаблона — пустой или со сменой без сотрудника, — если у него в этот день
+   * ещё нет смены; смена переносится только в слот своего шаблона на другой день.
+   */
+  const slotRefusal = (item: DragItem, template: ShiftTemplate, day: string): string | null => {
+    if (item.kind === "template") return "Перетащите сотрудника";
+    if (item.kind === "shift" && sameSlot(item.shift, template, day)) return null;
+    if (item.kind === "employee" ? !can("shift_create") || !can("shift_assign") : !can("shift_edit"))
+      return "Нет права";
+    if (item.kind === "shift" && item.shift.template_id !== template.id) return "Другой шаблон";
+    if (!templateTimesFor(template, isoWeekday(day))) return "Шаблон не работает в этот день";
+    const takesOpenShift = item.kind === "employee" && Boolean(openSlotShift(template, day));
+    if (templateTaken(template.id, day) && !takesOpenShift) return "Шаблон уже занят";
+    const busy = item.kind === "employee"
+      ? occupied(item.userId, day)
+      : occupied(shiftAssignee(item.shift), day, item.shift.id);
+    return busy ? "Уже есть смена" : null;
+  };
+  const slotDragOver = (e: React.DragEvent, day: string, template: ShiftTemplate) => {
+    if (!dragItem) return;
+    const ok = slotRefusal(dragItem, template, day) === null;
+    if (ok) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = dragItem.kind === "shift" ? "move" : "copy";
+    }
+    if (dropTarget?.day !== day || dropTarget.templateId !== template.id || dropTarget.ok !== ok)
+      setDropTarget({ day, templateId: template.id, ok });
+  };
+  /**
+   * Сотрудник в пустой слот — сразу черновик смены по шаблону (как шаблон
+   * в ячейку сотрудника), в слот со сменой без сотрудника — назначение на
+   * неё (как «Назначить»); смена в слот своего шаблона на другой день —
+   * перенос со временем шаблона на этот день.
+   */
+  const dropOnSlot = async (e: React.DragEvent, day: string, template: ShiftTemplate) => {
+    e.preventDefault();
+    endDrag();
+    const userId = e.dataTransfer.getData("application/sheerly-employee");
+    const shift = data.shifts.find(
+      (s) => s.id === e.dataTransfer.getData("application/sheerly-shift"),
+    );
+    const item: DragItem | null = userId
+      ? { kind: "employee", userId }
+      : shift ? { kind: "shift", shift } : null;
+    if (!item || slotRefusal(item, template, day) !== null) return;
+    if (item.kind === "employee") {
+      const open = openSlotShift(template, day);
+      if (open) await assignOpenShift(open, item.userId, day);
+      else await placeTemplate(template, day, item.userId);
+      return;
+    }
+    if (item.kind !== "shift" || sameSlot(item.shift, template, day)) return;
+    const times = templateTimesFor(template, isoWeekday(day));
+    if (!times) return;
+    const assignee = shiftAssignee(item.shift);
+    await save("shift.edit", {
+      ...item.shift,
+      date: day,
+      start_time: times.start_time.slice(0, 5),
+      end_time: times.end_time.slice(0, 5),
+      ...assignmentFields(assignee),
+      payroll_model_id: casualPayModel(assignee, item.shift),
+    });
+  };
+  /** Сотрудника — на смену без сотрудника. Разовый без однозначной ставки — через форму «Назначить». */
+  const assignOpenShift = async (shift: Shift, userId: string, day: string) => {
+    const casual = data.casualEmployees?.some((e) => `payroll:${e.id}` === userId);
+    const payModel = casualPayModel(userId, shift);
+    if (casual && !payModel) {
+      // Брошенный сотрудник подставлен в форму: остаётся выбрать ставку.
+      setEditor({ type: "shift", shift, day, templateSlot: true, userId });
+      return;
+    }
+    await save("shift.assign", {
+      ...assignmentFields(userId),
+      payroll_model_id: payModel,
+      id: shift.id,
+      version: shift.version,
+    });
   };
   const confirmDelete = (shift: Shift) =>
     setConfirmation({
       title: shift.published ? "Удалить смену?" : "Удалить черновик смены?",
       description: shift.published
-        ? `${name(shiftAssignee(shift))} больше не увидит эту смену в графике. Если смена уже засчитана в зарплату, начисление за этот день пересчитается. Нельзя удалить смену с начатым чек-листом или уже выплаченную.`
+        ? `${name(shiftAssignee(shift))} больше не увидит эту смену в расписании. Если смена уже засчитана в зарплату, начисление за этот день пересчитается. Нельзя удалить смену с начатым чек-листом или уже выплаченную.`
         : "Черновик ещё не видели сотрудники — он просто исчезнет из расписания.",
       confirmLabel: shift.published ? "Удалить смену" : "Удалить черновик",
       destructive: true,
@@ -817,20 +1009,42 @@ export function ScheduleClient({
    * устаревает при переименовании шаблона и у смен из переноса старого
    * графика («Менеджер №1» при шаблоне «Менеджер · день»).
    */
+  // Цвет и название смены берём у её шаблона: у смены хранится копия на
+  // момент создания, и после перекраски шаблона она устаревает.
   const shiftTemplate = (shift: Shift) =>
     shift.template_id ? templatesById.get(shift.template_id) : undefined;
   const selectedTemplate = selected ? shiftTemplate(selected) : undefined;
+  const selectedSwap = selected ? shiftSwap(data.swaps, selected.id) : null;
+  const selectedSwapActive =
+    !!selectedSwap && selectedSwap.status === "pending" && Date.parse(selected!.ends_at) > Date.now();
+  // У управляющего главная кнопка при открытой заявке — «Утвердить замену».
+  const selectedSwapDecision = selectedSwapActive && can("shift_assign");
+  const selectedCanRequestSwap =
+    !!selected && !selectedSwapActive && canRequestSwap(selected, data.userId, false, Date.now()) &&
+    !data.runs.some((run) => run.shift_id === selected.id);
   /**
    * Смена в виде «Список» — как в календаре: время колонкой слева, полоска
    * цвета шаблона, название и сотрудник; статус — только у черновика
    * (опубликованная — обычное состояние, её не подписываем).
    */
+  /** Пометка «есть открытая заявка на замену» в карточке смены. */
+  const swapMark = (s: Shift) => {
+    const swap = shiftSwap(data.swaps, s.id);
+    if (swap?.status !== "pending" || Date.parse(s.ends_at) <= Date.now()) return null;
+    const tip = `Заявка на замену: вместо — ${name(swap.to_user_id)}`;
+    return (
+      <span data-tip={tip} className="inline-flex shrink-0 align-middle">
+        <ArrowLeftRight aria-hidden className="size-3.5" />
+        <span className="sr-only">{tip}</span>
+      </span>
+    );
+  };
   const listCardBody = (s: Shift, assignee: string | null, mark: unknown) => {
     const template = shiftTemplate(s);
     const title = template ? template.name : s.title;
     const subtitle = template?.subtitle ?? null;
     const avatar = data.staff.find((p) => p.user_id === assignee)?.avatar_url;
-    const person = assignee ? name(assignee) : "Сотрудник не назначен";
+    const person = assignee ? name(assignee) : "Без сотрудника";
     const hours = Math.round(shiftHours(s.starts_at, s.ends_at) * 10) / 10;
     return (
       <>
@@ -838,7 +1052,7 @@ export function ScheduleClient({
           <span className="block font-semibold">{timeInZone(s.starts_at, data.timezone)}</span>
           <span className="block text-muted-foreground">{timeInZone(s.ends_at, data.timezone)}</span>
         </span>
-        <span aria-hidden className={cn("w-[3px] shrink-0 rounded-full", paletteDot(s.color))} />
+        <span aria-hidden className={cn("w-[3px] shrink-0 rounded-full", paletteDot(template?.color ?? s.color))} />
         <span className="min-w-0 flex-1">
           {/* Главное — кто работает: сотрудник жирным, ниже смена и часы. */}
           <span className="flex min-w-0 items-center gap-1.5">
@@ -846,10 +1060,11 @@ export function ScheduleClient({
             <span className={cn("truncate text-sm font-semibold", !assignee && "font-normal text-muted-foreground")}>
               {person}
             </span>
+            {swapMark(s)}
             {/* На телефоне бейдж — в этой строке, справа он резал бы имя. */}
             {!s.published && (
               <span className="shrink-0 sm:hidden">
-                <DrawerStatus label="Черновик" tone="warning" />
+                <DrawerStatus label="Черновик" tone="neutral" />
               </span>
             )}
           </span>
@@ -859,7 +1074,7 @@ export function ScheduleClient({
         </span>
         {!s.published && (
           <span className={cn("hidden self-center sm:block", mark ? "mr-6" : undefined)}>
-            <DrawerStatus label="Черновик" tone="warning" />
+            <DrawerStatus label="Черновик" tone="neutral" />
           </span>
         )}
       </>
@@ -903,31 +1118,67 @@ export function ScheduleClient({
         dragged && "opacity-40",
         mode === "list"
           ? "flex items-stretch gap-3 px-2 py-1.5 transition-colors hover:bg-muted/60"
-          : cn("grid gap-1 px-1.5 py-2 transition-opacity hover:opacity-80", paletteBg(s.color), paletteText(s.color)),
+          : cn("grid gap-1 px-1.5 py-2 transition-opacity hover:opacity-80", paletteBg(template?.color ?? s.color), paletteText(template?.color ?? s.color)),
       )}
     >
       {mode === "list" ? listCardBody(s, assignee, mark) : (
       <>
-      <span className={cn("whitespace-nowrap text-[11px] font-semibold tabular-nums", mark && "pr-5")}>
-        {timeInZone(s.starts_at, data.timezone)}–
-        {timeInZone(s.ends_at, data.timezone)}
-      </span>
-      {mode !== "template" && (
-        template
-          ? <span className="text-xs"><TemplateName {...template} /></span>
-          : <span className={cn("text-xs", mode === "shift" && "truncate")}>{s.title}</span>
+      {mode === "template" ? (
+        <>
+          {/* «По шаблонам» строка — уже смена, поэтому в карточке главное —
+              кто работает: фото и имя крупно, время ниже и тише. */}
+          <span className={cn("flex min-w-0 items-center gap-1", mark && "pr-5")}>
+            {assignee && (
+              <DrawerAvatar
+                name={assigneeLabel}
+                src={data.staff.find((p) => p.user_id === assignee)?.avatar_url}
+                size="sm"
+              />
+            )}
+            {/* Длинная фамилия в узкой колонке переносится по слогам с дефисом,
+                а не обрывается посреди слова. */}
+            <span className="min-w-0 hyphens-auto break-words text-[13px] font-semibold leading-tight">{assigneeLabel}</span>
+            {swapMark(s)}
+          </span>
+          <span className="text-xs tabular-nums opacity-75">
+            {timeInZone(s.starts_at, data.timezone)}–<wbr />
+            {timeInZone(s.ends_at, data.timezone)}
+          </span>
+        </>
+      ) : (
+        <>
+          {/* В узкой колонке (таблица на минимальной ширине) время переносится
+              после тире, а не обрезается: 12px «13:00–00:30» не всегда влезает. */}
+          <span className={cn("text-xs font-semibold tabular-nums", mark && "pr-5")}>
+            {timeInZone(s.starts_at, data.timezone)}–<wbr />
+            {timeInZone(s.ends_at, data.timezone)}
+            {swapMark(s) && <> {swapMark(s)}</>}
+          </span>
+          {template
+            ? <span className="text-xs"><TemplateName {...template} /></span>
+            : <span className={cn("text-xs", mode === "shift" && "truncate")}>{s.title}</span>}
+          {mode === "full" && <span className="break-words text-xs">{assigneeLabel}</span>}
+        </>
       )}
-      {mode !== "shift" && <span className={cn("break-words text-xs", mode === "template" && "font-medium")}>{assigneeLabel}</span>}
       {!s.published && (
-        <span className="flex gap-1 items-center text-[10px]">
-          <span className="size-1.5 rounded-full bg-current" />
+        <span className="flex gap-1 items-center text-xs">
+          {/* Точка в подписи 12px — `ColorDot` sm, цвета текста карточки. */}
+          <ColorDot color={null} size="sm" className="border-0 bg-current" />
           Черновик
         </span>
       )}
       </>
       )}
     </button>
-    {mark && <ShiftAttendancePopover shiftId={s.id} version={s.version} mark={mark} canReview={data.permissions.includes("payroll.review")} />}
+    {mark && (
+      <ShiftAttendancePopover
+        shiftId={s.id}
+        version={s.version}
+        mark={mark}
+        canReview={data.permissions.includes("payroll.review")}
+        onReviewed={(decision, reason) => markReviewed(s.id, decision, reason)}
+      />
+    )}
     </div>
     </ContextMenuTrigger>
     <ContextMenuContent>
@@ -968,6 +1219,12 @@ export function ScheduleClient({
           Заменить сотрудника
         </ContextMenuItem>
       )}
+      {can("checklist_edit") && s.template_id && (
+        <ContextMenuItem onSelect={() => setTaskAssign({ day, template: s.template_id })}>
+          <ListChecks />
+          Добавить задачу
+        </ContextMenuItem>
+      )}
       {can("shift_delete") && (
         <>
           <ContextMenuSeparator />
@@ -982,25 +1239,45 @@ export function ScheduleClient({
     );
   };
   /**
-   * «Тень» смены в ячейке, куда она упадёт. Лежит поверх ячейки (absolute),
+   * «Тень» и запрет в ячейке, куда упадёт перетаскиваемое. Лежат поверх ячейки (absolute),
    * а не в потоке — иначе строка растягивается и сетка дёргается.
    */
+  const refusalBox = (text: string) => (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-1.5 z-[1] flex items-center justify-center rounded-md border border-dashed border-destructive/60 bg-background/85 px-1 text-center text-xs font-medium leading-tight text-destructive"
+    >
+      {text}
+    </div>
+  );
+  // Непрозрачная подложка: тень может лечь на карточку (смена без сотрудника
+  // в виде «По шаблонам»), а цвет шаблона полупрозрачный.
+  const ghostBox = (color: string | null, times: string, title: string) => (
+    <div aria-hidden className="pointer-events-none absolute inset-1.5 z-[1] rounded-md bg-card">
+      <div
+        className={cn(
+          "flex h-full flex-col gap-0.5 overflow-hidden rounded-md border-2 border-dashed border-current px-1.5 py-1.5",
+          paletteBg(color),
+          paletteText(color),
+        )}
+      >
+        <span className="truncate text-xs font-semibold tabular-nums">{times}</span>
+        <span className="truncate text-xs">{title}</span>
+      </div>
+    </div>
+  );
   const dropGhost = (day: string, userId: string | null) => {
-    if (!dragItem || dropTarget?.day !== day || dropTarget.userId !== userId) return null;
+    if (!dragItem || dragItem.kind === "employee") return null;
+    if (dropTarget?.day !== day || dropTarget.userId !== userId) return null;
     if (!dropTarget.ok)
-      return (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-1.5 z-[1] flex items-center justify-center rounded-md border border-dashed border-destructive/60 bg-background/85 px-1 text-center text-[11px] font-medium leading-tight text-destructive"
-        >
-          {dragItem.kind === "shift" && !can("shift_edit")
-            ? "Нет права"
-            : dragItem.kind === "template" && !templateTimesFor(dragItem.template, isoWeekday(day))
-              ? "Шаблон не работает в этот день"
-              : dragItem.kind === "template" && templateTaken(dragItem.template.id, day)
-                ? "Шаблон уже занят"
-                : "Уже есть смена"}
-        </div>
+      return refusalBox(
+        dragItem.kind === "shift" && !can("shift_edit")
+          ? "Нет права"
+          : dragItem.kind === "template" && !templateTimesFor(dragItem.template, isoWeekday(day))
+            ? "Шаблон не работает в этот день"
+            : dragItem.kind === "template" && templateTaken(dragItem.template.id, day)
+              ? "Шаблон уже занят"
+              : "Уже есть смена",
       );
     if (sameCell(dragItem, day, userId)) return null;
     const color = dragItem.kind === "shift" ? dragItem.shift.color : dragItem.template.color;
@@ -1013,19 +1290,23 @@ export function ScheduleClient({
     const title = dragItem.kind === "shift"
       ? (shiftTemplate(dragItem.shift) ? shiftTemplateLabel(shiftTemplate(dragItem.shift)!) : dragItem.shift.title)
       : shiftTemplateLabel(dragItem.template);
-    return (
-      <div
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute inset-1.5 z-[1] flex flex-col gap-0.5 overflow-hidden rounded-md border-2 border-dashed border-current px-1.5 py-1.5",
-          paletteBg(color),
-          paletteText(color),
-        )}
-      >
-        <span className="truncate text-[11px] font-semibold tabular-nums">{times}</span>
-        <span className="truncate text-xs">{title}</span>
-      </div>
-    );
+    return ghostBox(color, times, title);
+  };
+  /** «Тень» в слоте вида «По шаблонам»: время слота и кто встанет на смену. */
+  const slotGhost = (day: string, template: ShiftTemplate) => {
+    if (!dragItem || dropTarget?.day !== day || dropTarget.templateId !== template.id) return null;
+    const refusal = slotRefusal(dragItem, template, day);
+    if (refusal) return refusalBox(refusal);
+    if (dragItem.kind === "shift" && sameSlot(dragItem.shift, template, day)) return null;
+    const t = templateTimesFor(template, isoWeekday(day));
+    if (!t || dragItem.kind === "template") return null;
+    const assignee = dragItem.kind === "employee" ? dragItem.userId : shiftAssignee(dragItem.shift);
+    // На смену без сотрудника встаёт с её временем — оно могло быть своим.
+    const open = dragItem.kind === "employee" ? openSlotShift(template, day) : undefined;
+    const times = open
+      ? `${timeInZone(open.starts_at, data.timezone)}–${timeInZone(open.ends_at, data.timezone)}`
+      : `${t.start_time.slice(0, 5)}–${t.end_time.slice(0, 5)}`;
+    return ghostBox(template.color, times, name(assignee));
   };
   const noData = (
     icon: typeof CalendarDays,
@@ -1044,22 +1325,105 @@ export function ScheduleClient({
   const canPublish = can("shift_publish") && draftShifts.length > 0;
   const filtersActive = department !== "all" || publication !== "all";
   const today = dateInZone(new Date(), data.timezone);
+  // День для «Новая смена» / «Задача» из шапки: сегодня, если он на открытой
+  // неделе, иначе её первый день — иначе смена уезжает с экрана.
+  const addDay = days.includes(today) ? today : days[0];
+  // Период и «Сегодня» стоят в шапке слева, инструменты — в той же строке справа.
+  const periodControls = (
+    <>
+      <PeriodStepper
+        previous="Предыдущая неделя"
+        next="Следующая неделя"
+        onPrevious={() => setWeek(addDays(week, -7))}
+        onNext={() => setWeek(addDays(week, 7))}
+      >
+        <Popover open={weekPickerOpen} onOpenChange={setWeekPickerOpen}>
+          <PopoverTrigger asChild>
+            <button type="button" className={periodTriggerClass} aria-label="Выбрать неделю расписания">
+              <CalendarDays className="size-4 shrink-0" />
+              <span className="whitespace-nowrap">
+                {dayLabel(days[0], { day: "numeric", month: "short" })} –{" "}
+                {dayLabel(days[6], { day: "numeric", month: "short", year: "numeric" })}
+              </span>
+              <ChevronDown className="size-3 shrink-0" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-auto p-0">
+            <Calendar
+              mode="single"
+              locale={ru}
+              weekStartsOn={1}
+              defaultMonth={new Date(week + "T12:00:00")}
+              selected={new Date(week + "T12:00:00")}
+              captionLayout="dropdown"
+              onSelect={(date) => {
+                if (!date) return;
+                setWeek(weekStart(format(date, "yyyy-MM-dd")));
+                setWeekPickerOpen(false);
+              }}
+            />
+          </PopoverContent>
+        </Popover>
+      </PeriodStepper>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() =>
+            setWeek(
+              weekStart(dateInZone(new Date(), data.timezone)),
+            )
+        }
+      >
+        Сегодня
+      </Button>
+    </>
+  );
+  const pendingReports =
+    showTasks && pendingTaskReports.length > 0 ? (
+      <Popover>
+                            <PopoverTrigger asChild>
+                              <Button variant="outline" size="sm" className="h-8 sm:h-9">
+                                На приёмке · {pendingTaskReports.length}
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent
+                              align="end"
+                              className="max-h-[70vh] w-96 max-w-[calc(100vw-32px)] overflow-y-auto p-3"
+                            >
+                              <p className="mb-1 text-sm font-semibold">
+                                Отчёты на приёмке
+                              </p>
+                              <p className="mb-3 text-[13px] text-muted-foreground">
+                                За все дни, включая прошлые недели
+                              </p>
+                              <div className="space-y-2">
+                                {pendingTaskReports.map((task) => (
+                                  <div key={task.id}>
+                                    <p className="mb-1 text-xs text-muted-foreground">
+                                      {dayLabel(task.business_date)}
+                                    </p>
+                                    {taskCard(task, false)}
+                                  </div>
+                                ))}
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+    ) : null;
   return (
     <TaskTitleTarget.Provider value={setScreenTitle}>
     <PageFrame className="space-y-6">
       {calendarVisible && (
         <>
-          <PageBreadcrumb>
-            <nav aria-label="Навигация по разделам" className="flex min-w-0 items-center gap-2 text-sm">
-              <span className="text-muted-foreground">График работы</span>
-              <span aria-hidden="true" className="text-muted-foreground">/</span>
-              <span className="truncate">Расписание</span>
-            </nav>
-          </PageBreadcrumb>
+          <Breadcrumbs
+            items={[{ label: "График работы" }, { label: "Расписание" }]}
+          />
           <TablePageHeader
             title="Расписание"
-            className="md:flex-wrap md:items-center [&>div:last-child]:max-w-full"
+            period={periodControls}
             actions={
+              <>
+              {can("shift_assign") && <SwapRequestsButton data={data} onOpen={setSelected} />}
+              {pendingReports}
               <TableControls
                 search={{
                   value: query,
@@ -1076,12 +1440,24 @@ export function ScheduleClient({
                   <>
                     {can("shift_create") && !templateView && (
                       <TableIconButton
-                        label={templatesOpen ? "Скрыть шаблоны смен" : "Показать шаблоны смен"}
-                        active={templatesOpen}
-                        onClick={() => setTemplatesOpen(!templatesOpen)}
+                        label={stripOpen ? "Скрыть шаблоны смен" : "Показать шаблоны смен"}
+                        active={stripOpen}
+                        onClick={() => setStripOpen(!stripOpen)}
                       >
                         <Layers />
                       </TableIconButton>
+                    )}
+                    {/* На телефоне вида-таблицы нет — перетаскивать некуда. */}
+                    {can("shift_create") && can("shift_assign") && templateView && (
+                      <span className="hidden md:inline-flex">
+                        <TableIconButton
+                          label={stripOpen ? "Скрыть сотрудников" : "Показать сотрудников"}
+                          active={stripOpen}
+                          onClick={() => setStripOpen(!stripOpen)}
+                        >
+                          <Users />
+                        </TableIconButton>
+                      </span>
                     )}
                     <TableIconButton
                       label={showTasks ? "Скрыть задачи" : "Показать задачи"}
@@ -1095,16 +1471,64 @@ export function ScheduleClient({
                       onChange={changeView}
                       canPlan={canPlan}
                     />
+                    {canPlan && (
+                      <ScheduleImageMenu
+                        week={week}
+                        department={department === "all" ? null : department}
+                        venueId={data.venueId}
+                      />
+                    )}
                   </>
                 }
                 primaryActions={
                   <>
-                    {can("shift_create") && (
-                      <Button size="sm" className="h-8 sm:h-9" variant={canPublish ? "outline" : "default"} onClick={() => create(today)}>
+                    {can("shift_create") && can("checklist_edit") ? (
+                      // Как «Добавить операцию» в финансах: что добавить — по стрелке.
+                      <Popover open={addOpen} onOpenChange={setAddOpen}>
+                        <PopoverTrigger asChild>
+                          <Button size="sm" className="h-8 gap-1.5 sm:h-9" variant={canPublish ? "outline" : "default"}>
+                            <Plus />
+                            Добавить
+                            <ChevronDown className="opacity-80" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent align="end" className="w-60 p-1">
+                          {[
+                            { key: "shift", icon: CalendarPlus, label: "Смена", hint: "Сотруднику на день" },
+                            { key: "task", icon: ListChecks, label: "Задача", hint: "Разово на день — кто будет на смене" },
+                          ].map((item) => (
+                            <button
+                              key={item.key}
+                              type="button"
+                              onClick={() => {
+                                setAddOpen(false);
+                                if (item.key === "shift") create(addDay);
+                                else setTaskAssign({ day: addDay });
+                              }}
+                              className="flex w-full items-start gap-2.5 rounded-md px-3 py-2 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+                            >
+                              <span className="mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
+                                <item.icon className="size-3.5" />
+                              </span>
+                              <span>
+                                <span className="block">{item.label}</span>
+                                <span className="block text-xs text-muted-foreground">{item.hint}</span>
+                              </span>
+                            </button>
+                          ))}
+                        </PopoverContent>
+                      </Popover>
+                    ) : can("shift_create") ? (
+                      <Button size="sm" className="h-8 sm:h-9" variant={canPublish ? "outline" : "default"} onClick={() => create(addDay)}>
                         <Plus />
                         Новая смена
                       </Button>
-                    )}
+                    ) : can("checklist_edit") ? (
+                      <Button size="sm" className="h-8 sm:h-9" variant={canPublish ? "outline" : "default"} onClick={() => setTaskAssign({ day: addDay })}>
+                        <Plus />
+                        Задача на день
+                      </Button>
+                    ) : null}
                     {canPublish && (
                       <Button size="sm" className="h-8 sm:h-9" disabled={busy} onClick={publish}>
                         <Send />
@@ -1114,6 +1538,7 @@ export function ScheduleClient({
                   </>
                 }
               />
+              </>
             }
           />
         </>
@@ -1147,112 +1572,39 @@ export function ScheduleClient({
             </TaskHeaderTarget.Provider>
           ) : (
             <>
-              <div className="flex flex-wrap justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <PeriodStepper
-                    previous="Предыдущая неделя"
-                    next="Следующая неделя"
-                    onPrevious={() => setWeek(addDays(week, -7))}
-                    onNext={() => setWeek(addDays(week, 7))}
-                  >
-                    <Popover open={weekPickerOpen} onOpenChange={setWeekPickerOpen}>
-                      <PopoverTrigger asChild>
-                        <button type="button" className={periodTriggerClass} aria-label="Выбрать неделю расписания">
-                          <CalendarDays className="size-4 shrink-0" />
-                          <span className="whitespace-nowrap">
-                            {dayLabel(days[0], { day: "numeric", month: "short" })} –{" "}
-                            {dayLabel(days[6], { day: "numeric", month: "short", year: "numeric" })}
-                          </span>
-                          <ChevronDown className="size-3 shrink-0" />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent align="start" className="w-auto p-0">
-                        <Calendar
-                          mode="single"
-                          locale={ru}
-                          weekStartsOn={1}
-                          defaultMonth={new Date(week + "T12:00:00")}
-                          selected={new Date(week + "T12:00:00")}
-                          captionLayout="dropdown"
-                          onSelect={(date) => {
-                            if (!date) return;
-                            setWeek(weekStart(format(date, "yyyy-MM-dd")));
-                            setWeekPickerOpen(false);
-                          }}
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </PeriodStepper>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                        setWeek(
-                          weekStart(dateInZone(new Date(), data.timezone)),
-                        )
-                    }
-                  >
-                    Сегодня
-                  </Button>
-                  {(filters || filtersActive) && (
-                    <div className="flex flex-wrap items-center gap-2 sm:ml-2" aria-label="Фильтры расписания">
-                      <TableFilterChip
-                        label="Подразделение"
-                        value={department === "all" ? "" : department}
-                        options={[
-                          { value: "", label: "Все подразделения" },
-                          ...data.departments.map(({ id, name }) => ({ value: id, label: name })),
-                        ]}
-                        onChange={(value) => setDepartment(value || "all")}
-                      />
-                      {canPlan && (
-                        <TableFilterChip
-                          label="Публикация"
-                          value={publication === "all" ? "" : publication}
-                          options={[
-                            { value: "", label: "Все смены" },
-                            { value: "draft", label: "Черновики" },
-                            { value: "published", label: "Опубликованные" },
-                          ]}
-                          onChange={(value) => setPublication(value || "all")}
-                        />
-                      )}
-                    </div>
+              {(filters || filtersActive) && (
+                <div className="flex flex-wrap items-center gap-2" aria-label="Фильтры расписания">
+                  <TableFilterChip
+                    label="Подразделение"
+                    value={department === "all" ? "" : department}
+                    options={[
+                      { value: "", label: "Все подразделения" },
+                      ...data.departments.map(({ id, name }) => ({ value: id, label: name })),
+                    ]}
+                    onChange={(value) => setDepartment(value || "all")}
+                  />
+                  {canPlan && (
+                    <TableFilterChip
+                      label="Публикация"
+                      value={publication === "all" ? "" : publication}
+                      options={[
+                        { value: "", label: "Все смены" },
+                        { value: "draft", label: "Черновики" },
+                        { value: "published", label: "Опубликованные" },
+                      ]}
+                      onChange={(value) => setPublication(value || "all")}
+                    />
                   )}
                 </div>
-                <div className="flex flex-wrap gap-2 items-center">
-                  {showTasks && pendingTaskReports.length > 0 && (
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" size="sm">
-                          На приёмке · {pendingTaskReports.length}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent
-                        align="end"
-                        className="max-h-[70vh] w-96 max-w-[calc(100vw-32px)] overflow-y-auto p-3"
-                      >
-                        <p className="mb-1 text-sm font-semibold">
-                          Отчёты на приёмке
-                        </p>
-                        <p className="mb-3 text-[13px] text-muted-foreground">
-                          За все дни, включая прошлые недели
-                        </p>
-                        <div className="space-y-2">
-                          {pendingTaskReports.map((task) => (
-                            <div key={task.id}>
-                              <p className="mb-1 text-xs text-muted-foreground">
-                                {dayLabel(task.business_date)}
-                              </p>
-                              {taskCard(task, false)}
-                            </div>
-                          ))}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  )}
-                </div>
-              </div>
+              )}
+              {/* Месяц сегодняшнего дня и месяцы показанной недели: невыверенный
+                  выход прошлой недели виден, даже когда листаешь вперёд. */}
+              {canViewAttendance && (
+                <AttendanceAttentionNotice
+                  months={[today.slice(0, 7), days[0].slice(0, 7), days[6].slice(0, 7)]}
+                  refreshKey={attentionKey}
+                />
+              )}
               {showTasks && tasksError && (
                 <div
                   role="alert"
@@ -1270,7 +1622,7 @@ export function ScheduleClient({
                   </Button>
                 </div>
               )}
-              {templatesOpen && !templateView && (
+              {stripOpen && !templateView && (
                 <section aria-label="Шаблоны смен" className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-muted/30 px-3 py-2.5">
                   <h2 className="shrink-0 text-xs font-semibold text-muted-foreground">Шаблоны смен</h2>
                   <div className="flex flex-wrap gap-1.5">
@@ -1299,6 +1651,15 @@ export function ScheduleClient({
                   </div>
                 </section>
               )}
+              {stripOpen && templateView && can("shift_create") && can("shift_assign") && (
+                <EmployeeStrip
+                  data={data}
+                  days={days}
+                  dragging={dragItem?.kind === "employee" ? dragItem.userId : null}
+                  onDragStart={(userId) => startDrag({ kind: "employee", userId })}
+                  onDragEnd={endDrag}
+                />
+              )}
               {templateView ? (
                 <TemplateWeek
                   days={days}
@@ -1313,6 +1674,15 @@ export function ScheduleClient({
                   onAssign={can("shift_create") && can("shift_assign")
                     ? (day, template) => create(day, null, template, true)
                     : undefined}
+                  slotDrop={(day, template) => ({
+                    onDragOver: (e) => slotDragOver(e, day, template),
+                    onDragLeave: (e) => dragLeave(e, day, template.id),
+                    onDrop: (e) => void dropOnSlot(e, day, template),
+                    target: dropTarget?.day === day && dropTarget.templateId === template.id
+                      ? (dropTarget.ok ? "ok" : "refused")
+                      : null,
+                    ghost: slotGhost(day, template),
+                  })}
                   renderShift={(shift, showTitle) => card(shift, showTitle ? "full" : "template")}
                   renderTask={(task) => taskCard(task)}
                   empty={noData(Layers, "Нет смен по выбранным условиям", "Проверьте шаблоны смен или сбросьте фильтры.")}
@@ -1334,8 +1704,10 @@ export function ScheduleClient({
               ) : (
                 <>
                   <div
+                    ref={weekGrid.ref}
                     className={cn(
-                      "hidden max-h-[72dvh] overflow-auto rounded-lg border bg-card md:block",
+                      "hidden rounded-lg border bg-card md:block",
+                      gridScrollClass(weekGrid.fits),
                       view === "list" && "md:hidden",
                     )}
                   >
@@ -1375,7 +1747,7 @@ export function ScheduleClient({
                                 {
                                   id: null,
                                   label: "Без сотрудника",
-                                  role: "Требуется назначение",
+                                  role: "",
                                   avatar: null,
                                 },
                               ]
@@ -1383,36 +1755,26 @@ export function ScheduleClient({
                         ].map((s) => (
                           <tr key={s.id ?? "open"} className="group hover:bg-muted/30">
                             <th scope="row" className="sticky left-0 z-10 border-b bg-card px-4 py-3 text-left font-normal group-hover:bg-muted">
-                              <div className="flex items-center gap-3">
-                                {s.id ? (
-                                  <PersonAvatar name={s.label} src={s.avatar} />
-                                ) : (
-                                  <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                                    <Users className="size-4" />
-                                  </span>
-                                )}
-                                <div className="min-w-0">
-                                  <p className="break-words text-[13px] font-medium">
-                                    {s.label}
-                                  </p>
-                                  <p className="truncate text-xs text-muted-foreground">
-                                    {s.role}
-                                  </p>
-                                </div>
-                              </div>
+                              <GridRowPerson
+                                name={s.label}
+                                subtitle={s.role}
+                                avatarSrc={s.avatar}
+                                icon={s.id ? undefined : <Users className="size-4" />}
+                                href={s.id && canOpenStaff ? `/people/staff/${s.id}?from=schedule` : null}
+                              />
                             </th>
                             {days.map((d) => (
                               <ContextMenu key={d} modal={false}>
-                              <ContextMenuTrigger asChild disabled={!can("shift_create")}>
+                              <ContextMenuTrigger asChild disabled={!can("shift_create") && !can("checklist_edit")}>
                               <td
                                 onDragOver={(e) => dragOver(e, d, s.id)}
                                 onDragLeave={(e) => dragLeave(e, d, s.id)}
                                 onDrop={(e) => void drop(e, d, s.id)}
                                 className={cn(
                                   "relative h-16 border-b border-l p-1.5 align-top transition-colors",
-                                  d === today && "bg-brand/[0.025]",
+                                  d === today && TODAY_CELL_CLASS,
                                   dropTarget?.day === d && dropTarget.userId === s.id &&
-                                    (dropTarget.ok ? "bg-brand/[0.06]" : "bg-destructive/[0.04]"),
+                                    (dropTarget.ok ? DROP_OK_CELL_CLASS : DROP_REFUSED_CELL_CLASS),
                                 )}
                               >
                                 {dropGhost(d, s.id)}
@@ -1464,7 +1826,7 @@ export function ScheduleClient({
                                         <ContextMenuSubContent>
                                           {cellTemplates(d).map((t) => (
                                             <ContextMenuItem key={t.id} onSelect={() => void placeTemplate(t, d, s.id)}>
-                                              <span className={cn("size-2.5 shrink-0 rounded-full", paletteDot(t.color))} />
+                                              <ColorDot color={t.color} size="md" />
                                               <span className="flex-1 truncate">{shiftTemplateLabel(t)}</span>
                                               <span className="text-xs tabular-nums text-muted-foreground">
                                                 {(() => {
@@ -1478,6 +1840,12 @@ export function ScheduleClient({
                                       </ContextMenuSub>
                                     )}
                                   </>
+                                )}
+                                {can("checklist_edit") && (
+                                  <ContextMenuItem onSelect={() => setTaskAssign({ day: d })}>
+                                    <ListChecks />
+                                    Задача на день
+                                  </ContextMenuItem>
                                 )}
                               </ContextMenuContent>
                               </ContextMenu>
@@ -1493,9 +1861,7 @@ export function ScheduleClient({
                                     ),
                                   0,
                                 )
-                                .toLocaleString("ru", {
-                                  maximumFractionDigits: 1,
-                                })}
+                                .toLocaleString("ru", { maximumFractionDigits: 1 })}{" "}ч
                             </td>
                           </tr>
                         ))}
@@ -1510,31 +1876,28 @@ export function ScheduleClient({
                           </tr>
                         )}
                         {trialCandidates.map((candidate) => (
+                            // Строка стажировки устроена как строка сотрудника:
+                            // аватар, имя 13px, подпись 12px, те же отступы ячеек.
                             <tr
                               key={candidate.candidate_id}
+                              className="group hover:bg-muted/30"
                             >
-                            <th scope="row" className="sticky left-0 z-10 border-b bg-card px-4 py-3 text-left font-normal">
-                              <Link
-                                href={`/people/candidates/${candidate.candidate_id}`}
-                                className="block break-words text-xs font-medium hover:underline"
-                              >
-                                {candidate.full_name}
-                              </Link>
-                              <span className="mt-1 block text-[11px] text-muted-foreground">
-                                {candidate.hired_user_id
-                                  ? "Принят на работу"
-                                  : "Кандидат"}
-                                {candidate.desired_position
-                                  ? ` · ${candidate.desired_position}`
-                                  : ""}
-                              </span>
+                            <th scope="row" className="sticky left-0 z-10 border-b bg-card px-4 py-3 text-left font-normal group-hover:bg-muted">
+                              <GridRowPerson
+                                name={candidate.full_name}
+                                subtitle={`${candidate.hired_user_id ? "Принят на работу" : "Кандидат"}${candidate.desired_position ? ` · ${candidate.desired_position}` : ""}`}
+                                href={canOpenCandidates ? `/people/candidates/${candidate.candidate_id}` : null}
+                              />
                             </th>
                             {days.map((day) => (
                                 <td
                                   key={day}
-                                  className="border-b border-l p-2 align-top"
+                                  className={cn(
+                                    "h-16 border-b border-l p-1.5 align-top",
+                                    day === today && TODAY_CELL_CLASS,
+                                  )}
                                 >
-                                <div className="space-y-2">
+                                <div className="grid gap-1.5">
                                   {weekTrials
                                     .filter(
                                       (trial) =>
@@ -1547,7 +1910,7 @@ export function ScheduleClient({
                                         key={trial.id}
                                         trial={trial}
                                         timezone={data.timezone}
-                                        linked={data.permissions.includes("people.manage_candidates")}
+                                        linked={canOpenCandidates}
                                       />
                                     ))}
                                 </div>
@@ -1559,7 +1922,10 @@ export function ScheduleClient({
                           </tr>
                         ))}
                       </tbody>
-                      <tfoot>
+                      {/* Итоги прижаты к низу окна сетки: при длинном списке
+                          последняя строка не обрезается контейнером, а строки
+                          прокручиваются под ней (как под закреплённой шапкой). */}
+                      <tfoot className="sticky bottom-0 z-20 [&_td]:shadow-[0_-1px_0_hsl(var(--border))] [&_th]:shadow-[0_-1px_0_hsl(var(--border))]">
                         <tr className="bg-muted">
                           <th scope="row" className="sticky left-0 z-10 bg-muted px-4 py-3 text-left text-xs font-medium">
                             Всего часов
@@ -1584,9 +1950,7 @@ export function ScheduleClient({
                                     ),
                                   0,
                                 )
-                                .toLocaleString("ru", {
-                                  maximumFractionDigits: 1,
-                                })}
+                                .toLocaleString("ru", { maximumFractionDigits: 1 })}{" "}ч
                             </td>
                           ))}
                           <td className="border-l text-center text-xs font-semibold">
@@ -1600,9 +1964,7 @@ export function ScheduleClient({
                                   ),
                                 0,
                               )
-                              .toLocaleString("ru", {
-                                maximumFractionDigits: 1,
-                              })}
+                              .toLocaleString("ru", { maximumFractionDigits: 1 })}{" "}ч
                           </td>
                         </tr>
                       </tfoot>
@@ -1640,7 +2002,7 @@ export function ScheduleClient({
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="size-8 text-muted-foreground"
+                              className="touch-target size-8 text-muted-foreground"
                               aria-label={`Добавить смену: ${dayLabel(d)}`}
                               data-tip="Добавить смену"
                               onClick={() => create(d)}
@@ -1667,7 +2029,7 @@ export function ScheduleClient({
                                 trial={trial}
                                 timezone={data.timezone}
                                 showName
-                                linked={data.permissions.includes("people.manage_candidates")}
+                                linked={canOpenCandidates}
                               />
                             ))}
                           {!weekShifts.some(
@@ -1699,7 +2061,7 @@ export function ScheduleClient({
                 </>
               )}
               <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-                <span>Часовой пояс: {data.timezone}</span>
+                {venueOffset && <span>Время заведения: {venueOffset}</span>}
                 {showTasks && calendarTasks && calendarTasksWeek === week && (
                   <span>Задач на неделе: {weekTasks.length}</span>
                 )}
@@ -1718,24 +2080,64 @@ export function ScheduleClient({
             onCopy={(template) =>
               setEditor({ type: "template", template, copy: true })
             }
-            onArchive={(template) =>
-              void save("template.archive", {
-                id: template.id,
-                version: template.version,
-              })
-            }
+            onArchive={(template) => {
+              const label = shiftTemplateLabel(template);
+              const run = () =>
+                save(
+                  "template.archive",
+                  { id: template.id, version: template.version },
+                  template.archived
+                    ? `Шаблон «${label}» восстановлен`
+                    : `Шаблон «${label}» в архиве`,
+                );
+              // Восстановление — сразу; архив — с объяснением, что это не удаление.
+              if (template.archived) return void run();
+              setConfirmation({
+                title: `Убрать шаблон «${label}» в архив?`,
+                description:
+                  "Это не удаление. Шаблон пропадёт из выбора при создании смен, а уже созданные по нему смены останутся в расписании как есть. Вернуть шаблон можно в любой момент: кнопка архива над списком, затем «Восстановить».",
+                confirmLabel: "Убрать в архив",
+                action: async () => {
+                  await run();
+                },
+              });
+            }}
           />
         )}
-      {editor?.type === "shift" && (
-        <ShiftEditor
-          key={`${editor.shift?.id ?? "new"}-${editor.copy}`}
+      {taskAssign && (
+        <TaskAssignDrawer
           data={data}
-          {...editor}
-          onClose={() => setEditor(null)}
-          save={save}
-          onEditTemplate={setTemplateOverlay}
+          day={taskAssign.day}
+          template={taskAssign.template}
+          personName={name}
+          onClose={() => setTaskAssign(null)}
+          onDone={() => {
+            setTaskAssign(null);
+            // Назначенную задачу сразу видно в расписании.
+            if (!showTasks) toggleTasks(true);
+            else void refreshCalendarTasks(true);
+          }}
         />
       )}
+      {editor?.type === "shift" && (() => {
+        const { returnTo, ...shiftEditor } = editor;
+        return (
+          <ShiftEditor
+            key={`${editor.shift?.id ?? "new"}-${editor.copy}`}
+            data={data}
+            {...shiftEditor}
+            onClose={() => setEditor(null)}
+            // «Изменить» из просмотра: «Отмена» возвращает к просмотру той же
+            // смены (со свежими данными), а не закрывает всё.
+            onCancel={returnTo ? () => {
+              setEditor(null);
+              setSelected(data.shifts.find((s) => s.id === returnTo) ?? null);
+            } : undefined}
+            save={save}
+            onEditTemplate={setTemplateOverlay}
+          />
+        );
+      })()}
       {editor?.type === "template" && (
         <TemplateEditor
           key={`${editor.template?.id ?? "new"}-${editor.copy}`}
@@ -1806,7 +2208,7 @@ export function ScheduleClient({
           titleAccessory={
             <DrawerStatus
               label={selected.published ? "Опубликована" : "Черновик"}
-              tone={selected.published ? "success" : "warning"}
+              tone={selected.published ? "success" : "neutral"}
             />
           }
           description={[
@@ -1814,7 +2216,11 @@ export function ScheduleClient({
             `${timeInZone(selected.starts_at, data.timezone)}–${timeInZone(selected.ends_at, data.timezone)}`,
             `${shiftHours(selected.starts_at, selected.ends_at).toLocaleString("ru", { maximumFractionDigits: 1 })} ч`,
           ].join(" · ")}
+          // Без единой кнопки подвал не рисуем: иначе у сотрудника без прав
+          // внизу панели остаётся пустая полоса с рамкой.
           footer={
+            can("shift_delete") || can("shift_edit") || (!selected.published && can("shift_publish")) ||
+            selectedSwapActive || selectedCanRequestSwap ? (
             <>
               {can("shift_delete") && (
                 <Button
@@ -1822,19 +2228,35 @@ export function ScheduleClient({
                   size="icon"
                   className="mr-auto text-destructive hover:text-destructive"
                   aria-label={selected.published ? "Удалить смену" : "Удалить черновик"}
+                  data-tip={selected.published ? "Удалить смену" : "Удалить черновик"}
                   onClick={() => confirmDelete(selected)}
                 >
                   <Trash2 className="size-4" />
                 </Button>
               )}
+              {(selectedSwapActive || selectedCanRequestSwap) && (
+                <SwapFooterActions
+                  data={data}
+                  shift={selected}
+                  swap={selectedSwap}
+                  canRequest={selectedCanRequestSwap}
+                  onRequest={() => {
+                    setSwapFor(selected);
+                    setSelected(null);
+                  }}
+                  refresh={refresh}
+                  onDone={() => setSelected(null)}
+                />
+              )}
               {can("shift_edit") && (
                 <Button
-                  variant={!selected.published && can("shift_publish") ? "outline" : "default"}
+                  variant={(!selected.published && can("shift_publish")) || selectedSwapDecision ? "outline" : "default"}
                   onClick={() => {
                     setEditor({
                       type: "shift",
                       shift: selected,
                       day: dateInZone(selected.starts_at, data.timezone),
+                      returnTo: selected.id,
                     });
                     setSelected(null);
                   }}
@@ -1857,6 +2279,7 @@ export function ScheduleClient({
                 </Button>
               )}
             </>
+            ) : undefined
           }
         >
           <ShiftDetails
@@ -1867,6 +2290,8 @@ export function ScheduleClient({
             historyHasMore={historyHasMore}
             onLoadMoreHistory={loadMoreHistory}
             personName={name}
+            showHistory={canPlan}
+            swap={selectedSwap ? <SwapSection data={data} swap={selectedSwap} shift={selected} /> : undefined}
             assignControl={can("shift_assign") && !can("shift_edit") ? (
               <EmployeePicker
                 data={data}
@@ -1887,6 +2312,9 @@ export function ScheduleClient({
             ) : undefined}
           />
         </EditDrawer>
+      )}
+      {swapFor && (
+        <SwapRequestDrawer data={data} shift={swapFor} refresh={refresh} onClose={() => setSwapFor(null)} />
       )}
       <Dialog
         open={!!confirmation}

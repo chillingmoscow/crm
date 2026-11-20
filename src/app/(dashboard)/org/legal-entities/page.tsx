@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Archive, Plus } from "lucide-react";
@@ -9,6 +10,8 @@ import {
 import { asLooseDb } from "@/lib/supabase/loose";
 import { listLegalEntities } from "@/lib/org/legal-entities";
 import { Button } from "@/components/ui/button";
+
+export const metadata: Metadata = { title: "Юридические лица" };
 
 const LEGAL_FORM_LABELS: Record<string, string> = {
   IP:    "ИП",

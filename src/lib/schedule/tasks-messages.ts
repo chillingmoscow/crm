@@ -4,15 +4,20 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import { loadTelegramBot } from "@/lib/integrations/telegram-bot";
 import { telegramMessageReceipt } from "@/lib/integrations/telegram-response";
 import { escapeHtml } from "@/lib/payroll/adjustment-notify";
+import { scheduleReminderText } from "@/lib/schedule/task-message-schedule";
 type Message = {
   id: string;
   lease_token: string;
   account_id: string;
   chat_id: string;
-  kind: "daily" | "monday" | "wednesday";
   business_date: string;
-  payload: { name: string; employee: string | null; blocked: string }[];
-};
+} & (
+  | { kind: "daily"; payload: { name: string; employee: string | null; blocked: string }[] }
+  | {
+      kind: "schedule_open" | "schedule_deadline" | "monday" | "wednesday";
+      payload: { deadline_day?: number };
+    }
+);
 export async function processTaskMessage() {
   const db = asLooseDb(createAdminClient());
   const r = await db.rpc("schedule_claim_task_message");
@@ -46,16 +51,18 @@ export async function processTaskMessage() {
     const base = (
       process.env.NEXT_PUBLIC_SITE_URL || "https://sheerly.app"
     ).replace(/\/$/, "");
-    const link = `<a href="${escapeHtml(base)}/schedule?showTasks=1&amp;date=${escapeHtml(job.business_date)}">Открыть задачи в графике</a>`;
+    const link = `<a href="${escapeHtml(base)}/schedule?showTasks=1&amp;date=${escapeHtml(job.business_date)}">Открыть задачи в расписании</a>`;
     const text =
       job.kind === "daily"
         ? `✅ <b>Задачи на сегодня</b>\n\n${job.payload.map((t) => `• ${escapeHtml(t.name)} — ${escapeHtml(t.employee || "без назначения")}${t.blocked ? " (нужна проверка назначения)" : ""}`).join("\n")}\n\nЗаполните чек-листы и приложите фотографии к нужным пунктам.\n${link}`
-        : job.kind === "monday"
-          ? `🗓️ <b>Время составлять график!</b>\n\nОбсудите расписание на следующую неделю и через одну с коллегами своего подразделения. Срок сдачи — до среды включительно. Затем старшие подразделений составляют график.\n\n<a href="${escapeHtml(base)}/schedule">График в Sheerly</a>`
-          : `⏳ <b>Сегодня последний день сдачи графика!</b>\n\nПередайте расписание на следующую неделю сегодня, согласовав замены и пожелания. После среды старшие подразделений составляют график.\n\n<a href="${escapeHtml(base)}/schedule">График в Sheerly</a>`;
+        : scheduleReminderText(
+            job.kind,
+            job.payload.deadline_day,
+            `<a href="${escapeHtml(base)}/schedule">Расписание в Sheerly</a>`,
+          );
     // Never split a message after a partial delivery. Oversize lists link to the complete calendar.
     const body =
-      text.length > 3900
+      job.kind === "daily" && text.length > 3900
         ? `✅ <b>Задачи на сегодня</b>\n\nЗаданий: ${job.payload.length}. Полный список и чек-листы доступны в Sheerly.\n${link}`
         : text;
     const result = await bot.sendMessage(job.chat_id, body, undefined, {

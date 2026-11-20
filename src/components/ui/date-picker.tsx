@@ -7,6 +7,7 @@ import { ru } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { fieldFocusClass, fieldInvalidClass } from "@/components/ui/field-styles";
 
 /**
  * DatePicker — наш собственный пикер дат вместо нативного
@@ -52,6 +53,15 @@ export interface DatePickerProps {
   endYear?: number;
   /** Показать кнопку очистки. По умолчанию true (если value не пустой). */
   clearable?: boolean;
+  /**
+   * Связь с подсказкой/ошибкой под полем — обычно приходит из `<Field>`.
+   * `aria-invalid` красит рамку (на кнопке рисуется как `data-invalid`);
+   * `aria-required` принимается для совместимости с `Field` и не рендерится:
+   * роль `button` его не поддерживает.
+   */
+  "aria-describedby"?: string;
+  "aria-invalid"?: boolean;
+  "aria-required"?: boolean;
 }
 
 function parseISO(value: string): Date | undefined {
@@ -97,6 +107,8 @@ export function DatePicker({
   startYear = 1900,
   endYear,
   clearable = true,
+  "aria-describedby": ariaDescribedBy,
+  "aria-invalid": invalid,
 }: DatePickerProps) {
   const [open, setOpen] = React.useState(false);
   const selected = parseISO(value);
@@ -106,17 +118,20 @@ export function DatePicker({
   const effectiveEndYear =
     endYear ?? new Date().getFullYear() + 5;
 
-  // Стилизация триггера повторяет shadcn `<Input>`: тот же h-10 (если
-  // не передан className), border, radius, focus-ring, padding.
-  // Текст выравниваем по левому краю; иконка справа.
+  // Стилизация триггера повторяет `<Input>`: тот же h-10 (если не передан
+  // className), border, radius, padding, фокус (border swap + halo без
+  // смещения) и рамка ошибки — общие классы из field-styles.
   const triggerClassName = cn(
     "relative flex h-10 w-full items-center rounded-md border border-input bg-background px-3 py-2 text-sm",
-    "ring-offset-background transition-colors",
+    "transition-colors",
     "placeholder:text-muted-foreground",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+    fieldFocusClass,
+    fieldInvalidClass,
     // readOnly: visually = native readOnly input (bg-muted) но НЕ
-    // dimmed как disabled (opacity сохраняется 100%).
-    readOnly && "bg-muted/50 cursor-default",
+    // dimmed как disabled (opacity сохраняется 100%), и без halo фокуса —
+    // как у Input.
+    readOnly &&
+      "bg-muted/50 cursor-default focus-visible:border-input focus-visible:ring-0",
     // disabled — настоящий disabled (browser-style: dim + not-allowed).
     disabled && "opacity-50 cursor-not-allowed",
     className,
@@ -142,6 +157,8 @@ export function DatePicker({
           // — это выкидывало control из tab order'а и регрессовало
           // semantics read-only (Codex P2 на #252).
           aria-disabled={readOnly || undefined}
+          aria-describedby={ariaDescribedBy}
+          data-invalid={invalid || undefined}
           className={triggerClassName}
         >
           <CalendarIcon className="size-4 shrink-0 text-muted-foreground" />

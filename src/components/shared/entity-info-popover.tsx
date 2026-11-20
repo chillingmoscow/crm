@@ -9,9 +9,10 @@
  * место рядом с колокольчиком в header дашборда (через
  * <PageHeaderActions>).
  *
- * Содержимое: 5 строк — ID, Создана, Создал, Изменена, Изменил.
- * Создал/Изменил подсвечиваются brand-blue (как в дизайне),
- * пустые значения отрисовываются как «—».
+ * Содержимое: до 5 строк — ID, Создана, Создал, Изменена, Изменил.
+ * Создал/Изменил подсвечиваются brand-blue (как в дизайне). Строка без
+ * значения не выводится: пустое «—» ничего не сообщает. Подписи дат
+ * задаются под род и смысл сущности (`createdLabel`/`updatedLabel`).
  *
  * KB-overrides (см. usage в knowledge/[slug]/page.tsx):
  * - createdByLabel/updatedByLabel — KB зовёт их «Автор»/«Редактор»
@@ -28,6 +29,7 @@ import {
 } from "@/components/ui/popover";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { pluralRu } from "@/lib/format/plural";
+import { personInitials } from "@/lib/format/initials";
 
 interface EntityInfoPopoverProps {
   /** Заголовок попапа: «О должности», «О сотруднике» и т.д. */
@@ -38,6 +40,12 @@ interface EntityInfoPopoverProps {
   createdByName: string | null;
   updatedAt: string | null;
   updatedByName: string | null;
+
+  /** Подпись даты создания: «Создана» (должность), «Создано»
+   *  (подразделение), «Аккаунт создан» (сотрудник). */
+  createdLabel?: string;
+  /** Подпись второй даты: «Изменена» или, например, «В заведении с». */
+  updatedLabel?: string;
 
   // ─── KB-style overrides (опциональны, defaults сохраняют поведение
   //     для существующих entities — должности и т.д.) ───
@@ -91,13 +99,7 @@ function MiniAvatar({
   name: string | null | undefined;
   avatarUrl: string | null | undefined;
 }) {
-  const initials =
-    (name ?? "")
-      .split(" ")
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((p) => p[0]?.toUpperCase() ?? "")
-      .join("") || "?";
+  const initials = personInitials(name);
   if (avatarUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
@@ -109,7 +111,7 @@ function MiniAvatar({
     );
   }
   return (
-    <span className="size-4 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-[8px] font-semibold shrink-0">
+    <span className="size-4 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-xs font-semibold leading-none shrink-0">
       {initials}
     </span>
   );
@@ -129,6 +131,8 @@ export function EntityInfoPopover({
   createdByName,
   updatedAt,
   updatedByName,
+  createdLabel = "Создана",
+  updatedLabel = "Изменена",
   createdByLabel = "Создал",
   updatedByLabel = "Изменил",
   createdByAvatarUrl = null,
@@ -136,28 +140,36 @@ export function EntityInfoPopover({
   showTime = false,
   relativeUpdatedAt = false,
 }: EntityInfoPopoverProps) {
-  const rows: Row[] = [
+  const candidates: (Omit<Row, "value"> & { value: string | null })[] = [
     { label: "ID", value: id.slice(0, 8) },
-    { label: "Создана", value: formatDate(createdAt, showTime) },
+    {
+      label: createdLabel,
+      value: createdAt ? formatDate(createdAt, showTime) : null,
+    },
     {
       label: createdByLabel,
-      value: createdByName ?? "—",
+      value: createdByName,
       isUser: true,
       avatarUrl: createdByAvatarUrl,
     },
     {
-      label: "Изменена",
-      value: relativeUpdatedAt
-        ? formatRelativeRu(updatedAt)
-        : formatDate(updatedAt, showTime),
+      label: updatedLabel,
+      value: !updatedAt
+        ? null
+        : relativeUpdatedAt
+          ? formatRelativeRu(updatedAt)
+          : formatDate(updatedAt, showTime),
     },
     {
       label: updatedByLabel,
-      value: updatedByName ?? "—",
+      value: updatedByName,
       isUser: true,
       avatarUrl: updatedByAvatarUrl,
     },
   ];
+  const rows = candidates.filter(
+    (row): row is Row => !!row.value && row.value !== "—",
+  );
 
   return (
     <Popover>
@@ -178,9 +190,9 @@ export function EntityInfoPopover({
         align="end"
         side="bottom"
         sideOffset={8}
-        className="w-[300px] p-5 rounded-xl"
+        className="w-[300px] p-5"
       >
-        <h2 className="text-[14px] font-semibold mb-3.5">{title}</h2>
+        <h2 className="text-sm font-semibold mb-3.5">{title}</h2>
         <div className="h-px bg-border -mx-5 mb-3" />
         <dl className="flex flex-col gap-2">
           {rows.map((r) => (
@@ -191,12 +203,12 @@ export function EntityInfoPopover({
               <dt className="text-muted-foreground">{r.label}</dt>
               <dd
                 className={
-                  r.isUser && r.value !== "—"
+                  r.isUser
                     ? "inline-flex items-center gap-1.5 font-medium text-brand"
                     : "font-medium text-foreground text-right"
                 }
               >
-                {r.isUser && r.value !== "—" && (
+                {r.isUser && (
                   <MiniAvatar name={r.value} avatarUrl={r.avatarUrl ?? null} />
                 )}
                 {r.value}

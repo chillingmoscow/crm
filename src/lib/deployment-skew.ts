@@ -18,8 +18,12 @@
  * (`app/error.tsx`, `app/global-error.tsx`) для авто-reload.
  */
 const SKEW_SIGNATURES = [
-  // Server Action version mismatch
+  // Server Action version mismatch: серверный лог и клиентская ошибка
+  // Next 15.5 (UnrecognizedActionError: «Server Action "…" was not
+  // found on the server … failed-to-find-server-action»).
   "failed to find server action",
+  "failed-to-find-server-action",
+  "unrecognizedactionerror",
   "an older or newer deployment",
   // Chunk / dynamic import skew
   "chunkloaderror",
@@ -44,4 +48,17 @@ export function isDeploymentSkewError(error: unknown): boolean {
   }
   const hay = parts.join(" ").toLowerCase();
   return SKEW_SIGNATURES.some((sig) => hay.includes(sig));
+}
+
+/**
+ * Ответ сервера на вызов Server Action, которого нет в текущей сборке:
+ * Next ставит этот заголовок, а клиент бросает UnrecognizedActionError.
+ * Проверяем по ответу, а не по ошибке — компоненты часто ловят ошибку
+ * сами (try/catch → «Не удалось загрузить…»), и до глобального
+ * listener'а она не доходит.
+ */
+export const ACTION_NOT_FOUND_HEADER = "x-nextjs-action-not-found";
+
+export function isDeploymentSkewResponse(response: { headers: { get(name: string): string | null } }): boolean {
+  return response.headers.get(ACTION_NOT_FOUND_HEADER) === "1";
 }

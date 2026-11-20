@@ -30,40 +30,11 @@ import {
   type MultiSelectItem,
 } from "@/app/(dashboard)/finance/transactions/_components/filters/multi-select-filter";
 import { AUDIT_ACTION_CATEGORIES } from "@/lib/audit/action-categories";
+import { AUDIT_SECTIONS } from "@/lib/audit/sections";
 
 import type { AuditStaffOption } from "@/lib/audit/search-staff";
 
-const SECTION_OPTIONS: MultiSelectItem[] = [
-  { id: "candidate", name: "Кандидаты" },
-  { id: "staff", name: "Сотрудники" },
-  { id: "invitation", name: "Приглашения" },
-  { id: "role", name: "Должности" },
-  { id: "department", name: "Подразделения" },
-  { id: "transaction", name: "Транзакции" },
-  { id: "payroll_employee", name:"Участие в зарплатном учёте" },
-  { id: "payroll_adjustment", name: "Начисления и удержания" },
-  { id: "payroll_automation_person", name:"Медкнижки и сведения для автоматизаций" },
-  { id: "payroll_uniform", name:"Рабочая форма" },
-  { id:"payroll_execution",name:"Режим автоматизаций" },
-  { id:"payroll_bonus_operation",name:"Бонусные операции" },
-  { id: "payroll_automation_run", name:"Расчёты автоматизаций" },
-  { id: "payroll_automation_settings", name: "Настройки мотивации" },
-  { id: "payroll_attendance_rule", name: "Учёт выходов" },
-  { id: "payroll_position", name: "Назначения должностей" },
-  { id: "payroll_rule", name: "Условия оплаты должностей" },
-  { id: "payroll_transfer", name: "Переносы зарплаты" },
-  { id: "payroll_import", name: "Импорт зарплаты" },
-  { id: "integration", name: "Интеграции" },
-  { id: "sales_settings", name: "Настройки продаж" },
-  { id: "bank_account", name: "Счета" },
-  { id: "finance_category", name: "Статьи" },
-  { id: "counterparty", name: "Контрагенты" },
-  { id: "venue", name: "Заведения" },
-  { id: "legal_entity", name: "Юрлица" },
-  { id: "account", name: "Аккаунт" },
-  { id: "kb_page", name: "База знаний" },
-  { id: "kb_thread", name: "Обсуждения базы знаний" },
-];
+const SECTION_OPTIONS: MultiSelectItem[] = AUDIT_SECTIONS;
 
 const FILTERS_VISIBLE_STORAGE_KEY = "org-audit.filters-visible";
 
@@ -508,7 +479,7 @@ function Chip({ label, onClear }: { label: string; onClear: () => void }) {
         type="button"
         onClick={onClear}
         aria-label="Очистить"
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand/90"
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand-hover"
       >
         <X className="h-3 w-3" />
       </button>

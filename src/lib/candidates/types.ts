@@ -1,3 +1,6 @@
+import type { StatusTone } from "@/components/ui/status-badge";
+import type { AuditEvent } from "@/lib/audit/list";
+
 export const CANDIDATE_STAGES = {
   new: "Новая анкета",
   review: "Можно рассмотреть",
@@ -14,6 +17,7 @@ export const CANDIDATE_SORT_FIELDS = [
   "full_name",
   "desired_position",
   "status",
+  "stage_changed_at",
   "phone",
   "submitted_at",
   "age",
@@ -33,13 +37,14 @@ export type CandidatePage = {
   page: number;
   pageSize: number;
 };
-export const STATUS_CLASSES: Record<CandidateStatus, string> = {
-  new: "bg-muted text-muted-foreground",
-  review: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
-  interview: "bg-brand/10 text-brand",
-  trial: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-  hired: "bg-brand/10 text-brand",
-  rejected: "bg-destructive/10 text-destructive",
+/** Тон статуса: соседние этапы не делят цвет, «Принят» — success. */
+export const STATUS_TONES: Record<CandidateStatus, StatusTone> = {
+  new: "neutral",
+  review: "warning",
+  interview: "info",
+  trial: "accent",
+  hired: "success",
+  rejected: "danger",
 };
 export type Candidate = {
   id: string;
@@ -63,6 +68,8 @@ export type Candidate = {
   source_id: string | null;
   source_url: string | null;
   submitted_at: string;
+  /** Когда кандидат перешёл на нынешний этап; для новой анкеты — дата заявки. */
+  stage_changed_at: string;
   created_at: string;
   updated_at: string;
   revision: number;
@@ -83,6 +90,8 @@ export type CandidateFile = {
   id: string;
   name: string;
   state: "pending" | "ready" | "missing" | "error" | "external";
+  /** Причина неудачного переноса из очереди (`jobs.ts`), не для показа как есть. */
+  error?: string | null;
   storage_path: string | null;
   mime_type: string | null;
   original_url: string | null;
@@ -167,7 +176,10 @@ export type CandidateDetail = {
   viewer_id: string;
   candidate: Candidate;
   comments: Comment[];
-  events: CandidateEvent[];
+  /** Первая страница общего журнала по анкете (`EntityAuditTab`). */
+  audit: { events: AuditEvent[]; hasMore: boolean };
+  /** Смены этапа и встречи за всю историю — для «Хода подбора». */
+  stageEvents: CandidateEvent[];
   appointments: Appointment[];
   files: CandidateFile[];
   related: Pick<Candidate, "id" | "full_name" | "status" | "submitted_at">[];
@@ -183,7 +195,6 @@ export type ListFilters = {
   position?: string;
   from?: string;
   to?: string;
-  archive?: boolean;
   page?: number;
   pageSize?: number;
   sort?: CandidateSort[];

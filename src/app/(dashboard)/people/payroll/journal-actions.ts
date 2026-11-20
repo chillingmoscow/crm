@@ -271,7 +271,9 @@ export async function loadDisciplineSettings(): Promise<DisciplineSettings | nul
   const r = await database
     .from<DisciplineSettings>("payroll_discipline_settings")
     .select("*")
-    .single();
+    // Правил у заведения может ещё не быть — это не ошибка загрузки:
+    // экран пишет «Настройки … ещё не созданы» вместо технического текста.
+    .maybeSingle();
   if (r.error) throw new Error(r.error.message);
   return r.data;
 }

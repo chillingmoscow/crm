@@ -138,7 +138,7 @@ export function MultiSelectFilter({
             type="button"
             onClick={clearAll}
             aria-label="Сбросить фильтр"
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand/90"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand-hover"
           >
             <X className="h-3 w-3" />
           </button>

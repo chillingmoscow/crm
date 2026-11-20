@@ -784,7 +784,7 @@ export function TransactionsPage({
                           "выбрано",
                         ])}
                       </span>
-                      <span className="text-xs text-brand/80">
+                      <span className="text-xs text-brand">
                         на сумму{" "}
                         {formatCurrency(
                           selectedTotal,
@@ -1179,7 +1179,7 @@ function TypeFilter({
               e.stopPropagation();
               onChange("all");
             }}
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand/90"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand-hover"
           >
             <X className="h-3 w-3" />
           </button>
@@ -1212,7 +1212,7 @@ function Chip({ label, onClear }: { label: string; onClear: () => void }) {
         type="button"
         onClick={onClear}
         aria-label="Очистить"
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand/90"
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand-hover"
       >
         <X className="h-3 w-3" />
       </button>

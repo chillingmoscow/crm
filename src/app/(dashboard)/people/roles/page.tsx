@@ -1,9 +1,13 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import {
   createClient,
   getCachedPermissionChecker,
 } from "@/lib/supabase/server";
 import { RolesClient } from "./_components/roles-client";
+import { loadVenueStaffByRole } from "@/lib/people/venue-staff-by-role";
+
+export const metadata: Metadata = { title: "Должности" };
 
 export default async function RolesPage() {
   const supabase = await createClient();
@@ -87,25 +91,15 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
   }
   const importedRoleIds = importedRoleLinks.map((row) => row.local_id);
 
-  const [rolePermsResult, venueRolesResult] = await Promise.all([
+  const [rolePermsResult, staffByRole] = await Promise.all([
     roleIds.length > 0
       ? supabase.rpc("get_effective_role_permissions", {
           p_role_ids: roleIds,
         })
       : (Promise.resolve({ data: [] as { role_id: string; permission_id: string; granted: boolean }[] })),
-    activeVenueId
-      ? supabase
-          .from("user_venue_roles")
-          .select("role_id")
-          .eq("venue_id", activeVenueId as string)
-          .eq("status", "active")
-      : (Promise.resolve({ data: [] as { role_id: string }[] })),
+    // Люди на должностях — аватары и список по наведению в «Сотрудниках».
+    loadVenueStaffByRole(supabase, (activeVenueId as string | null) ?? null),
   ]);
-
-  const staffCountByRole: Record<string, number> = {};
-  for (const row of venueRolesResult.data ?? []) {
-    staffCountByRole[row.role_id] = (staffCountByRole[row.role_id] ?? 0) + 1;
-  }
 
   return (
     <RolesClient
@@ -114,7 +108,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       rolePermissions={rolePermsResult.data ?? []}
       accountId={accountId ?? null}
       activeVenueId={activeVenueId ?? null}
-      staffCountByRole={staffCountByRole}
+      staffByRole={staffByRole}
       importedRoleIds={importedRoleIds}
       departments={departmentsResult.data ?? []}
     />

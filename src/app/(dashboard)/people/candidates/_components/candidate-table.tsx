@@ -3,13 +3,17 @@
 import Link from "next/link";
 import { PersonAvatar } from "@/components/people/person-avatar";
 import type { ColumnDef } from "@tanstack/react-table";
+import { Clock } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatPhoneDisplay } from "@/lib/format/phone";
 import {
+  STATUSES,
   type AppointmentOptions,
   type Candidate,
 } from "@/lib/candidates/types";
-import { dateLabel, plural } from "./fields";
+import { overdueHint, stageAge } from "@/lib/candidates/stage-age";
+import { dateCell } from "./fields";
+import { countRu } from "@/lib/format/plural";
 import {
   CandidateStatusCell,
   type CandidateStatusUpdate,
@@ -19,6 +23,7 @@ export const FIELD_LABELS = {
   full_name: "Кандидат",
   desired_position: "Должность",
   status: "Статус",
+  stage_changed_at: "На этапе",
   phone: "Телефон",
   submitted_at: "Дата заявки",
   photo: "Фото",
@@ -39,11 +44,18 @@ export const COLUMN_CONFIG = [
     "full_name",
     "desired_position",
     "status",
+    "stage_changed_at",
     "phone",
     "submitted_at",
   ].includes(id),
   defaultSize:
-    id === "full_name" ? 260 : id === "photo" ? 80 : id === "age" ? 100 : 180,
+    id === "full_name"
+      ? 260
+      : id === "photo"
+        ? 80
+        : id === "age" || id === "stage_changed_at"
+          ? 128
+          : 180,
 }));
 export function candidateColumns(
   onSaved: (saved: CandidateStatusUpdate) => void,
@@ -70,6 +82,8 @@ export function candidateColumns(
                   ? 144
                   : id === "submitted_at"
                     ? 156
+                    : id === "stage_changed_at"
+                      ? 128
                     : id === "phone"
                       ? 168
                       : 112,
@@ -81,7 +95,7 @@ export function candidateColumns(
           return (
             <Link
               className="block truncate font-medium hover:text-brand"
-              data-tip={c.full_name}
+              data-tip={c.full_name} data-tip-overflow
               href={`/people/candidates/${c.id}`}
             >
               {c.full_name}
@@ -103,20 +117,39 @@ export function candidateColumns(
               options={options}
             />
           );
+        if (id === "stage_changed_at") {
+          const age = stageAge(c.status, c.stage_changed_at);
+          if (!age) return <span className="text-muted-foreground">—</span>;
+          if (age.overdueAfter === null)
+            return <span className="tabular-nums">{age.label}</span>;
+          // Залежавшаяся анкета: цвет предупреждения, значок и подсказка,
+          // чтобы срок читался не только цветом.
+          const hint = overdueHint(age.overdueAfter, STATUSES[c.status]);
+          return (
+            <span
+              className="inline-flex items-center gap-1.5 font-medium tabular-nums text-amber-700 dark:text-amber-400"
+              data-tip={hint}
+            >
+              <Clock className="size-3.5 shrink-0" aria-hidden />
+              {age.label}
+              <span className="sr-only">. {hint}</span>
+            </span>
+          );
+        }
         const value =
           id === "submitted_at"
-            ? dateLabel(c.submitted_at)
+            ? dateCell(c.submitted_at)
             : id === "phone"
               ? formatPhoneDisplay(c.phone)
               : id === "age"
                 ? c.age
-                  ? `${c.age} ${plural(c.age, ["год", "года", "лет"])}`
+                  ? countRu(c.age, "год", "года", "лет")
                   : "Не указан"
                 : c[id as keyof Candidate];
         return (
           <span
             className="block truncate"
-            data-tip={value == null ? undefined : String(value)}
+            data-tip={value == null ? undefined : String(value)} data-tip-overflow
           >
             {value == null || value === "" ? "Не указано" : String(value)}
           </span>

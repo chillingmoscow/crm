@@ -11,6 +11,14 @@ import {
 import Link from "next/link";
 import { isStaffPlaceholderEmail } from "@/lib/people/staff-identity";
 import {
+  GENDER_LABEL,
+  GENDER_OPTIONS,
+  genderFormField,
+  genderFormValue,
+  isGender,
+  type Gender,
+} from "@/lib/people/gender";
+import {
   encodeStaffDocumentName,
   decodeStaffDocumentName,
 } from "@/lib/people/staff-document-name";
@@ -20,22 +28,23 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import {
-  Camera,
-  ChevronLeft,
   FileText,
   Loader2,
   Lock,
   Plus,
   RotateCcw,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Input } from "@/components/ui/input";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
+import { OptionSelect } from "@/components/ui/option-select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, ProfileTabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
@@ -54,7 +63,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  PageBreadcrumb,
   PageHeaderActions,
 } from "@/components/shared/page-header-actions";
 import { ProfileHeader } from "@/components/shared/profile-header";
@@ -83,7 +91,8 @@ const schema = z.object({
   last_name: z.string().min(1, "Обязательное поле"),
   phone: z.string().optional(),
   telegram_id: z.string().optional(),
-  gender: z.enum(["male", "female", ""]).optional(),
+  // Пол обязателен, пока личные поля правит админ: см. personalSchema.
+  gender: z.string(),
   birth_date: z.string().optional(),
   address: z.string().optional(),
 
@@ -100,9 +109,19 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
+// Личные поля правит админ (сотрудник ещё не вошёл в Sheerly) — тогда пол
+// обязателен. Зарегистрированный ведёт пол сам, и его пустой пол не должен
+// мешать админу сохранить HR-поля карточки.
+const personalSchema = schema.extend({ gender: genderFormField });
+
 type Role = { id: string; name: string; code: string };
 
 import { StaffPayPanel } from "@/app/(dashboard)/people/payroll/_components/payroll-context";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { ProfileDangerAction } from "@/components/shared/profile-danger-zone";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { ProfilePageFrame } from "@/components/shared/page-frame";
+import { SaveBarScope, SaveBarSection } from "@/components/shared/save-bar";
 
 type TabKey = "pay" | "main" | "documents" | "history" | "activity" | "danger";
 
@@ -152,6 +171,8 @@ interface Props {
    *  conditional render'а. */
   canViewAudit: boolean;
   canConfigurePayroll: boolean;
+  /** Показывать ли вкладку «Оплата»: право на зарплату или своя карточка. */
+  canViewPay: boolean;
   initialTab?: "main" | "documents" | "pay";
   initialAuditEvents: AuditEvent[];
   initialAuditHasMore: boolean;
@@ -165,8 +186,18 @@ interface Props {
 }
 
 // ── Helpers ───────────────────────────────────────────────────
+/** Что входит в журнал сотрудника (см. `listAuditEvents` для `staff`):
+ *  сама карточка, участие в зарплатном учёте, медкнижка и сведения для
+ *  автоматизаций, рабочая форма. Варианты фильтра «Раздел». */
+const STAFF_JOURNAL_SECTIONS = [
+  { value: "staff", label: "Данные сотрудника" },
+  { value: "payroll_employee", label: "Участие в зарплатном учёте" },
+  { value: "payroll_automation_person", label: "Медкнижка и сведения для автоматизаций" },
+  { value: "payroll_uniform", label: "Рабочая форма" },
+];
 
 // ── Component ─────────────────────────────────────────────────
+
 
 export function StaffDetailPage({
   candidateId,
@@ -199,6 +230,7 @@ export function StaffDetailPage({
   needsPasswordSetup,
   canViewAudit,
   canConfigurePayroll,
+  canViewPay,
   initialTab = "main",
   initialAuditEvents,
   initialAuditHasMore,
@@ -208,7 +240,9 @@ export function StaffDetailPage({
   backLabel = "Сотрудники",
 }: Props) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
+  const [activeTab, setActiveTab] = useState<TabKey>(
+    initialTab === "pay" && !canViewPay ? "main" : initialTab,
+  );
   const [documentAudit, setDocumentAudit] = useState<{
     events: AuditEvent[];
     hasMore: boolean;
@@ -230,8 +264,19 @@ export function StaffDetailPage({
   const [uploadingDocs, setUploadingDocs] = useState(false);
   const [confirmFire, setConfirmFire] = useState(false);
   const [fireReason, setFireReason] = useState("");
+  const [fireError, setFireError] = useState<string | null>(null);
+  const [confirmRestore, setConfirmRestore] = useState(false);
+  const [confirmPhotoDelete, setConfirmPhotoDelete] = useState(false);
+  const [deletingPhoto, setDeletingPhoto] = useState(false);
   // Дата, с которой новая должность действует в зарплате (по умолчанию сегодня).
   const [roleValidFrom, setRoleValidFrom] = useState(venueToday);
+  const [savingMain, setSavingMain] = useState(false);
+  // «Документы» после первого открытия остаются смонтированными: правка
+  // медкнижки не пропадает при переходе на другую вкладку, а полоса
+  // сохранения продолжает её показывать.
+  const [documentsVisited, setDocumentsVisited] = useState(
+    initialTab === "documents",
+  );
   const [isPending, startTransition] = useTransition();
   const [isInvitePending, startInviteTransition] = useTransition();
   // Если у юзера technical placeholder email — показываем пустое поле,
@@ -302,22 +347,25 @@ export function StaffDetailPage({
   // и вошёл в систему — он сам управляет профилем.
   const canEditPersonal = canEdit && !isRegisteredUser;
 
+  // «Опасная зона» показывается, только когда увольнение доступно: уволенного
+  // уволить нельзя, себя тоже.
+  const canFire = canEdit && !isMe;
+
   const {
     register,
     handleSubmit,
-    setValue,
     control,
     reset,
     watch,
-    formState: { errors },
+    formState: { errors, isDirty },
   } = useForm<FormValues>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(canEditPersonal ? personalSchema : schema),
     defaultValues: {
       first_name: profile.first_name ?? "",
       last_name: profile.last_name ?? "",
       phone: profile.phone ?? "",
       telegram_id: profile.telegram_id ?? "",
-      gender: (profile.gender as "male" | "female" | "") ?? "",
+      gender: genderFormValue(profile.gender),
       birth_date: profile.birth_date ?? "",
       address: profile.address ?? "",
       employment_date: accountDetails.employment_date ?? "",
@@ -341,7 +389,7 @@ export function StaffDetailPage({
       last_name: profile.last_name ?? "",
       phone: profile.phone ?? "",
       telegram_id: profile.telegram_id ?? "",
-      gender: (profile.gender as "male" | "female" | "") ?? "",
+      gender: genderFormValue(profile.gender),
       birth_date: profile.birth_date ?? "",
       address: profile.address ?? "",
       employment_date: accountDetails.employment_date ?? "",
@@ -429,8 +477,11 @@ export function StaffDetailPage({
   // - updateStaffRole — UVR.role_id, только если должность реально изменилась
   //   и текущая роль не owner (owner через staff-UI не переназначается).
   // Если упал хоть один, показываем toast и не делаем общий «Сохранено».
-  const onSave = (values: FormValues) => {
-    startTransition(async () => {
+  // Сохраняет полоса внизу колонки (SaveBar): она видна, пока форма
+  // отличается от сохранённой.
+  const persistMain = async (values: FormValues): Promise<boolean> => {
+    setSavingMain(true);
+    try {
       // Личные поля пишем только если у нас на это есть право (placeholder-юзер).
       // Иначе их обновляет сам сотрудник через свой профиль.
       const profilePromise = canEditPersonal
@@ -439,7 +490,7 @@ export function StaffDetailPage({
             last_name: values.last_name,
             phone: values.phone || null,
             telegram_id: values.telegram_id || null,
-            gender: values.gender || null,
+            gender: values.gender as Gender,
             birth_date: values.birth_date || null,
             address: values.address || null,
           })
@@ -469,16 +520,49 @@ export function StaffDetailPage({
       ].filter(Boolean) as string[];
       if (errors.length > 0) {
         toast.error(errors.join(" · "));
-        return;
+        return false;
       }
+      // Сохранённые значения становятся исходными: полоса пропадает сразу,
+      // не дожидаясь свежих данных с сервера.
+      reset(values);
+      setRoleValidFrom(venueToday);
       toast.success("Данные сохранены");
       if (roleResult.notice) toast.warning(roleResult.notice);
       router.refresh();
+      return true;
+    } catch {
+      toast.error("Не удалось сохранить данные. Проверьте подключение и повторите");
+      return false;
+    } finally {
+      setSavingMain(false);
+    }
+  };
+
+  const saveMain = () =>
+    new Promise<boolean>((resolve) => {
+      void handleSubmit(
+        async (values) => resolve(await persistMain(values)),
+        (formErrors) => {
+          onValidationError(formErrors);
+          resolve(false);
+        },
+      )();
     });
+
+  const resetMain = () => {
+    reset();
+    setRoleValidFrom(venueToday);
   };
 
   const submitAvatarModal = async () => {
     if (!photoFile) return;
+    if (
+      !["image/jpeg", "image/png", "image/webp"].includes(photoFile.type) ||
+      photoFile.size > 5 * 1024 * 1024
+    ) {
+      toast.error("Выберите JPG, PNG или WebP размером до 5 МБ");
+      return;
+    }
     setUploadingAvatar(true);
     try {
       const supabase = createClient();
@@ -529,6 +613,27 @@ export function StaffDetailPage({
       toast.success("Фото обновлено");
     } finally {
       setUploadingAvatar(false);
+    }
+  };
+
+  // Удаление фото необратимо: вернуть его можно только повторной загрузкой.
+  const deleteAvatar = async () => {
+    setDeletingPhoto(true);
+    try {
+      const result = await updateStaffProfile(profile.id, { avatar_url: null });
+      if (result.error) {
+        toast.error(translateError(result.error));
+        return;
+      }
+      setAvatarUrl(null);
+      setConfirmPhotoDelete(false);
+      setPhotoModalOpen(false);
+      setPhotoFile(null);
+      toast.success("Фото удалено");
+    } catch {
+      toast.error("Не удалось удалить фото. Проверьте подключение и повторите");
+    } finally {
+      setDeletingPhoto(false);
     }
   };
 
@@ -583,16 +688,28 @@ export function StaffDetailPage({
     }
   };
 
+  // Удаление документа необратимо: сначала спрашиваем, какой именно удаляем.
+  const [docToDelete, setDocToDelete] = useState<{
+    path: string;
+    name: string;
+  } | null>(null);
+  const [deletingDoc, setDeletingDoc] = useState(false);
   const handleDeletePassportPhoto = async (path: string) => {
-    const result = await changeStaffDocument({
-      userId: profile.id, accountId, expectedPaths: passportPhotos, removePath: path,
-    });
-    if (result.error) {
-      toast.error(result.error);
-      return;
+    setDeletingDoc(true);
+    try {
+      const result = await changeStaffDocument({
+        userId: profile.id, accountId, expectedPaths: passportPhotos, removePath: path,
+      });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      setPassportPhotos(result.paths ?? passportPhotos.filter((p) => p !== path));
+      setDocToDelete(null);
+      toast.success("Документ удалён");
+    } finally {
+      setDeletingDoc(false);
     }
-    setPassportPhotos(result.paths ?? passportPhotos.filter((p) => p !== path));
-    toast.success("Документ удалён");
   };
 
   const handleFire = () => {
@@ -601,15 +718,32 @@ export function StaffDetailPage({
       toast.error("Укажите причину увольнения");
       return;
     }
+    setFireError(null);
     startTransition(async () => {
       const result = await fireStaff(uvrId, reason);
       if (result.error) {
-        toast.error(result.error);
+        setFireError(result.error);
         router.refresh();
         return;
       }
+      setConfirmFire(false);
       toast.success("Сотрудник уволен");
       router.push("/people/staff");
+    });
+  };
+
+  const handleRestore = () => {
+    startTransition(async () => {
+      const result = await restoreStaff(uvrId);
+      setConfirmRestore(false);
+      if (result.error) {
+        toast.error(translateError(result.error));
+        // An unfinished restore shows its state and «Повторить» on the card.
+        router.refresh();
+        return;
+      }
+      toast.success("Сотрудник восстановлен");
+      router.refresh();
     });
   };
 
@@ -685,34 +819,25 @@ export function StaffDetailPage({
 
   return (
     <div className="flex-1 flex flex-col">
-      <PageBreadcrumb>
-        <Link
-          href={backHref}
-          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          {backLabel}
-        </Link>
-      </PageBreadcrumb>
+      <Breadcrumbs
+        back={
+          backHref === "/people/staff"
+            ? undefined
+            : { href: backHref, label: backLabel }
+        }
+        items={[
+          { label: "Люди" },
+          { label: "Сотрудники", href: "/people/staff" },
+          { label: displayName },
+        ]}
+      />
 
       <PageHeaderActions>
         {isFired && canManageStaff && (
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              startTransition(async () => {
-                const result = await restoreStaff(uvrId);
-                if (result.error) {
-                  toast.error(translateError(result.error));
-                  // An unfinished restore shows its state and «Повторить» on the card.
-                  router.refresh();
-                  return;
-                }
-                toast.success("Сотрудник восстановлен");
-                router.refresh();
-              });
-            }}
+            onClick={() => setConfirmRestore(true)}
             disabled={isPending}
           >
             {isPending ? (
@@ -726,15 +851,36 @@ export function StaffDetailPage({
         <EntityInfoPopover
           title="О сотруднике"
           id={profile.id}
+          createdLabel="Аккаунт создан"
           createdAt={userCreatedAt}
           createdByName={null}
+          updatedLabel="В заведении с"
           updatedAt={joinedAt}
           updatedByName={null}
         />
       </PageHeaderActions>
 
-      <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-6">
-        <ProfileHeader name={displayName} avatarUrl={avatarUrl} wrapName>
+      <ProfilePageFrame>
+        <SaveBarScope>
+        <SaveBarSection
+          dirty={canEdit && isDirty}
+          saving={savingMain}
+          save={saveMain}
+          reset={resetMain}
+        />
+        <ProfileHeader
+          name={displayName}
+          avatarUrl={avatarUrl}
+          wrapName
+          avatarEdit={
+            canEditPersonal
+              ? {
+                  label: avatarUrl ? "Изменить фото" : "Загрузить фото",
+                  onClick: () => setPhotoModalOpen(true),
+                }
+              : undefined
+          }
+        >
           <span className="text-sm text-muted-foreground">
             {roleName}
             {departmentName && (
@@ -754,68 +900,67 @@ export function StaffDetailPage({
             )}
           </span>
           {isFired ? (
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-secondary">
-              <span className="text-[12px] font-medium text-muted-foreground leading-none">
-                Уволен{firedAt ? ` · ${formatDate(firedAt)}` : ""}
-              </span>
-            </span>
+            <StatusBadge>
+              Уволен{firedAt ? ` · ${formatDate(firedAt)}` : ""}
+            </StatusBadge>
           ) : isPlaceholderUser ? (
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-secondary">
-              <span className="text-[12px] font-medium text-muted-foreground leading-none">
-                Без аккаунта
-              </span>
-            </span>
+            <StatusBadge>Без аккаунта</StatusBadge>
           ) : isPendingInvite ? (
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-500/15">
-              <span className="text-[12px] font-medium text-amber-700 dark:text-amber-300 leading-none">
-                Ожидает подтверждения
-              </span>
-            </span>
+            <StatusBadge tone="warning">Ожидает подтверждения</StatusBadge>
           ) : (
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/15">
-              <span className="text-[12px] font-medium text-emerald-700 dark:text-emerald-400 leading-none">
-                Активен
-              </span>
-            </span>
+            <StatusBadge tone="success">Активен</StatusBadge>
           )}
           {importedFromQuickResto && (
-            <Badge
-              variant="outline"
-              className="text-[11px] border-blue-200 text-blue-700 dark:text-blue-300 dark:border-blue-500/30"
-            >
-              Из QuickResto
-            </Badge>
+            <StatusBadge tone="info">Из Quick Resto</StatusBadge>
           )}
         </ProfileHeader>
 
         <Tabs
           value={activeTab}
-          onValueChange={(v) => setActiveTab(v as TabKey)}
+          onValueChange={(v) => {
+            if (v === "documents") setDocumentsVisited(true);
+            setActiveTab(v as TabKey);
+          }}
         >
           <ProfileTabsList>
             <TabsTrigger value="main">Основное</TabsTrigger>
             <TabsTrigger value="documents">Документы</TabsTrigger>
-            <TabsTrigger value="pay">Оплата</TabsTrigger>
+            {canViewPay && <TabsTrigger value="pay">Оплата</TabsTrigger>}
             {canViewAudit && (
               <>
                 <TabsTrigger value="history">Журнал</TabsTrigger>
                 <TabsTrigger value="activity">Активность</TabsTrigger>
               </>
             )}
-            <TabsTrigger
-              value="danger"
-              className="data-[state=active]:text-destructive data-[state=active]:border-destructive"
-            >
-              Опасная зона
-            </TabsTrigger>
+            {canFire && (
+              <TabsTrigger value="danger">Опасная зона</TabsTrigger>
+            )}
           </ProfileTabsList>
 
           {/* ── Основное ─────────────────────────────────────── */}
-          <TabsContent value="main">
+          {/* Смонтирована всегда: несохранённые правки переживают
+              переключение вкладок, полоса сохранения видна на любой. */}
+          <TabsContent
+            value="main"
+            forceMount
+            className="data-[state=inactive]:hidden"
+          >
             <form
-              onSubmit={handleSubmit(onSave, onValidationError)}
-              className="mx-auto w-full max-w-[720px] flex flex-col gap-5"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (canEdit && isDirty) void saveMain();
+              }}
+              className="flex flex-col gap-5"
             >
+              {/* Enter в поле сохраняет форму: без кнопки отправки форма
+                  с несколькими полями по Enter не отправляется. Видимая
+                  кнопка — в полосе сохранения. */}
+              <button
+                type="submit"
+                tabIndex={-1}
+                aria-hidden
+                className="sr-only"
+              />
               {isFired && (firedReason || terminationStatus) && (
                 <FormSection title="Увольнение">
                   {firedReason && (
@@ -831,190 +976,136 @@ export function StaffDetailPage({
                   {terminationStatus}
                 </FormSection>
               )}
-              {/* Личные данные — фото сверху по центру + поля ниже,
-                  в одной карточке. */}
+              {/* Фото меняется на аватаре в шапке карточки. */}
               <FormSection
                 title="Личные данные"
-                description="Фото, имя, фамилия, пол и дата рождения"
                 locked={{ tone: canEditPersonal ? "info" : "locked" }}
               >
-                {/* Фото-блок */}
-                <div className="flex flex-col items-center gap-3 pb-2">
-                  <div className="relative">
-                    {avatarUrl ? (
-                      <img
-                        src={avatarUrl}
-                        alt={displayName}
-                        className="w-28 h-28 rounded-full object-cover bg-muted ring-1 ring-border"
-                      />
-                    ) : (
-                      <div className="w-28 h-28 rounded-full bg-muted flex items-center justify-center text-3xl font-semibold text-muted-foreground ring-1 ring-border">
-                        {displayName.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                    {canEditPersonal && (
-                      <button
-                        type="button"
-                        onClick={() => setPhotoModalOpen(true)}
-                        className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
-                        aria-label={
-                          avatarUrl ? "Изменить фото" : "Загрузить фото"
-                        }
-                      >
-                        <Camera className="w-5 h-5 text-white" />
-                      </button>
-                    )}
-                  </div>
-                  {canEditPersonal && (
-                    <div className="flex items-center gap-3 text-[12px] font-medium">
-                      <button
-                        type="button"
-                        onClick={() => setPhotoModalOpen(true)}
-                        className="text-brand hover:underline"
-                      >
-                        {avatarUrl ? "Изменить фото" : "Загрузить фото"}
-                      </button>
-                      {avatarUrl && (
-                        <>
-                          <span className="text-border" aria-hidden>
-                            ·
-                          </span>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              await updateStaffProfile(profile.id, {
-                                avatar_url: null,
-                              });
-                              setAvatarUrl(null);
-                              toast.success("Фото удалено");
-                            }}
-                            className="text-muted-foreground hover:text-destructive"
-                          >
-                            Удалить
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label
-                      htmlFor="first_name"
-                      className="text-[13px] font-medium"
-                    >
-                      Имя
-                    </Label>
-                    <Input
-                      id="first_name"
-                      {...register("first_name")}
-                      readOnly={!canEditPersonal}
-                      className={!canEditPersonal ? "bg-muted/50" : ""}
-                    />
-                    {errors.first_name && (
-                      <p className="text-xs text-destructive">
-                        {errors.first_name.message}
-                      </p>
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label
-                      htmlFor="last_name"
-                      className="text-[13px] font-medium"
-                    >
-                      Фамилия
-                    </Label>
-                    <Input
-                      id="last_name"
-                      {...register("last_name")}
-                      readOnly={!canEditPersonal}
-                      className={!canEditPersonal ? "bg-muted/50" : ""}
-                    />
-                    {errors.last_name && (
-                      <p className="text-xs text-destructive">
-                        {errors.last_name.message}
-                      </p>
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-[13px] font-medium">Пол</Label>
-                    {canEditPersonal ? (
-                      <Select
-                        defaultValue={profile.gender ?? ""}
-                        onValueChange={(v) =>
-                          setValue("gender", v as "male" | "female" | "")
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Не указан" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="male">Мужской</SelectItem>
-                          <SelectItem value="female">Женский</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    ) : (
+                {/* Обязательные поля отмечены, только пока админ может их
+                    править; зарегистрированный сотрудник ведёт их сам.
+                    items-start: подсказка или ошибка под одним полем не
+                    сдвигает соседнее в строке. */}
+                <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2">
+                  <Field
+                    id="first_name"
+                    label="Имя"
+                    required={canEditPersonal}
+                    error={errors.first_name?.message}
+                  >
+                    {(fieldProps) => (
                       <Input
-                        value={
-                          profile.gender === "male"
-                            ? "Мужской"
-                            : profile.gender === "female"
-                              ? "Женский"
-                              : "—"
-                        }
-                        readOnly
-                        className="bg-muted/50"
+                        {...fieldProps}
+                        aria-required={canEditPersonal || undefined}
+                        {...register("first_name")}
+                        readOnly={!canEditPersonal}
+                        className={!canEditPersonal ? "bg-muted/50" : ""}
                       />
                     )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label
-                      htmlFor="birth_date"
-                      className="text-[13px] font-medium"
-                    >
-                      Дата рождения
-                    </Label>
-                    <Controller
-                      control={control}
-                      name="birth_date"
-                      render={({ field }) => (
-                        <DatePicker
-                          id="birth_date"
-                          value={field.value ?? ""}
-                          onChange={field.onChange}
-                          placeholder="Выберите дату"
-                          readOnly={!canEditPersonal}
-                          toDate={new Date()}
-                        />
-                      )}
-                    />
-                    {/* Подпись «когда был последний раз изменён» — видна всем.
-                        Социальный гард от фрода с ДР: если кто-то перевыставил
-                        дату чтобы получить поздравление повторно, остальные
-                        сотрудники видят, что дата свежая. Сам limit (раз в год)
-                        живёт в trigger'е tg_profiles_birth_date_yearly_limit
-                        (миграция 142) — это про UX, не про защиту. */}
-                    {profile.birth_date_set_at && (
-                      <p className="text-[11px] text-muted-foreground">
-                        Изменено{" "}
-                        {new Date(profile.birth_date_set_at).toLocaleDateString(
-                          "ru-RU",
-                          { day: "2-digit", month: "2-digit", year: "numeric" },
-                        )}
-                      </p>
+                  </Field>
+                  <Field
+                    id="last_name"
+                    label="Фамилия"
+                    required={canEditPersonal}
+                    error={errors.last_name?.message}
+                  >
+                    {(fieldProps) => (
+                      <Input
+                        {...fieldProps}
+                        aria-required={canEditPersonal || undefined}
+                        {...register("last_name")}
+                        readOnly={!canEditPersonal}
+                        className={!canEditPersonal ? "bg-muted/50" : ""}
+                      />
                     )}
-                  </div>
+                  </Field>
+                  <Field
+                    id="gender"
+                    label="Пол"
+                    required={canEditPersonal}
+                    error={errors.gender?.message}
+                    hint={
+                      !canEditPersonal && !isGender(profile.gender)
+                        ? "Сотрудник указывает пол сам, в своём профиле"
+                        : undefined
+                    }
+                  >
+                    {(fieldProps) =>
+                      canEditPersonal ? (
+                        <Controller
+                          control={control}
+                          name="gender"
+                          render={({ field }) => (
+                            <OptionSelect
+                              {...fieldProps}
+                              aria-required
+                              value={field.value}
+                              onValueChange={field.onChange}
+                              placeholder="Выберите пол"
+                              options={GENDER_OPTIONS}
+                            />
+                          )}
+                        />
+                      ) : (
+                        <Input
+                          {...fieldProps}
+                          value={
+                            isGender(profile.gender)
+                              ? GENDER_LABEL[profile.gender]
+                              : "Не указан"
+                          }
+                          readOnly
+                          className="bg-muted/50"
+                        />
+                      )
+                    }
+                  </Field>
+                  {/* Подпись «когда был последний раз изменён» — видна всем.
+                      Социальный гард от фрода с ДР: если кто-то перевыставил
+                      дату чтобы получить поздравление повторно, остальные
+                      сотрудники видят, что дата свежая. Сам limit (раз в год)
+                      живёт в trigger'е tg_profiles_birth_date_yearly_limit
+                      (миграция 142) — это про UX, не про защиту. */}
+                  <Field
+                    id="birth_date"
+                    label="Дата рождения"
+                    hint={
+                      profile.birth_date_set_at
+                        ? `Изменено ${new Date(
+                            profile.birth_date_set_at,
+                          ).toLocaleDateString("ru-RU", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            year: "numeric",
+                          })}`
+                        : undefined
+                    }
+                  >
+                    {(fieldProps) => (
+                      <Controller
+                        control={control}
+                        name="birth_date"
+                        render={({ field }) => (
+                          <DatePicker
+                            {...fieldProps}
+                            value={field.value ?? ""}
+                            onChange={field.onChange}
+                            placeholder="Выберите дату"
+                            readOnly={!canEditPersonal}
+                            toDate={new Date()}
+                          />
+                        )}
+                      />
+                    )}
+                  </Field>
                 </div>
               </FormSection>
 
               {/* Контакты — phone/telegram/email/адрес (всё user-owned) */}
               <FormSection
                 title="Контакты"
-                description="Телефон, мессенджер, email и адрес проживания"
                 locked={{ tone: canEditPersonal ? "info" : "locked" }}
               >
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label htmlFor="phone" className="text-[13px] font-medium">
                       Телефон
@@ -1034,17 +1125,22 @@ export function StaffDetailPage({
                       )}
                     />
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-[13px] font-medium">
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label
+                      htmlFor="staff_email"
+                      className="text-[13px] font-medium"
+                    >
                       Email
                       {isPendingInvite && (
-                        <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-500/15 text-[10px] font-medium text-amber-700 dark:text-amber-300 leading-none">
+                        <StatusBadge tone="warning" className="ml-2">
                           Ожидает подтверждения
-                        </span>
+                        </StatusBadge>
                       )}
                     </Label>
                     <div className="flex items-center gap-2">
                       <Input
+                        id="staff_email"
+                        type="email"
                         value={contactEmail}
                         onChange={(event) =>
                           setContactEmail(event.target.value)
@@ -1064,7 +1160,7 @@ export function StaffDetailPage({
                       {canManageImportedInvite && (
                         <Button
                           type="button"
-                          size="sm"
+                          variant="outline"
                           onClick={handleInviteImported}
                           disabled={isInvitePending || !contactEmail.trim()}
                           className="shrink-0"
@@ -1137,7 +1233,6 @@ export function StaffDetailPage({
               {/* Трудоустройство + PIN — тир 3 (account) + UVR (venue) */}
               <FormSection
                 title="Трудоустройство"
-                description="Должность, дата начала работы и PIN терминала для этого заведения"
               >
                 <div className="space-y-1.5">
                   <Label className="text-[13px] font-medium">Должность</Label>
@@ -1196,7 +1291,7 @@ export function StaffDetailPage({
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label
                       htmlFor="employment_date"
@@ -1250,6 +1345,7 @@ export function StaffDetailPage({
                 description="Видна только админам этого аккаунта"
               >
                 <Textarea
+                  aria-label="Заметка о сотруднике"
                   {...register("comment")}
                   readOnly={!canEdit}
                   className={!canEdit ? "bg-muted/50" : ""}
@@ -1257,33 +1353,34 @@ export function StaffDetailPage({
                   rows={4}
                 />
               </FormSection>
-
-              <div className="flex justify-end pt-1">
-                <Button
-                  type="submit"
-                  disabled={!canEdit || isPending}
-                  variant={canEdit ? "default" : "secondary"}
-                  className={
-                    canEdit
-                      ? ""
-                      : "disabled:opacity-100 text-muted-foreground hover:bg-secondary cursor-default"
-                  }
-                >
-                  {isPending && (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  )}
-                  Сохранить
-                </Button>
-              </div>
             </form>
           </TabsContent>
 
+          {/* ── Оплата ───────────────────────────────────────── */}
+          {canViewPay && (
+            <TabsContent value="pay">
+              <StaffPayPanel userId={profile.id} />
+              {canConfigurePayroll && (
+                <div className="mx-auto mt-5 w-full max-w-[720px]">
+                  <EmployeeDocuments
+                    target={{ userId: profile.id }}
+                    sections={["uniform"]}
+                    onChanged={refreshDocumentHistory}
+                  />
+                </div>
+              )}
+            </TabsContent>
+          )}
+
           {/* ── Документы ────────────────────────────────────── */}
-          <TabsContent value="pay">
-            <StaffPayPanel userId={profile.id} />
-          </TabsContent>
-          <TabsContent value="documents">
-            <div className="mx-auto w-full max-w-[720px] flex flex-col gap-5">
+          {/* После первого открытия остаётся смонтированной: правка медкнижки
+              не теряется при переходе на другую вкладку. */}
+          <TabsContent
+            value="documents"
+            forceMount={documentsVisited || undefined}
+            className="data-[state=inactive]:hidden"
+          >
+            <div className="flex flex-col gap-5">
               {candidateId && (
                 <FormSection title="Анкета кандидата">
                   <Link
@@ -1301,6 +1398,8 @@ export function StaffDetailPage({
               {canConfigurePayroll ? (
                 <EmployeeDocuments
                   target={{ userId: profile.id }}
+                  // Покупки формы — во вкладке «Оплата», если она есть.
+                  sections={canViewPay ? ["medical"] : ["medical", "uniform"]}
                   basic={{
                     userId: profile.id,
                     accountId,
@@ -1384,7 +1483,7 @@ export function StaffDetailPage({
                             <p className="text-[13px] font-medium text-foreground truncate">
                               {name}
                             </p>
-                            <p className="text-[11px] text-muted-foreground">
+                            <p className="text-xs text-muted-foreground">
                               {uploadedAt
                                 ? `Загружен ${formatDate(uploadedAt)}`
                                 : "Файл"}
@@ -1404,9 +1503,9 @@ export function StaffDetailPage({
                           {canEdit && (
                             <button
                               type="button"
-                              onClick={() => handleDeletePassportPhoto(path)}
-                              className="absolute top-2 right-2 size-6 rounded-md bg-background/90 border border-border text-muted-foreground hover:text-destructive flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                              aria-label="Удалить документ"
+                              onClick={() => setDocToDelete({ path, name })}
+                              className="absolute top-2 right-2 size-6 rounded-md bg-background/90 border border-border text-muted-foreground hover:text-destructive flex items-center justify-center opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
+                              aria-label={`Удалить документ: ${name}`}
                             >
                               <X className="w-3.5 h-3.5" />
                             </button>
@@ -1427,6 +1526,7 @@ export function StaffDetailPage({
                 mode="entity"
                 entityType="staff"
                 entityId={profile.id}
+                sections={STAFF_JOURNAL_SECTIONS}
                 canView={canViewAudit}
                 initialEvents={documentAudit?.events ?? initialAuditEvents}
                 initialHasMore={documentAudit?.hasMore ?? initialAuditHasMore}
@@ -1448,105 +1548,101 @@ export function StaffDetailPage({
           )}
 
           {/* ── Опасная зона ────────────────────────────────── */}
-          <TabsContent value="danger">
-            <div className="mx-auto w-full max-w-[780px]">
-              {canEdit && !isMe ? (
-                <div className="rounded-[14px] border bg-card overflow-hidden flex flex-col">
-                  <div className="flex items-center gap-4 px-5 py-4">
-                    <div className="flex items-center justify-center size-9 rounded-lg bg-destructive/10 shrink-0">
-                      <Lock className="w-4 h-4 text-destructive" />
-                    </div>
-                    <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                      <p className="text-[15px] font-semibold text-destructive leading-tight">
-                        Уволить сотрудника
-                      </p>
-                      <p className="text-[13px] text-muted-foreground leading-snug">
-                        Сотрудник потеряет доступ к заведению. Если это
-                        последнее заведение аккаунта, связанные записи Quick
-                        Resto будут удалены, а код замка отозван. Профиль и
-                        история сохраняются.
-                      </p>
-                    </div>
-                    <div className="shrink-0">
-                      <Button
-                        variant="destructive"
-                        onClick={() => setConfirmFire(true)}
-                        disabled={isPending}
-                      >
-                        Уволить
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-[14px] border border-dashed p-10 text-center">
-                  <p className="text-sm font-medium">Опасная зона недоступна</p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {isMe
-                      ? "Себя нельзя уволить."
-                      : "Нужны права администратора."}
-                  </p>
-                </div>
-              )}
-            </div>
-          </TabsContent>
+          {canFire && (
+            <TabsContent value="danger">
+              <ProfileDangerAction
+                icon={Lock}
+                title="Уволить сотрудника"
+                description="Сотрудник потеряет доступ к заведению. Если это последнее заведение аккаунта, связанные записи Quick Resto будут удалены, а код замка отозван. Профиль и история сохраняются."
+                actionLabel="Уволить"
+                onAction={() => {
+                  setFireError(null);
+                  setConfirmFire(true);
+                }}
+                disabled={isPending}
+              />
+            </TabsContent>
+          )}
         </Tabs>
-      </div>
+        </SaveBarScope>
+      </ProfilePageFrame>
 
-      {/* Confirm fire dialog */}
-      <Dialog
+      <ConfirmDialog
+        open={Boolean(docToDelete)}
+        onOpenChange={(open) => {
+          if (!open) setDocToDelete(null);
+        }}
+        title={`Удалить документ «${docToDelete?.name ?? ""}»?`}
+        description="Файл удалится из карточки сотрудника. Вернуть его можно будет только повторной загрузкой."
+        confirmLabel="Удалить документ"
+        pendingLabel="Удаляем…"
+        destructive
+        busy={deletingDoc}
+        onConfirm={() => {
+          if (docToDelete) void handleDeletePassportPhoto(docToDelete.path);
+        }}
+      />
+
+      <ConfirmDialog
         open={confirmFire}
         onOpenChange={(open) => {
           setConfirmFire(open);
-          if (!open) setFireReason("");
+          if (!open) {
+            setFireReason("");
+            setFireError(null);
+          }
         }}
+        title={`Уволить «${displayName}»?`}
+        description="Сотрудник потеряет доступ к этому заведению. Если это последнее заведение аккаунта, удалим связанные записи Quick Resto и отзовём код замка. Профиль и история сохраняются. Повторный найм потребует нового оформления доступа."
+        confirmLabel="Уволить сотрудника"
+        pendingLabel="Увольняем…"
+        destructive
+        busy={isPending}
+        confirmDisabled={fireReason.trim().length === 0}
+        error={fireError}
+        onConfirm={handleFire}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Уволить сотрудника?</DialogTitle>
-            <DialogDescription>
-              «{displayName}» потеряет доступ к этому заведению. Если это
-              последнее заведение аккаунта, удалим связанные записи Quick Resto
-              и отзовём код замка. Профиль и история сохраняются. Повторный найм
-              потребует нового оформления доступа.
-            </DialogDescription>
-          </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="fire_reason" className="text-[13px] font-medium">
+            Причина увольнения <span className="text-destructive">*</span>
+          </Label>
+          <Textarea
+            id="fire_reason"
+            value={fireReason}
+            onChange={(e) => setFireReason(e.target.value)}
+            placeholder="Например: ушёл на другое место, нарушения дисциплины, окончание сезона"
+            rows={3}
+            className="resize-none"
+            required
+          />
+          <p className="text-xs text-muted-foreground">
+            Будет видна в списке уволенных и поможет вспомнить контекст
+          </p>
+        </div>
+      </ConfirmDialog>
 
-          <div className="space-y-2">
-            <Label htmlFor="fire_reason" className="text-[13px] font-medium">
-              Причина увольнения <span className="text-destructive">*</span>
-            </Label>
-            <Textarea
-              id="fire_reason"
-              value={fireReason}
-              onChange={(e) => setFireReason(e.target.value)}
-              placeholder="Например: ушёл на другое место, нарушения дисциплины, окончание сезона"
-              rows={3}
-              className="resize-none"
-              required
-            />
-            <p className="text-[12px] text-muted-foreground">
-              Будет видна в списке уволенных — помогает вспомнить контекст
-            </p>
-          </div>
+      <ConfirmDialog
+        open={confirmRestore}
+        onOpenChange={setConfirmRestore}
+        title={`Восстановить «${displayName}»?`}
+        description="Сотрудник вернётся в список действующих и снова получит доступ к заведению. Для него будут созданы записи в Quick Resto и выдан код замка."
+        confirmLabel="Восстановить сотрудника"
+        pendingLabel="Восстанавливаем…"
+        busy={isPending}
+        onConfirm={handleRestore}
+      />
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmFire(false)}>
-              Отмена
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                setConfirmFire(false);
-                handleFire();
-              }}
-              disabled={isPending || fireReason.trim().length === 0}
-            >
-              Уволить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={confirmPhotoDelete}
+        onOpenChange={setConfirmPhotoDelete}
+        title={`Удалить фото «${displayName}»?`}
+        description="Фото пропадёт из карточки и списка сотрудников. Вернуть его можно будет только повторной загрузкой."
+        confirmLabel="Удалить фото"
+        pendingLabel="Удаляем…"
+        destructive
+        busy={deletingPhoto}
+        onConfirm={() => void deleteAvatar()}
+      />
 
       {/* Photo upload modal */}
       <Dialog
@@ -1560,7 +1656,7 @@ export function StaffDetailPage({
           <DialogHeader>
             <DialogTitle>Фото сотрудника</DialogTitle>
             <DialogDescription>
-              Загрузите фото в формате JPG или PNG. Максимальный размер — 5 МБ.
+              Загрузите фото в формате JPG, PNG или WebP размером до 5 МБ.
             </DialogDescription>
           </DialogHeader>
 
@@ -1581,7 +1677,7 @@ export function StaffDetailPage({
                 <p className="text-[13px] font-medium text-foreground truncate max-w-full">
                   {photoFile.name}
                 </p>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {(photoFile.size / 1024 / 1024).toFixed(2)} МБ — нажмите,
                   чтобы выбрать другой файл
                 </p>
@@ -1592,8 +1688,8 @@ export function StaffDetailPage({
                 <p className="text-[13px] text-muted-foreground">
                   Перетащите файл сюда или нажмите для выбора
                 </p>
-                <p className="text-[11px] text-muted-foreground/70">
-                  JPG, PNG до 5 МБ
+                <p className="text-xs text-muted-foreground/70">
+                  JPG, PNG, WebP до 5 МБ
                 </p>
               </>
             )}
@@ -1611,6 +1707,22 @@ export function StaffDetailPage({
           />
 
           <DialogFooter>
+            {avatarUrl && (
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-destructive hover:text-destructive sm:mr-auto"
+                onClick={() => {
+                  setPhotoModalOpen(false);
+                  setPhotoFile(null);
+                  setConfirmPhotoDelete(true);
+                }}
+                disabled={uploadingAvatar}
+              >
+                <Trash2 className="w-4 h-4" />
+                Удалить фото
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={() => setPhotoModalOpen(false)}
@@ -1681,7 +1793,7 @@ export function StaffDetailPage({
                   <p className="text-[13px] font-medium text-foreground truncate max-w-full">
                     {docFile.name}
                   </p>
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     {(docFile.size / 1024 / 1024).toFixed(2)} МБ — нажмите,
                     чтобы выбрать другой
                   </p>
@@ -1692,7 +1804,7 @@ export function StaffDetailPage({
                   <p className="text-[13px] text-muted-foreground">
                     Перетащите файл или нажмите для выбора
                   </p>
-                  <p className="text-[11px] text-muted-foreground/70">
+                  <p className="text-xs text-muted-foreground/70">
                     JPG, PNG, WebP, HEIC, PDF до 10 МБ
                   </p>
                 </>

@@ -11,7 +11,7 @@ import {
 import {
   CANDIDATE_STAGES,
   STATUSES,
-  STATUS_CLASSES,
+  STATUS_TONES,
   type Candidate,
   type CandidateStatus,
   type Appointment,
@@ -19,7 +19,7 @@ import {
 } from "@/lib/candidates/types";
 import { candidateError } from "@/lib/candidates/errors";
 import { updateCandidate } from "../actions";
-import { StatusBadge } from "./fields";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { CandidateStatusAppointment } from "./candidate-status-appointment";
 
 export type CandidateStatusUpdate = {
@@ -67,10 +67,7 @@ export function CandidateStatusCell({
   };
   if (candidate.status === "hired" || disabled)
     return (
-      <StatusBadge
-        label={STATUSES[status]}
-        className={STATUS_CLASSES[status]}
-      />
+      <StatusBadge tone={STATUS_TONES[status]}>{STATUSES[status]}</StatusBadge>
     );
   return (
     <>
@@ -84,10 +81,9 @@ export function CandidateStatusCell({
           aria-busy={!!pending}
           className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full text-left outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-default"
         >
-          <StatusBadge
-            label={STATUSES[status]}
-            className={STATUS_CLASSES[status]}
-          />
+          <StatusBadge tone={STATUS_TONES[status]} className="min-w-0">
+            {STATUSES[status]}
+          </StatusBadge>
           <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>
@@ -97,13 +93,12 @@ export function CandidateStatusCell({
             <button
               key={value}
               type="button"
-              className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm outline-none hover:bg-accent focus-visible:bg-accent"
+              className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm outline-none hover:bg-accent focus-visible:bg-accent"
               onClick={() => void save(value as CandidateStatus)}
             >
-              <StatusBadge
-                label={label}
-                className={STATUS_CLASSES[value as CandidateStatus]}
-              />
+              <StatusBadge tone={STATUS_TONES[value as CandidateStatus]}>
+                {label}
+              </StatusBadge>
               {value === candidate.status ? (
                 <Check className="size-3.5 text-muted-foreground" />
               ) : null}

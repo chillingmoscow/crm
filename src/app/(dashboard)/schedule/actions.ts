@@ -3,11 +3,14 @@ import { createClient, getCachedActiveAccountId, getCachedPermissions, getCached
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Json } from "@/types/database";
-import type { CandidateCalendarTrial, ScheduleDatabase, ScheduleData } from "@/lib/schedule/types";
-import { asLooseDb } from "@/lib/supabase/loose";
+import type { CandidateCalendarTrial, ScheduleDatabase, ScheduleData, Shift } from "@/lib/schedule/types";
+import { asLooseDb, type LooseQuery, type LooseResult } from "@/lib/supabase/loose";
+import { swapCandidates, type ShiftSwap, type SwapPerson } from "@/lib/schedule/shift-swaps";
 import { validateVariants } from "@/lib/schedule/template-times";
 import type { ShiftAttendanceMark, ShiftAttendanceSnapshot } from "@/lib/payroll/types";
 import { addDays, validDate } from "@/lib/sales/time";
+import { applyShiftReviews } from "@/lib/payroll/shift-attendance";
+import { dateInZone } from "@/lib/schedule/utils";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 const uuid = z.string().uuid();
@@ -126,27 +129,39 @@ export async function loadShiftAttendance(week: string): Promise<Record<string, 
       !permissions.includes("payroll.view") ||
       !permissions.includes("schedule.view_all")) return {};
 
-  const { data, error } = await asLooseDb(createAdminClient())
-    .from<{
-      business_date: string;
-      synced_at: string | null;
-      state: string;
-      missing_shifts: string[] | null;
-      marks: Record<string, ShiftAttendanceSnapshot> | null;
-    }[]>("payroll_source_days")
-    .select("business_date,synced_at,state,missing_shifts:source->missing_shifts,marks:source->shift_attendance")
-    .eq("account_id", accountId)
-    .eq("venue_id", venueId)
-    .gte("business_date", addDays(week, -1))
-    .lte("business_date", addDays(week, 6));
-  if (error) throw new Error("Не удалось загрузить отметки о выходах");
+  const admin = asLooseDb(createAdminClient());
+  const [{ data, error }, reviews] = await Promise.all([
+    admin
+      .from<{
+        business_date: string;
+        synced_at: string | null;
+        state: string;
+        missing_shifts: string[] | null;
+        marks: Record<string, ShiftAttendanceSnapshot> | null;
+      }[]>("payroll_source_days")
+      .select("business_date,synced_at,state,missing_shifts:source->missing_shifts,marks:source->shift_attendance")
+      .eq("account_id", accountId)
+      .eq("venue_id", venueId)
+      .gte("business_date", addDays(week, -1))
+      .lte("business_date", addDays(week, 6)),
+    admin
+      .from<{ shift_id: string; decision: "include" | "exclude" | null; reason: string; reviewed_at: string }[]>(
+        "payroll_schedule_reviews",
+      )
+      .select("shift_id,decision,reason,reviewed_at")
+      .eq("account_id", accountId)
+      .eq("venue_id", venueId)
+      .gte("business_date", addDays(week, -1))
+      .lte("business_date", addDays(week, 6)),
+  ]);
+  if (error || reviews.error) throw new Error("Не удалось загрузить отметки о выходах");
   const result: Record<string, ShiftAttendanceMark> = {};
   for (const day of data ?? []) {
     const context = { date: day.business_date, syncedAt: day.synced_at, sourceState: day.state };
     for (const id of day.missing_shifts ?? []) result[id] = { ...context, state: "missing" };
     for (const [id, mark] of Object.entries(day.marks ?? {})) result[id] = { ...context, ...mark };
   }
-  return result;
+  return applyShiftReviews(result, reviews.data ?? []);
 }
 export async function reviewShiftAttendance(input: {
   shiftId: string;
@@ -184,6 +199,26 @@ export async function loadSchedule(
   ]);
   if (!user) throw new Error("Не авторизован");
   if (!venueId) throw new Error("Выберите заведение");
+  // Без права планирования таблица отдаёт только свои смены; остальную
+  // команду — schedule_team_shifts(): опубликованные смены без заметок и
+  // полей оплаты.
+  const planner = permissions.includes("schedule.view_all");
+  const loadTeam = async () => {
+    const rows: TeamShiftRow[] = [];
+    if (planner) return { data: rows, error: null };
+    for (let start = 0; start < 20000; start += 1000) {
+      let query = asLooseDb(db).rpc("schedule_team_shifts", {
+        p_from: from && to ? from : null,
+        p_to: from && to ? to : null,
+      }) as unknown as LooseQuery<TeamShiftRow[]>;
+      query = query.range(start, start + 999);
+      const { data, error } = await query;
+      if (error) return { data: null, error };
+      rows.push(...(data ?? []));
+      if ((data?.length ?? 0) < 1000) return { data: rows, error: null };
+    }
+    return { data: null, error: { message: "Слишком большая история смен" } };
+  };
   const loadShifts = async () => {
     const rows: ScheduleData["shifts"] = [];
     for (let start = 0; start < 20000; start += 1000) {
@@ -210,6 +245,9 @@ export async function loadSchedule(
     candidateTrials,
     hiddenRoles,
     options,
+    team,
+    teamDepartments,
+    swaps,
   ] = await Promise.all([
     loadShifts(),
     db
@@ -246,6 +284,17 @@ export async function loadSchedule(
     asLooseDb(db).from<{ role_id: string }[]>("schedule_hidden_roles")
       .select("role_id").eq("venue_id", venueId),
     db.rpc("schedule_payroll_options" as never),
+    loadTeam(),
+    planner
+      ? Promise.resolve({ data: [] as { id: string; name: string }[], error: null })
+      : (asLooseDb(db).rpc("schedule_team_departments") as Promise<LooseResult<{ id: string; name: string }[]>>),
+    asLooseDb(db)
+      .from<ShiftSwap[]>("schedule_shift_swaps")
+      .select(SWAP_COLUMNS)
+      .eq("venue_id", venueId)
+      .or(`status.eq.pending,updated_at.gte."${new Date(Date.now() - 30 * 86400000).toISOString()}"`)
+      .order("created_at", { ascending: false })
+      .limit(500),
   ]);
   if (options.error) throw new Error(options.error.message);
   const payrollOptions = options.data as unknown as {
@@ -265,22 +314,42 @@ export async function loadSchedule(
     venue,
     candidateTrials,
     hiddenRoles,
+    team,
+    teamDepartments,
+    swaps,
   ])
     if (r.error)
-      throw new Error("Не удалось загрузить график: " + r.error.message);
+      throw new Error("Не удалось загрузить расписание: " + r.error.message);
   const hidden = new Set(hiddenRoles.data?.map((entry) => entry.role_id));
+  const own = shifts.data ?? [];
+  const ownIds = new Set(own.map((s) => s.id));
+  const teamRows = (team.data ?? []).filter((row) => !ownIds.has(row.id));
+  const teamCasual = new Map<string, NonNullable<ScheduleData["casualEmployees"]>[number]>();
+  for (const row of teamRows)
+    if (row.casual_id && !teamCasual.has(row.casual_id))
+      teamCasual.set(row.casual_id, {
+        id: row.casual_id,
+        name: row.casual_name ?? "Разовый сотрудник",
+        role_id: row.role_id ?? "",
+        role_name: row.casual_role_name ?? "",
+        model_id: null,
+      });
+  const departmentList = departments.data?.length ? departments.data : teamDepartments.data ?? [];
   return {
     venueId,
     timezone: venue.data?.timezone || "Europe/Moscow",
     userId: user.id,
     permissions,
-    shifts: shifts.data ?? [],
+    shifts: [...own, ...teamRows.map((row) => teamShift(row, venueId))].sort(
+      (a, b) => a.starts_at.localeCompare(b.starts_at) || a.id.localeCompare(b.id),
+    ),
+    swaps: swaps.data ?? [],
     candidateTrials: (candidateTrials.data ?? []) as CandidateCalendarTrial[],
     templates: templates.data ?? [],
     checklists: checklists.data ?? [],
     runs: runs.data ?? [],
     qualifications: qualifications.data ?? [],
-    casualEmployees: payrollOptions.employees,
+    casualEmployees: planner ? payrollOptions.employees : [...teamCasual.values()],
     payModels: payrollOptions.models,
     sameDepartmentRateFrom: payrollOptions.same_department_rate_from ?? null,
     staff: (staff.data ?? []).map((s) => ({
@@ -293,9 +362,157 @@ export async function loadSchedule(
       role_name: s.role_name,
       department_id: s.department_id,
     })),
-    departments: departments.data ?? [],
+    departments: departmentList,
     roles: roles.data ?? [],
   };
+}
+type TeamShiftRow = {
+  id: string;
+  user_id: string | null;
+  casual_id: string | null;
+  casual_name: string | null;
+  casual_role_name: string | null;
+  role_id: string | null;
+  department_id: string | null;
+  title: string;
+  color: string;
+  starts_at: string;
+  ends_at: string;
+  version: number;
+  updated_at: string;
+};
+/** Чужая опубликованная смена для сетки: служебные поля пустые. */
+function teamShift(row: TeamShiftRow, venueId: string): Shift {
+  return {
+    id: row.id,
+    venue_id: venueId,
+    user_id: row.user_id,
+    payroll_employee_id: row.casual_id,
+    payroll_model_id: null,
+    role_id: row.role_id,
+    department_id: row.department_id,
+    template_id: null,
+    title: row.title,
+    color: row.color,
+    starts_at: row.starts_at,
+    ends_at: row.ends_at,
+    break_minutes: 0,
+    arrival_minutes: 0,
+    note: "",
+    checklist_snapshots: {},
+    checklist_ids: [],
+    published: true,
+    version: row.version,
+    updated_at: row.updated_at,
+  };
+}
+const SWAP_COLUMNS =
+  "id,shift_id,from_user_id,to_user_id,comment,status,candidate_answer,candidate_answered_at,decided_by,decided_at,decision_comment,version,created_at";
+
+export type SwapCandidate = {
+  user_id: string;
+  name: string;
+  avatar_url: string | null;
+  role_name: string;
+};
+/**
+ * Кто может выйти вместо автора смены. Чужие допуски и смены в других
+ * заведениях сотруднику не видны — читаем их сервисным клиентом, но только
+ * после проверки, что смена его. Окончательная проверка — в RPC.
+ */
+export async function loadSwapCandidates(shiftId: string): Promise<SwapCandidate[]> {
+  if (!uuid.safeParse(shiftId).success) throw new Error("Смена не найдена");
+  const db = await client();
+  const [user, { data: venueId }] = await Promise.all([getCachedUser(), db.rpc("get_active_venue_id")]);
+  if (!user || !venueId) throw new Error("Не авторизован");
+  const { data: shift } = await db
+    .from("schedule_shifts")
+    .select("id,user_id,role_id,starts_at,ends_at,published")
+    .eq("id", shiftId)
+    .eq("venue_id", venueId)
+    .maybeSingle();
+  if (!shift || shift.user_id !== user.id) throw new Error("Замену можно предложить только для своей смены");
+  const admin = asLooseDb(createAdminClient());
+  const [staff, venue] = await Promise.all([
+    db.rpc("get_venue_staff", { p_venue_id: venueId }),
+    db.from("venues").select("timezone").eq("id", venueId).single(),
+  ]);
+  if (staff.error) throw new Error("Не удалось загрузить сотрудников");
+  const people = new Map<string, SwapPerson & SwapCandidate>();
+  for (const s of staff.data ?? []) {
+    const person = people.get(s.user_id);
+    if (person) {
+      person.role_ids.push(s.role_id);
+      if (s.role_id === shift.role_id) person.role_name = s.role_name;
+    } else
+      people.set(s.user_id, {
+        user_id: s.user_id,
+        role_ids: [s.role_id],
+        name: [s.first_name, s.last_name].filter(Boolean).join(" ") || s.role_name,
+        avatar_url: s.avatar_url,
+        role_name: s.role_name,
+      });
+  }
+  const ids = [...people.keys()];
+  const around = (iso: string, days: number) => new Date(Date.parse(iso) + days * 86400000).toISOString();
+  const [qualifications, busy] = await Promise.all([
+    shift.role_id
+      ? admin
+          .from<{ user_id: string; role_id: string }[]>("schedule_qualifications")
+          .select("user_id,role_id")
+          .eq("venue_id", venueId)
+          .eq("role_id", shift.role_id)
+      : Promise.resolve({ data: [], error: null }),
+    admin
+      .from<{ id: string; user_id: string | null; starts_at: string; ends_at: string }[]>("schedule_shifts")
+      .select("id,user_id,starts_at,ends_at")
+      .in("user_id", ids)
+      .gte("ends_at", around(shift.starts_at, -2))
+      .lte("starts_at", around(shift.ends_at, 2)),
+  ]);
+  if (qualifications.error || busy.error) throw new Error("Не удалось подобрать замену");
+  return swapCandidates(shift, [...people.values()], {
+    timezone: venue.data?.timezone || "Europe/Moscow",
+    qualifications: qualifications.data ?? [],
+    busy: busy.data ?? [],
+  })
+    .map(({ user_id, name, avatar_url, role_name }) => ({ user_id, name, avatar_url, role_name }))
+    .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+}
+
+const swapInput = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("request"),
+    shift_id: uuid,
+    to_user_id: uuid,
+    comment: z.string().trim().max(500),
+  }),
+  z.object({ action: z.literal("cancel"), id: uuid, version: z.number().int().positive() }),
+  z.object({
+    action: z.literal("respond"),
+    id: uuid,
+    version: z.number().int().positive(),
+    answer: z.enum(["accepted", "declined"]),
+  }),
+  z.object({ action: z.literal("approve"), id: uuid, version: z.number().int().positive() }),
+  z.object({
+    action: z.literal("reject"),
+    id: uuid,
+    version: z.number().int().positive(),
+    comment: z.string().trim().max(500),
+  }),
+]);
+export type SwapCommandInput = z.input<typeof swapInput>;
+/** Заявка на замену: создать, отозвать, ответить, утвердить, отклонить. */
+export async function swapCommand(input: SwapCommandInput): Promise<{ error?: string }> {
+  const parsed = swapInput.safeParse(input);
+  if (!parsed.success) return { error: "Проверьте заявку" };
+  const { action, ...rest } = parsed.data;
+  const db = await client();
+  const { error } = await asLooseDb(db).rpc("schedule_swap_command", { p_action: action, p_input: rest });
+  if (error) return { error: error.message };
+  revalidatePath("/schedule");
+  return {};
 }
 export async function scheduleCommand(
   action: string,
@@ -422,6 +639,25 @@ export async function applyTemplateToShifts(input: {
   if (error || !data) return { error: error?.message ?? "Не удалось обновить смены" };
   revalidatePath("/schedule");
   return data as ApplyTemplateResult;
+}
+/** Сколько смен по шаблону начинается с даты (по часам заведения) — для окна «Обновить смены». */
+export async function countTemplateShifts(input: { id: string; from: string }): Promise<number> {
+  const parsed = z.object({ id: uuid, from: z.string().refine(validDate) }).safeParse(input);
+  if (!parsed.success) throw new Error("Проверьте шаблон и дату");
+  const db = await client();
+  const { data: venueId } = await db.rpc("get_active_venue_id");
+  if (!venueId) throw new Error("Выберите заведение");
+  const venue = await db.from("venues").select("timezone").eq("id", venueId).single();
+  const timezone = venue.data?.timezone || "Europe/Moscow";
+  // Запас в сутки на часовой пояс, точная граница — по дате заведения.
+  const { data, error } = await db
+    .from("schedule_shifts")
+    .select("starts_at")
+    .eq("venue_id", venueId)
+    .eq("template_id", parsed.data.id)
+    .gte("starts_at", `${addDays(parsed.data.from, -1)}T00:00:00Z`);
+  if (error) throw new Error("Не удалось посчитать смены");
+  return (data ?? []).filter((s) => dateInZone(s.starts_at, timezone) >= parsed.data.from).length;
 }
 export async function scheduleHistory(id: string) {
   const db = await client();

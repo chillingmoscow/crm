@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Trash2, ChevronDown, Clock3 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,10 @@ import {
   saveAutomationSettings,
 } from "../automation-actions";
 import { selectClass } from "./employee-pay";
+import { formatRub } from "@/components/shared/money";
+import { ProfileSection } from "@/components/shared/profile-section";
+import { useSaveSection } from "@/components/shared/save-bar";
+import { SettingsDisclosure } from "./settings-disclosure";
 
 function NumberField({
   id,
@@ -87,16 +91,9 @@ function Section({
   open?: boolean;
 }) {
   return (
-    <details className="group border-t" open={open || undefined}>
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 [&::-webkit-details-marker]:hidden">
-        <div>
-          <h3 className="text-sm font-semibold">{title}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">{summary}</p>
-        </div>
-        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
-      </summary>
-      <div className="space-y-5 px-5 pb-5">{children}</div>
-    </details>
+    <SettingsDisclosure title={title} summary={summary} defaultOpen={open}>
+      {children}
+    </SettingsDisclosure>
   );
 }
 function RolesField({
@@ -120,8 +117,8 @@ function RolesField({
     </div>
   );
 }
-const money = (n: number) =>
-  Number.isFinite(n) ? n.toLocaleString("ru-RU") : "—";
+/** Сумма из настроек: копейки — только если они заданы. */
+const money = (n: number) => formatRub(n, { fraction: !Number.isInteger(n) });
 const date = (value: string) =>
   new Date(value).toLocaleString("ru-RU", {
     timeZone: "Europe/Moscow",
@@ -141,6 +138,51 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
     setRecord(data);
     setConfig(data.current.config);
   }, [venueId]);
+  // Изменения — только правки пользователя. Настройки, заполненные по
+  // прежним (версия 0), полосу не показывают и уход не держат: их можно
+  // сохранить как есть кнопкой у пояснения.
+  const dirty =
+    !!record &&
+    !!config &&
+    JSON.stringify(config) !== JSON.stringify(record.current.config);
+  const parsed = config ? automationSettingsSchema.safeParse(config) : null;
+  const blocked =
+    parsed && !parsed.success
+      ? (parsed.error.issues[0]?.message ?? "Проверьте настройки")
+      : null;
+  const saveSettings = async () => {
+      if (!record || !parsed?.success) return false;
+      setBusy(true);
+      try {
+        await saveAutomationSettings({
+          venueId,
+          version: record.current.version,
+          config: parsed.data,
+        });
+        await reload();
+        toast.success(
+          "Настройки сохранены. Действующие автоматизации работают по-прежнему",
+        );
+        return true;
+      } catch (e) {
+        toast.error(
+          e instanceof Error ? e.message : "Не удалось сохранить настройки",
+        );
+        return false;
+      } finally {
+        setBusy(false);
+      }
+  };
+  // Сохранение — общей полосой `SaveBar` экрана настроек оплаты.
+  const saveBar = useSaveSection({
+    dirty,
+    saving: busy,
+    blocked,
+    reset: () => {
+      if (record) setConfig(record.current.config);
+    },
+    save: saveSettings,
+  });
   useEffect(() => {
     let alive = true;
     void loadAutomationSettings(venueId)
@@ -160,19 +202,18 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
   }, [venueId]);
   if (error)
     return (
-      <p
-        role="alert"
-        className="rounded-xl border p-5 text-sm text-destructive"
-      >
-        {error}
-      </p>
+      <ProfileSection title="Медкнижки, форма и мотивация">
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      </ProfileSection>
     );
   if (!record || !config)
     return (
       <div
         aria-busy="true"
         aria-label="Загрузка настроек автоматизаций"
-        className="h-40 animate-pulse rounded-xl border bg-muted/30"
+        className="h-40 animate-pulse rounded-[14px] border bg-muted/30"
       />
     );
   function change<K extends keyof Config>(
@@ -188,9 +229,6 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
     u = config.uniform,
     t = config.tasks,
     g = config.gifts;
-  const dirty =
-    record.current.version === 0 ||
-    JSON.stringify(config) !== JSON.stringify(record.current.config);
   const holidays = (
     index: number,
     patch: Partial<Config["gifts"]["holidays"][number]>,
@@ -208,55 +246,42 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
       tenure: g.tenure.map((r, i) => (i === index ? { ...r, ...patch } : r)),
     });
   return (
+    <ProfileSection
+      title="Медкнижки, форма и мотивация"
+      description="Общие правила медкнижек и удержаний за форму. Медкнижка лежит во вкладке «Документы» сотрудника, покупки формы во вкладке «Оплата»."
+    >
     <form
-      className="overflow-hidden rounded-xl border"
-      onSubmit={async (event) => {
+      className="flex flex-col gap-4"
+      onSubmit={(event) => {
+        // Enter в поле сохраняет, как кнопка в полосе.
         event.preventDefault();
-        const parsed = automationSettingsSchema.safeParse(config);
-        if (!parsed.success) {
-          toast.error(parsed.error.issues[0]?.message ?? "Проверьте настройки");
-          return;
-        }
-        setBusy(true);
-        try {
-          await saveAutomationSettings({
-            venueId,
-            version: record.current.version,
-            config: parsed.data,
-          });
-          await reload();
-          toast.success("Настройки сохранены. Работа n8n не изменена");
-        } catch (e) {
-          toast.error(
-            e instanceof Error ? e.message : "Не удалось сохранить настройки",
-          );
-        } finally {
-          setBusy(false);
-        }
+        if (dirty && !blocked && !busy) void saveSettings();
       }}
     >
-      <header className="space-y-3 p-5">
+      {record.current.version === 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-semibold">Медкнижки, форма и мотивация</h2>
-          <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
-            Правила заведения
-          </span>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          Общие правила медкнижек и удержаний за форму. Сведения и покупки
-          хранятся во вкладке «Документы» сотрудника.
-        </p>
-        {record.current.version === 0 && (
           <p className="text-sm text-muted-foreground">
-            Заполнено по прежним настройкам CHILLING. Проверьте и сохраните для
-            этого заведения.
+            Заполнено по прежним настройкам. Проверьте и сохраните для этого
+            заведения.
           </p>
-        )}
-      </header>
-      <fieldset disabled={busy} className="min-w-0">
+          {!dirty && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy || !!blocked}
+              onClick={() => void saveSettings()}
+            >
+              {busy ? "Сохраняем…" : "Сохранить как есть"}
+            </Button>
+          )}
+        </div>
+      )}
+      <button type="submit" className="sr-only" tabIndex={-1} aria-hidden="true" />
+      <fieldset disabled={busy} className="flex min-w-0 flex-col gap-4">
         <Section
           title="Медицинские книжки"
-          summary={`Просрочка — ${money(m.expiry_amount)} ₽ один раз за случай`}
+          summary={`Просрочка — ${money(m.expiry_amount)} один раз за случай`}
           open
         >
           <Toggle
@@ -730,33 +755,23 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
             Добавить порог
           </Button>
         </Section>
-        <footer className="flex flex-wrap items-center justify-between gap-4 border-t p-5">
-          <p className="text-xs text-muted-foreground">
-            {record.current.updated_at
-              ? `Версия ${record.current.version} · ${date(record.current.updated_at)}`
-              : "Настройки ещё не сохранены"}
-          </p>
-          <Button disabled={busy || !dirty}>
-            {busy ? "Сохраняем…" : "Сохранить настройки"}
-          </Button>
-        </footer>
       </fieldset>
+      <p className="text-xs text-muted-foreground">
+        {record.current.updated_at
+          ? `Версия ${record.current.version} · ${date(record.current.updated_at)}`
+          : "Настройки ещё не сохранены"}
+      </p>
       {record.history.length > 0 && (
-        <details className="border-t p-5">
-          <summary className="flex cursor-pointer items-center gap-2 text-sm font-medium">
-            <Clock3 className="h-4 w-4 text-muted-foreground" />
-            История настроек
-          </summary>
-          <ol className="mt-4 space-y-3">
+        <SettingsDisclosure title="История настроек">
+          <ol className="space-y-4">
             {record.history.map((row) => (
               <li key={row.version} className="text-sm">
-                <details>
-                  <summary className="cursor-pointer font-medium">
+                  <p className="font-medium">
                     Версия {row.version} · {row.actor_name}
-                  </summary>
+                  </p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {row.updated_at && date(row.updated_at)} · просрочка{" "}
-                    {money(row.config.medical.expiry_amount)} ₽ ·{" "}
+                    {money(row.config.medical.expiry_amount)} ·{" "}
                     {row.config.gifts.holidays.length} праздничных правил ·{" "}
                     {row.config.gifts.tenure.length} порогов стажа
                   </p>
@@ -765,17 +780,18 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
                       <li key={i}>{line}</li>
                     ))}
                   </ul>
-                </details>
               </li>
             ))}
           </ol>
-          <p className="mt-3 text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             Все значения каждой версии сохранены. Изменения также попадают в
             журнал событий.
             {record.history.length === 30 && " Показаны последние 30 версий."}
           </p>
-        </details>
+        </SettingsDisclosure>
       )}
+      {saveBar}
     </form>
+    </ProfileSection>
   );
 }

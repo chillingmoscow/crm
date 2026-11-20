@@ -365,7 +365,7 @@ export function NotificationBell({
           >
             <Bell className="w-[18px] h-[18px]" />
             {unreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-[10px] font-semibold text-destructive-foreground inline-flex items-center justify-center leading-none ring-2 ring-background">
+              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-xs font-semibold text-destructive-foreground inline-flex items-center justify-center leading-none ring-2 ring-background">
                 {unreadCount > 99 ? "99+" : unreadCount}
               </span>
             )}
@@ -415,7 +415,7 @@ export function NotificationBell({
                     : "Уведомления"}
                 </span>
                 {unreadCount > 0 && (
-                  <span className="text-[11px] font-semibold bg-brand/10 text-brand rounded-full px-1.5 leading-5">
+                  <span className="text-xs font-semibold bg-brand/10 text-brand rounded-full px-1.5 leading-5">
                     {unreadCount}
                   </span>
                 )}
@@ -551,7 +551,7 @@ export function NotificationBell({
             {loaded[scope] &&
               hasMore[scope] &&
               filteredList.length >= PAGE_SIZE && (
-                <div className="px-4 py-2 text-center text-[11px] text-muted-foreground">
+                <div className="px-4 py-2 text-center text-xs text-muted-foreground">
                   Прокрутите вниз чтобы загрузить ещё
                 </div>
               )}
@@ -594,7 +594,7 @@ function BucketSection({
     <div>
       <div
         data-notification-bucket
-        className="px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-muted/30 sticky top-0 z-[1]"
+        className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground bg-muted/30 sticky top-0 z-[1]"
       >
         {label}
       </div>

@@ -1,17 +1,18 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { isGender } from "@/lib/people/gender";
 import { useRouter } from "next/navigation";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
-  flexRender,
   getCoreRowModel,
   getSortedRowModel,
   getPaginationRowModel,
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table";
-import { ArrowUp, ArrowDown, ArrowUpDown, RotateCcw, X } from "lucide-react";
+import { RotateCcw, SearchX, UserX, Users, X } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import type {
   StaffMember,
   PendingInvitation,
@@ -19,22 +20,17 @@ import type {
 } from "../actions";
 import { Button } from "@/components/ui/button";
 import {
-  TableControls,
+  DataTable,
+  ROW_MENU_COLUMN_SIZE,
   TableColumnManager,
+  TableConditions,
+  TableControls,
+  TableFilterChip,
   TablePagination,
-  TableControlPin,
-  ResizableTableHead,
+  TableSortPicker,
   useTableState,
 } from "@/components/shared/table";
-import { TableFilterChip } from "@/components/shared/table/table-filter-chip";
-import {
-  TableSortPicker,
-  TableSortSettings,
-} from "@/components/shared/table/table-sort-settings";
-import { useTableColumnResize } from "@/components/shared/table/use-table-column-resize";
 import { PeopleListHeader } from "@/components/people/people-list-header";
-import { PeopleMobileCards } from "@/components/people/people-mobile-cards";
-import styles from "@/components/people/people-table.module.css";
 import type { CasualStaffRow } from "@/lib/payroll/casual-list";
 
 type Row =
@@ -125,8 +121,25 @@ const toConfig = (definitions: StaffColumn[]) =>
     defaultSize: c.size,
     defaultVisible: c.visible,
   }));
+// Контакты, пол, дата рождения и причина увольнения коллег приходят с сервера
+// только при праве на детали сотрудника (миграция 359). Без права эти колонки
+// были бы пустыми — убираем их вместе с поиском и фильтром по ним.
+const personalColumns = new Set<StaffColKey>([
+  "email",
+  "phone",
+  "telegram",
+  "gender",
+  "birth_date",
+  "fired_reason",
+]);
+const withoutPersonal = (definitions: StaffColumn[]) =>
+  definitions.filter((c) => !personalColumns.has(c.id));
+const limitedActiveDefinitions = withoutPersonal(activeDefinitions);
+const limitedFiredDefinitions = withoutPersonal(firedDefinitions);
 const activeConfig = toConfig(activeDefinitions);
 const firedConfig = toConfig(firedDefinitions);
+const limitedActiveConfig = toConfig(limitedActiveDefinitions);
+const limitedFiredConfig = toConfig(limitedFiredDefinitions);
 const labels = Object.fromEntries(
   [...activeDefinitions, ...firedDefinitions].map((c) => [c.id, c.label]),
 );
@@ -136,7 +149,8 @@ const collator = new Intl.Collator("ru", {
 });
 const name = (m: StaffMember | FiredStaffMember) =>
   [m.first_name, m.last_name].filter(Boolean).join(" ") ||
-  m.email.split("@")[0];
+  m.email?.split("@")[0] ||
+  "Без имени";
 function value(row: Row, id: StaffColKey): string | undefined {
   if (row.kind === "casual") {
     const c = row.casual;
@@ -204,9 +218,11 @@ export function StaffTable({
   renderFiredCell,
   renderCasualCell,
   primaryAction,
+  emptyAction,
   secondaryActions,
   overviewPanel,
   canEdit,
+  canSeeDetails,
   isPending,
   onCancelInvitation,
   onRestore,
@@ -224,15 +240,26 @@ export function StaffTable({
   renderFiredCell: (key: StaffColKey, m: FiredStaffMember) => ReactNode;
   renderCasualCell: (key: StaffColKey, c: CasualStaffRow) => ReactNode;
   primaryAction: ReactNode;
+  /** Кнопка в пустом состоянии списка: «Добавить сотрудника», если есть право. */
+  emptyAction?: ReactNode;
   secondaryActions: ReactNode;
   overviewPanel: ReactNode;
   canEdit: boolean;
+  /** people.view_staff + people.view_staff_details: личные данные коллег и
+   *  карточка сотрудника. Без права строки штатных и уволенных не открываются. */
+  canSeeDetails: boolean;
   isPending: boolean;
   onCancelInvitation: (id: string) => void;
   onRestore: (id: string) => void;
 }) {
   const router = useRouter();
-  const definitions = showFired ? firedDefinitions : activeDefinitions;
+  const definitions = canSeeDetails
+    ? showFired
+      ? firedDefinitions
+      : activeDefinitions
+    : showFired
+      ? limitedFiredDefinitions
+      : limitedActiveDefinitions;
   const sortable = new Set(
     definitions.filter((c) => c.id !== "avatar").map((c) => c.id),
   );
@@ -240,7 +267,13 @@ export function StaffTable({
   const st = useTableState({
     tableId: `staff.list.${preferenceKey}${showFired ? ".fired" : ""}`,
     legacyVisibilityKey: showFired ? undefined : "crm-staff-visible-cols",
-    columns: showFired ? firedConfig : activeConfig,
+    columns: canSeeDetails
+      ? showFired
+        ? firedConfig
+        : activeConfig
+      : showFired
+        ? limitedFiredConfig
+        : limitedActiveConfig,
     defaultPageSize: 25,
   });
   // Same chip vocabulary as Candidates; filtering is local because the full venue roster is loaded.
@@ -296,7 +329,10 @@ export function StaffTable({
     const m = row.member;
     return (
       (!filter.role || m.role_id === filter.role) &&
-      (!filter.gender || m.gender === filter.gender) &&
+      (!filter.gender ||
+        (filter.gender === "__none__"
+          ? !isGender(m.gender)
+          : m.gender === filter.gender)) &&
       (!filter.department ||
         (filter.department === "__none__"
           ? !m.department_id
@@ -332,9 +368,9 @@ export function StaffTable({
     ),
     {
       id: "actions",
-      size: showFired ? 152 : 44,
-      minSize: showFired ? 152 : 44,
-      maxSize: showFired ? 152 : 44,
+      size: showFired ? 152 : ROW_MENU_COLUMN_SIZE,
+      minSize: showFired ? 152 : ROW_MENU_COLUMN_SIZE,
+      maxSize: showFired ? 152 : ROW_MENU_COLUMN_SIZE,
       enableHiding: false,
       enableResizing: false,
       cell: ({ row }) =>
@@ -367,6 +403,13 @@ export function StaffTable({
         ) : null,
     },
   ];
+  // Карточка штатного/уволенного требует права на детали (иначе редирект);
+  // разовые открываются в «Зарплате» по своим правам.
+  const opensCard = (
+    row: Row,
+  ): row is Exclude<Row, { kind: "invitation" }> =>
+    row.kind === "casual" ||
+    (row.kind !== "invitation" && canSeeDetails);
   const table = useReactTable({
     data: rows,
     columns,
@@ -392,8 +435,6 @@ export function StaffTable({
     getPaginationRowModel: getPaginationRowModel(),
     autoResetPageIndex: false,
   });
-  const { tableRef, onResizeStart, columnWidths, minTableWidth } =
-    useTableColumnResize(table, st.setColumnSizing);
   const firstPage = () => st.setPagination((p) => ({ ...p, pageIndex: 0 }));
   const changeSorting = (sorting: typeof st.sorting) => {
     st.setSorting(sorting);
@@ -409,6 +450,11 @@ export function StaffTable({
     st.setSorting([]);
     firstPage();
   };
+  // Счётчик — люди, а не строки: приглашения в него не входят. При поиске
+  // или фильтре — «N из M», чтобы число не выдавалось за весь состав.
+  const people = (list: Row[]) => list.filter((r) => r.kind !== "invitation").length;
+  const count =
+    active || q ? `${people(rows)} из ${people(source)}` : people(source);
   const pageCount = Math.max(
     1,
     Math.ceil(rows.length / st.pagination.pageSize),
@@ -421,13 +467,9 @@ export function StaffTable({
   return (
     <>
       <PeopleListHeader
-        title="Сотрудники"
-        count={rows.length}
-        description={
-          showFired
-            ? "Уволенные сотрудники, история и восстановление"
-            : "Состав команды и приглашения в выбранном заведении"
-        }
+        title={showFired ? "Уволенные сотрудники" : "Сотрудники"}
+        crumb="Сотрудники"
+        count={count}
         actions={
           <TableControls
             search={{
@@ -438,10 +480,12 @@ export function StaffTable({
               },
               open: st.searchOpen,
               onOpenChange: st.setSearchOpen,
-              placeholder: "Имя, телефон, email или должность",
+              placeholder: canSeeDetails
+                ? "Имя, телефон, email или должность"
+                : "Имя или должность",
             }}
             filters={{
-              active: filtersVisible || active,
+              active,
               onClick: () => setFiltersVisible((v) => !v),
             }}
             sort={{
@@ -485,236 +529,147 @@ export function StaffTable({
         }
       />
       {overviewPanel}
-      {(filtersVisible || active || q || st.sorting.length > 0) && (
-        <div
-          className="flex flex-wrap items-center gap-2"
-          aria-label="Условия списка сотрудников"
-        >
-          {st.sorting.length > 0 && (
-            <TableControlPin
-              active
-              label={
-                st.sorting.length === 1
-                  ? labels[st.sorting[0].id]
-                  : `${st.sorting.length} сортировки`
-              }
-              icon={<ArrowUpDown />}
-              contentClassName="w-auto p-3"
-            >
-              <TableSortSettings
-                sorting={st.sorting}
-                onChange={changeSorting}
-                fields={fields}
-                labels={labels}
-              />
-            </TableControlPin>
-          )}
-          {(filtersVisible || !!filter.role) && (
-            <TableFilterChip
-              label="Должность"
-              value={filter.role}
-              onChange={(v) => set("role", v)}
-              options={[
-                { value: "", label: "Все должности" },
-                ...(showFired
-                  ? [
-                      ...new Map(
-                        fired.map((m) => [
-                          m.role_id,
-                          { id: m.role_id, name: m.role_name },
-                        ]),
-                      ).values(),
-                    ]
-                  : roles
-                ).map((r) => ({ value: r.id, label: r.name })),
-              ]}
-            />
-          )}
-          {!showFired && (filtersVisible || !!filter.department) && (
-            <TableFilterChip
-              label="Подразделение"
-              value={filter.department}
-              onChange={(v) => set("department", v)}
-              options={[
-                { value: "", label: "Все подразделения" },
-                { value: "__none__", label: "Без подразделения" },
-                ...departments.map((r) => ({ value: r.id, label: r.name })),
-              ]}
-            />
-          )}
-          {!showFired && (filtersVisible || !!filter.gender) && (
-            <TableFilterChip
-              label="Пол"
-              value={filter.gender}
-              onChange={(v) => set("gender", v)}
-              options={[
-                { value: "", label: "Любой пол" },
-                { value: "male", label: "Мужской" },
-                { value: "female", label: "Женский" },
-              ]}
-            />
-          )}
-          {!showFired && (filtersVisible || !!filter.kind) && (
-            <TableFilterChip
-              label="Тип"
-              value={filter.kind}
-              onChange={(v) => set("kind", v)}
-              options={[
-                { value: "", label: "Все сотрудники" },
-                { value: "staff", label: "Штатные" },
-                { value: "casual", label: "Разовые" },
-              ]}
-            />
-          )}
-          {q && (
-            <span className="inline-flex h-8 max-w-64 items-center gap-2 rounded-full border border-brand/20 bg-brand/10 pl-3 pr-2 text-sm text-brand">
-              <span className="truncate">Поиск: «{st.search}»</span>
-              <button
-                type="button"
-                aria-label="Сбросить поиск"
-                onClick={() => {
-                  st.setSearch("");
-                  firstPage();
-                }}
-              >
-                <X className="size-3.5" />
-              </button>
-            </span>
-          )}
-          {(active || q || st.sorting.length > 0) && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
-              onClick={reset}
-            >
-              Очистить все
-            </Button>
-          )}
-        </div>
-      )}
-      <div className={styles.scroll}>
-        <table
-          ref={tableRef}
-          className={styles.table}
-          style={{
-            minWidth: minTableWidth,
-          }}
-          aria-label="Сотрудники"
-        >
-          <ResizableTableHead
-            table={table}
-            onResizeStart={onResizeStart}
-            columnWidths={columnWidths}
-            isControlColumn={(id) => id === "actions"}
-            sortableColumnIds={sortable}
-            onSort={(id) => {
-              const current = st.sorting.find((s) => s.id === id);
-              changeSorting(
-                !current
-                  ? [...st.sorting, { id, desc: false }]
-                  : !current.desc
-                    ? st.sorting.map((s) =>
-                        s.id === id ? { ...s, desc: true } : s,
-                      )
-                    : st.sorting.filter((s) => s.id !== id),
-              );
-            }}
-            headerAriaSort={(id) => {
-              if (!sortable.has(id as StaffColKey)) return undefined;
-              const s = st.sorting.find((s) => s.id === id);
-              return s ? (s.desc ? "descending" : "ascending") : "none";
-            }}
-            headerIndicator={(id) => {
-              const i = st.sorting.findIndex((s) => s.id === id);
-              return i < 0 ? null : (
-                <span className="inline-flex items-center gap-0.5">
-                  {st.sorting[i].desc ? (
-                    <ArrowDown className="size-3" />
-                  ) : (
-                    <ArrowUp className="size-3" />
-                  )}
-                  {st.sorting.length > 1 && (
-                    <span className="text-[10px]">{i + 1}</span>
-                  )}
-                </span>
-              );
-            }}
-          />
-          <tbody>
-            {table.getRowModel().rows.map((row) => (
-              <tr
-                key={row.id}
-                className={
-                  row.original.kind !== "invitation"
-                    ? "cursor-pointer"
-                    : undefined
-                }
-                onClick={(e) => {
-                  if (
-                    row.original.kind !== "invitation" &&
-                    !(e.target as HTMLElement).closest("button,a,input")
-                  )
-                    router.push(rowHref(row.original));
-                }}
-              >
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id}>
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
-              </tr>
-            ))}
-            {!rows.length && (
-              <tr>
-                <td
-                  colSpan={table.getVisibleLeafColumns().length}
-                  className="!h-32 text-center text-muted-foreground"
-                >
-                  {active || q
-                    ? "По этим условиям сотрудников нет"
-                    : showFired
-                      ? "Уволенных сотрудников нет."
-                      : "Добавьте первого сотрудника или отправьте приглашение."}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <PeopleMobileCards
-        table={table}
-        label={
-          showFired ? "Карточки уволенных сотрудников" : "Карточки сотрудников"
-        }
-        actionsPlacement={showFired ? "footer" : "header"}
-        nameColumn="name"
-        photoColumn="avatar"
-        roleColumn="role"
-        labels={labels}
-        onOpen={(row) => {
-          if (row.original.kind !== "invitation")
-            router.push(rowHref(row.original));
+      <TableConditions
+        label="Условия списка сотрудников"
+        open={filtersVisible}
+        hasFilters={active}
+        sorting={st.sorting}
+        onSortingChange={changeSorting}
+        sortFields={fields}
+        sortLabels={labels}
+        search={st.search}
+        onSearchClear={() => {
+          st.setSearch("");
+          firstPage();
         }}
-        empty={
-          active || q
-            ? "По этим условиям сотрудников нет"
-            : showFired
-              ? "Уволенных сотрудников нет."
-              : "Добавьте первого сотрудника или отправьте приглашение."
-        }
-      />
-      <TablePagination
-        pageIndex={Math.min(st.pagination.pageIndex, pageCount - 1)}
-        pageSize={st.pagination.pageSize}
-        total={rows.length}
-        onPageChange={(pageIndex) =>
-          st.setPagination((p) => ({ ...p, pageIndex }))
-        }
-        onPageSizeChange={(pageSize) =>
-          st.setPagination({ pageIndex: 0, pageSize })
-        }
-      />
+        onReset={reset}
+      >
+        {(filtersVisible || !!filter.role) && (
+          <TableFilterChip
+            label="Должность"
+            value={filter.role}
+            onChange={(v) => set("role", v)}
+            options={[
+              { value: "", label: "Все должности" },
+              ...(showFired
+                ? [
+                    ...new Map(
+                      fired.map((m) => [
+                        m.role_id,
+                        { id: m.role_id, name: m.role_name },
+                      ]),
+                    ).values(),
+                  ]
+                : roles
+              ).map((r) => ({ value: r.id, label: r.name })),
+            ]}
+          />
+        )}
+        {!showFired && (filtersVisible || !!filter.department) && (
+          <TableFilterChip
+            label="Подразделение"
+            value={filter.department}
+            onChange={(v) => set("department", v)}
+            options={[
+              { value: "", label: "Все подразделения" },
+              { value: "__none__", label: "Без подразделения" },
+              ...departments.map((r) => ({ value: r.id, label: r.name })),
+            ]}
+          />
+        )}
+        {!showFired && canSeeDetails && (filtersVisible || !!filter.gender) && (
+          <TableFilterChip
+            label="Пол"
+            value={filter.gender}
+            onChange={(v) => set("gender", v)}
+            options={[
+              { value: "", label: "Любой пол" },
+              { value: "male", label: "Мужской" },
+              { value: "female", label: "Женский" },
+              { value: "__none__", label: "Пол не указан" },
+            ]}
+          />
+        )}
+        {!showFired && (filtersVisible || !!filter.kind) && (
+          <TableFilterChip
+            label="Тип"
+            value={filter.kind}
+            onChange={(v) => set("kind", v)}
+            options={[
+              { value: "", label: "Все сотрудники" },
+              { value: "staff", label: "Штатные" },
+              { value: "casual", label: "Разовые" },
+            ]}
+          />
+        )}
+      </TableConditions>
+      {rows.length === 0 ? (
+        <EmptyState
+          icon={active || q ? SearchX : showFired ? UserX : Users}
+          title={
+            active || q
+              ? "Сотрудники не найдены"
+              : showFired
+                ? "Уволенных сотрудников нет"
+                : "Сотрудников пока нет"
+          }
+          description={
+            active || q
+              ? "Измените поиск или условия списка."
+              : showFired
+                ? "Здесь появятся сотрудники после увольнения."
+                : "Добавьте сотрудника вручную или отправьте приглашение на почту."
+          }
+          action={
+            active || q ? (
+              <Button variant="outline" onClick={reset}>
+                Очистить все
+              </Button>
+            ) : showFired ? undefined : (
+              emptyAction
+            )
+          }
+        />
+      ) : (
+        <>
+        <DataTable
+          table={table}
+          label={showFired ? "Уволенные сотрудники" : "Сотрудники"}
+          labels={labels}
+          onColumnSizingChange={st.setColumnSizing}
+          sorting={st.sorting}
+          onSortingChange={changeSorting}
+          sortable={sortable}
+          onRowClick={(row) => {
+            if (opensCard(row.original)) router.push(rowHref(row.original));
+          }}
+          rowClassName={(row) =>
+            opensCard(row.original) ? undefined : "!cursor-default"
+          }
+          empty="По этим условиям сотрудников нет"
+          mobile={{
+            label: showFired
+              ? "Карточки уволенных сотрудников"
+              : "Карточки сотрудников",
+            nameColumn: "name",
+            photoColumn: "avatar",
+            roleColumn: "role",
+            actionsPlacement: showFired ? "footer" : "header",
+          }}
+        />
+        <TablePagination
+          pageIndex={Math.min(st.pagination.pageIndex, pageCount - 1)}
+          pageSize={st.pagination.pageSize}
+          total={rows.length}
+          onPageChange={(pageIndex) =>
+            st.setPagination((p) => ({ ...p, pageIndex }))
+          }
+          onPageSizeChange={(pageSize) =>
+            st.setPagination({ pageIndex: 0, pageSize })
+          }
+        />
+        </>
+      )}
     </>
   );
 }

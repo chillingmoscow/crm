@@ -1,18 +1,19 @@
 "use client";
+import { ColorDot } from "@/components/ui/color-dot";
 import { useId, useState } from "react";
 import { shiftAssignee, assignmentFields } from "@/lib/schedule/types";
 import { casualPayModel } from "@/lib/schedule/casual-pay-model";
-import { Plus, Trash2, ArrowUp, ArrowDown, Check } from "lucide-react";
+import { Plus, Trash2, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
 import { OptionSelect } from "@/components/ui/option-select";
 import { EmployeePicker } from "./employee-picker";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { DrawerSection } from "@/components/ui/drawer-blocks";
+import { useDiscardGuard } from "@/components/shared/discard-changes-dialog";
 import { PALETTE_COLORS, paletteDot } from "@/lib/palette";
 import { cn } from "@/lib/utils";
 import { shiftTemplateLabel } from "@/lib/schedule/types";
@@ -24,8 +25,6 @@ import {
   type TemplateVariant,
 } from "@/lib/schedule/template-times";
 import type {
-  Checklist,
-  ChecklistItem,
   ScheduleData,
   Shift,
   ShiftTemplate,
@@ -44,7 +43,12 @@ export function Field({
     </label>
   );
 }
-export type Save = (action: string, input: unknown) => Promise<boolean>;
+/** `success` — текст тоста вместо общего «Изменения сохранены». */
+export type Save = (
+  action: string,
+  input: unknown,
+  success?: string,
+) => Promise<boolean>;
 const empty = {
   name: "",
   color: "blue",
@@ -79,6 +83,7 @@ function TimeRange({
       <div className="grid grid-cols-2 gap-4">
         <Field label="Начало">
           <TimePicker
+            label="Начало"
             clearable={false}
             value={start.slice(0, 5)}
             onChange={(v) => onChange({ start_time: v, end_time: end })}
@@ -86,6 +91,7 @@ function TimeRange({
         </Field>
         <Field label="Окончание">
           <TimePicker
+            label="Окончание"
             clearable={false}
             value={end.slice(0, 5)}
             onChange={(v) => onChange({ start_time: start, end_time: v })}
@@ -187,7 +193,9 @@ function Variants({
             <div
               role="group"
               aria-label={`Дни варианта ${index + 1}`}
-              className="flex min-w-0 flex-wrap gap-1"
+              // На телефоне промежуток 8 px: зона нажатия 44×44 у кнопки
+              // 28 px (`touch-target`) не залезает на соседний день.
+              className="flex min-w-0 flex-wrap gap-x-2 gap-y-3 sm:gap-1"
             >
               {WEEKDAYS.map((label, i) => {
                 const day = i + 1;
@@ -200,7 +208,7 @@ function Variants({
                     variant={on ? "default" : "outline"}
                     aria-pressed={on}
                     onClick={() => toggle(index, day)}
-                    className="h-8 min-w-7 px-1 text-xs sm:min-w-9 sm:px-2"
+                    className="touch-target h-8 min-w-7 px-1 text-xs sm:min-w-9 sm:px-2"
                   >
                     {label}
                   </Button>
@@ -212,7 +220,9 @@ function Variants({
                 type="button"
                 variant="ghost"
                 size="icon"
+                className="size-8 text-muted-foreground hover:text-destructive"
                 aria-label={`Удалить вариант ${index + 1}`}
+                data-tip="Удалить вариант"
                 onClick={() => set(variants.filter((_, i) => i !== index))}
               >
                 <Trash2 className="size-4" />
@@ -349,6 +359,7 @@ export function ShiftEditor({
   templateSlot = false,
   copy,
   onClose,
+  onCancel,
   save,
   onEditTemplate,
 }: {
@@ -360,6 +371,8 @@ export function ShiftEditor({
   templateSlot?: boolean;
   copy?: boolean;
   onClose: () => void;
+  /** Закрытие без сохранения («Отмена», крестик, клик мимо). По умолчанию — `onClose`. */
+  onCancel?: () => void;
   save: Save;
   /** Открыть редактор выбранного шаблона поверх формы смены. */
   onEditTemplate?: (template: ShiftTemplate) => void;
@@ -393,7 +406,9 @@ export function ShiftEditor({
   );
   const [who, setWho] = useState(
     shift && !copy
-      ? shiftAssignee(shift)
+      ? // Смена без сотрудника, на которую бросили человека в виде
+        // «По шаблонам»: он уже выбран в форме «Назначить».
+        (shiftAssignee(shift) ?? (templateSlot && canAssign ? (userId ?? null) : null))
       : canAssign
         ? shift
           ? shiftAssignee(shift)
@@ -467,6 +482,14 @@ export function ShiftEditor({
     : null;
   const selectedPayModelName = data.payModels?.find((model) => model.id === selectedPayModel)?.name;
   const [busy, setBusy] = useState(false);
+  // Закрытие с изменениями спрашивает подтверждение: сравниваем с тем, что
+  // было в форме при открытии.
+  const snapshot = JSON.stringify({ value, date, who, note, templateId });
+  const [initialSnapshot] = useState(snapshot);
+  const { guard, dialog } = useDiscardGuard(snapshot !== initialSnapshot);
+  const requestClose = () => {
+    if (!busy) guard(onCancel ?? onClose);
+  };
   const started = shift && data.runs.some((r) => r.shift_id === shift.id);
   const unavailable = new Set(templateSlot
     ? data.shifts.filter((item) => item.id !== shift?.id &&
@@ -474,6 +497,29 @@ export function ShiftEditor({
     : []);
   const selectedEmployee = assignmentFields(who);
   const payrollModelId = casual ? selectedPayModel : null;
+  // Почему главная кнопка неактивна — пишем текстом в подвале: подсказка на
+  // выключенной кнопке не появляется, а без причины непонятно, чего не хватает.
+  const blockedReason =
+    (templateSlot
+    ? !who
+      ? "Выберите сотрудника"
+      : unavailable.has(who)
+        ? "У сотрудника уже есть смена в этот день"
+        : shift && who === shiftAssignee(shift)
+          ? "Выберите другого сотрудника"
+          : null
+    : chosen && !chosenTimes
+      ? "Шаблон не работает в этот день недели"
+      : !chosen && !value.name.trim()
+        ? "Укажите название смены"
+        : canAssign && !who
+          ? "Выберите сотрудника"
+          : null) ??
+    (casual && !templateValue.role_id
+      ? "У смены нет должности"
+      : casual && !selectedPayModel
+        ? "У должности не настроена оплата"
+        : null);
   const commit = async () => {
     setBusy(true);
     const assignment = { ...selectedEmployee, payroll_model_id: payrollModelId };
@@ -524,10 +570,11 @@ export function ShiftEditor({
     </>
   );
   return (
+    <>
     <EditDrawer
       open
       onOpenChange={(o) => {
-        if (!o && !busy) onClose();
+        if (!o) requestClose();
       }}
       title={
         templateSlot ? (shift && shiftAssignee(shift) ? "Замена сотрудника" : "Назначить сотрудника") : copy
@@ -542,20 +589,16 @@ export function ShiftEditor({
         : shift?.published && !copy ? "Смена опубликована — изменения сразу увидит сотрудник" : undefined}
       footer={
         <>
-          <Button variant="outline" onClick={onClose} disabled={busy}>
+          <Button variant="outline" onClick={requestClose} disabled={busy}>
             Отмена
           </Button>
+          {blockedReason && !busy ? (
+            <p className="order-first mr-auto text-xs text-muted-foreground">
+              {blockedReason}
+            </p>
+          ) : null}
           <Button
-            disabled={
-              busy ||
-              (!templateSlot && !!chosen && !chosenTimes) ||
-              (!templateSlot && canAssign && !who) ||
-              (!templateSlot && !chosen && !value.name.trim()) ||
-              (templateSlot && (!who || unavailable.has(who))) ||
-              // Замена на того же сотрудника ничего не меняет.
-              (templateSlot && !!shift && who === shiftAssignee(shift)) ||
-              (casual && (!selectedPayModel || !templateValue.role_id))
-            }
+            disabled={busy || !!blockedReason}
             onClick={commit}
           >
             {busy
@@ -617,7 +660,7 @@ export function ShiftEditor({
                         value: t.id,
                         label: (
                           <span className="flex items-center gap-2">
-                            <span className={cn("size-2.5 shrink-0 rounded-full", paletteDot(t.color))} />
+                            <ColorDot color={t.color} size="md" />
                             <span className="truncate">{shiftTemplateLabel(t)}</span>
                             {times && (
                               <span className="text-xs tabular-nums text-muted-foreground">
@@ -695,6 +738,8 @@ export function ShiftEditor({
         </>
       )}
     </EditDrawer>
+    {dialog}
+    </>
   );
 }
 export function TemplateEditor({
@@ -729,6 +774,12 @@ export function TemplateEditor({
   );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const snapshot = JSON.stringify({ value, variants });
+  const [initialSnapshot] = useState(snapshot);
+  const { guard, dialog } = useDiscardGuard(snapshot !== initialSnapshot);
+  const requestClose = () => {
+    if (!busy) guard(onClose);
+  };
   const commit = async () => {
     const problem = validateVariants(variants);
     setError(problem);
@@ -754,26 +805,31 @@ export function TemplateEditor({
     setBusy(false);
   };
   return (
+    <>
     <EditDrawer
       open
       onOpenChange={(o) => {
-        if (!o && !busy) onClose();
+        if (!o) requestClose();
       }}
       title={
         copy
-          ? "Копировать шаблон"
+          ? "Копия шаблона"
           : template
             ? "Редактирование шаблона"
             : "Новый шаблон"
       }
       footer={
         <>
-          <Button variant="outline" disabled={busy} onClick={onClose}>
+          <Button variant="outline" disabled={busy} onClick={requestClose}>
             Отмена
           </Button>
-          <Button disabled={busy} onClick={commit}>
-            {busy ? "Сохранение…" : "Сохранить шаблон"}
-          </Button>
+          {/* Без названия шаблон не сохранить: кнопка неактивна, причина —
+              в подсказке (DS → «Подсказки»). */}
+          <span data-tip={!value.name.trim() ? "Укажите название" : undefined} className="inline-flex">
+            <Button disabled={busy || !value.name.trim()} onClick={commit}>
+              {busy ? "Сохранение…" : template && !copy ? "Сохранить" : "Создать шаблон"}
+            </Button>
+          </span>
         </>
       }
     >
@@ -807,312 +863,14 @@ export function TemplateEditor({
           }}
         />
           {error && (
-          <p role="alert" className="text-sm text-destructive">{error}</p>
+          <p role="alert" className="text-xs text-destructive">{error}</p>
         )}
       </DrawerSection>
       <DrawerSection title="Назначение">
         <ShiftRoleField data={data} value={value} set={set} />
       </DrawerSection>
     </EditDrawer>
-  );
-}
-function newItem(parent_id: string | null = null): ChecklistItem {
-  return {
-    id: crypto.randomUUID(),
-    title: "",
-    hint: "",
-    kind: "check",
-    required: true,
-    parent_id,
-    min: null,
-    max: null,
-    unit: "",
-    max_length: 500,
-  };
-}
-export function ChecklistEditor({
-  data,
-  checklist,
-  onClose,
-  save,
-}: {
-  data: ScheduleData;
-  checklist?: Checklist;
-  onClose: () => void;
-  save: Save;
-}) {
-  const [value, set] = useState(
-    checklist ?? {
-      name: "",
-      description: "",
-      kind: "opening",
-      department_id: null as string | null,
-      duration: 15,
-      priority: "medium",
-      items: [] as ChecklistItem[],
-    },
-  );
-  const [busy, setBusy] = useState(false);
-  const update = (id: string, patch: Partial<ChecklistItem>) =>
-    set({
-      ...value,
-      items: value.items.map((i) => (i.id === id ? { ...i, ...patch } : i)),
-    });
-  const move = (index: number, delta: number) => {
-    const a = [...value.items];
-    const target = index + delta;
-    if (target < 0 || target >= a.length) return;
-    [a[index], a[target]] = [a[target], a[index]];
-    set({ ...value, items: a });
-  };
-  const commit = async () => {
-    setBusy(true);
-    if (
-      await save(checklist ? "checklist.edit" : "checklist.create", {
-        ...value,
-        ...(checklist ? { id: checklist.id, version: checklist.version } : {}),
-      })
-    )
-      onClose();
-    setBusy(false);
-  };
-  return (
-    <EditDrawer
-      open
-      onOpenChange={(o) => {
-        if (!o && !busy) onClose();
-      }}
-      title={checklist ? "Редактирование чек-листа" : "Новый чек-лист"}
-      description="После изменения чек-лист нужно опубликовать. Начатые выполнения сохранят прежнюю версию."
-      footer={
-        <>
-          <Button variant="outline" disabled={busy} onClick={onClose}>
-            Отмена
-          </Button>
-          <Button disabled={busy} onClick={commit}>
-            {busy ? "Сохранение…" : "Сохранить черновик"}
-          </Button>
-        </>
-      }
-    >
-      <Field label="Название">
-        <Input
-          value={value.name}
-          maxLength={160}
-          onChange={(e) => set({ ...value, name: e.target.value })}
-        />
-      </Field>
-      <Field label="Описание">
-        <Textarea
-          value={value.description}
-          onChange={(e) => set({ ...value, description: e.target.value })}
-        />
-      </Field>
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Тип">
-          <OptionSelect
-            aria-label="Тип"
-            value={value.kind}
-            onValueChange={(kind) => set({ ...value, kind })}
-            options={[
-              { value: "opening", label: "Открытие" },
-              { value: "closing", label: "Закрытие" },
-              { value: "other", label: "Другой" },
-            ]}
-          />
-        </Field>
-        <Field label="Длительность, мин">
-          <Input
-            type="number"
-            min={0}
-            max={1440}
-            value={value.duration}
-            onChange={(e) =>
-              set({ ...value, duration: Number(e.target.value) })
-            }
-          />
-        </Field>
-      </div>
-      <Field label="Подразделение">
-        <OptionSelect
-          aria-label="Подразделение"
-          value={value.department_id ?? ""}
-          onValueChange={(id) => set({ ...value, department_id: id || null })}
-          options={[
-            { value: "", label: "Все подразделения" },
-            ...data.departments.map((d) => ({ value: d.id, label: d.name })),
-          ]}
-        />
-      </Field>
-      <Field label="Приоритет">
-        <OptionSelect
-          aria-label="Приоритет"
-          value={value.priority}
-          onValueChange={(priority) => set({ ...value, priority })}
-          options={[
-            { value: "low", label: "Низкий" },
-            { value: "medium", label: "Средний" },
-            { value: "high", label: "Высокий" },
-          ]}
-        />
-      </Field>
-      <DrawerSection
-        title={`Пункты · ${value.items.length}`}
-        actions={
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => set({ ...value, items: [...value.items, newItem()] })}
-          >
-            <Plus className="size-4 mr-2" />
-            Добавить пункт
-          </Button>
-        }
-      >
-      {!value.items.length && (
-        <p className="text-sm text-muted-foreground">
-          Добавьте задачи, которые сотрудник выполнит во время смены.
-        </p>
-      )}
-      {value.items.map((i, index) => (
-        <div
-          key={i.id}
-          className={cn("grid gap-3 border-b pb-5", i.parent_id && "ml-5")}
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">{index + 1}</span>
-            <Input
-              aria-label={`Название пункта ${index + 1}`}
-              value={i.title}
-              placeholder="Что нужно сделать"
-              onChange={(e) => update(i.id, { title: e.target.value })}
-            />
-            <Button
-              size="icon"
-              variant="ghost"
-              aria-label="Поднять пункт"
-              disabled={index === 0}
-              onClick={() => move(index, -1)}
-            >
-              <ArrowUp className="size-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              aria-label="Опустить пункт"
-              disabled={index === value.items.length - 1}
-              onClick={() => move(index, 1)}
-            >
-              <ArrowDown className="size-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              aria-label="Удалить пункт"
-              onClick={() =>
-                set({
-                  ...value,
-                  items: value.items.filter(
-                    (p) => p.id !== i.id && p.parent_id !== i.id,
-                  ),
-                })
-              }
-            >
-              <Trash2 className="size-4" />
-            </Button>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <OptionSelect
-              aria-label="Тип пункта"
-              value={i.kind}
-              onValueChange={(kind) =>
-                update(i.id, { kind: kind as ChecklistItem["kind"] })
-              }
-              options={[
-                { value: "check", label: "Чекбокс" },
-                { value: "photo", label: "Фотография" },
-                { value: "number", label: "Число" },
-                { value: "text", label: "Текст" },
-                { value: "info", label: "Информация" },
-              ]}
-            />
-            <label className="flex items-center gap-2 text-xs">
-              <Checkbox
-                checked={i.required}
-                disabled={i.kind === "info"}
-                onCheckedChange={(checked) => update(i.id, { required: checked === true })}
-              />
-              Обязательный пункт
-            </label>
-          </div>
-          <Input
-            aria-label="Подсказка"
-            value={i.hint}
-            placeholder="Подсказка сотруднику"
-            onChange={(e) => update(i.id, { hint: e.target.value })}
-          />
-          {i.kind === "number" && (
-            <div className="grid grid-cols-3 gap-2">
-              <Input
-                aria-label="Минимум"
-                type="number"
-                value={i.min ?? ""}
-                placeholder="Минимум"
-                onChange={(e) =>
-                  update(i.id, {
-                    min: e.target.value === "" ? null : Number(e.target.value),
-                  })
-                }
-              />
-              <Input
-                aria-label="Максимум"
-                type="number"
-                value={i.max ?? ""}
-                placeholder="Максимум"
-                onChange={(e) =>
-                  update(i.id, {
-                    max: e.target.value === "" ? null : Number(e.target.value),
-                  })
-                }
-              />
-              <Input
-                aria-label="Единица измерения"
-                value={i.unit}
-                placeholder="°C, ₽…"
-                onChange={(e) => update(i.id, { unit: e.target.value })}
-              />
-            </div>
-          )}
-          {i.kind === "text" && (
-            <Field label="Лимит символов">
-              <Input
-                type="number"
-                min={1}
-                max={10000}
-                value={i.max_length}
-                onChange={(e) =>
-                  update(i.id, { max_length: Number(e.target.value) })
-                }
-              />
-            </Field>
-          )}
-          {!i.parent_id && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="justify-self-start"
-              onClick={() => {
-                const a = [...value.items];
-                a.splice(index + 1, 0, newItem(i.id));
-                set({ ...value, items: a });
-              }}
-            >
-              Добавить подпункт
-            </Button>
-          )}
-        </div>
-      ))}
-      </DrawerSection>
-    </EditDrawer>
+    {dialog}
+    </>
   );
 }

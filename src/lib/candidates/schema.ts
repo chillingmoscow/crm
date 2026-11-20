@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { genderSchema } from "@/lib/people/gender";
 export const uuid = z.string().uuid();
 const text = z.string().trim().max(12000);
 export const candidateInput = z.object({
@@ -33,6 +34,10 @@ export const hireInput = z.object({
   role_id: uuid,
   first_name: z.string().trim().min(1).max(150),
   last_name: z.string().trim().min(1).max(150),
+  // Обязателен для нового сотрудника; проверка в hireCandidate — без пола
+  // проходит только продолжение найма, начатого до того, как пол стал
+  // обязательным (его вход уже сохранён и должен совпасть).
+  gender: genderSchema.optional(),
   employment_date: z.string().date(),
   existing_user_id: uuid.nullable().optional(),
   attendance_source: z.enum(["quickresto", "schedule"]),

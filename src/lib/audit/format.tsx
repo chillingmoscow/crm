@@ -551,6 +551,21 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline:e=><>изменил(а) источник факта работы · {String(e.details.employee_name)}</>,
     buildDetails:e=><div className="text-xs text-muted-foreground"><p>{e.details.source==="excluded"?"Не учитывать в зарплате":e.details.source==="schedule"?"Опубликованный график":"Quick Resto"} · с {String(e.details.valid_from)}</p><p>{String(e.details.reason??"")}</p></div>,
   },
+  "payroll.attendance.reviewed": {
+    icon:Pencil,iconClass:"text-brand bg-brand/10",
+    buildHeadline:e=><>{e.details.status==="ignored"?"исключил(а) выход из расчёта":"подтвердил(а) выход"} · {String(e.details.employee_name??"Сотрудник")}</>,
+    buildDetails:e=><div className="text-xs text-muted-foreground"><p>{formatDate(e.details.business_date)} · отметка Quick Resto</p><p>{String(e.details.reason??"")}</p></div>,
+  },
+  "payroll.missing_shift.reviewed": {
+    icon:Pencil,iconClass:"text-brand bg-brand/10",
+    buildHeadline:e=><>подтвердил(а) невыход · {String(e.details.employee_name??"Сотрудник")}</>,
+    buildDetails:e=><div className="text-xs text-muted-foreground"><p>{formatDate(e.details.business_date)} · смена по графику без отметки</p><p>{String(e.details.reason??"")}</p></div>,
+  },
+  "payroll.schedule_attendance.reviewed": {
+    icon:Pencil,iconClass:"text-brand bg-brand/10",
+    buildHeadline:e=>{const after=e.details.after as Record<string,unknown>|undefined;return <>{after?.decision==="exclude"?"не засчитал(а) смену":"засчитал(а) смену по графику"}</>;},
+    buildDetails:e=>{const after=e.details.after as Record<string,unknown>|undefined;return <div className="text-xs text-muted-foreground"><p>{formatDate(after?.business_date)}</p><p>{String(after?.reason??"")}</p></div>;},
+  },
   "payroll.position.assigned": {
     icon:Pencil,iconClass:"text-brand bg-brand/10",
     buildHeadline:e=><>назначил(а) должность «{String(e.details.role_name)}» · {String(e.details.employee_name)}</>,

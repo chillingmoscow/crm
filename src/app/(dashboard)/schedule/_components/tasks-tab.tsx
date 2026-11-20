@@ -3,9 +3,9 @@
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import { PageFrame } from "@/components/shared/page-frame";
-import { TablePageHeader } from "@/components/shared/table";
 import type { TaskData } from "@/lib/schedule/tasks";
-import { TaskHeaderTarget, TaskTitleTarget } from "./task-header-actions";
+import { TaskTitleTarget } from "./task-header-actions";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 
 function TaskLoading() {
   return (
@@ -26,21 +26,20 @@ const TasksClient = dynamic(
 );
 
 export function ScheduleTasksTab({ initial }: { initial: TaskData }) {
+  // Название открытой задачи нужно только чтобы спрятать путь раздела:
+  // карточка задачи ставит свой «График работы / Задачи / Название», а шапку
+  // с плиткой и вкладками рисует сама (канон карточки сущности).
   const [title, setTitle] = useState<string | null>(null);
-  const [headerTarget, setHeaderTarget] = useState<HTMLDivElement | null>(null);
   return (
     <TaskTitleTarget.Provider value={setTitle}>
+      {title === null && (
+        <Breadcrumbs
+          items={[{ label: "График работы" }, { label: "Задачи" }]}
+        />
+      )}
       <PageFrame className="space-y-6">
-        {title !== null && (
-          <TablePageHeader
-            title={title}
-            actions={<div ref={setHeaderTarget} className="flex flex-wrap items-center gap-2" />}
-          />
-        )}
         <section>
-          <TaskHeaderTarget.Provider value={headerTarget}>
-            <TasksClient initial={initial} />
-          </TaskHeaderTarget.Provider>
+          <TasksClient initial={initial} />
         </section>
       </PageFrame>
     </TaskTitleTarget.Provider>

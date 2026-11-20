@@ -8,11 +8,15 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
 import { cn } from "@/lib/utils";
+import { personInitials } from "@/lib/format/initials";
+import { avatarThumbUrl } from "@/lib/people/avatar-thumb";
 
 /**
  * One photo treatment for people lists: circular crop, complete image on inspection.
  * `src` may be a resized copy; `previewSrc` is the larger copy for the hover card and
  * `fallbackSrc` the original, used when a resized copy fails to load.
+ * A public original passed as `src` is shrunk automatically (`avatarThumbUrl`):
+ * the circle loads a 96px copy, the hover card and a failed copy use the original.
  */
 export function PersonAvatar({
   src: requestedSrc,
@@ -31,13 +35,15 @@ export function PersonAvatar({
   const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set());
   const pick = (...urls: Array<string | null | undefined>) =>
     urls.find((url): url is string => !!url && !failed.has(url)) ?? null;
-  const src = pick(requestedSrc, fallbackSrc);
-  const previewSrc = pick(requestedPreview, fallbackSrc, src);
+  const thumb = avatarThumbUrl(requestedSrc);
+  const src = pick(thumb, requestedSrc, fallbackSrc);
+  const previewSrc = pick(requestedPreview, fallbackSrc, requestedSrc, src);
   const markFailed = (url: string) => setFailed((prev) => new Set(prev).add(url));
   const hasPhoto = !!src;
+  const initial = personInitials(name);
   const fallback = (
     <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
-      {name.trim().charAt(0).toUpperCase() || "?"}
+      {initial}
     </span>
   );
   if (!hasPhoto)
@@ -65,16 +71,19 @@ export function PersonAvatar({
           onFocus={() => setOpen(true)}
           onBlur={() => setOpen(false)}
           className={cn(
-            "block size-9 shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand",
+            // Пока фото грузится, под ним видны те же инициалы на сером круге,
+            // что и у людей без фото, — ячейка не выглядит пустой.
+            "relative flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-brand",
             faded && "opacity-50",
           )}
         >
+          <span aria-hidden="true">{initial}</span>
           <img
             src={src!}
             alt=""
             width={36}
             height={36}
-            className="size-9 rounded-full object-cover"
+            className="absolute inset-0 size-9 rounded-full object-cover"
             loading="lazy"
             decoding="async"
             onError={() => {

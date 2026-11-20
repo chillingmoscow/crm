@@ -114,6 +114,7 @@ export function VenueDetailPage({
   salesConfiguration,
   initialTab,
   canViewStockRules,
+  canConfigurePayroll,
 }: {
   venue: Venue;
   importedFromQuickResto: boolean;
@@ -127,8 +128,10 @@ export function VenueDetailPage({
   initialAuditEvents: AuditEvent[];
   initialAuditHasMore: boolean;
   salesConfiguration: SalesConfiguration | null;
-  initialTab?: 'inventory' | 'audit' | 'sales';
+  initialTab?: 'inventory' | 'audit' | 'sales' | 'payroll';
   canViewStockRules:boolean;
+  /** Вкладка «Оплата труда» — по праву настройки зарплаты, а не продаж. */
+  canConfigurePayroll: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -139,11 +142,20 @@ export function VenueDetailPage({
     initialTab === 'inventory' && canViewStockRules ? 'Инвентаризация'
       : initialTab === 'audit' && canViewAudit ? 'Журнал'
       : initialTab === 'sales' && salesConfiguration ? 'Продажи'
+      : initialTab === 'payroll' && canConfigurePayroll ? 'Оплата труда'
       : 'Основное'
   );
+  // Вкладка «Оплата труда» правится на месте и сохраняется полосой SaveBar:
+  // после первого открытия она остаётся смонтированной, чтобы несохранённые
+  // правки не пропадали при переключении вкладок (DS «SaveBar»).
+  const [payrollVisited, setPayrollVisited] = useState(false);
+  useEffect(() => {
+    if (activeTab === "Оплата труда") setPayrollVisited(true);
+  }, [activeTab]);
   const TABS: Tab[] = [
     ...BASE_TABS,
-    ...(salesConfiguration ? ["Продажи" as const,"Оплата труда" as const] : []),
+    ...(salesConfiguration ? ["Продажи" as const] : []),
+    ...(canConfigurePayroll ? ["Оплата труда" as const] : []),
     ...(canViewStockRules ? ['Инвентаризация' as const] : []),
     ...(canViewAudit ? ["Журнал" as const] : []),
   ];
@@ -494,7 +506,11 @@ export function VenueDetailPage({
       {activeTab === 'Инвентаризация' && <StockSettingsTab key={venue.id} venueId={venue.id}/>}
 
       {/* ── Tab: Журнал ───────────────────────────────────────── */}
-      {activeTab === "Оплата труда" && <PayrollSettings venueId={venue.id}/>}
+      {(activeTab === "Оплата труда" || payrollVisited) && (
+        <div hidden={activeTab !== "Оплата труда"}>
+          <PayrollSettings venueId={venue.id}/>
+        </div>
+      )}
       {activeTab === "Журнал" && (
         <EntityAuditTab
           mode="entity"

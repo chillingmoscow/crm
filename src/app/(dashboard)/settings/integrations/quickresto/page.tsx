@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { checked, integrationPageScope, integrationVenues } from "@/lib/integrations/settings";
 import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import { InventorySyncButton } from "@/app/(dashboard)/inventory/_components/inventory-sync-button";
 import { QuickRestoSettings, type QuickRestoConnection } from "./_components/quickresto-settings";
+
+export const metadata: Metadata = { title: "Quick Resto" };
 
 export default async function QuickRestoIntegrationPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const [scope, venueOptions, params, can] = await Promise.all([integrationPageScope(), integrationVenues(), searchParams, getCachedPermissionChecker()]);

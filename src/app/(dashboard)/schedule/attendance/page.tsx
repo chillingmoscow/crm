@@ -1,8 +1,11 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { loadPayroll } from "@/app/(dashboard)/people/payroll/actions";
 import { getCachedPermissions, getCachedUser } from "@/lib/supabase/server";
 import { validDate } from "@/lib/sales/time";
 import { ScheduleAttendanceClient } from "./attendance-client";
+
+export const metadata: Metadata = { title: "Сверка отметок" };
 
 export default async function AttendancePage({
   searchParams,

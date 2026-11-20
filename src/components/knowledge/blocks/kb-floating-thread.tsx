@@ -41,6 +41,7 @@ import {
   useCommentMentionDropdown,
 } from "@/components/knowledge/blocks/kb-comment-mention-dropdown";
 import { KbMobileCommentSheet } from "@/components/knowledge/blocks/kb-mobile-comment-sheet";
+import { personInitials } from "@/lib/format/initials";
 
 /**
  * Custom Notion-style thread popover с поддержкой:
@@ -625,7 +626,7 @@ function EditCommentRow({
             className={cn(
               "inline-flex items-center justify-center size-7 rounded-full transition-colors",
               text.trim() && !saving
-                ? "bg-brand text-brand-foreground hover:bg-brand/90"
+                ? "bg-brand text-brand-foreground hover:bg-brand-hover"
                 : "bg-muted text-muted-foreground cursor-not-allowed",
             )}
             data-tip="Сохранить (⌘↵)"
@@ -735,7 +736,7 @@ function ReplyInput({
             "inline-flex items-center justify-center size-7 rounded-full",
             "transition-colors shrink-0",
             canSubmit
-              ? "bg-brand text-brand-foreground hover:bg-brand/90"
+              ? "bg-brand text-brand-foreground hover:bg-brand-hover"
               : "bg-muted text-muted-foreground cursor-not-allowed",
           )}
         >
@@ -760,7 +761,7 @@ function Avatar({
   userId?: string;
 }) {
   const name = user?.username ?? "";
-  const initials = getInitials(name);
+  const initials = personInitials(name);
   const inner = user?.avatarUrl ? (
     // eslint-disable-next-line @next/next/no-img-element
     <img
@@ -786,12 +787,6 @@ function Avatar({
   return inner;
 }
 
-function getInitials(name: string): string {
-  if (!name) return "?";
-  const parts = name.trim().split(/\s+/).slice(0, 2);
-  if (parts.length === 0) return "?";
-  return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
-}
 
 /**
  * Рендер comment body с инлайновыми kbStaffMention chip'ами.
@@ -839,7 +834,7 @@ function CommentBodyRenderer({ body }: { body: unknown }) {
               ) {
                 const fullName = it.props.fullName ?? "Без имени";
                 const avatarUrl = it.props.avatarUrl ?? "";
-                const initials = getInitialsForChip(fullName);
+                const initials = personInitials(fullName);
                 return (
                   <a
                     key={i}
@@ -871,11 +866,6 @@ function CommentBodyRenderer({ body }: { body: unknown }) {
   );
 }
 
-function getInitialsForChip(name: string): string {
-  const parts = name.trim().split(/\s+/).slice(0, 2);
-  if (parts.length === 0) return "?";
-  return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
-}
 
 function extractCommentText(body: unknown): string {
   if (!Array.isArray(body)) return "";

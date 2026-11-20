@@ -1,0 +1,147 @@
+/* Контейнер таблицы. По умолчанию без overflow: любой overflow «ловит»
+   position: sticky шапки на себя, и она перестаёт закрепляться к окну.
+   Горизонтальная прокрутка включается классом .scrollX только когда таблица
+   не помещается (см. useTableColumnResize → overflowing). */
+.scroll {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  background: hsl(var(--card));
+}
+.scrollX {
+  overflow-x: auto;
+}
+/* Без overflow контейнер больше не обрезает углы: скругляем крайние ячейки. */
+.table thead th:first-child {
+  border-top-left-radius: calc(var(--radius) - 1px);
+}
+.table thead th:last-child {
+  border-top-right-radius: calc(var(--radius) - 1px);
+}
+.table tbody tr:last-child td:first-child {
+  border-bottom-left-radius: calc(var(--radius) - 1px);
+}
+.table tbody tr:last-child td:last-child {
+  border-bottom-right-radius: calc(var(--radius) - 1px);
+}
+.table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+}
+.table tbody tr {
+  height: 60px;
+}
+.table tbody td {
+  height: 60px;
+  padding: 12px;
+  overflow: hidden;
+  vertical-align: middle;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+.table tbody tr:hover {
+  background: hsl(var(--muted) / 0.3);
+}
+.table tbody tr[data-state="selected"] {
+  background: hsl(var(--brand) / 0.05);
+}
+.table tbody tr[data-state="selected"]:hover {
+  background: hsl(var(--brand) / 0.1);
+}
+.table thead th {
+  white-space: nowrap;
+}
+.table tbody td > span:not([data-state]) {
+  max-width: 100%;
+}
+.mobileCards {
+  display: none;
+}
+@media (max-width: 639px) {
+  .scroll {
+    display: none;
+  }
+  .mobileCards {
+    display: grid;
+    gap: 12px;
+    min-width: 0;
+  }
+  .mobileCard {
+    min-width: 0;
+    padding: 16px;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    background: hsl(var(--card));
+    font-size: 14px;
+    line-height: 20px;
+  }
+  .mobileCardSelected {
+    border-color: hsl(var(--brand) / 0.4);
+    background: hsl(var(--brand) / 0.04);
+  }
+  .cardName {
+    font-weight: 500;
+    overflow-wrap: anywhere;
+  }
+  .cardName > div {
+    flex-wrap: wrap;
+  }
+  .cardName a,
+  .cardName > div > :first-child {
+    flex-basis: 100%;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .cardFields {
+    display: grid;
+    gap: 10px;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid hsl(var(--border));
+  }
+  .cardFields > div {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    gap: 12px;
+    align-items: start;
+  }
+  .cardFields dt {
+    color: hsl(var(--muted-foreground));
+    font-size: 12px;
+  }
+  .cardFields dd {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .cardFields dd > * {
+    max-width: 100%;
+    white-space: normal;
+    overflow: visible;
+  }
+}
+/* Строка итогов денежных таблиц: та же сетка, жирнее, над ней линия. */
+.totals td {
+  height: 52px;
+  padding: 12px;
+  font-weight: 600;
+  border-top: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.totals td:first-child {
+  border-bottom-left-radius: calc(var(--radius) - 1px);
+}
+.totals td:last-child {
+  border-bottom-right-radius: calc(var(--radius) - 1px);
+}

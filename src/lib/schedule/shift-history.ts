@@ -72,6 +72,7 @@ const actionTitles: Record<string, string> = {
   "shift.copy": "Создана копией другой смены",
   "shift.publish": "Смена опубликована",
   "shift.delete": "Смена удалена",
+  "shift.swap": "Замена по заявке",
 };
 
 /**

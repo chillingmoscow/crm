@@ -1,55 +1,38 @@
 "use client";
 
-import tabStyle from "@/components/shared/workspace-tabs.module.css";
-import { PageFrame } from "@/components/shared/page-frame";
+import { ProfilePageFrame } from "@/components/shared/page-frame";
+import { ProfileHeader } from "@/components/shared/profile-header";
+import { ProfileSection } from "@/components/shared/profile-section";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { ProfileDangerAction } from "@/components/shared/profile-danger-zone";
+import { SaveBar } from "@/components/shared/save-bar";
 
 import { RoleCompensation } from "../../../payroll/_components/role-compensation";
-import { useMemo, useState, useTransition } from "react";
-import Link from "next/link";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ChevronLeft, Loader2, Lock, Search, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Lock, Trash2 } from "lucide-react";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { deleteRole, setRolePermission, setRoleScheduleVisibility, updateRole } from "../../actions";
+import { Field } from "@/components/ui/field";
+import { OptionSelect } from "@/components/ui/option-select";
+import { Tabs, ProfileTabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { deleteRole, setRoleScheduleVisibility, updateRole } from "../../actions";
 import { setRoleDepartment } from "../../../departments/actions";
-import {
-  metaForModule,
-  sortModuleKeys,
-  INVENTORY_ACTS_MODULES,
-  INVENTORY_ACTS_ANCHOR_MODULE,
-} from "./permission-modules";
-import { InventoryActsPermissionSection } from "./inventory-acts-permission-section";
+import { RolePermissionsTab } from "./role-permissions-tab";
 import { IconPicker } from "../../_components/icon-picker";
 import { iconForRole } from "../../_components/role-icons";
 import { paletteText, type PaletteColor } from "@/lib/palette";
 import {
-  PageBreadcrumb,
   PageHeaderActions,
 } from "@/components/shared/page-header-actions";
 import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
 import type { AuditEvent } from "@/lib/audit/list";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -129,7 +112,11 @@ export function RoleDetailPage({
   // «Основное» — first tab + default by design RbRH4.
   const [activeTab, setActiveTab] = useState<TabKey>(initialCompensation ? "compensation" : "main");
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  // Обновление данных после сохранения — отдельный переход: общий
+  // isPending занят и переключением прав, и откреплением должностей.
+  const [refreshing, startRefresh] = useTransition();
 
   // Settings tab state
   const [nameValue, setNameValue] = useState(role.name);
@@ -149,9 +136,6 @@ export function RoleDetailPage({
     iconColorValue !== (role.icon_color ?? null) ||
     departmentId !== role.department_id;
 
-  // Permissions search
-  const [permQuery, setPermQuery] = useState("");
-
   const isOwner = role.code === "owner";
   // После миграции 138 единственная системная роль — owner. Все остальные
   // (Управляющий/Администратор/Бухгалтер/…) — кастомные per-account.
@@ -159,71 +143,29 @@ export function RoleDetailPage({
   const canEdit = !isOwner;
   const saveDetails = canEdit && detailsDirty;
   const saveVisibility = canEditSchedule && scheduleVisible !== showInSchedule;
-  const isSaveActive = (saveDetails || saveVisibility) &&
-    (!saveDetails || nameValue.trim().length > 0);
+  const isDirty = saveDetails || saveVisibility;
+  const saveBlocked =
+    saveDetails && nameValue.trim().length === 0
+      ? "Укажите название должности"
+      : null;
+  const [saving, setSaving] = useState(false);
+
+  function resetDetails() {
+    setNameValue(role.name);
+    setCommentValue(role.comment ?? "");
+    setScheduleVisible(showInSchedule);
+    setIconValue(role.icon);
+    setIconColorValue(role.icon_color ?? null);
+    setDepartmentId(role.department_id);
+  }
   // Owner и системные роли (после миграции — только owner) не удаляются.
   // Кастомка — физический DELETE.
   const canDelete = !isOwner && !isSystem && accountId !== null;
 
-  // ── Helpers ────────────────────────────────────────────────
-
-  function hasPermission(permId: string): boolean {
-    return rolePermissions.some(
-      (rp) =>
-        rp.role_id === role.id && rp.permission_id === permId && rp.granted,
-    );
-  }
-
-  function applyPermissionLocal(permissionId: string, granted: boolean) {
-    setRolePerms((prev) => {
-      const existing = prev.find((rp) => rp.permission_id === permissionId);
-      if (existing) {
-        return prev.map((rp) =>
-          rp.permission_id === permissionId ? { ...rp, granted } : rp,
-        );
-      }
-      return [...prev, { role_id: role.id, permission_id: permissionId, granted }];
-    });
-  }
-
-  function handleToggle(permissionId: string) {
-    if (!canEdit) return;
-    const next = !hasPermission(permissionId);
-    const previous = !next;
-    applyPermissionLocal(permissionId, next);
-
-    startTransition(async () => {
-      const result = await setRolePermission(role.id, permissionId, next);
-      if (result.error) {
-        toast.error(result.error);
-        applyPermissionLocal(permissionId, previous);
-      }
-    });
-  }
-
-  function handleBulkSet(perms: Permission[], target: boolean) {
-    if (!canEdit) return;
-    // Optimistic UI: set all locally, then fire requests in parallel.
-    const toToggle = perms.filter((p) => hasPermission(p.id) !== target);
-    if (toToggle.length === 0) return;
-    toToggle.forEach((p) => applyPermissionLocal(p.id, target));
-
-    startTransition(async () => {
-      const results = await Promise.all(
-        toToggle.map((p) => setRolePermission(role.id, p.id, target)),
-      );
-      const failed = results.filter((r) => r.error).length;
-      if (failed > 0) {
-        toast.error(`Не удалось обновить ${failed} из ${toToggle.length} прав`);
-        // Roll back failed ones — keep simple: re-fetch best left to caller refresh.
-        router.refresh();
-      }
-    });
-  }
-
-  function handleSave() {
-    if (!isSaveActive) return;
-    startTransition(async () => {
+  async function handleSave() {
+    if (!isDirty || saveBlocked || saving) return;
+    setSaving(true);
+    try {
       if (saveDetails) {
         if (departmentId !== role.department_id) {
           const result = await setRoleDepartment(role.id, departmentId);
@@ -253,15 +195,22 @@ export function RoleDetailPage({
         }
       }
       toast.success("Изменения сохранены");
-      router.refresh();
-    });
+      // Полоса пропадёт, когда придут свежие данные: до этого она остаётся
+      // в состоянии «Сохраняем…», а не снова предлагает сохранить.
+      startRefresh(() => router.refresh());
+    } catch {
+      toast.error("Не удалось сохранить изменения. Проверьте подключение и повторите");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function handleDelete() {
+    setDeleteError(null);
     startTransition(async () => {
       const result = await deleteRole(role.id);
       if (result.error) {
-        toast.error(result.error);
+        setDeleteError(result.error);
         return;
       }
       toast.success("Должность удалена");
@@ -269,99 +218,18 @@ export function RoleDetailPage({
     });
   }
 
-  // ── Derived ────────────────────────────────────────────────
-
-  // Group permissions by module, filtered by search.
-  // Модули кластера «Акты инвентаризации» (документы/интеграция/scope) кроме
-  // якорного НЕ попадают в обычные группы — они отрисованы единой секцией
-  // с уровнями в позиции якоря (см. InventoryActsPermissionSection).
-  const absorbedActsModules = INVENTORY_ACTS_MODULES.filter(
-    (m) => m !== INVENTORY_ACTS_ANCHOR_MODULE,
-  );
-  const groupedPermissions = useMemo(() => {
-    const q = permQuery.toLowerCase().trim();
-    const filtered = q
-      ? permissions.filter((p) => p.description.toLowerCase().includes(q))
-      : permissions;
-    const byModule: Record<string, Permission[]> = {};
-    for (const p of filtered) {
-      if (absorbedActsModules.includes(p.module)) continue;
-      (byModule[p.module] ??= []).push(p);
-    }
-    // Кластер актов рендерится единой карточкой по якорю. Если поиск совпал
-    // ТОЛЬКО с поглощёнными правами (integration/scope, напр. «Quick Resto»),
-    // якорь сам в byModule не попадёт — добавляем плейсхолдер, чтобы карточка
-    // всё равно показалась и право можно было найти (Codex P2 #409).
-    const clusterMatchesQuery =
-      !q ||
-      permissions.some(
-        (p) =>
-          INVENTORY_ACTS_MODULES.includes(p.module) &&
-          p.description.toLowerCase().includes(q),
-      );
-    if (clusterMatchesQuery && !byModule[INVENTORY_ACTS_ANCHOR_MODULE]) {
-      byModule[INVENTORY_ACTS_ANCHOR_MODULE] = [];
-    }
-    return sortModuleKeys(Object.keys(byModule)).map((key) => ({
-      key,
-      meta: metaForModule(key),
-      perms: byModule[key],
-    }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [permissions, permQuery]);
-
-  // Все права кластера «Акты инвентаризации» (без фильтра поиска) — для секции.
-  const inventoryActsPerms = useMemo(
-    () => permissions.filter((p) => INVENTORY_ACTS_MODULES.includes(p.module)),
-    [permissions],
-  );
-
-  function applyInventoryActsCodes(grantCodes: Set<string>) {
-    if (!canEdit) return;
-    const toGrant = inventoryActsPerms.filter(
-      (p) => grantCodes.has(p.code) && !hasPermission(p.id),
-    );
-    const toRevoke = inventoryActsPerms.filter(
-      (p) => !grantCodes.has(p.code) && hasPermission(p.id),
-    );
-    if (toGrant.length === 0 && toRevoke.length === 0) return;
-    toGrant.forEach((p) => applyPermissionLocal(p.id, true));
-    toRevoke.forEach((p) => applyPermissionLocal(p.id, false));
-    startTransition(async () => {
-      const results = await Promise.all([
-        ...toGrant.map((p) => setRolePermission(role.id, p.id, true)),
-        ...toRevoke.map((p) => setRolePermission(role.id, p.id, false)),
-      ]);
-      if (results.some((r) => r.error)) {
-        toast.error("Не удалось обновить часть прав");
-        router.refresh();
-      }
-    });
-  }
-
-  // Total permissions per module (for "X из Y" display, ignoring search filter)
-  const totalsByModule = useMemo(() => {
-    const t: Record<string, number> = {};
-    for (const p of permissions) {
-      t[p.module] = (t[p.module] ?? 0) + 1;
-    }
-    return t;
-  }, [permissions]);
-
   // ── Render ─────────────────────────────────────────────────
 
   return (
     <div className="flex-1 flex flex-col">
       {/* Breadcrumb in layout's top bar (left side) */}
-      <PageBreadcrumb>
-        <Link
-          href="/people/roles"
-          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          Должности
-        </Link>
-      </PageBreadcrumb>
+      <Breadcrumbs
+        items={[
+          { label: "Люди" },
+          { label: "Должности", href: "/people/roles" },
+          { label: role.name },
+        ]}
+      />
 
       {/* Info popover in layout's top bar (right side, next to bell) */}
       <PageHeaderActions>
@@ -376,62 +244,45 @@ export function RoleDetailPage({
       </PageHeaderActions>
 
       {/* Page body */}
-      <PageFrame className="flex flex-col gap-6">
-        {/* Header — без CTA. Save живёт в футере формы на табе «Основное»
-            и появляется только когда есть что сохранять. Это убирает
-            «висящую» disabled-кнопку и микро-shift при переключении табов. */}
-        <div className="flex items-center gap-4 min-w-0">
-          {/* 56px icon-плашка слева от H1 — по аналогии с хедером
-              карточки сотрудника (см. staff-detail-page.tsx). Иконка
-              рендерится через iconForRole (резолвит role.icon из
-              ICON_REGISTRY либо fallback по системному code'у); цвет
-              тинта — из palette по role.icon_color. */}
-          {(() => {
-            const HeaderIcon = iconForRole(role.code, iconValue);
-            const isOwner = role.code === "owner";
-            const tintClass = paletteText(iconColorValue as PaletteColor | null);
-            return (
-              <div
-                className={`shrink-0 w-14 h-14 rounded-2xl flex items-center justify-center ${
-                  isOwner
-                    ? "bg-brand/10 text-brand"
-                    : `bg-muted ${tintClass || "text-muted-foreground"}`
-                }`}
-              >
-                <HeaderIcon className="w-7 h-7" />
-              </div>
-            );
-          })()}
-          <div className="flex flex-col gap-1.5 min-w-0">
-            <div className="flex items-center gap-3 flex-wrap">
-              {/* h1 size matches design (yU4hW/RbRH4: 28px / -0.5 letter-spacing) */}
-              <h1 className="text-[28px] font-[550] tracking-tight leading-tight">
-                {role.name}
-              </h1>
-              {role.venue_id === null && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">
-                  <Lock className="w-2.5 h-2.5" />
-                  <span className="text-[10px] font-medium leading-none">
-                    Системная
-                  </span>
+      <ProfilePageFrame>
+        {(() => {
+          // 56px плитка с иконкой должности вместо фото: сущность не человек.
+          const HeaderIcon = iconForRole(role.code, iconValue);
+          const tintClass = paletteText(iconColorValue as PaletteColor | null);
+          return (
+            <ProfileHeader
+              name={role.name}
+              wrapName
+              avatar={
+                <div
+                  aria-hidden
+                  className={`w-14 h-14 rounded-[14px] flex items-center justify-center ${
+                    isOwner
+                      ? "bg-brand/10 text-brand"
+                      : `bg-muted ${tintClass || "text-muted-foreground"}`
+                  }`}
+                >
+                  <HeaderIcon className="w-7 h-7" />
+                </div>
+              }
+            >
+              {role.comment && (
+                <span className="text-sm text-muted-foreground">
+                  {role.comment}
                 </span>
               )}
-            </div>
-            {role.comment && (
-              <p className="text-sm text-muted-foreground leading-snug">
-                {role.comment}
-              </p>
-            )}
-          </div>
-        </div>
+              {isSystem && (
+                <StatusBadge icon={<Lock />}>Системная</StatusBadge>
+              )}
+            </ProfileHeader>
+          );
+        })()}
 
-        {/* Tabs — «Основное» first per design RbRH4 */}
         <Tabs
-          className={tabStyle.tabs}
           value={activeTab}
           onValueChange={(v) => setActiveTab(v as TabKey)}
         >
-          <TabsList className="justify-start overflow-x-auto">
+          <ProfileTabsList>
             <TabsTrigger value="main">Основное</TabsTrigger>
             <TabsTrigger value="permissions">Права доступа</TabsTrigger>
             <TabsTrigger value="compensation">Оплата труда</TabsTrigger>
@@ -439,151 +290,19 @@ export function RoleDetailPage({
               <TabsTrigger value="history">Журнал</TabsTrigger>
             )}
             {canDelete && (
-              <TabsTrigger
-                value="danger"
-                className="data-[state=active]:text-destructive data-[state=active]:border-destructive"
-              >
-                Опасная зона
-              </TabsTrigger>
+              <TabsTrigger value="danger">Опасная зона</TabsTrigger>
             )}
-          </TabsList>
+          </ProfileTabsList>
 
           {/* ── Permissions ───────────────────────────────────── */}
-          <TabsContent value="permissions" className="space-y-4">
-            {isOwner && (
-              <p className="text-sm text-muted-foreground rounded-lg bg-muted px-4 py-3">
-                Системная должность — права нельзя изменить
-              </p>
-            )}
-
-            {/* Toolbar: search + bulk */}
-            <div className="flex items-center gap-3 flex-wrap">
-              <div className="relative w-full max-w-[280px]">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  value={permQuery}
-                  onChange={(e) => setPermQuery(e.target.value)}
-                  placeholder="Найти право…"
-                  className="pl-9 h-9 text-[13px]"
-                />
-              </div>
-              {canEdit && (
-                <div className="flex items-center gap-1 ml-auto">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleBulkSet(permissions, true)}
-                    disabled={isPending}
-                  >
-                    Выделить всё
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleBulkSet(permissions, false)}
-                    disabled={isPending}
-                  >
-                    Сбросить
-                  </Button>
-                </div>
-              )}
-            </div>
-
-            {/* Module group cards */}
-            {groupedPermissions.length === 0 && (
-              <div className="text-sm text-muted-foreground rounded-lg border border-dashed p-8 text-center">
-                По запросу «{permQuery}» ничего не найдено
-              </div>
-            )}
-            {groupedPermissions.map(({ key, meta, perms }) => {
-              // Кластер «Акты инвентаризации» — единая секция с уровнями
-              // (Исполнитель / Редактор / Полный доступ) вместо простыни галок.
-              if (key === INVENTORY_ACTS_ANCHOR_MODULE) {
-                return (
-                  <InventoryActsPermissionSection
-                    key={key}
-                    clusterPerms={inventoryActsPerms}
-                    isGranted={hasPermission}
-                    canEdit={canEdit}
-                    isPending={isPending}
-                    onToggle={handleToggle}
-                    onApplyCodes={applyInventoryActsCodes}
-                  />
-                );
-              }
-              const Icon = meta.icon;
-              // Master state must reflect the WHOLE module, not the
-              // search-filtered subset — otherwise a fully-granted module
-              // can render the switch as off whenever a query hides some
-              // rows, and toggling would issue spurious bulk writes.
-              const allModulePerms = permissions.filter((p) => p.module === key);
-              const grantedInGroup = allModulePerms.filter((p) =>
-                hasPermission(p.id),
-              ).length;
-              const totalInGroup = totalsByModule[key];
-              const allGranted =
-                totalInGroup > 0 && grantedInGroup === totalInGroup;
-              return (
-                <div
-                  key={key}
-                  className="rounded-[14px] border bg-card overflow-hidden"
-                >
-                  {/* Group header */}
-                  <div className="flex items-center gap-3 bg-muted px-5 py-3.5 border-b">
-                    <div className="flex items-center justify-center size-7 rounded-lg bg-brand/10 shrink-0">
-                      <Icon className="w-4 h-4 text-brand" />
-                    </div>
-                    <span className="text-sm font-semibold">{meta.label}</span>
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold text-muted-foreground bg-secondary border">
-                      {grantedInGroup} из {totalInGroup}
-                    </span>
-                    <div className="flex-1" />
-                    {canEdit && (
-                      <Switch
-                        checked={allGranted}
-                        onCheckedChange={(checked) =>
-                          handleBulkSet(allModulePerms, checked)
-                        }
-                        disabled={isPending}
-                        aria-label={`${meta.label} — переключить все права`}
-                      />
-                    )}
-                  </div>
-
-                  {/* Rows */}
-                  <div>
-                    {perms.map((perm, i) => {
-                      const granted = hasPermission(perm.id);
-                      return (
-                        <div
-                          key={perm.id}
-                          className={`flex items-center gap-3 px-5 py-3 ${
-                            i < perms.length - 1 ? "border-b" : ""
-                          }`}
-                        >
-                          <Checkbox
-                            id={`perm-${perm.id}`}
-                            checked={granted}
-                            disabled={!canEdit}
-                            onCheckedChange={() => handleToggle(perm.id)}
-                          />
-                          <label
-                            htmlFor={`perm-${perm.id}`}
-                            className={`text-[13px] leading-tight select-none ${
-                              !canEdit
-                                ? "cursor-default text-muted-foreground"
-                                : "cursor-pointer text-foreground"
-                            }`}
-                          >
-                            {perm.description}
-                          </label>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
+          <TabsContent value="permissions">
+            <RolePermissionsTab
+              roleId={role.id}
+              permissions={permissions}
+              rolePermissions={rolePermissions}
+              onRolePermissionsChange={setRolePerms}
+              readOnly={!canEdit}
+            />
           </TabsContent>
 
           {/* ── Compensation (stub) ───────────────────────────── */}
@@ -591,35 +310,39 @@ export function RoleDetailPage({
             {role.venue_id ? <RoleCompensation roleId={role.id}/> : <p className="py-8 text-sm text-muted-foreground">Условия оплаты задаются для должности конкретного заведения.</p>}
           </TabsContent>
 
-          {/* ── Main (Основное) — centered form per design c0jKNc.
-                Info card вынесен в popover в header'е (см. PageHeaderActions) */}
-          <TabsContent value="main">
-            <div className="flex justify-center">
-              <div className="w-full max-w-[720px] flex flex-col gap-5">
-                {isSystem && (
-                  <div className="flex items-center gap-2.5 rounded-[10px] px-3.5 py-3 border border-amber-200 bg-amber-50 text-amber-800">
-                    <Lock className="w-4 h-4 shrink-0" />
-                    <p className="text-[13px] font-medium leading-snug">
-                      Это системная должность. Некоторые права и название изменить нельзя.
-                    </p>
-                  </div>
-                )}
-
-                {/* Name (left, flex-1) + Icon picker (right, compact) — matches J0qwQg */}
+          {/* ── Main (Основное). Info card вынесен в popover в топбаре
+                (см. PageHeaderActions). Сохраняет полоса внизу колонки. */}
+          <TabsContent value="main" className="flex flex-col gap-5">
+            <ProfileSection
+              title="Основное"
+              locked={
+                !canEdit
+                  ? { tone: "locked", message: "Системную должность владельца изменить нельзя" }
+                  : undefined
+              }
+            >
+              <form
+                className="flex flex-col gap-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void handleSave();
+                }}
+              >
+                {/* Enter в поле сохраняет форму; видимая кнопка — в полосе. */}
+                <button type="submit" tabIndex={-1} aria-hidden className="sr-only" />
                 <div className="flex items-end gap-2">
-                  <div className="space-y-1.5 flex-1 min-w-0">
-                    <Label htmlFor="role-name" className="text-[13px] font-medium">
-                      Название
-                    </Label>
-                    <Input
-                      id="role-name"
-                      value={nameValue}
-                      onChange={(e) => setNameValue(e.target.value)}
-                      readOnly={!canEdit}
-                      className={!canEdit ? "bg-muted/50" : ""}
-                      placeholder="Название должности"
-                    />
-                  </div>
+                  <Field id="role-name" label="Название" required className="flex-1">
+                    {(control) => (
+                      <Input
+                        {...control}
+                        value={nameValue}
+                        onChange={(e) => setNameValue(e.target.value)}
+                        disabled={!canEdit}
+                        placeholder="Например: Бармен"
+                        maxLength={120}
+                      />
+                    )}
+                  </Field>
                   <IconPicker
                     value={iconValue}
                     color={iconColorValue}
@@ -632,89 +355,68 @@ export function RoleDetailPage({
                   />
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="role-department" className="text-[13px] font-medium">
-                    Подразделение
-                  </Label>
-                  <Select
-                    value={departmentId ?? "__none__"}
-                    onValueChange={(v) => {
-                      if (!canEdit || isSystem) return;
-                      setDepartmentId(v === "__none__" ? null : v);
-                    }}
-                    disabled={!canEdit || isSystem || isPending}
-                  >
-                    <SelectTrigger id="role-department">
-                      <SelectValue placeholder="Без подразделения" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">Без подразделения</SelectItem>
-                      {departments.map((d) => (
-                        <SelectItem key={d.id} value={d.id}>
-                          {d.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {isSystem && (
-                    <p className="text-xs text-muted-foreground">
-                      Системные должности нельзя относить к подразделению.
-                    </p>
+                <Field id="role-comment" label="Описание">
+                  {(control) => (
+                    <Textarea
+                      {...control}
+                      value={commentValue}
+                      onChange={(e) => setCommentValue(e.target.value)}
+                      disabled={!canEdit}
+                      placeholder="Для чего должность, кому назначается"
+                      rows={3}
+                    />
                   )}
-                </div>
+                </Field>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="role-comment" className="text-[13px] font-medium">
-                    Описание
-                  </Label>
-                  <Textarea
-                    id="role-comment"
-                    value={commentValue}
-                    onChange={(e) => setCommentValue(e.target.value)}
-                    readOnly={!canEdit}
-                    className={!canEdit ? "bg-muted/50" : ""}
-                    placeholder="Для чего используется роль, кому назначается…"
-                    rows={4}
-                  />
-                </div>
-
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1">
-                    <Label htmlFor="role-show-in-schedule">Показывать в расписании</Label>
-                    <p className="text-xs text-muted-foreground">
-                      Сотрудники этой должности видны при планировании. Уже назначенные смены остаются в графике.
-                    </p>
-                  </div>
-                  <Switch
-                    id="role-show-in-schedule"
-                    checked={scheduleVisible}
-                    onCheckedChange={setScheduleVisible}
-                    disabled={!canEditSchedule || isPending}
-                  />
-                </div>
-
-                {/* Form footer — Save виден всегда, статус меняется:
-                    активен (brand) когда есть что сохранять, иначе secondary
-                    (#f5f5f5) с приглушённым текстом и без hover. */}
-                <div className="flex justify-end pt-1">
-                  <Button
-                    onClick={handleSave}
-                    variant={isSaveActive ? "default" : "secondary"}
-                    disabled={!isSaveActive || isPending}
-                    className={
-                      isSaveActive
-                        ? ""
-                        : "disabled:opacity-100 text-muted-foreground hover:bg-secondary cursor-default"
+                {/* Владельца в подразделение не включают — поле не показываем. */}
+                {!isSystem && (
+                  <Field
+                    id="role-department"
+                    label="Подразделение"
+                    hint={
+                      departments.length === 0
+                        ? "Подразделений пока нет — их создают в разделе «Подразделения»"
+                        : undefined
                     }
                   >
-                    {isPending && (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    {(control) => (
+                      <OptionSelect
+                        {...control}
+                        value={departmentId ?? ""}
+                        onValueChange={(v) => setDepartmentId(v || null)}
+                        disabled={!canEdit || saving || departments.length === 0}
+                        options={[
+                          { value: "", label: "Без подразделения" },
+                          ...departments.map((d) => ({ value: d.id, label: d.name })),
+                        ]}
+                      />
                     )}
-                    Сохранить
-                  </Button>
+                  </Field>
+                )}
+              </form>
+            </ProfileSection>
+
+            <ProfileSection title="Расписание">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1">
+                  <Label
+                    htmlFor="role-show-in-schedule"
+                    className="text-sm font-medium"
+                  >
+                    Показывать в расписании
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Сотрудники этой должности видны при планировании. Уже назначенные смены остаются в графике.
+                  </p>
                 </div>
+                <Switch
+                  id="role-show-in-schedule"
+                  checked={scheduleVisible}
+                  onCheckedChange={setScheduleVisible}
+                  disabled={!canEditSchedule || saving}
+                />
               </div>
-            </div>
+            </ProfileSection>
           </TabsContent>
 
           {/* ── Журнал ─────────────────────────────────────────── */}
@@ -734,61 +436,42 @@ export function RoleDetailPage({
           {/* ── Danger zone ───────────────────────────────────── */}
           {canDelete && (
             <TabsContent value="danger">
-              <div className="max-w-[720px] mx-auto rounded-[14px] border bg-card p-6 flex flex-col gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <h3 className="text-base font-semibold text-foreground">
-                    Удалить должность
-                  </h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    Должность «{nameValue || role.name}» будет удалена
-                    безвозвратно. Сотрудники с этой ролью потеряют доступ —
-                    переназначьте их перед удалением.
-                  </p>
-                </div>
-                <div>
-                  <Button
-                    variant="destructive"
-                    onClick={() => setConfirmDeleteOpen(true)}
-                    disabled={isPending}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Удалить должность
-                  </Button>
-                </div>
-              </div>
+              <ProfileDangerAction
+                icon={Trash2}
+                title="Удалить должность"
+                description="Должность удалится безвозвратно. Сотрудники этой должности потеряют доступ, поэтому переназначьте их перед удалением."
+                actionLabel="Удалить"
+                onAction={() => setConfirmDeleteOpen(true)}
+                disabled={isPending}
+              />
             </TabsContent>
           )}
         </Tabs>
-      </PageFrame>
 
-      {/* Delete confirmation modal */}
-      <Dialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Удалить должность?</DialogTitle>
-            <DialogDescription>
-              Должность «{nameValue || role.name}» будет удалена. Действие
-              нельзя отменить.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setConfirmDeleteOpen(false)}
-            >
-              Отмена
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={isPending}
-            >
-              <Trash2 className="w-4 h-4" />
-              Удалить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        <SaveBar
+          dirty={isDirty}
+          saving={saving || refreshing}
+          blocked={saveBlocked}
+          onSave={() => void handleSave()}
+          onReset={resetDetails}
+        />
+      </ProfilePageFrame>
+
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        onOpenChange={(open) => {
+          setConfirmDeleteOpen(open);
+          if (!open) setDeleteError(null);
+        }}
+        title={`Удалить должность «${role.name}»?`}
+        description="Действие нельзя отменить. Сотрудники этой должности потеряют доступ."
+        confirmLabel="Удалить должность"
+        pendingLabel="Удаляем…"
+        destructive
+        busy={isPending}
+        error={deleteError}
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }

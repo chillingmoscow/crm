@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { History } from "lucide-react";
 import { formatAmount } from "@/lib/format/amount";
+import { personInitials } from "@/lib/format/initials";
 
 export type InventoryResultJournalEvent = {
   id: string;
@@ -95,12 +96,7 @@ function actorName(actor: InventoryResultJournalEvent["actor"], fallback: string
 }
 
 function actorInitials(actor: InventoryResultJournalEvent["actor"], fallback: string | null) {
-  const source = actorName(actor, fallback);
-  return source
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("") || "S";
+  return personInitials(actorName(actor, fallback));
 }
 
 /**

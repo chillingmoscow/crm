@@ -5,18 +5,25 @@ import { Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "./button";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover";
+import { fieldFocusClass, fieldInvalidClass } from "./field-styles";
 
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
 const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
 
 /** Shared styled HH:mm control, including the compact knowledge property view. */
-export function TimePicker({ value, onChange, id, className, clearable = true, disabled = false }: {
+export function TimePicker({ value, onChange, id, label, className, clearable = true, disabled = false, "aria-describedby": ariaDescribedBy, "aria-invalid": invalid }: {
   value: string;
   onChange: (value: string) => void;
   id?: string;
+  /** Доступное имя поля («Начало», «Окончание»). С `id` и связанным `<Label htmlFor>` не нужно. */
+  label?: string;
   className?: string;
   clearable?: boolean;
   disabled?: boolean;
+  /** Связь с подсказкой/ошибкой из `<Field>`; как у DatePicker, ошибка рисуется через `data-invalid`, `aria-required` не рендерится. */
+  "aria-describedby"?: string;
+  "aria-invalid"?: boolean;
+  "aria-required"?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -24,8 +31,11 @@ export function TimePicker({ value, onChange, id, className, clearable = true, d
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button ref={trigger} id={id} type="button" disabled={disabled} aria-label="Время" className={cn(
-          "flex h-10 w-full min-w-0 items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
+        <button ref={trigger} id={id} type="button" disabled={disabled} aria-label={label ?? (id ? undefined : "Время")}
+          aria-describedby={ariaDescribedBy} data-invalid={invalid || undefined} className={cn(
+          "flex h-10 w-full min-w-0 items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+          fieldFocusClass,
+          fieldInvalidClass,
           className,
         )}>
           <Clock className="size-4 shrink-0 text-muted-foreground" />

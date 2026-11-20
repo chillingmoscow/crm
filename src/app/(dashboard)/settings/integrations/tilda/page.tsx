@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { checked, integrationPageScope } from "@/lib/integrations/settings";
 import { readTildaConnection } from "../actions";
 import { readTelegramSettings } from "../telegram/actions";
 import { TildaSettings } from "./tilda-settings";
+export const metadata: Metadata = { title: "Tilda" };
+
 export default async function TildaPage() {
   const scope = await integrationPageScope();
   const since = new Date(Date.now() - 30 * 86400000).toISOString();

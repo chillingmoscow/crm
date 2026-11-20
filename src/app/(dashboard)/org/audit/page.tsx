@@ -1,9 +1,12 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import { loadAuditFeedPage } from "@/lib/audit/feed";
 import { listAccountStaff } from "@/lib/audit/search-staff";
 import { AuditPageClient } from "./_components/audit-page-client";
+
+export const metadata: Metadata = { title: "Журнал событий" };
 
 /**
  * Общий журнал событий аккаунта. Доступ — permission `org.view_audit`

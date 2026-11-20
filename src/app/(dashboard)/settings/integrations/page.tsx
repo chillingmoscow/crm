@@ -1,11 +1,17 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { checked, integrationPageScope } from "@/lib/integrations/settings";
 import { LocalDateTime } from "@/components/shared/local-date-time";
 import { pluralRu } from "@/lib/format/plural";
-import { IntegrationCallout, IntegrationLayout, IntegrationStatus, type IntegrationTone } from "./_components/integration-layout";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { PageFrame } from "@/components/shared/page-frame";
+import { TablePageHeader } from "@/components/shared/table/table-page-header";
+import { IntegrationStatus, IntegrationWarning, type IntegrationTone } from "./_components/integration-layout";
 import { IntegrationLogo, type IntegrationProvider } from "./_components/integration-logo";
+
+export const metadata: Metadata = { title: "Интеграции" };
 
 type Card = { title: string; provider: IntegrationProvider; href: string; description: string; status: string; tone: IntegrationTone; detail: ReactNode };
 
@@ -29,7 +35,7 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
     { title: "Tilda", provider: "tilda", href: "/settings/integrations/tilda", description: "Анкеты с сайта попадают в кандидатов",
       status: !t ? "Не настроено" : t.enabled ? "Работает" : "Выключено", tone: t?.enabled ? "success" : "neutral",
       detail: t?.last_received_at ? <>Последняя анкета <LocalDateTime value={t.last_received_at} /></> : t ? "Анкет пока не было" : "Подключите форму сайта" },
-    { title: "Telegram", provider: "telegram", href: "/settings/integrations/telegram", description: "Уведомления и чаты сотрудников",
+    { title: "Telegram", provider: "telegram", href: "/settings/integrations/telegram", description: "Уведомления, чаты сотрудников, задачи и график",
       status: !tg ? "Не настроено" : failed ? "Требует внимания" : "Работает", tone: !tg ? "neutral" : failed ? "warning" : "success",
       detail: failed ? `Не доставлено сообщений: ${failed}` : tg?.bot_username ? `@${tg.bot_username}` : tg ? "Бот подключён" : "Подключите бота организации" },
     { title: "Коды замка", provider: "office-codes", href: "/settings/integrations/office-codes", description: "Коды доступа для новых сотрудников",
@@ -43,24 +49,26 @@ export default async function IntegrationsPage({ searchParams }: { searchParams:
       detail: qrReady && qr?.last_tested_at ? <>Проверено <LocalDateTime value={qr.last_tested_at} /></> : qr ? "Подключение не проверено" : "Подключите учётную запись" },
   ];
 
-  return <IntegrationLayout root title="Интеграции" description="Сервисы, подключённые к вашей организации.">
-    {params.quickresto === "done" ? <p role="status" className="text-sm text-emerald-700 dark:text-emerald-400">Импорт из Quick Resto завершён.</p> : null}
-    {failed ? <IntegrationCallout action={<Link href="/settings/integrations/telegram#undelivered" className="shrink-0 text-sm font-medium text-brand hover:underline">Разобраться</Link>}>
-      Telegram не доставил {failed} {pluralRu(failed, "сообщение", "сообщения", "сообщений")}.
-    </IntegrationCallout> : null}
+  return <PageFrame className="flex flex-col gap-6">
+    <Breadcrumbs items={[{ label: "Настройки" }, { label: "Интеграции" }]} />
+    <TablePageHeader title="Интеграции" />
+    {params.quickresto === "done" ? <p role="status" className="text-sm text-emerald-700 dark:text-emerald-400">Загрузка из Quick Resto завершена</p> : null}
+    {failed ? <IntegrationWarning action={<Link href="/settings/integrations/telegram#undelivered" className="shrink-0 text-sm font-medium text-brand hover:underline">Разобраться</Link>}>
+      Telegram не доставил {failed} {pluralRu(failed, "сообщение", "сообщения", "сообщений")}
+    </IntegrationWarning> : null}
     <Group title="Найм" cards={hiring} />
     <Group title="Касса и склад" cards={pos} />
-  </IntegrationLayout>;
+  </PageFrame>;
 }
 
 function Group({ title, cards }: { title: string; cards: Card[] }) {
   return <section aria-label={title} className="space-y-3">
-    <h2 className="text-sm font-medium text-muted-foreground">{title}</h2>
-    <div className="grid gap-3 md:grid-cols-2">{cards.map(card => <Link key={card.title} href={card.href}
-      className="group flex min-w-0 items-center gap-4 rounded-[14px] border bg-card p-4 transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand motion-reduce:transition-none">
+    <h2 className="text-base font-semibold">{title}</h2>
+    <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">{cards.map(card => <Link key={card.title} href={card.href}
+      className="group flex min-w-0 items-center gap-4 rounded-lg border bg-card p-4 transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand motion-reduce:transition-none">
       <IntegrationLogo provider={card.provider} />
       <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex flex-wrap items-center gap-2"><h3 className="text-[15px] font-semibold">{card.title}</h3><IntegrationStatus tone={card.tone}>{card.status}</IntegrationStatus></div>
+        <div className="flex flex-wrap items-center gap-2"><h3 className="text-base font-semibold">{card.title}</h3><IntegrationStatus tone={card.tone}>{card.status}</IntegrationStatus></div>
         <p className="truncate text-[13px] text-muted-foreground">{card.description}</p>
         <p className="truncate text-xs text-muted-foreground">{card.detail}</p>
       </div>

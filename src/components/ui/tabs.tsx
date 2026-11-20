@@ -36,6 +36,11 @@ const ProfileTabsList = React.forwardRef<
     ref={ref}
     className={cn(
       "justify-start overflow-x-auto [&>button]:shrink-0 [&>button:first-child]:ml-auto [&>button:last-child]:mr-auto",
+      // Нижняя линия — внутренняя тень, а не рамка, и вкладки не сдвигаются
+      // на неё `-mb-px`. Иначе содержимое выше строки на 1px, и прокручиваемая
+      // строка показывает вертикальную полосу прокрутки. Подчёркивание
+      // активной вкладки рисуется поверх тени.
+      "border-b-0 shadow-[inset_0_-1px_0_hsl(var(--border))] [&>button]:mb-0",
       className,
     )}
     {...props}
@@ -58,7 +63,9 @@ const TabsTrigger = React.forwardRef<
       "inline-flex items-center justify-center whitespace-nowrap px-4 py-2.5 text-[14px] font-medium",
       "text-muted-foreground hover:text-foreground transition-colors",
       "border-b-2 border-transparent -mb-px",
-      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      // inset: строка вкладок с overflow-x-auto обрезает внешнее кольцо
+      // сверху и снизу, оставляя две синие черты по бокам вкладки.
+      "rounded-t-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
       "disabled:pointer-events-none disabled:opacity-50",
       "data-[state=active]:text-foreground data-[state=active]:border-foreground",
       className

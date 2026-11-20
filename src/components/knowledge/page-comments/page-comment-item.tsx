@@ -28,6 +28,7 @@ import {
 import { CommentBodyRenderer, extractPlainText } from "./comment-body-renderer";
 import { PageCommentComposer } from "./page-comment-composer";
 import { buildCommentLink } from "./page-comment-copy-link";
+import { personInitials } from "@/lib/format/initials";
 
 interface PageCommentUser {
   id: string;
@@ -130,7 +131,7 @@ export function PageCommentItem({
 
   const authorName = author?.fullName ?? "Удалённый пользователь";
   const authorAvatar = author?.avatarUrl ?? null;
-  const initials = getInitials(authorName);
+  const initials = personInitials(authorName);
 
   return (
     <div id={`comment-${comment.id}`} className="group flex items-start gap-2">
@@ -349,11 +350,6 @@ function ReactionRow({
   );
 }
 
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).slice(0, 2);
-  if (parts.length === 0) return "?";
-  return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
-}
 
 /** Краткое относительное время: «5m», «3h», «вчера», «12 янв». */
 function formatRelative(iso: string): string {

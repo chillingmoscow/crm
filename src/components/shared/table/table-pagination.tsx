@@ -74,19 +74,25 @@ export function TablePagination({
           type="button"
           variant="outline"
           size="sm"
+          className="touch-target"
+          aria-label="Предыдущая страница"
+          data-tip="Предыдущая страница"
           disabled={pageIndex <= 0}
           onClick={() => onPageChange(Math.max(0, pageIndex - 1))}
         >
-          <ChevronLeft className="h-4 w-4" />
+          <ChevronLeft aria-hidden className="h-4 w-4" />
         </Button>
         <Button
           type="button"
           variant="outline"
           size="sm"
+          className="touch-target"
+          aria-label="Следующая страница"
+          data-tip="Следующая страница"
           disabled={pageIndex >= totalPages - 1}
           onClick={() => onPageChange(Math.min(totalPages - 1, pageIndex + 1))}
         >
-          <ChevronRight className="h-4 w-4" />
+          <ChevronRight aria-hidden className="h-4 w-4" />
         </Button>
       </div>
     </div>

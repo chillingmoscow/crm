@@ -1,22 +1,17 @@
 "use client";
-import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { ProfileSection } from "@/components/shared/profile-section";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { useSaveSection } from "@/components/shared/save-bar";
+import { Money } from "@/components/shared/money";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
 import { DatePicker } from "@/components/ui/date-picker";
 import { EditDrawer } from "@/components/ui/edit-drawer";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -45,7 +40,6 @@ import { businessDate } from "@/lib/sales/time";
 
 const dateLabel = (v: string | null) =>
   v ? v.split("-").reverse().join(".") : "—";
-const rub = (n: number) => `${n.toLocaleString("ru-RU")} ₽`;
 type BasicMedical = {
   userId: string;
   accountId: string;
@@ -59,10 +53,17 @@ export function EmployeeDocuments({
   target,
   basic,
   onChanged,
+  sections = ["medical", "uniform"],
 }: {
   target: Target;
   basic?: BasicMedical;
   onChanged?: () => void;
+  /**
+   * Какие секции показать. Покупки формы — это удержания из зарплаты, поэтому
+   * в карточке сотрудника они живут во вкладке «Оплата», а медкнижка — в
+   * «Документах».
+   */
+  sections?: ("medical" | "uniform")[];
 }) {
   const [data, setData] = useState<EmployeeDocumentsData | null>(null),
     [loading, setLoading] = useState(true),
@@ -107,11 +108,16 @@ export function EmployeeDocuments({
     onChanged?.();
     return d;
   };
+  const medical = sections.includes("medical"),
+    uniform = sections.includes("uniform");
   if (loading)
     return (
-      <div className="space-y-5" aria-label="Загрузка документов сотрудника">
-        <Skeleton className="h-48 rounded-xl" />
-        <Skeleton className="h-32 rounded-xl" />
+      <div
+        className="space-y-5"
+        aria-label={medical ? "Загрузка документов сотрудника" : "Загрузка покупок формы"}
+      >
+        {medical && <Skeleton className="h-48 rounded-xl" />}
+        {uniform && <Skeleton className="h-32 rounded-xl" />}
       </div>
     );
   if (error)
@@ -128,17 +134,19 @@ export function EmployeeDocuments({
       </div>
     );
   if (!data)
-    return basic ? (
+    return basic && medical ? (
       <BasicMedicalCard basic={basic} onChanged={onChanged} />
     ) : null;
   return (
     <div className="flex min-w-0 flex-col gap-5">
-      <MedicalCard
-        key={`${data.employee.id}.${data.person?.version ?? 0}.${data.medicalNumber}.${data.medicalUntil}`}
-        data={data}
-        onSaved={refresh}
-      />
-      <UniformCard data={data} reload={refresh} />
+      {medical && (
+        <MedicalCard
+          key={`${data.employee.id}.${data.person?.version ?? 0}.${data.medicalNumber}.${data.medicalUntil}`}
+          data={data}
+          onSaved={refresh}
+        />
+      )}
+      {uniform && <UniformCard data={data} reload={refresh} />}
     </div>
   );
 }
@@ -150,7 +158,6 @@ export function BasicMedicalCard({
   basic: BasicMedical;
   onChanged?: () => void;
 }) {
-  const id = useId();
   const [number, setNumber] = useState(basic.number ?? ""),
     [until, setUntil] = useState(basic.until ?? ""),
     [busy, setBusy] = useState(false),
@@ -158,8 +165,9 @@ export function BasicMedicalCard({
       number: basic.number ?? "",
       until: basic.until ?? "",
     });
-  async function save(e: FormEvent) {
-    e.preventDefault();
+  const dirty =
+    basic.canEdit && (number !== saved.number || until !== saved.until);
+  async function save(): Promise<boolean> {
     setBusy(true);
     try {
       const r = await updateStaffAccountDetails(basic.userId, basic.accountId, {
@@ -170,49 +178,59 @@ export function BasicMedicalCard({
       setSaved({ number, until });
       onChanged?.();
       toast.success("Медкнижка сохранена");
+      return true;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Не удалось сохранить");
+      return false;
     } finally {
       setBusy(false);
     }
   }
+  // Сохраняется общей полосой карточки, как и остальные поля.
+  const bar = useSaveSection({
+    dirty,
+    saving: busy,
+    save,
+    reset: () => {
+      setNumber(saved.number);
+      setUntil(saved.until);
+    },
+  });
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (dirty && !busy) void save();
+  };
   return (
+    <>
     <ProfileSection title="Медкнижка">
-      <form onSubmit={(e) => void save(e)} className="space-y-4">
+      <form onSubmit={submit} className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field id={`${id}-number`} label="Номер">
-            <Input
-              id={`${id}-number`}
-              value={number}
-              onChange={(e) => setNumber(e.target.value)}
-              readOnly={!basic.canEdit}
-              maxLength={100}
-            />
+          <Field label="Номер">
+            {(control) => (
+              <Input
+                {...control}
+                value={number}
+                onChange={(e) => setNumber(e.target.value)}
+                readOnly={!basic.canEdit}
+                maxLength={100}
+              />
+            )}
           </Field>
-          <Field id={`${id}-until`} label="Действует до">
-            <DatePicker
-              id={`${id}-until`}
-              value={until}
-              onChange={setUntil}
-              readOnly={!basic.canEdit}
-            />
+          <Field label="Действует до">
+            {(control) => (
+              <DatePicker
+                {...control}
+                value={until}
+                onChange={setUntil}
+                readOnly={!basic.canEdit}
+              />
+            )}
           </Field>
         </div>
-        {basic.canEdit && (
-          <div className="flex justify-end">
-            <Button
-              className="w-full sm:w-auto"
-              type="submit"
-              disabled={
-                busy || (number === saved.number && until === saved.until)
-              }
-            >
-              Сохранить медкнижку
-            </Button>
-          </div>
-        )}
       </form>
     </ProfileSection>
+    {bar}
+    </>
   );
 }
 
@@ -232,7 +250,6 @@ function MedicalCard({
   data: EmployeeDocumentsData;
   onSaved: () => Promise<unknown>;
 }) {
-  const id = useId();
   const initial = initialMedical(data);
   const [form, setForm] = useState(initial),
     [number, setNumber] = useState(data.medicalNumber ?? ""),
@@ -243,8 +260,7 @@ function MedicalCard({
   const dirty =
     JSON.stringify(form) !== JSON.stringify(initial) ||
     number !== (data.medicalNumber ?? "");
-  async function save(e: FormEvent) {
-    e.preventDefault();
+  async function save(): Promise<boolean> {
     setBusy(true);
     try {
       const medical = employeeMedicalSchema.parse(form);
@@ -258,18 +274,34 @@ function MedicalCard({
       });
       await onSaved();
       toast.success("Медкнижка сохранена");
+      return true;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Не удалось сохранить");
+      return false;
     } finally {
       setBusy(false);
     }
   }
+  // Сохраняется общей полосой карточки; на странице без неё — своей.
+  const bar = useSaveSection({
+    dirty,
+    saving: busy,
+    save,
+    reset: () => {
+      setForm(initial);
+      setNumber(data.medicalNumber ?? "");
+    },
+  });
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (dirty && !busy) void save();
+  };
   return (
+    <>
     <ProfileSection title="Медкнижка">
-      <form onSubmit={(e) => void save(e)} className="space-y-5">
+      <form onSubmit={submit} className="space-y-5">
         <div className="grid gap-4 sm:grid-cols-2">
           <Choice
-            id={`${id}-state`}
             label="Состояние"
             value={
               form.medical_required === false
@@ -296,46 +328,45 @@ function MedicalCard({
           {form.medical_required !== false && (
             <>
               {data.employee.local_user_id && (
-                <Field id={`${id}-number`} label="Номер">
-                  <Input
-                    id={`${id}-number`}
-                    value={number}
-                    onChange={(e) => setNumber(e.target.value)}
-                    readOnly={!data.canEditHr}
-                    maxLength={100}
-                  />
+                <Field label="Номер">
+                  {(control) => (
+                    <Input
+                      {...control}
+                      value={number}
+                      onChange={(e) => setNumber(e.target.value)}
+                      readOnly={!data.canEditHr}
+                      maxLength={100}
+                    />
+                  )}
                 </Field>
               )}
-              <Field id={`${id}-exam`} label="Дата обследования">
-                <DatePicker
-                  id={`${id}-exam`}
-                  value={form.examined_on ?? ""}
-                  onChange={(v) => patch({ examined_on: v || null })}
-                  readOnly={!canEditDates || form.medical_state !== "present"}
-                />
+              <Field label="Дата обследования">
+                {(control) => (
+                  <DatePicker
+                    {...control}
+                    value={form.examined_on ?? ""}
+                    onChange={(v) => patch({ examined_on: v || null })}
+                    readOnly={!canEditDates || form.medical_state !== "present"}
+                  />
+                )}
               </Field>
-              <Field id={`${id}-until`} label="Действует до">
-                <DatePicker
-                  id={`${id}-until`}
-                  value={form.valid_until ?? ""}
-                  onChange={(v) => patch({ valid_until: v || null })}
-                  readOnly={!canEditDates || form.medical_state !== "present"}
-                />
+              <Field label="Действует до">
+                {(control) => (
+                  <DatePicker
+                    {...control}
+                    value={form.valid_until ?? ""}
+                    onChange={(v) => patch({ valid_until: v || null })}
+                    readOnly={!canEditDates || form.medical_state !== "present"}
+                  />
+                )}
               </Field>
             </>
           )}
         </div>
-        <div className="flex justify-end">
-          <Button
-            className="w-full sm:w-auto"
-            type="submit"
-            disabled={busy || !dirty}
-          >
-            Сохранить медкнижку
-          </Button>
-        </div>
       </form>
     </ProfileSection>
+    {bar}
+    </>
   );
 }
 
@@ -346,7 +377,6 @@ function UniformCard({
   data: EmployeeDocumentsData;
   reload: () => Promise<EmployeeDocumentsData | null>;
 }) {
-  const id = useId();
   const [open, setOpen] = useState(false),
     [busy, setBusy] = useState(false),
     [title, setTitle] = useState(""),
@@ -480,11 +510,12 @@ function UniformCard({
                     </p>
                   </div>
                   <p className="shrink-0 text-sm font-medium tabular-nums">
-                    {rub(total)}
+                    <Money value={total} fraction="auto" />
                   </p>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Учтено в зарплате {rub(i.deducted)} из {rub(total)}
+                  Учтено в зарплате <Money value={i.deducted} fraction="auto" /> из{" "}
+                  <Money value={total} fraction="auto" />
                 </p>
                 <details>
                   <summary className="w-fit cursor-pointer text-sm text-muted-foreground">
@@ -532,7 +563,7 @@ function UniformCard({
                 >
                   <span>{dateLabel(i.purchased_on)}</span>
                   <span className="tabular-nums">
-                    {i.amount == null ? "—" : rub(Number(i.amount))}
+                    <Money value={i.amount == null ? null : Number(i.amount)} fraction="auto" />
                   </span>
                 </div>
               ))}
@@ -568,37 +599,43 @@ function UniformCard({
           </>
         }
       >
-        <Field id={`${id}-title`} label="Что приобретено">
-          <Input
-            id={`${id}-title`}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Например, две футболки"
-            maxLength={200}
-          />
+        <Field label="Что приобретено" required>
+          {(control) => (
+            <Input
+              {...control}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Например, две футболки"
+              maxLength={200}
+            />
+          )}
         </Field>
-        <Field id={`${id}-amount`} label="Стоимость, ₽">
-          <Input
-            id={`${id}-amount`}
-            inputMode="decimal"
-            type="number"
-            min="0.01"
-            step="0.01"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
+        <Field label="Стоимость, ₽" required>
+          {(control) => (
+            <Input
+              {...control}
+              inputMode="decimal"
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          )}
         </Field>
-        <Field id={`${id}-purchased`} label="Дата покупки">
-          <DatePicker
-            id={`${id}-purchased`}
-            value={purchased}
-            onChange={setPurchased}
-            clearable={false}
-          />
+        <Field label="Дата покупки" required>
+          {(control) => (
+            <DatePicker
+              {...control}
+              value={purchased}
+              onChange={setPurchased}
+              clearable={false}
+            />
+          )}
         </Field>
         <Choice
-          id={`${id}-bank`}
           label="Счёт списания"
+          required
           value={bank}
           options={Object.fromEntries(data.banks.map((b) => [b.id, b.name]))}
           onChange={setBank}
@@ -607,63 +644,54 @@ function UniformCard({
         <p className="text-sm text-muted-foreground">
           Статья ФОТ · {data.employee.role_name}
         </p>
-        <Field id={`${id}-due`} label="Первое удержание">
-          <DatePicker
-            id={`${id}-due`}
-            value={due}
-            onChange={(v) =>
-              setDue(
-                v
-                  ? nextUniformPaymentDate(v, data.uniformSettings.payment_days)
-                  : "",
-              )
-            }
-          />
+        <Field label="Первое удержание" required>
+          {(control) => (
+            <DatePicker
+              {...control}
+              value={due}
+              onChange={(v) =>
+                setDue(
+                  v
+                    ? nextUniformPaymentDate(
+                        v,
+                        data.uniformSettings.payment_days,
+                      )
+                    : "",
+                )
+              }
+            />
+          )}
         </Field>
         {!!parts.length && <Installments items={parts} />}
       </EditDrawer>
-      <Dialog
+      <ConfirmDialog
         open={!!cancel}
         onOpenChange={(v) => {
-          if (!v && !busy) setCancel(null);
+          if (!v) setCancel(null);
         }}
+        title={`Остановить удержания за «${
+          data.uniform.find((i) => i.id === cancel)?.title ?? "форму"
+        }»?`}
+        description="Будущие части удержаний отменятся. Уже учтённые суммы и расход на покупку сохранятся."
+        confirmLabel="Остановить удержания"
+        pendingLabel="Останавливаем…"
+        destructive
+        busy={busy}
+        confirmDisabled={reason.trim().length < 3}
+        onConfirm={() => void stop()}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Остановить удержания за форму?</DialogTitle>
-            <DialogDescription>
-              Уже учтённые суммы и расход на покупку сохранятся.
-            </DialogDescription>
-          </DialogHeader>
-          <Field id={`${id}-cancel`} label="Причина">
+        <Field label="Причина">
+          {(control) => (
             <Input
-              id={`${id}-cancel`}
+              {...control}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               maxLength={1000}
               placeholder="Например, сотрудник вернул форму"
             />
-          </Field>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={() => setCancel(null)}
-            >
-              Отмена
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={busy || reason.trim().length < 3}
-              onClick={() => void stop()}
-            >
-              Остановить удержания
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          )}
+        </Field>
+      </ConfirmDialog>
     </>
   );
 }
@@ -680,57 +708,43 @@ function Installments({
           className="flex justify-between gap-4 py-2.5 text-sm"
         >
           <span>{dateLabel(i.dueOn)}</span>
-          <span className="tabular-nums">{rub(i.amount)}</span>
+          <Money value={i.amount} fraction="auto" />
         </div>
       ))}
     </div>
   );
 }
-function Field({
-  id,
-  label,
-  children,
-}: {
-  id: string;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-2">
-      <Label htmlFor={id}>{label}</Label>
-      {children}
-    </div>
-  );
-}
 function Choice({
-  id,
   label,
   value,
   options,
   onChange,
   placeholder,
+  required,
 }: {
-  id: string;
   label: string;
   value: string;
   options: Record<string, string>;
   onChange: (v: string) => void;
   placeholder?: string;
+  required?: boolean;
 }) {
   return (
-    <Field id={id} label={label}>
-      <Select value={value || undefined} onValueChange={onChange}>
-        <SelectTrigger id={id}>
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
-        <SelectContent>
-          {Object.entries(options).map(([key, text]) => (
-            <SelectItem key={key} value={key}>
-              {text}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+    <Field label={label} required={required}>
+      {(control) => (
+        <Select value={value || undefined} onValueChange={onChange}>
+          <SelectTrigger {...control}>
+            <SelectValue placeholder={placeholder} />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(options).map(([key, text]) => (
+              <SelectItem key={key} value={key}>
+                {text}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
     </Field>
   );
 }

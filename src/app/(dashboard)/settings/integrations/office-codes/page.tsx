@@ -1,10 +1,13 @@
+import type { Metadata } from "next";
 import { integrationPageScope, integrationVenues } from "@/lib/integrations/settings";
 import { readDoorPool } from "../actions";
-import { DoorCodesSettings } from "./door-codes-settings";
-import { IntegrationLayout, IntegrationNotice } from "../_components/integration-layout";
+import { DoorCodesSettings, DoorCodesOwnerOnly } from "./door-codes-settings";
+
+export const metadata: Metadata = { title: "Коды замка" };
+
 export default async function OfficeCodesPage() {
   const s = await integrationPageScope();
-  if (!s.owner) return <IntegrationLayout title="Коды замка" description="Учёт кодов доступа сотрудников."><IntegrationNotice>Настройки кодов доступны владельцу организации.</IntegrationNotice></IntegrationLayout>;
+  if (!s.owner) return <DoorCodesOwnerOnly />;
   const [options, pool] = await Promise.all([integrationVenues(), readDoorPool()]);
   return <DoorCodesSettings key={s.accountId} {...options} initialPool={pool} />;
 }

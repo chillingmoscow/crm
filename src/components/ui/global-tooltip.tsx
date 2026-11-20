@@ -16,6 +16,10 @@ import { createPortal } from "react-dom";
  *  - `data-tip="Текст"` на любом интерактивном элементе → подсказка.
  *  - `data-tip-sub="Доп. строка"` (опц.) → серая вторая строка
  *    (шорткат / пояснение), как у IconTooltip.
+ *  - `data-tip-overflow` (опц.) → подсказка только когда текст элемента
+ *    обрезан (truncate). Для имён и названий в таблицах: полностью
+ *    видимый текст не дублируем. Если `data-tip` совпадает с текстом
+ *    элемента, это поведение включается само, флаг не нужен.
  *  - Кнопки BlockNote side-menu (drag-handle / «+») разметку которых
  *    мы не контролируем — подхватываются по `aria-label`.
  *
@@ -28,13 +32,29 @@ const SIDE_MENU_SELECTOR = ".bn-side-menu .bn-button[aria-label]";
 
 type Resolved = { el: HTMLElement; label: string; sub: string | null };
 
+const squash = (s: string) => s.replace(/\s+/g, " ").trim().toLocaleLowerCase("ru");
+
+/** Подсказка дословно повторяет текст элемента (без учёта пробелов и регистра). */
+function sameText(label: string, text: string | null): boolean {
+  return !!text && squash(label) === squash(text);
+}
+
 function resolve(node: EventTarget | null): Resolved | null {
   if (!(node instanceof Element)) return null;
 
   const dataEl = node.closest<HTMLElement>("[data-tip]");
   if (dataEl) {
     const label = dataEl.getAttribute("data-tip");
-    if (label && label.trim()) {
+    // Подсказка, которая повторяет видимый текст элемента, нужна только
+    // когда текст обрезан. Иначе она всплывает на каждом имени в таблице и
+    // ничего не добавляет. Правило общее, а не флаг на каждом месте вызова:
+    // так новые `data-tip={name}` не вернут проблему.
+    const overflowOnly =
+      dataEl.hasAttribute("data-tip-overflow") ||
+      (!!label && sameText(label, dataEl.textContent));
+    const clipped = !overflowOnly ||
+      dataEl.scrollWidth > dataEl.clientWidth || dataEl.scrollHeight > dataEl.clientHeight;
+    if (label && label.trim() && clipped) {
       return { el: dataEl, label, sub: dataEl.getAttribute("data-tip-sub") };
     }
   }

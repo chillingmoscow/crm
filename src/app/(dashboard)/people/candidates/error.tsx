@@ -1,13 +1,34 @@
 "use client";
+
+import { useEffect } from "react";
+import { AlertCircle } from "lucide-react";
+
+import { PageFrame } from "@/components/shared/page-frame";
 import { Button } from "@/components/ui/button";
-export default function CandidatesError({ reset }: { reset: () => void }) {
+import { EmptyState } from "@/components/ui/empty-state";
+import { isDeploymentSkewError } from "@/lib/deployment-skew";
+import { maybeReloadForDeploymentSkew } from "@/lib/deployment-skew-reload";
+
+/** Ошибка загрузки кандидатов: в рамке раздела, без технических слов, с повтором. */
+export default function CandidatesError({
+  error,
+  reset,
+}: {
+  error: Error & { digest?: string };
+  reset: () => void;
+}) {
+  useEffect(() => {
+    if (isDeploymentSkewError(error)) maybeReloadForDeploymentSkew(error);
+  }, [error]);
+
   return (
-    <div className="p-6 space-y-4">
-      <h1>Не удалось открыть кандидатов</h1>
-      <p className="text-muted-foreground">
-        Проверьте доступ к разделу и подключение к базе данных.
-      </p>
-      <Button onClick={reset}>Повторить</Button>
-    </div>
+    <PageFrame>
+      <EmptyState
+        icon={AlertCircle}
+        title="Не удалось открыть кандидатов"
+        description="Проверьте соединение и повторите попытку."
+        action={<Button onClick={reset}>Повторить</Button>}
+      />
+    </PageFrame>
   );
 }

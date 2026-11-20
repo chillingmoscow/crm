@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { Plus, UserCog } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +9,7 @@ import { OptionSelect } from "@/components/ui/option-select";
 import { MonthPicker } from "@/components/shared/month-picker";
 import { Label } from "@/components/ui/label";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import { ProfileSection } from "@/components/shared/profile-section";
 import type { PayrollData } from "@/lib/payroll/types";
 import { payrollCommand } from "../actions";
 import { selectClass } from "./employee-pay";
@@ -44,52 +46,65 @@ export function PayrollSetup({
   };
   if (!data.settings)
     return (
-      <form
-        className="space-y-3 rounded-xl border p-5"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void run("initialize", {
-            starts_on: starts,
-            quickresto_venue_id: Number(qrVenue),
-          });
-        }}
+      <ProfileSection
+        title="Начало учёта зарплаты"
+        description="Модели и правила настраиваются в Sheerly. Для фактических выходов используется подключение Quick Resto заведения."
       >
-        <h2 className="font-medium">Начало учёта зарплаты</h2>
-        <p className="text-sm text-muted-foreground">
-          Модели и правила настраиваются в Sheerly. Для фактических выходов
-          используется подключение Quick Resto заведения.
-        </p>
-        <Label>Первый расчётный месяц</Label>
-        <MonthPicker
-          value={starts}
-          min="2000-01-01"
-          onChange={setStarts}
-          variant="field"
-          prefix=""
-          ariaLabel="Первый расчётный месяц"
-        />
-        <Label htmlFor="pay-qr-venue">ID заведения Quick Resto</Label>
-        <Input
-          id="pay-qr-venue"
-          type="number"
-          min="1"
-          value={qrVenue}
-          onChange={(e) => setQrVenue(e.target.value)}
-          required
-        />
-        <Button disabled={busy}>Начать учёт</Button>
-      </form>
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void run("initialize", {
+              starts_on: starts,
+              quickresto_venue_id: Number(qrVenue),
+            });
+          }}
+        >
+          <div className="space-y-2">
+            <Label>Первый расчётный месяц</Label>
+            <MonthPicker
+              value={starts}
+              min="2000-01-01"
+              onChange={setStarts}
+              variant="field"
+              prefix=""
+              ariaLabel="Первый расчётный месяц"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="pay-qr-venue">ID заведения Quick Resto</Label>
+            <Input
+              id="pay-qr-venue"
+              type="number"
+              min="1"
+              value={qrVenue}
+              onChange={(e) => setQrVenue(e.target.value)}
+              required
+            />
+          </div>
+          <div className="flex justify-end">
+            <Button disabled={busy}>Начать учёт</Button>
+          </div>
+        </form>
+      </ProfileSection>
     );
   return (
     <>
-      <div className="flex flex-wrap gap-2">
-        <Button variant="outline" onClick={() => setOpen("model")}>
-          Добавить модель
-        </Button>
-        <Button variant="outline" onClick={() => setOpen("employee")}>
-          Настроить сотрудника
-        </Button>
-      </div>
+      <ProfileSection
+        title="Модели оплаты"
+        description="Новая модель оплаты или условия оплаты для сотрудника, у которого их ещё нет."
+      >
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={() => setOpen("model")}>
+            <Plus />
+            Добавить модель
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setOpen("employee")}>
+            <UserCog />
+            Настроить сотрудника
+          </Button>
+        </div>
+      </ProfileSection>
       <EditDrawer
         open={!!open}
         onOpenChange={(v) => !v && setOpen(null)}

@@ -160,6 +160,15 @@ export type Payment = {
   occurred_at: string;
   created_at: string;
 };
+/** Mirror of a payout in Adesk; only payouts made in the app are queued. */
+export type AdeskSync = {
+  payment_id: string;
+  state: "pending" | "sending" | "synced" | "error" | "review";
+  adesk_id: number | null;
+  attempts: number;
+  last_error: string | null;
+  synced_at: string | null;
+};
 export type Allocation = {
   employee_id: string;
   payment_id: string;
@@ -250,6 +259,8 @@ export type PayrollData = {
   roles?: {id:string;name:string}[];
   transfers: PayrollTransfer[];
   venueId: string;
+  /** Название заведения — для шапки выгрузки ведомости. */
+  venueName?: string | null;
   timezone: string;
   dayStartHour: number;
   scheduleReviews: ScheduleReview[];
@@ -274,6 +285,7 @@ export type PayrollData = {
   adjustments: Adjustment[];
   cashbox: Cashbox[];
   payments: Payment[];
+  adeskSync?: AdeskSync[];
   allocations: Allocation[];
   sources: SourceDay[];
   banks: { id: string; name: string; legal_entity_id: string }[];

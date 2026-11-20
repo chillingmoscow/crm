@@ -1,5 +1,7 @@
 "use client";
+import { candidateError } from "@/lib/candidates/errors";
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { DrawerSection } from "@/components/ui/drawer-blocks";
@@ -7,13 +9,15 @@ import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Money } from "@/components/shared/money";
 import type { CandidateDetail, HiringOptions } from "@/lib/candidates/types";
 import {
   hireCandidate,
   createCandidateRole,
   getCandidateOptions,
 } from "../actions";
-import { Field, FieldSelect } from "./fields";
+import { Field, FieldSelect, dateLabel } from "./fields";
+import { GENDER_OPTIONS, isGender } from "@/lib/people/gender";
 export function HireDrawer({
   detail,
   options: initialOptions,
@@ -45,6 +49,7 @@ export function HireDrawer({
       ),
     ),
     [role, setRole] = useState(String(old?.role_id ?? "")),
+    [gender, setGender] = useState(String(old?.gender ?? "")),
     [date, setDate] = useState(
       String(
         old?.employment_date ??
@@ -101,9 +106,7 @@ export function HireDrawer({
         setShowRole(false);
         toast.success("Должность и условия оплаты созданы");
       } catch (e) {
-        toast.error(
-          e instanceof Error ? e.message : "Не удалось создать должность",
-        );
+        toast.error(candidateError(e, "Не удалось создать должность"));
       }
     });
   const hire = () =>
@@ -117,6 +120,7 @@ export function HireDrawer({
             role_id: role,
             first_name: first,
             last_name: last,
+            ...(existing ? {} : { gender }),
             employment_date: date,
             existing_user_id: existing || null,
             attendance_source: "quickresto",
@@ -126,7 +130,7 @@ export function HireDrawer({
         onSaved(result.user_id);
         onClose();
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Оформление не завершено");
+        toast.error(candidateError(e, "Оформление не завершено"));
         onSaved();
       }
     });
@@ -144,7 +148,22 @@ export function HireDrawer({
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
+      // Пока создаётся должность, подвал работает на неё: одна главная кнопка
+      // на экране, «Отмена» возвращает к найму.
       footer={
+        showRole ? (
+          <>
+            <Button variant="outline" disabled={busy} onClick={() => setShowRole(false)}>
+              Отмена
+            </Button>
+            <Button
+              disabled={busy || !roleName.trim() || !qrRole}
+              onClick={createRole}
+            >
+              Создать должность
+            </Button>
+          </>
+        ) : (
         <>
           <Button variant="outline" disabled={busy} onClick={onClose}>
             Отмена
@@ -157,6 +176,9 @@ export function HireDrawer({
               !v?.can_hire ||
               !role ||
               (!existing && !rule) ||
+              // Продолжение найма, начатого до обязательного пола, идёт
+              // с сохранённым входом — пол там может быть пустым.
+              (!existing && !locked && !isGender(gender)) ||
               showRole
             }
             onClick={hire}
@@ -168,17 +190,18 @@ export function HireDrawer({
                 : "Принять на работу"}
           </Button>
         </>
+        )
       }
     >
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Имя *">
+        <Field label="Имя" required>
           <Input
             value={first}
             onChange={(e) => setFirst(e.target.value)}
             disabled={busy || locked}
           />
         </Field>
-        <Field label="Фамилия *">
+        <Field label="Фамилия" required>
           <Input
             value={last}
             onChange={(e) => setLast(e.target.value)}
@@ -186,8 +209,19 @@ export function HireDrawer({
           />
         </Field>
       </div>
+      {existing ? null : (
+        <FieldSelect
+          label="Пол"
+          required
+          value={gender}
+          disabled={busy || locked}
+          onChange={setGender}
+          options={[{ value: "", label: "Выберите пол" }, ...GENDER_OPTIONS]}
+        />
+      )}
       <FieldSelect
-        label="Заведение *"
+        required
+        label="Заведение"
         value={venue}
         disabled={busy || locked}
         onChange={(id) => {
@@ -203,102 +237,75 @@ export function HireDrawer({
             .map((v) => ({ value: v.id, label: v.name })),
         ]}
       />
-      <FieldSelect
-        label="Должность *"
-        value={role}
-        disabled={busy || locked || !!existing}
-        onChange={setRole}
-        options={[
-          { value: "", label: "Выберите должность" },
-          ...roles.map((r) => ({ value: r.id, label: r.name })),
-        ]}
-      />
-      <Field label="Дата приёма *">
+      <div className="flex flex-col gap-1.5">
+        <FieldSelect
+          required
+          label="Должность"
+          value={role}
+          disabled={busy || locked || !!existing || showRole}
+          onChange={setRole}
+          options={[
+            { value: "", label: "Выберите должность" },
+            ...roles.map((r) => ({ value: r.id, label: r.name })),
+          ]}
+        />
+        {v?.can_create_role && !locked && !showRole ? (
+          <button
+            type="button"
+            disabled={busy}
+            className="self-start text-[13px] text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            onClick={() => {
+              setShowRole(true);
+              setCopyRole(role);
+              setQrRole(
+                selected?.quickresto_role_id
+                  ? String(selected.quickresto_role_id)
+                  : "",
+              );
+            }}
+          >
+            Создать должность и условия оплаты
+          </button>
+        ) : null}
+      </div>
+      <Field label="Дата трудоустройства" required>
         <DatePicker
           value={date}
           disabled={busy || locked}
           onChange={setDate}
         />
       </Field>
-      {selected ? (
-        <div className="space-y-2 rounded-lg bg-muted/40 p-4 text-sm">
-          <p className="font-medium">Условия должности</p>
+      {selected && !showRole ? (
+        <DrawerSection title="Условия должности">
           {rule ? (
-            <>
+            <div className="space-y-1 text-sm">
               <p>
-                Оклад: {Number(rule.monthly_amount).toLocaleString("ru-RU")} ₽
+                <span className="text-muted-foreground">Оклад: </span>
+                <Money value={Number(rule.monthly_amount)} fraction="auto" />
               </p>
-              <details>
-                <summary className="cursor-pointer text-brand">
-                  Ставки за выход и проценты
-                </summary>
-                <div className="mt-3 overflow-x-auto">
-                  <table className="text-xs">
-                    <thead>
-                      <tr>
-                        <th className="p-1 text-left">Сотрудников</th>
-                        {["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map(
-                          (day) => (
-                            <th className="p-1" key={day}>
-                              {day}
-                            </th>
-                          ),
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(rule.rates).map(([count, days]) => (
-                        <tr className="border-t" key={count}>
-                          <th className="p-1 text-left">{count}</th>
-                          {Array.from({ length: 7 }, (_, d) => (
-                            <td className="whitespace-nowrap p-1" key={d}>
-                              {days[String(d + 1)]?.base ?? "—"} ₽ /{" "}
-                              {days[String(d + 1)]?.percent ?? "—"}%
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </details>
               <p className="text-xs text-muted-foreground">
-                Условия действуют с{" "}
-                {rule.valid_from.split("-").reverse().join(".")} · Смены по
-                отметкам Quick Resto
+                Действуют с {dateLabel(rule.valid_from)} · Смены по отметкам
+                Quick Resto ·{" "}
+                <Link
+                  href={`/people/roles/${selected.id}?tab=compensation`}
+                  target="_blank"
+                  className="text-brand hover:underline"
+                >
+                  Ставки и проценты
+                </Link>
               </p>
-            </>
+            </div>
           ) : (
-            <p className="text-destructive">
-              На дату приёма условия оплаты не настроены. Настройте их в
-              карточке должности или создайте новую.
+            <p className="text-xs text-destructive">
+              На дату трудоустройства условия оплаты не настроены. Настройте их
+              в карточке должности или создайте новую.
             </p>
           )}
-        </div>
-      ) : null}
-      {v?.can_create_role && !locked ? (
-        <Button
-          variant="outline"
-          disabled={busy}
-          onClick={() => {
-            setShowRole((x) => !x);
-            setCopyRole(role);
-            setQrRole(
-              selected?.quickresto_role_id
-                ? String(selected.quickresto_role_id)
-                : "",
-            );
-          }}
-        >
-          {" "}
-          {showRole
-            ? "Отмена создания должности"
-            : "+ Создать должность и условия оплаты"}
-        </Button>
+        </DrawerSection>
       ) : null}
       {showRole ? (
         <DrawerSection title="Новая должность">
-          <Field label="Название *">
+          <Field label="Название" required>
             <Input
               value={roleName}
               onChange={(e) => setRoleName(e.target.value)}
@@ -381,19 +388,13 @@ export function HireDrawer({
             Участвует в распределении чаевых
           </label>
           <p className="text-xs text-muted-foreground">
-            Условия создаются с первого числа месяца приёма. Подробные условия и
-            права можно изменить в карточке должности.
+            Условия создаются с первого числа месяца трудоустройства. Подробные
+            условия и права можно изменить в карточке должности.
           </p>
-          <Button
-            disabled={busy || !roleName.trim() || !qrRole}
-            onClick={createRole}
-          >
-            Создать должность
-          </Button>
         </DrawerSection>
       ) : null}
-      {!locked ? (
-        <DrawerSection>
+      {!locked && !showRole ? (
+        <DrawerSection title="Сотрудник в Sheerly">
           <FieldSelect
             label="Если сотрудник уже есть в Sheerly"
             value={existing}
@@ -418,7 +419,7 @@ export function HireDrawer({
         </DrawerSection>
       ) : null}
       {!options.venues.some((v) => v.can_hire) ? (
-        <p className="text-sm text-destructive">
+        <p className="text-xs text-destructive">
           Для найма нужны права принимать кандидатов и добавлять сотрудников в
           выбранном заведении.
         </p>

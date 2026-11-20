@@ -10,6 +10,7 @@ import type {
   Notification,
   NotificationActor,
 } from "@/app/(dashboard)/notifications/actions";
+import { personInitials } from "@/lib/format/initials";
 
 /**
  * Notion-style строка уведомления для bell'а.
@@ -55,7 +56,7 @@ export function KbNotificationRow({
 }: KbNotificationRowProps) {
   const spec = getNotificationTypeSpec(notification.type);
   const Icon = spec.icon;
-  const initials = getInitials(actor?.full_name);
+  const initials = personInitials(actor?.full_name);
 
   // Title:
   //   • Если есть actor + verb из registry — собираем «<Actor> <verb>».
@@ -103,7 +104,7 @@ export function KbNotificationRow({
             className="size-7 rounded-full object-cover"
           />
         ) : actor ? (
-          <span className="text-[11px] font-semibold text-muted-foreground">
+          <span className="text-xs font-semibold text-muted-foreground">
             {initials}
           </span>
         ) : (
@@ -156,7 +157,7 @@ export function KbNotificationRow({
             hasHoverActions && "group-hover:opacity-0",
           )}
         >
-          <span className="text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">
+          <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
             {relativeTime(notification.created_at)}
           </span>
           {!notification.read && (
@@ -246,7 +247,7 @@ function NotificationActions({
             // просто открываем link (если есть).
             onOpen();
           }}
-          className="inline-flex items-center gap-1 px-2 h-6 rounded-md border border-border bg-background hover:bg-accent text-[11px] font-medium transition-colors"
+          className="inline-flex items-center gap-1 px-2 h-6 rounded-md border border-border bg-background hover:bg-accent text-xs font-medium transition-colors"
         >
           {action.label}
         </button>
@@ -308,9 +309,3 @@ function relativeTime(iso: string): string {
   });
 }
 
-function getInitials(name?: string | null): string {
-  if (!name) return "?";
-  const parts = name.trim().split(/\s+/).slice(0, 2);
-  if (parts.length === 0) return "?";
-  return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
-}

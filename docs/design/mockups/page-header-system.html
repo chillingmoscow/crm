@@ -1,0 +1,421 @@
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Шапка страниц Sheerly</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: переключатель «Сейчас / Предлагаю» и размер заголовка сверху; ниже три типа страниц в рамке «экран приложения», в конце правила. Токены повторяют Sheerly (zinc + brand). */
+:root {
+  --canvas: #f1f1f3;
+  --app: #fafafa;
+  --card: #fafafa;
+  --muted: #f4f4f5;
+  --fg: #09090b;
+  --fg-muted: #71717a;
+  --border: #e4e4e7;
+  --brand: #1570ef;
+  --brand-fg: #ffffff;
+  --brand-tint: rgba(21, 112, 239, 0.1);
+  --brand-bd: rgba(21, 112, 239, 0.28);
+  --s1: #e0e9ff; --s1-fg: #1d4ed8;
+  --s2: #dcfce7; --s2-fg: #15803d;
+  --s3: #ede9fe; --s3-fg: #6d28d9;
+  --shadow: 0 2px 6px rgba(10, 10, 10, 0.08);
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --h1: 36px;
+  --h1-track: -0.5px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --canvas: #050506; --app: #09090b; --card: #18181b; --muted: #27272a;
+    --fg: #fafafa; --fg-muted: #a1a1aa; --border: rgba(255, 255, 255, 0.1);
+    --brand: #3b82f6; --brand-fg: #ffffff; --brand-tint: rgba(59, 130, 246, 0.18); --brand-bd: rgba(59, 130, 246, 0.4);
+    --s1: rgba(59, 130, 246, 0.2); --s1-fg: #93c5fd;
+    --s2: rgba(34, 197, 94, 0.18); --s2-fg: #86efac;
+    --s3: rgba(139, 92, 246, 0.22); --s3-fg: #c4b5fd;
+    --shadow: 0 2px 8px rgba(0, 0, 0, 0.26);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --canvas: #050506; --app: #09090b; --card: #18181b; --muted: #27272a;
+  --fg: #fafafa; --fg-muted: #a1a1aa; --border: rgba(255, 255, 255, 0.1);
+  --brand: #3b82f6; --brand-fg: #ffffff; --brand-tint: rgba(59, 130, 246, 0.18); --brand-bd: rgba(59, 130, 246, 0.4);
+  --s1: rgba(59, 130, 246, 0.2); --s1-fg: #93c5fd;
+  --s2: rgba(34, 197, 94, 0.18); --s2-fg: #86efac;
+  --s3: rgba(139, 92, 246, 0.22); --s3-fg: #c4b5fd;
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.26);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--canvas); color: var(--fg);
+  font-family: var(--font); font-size: 14px; line-height: 1.45;
+  padding-block: 28px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.page { max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+h1, h2, h3, p, ul { margin: 0; }
+.doc-title { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; text-wrap: balance; }
+.lede { color: var(--fg-muted); max-width: 72ch; margin-top: 6px; }
+.num { font-variant-numeric: tabular-nums; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+
+/* переключатели макета */
+.knobs { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; }
+.knob { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.knob-label { font-size: 12px; font-weight: 500; color: var(--fg-muted); }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; background: var(--app); padding: 3px; gap: 2px; }
+.seg button { border: 0; background: transparent; border-radius: 6px; height: 30px; padding: 0 12px; font-weight: 500; color: var(--fg-muted); cursor: pointer; white-space: nowrap; }
+.seg button[aria-pressed="true"] { background: var(--brand-tint); color: var(--brand); }
+
+/* рамка «экран приложения» */
+.case { display: flex; flex-direction: column; gap: 8px; }
+.case-name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.case-name b { font-weight: 600; }
+.case-name span { color: var(--fg-muted); font-size: 13px; }
+.screen { background: var(--app); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+.crumbs { display: flex; align-items: center; gap: 8px; padding: 14px 28px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--fg-muted); }
+.crumbs b { color: var(--fg); font-weight: 500; }
+.body { padding: 28px 28px 0; }
+
+/* шапка страницы */
+.h1 { font-weight: 700; line-height: 1.2; display: flex; align-items: center; gap: 12px; min-width: 0; }
+.h1.now30 { font-size: 30px; letter-spacing: -0.025em; }
+.h1.now40 { font-size: 40px; letter-spacing: -0.5px; }
+.h1.next { font-size: var(--h1); letter-spacing: var(--h1-track); }
+.count { display: inline-flex; align-items: center; justify-content: center; height: 28px; min-width: 28px; padding: 0 8px; border-radius: 6px; background: var(--muted); color: var(--fg-muted); font-size: 14px; font-weight: 400; letter-spacing: 0; }
+.desc { color: var(--fg-muted); min-width: 0; }
+.line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.left, .right { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.ctl { min-height: 36px; margin-top: 20px; }
+.below { margin-top: 16px; }
+
+.tool { width: 36px; height: 36px; border-radius: 6px; border: 1px solid var(--border); background: var(--app); display: grid; place-items: center; color: var(--fg-muted); cursor: default; padding: 0; }
+button.tool { cursor: pointer; }
+.tool.on { border-color: var(--brand); color: var(--brand); box-shadow: 0 0 0 2px var(--brand-tint); }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 6px; font-weight: 500; border: 1px solid var(--border); background: var(--app); white-space: nowrap; }
+.btn.brand { background: var(--brand); border-color: var(--brand); color: var(--brand-fg); }
+.btn.ghost { border-color: transparent; background: transparent; }
+.stepper { display: inline-flex; height: 36px; border-radius: 8px; border: 1px solid var(--brand-bd); background: var(--brand-tint); color: var(--brand); overflow: hidden; }
+.stepper span { display: inline-flex; align-items: center; gap: 8px; padding: 0 10px; font-weight: 600; white-space: nowrap; }
+.stepper span + span { border-left: 1px solid var(--brand-bd); }
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.chip { height: 32px; padding: 0 10px 0 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--app); display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; }
+.chip span { color: var(--fg-muted); font-weight: 400; }
+.clear { color: #dc2626; font-size: 13px; font-weight: 500; }
+
+/* заглушки содержимого */
+.fade { position: relative; }
+.fade::after { content: ""; position: absolute; inset: auto 0 0 0; height: 44px; background: linear-gradient(to bottom, transparent, var(--app)); pointer-events: none; }
+.scroll { overflow-x: auto; border: 1px solid var(--border); border-bottom: 0; border-radius: 8px 8px 0 0; }
+table { width: 100%; border-collapse: collapse; min-width: 620px; }
+th { text-align: left; font-size: 12px; font-weight: 500; color: var(--fg-muted); padding: 0 12px; height: 44px; background: var(--muted); white-space: nowrap; }
+td { padding: 0 12px; height: 56px; border-top: 1px solid var(--border); white-space: nowrap; }
+th.r, td.r { text-align: right; }
+.who { display: flex; align-items: center; gap: 10px; font-weight: 500; }
+.av { width: 32px; height: 32px; border-radius: 999px; background: var(--muted); color: var(--fg-muted); display: grid; place-items: center; font-size: 12px; font-weight: 600; flex: none; }
+.pill { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 6px; background: var(--muted); font-size: 12px; font-weight: 500; }
+.grid td { height: 64px; padding: 6px; vertical-align: top; }
+.grid td + td, .grid th + th { border-left: 1px solid var(--border); }
+.grid th { text-align: center; }
+.grid th:first-child { text-align: left; }
+.shift { display: block; border-radius: 6px; padding: 5px 8px; font-size: 11px; font-weight: 600; line-height: 1.35; }
+.shift small { display: block; font-weight: 500; opacity: 0.85; font-size: 11px; }
+.shift.a { background: var(--s1); color: var(--s1-fg); }
+.shift.b { background: var(--s2); color: var(--s2-fg); }
+.shift.c { background: var(--s3); color: var(--s3-fg); }
+.kpis { display: grid; grid-template-columns: 1.25fr 1fr 1fr 1fr; border: 1px solid var(--border); border-radius: 12px; background: var(--card); overflow: hidden; }
+.kpi { padding: 18px 20px; min-width: 0; }
+.kpi + .kpi { border-left: 1px solid var(--border); }
+.kpi.main { background: var(--brand-tint); }
+.kpi .label { font-size: 12px; font-weight: 500; color: var(--fg-muted); }
+.kpi.main .label { color: var(--brand); }
+.kpi .value { font-size: 28px; font-weight: 600; letter-spacing: -0.01em; margin-top: 8px; white-space: nowrap; }
+.kpi .value i { font-style: normal; font-size: 18px; color: var(--fg-muted); font-weight: 500; }
+.vtabs { display: flex; gap: 20px; border-bottom: 1px solid var(--border); margin-top: 20px; overflow-x: auto; }
+.vtabs span { padding: 10px 0; font-weight: 500; color: var(--fg-muted); white-space: nowrap; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.vtabs span.on { color: var(--fg); border-bottom-color: var(--brand); }
+
+/* правила */
+.rules { background: var(--app); border: 1px solid var(--border); border-radius: 12px; padding: 24px 28px; display: grid; gap: 20px 40px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.rules h2 { font-size: 16px; font-weight: 600; margin-bottom: 10px; }
+.rules ul { padding-left: 18px; display: grid; gap: 8px; max-width: 62ch; }
+.rules li { color: var(--fg); }
+.rules li span { color: var(--fg-muted); }
+.note { color: var(--fg-muted); font-size: 13px; max-width: 72ch; }
+
+@media (max-width: 760px) {
+  .body { padding: 20px 16px 0; }
+  .crumbs { padding: 12px 16px; }
+  .h1.next, .h1.now40 { font-size: 28px; letter-spacing: -0.02em; }
+  .h1.now30 { font-size: 26px; }
+  .kpis { grid-template-columns: 1fr 1fr; }
+  .kpi:nth-child(3) { border-left: 0; }
+  .kpi:nth-child(n+3) { border-top: 1px solid var(--border); }
+  .rules { padding: 20px 16px; }
+  .right { width: 100%; }
+}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v6l-4 2v-8z"/></symbol>
+  <symbol id="i-sort" viewBox="0 0 24 24"><path d="M8 20V5M4 9l4-4 4 4M16 4v15M12 15l4 4 4-4"/></symbol>
+  <symbol id="i-cols" viewBox="0 0 24 24"><path d="M4 8h9M17 8h3M4 16h3M11 16h9"/><circle cx="15" cy="8" r="2"/><circle cx="9" cy="16" r="2"/></symbol>
+  <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="m14 6-6 6 6 6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="m10 6 6 6-6 6"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M6 20v-6M12 20V8M18 20V4"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 4 9 5-9 5-9-5zM3 14l9 5 9-5"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M10 6h10M10 12h10M10 18h10M4 6l1.5 1.5L8 5M4 12l1.5 1.5L8 11M4 18l1.5 1.5L8 17"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></symbol>
+</svg>
+
+<div class="page">
+  <header>
+    <h1 class="doc-title">Шапка страницы: где стоят инструменты</h1>
+    <p class="lede">Инструменты стоят в нижней строке шапки: в строке периода, если он есть, и напротив заголовка, если его нет. Описание под заголовком убрано. Переключите «Сейчас» и «Стало», чтобы увидеть разницу. Данные в макете выдуманные.</p>
+  </header>
+
+  <div class="knobs">
+    <div class="knob">
+      <span class="knob-label" id="k-mode">Вид</span>
+      <div class="seg" role="group" aria-labelledby="k-mode">
+        <button type="button" id="mode-now" data-mode="now" aria-pressed="false">Сейчас</button>
+        <button type="button" id="mode-next" data-mode="next" aria-pressed="true">Стало</button>
+      </div>
+    </div>
+    <div class="knob" id="size-knob">
+      <span class="knob-label" id="k-size">Заголовок</span>
+      <div class="seg" role="group" aria-labelledby="k-size">
+        <button type="button" id="size-30" data-size="30" aria-pressed="false">30 px</button>
+        <button type="button" id="size-36" data-size="36" aria-pressed="true">36 px</button>
+        <button type="button" id="size-40" data-size="40" aria-pressed="false">40 px</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 1. Простой список -->
+  <section class="case">
+    <div class="case-name"><b>Список без периода</b><span>Сотрудники, Кандидаты, Должности, Подразделения, Шаблоны смен. Инструменты напротив заголовка, описания нет</span></div>
+    <div class="screen">
+      <div class="crumbs">Люди <span>/</span> <b>Сотрудники</b></div>
+      <div class="body">
+        <div data-when="now">
+          <div class="line">
+            <div>
+              <div class="h1 now30">Сотрудники <span class="count num">13</span></div>
+              <div class="desc" style="margin-top:4px">Состав команды и приглашения в выбранном заведении</div>
+            </div>
+            <div class="right">
+              <span class="tool"><svg class="i"><use href="#i-search"/></svg></span>
+              <span class="tool"><svg class="i"><use href="#i-filter"/></svg></span>
+              <span class="tool"><svg class="i"><use href="#i-sort"/></svg></span>
+              <span class="tool"><svg class="i"><use href="#i-cols"/></svg></span>
+              <span class="tool"><svg class="i"><use href="#i-archive"/></svg></span>
+              <span class="btn"><svg class="i"><use href="#i-chart"/></svg>Обзор</span>
+              <span class="btn brand"><svg class="i"><use href="#i-plus"/></svg>Добавить</span>
+            </div>
+          </div>
+        </div>
+        <div data-when="next" hidden>
+          <div class="line">
+            <div class="h1 next">Сотрудники <span class="count num">13</span></div>
+            <div class="right">
+              <span class="tool"><svg class="i"><use href="#i-search"/></svg></span>
+              <button type="button" class="tool" id="staff-filter" aria-pressed="false" aria-label="Фильтры: показать пример строки условий"><svg class="i"><use href="#i-filter"/></svg></button>
+              <span class="tool"><svg class="i"><use href="#i-sort"/></svg></span>
+              <span class="tool"><svg class="i"><use href="#i-cols"/></svg></span>
+              <span class="tool"><svg class="i"><use href="#i-archive"/></svg></span>
+              <span class="btn"><svg class="i"><use href="#i-chart"/></svg>Обзор</span>
+              <span class="btn brand"><svg class="i"><use href="#i-plus"/></svg>Добавить сотрудника</span>
+            </div>
+          </div>
+          <div class="chips" id="staff-chips" hidden>
+            <span class="chip"><span>Должность:</span> Бармен <svg class="i"><use href="#i-x"/></svg></span>
+            <span class="chip"><span>Подразделение:</span> Бар <svg class="i"><use href="#i-x"/></svg></span>
+            <span class="clear">Очистить все</span>
+          </div>
+        </div>
+        <div class="below fade">
+          <div class="scroll">
+            <table>
+              <thead><tr><th>Сотрудник</th><th>Должность</th><th>Подразделение</th><th class="r">PIN кассы</th><th class="r">Трудоустройство</th></tr></thead>
+              <tbody>
+                <tr><td><span class="who"><span class="av">А</span>Анна Соколова</span></td><td><span class="pill">Бармен</span></td><td>Бар</td><td class="r num">1042</td><td class="r num">12.03.2026</td></tr>
+                <tr><td><span class="who"><span class="av">И</span>Илья Громов</span></td><td><span class="pill">Менеджер</span></td><td>Менеджеры</td><td class="r num">2318</td><td class="r num">04.05.2026</td></tr>
+                <tr><td><span class="who"><span class="av">М</span>Марина Лебедева</span></td><td><span class="pill">Мастер</span></td><td>Кальяны</td><td class="r num">3507</td><td class="r num">19.08.2026</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. Страница с периодом -->
+  <section class="case">
+    <div class="case-name"><b>Страница с периодом</b><span>Расписание, Посещаемость, Задачи. Заголовок один, инструменты в строке периода</span></div>
+    <div class="screen">
+      <div class="crumbs">График работы <span>/</span> <b>Расписание</b></div>
+      <div class="body">
+        <div data-when="now">
+          <div class="line">
+            <div class="h1 now30">Расписание</div>
+            <div class="right">
+              <span class="tool"><svg class="i"><use href="#i-search"/></svg></span>
+              <span class="tool"><svg class="i"><use href="#i-filter"/></svg></span>
+              <span class="tool"><svg class="i"><use href="#i-layers"/></svg></span>
+              <span class="tool"><svg class="i"><use href="#i-list"/></svg></span>
+              <span class="tool"><svg class="i"><use href="#i-cols"/></svg></span>
+              <span class="btn brand"><svg class="i"><use href="#i-plus"/></svg>Добавить<svg class="i"><use href="#i-chev"/></svg></span>
+            </div>
+          </div>
+          <div class="line" style="margin-top:20px">
+            <div class="left">
+              <span class="stepper num"><span><svg class="i"><use href="#i-left"/></svg></span><span><svg class="i"><use href="#i-cal"/></svg>16 – 22 нояб. 2026</span><span><svg class="i"><use href="#i-right"/></svg></span></span>
+              <span class="btn ghost">Сегодня</span>
+            </div>
+          </div>
+        </div>
+        <div data-when="next" hidden>
+          <div class="h1 next">Расписание</div>
+          <div class="line ctl">
+            <div class="left">
+              <span class="stepper num"><span><svg class="i"><use href="#i-left"/></svg></span><span><svg class="i"><use href="#i-cal"/></svg>16 – 22 ноября</span><span><svg class="i"><use href="#i-right"/></svg></span></span>
+              <span class="btn ghost">Сегодня</span>
+            </div>
+            <div class="right">
+              <span class="tool"><svg class="i"><use href="#i-search"/></svg></span>
+              <span class="tool"><svg class="i"><use href="#i-filter"/></svg></span>
+              <span class="tool"><svg class="i"><use href="#i-layers"/></svg></span>
+              <span class="tool"><svg class="i"><use href="#i-list"/></svg></span>
+              <span class="tool"><svg class="i"><use href="#i-cols"/></svg></span>
+              <span class="btn brand"><svg class="i"><use href="#i-plus"/></svg>Новая смена</span>
+            </div>
+          </div>
+        </div>
+        <div class="below fade">
+          <div class="scroll">
+            <table class="grid">
+              <thead><tr><th style="width:22%">Сотрудник</th><th>пн, 16</th><th>вт, 17</th><th>ср, 18</th><th>чт, 19</th><th>пт, 20</th></tr></thead>
+              <tbody>
+                <tr><td><span class="who" style="padding:8px 6px"><span class="av">А</span>Анна Соколова</span></td><td></td><td><span class="shift a num">13:00–03:00<small>Бармен · день</small></span></td><td><span class="shift a num">13:00–03:00<small>Бармен · день</small></span></td><td></td><td><span class="shift a num">13:00–03:00<small>Бармен · день</small></span></td></tr>
+                <tr><td><span class="who" style="padding:8px 6px"><span class="av">И</span>Илья Громов</span></td><td><span class="shift b num">12:00–00:00<small>Менеджер</small></span></td><td></td><td></td><td><span class="shift b num">12:00–00:00<small>Менеджер</small></span></td><td></td></tr>
+                <tr><td><span class="who" style="padding:8px 6px"><span class="av">М</span>Марина Лебедева</span></td><td><span class="shift c num">17:00–03:00<small>Мастер · вечер</small></span></td><td><span class="shift c num">17:00–03:00<small>Мастер · вечер</small></span></td><td></td><td></td><td><span class="shift c num">17:00–03:00<small>Мастер · вечер</small></span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. Период и показатели -->
+  <section class="case">
+    <div class="case-name"><b>Период и показатели</b><span>Зарплата. Так уже сделано; главная кнопка становится 36 px, как у остальных</span></div>
+    <div class="screen">
+      <div class="crumbs">Люди <span>/</span> <b>Зарплата</b></div>
+      <div class="body">
+        <div data-when="now">
+          <div class="h1 now40">Зарплата</div>
+          <div class="line" style="margin-top:24px">
+            <div class="left">
+              <span class="stepper num"><span><svg class="i"><use href="#i-left"/></svg></span><span><svg class="i"><use href="#i-cal"/></svg>ноябрь 2026<svg class="i"><use href="#i-chev"/></svg></span><span><svg class="i"><use href="#i-right"/></svg></span></span>
+            </div>
+            <div class="right">
+              <span class="tool"><svg class="i"><use href="#i-search"/></svg></span>
+              <span class="tool"><svg class="i"><use href="#i-filter"/></svg></span>
+              <span class="tool on"><svg class="i"><use href="#i-sort"/></svg></span>
+              <span class="tool"><svg class="i"><use href="#i-cols"/></svg></span>
+              <span class="tool"><svg class="i"><use href="#i-down"/></svg></span>
+              <span class="btn brand" style="height:40px"><svg class="i"><use href="#i-plus"/></svg>Добавить<svg class="i"><use href="#i-chev"/></svg></span>
+            </div>
+          </div>
+        </div>
+        <div data-when="next" hidden>
+          <div class="h1 next">Зарплата</div>
+          <div class="line ctl">
+            <div class="left">
+              <span class="stepper num"><span><svg class="i"><use href="#i-left"/></svg></span><span><svg class="i"><use href="#i-cal"/></svg>ноябрь 2026<svg class="i"><use href="#i-chev"/></svg></span><span><svg class="i"><use href="#i-right"/></svg></span></span>
+            </div>
+            <div class="right">
+              <span class="tool"><svg class="i"><use href="#i-search"/></svg></span>
+              <span class="tool"><svg class="i"><use href="#i-filter"/></svg></span>
+              <span class="tool on"><svg class="i"><use href="#i-sort"/></svg></span>
+              <span class="tool"><svg class="i"><use href="#i-cols"/></svg></span>
+              <span class="tool"><svg class="i"><use href="#i-down"/></svg></span>
+              <span class="btn brand"><svg class="i"><use href="#i-plus"/></svg>Добавить<svg class="i"><use href="#i-chev"/></svg></span>
+            </div>
+          </div>
+        </div>
+        <div class="below">
+          <div class="kpis">
+            <div class="kpi main"><div class="label">Начислено команде</div><div class="value num">540 000 <i>₽</i></div></div>
+            <div class="kpi"><div class="label">Выплачено</div><div class="value num">310 000 <i>₽</i></div></div>
+            <div class="kpi"><div class="label">К выплате</div><div class="value num">230 000 <i>₽</i></div></div>
+            <div class="kpi"><div class="label">Чаевые</div><div class="value num">48 200 <i>₽</i></div></div>
+          </div>
+          <div class="vtabs"><span class="on">Ведомость · 13</span><span>Выплаты</span><span>Начисления и удержания</span></div>
+          <div style="height:28px"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="rules">
+    <div>
+      <h2>Правило</h2>
+      <ul>
+        <li>Инструменты всегда стоят в нижней строке шапки, вплотную к содержимому. <span>Одно правило вместо двух раскладок.</span></li>
+        <li>Есть период: заголовок один на строке, под ним строка периода. <span>Слева период и «Сегодня», справа инструменты и главная кнопка.</span></li>
+        <li>Периода нет: второй строки нет, инструменты стоят напротив заголовка. <span>Описания под заголовком нет: что это за страница, объясняет «?» в верхней панели.</span></li>
+        <li>Набор и порядок справа везде одинаковые: поиск, фильтры, сортировка, столбцы, переключатели, экспорт, главная кнопка. <span>Инструменты и главная кнопка не разъезжаются по разным строкам.</span></li>
+        <li>Чипы условий появляются отдельной строкой под шапкой, только когда что-то выбрано. <span>Нажмите на фильтр в «Сотрудниках», чтобы увидеть.</span></li>
+      </ul>
+    </div>
+    <div>
+      <h2>Размер заголовка</h2>
+      <ul>
+        <li>Беру 36 px для всех списков. <span>Размер один, потому что заголовок на всех списках должен быть одинаковым.</span></li>
+        <li>40 px хорош, когда заголовок стоит один, но рядом с рядом кнопок 36 px он их перевешивает. <span>Видно на «Сотрудниках», если переключить.</span></li>
+        <li>30 px спокойно стоит рядом с кнопками, но на «Зарплате» сравнивается с числами показателей. <span>Числа показателей при этом не крупнее 28 px.</span></li>
+        <li>36 px держит оба случая: в строке с кнопками не давит, один на строке остаётся главным.</li>
+      </ul>
+    </div>
+  </div>
+  <p class="note">Карточка сущности (сотрудник, кандидат) сюда не входит: там имя 28 px рядом с аватаром, а действия живут в шапке карточки.</p>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  function setMode(mode) {
+    document.querySelectorAll("[data-when]").forEach(function (el) { el.hidden = el.dataset.when !== mode; });
+    document.querySelectorAll("[data-mode]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.mode === mode)); });
+    document.getElementById("size-knob").hidden = mode !== "next";
+  }
+  function setSize(size) {
+    root.style.setProperty("--h1", size + "px");
+    root.style.setProperty("--h1-track", size === "30" ? "-0.025em" : "-0.5px");
+    document.querySelectorAll("[data-size]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.size === size)); });
+  }
+  document.querySelectorAll("[data-mode]").forEach(function (b) { b.addEventListener("click", function () { setMode(b.dataset.mode); }); });
+  document.querySelectorAll("[data-size]").forEach(function (b) { b.addEventListener("click", function () { setSize(b.dataset.size); }); });
+  var filter = document.getElementById("staff-filter");
+  filter.addEventListener("click", function () {
+    var chips = document.getElementById("staff-chips");
+    chips.hidden = !chips.hidden;
+    filter.classList.toggle("on", !chips.hidden);
+    filter.setAttribute("aria-pressed", String(!chips.hidden));
+  });
+  setMode("next");
+})();
+</script>

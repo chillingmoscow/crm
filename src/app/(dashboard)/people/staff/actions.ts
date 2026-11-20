@@ -2,6 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { isStaffPlaceholderEmail } from "@/lib/people/staff-identity";
+import { genderSchema, type Gender } from "@/lib/people/gender";
 
 import {
   createClient,
@@ -33,7 +34,8 @@ export type FiredStaffMember = {
   role_code:    string;
   first_name:   string | null;
   last_name:    string | null;
-  email:        string;
+  /** null без people.view_staff_details (миграция 359). */
+  email:        string | null;
   avatar_url:   string | null;
   fired_at:     string;
   fired_reason: string | null;
@@ -49,7 +51,10 @@ export type StaffMember = {
   department_name:   string | null;
   first_name:        string | null;
   last_name:         string | null;
-  email:             string;
+  /** Контакты, пол, даты и медкнижка коллег — null без
+   *  people.view_staff + people.view_staff_details (миграция 359); свою
+   *  строку сотрудник получает целиком. */
+  email:             string | null;
   /** auth.users.email_confirmed_at !== null. false = invite ещё не принят
    *  или сотрудник создан без email (placeholder). */
   email_confirmed:   boolean;
@@ -121,25 +126,16 @@ export async function getStaff(venueId: string): Promise<StaffMember[]> {
   return (data ?? []) as StaffMember[];
 }
 
-export async function getStaffProfile(
-  userId: string
-): Promise<StaffProfile | null> {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("profiles")
-    .select(
-      "id, first_name, last_name, phone, telegram_id, gender, birth_date, birth_date_set_at, address, avatar_url"
-    )
-    .eq("id", userId)
-    .returns<StaffProfile[]>()
-    .maybeSingle();
-  return data ?? null;
-}
-
 export async function updateStaffProfile(
   userId: string,
   data: Partial<ProfileUpdate>
 ): Promise<{ error: string | null }> {
+  // Пол обязателен: если форма его передаёт, то только male / female —
+  // очистить пол у сотрудника нельзя.
+  if ("gender" in data) {
+    const gender = genderSchema.safeParse(data.gender);
+    if (!gender.success) return { error: gender.error.issues[0].message };
+  }
   const supabase = await createClient();
   const { error } = await supabase
     .from("profiles")
@@ -410,6 +406,7 @@ function isValidEmail(value: string): boolean {
 export async function createStaffWithoutEmail(data: {
   firstName: string;
   lastName:  string;
+  gender:    Gender;
   phone:     string | null;
   roleId:    string;
   venueId:   string;
@@ -424,6 +421,10 @@ export async function createStaffWithoutEmail(data: {
   const lastName  = data.lastName.trim();
   if (!firstName || !lastName) {
     return { error: "Имя и фамилия обязательны", member: null };
+  }
+  const gender = genderSchema.safeParse(data.gender);
+  if (!gender.success) {
+    return { error: gender.error.issues[0].message, member: null };
   }
 
   // Проверка прав: вызывающий должен быть owner/manager/admin в этом venue.
@@ -469,6 +470,7 @@ export async function createStaffWithoutEmail(data: {
       id:          newUserId,
       first_name:  firstName,
       last_name:   lastName,
+      gender:      gender.data,
       phone:       data.phone?.trim() || null,
     }, { onConflict: "id" });
 
@@ -524,7 +526,7 @@ export async function createStaffWithoutEmail(data: {
     avatar_url:      null,
     phone:           data.phone?.trim() || null,
     telegram_id:     null,
-    gender:          null,
+    gender:          gender.data,
     birth_date:      null,
     employment_date:   uvrInsert.created_at?.slice(0, 10) ?? null,
     medical_book_date: null,

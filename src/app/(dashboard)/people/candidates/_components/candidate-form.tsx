@@ -1,4 +1,5 @@
 "use client";
+import { candidateError } from "@/lib/candidates/errors";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
@@ -61,9 +62,7 @@ export function CandidateForm({
         onSaved(r.id);
         onClose();
       } catch (e) {
-        toast.error(
-          e instanceof Error ? e.message : "Не удалось сохранить анкету",
-        );
+        toast.error(candidateError(e, "Не удалось сохранить анкету"));
       }
     });
   return (
@@ -91,7 +90,9 @@ export function CandidateForm({
           e.preventDefault();
           save();
         }}
-        className="space-y-5"
+        // Не space-y: его селектор сильнее mt-4 у DrawerSection, и между
+        // разделами выходило 20px вместо 36 (gap-5 + mt-4), как в DS.
+        className="flex flex-col gap-5"
       >
         <DrawerSection title="Основное">
           {fields.map(([key, label]) => (

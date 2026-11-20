@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { loadPayroll } from "../actions";
 import { validDate } from "@/lib/sales/time";
 import { EmployeePayrollPage } from "../_components/employee-payroll-page";
+
+export const metadata: Metadata = { title: "Зарплата сотрудника" };
 
 export default async function EmployeeSalaryPage({
   params,
@@ -23,7 +26,9 @@ export default async function EmployeeSalaryPage({
     /^\d{4}-\d{2}$/.test(query.month) &&
     validDate(`${query.month}-01`)
       ? `${query.month}-01`
-      : (data.settings?.starts_on ?? "2026-09-01");
+      : // Без ?month — текущий месяц заведения, как в списке «Зарплаты»,
+        // а не месяц начала учёта.
+        `${(data.asOfDate ?? new Date().toISOString()).slice(0, 7)}-01`;
   return (
     <EmployeePayrollPage initial={data} employeeId={employeeId} month={month} initialTab={query.tab} />
   );

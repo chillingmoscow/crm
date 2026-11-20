@@ -8,9 +8,11 @@ import {
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { queuePayroll } from "@/lib/payroll/sync";
+import { attendanceReviewRows, needsAttendanceReview } from "@/lib/payroll/attendance-review-rows";
 import { validateRates, tipBatch, tipMatch } from "@/lib/payroll/calculate";
 import { validDate, addDays, businessDate } from "@/lib/sales/time";
 import type {
+  AdeskSync,
   PayrollData,
   PaySettings,
   Payment,
@@ -47,14 +49,149 @@ export async function loadPayrollOverview(): Promise<PayrollData> {
   return loadPayrollData(true);
 }
 
-async function loadPayrollData(overview: boolean): Promise<PayrollData> {
+/**
+ * Зарплата одного сотрудника — для вкладки «Оплата» в его карточке.
+ * Читает только его начисления, записи, выплаты и переносы, а не всё
+ * заведение. Права те же, что у `loadPayroll`: запросы идут под RLS.
+ */
+export async function loadEmployeePayroll(userId: string): Promise<PayrollData> {
+  z.string().uuid().parse(userId);
+  return loadPayrollData(false, userId);
+}
+
+/**
+ * Сколько выходов ждут проверки по месяцам — для уведомлений в «Расписании»
+ * и «Зарплате». Тот же расчёт, что список «На проверке» в «Сверке отметок»
+ * (`attendanceReviewRows`), но читаются только нужные месяцы, а не вся
+ * история. Закрытый месяц не считается: решения в нём уже не принять.
+ */
+export async function loadAttendanceAttention(
+  months: string[],
+): Promise<{ month: string; count: number }[]> {
+  const list = z.array(z.string().regex(/^\d{4}-\d{2}$/)).min(1).max(3).parse([...new Set(months)]).sort();
+  const s = await scope();
+  if (!s.permissions.includes("payroll.view")) return [];
+  const from = `${list[0]}-01`;
+  const last = list[list.length - 1];
+  const to = addDays(`${addDays(`${last}-28`, 4).slice(0, 7)}-01`, -1);
+  const between = <Q extends { gte: (c: string, v: string) => Q; lte: (c: string, v: string) => Q }>(q: Q) =>
+    q.gte("business_date", from).lte("business_date", to);
+  const [hours, venue, attendance, shifts, sources, reviews, periods] = await Promise.all([
+    s.admin.from<{ day_start_hour: number }>("sales_settings")
+      .select("day_start_hour").eq("account_id", s.accountId).eq("venue_id", s.venueId).maybeSingle(),
+    s.client.from("venues").select("timezone").eq("id", s.venueId).single(),
+    // PostgREST отдаёт не больше 1000 строк за запрос — читаем страницами.
+    allPages((a, b) =>
+      between(s.db.from<PayrollData["attendance"]>("payroll_attendance").select("*").eq("venue_id", s.venueId))
+        .order("id").range(a, b)),
+    // Рабочий день может начаться накануне по календарю: берём запас в сутки.
+    allPages((a, b) =>
+      s.db.from<PayrollData["plannedShifts"]>("schedule_shifts").select("*")
+        .eq("venue_id", s.venueId).eq("published", true).not("user_id", "is", null)
+        .gte("starts_at", `${addDays(from, -1)}T00:00:00Z`).lt("starts_at", `${addDays(to, 2)}T00:00:00Z`)
+        .order("id").range(a, b)),
+    between(s.admin.from<PayrollData["sources"]>("payroll_source_days")
+      .select("business_date,state,error,synced_at,missing_shifts:source->missing_shifts")
+      .eq("account_id", s.accountId).eq("venue_id", s.venueId)),
+    between(s.db.from<PayrollData["scheduleReviews"]>("payroll_schedule_reviews").select("*").eq("venue_id", s.venueId)),
+    s.db.from<{ month: string; status: string }[]>("payroll_periods").select("month,status")
+      .eq("venue_id", s.venueId).in("month", list.map((m) => `${m}-01`)),
+  ]);
+  for (const r of [hours, venue, attendance, shifts, sources, reviews, periods])
+    if (r.error) throw new Error(r.error.message);
+  const input = {
+    attendance: attendance.data ?? [],
+    plannedShifts: shifts.data ?? [],
+    sources: sources.data ?? [],
+    scheduleReviews: reviews.data ?? [],
+    employees: [],
+    timezone: venue.data?.timezone ?? "Europe/Moscow",
+    dayStartHour: hours.data?.day_start_hour ?? 9,
+  };
+  const closed = new Set((periods.data ?? []).filter((p) => p.status !== "draft").map((p) => p.month.slice(0, 7)));
+  return list.map((month) => ({
+    month,
+    count: closed.has(month) ? 0 : attendanceReviewRows(input, month).filter(needsAttendanceReview).length,
+  }));
+}
+
+async function allPages<T>(
+  page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<{ data: T[]; error: { message: string } | null }> {
+  const rows: T[] = [];
+  for (let start = 0; start < 20000; start += 1000) {
+    const { data, error } = await page(start, start + 999);
+    if (error) return { data: [], error };
+    rows.push(...(data ?? []));
+    if ((data?.length ?? 0) < 1000) return { data: rows, error: null };
+  }
+  return { data: [], error: { message: "Слишком много записей за период" } };
+}
+
+/**
+ * Дополнение к обзору «Зарплаты» для выгрузки ведомости: отметки о выходах
+ * за месяц (столбец «Часы по отметкам») и модели оплаты (должность в смене
+ * на листе «Начисления по дням»). Обзор их не грузит, чтобы не тянуть
+ * историю на каждый заход.
+ */
+export async function loadStatementExportData(
+  month: string,
+): Promise<Pick<PayrollData, "attendance" | "models">> {
+  if (!validDate(month)) throw new Error("Некорректный месяц");
+  const s = await scope("payroll.view");
+  const from = `${month.slice(0, 7)}-01`;
+  const to = addDays(`${addDays(`${month.slice(0, 7)}-28`, 4).slice(0, 7)}-01`, -1);
+  const [attendance, models] = await Promise.all([
+    allPages((a, b) =>
+      s.db.from<PayrollData["attendance"]>("payroll_attendance").select("*")
+        .eq("venue_id", s.venueId).gte("business_date", from).lte("business_date", to)
+        .order("id").range(a, b)),
+    allPages((a, b) =>
+      s.db.from<PayrollData["models"]>("payroll_models").select("*")
+        .eq("venue_id", s.venueId).order("id").range(a, b)),
+  ]);
+  if (attendance.error) throw new Error(attendance.error.message);
+  if (models.error) throw new Error(models.error.message);
+  return { attendance: attendance.data, models: models.data };
+}
+
+// Таблицы со столбцом employee_id: для одного сотрудника читаем только его строки.
+const EMPLOYEE_TABLES = new Set([
+  "attendanceRules",
+  "transfers",
+  "assignments",
+  "legacyPayments",
+  "accruals",
+  "adjustments",
+  "allocations",
+]);
+// Расчётному листу сотрудника не нужны: сырые отметки, график, касса, события.
+const EMPLOYEE_SKIPPED_TABLES = new Set([
+  "salaryLinks",
+  "scheduleReviews",
+  "plannedShifts",
+  "attendance",
+  "periods",
+  "cashbox",
+  "events",
+  "payments", // читаются ниже по выплатам самого сотрудника
+  "adeskSync", // читается ниже по тем же выплатам
+]);
+
+async function loadPayrollData(
+  overview: boolean,
+  employeeUserId?: string,
+): Promise<PayrollData> {
   const s = await scope();
   const manager = s.permissions.includes("payroll.view");
+  const single = employeeUserId !== undefined;
   const employeesRequest = (async () => {
-    const { data, error } = await s.db
+    let query = s.db
       .from<PayrollData["employees"]>("payroll_employees")
       .select("*")
       .eq("venue_id", s.venueId);
+    if (single) query = query.eq("local_user_id", employeeUserId);
+    const { data, error } = await query;
     if (error) throw new Error(error.message);
     const employees = data ?? [];
     const profileIds = [...new Set(employees.flatMap((e) => e.local_user_id ? [e.local_user_id] : []))];
@@ -81,15 +218,20 @@ async function loadPayrollData(overview: boolean): Promise<PayrollData> {
     adjustments: "payroll_adjustments",
     cashbox: "payroll_cashbox",
     payments: "payroll_payments",
+    adeskSync: "payroll_adesk_sync",
     allocations: "payroll_allocations",
     events: "payroll_events",
   } as const;
   // The monthly overview uses accruals and payments, including history for opening balances.
   // Raw attendance and rules are read by the detailed screens.
-  const overviewTables = new Set(["transfers", "legacyPayments", "accruals", "adjustments", "payments", "allocations"]);
+  const overviewTables = new Set(["transfers", "legacyPayments", "accruals", "adjustments", "payments", "adeskSync", "allocations"]);
+  // Для одного сотрудника сначала нужен его id: по нему фильтруются таблицы.
+  const employeeId = single ? ((await employeesRequest)[0]?.id ?? null) : null;
   const entriesRequest = Promise.all(
     Object.entries(tables).map(async ([key, table]) => {
       if (overview && !overviewTables.has(key)) return [key, []];
+      if (single && (EMPLOYEE_SKIPPED_TABLES.has(key) || !employeeId))
+        return [key, []];
       if (
         !manager &&
         [
@@ -99,17 +241,21 @@ async function loadPayrollData(overview: boolean): Promise<PayrollData> {
           "periods",
           "cashbox",
           "payments",
+          "adeskSync",
           "events",
         ].includes(key)
       )
         return [key, []];
       const rows: unknown[] = [];
       for (let start = 0; start < 20000; start += 1000) {
-        const { data, error } = await s.db
+        let query = s.db
           .from<unknown[]>(table)
           .select("*")
-          .eq("venue_id", s.venueId)
-          .order(key === "salaryLinks" ? "accrual_id" : "id")
+          .eq("venue_id", s.venueId);
+        if (single && EMPLOYEE_TABLES.has(key))
+          query = query.eq("employee_id", employeeId);
+        const { data, error } = await query
+          .order(key === "salaryLinks" ? "accrual_id" : key === "adeskSync" ? "payment_id" : "id")
           .range(start, start + 999);
         if (error) throw new Error(error.message);
         rows.push(...(data ?? []));
@@ -121,10 +267,12 @@ async function loadPayrollData(overview: boolean): Promise<PayrollData> {
   const metadataRequest = Promise.all([
     s.admin.from<{ day_start_hour: number }>("sales_settings")
       .select("day_start_hour").eq("account_id", s.accountId).eq("venue_id", s.venueId).maybeSingle(),
-    s.client.from("venues").select("timezone").eq("id", s.venueId).single(),
+    s.client.from("venues").select("timezone,name").eq("id", s.venueId).single(),
     s.client.from("roles").select("id,name").eq("venue_id", s.venueId).is("archived_at", null),
   ]);
-  const managerRequest = manager ? loadPayrollManagerData(s, overview) : null;
+  const managerRequest = manager
+    ? loadPayrollManagerData(s, overview || single, !single)
+    : null;
 
   const [entries, employees, [hours, venue, roleRows], managerData] = await Promise.all([
     entriesRequest, employeesRequest, metadataRequest, managerRequest,
@@ -135,6 +283,32 @@ async function loadPayrollData(overview: boolean): Promise<PayrollData> {
     PayrollData,
     keyof typeof tables
   >;
+  if (manager && single) {
+    // Выплаты сотрудника: только те, что закрывают его долг.
+    const ids = [...new Set(result.allocations.map((a) => a.payment_id))];
+    const payments: Payment[] = [];
+    for (let start = 0; start < ids.length; start += 100) {
+      const r = await s.db
+        .from<Payment[]>("payroll_payments")
+        .select("*")
+        .eq("venue_id", s.venueId)
+        .in("id", ids.slice(start, start + 100));
+      if (r.error) throw new Error(r.error.message);
+      payments.push(...(r.data ?? []));
+    }
+    result.payments = payments;
+    const sync: AdeskSync[] = [];
+    for (let start = 0; start < ids.length; start += 100) {
+      const r = await s.db
+        .from<AdeskSync[]>("payroll_adesk_sync")
+        .select("*")
+        .eq("venue_id", s.venueId)
+        .in("payment_id", ids.slice(start, start + 100));
+      if (r.error) throw new Error(r.error.message);
+      sync.push(...(r.data ?? []));
+    }
+    result.adeskSync = sync;
+  }
   if (!manager) {
     const ids = [...new Set(result.allocations.map((a) => a.payment_id))];
     if (ids.length) {
@@ -170,6 +344,7 @@ async function loadPayrollData(overview: boolean): Promise<PayrollData> {
     experienceStartsOn,
     asOfDate: businessDate(new Date(), venue.data?.timezone ?? "Europe/Moscow", hours.data?.day_start_hour ?? 9),
     venueId: s.venueId,
+    venueName: venue.data?.name ?? null,
     userId: s.user.id,
     timezone: venue.data?.timezone ?? "Europe/Moscow",
     dayStartHour: hours.data?.day_start_hour ?? 9,
@@ -184,7 +359,11 @@ async function loadPayrollData(overview: boolean): Promise<PayrollData> {
     financeTransactions: managerData?.financeTransactions ?? [],
   };
 }
-async function loadPayrollManagerData(s: Awaited<ReturnType<typeof scope>>, overview: boolean) {
+async function loadPayrollManagerData(
+  s: Awaited<ReturnType<typeof scope>>,
+  overview: boolean,
+  withFinance = true,
+) {
   const [settings, sources, banks, categories, staff, financeTransactions] = await Promise.all([
     s.db.from<PaySettings>("payroll_settings").select("*").eq("venue_id", s.venueId).maybeSingle(),
     overview ? null : s.admin.from<PayrollData["sources"]>("payroll_source_days")
@@ -196,7 +375,7 @@ async function loadPayrollManagerData(s: Awaited<ReturnType<typeof scope>>, over
     overview ? null : s.client.from("finance_categories").select("id,name")
       .eq("account_id", s.accountId).eq("type", "expense").is("archived_at", null),
     !overview && s.permissions.includes("payroll.configure") ? loadPayrollStaff(s) : [],
-    loadPayrollFinanceTransactions(s),
+    withFinance ? loadPayrollFinanceTransactions(s) : [],
   ]);
   for (const result of [settings, sources, banks, categories]) {
     if (result?.error) throw new Error(result.error.message);
@@ -299,14 +478,6 @@ export async function payrollCommand(
     p_input: input,
   });
   if (r.error) throw new Error(r.error.message);
-  // The opening balance is used by the statement, not by daily accruals.
-  if (
-    action === "employee" &&
-    ("opening_balance" in input || "opening_confirmed" in input) &&
-    Object.keys(input).every((key) =>
-      ["id", "opening_balance", "opening_confirmed"].includes(key),
-    )
-  ) return r.data;
   if (
     [
       "attendance",
@@ -374,6 +545,153 @@ export async function payrollCommand(
     await queuePayroll(s.accountId, s.venueId, dates);
   }
   return r.data;
+}
+const attendanceDecisionSchema = z.object({
+  decision: z.enum(["confirm", "ignore"]),
+  reason: z.string().trim().min(3, "Укажите основание").max(1000),
+  items: z
+    .array(
+      z.discriminatedUnion("kind", [
+        z.object({
+          kind: z.literal("attendance"),
+          id: z.string().uuid(),
+          version: z.number().int(),
+        }),
+        z.object({
+          kind: z.literal("shift"),
+          id: z.string().uuid(),
+          version: z.number().int().positive(),
+          synced_at: z.string().datetime({ offset: true }),
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          starts_at: z.string(),
+          ends_at: z.string(),
+          user_id: z.string().uuid(),
+        }),
+      ]),
+    )
+    .min(1)
+    .max(200),
+});
+export type AttendanceDecisionInput = z.input<typeof attendanceDecisionSchema>;
+export type AttendanceDecisionResult = {
+  done: string[];
+  failed: { id: string; message: string }[];
+  /** Решения сохранены, но пересчёт не поставлен: показать, а не терять решения. */
+  warning?: string;
+};
+/**
+ * Решение «Сверки отметок» по одной или нескольким строкам. Отметка Quick
+ * Resto — проверка факта (подтвердить / не учитывать); смена без отметки —
+ * «засчитать по графику» или «подтвердить невыход». Каждая строка — своя
+ * транзакция с теми же проверками, что и при решении из панели: ошибка одной
+ * строки не откатывает остальные. Пересчёт затронутых дней ставится один раз.
+ */
+export async function reviewAttendanceDecisions(
+  input: AttendanceDecisionInput,
+): Promise<AttendanceDecisionResult> {
+  const value = attendanceDecisionSchema.parse(input);
+  const s = await scope("payroll.review");
+  const result: AttendanceDecisionResult = { done: [], failed: [] };
+  const touched = new Set<string>();
+  const marks = value.items.filter((item) => item.kind === "attendance");
+  const shifts = value.items.filter((item) => item.kind === "shift");
+  const run = async (id: string, call: () => PromiseLike<{ error: { message: string } | null }>) => {
+    const { error } = await call();
+    if (error) result.failed.push({ id, message: error.message });
+    else result.done.push(id);
+    return !error;
+  };
+  for (const item of marks)
+    await run(item.id, () =>
+      s.db.rpc("payroll_command", {
+        p_action: "attendance",
+        p_input: {
+          id: item.id,
+          version: item.version,
+          status: value.decision === "confirm" ? "confirmed" : "ignored",
+          reason: value.reason,
+        },
+      }),
+    );
+  for (const item of shifts) {
+    // «Засчитать» смену без отметки — то же решение, что в расписании: оно
+    // само переводит день в пересчёт. Невыход пересчитываем ниже.
+    const ok = await run(item.id, () =>
+      value.decision === "confirm"
+        ? s.db.rpc("payroll_review_schedule_shift", {
+            p_shift: item.id,
+            p_version: item.version,
+            p_synced_at: item.synced_at,
+            p_decision: "include",
+            p_reason: value.reason,
+          })
+        : s.db.rpc("payroll_command", {
+            p_action: "missing_shift",
+            p_input: {
+              id: item.id,
+              date: item.date,
+              starts_at: item.starts_at,
+              ends_at: item.ends_at,
+              user_id: item.user_id,
+              reason: value.reason,
+            },
+          }),
+    );
+    if (ok && value.decision === "ignore") touched.add(item.date);
+  }
+  try {
+    await queueDecidedDays(s, marks.filter((item) => result.done.includes(item.id)), touched);
+  } catch (error) {
+    result.warning = `Решения сохранены, но пересчёт не поставлен в очередь: ${
+      error instanceof Error ? error.message : "ошибка"
+    }. Обновите период вручную.`;
+  }
+  return result;
+}
+async function queueDecidedDays(
+  s: Awaited<ReturnType<typeof scope>>,
+  doneMarks: { id: string }[],
+  touched: Set<string>,
+) {
+  if (doneMarks.length) {
+    const facts = await s.admin
+      .from<{ business_date: string }[]>("payroll_attendance")
+      .select("business_date")
+      .in("id", doneMarks.map((item) => item.id))
+      .eq("venue_id", s.venueId)
+      .eq("account_id", s.accountId);
+    if (facts.error) throw new Error(facts.error.message);
+    // Отметка, перешедшая через границу дня, влияет и на следующий день.
+    for (const fact of facts.data ?? []) {
+      touched.add(fact.business_date);
+      touched.add(addDays(fact.business_date, 1));
+    }
+  }
+  if (!touched.size) return;
+  const [days, periods] = await Promise.all([
+    s.admin
+      .from<{ business_date: string }[]>("payroll_source_days")
+      .select("business_date")
+      .eq("venue_id", s.venueId)
+      .eq("account_id", s.accountId)
+      .eq("state", "complete")
+      .in("business_date", [...touched]),
+    s.admin
+      .from<{ month: string; status: string }[]>("payroll_periods")
+      .select("month,status")
+      .eq("venue_id", s.venueId)
+      .eq("account_id", s.accountId),
+  ]);
+  if (days.error || periods.error) throw new Error((days.error ?? periods.error)!.message);
+  const dates = (days.data ?? [])
+    .map((day) => day.business_date)
+    .filter(
+      (date) =>
+        !(periods.data ?? []).some(
+          (period) => period.status !== "draft" && period.month.slice(0, 7) === date.slice(0, 7),
+        ),
+    );
+  if (dates.length) await queuePayroll(s.accountId, s.venueId, dates);
 }
 export async function refreshPayroll(from: string, to: string) {
   const s = await scope("payroll.sync");
@@ -536,6 +854,13 @@ export async function reconcileTips(
   });
   if (r.error) throw new Error(r.error.message);
   return r.data;
+}
+/** Sends a payout to Adesk again after its cause (mapping, a duplicate) was fixed. */
+export async function retryPayrollAdeskSync(paymentId: string) {
+  const s = await scope("payroll.pay");
+  z.string().uuid().parse(paymentId);
+  const r = await s.db.rpc("payroll_retry_adesk_sync", { p_payment: paymentId });
+  if (r.error) throw new Error(r.error.message);
 }
 export async function cancelPayrollPayment(paymentId: string) {
   const s = await scope("payroll.pay");

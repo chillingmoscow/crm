@@ -1,6 +1,9 @@
 /* eslint-disable @next/next/no-img-element */
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { personInitials } from "@/lib/format/initials";
+import { avatarThumbUrl } from "@/lib/people/avatar-thumb";
 
 /**
  * Блоки содержимого боковой панели (EditDrawer). Правила — в
@@ -142,42 +145,26 @@ export function DrawerAvatar({
 }) {
   const box = size === "sm" ? "size-5 text-[10px]" : "size-8 text-xs";
   return src ? (
-    <img src={src} alt="" className={cn("shrink-0 rounded-full object-cover", box)} />
+    <img src={avatarThumbUrl(src) ?? src} alt="" className={cn("shrink-0 rounded-full object-cover", box)} />
   ) : (
     <span
       aria-hidden
       className={cn("flex shrink-0 items-center justify-center rounded-full bg-muted font-medium text-muted-foreground", box)}
     >
-      {name.trim().charAt(0).toUpperCase() || "?"}
+      {personInitials(name)}
     </span>
   );
 }
 
-const statusTones = {
-  neutral: "bg-muted text-muted-foreground",
-  info: "bg-brand/10 text-brand",
-  success: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-  warning: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
-  danger: "bg-destructive/10 text-destructive",
-} as const;
 
 export function DrawerStatus({
   label,
   tone = "neutral",
 }: {
   label: string;
-  tone?: keyof typeof statusTones;
+  tone?: StatusTone;
 }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium",
-        statusTones[tone],
-      )}
-    >
-      {label}
-    </span>
-  );
+  return <StatusBadge tone={tone}>{label}</StatusBadge>;
 }
 
 export function DrawerTimeline({ children }: { children: ReactNode }) {

@@ -1,4 +1,5 @@
 "use client";
+import { ColorDot } from "@/components/ui/color-dot";
 import { useState, type ReactNode } from "react";
 import { BriefcaseBusiness, StickyNote } from "lucide-react";
 import {
@@ -9,8 +10,6 @@ import {
   DrawerTimeline,
   DrawerTimelineItem,
 } from "@/components/ui/drawer-blocks";
-import { cn } from "@/lib/utils";
-import { paletteDot } from "@/lib/palette";
 import { dateInZone, dayLabel, timeInZone } from "@/lib/schedule/utils";
 import {
   collapseHistory,
@@ -44,6 +43,8 @@ export function ShiftDetails({
   onLoadMoreHistory,
   personName,
   assignControl,
+  swap,
+  showHistory = true,
 }: {
   data: ScheduleData;
   shift: Shift;
@@ -55,6 +56,10 @@ export function ShiftDetails({
   personName: (key: string | null) => string;
   /** Выбор сотрудника для тех, кто может только назначать. */
   assignControl?: ReactNode;
+  /** Раздел заявки на замену, если она есть. */
+  swap?: ReactNode;
+  /** История — служебные данные планировщика; сотруднику её не показываем. */
+  showHistory?: boolean;
 }) {
   const [visible, setVisible] = useState(HISTORY_PAGE);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -125,11 +130,11 @@ export function ShiftDetails({
           icon={<DrawerAvatar name={assignee ? personName(assignee) : "?"} src={staffMember?.avatar_url} />}
           label={casual ? "Разовый сотрудник · начисление по графику" : staffMember?.role_name ?? "Сотрудник"}
         >
-          {assignControl ?? (assignee ? personName(assignee) : "Сотрудник не назначен")}
+          {assignControl ?? (assignee ? personName(assignee) : "Без сотрудника")}
         </DrawerSummaryItem>
         {template ? (
           <DrawerSummaryItem
-            icon={<span className={cn("size-3 rounded-full", paletteDot(template.color))} />}
+            icon={<ColorDot color={template.color} />}
             label={["Шаблон", role?.name, department?.name].filter(Boolean).join(" · ")}
           >
             {shiftTemplateLabel(template)}
@@ -148,6 +153,9 @@ export function ShiftDetails({
         )}
       </DrawerSummary>
 
+      {swap}
+
+      {showHistory && (
       <DrawerSection title="История изменений">
         {history === null ? (
           <div className="space-y-3" aria-label="Загрузка истории">
@@ -190,6 +198,7 @@ export function ShiftDetails({
           </>
         )}
       </DrawerSection>
+      )}
     </>
   );
 }

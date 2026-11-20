@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { DatePicker } from "@/components/ui/date-picker";
+import { ProfileSection } from "@/components/shared/profile-section";
+import { useSaveSection } from "@/components/shared/save-bar";
 import {
   saveStockRules,
   type StockRuleData,
@@ -65,12 +67,12 @@ function ShortageForm({
     );
   }, [base, visible]);
   const [rows, setRows] = useState<Record<string, Row>>(initialRows);
-  const [from, setFrom] = useState(
+  const initialFrom =
     initial.versions[0]?.valid_from &&
-      initial.versions[0].valid_from > initial.today
+    initial.versions[0].valid_from > initial.today
       ? initial.versions[0].valid_from
-      : initial.today,
-  );
+      : initial.today;
+  const [from, setFrom] = useState(initialFrom);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -99,7 +101,9 @@ function ShortageForm({
     setRows((r) => ({ ...r, [id]: { ...r[id], ...p } }));
   const own = rows[departmentId];
 
-  async function save() {
+  const totalIsFull = Math.abs(total - 100) <= 0.000001;
+
+  async function save(): Promise<boolean> {
     setBusy(true);
     try {
       if (!reason.trim()) throw new Error("Укажите основание изменения");
@@ -125,6 +129,7 @@ function ShortageForm({
       router.refresh();
       toast.success("Доли сохранены");
       if (d.deductionNotice) toast.message(d.deductionNotice);
+      return true;
     } catch (e) {
       toast.error(
         e instanceof z.ZodError
@@ -133,121 +138,139 @@ function ShortageForm({
             ? e.message
             : "Не удалось сохранить доли",
       );
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
+  // Доли сохраняются общей полосой карточки вместе с основными полями.
+  const bar = useSaveSection({
+    dirty: dirty && !readOnly,
+    saving: busy,
+    save,
+    reset: () => {
+      setRows(initialRows);
+      setFrom(initialFrom);
+      setReason("");
+    },
+    blocked: !totalIsFull
+      ? "Сумма долей должна быть 100%"
+      : !reason.trim()
+        ? "Укажите основание изменения долей"
+        : null,
+  });
+
   return (
-    <section className="space-y-4 border-t pt-5">
-      <h2 className="text-lg font-semibold">Недостача</h2>
-      {multi && (
-        <p role="alert" className="text-sm text-destructive">
-          Подразделение входит в одну группу удержания с другими
-          подразделениями, поэтому доли здесь не меняются. Группу должен
-          разделить администратор.
-        </p>
-      )}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Switch
-            id="shortage-participates"
-            checked={own.participates}
-            disabled={readOnly || busy}
-            onCheckedChange={(v) => patch(departmentId, { participates: v })}
-          />
-          <Label htmlFor="shortage-participates">
-            Участвует в общей недостаче
-          </Label>
-        </div>
-        {own.participates && (
-          <div className="flex items-center gap-2">
-            <Label htmlFor="shortage-share" className="text-[13px]">
-              Доля, %
-            </Label>
-            <Input
-              id="shortage-share"
-              inputMode="decimal"
-              value={own.share}
+    <>
+      <ProfileSection title="Недостача">
+        {multi && (
+          <p
+            role="alert"
+            className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm"
+          >
+            Подразделение входит в одну группу удержания с другими
+            подразделениями, поэтому доли здесь не меняются. Группу должен
+            разделить администратор.
+          </p>
+        )}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Switch
+              id="shortage-participates"
+              checked={own.participates}
               disabled={readOnly || busy}
-              onChange={(e) => patch(departmentId, { share: e.target.value })}
-              className="w-24 text-right"
+              onCheckedChange={(v) => patch(departmentId, { participates: v })}
             />
+            <Label htmlFor="shortage-participates">
+              Участвует в общей недостаче
+            </Label>
+          </div>
+          {own.participates && (
+            <div className="flex items-center gap-2">
+              <Label htmlFor="shortage-share">
+                Доля, %
+              </Label>
+              <Input
+                id="shortage-share"
+                inputMode="decimal"
+                value={own.share}
+                disabled={readOnly || busy}
+                onChange={(e) => patch(departmentId, { share: e.target.value })}
+                className="w-24 text-right"
+              />
+            </div>
+          )}
+        </div>
+        {dirty && !readOnly && (
+          <div className="space-y-4">
+            <div className="divide-y rounded-lg border">
+              {visible.map((d) => (
+                <div
+                  key={d.id}
+                  className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-4 py-2.5"
+                >
+                  <span
+                    className={`min-w-0 truncate text-sm ${
+                      d.id === departmentId ? "font-medium" : ""
+                    }`}
+                  >
+                    {d.name}
+                    {d.archived_at ? " · в архиве" : ""}
+                  </span>
+                  <Switch
+                    aria-label={`${d.name}: участвует`}
+                    checked={rows[d.id].participates}
+                    disabled={busy}
+                    onCheckedChange={(v) => patch(d.id, { participates: v })}
+                  />
+                  <Input
+                    aria-label={`Доля ${d.name}, %`}
+                    inputMode="decimal"
+                    value={rows[d.id].participates ? rows[d.id].share : ""}
+                    disabled={busy || !rows[d.id].participates}
+                    onChange={(e) => patch(d.id, { share: e.target.value })}
+                    className="w-20 text-right"
+                  />
+                </div>
+              ))}
+            </div>
+            <p
+              className={`text-sm ${
+                totalIsFull ? "text-muted-foreground" : "text-destructive"
+              }`}
+            >
+              Всего {total.toLocaleString("ru-RU")} из 100%
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field id="shortage-valid-from" label="Применять с">
+                {(control) => (
+                  <DatePicker
+                    {...control}
+                    value={from}
+                    onChange={setFrom}
+                    clearable={false}
+                    fromDate={new Date(`${initial.today}T00:00:00`)}
+                  />
+                )}
+              </Field>
+              <Field id="shortage-reason" label="Основание изменения" required>
+                {(control) => (
+                  <Input
+                    {...control}
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    placeholder="Например, изменили доли подразделений"
+                    maxLength={1000}
+                  />
+                )}
+              </Field>
+            </div>
           </div>
         )}
-      </div>
-      {dirty && !readOnly && (
-        <div className="space-y-4">
-          <div className="divide-y rounded-lg border">
-            {visible.map((d) => (
-              <div
-                key={d.id}
-                className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-4 py-2.5"
-              >
-                <span
-                  className={`min-w-0 truncate text-sm ${
-                    d.id === departmentId ? "font-medium" : ""
-                  }`}
-                >
-                  {d.name}
-                  {d.archived_at ? " · в архиве" : ""}
-                </span>
-                <Switch
-                  aria-label={`${d.name}: участвует`}
-                  checked={rows[d.id].participates}
-                  disabled={busy}
-                  onCheckedChange={(v) => patch(d.id, { participates: v })}
-                />
-                <Input
-                  aria-label={`Доля ${d.name}, %`}
-                  inputMode="decimal"
-                  value={rows[d.id].participates ? rows[d.id].share : ""}
-                  disabled={busy || !rows[d.id].participates}
-                  onChange={(e) => patch(d.id, { share: e.target.value })}
-                  className="w-20 text-right"
-                />
-              </div>
-            ))}
-          </div>
-          <p
-            className={`text-sm ${
-              Math.abs(total - 100) > 0.000001
-                ? "text-destructive"
-                : "text-muted-foreground"
-            }`}
-          >
-            Всего {total.toLocaleString("ru-RU")} из 100%
-          </p>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="shortage-valid-from">Применять с</Label>
-              <DatePicker
-                id="shortage-valid-from"
-                value={from}
-                onChange={setFrom}
-                clearable={false}
-                fromDate={new Date(`${initial.today}T00:00:00`)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="shortage-reason">Основание изменения</Label>
-              <Input
-                id="shortage-reason"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="Например, изменили доли подразделений"
-                maxLength={1000}
-              />
-            </div>
-          </div>
-          <div className="flex justify-end">
-            <Button type="button" disabled={busy} onClick={() => void save()}>
-              {busy ? "Сохраняем…" : "Сохранить"}
-            </Button>
-          </div>
-        </div>
-      )}
-    </section>
+      </ProfileSection>
+      {bar}
+    </>
   );
 }
 

@@ -37,7 +37,14 @@ export function PersonAvatar({
     urls.find((url): url is string => !!url && !failed.has(url)) ?? null;
   const thumb = avatarThumbUrl(requestedSrc);
   const src = pick(thumb, requestedSrc, fallbackSrc);
-  const previewSrc = pick(requestedPreview, fallbackSrc, requestedSrc, src);
+  // Крупная копия для просмотра — тоже через оптимизатор (≤640px вместо
+  // оригинала с телефона, и браузер держит её месяц).
+  const previewSrc = pick(
+    requestedPreview ?? avatarThumbUrl(requestedSrc, 640),
+    fallbackSrc,
+    requestedSrc,
+    src,
+  );
   const markFailed = (url: string) => setFailed((prev) => new Set(prev).add(url));
   const hasPhoto = !!src;
   const initial = personInitials(name);

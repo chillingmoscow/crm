@@ -107,6 +107,11 @@ export const catalogAuditSpecs: Record<string, AuditEventSpec> = {
       {kindOf(e).gen} <ItemName event={e} />
     </>
   )),
+  "catalog.ingredient.photo_removed": spec(Trash2, DANGER, (e) => (
+    <>
+      удалил(а) фото {kindOf(e).gen} <ItemName event={e} />
+    </>
+  )),
   "catalog.ingredient_group.photo_updated": spec(ImagePlus, INFO, (e) => (
     <>
       {e.details.replaced ? "заменил(а) фото" : "добавил(а) фото"} группы{" "}

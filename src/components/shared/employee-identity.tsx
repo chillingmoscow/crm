@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { personInitials } from "@/lib/format/initials";
+import { avatarImageUrl } from "@/lib/people/avatar-thumb";
 
 /** Shared employee identity for payroll and sales. */
 export function EmployeeIdentity({
@@ -21,7 +22,7 @@ export function EmployeeIdentity({
         {avatarUrl && failedUrl !== avatarUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={avatarUrl}
+            src={avatarImageUrl(avatarUrl, 96)}
             alt=""
             className="size-full object-cover"
             onError={() => setFailedUrl(avatarUrl)}

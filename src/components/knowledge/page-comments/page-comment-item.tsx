@@ -29,6 +29,7 @@ import { CommentBodyRenderer, extractPlainText } from "./comment-body-renderer";
 import { PageCommentComposer } from "./page-comment-composer";
 import { buildCommentLink } from "./page-comment-copy-link";
 import { personInitials } from "@/lib/format/initials";
+import { avatarImageUrl } from "@/lib/people/avatar-thumb";
 
 interface PageCommentUser {
   id: string;
@@ -138,7 +139,7 @@ export function PageCommentItem({
       {authorAvatar ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={authorAvatar}
+          src={avatarImageUrl(authorAvatar, 96)}
           alt=""
           className="size-7 rounded-full object-cover bg-muted shrink-0"
         />

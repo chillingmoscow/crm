@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { catalogPath, type CatalogKindConfig } from "../_lib/kinds";
 
 import { getCachedActiveAccountId, getCachedPermissionChecker } from "@/lib/supabase/server";
-import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
 import {
   getIngredientDetail,
   listAccountCounterparties,
@@ -11,7 +10,7 @@ import {
   listIngredientJournal,
   listIngredientSuppliers,
 } from "@/lib/inventory/ingredients";
-import { IngredientDetail } from "../ingredients/[id]/_components/ingredient-detail";
+import { NomenclatureCard } from "./nomenclature-card";
 
 /**
  * Карточка позиции каталога. Один компонент на все три раздела — различаются
@@ -24,10 +23,9 @@ export async function NomenclatureDetail({
   config: CatalogKindConfig;
   id: string;
 }) {
-  const [can, accountId, amountRoundingScale] = await Promise.all([
+  const [can, accountId] = await Promise.all([
     getCachedPermissionChecker(),
     getCachedActiveAccountId(),
-    getActiveAccountAmountRoundingScale(),
   ]);
   const canView = can("inventory.view_products");
   const canManage = can("inventory.manage_products");
@@ -48,20 +46,15 @@ export async function NomenclatureDetail({
   ]);
 
   return (
-    <IngredientDetail
-      ingredient={ingredient}
+    <NomenclatureCard
+      config={config}
+      item={ingredient}
       suppliers={suppliers}
       history={history}
       journal={journal}
       counterparties={counterparties}
       canManage={canManage}
       canViewResults={canViewResults}
-      amountRoundingScale={amountRoundingScale}
-      section={{
-        path: catalogPath(config),
-        title: config.title,
-        itemNoun: config.itemNoun,
-      }}
     />
   );
 }

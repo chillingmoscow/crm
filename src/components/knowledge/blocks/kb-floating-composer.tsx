@@ -18,6 +18,7 @@ import {
 } from "@/components/knowledge/blocks/kb-comment-mention-dropdown";
 import { KbMobileCommentSheet } from "@/components/knowledge/blocks/kb-mobile-comment-sheet";
 import { personInitials } from "@/lib/format/initials";
+import { avatarImageUrl } from "@/lib/people/avatar-thumb";
 
 /**
  * Custom Notion-style floating composer для KB-комментариев. Заменяет
@@ -214,7 +215,7 @@ export function KbFloatingComposer({
         {currentUserAvatarUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={currentUserAvatarUrl}
+            src={avatarImageUrl(currentUserAvatarUrl, 96)}
             alt=""
             className="size-7 rounded-full object-cover bg-muted shrink-0"
           />

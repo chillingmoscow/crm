@@ -23,6 +23,7 @@ import type {
   CandidatePhotos,
 } from "./types";
 import { uuid, normalizePhone } from "./schema";
+import { mediaUrl, type MediaTransform } from "@/lib/storage/media";
 export const candidateScope = cache(async () => {
   const [user, accountId, can, client] = await Promise.all([
     getCachedUser(),
@@ -162,47 +163,21 @@ export async function candidatePhotos(ids: string[]): Promise<Record<string, Can
   }
   if (!avatarPaths.size) return {};
 
-  const bucket = s.client.storage.from("candidate-files");
-  type Transform = { width: number; height?: number; resize: "cover" | "contain" };
-  const sign = (path: string, transform?: Transform) =>
-    stableSignedUrl(`${path}|${JSON.stringify(transform ?? null)}`, (ttl) =>
-      (transform ? bucket.createSignedUrl(path, ttl, { transform }) : bucket.createSignedUrl(path, ttl))
-        .then((r) => r.data?.signedUrl ?? null));
-  const photos = await Promise.all([...avatarPaths].map(async ([id, path]) => {
-    const [photo_thumb_url, photo_preview_url, photo_url] = await Promise.all([
-      sign(path, { width: 96, height: 96, resize: "cover" }),
-      sign(path, { width: 640, resize: "contain" }),
-      sign(path),
-    ]);
-    return [id, { photo_thumb_url, photo_preview_url, photo_url }] as const;
-  }));
-  return Object.fromEntries(photos);
-}
-
-/*
- * Подпись ссылки содержит время выдачи: новая подпись на каждый заход в
- * «Кандидатов» = новый адрес, и браузер заново качает те же фото. Поэтому
- * подпись переиспользуется, пока до её конца больше часа: адрес не меняется,
- * фото берутся из кэша браузера. Ключ — путь и размер копии; доступ к файлу
- * проверен выше запросом под правами пользователя, подпись его не расширяет.
- */
-const PHOTO_URL_TTL_SECONDS = 6 * 60 * 60;
-const PHOTO_URL_REUSE_MS = (PHOTO_URL_TTL_SECONDS - 60 * 60) * 1000;
-const signedPhotoUrls = new Map<string, { url: string; reuseUntil: number }>();
-async function stableSignedUrl(
-  key: string,
-  sign: (ttlSeconds: number) => Promise<string | null>,
-): Promise<string | null> {
-  const now = Date.now();
-  const cached = signedPhotoUrls.get(key);
-  if (cached && cached.reuseUntil > now) return cached.url;
-  const url = await sign(PHOTO_URL_TTL_SECONDS);
-  if (!url) return null;
-  if (signedPhotoUrls.size > 5000) {
-    for (const [k, v] of signedPhotoUrls) if (v.reuseUntil <= now) signedPhotoUrls.delete(k);
-  }
-  signedPhotoUrls.set(key, { url, reuseUntil: now + PHOTO_URL_REUSE_MS });
-  return url;
+  // Постоянные адреса (`mediaUrl`): браузер держит фото месяц. Файл читается
+  // от имени пользователя — с теми же правилами хранилища, что и прежняя
+  // подписанная ссылка; доступ к кандидатам проверен выше.
+  const photo = (path: string, transform?: MediaTransform) =>
+    mediaUrl("candidate-files", path, { transform });
+  return Object.fromEntries(
+    [...avatarPaths].map(([id, path]) => [
+      id,
+      {
+        photo_thumb_url: photo(path, { width: 96, height: 96, resize: "cover" }),
+        photo_preview_url: photo(path, { width: 640, resize: "contain" }),
+        photo_url: photo(path),
+      },
+    ]),
+  );
 }
 export async function candidateList(
   filters: ListFilters = {},
@@ -308,12 +283,17 @@ export async function candidateDetail(id: string): Promise<CandidateDetail | nul
   }
   await Promise.all(
     fs.map(async (f) => {
-      if (f.storage_path) {
-        const r = await s.client.storage
-          .from("candidate-files")
-          .createSignedUrl(f.storage_path, 1800);
-        f.url = r.data?.signedUrl ?? null;
+      if (!f.storage_path) return;
+      // Картинки — постоянным адресом с кэшем на месяц; документы (PDF) —
+      // по-прежнему подписанной ссылкой: их открывают, а не показывают.
+      if (f.mime_type?.startsWith("image/")) {
+        f.url = mediaUrl("candidate-files", f.storage_path);
+        return;
       }
+      const r = await s.client.storage
+        .from("candidate-files")
+        .createSignedUrl(f.storage_path, 1800);
+      f.url = r.data?.signedUrl ?? null;
     }),
   );
   return {

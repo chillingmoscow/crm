@@ -32,13 +32,13 @@ export async function uploadInventoryProductImage(formData: FormData): Promise<{
 
   const productId = text(formData.get("productId"));
   const file = formData.get("file");
-  if (!productId) return { error: "Не указан ингредиент" };
+  if (!productId) return { error: "Не указана позиция" };
   if (!(file instanceof File) || file.size === 0) return { error: "Выберите изображение" };
   if (!file.type.startsWith("image/")) return { error: "Можно загрузить только изображение" };
 
   const admin = asLooseDb(createAdminClient());
   const product = await loadIngredientRef(admin, ctx.accountId, productId);
-  if (!product) return { error: "Ингредиент не найден" };
+  if (!product) return { error: "Позиция не найдена" };
 
   const storagePath = buildStoragePath(ctx.accountId, file.name);
   const { error: uploadError } = await admin.storage
@@ -93,8 +93,54 @@ export async function uploadInventoryProductImage(formData: FormData): Promise<{
     details: { name: product.name, kind: product.kind, replaced },
   });
 
-  revalidatePath("/catalog/ingredients");
-  revalidatePath(`/catalog/ingredients/${productId}`);
+  revalidateCatalog();
+  return { error: null };
+}
+
+/**
+ * Убрать фото позиции. Файл в хранилище остаётся (как и при замене фото):
+ * на него может ссылаться история, а место он занимает копеечное.
+ */
+export async function removeInventoryProductImage(input: {
+  productId: string;
+}): Promise<{ error: string | null }> {
+  const ctx = await getActiveContext("inventory.manage_products");
+  if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
+
+  const productId = text(input.productId);
+  if (!productId) return { error: "Не указана позиция" };
+
+  const admin = asLooseDb(createAdminClient());
+  const product = await loadIngredientRef(admin, ctx.accountId, productId);
+  if (!product) return { error: "Позиция не найдена" };
+  if (!product.primary_image_file_id) return { error: null };
+
+  const { error } = await admin
+    .from("ingredients")
+    .update({ primary_image_file_id: null })
+    .eq("id", productId)
+    .eq("account_id", ctx.accountId);
+  if (error) return { error: error.message };
+
+  await writeIngredientJournal({
+    admin,
+    accountId: ctx.accountId,
+    ingredientId: productId,
+    eventType: "photo_updated",
+    payload: { removed: true },
+    actorId: ctx.user.id,
+  });
+  await writeAuditEvent({
+    accountId: ctx.accountId,
+    venueId: ctx.venueId,
+    userId: ctx.user.id,
+    actionCode: "catalog.ingredient.photo_removed",
+    entityType: "ingredient",
+    entityId: productId,
+    details: { name: product.name, kind: product.kind },
+  });
+
+  revalidateCatalog();
   return { error: null };
 }
 
@@ -104,7 +150,7 @@ export async function uploadInventoryProductGroupImage(formData: FormData): Prom
 
   const groupId = text(formData.get("groupId"));
   const file = formData.get("file");
-  if (!groupId) return { error: "Не указана группа ингредиентов" };
+  if (!groupId) return { error: "Не указана категория" };
   if (!(file instanceof File) || file.size === 0) return { error: "Выберите изображение" };
   if (!file.type.startsWith("image/")) return { error: "Можно загрузить только изображение" };
 
@@ -120,7 +166,7 @@ export async function uploadInventoryProductGroupImage(formData: FormData): Prom
     .eq("id", groupId)
     .eq("account_id", ctx.accountId)
     .maybeSingle();
-  if (!group?.id) return { error: "Группа ингредиентов не найдена" };
+  if (!group?.id) return { error: "Категория не найдена" };
 
   const storagePath = buildStoragePath(ctx.accountId, file.name);
   const { error: uploadError } = await admin.storage
@@ -170,8 +216,17 @@ export async function uploadInventoryProductGroupImage(formData: FormData): Prom
     },
   });
 
-  revalidatePath("/catalog/ingredients");
+  revalidateCatalog();
   return { error: null };
+}
+
+/**
+ * Каталог — три раздела (ингредиенты, блюда, полуфабрикаты) с общими
+ * экшенами: сбрасываем кэш всего `/catalog`, а не только ингредиентов —
+ * иначе правка в карточке блюда не долетала до списка блюд.
+ */
+function revalidateCatalog() {
+  revalidatePath("/catalog", "layout");
 }
 
 async function writeIngredientJournal(input: {
@@ -308,12 +363,12 @@ export async function updateIngredientDescription(input: {
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
   const ingredientId = text(input.ingredientId);
-  if (!ingredientId) return { error: "Не указан ингредиент" };
+  if (!ingredientId) return { error: "Не указана позиция" };
   const description = typeof input.description === "string" ? input.description.trim() : "";
 
   const admin = asLooseDb(createAdminClient());
   const ingredient = await loadIngredientRef(admin, ctx.accountId, ingredientId);
-  if (!ingredient) return { error: "Ингредиент не найден" };
+  if (!ingredient) return { error: "Позиция не найдена" };
   const before = ingredient.local_description ?? "";
   if (before === description) return { error: null };
 
@@ -348,7 +403,7 @@ export async function updateIngredientDescription(input: {
     },
   });
 
-  revalidatePath(`/catalog/ingredients/${ingredientId}`);
+  revalidateCatalog();
   return { error: null };
 }
 
@@ -365,12 +420,12 @@ export async function addIngredientSupplier(input: {
 
   const ingredientId = text(input.ingredientId);
   const counterpartyId = text(input.counterpartyId);
-  if (!ingredientId) return { error: "Не указан ингредиент" };
+  if (!ingredientId) return { error: "Не указана позиция" };
   if (!counterpartyId) return { error: "Выберите контрагента-поставщика" };
 
   const admin = asLooseDb(createAdminClient());
   const ingredient = await loadIngredientRef(admin, ctx.accountId, ingredientId);
-  if (!ingredient) return { error: "Ингредиент не найден" };
+  if (!ingredient) return { error: "Позиция не найдена" };
   if (!(await assertOwnedCounterparty(admin, ctx.accountId, counterpartyId))) {
     return { error: "Контрагент не найден" };
   }
@@ -387,7 +442,7 @@ export async function addIngredientSupplier(input: {
   if (error) {
     return {
       error: /duplicate key|unique/i.test(error.message)
-        ? "Этот поставщик уже добавлен к ингредиенту"
+        ? "Этот поставщик уже добавлен"
         : error.message,
     };
   }
@@ -415,7 +470,7 @@ export async function addIngredientSupplier(input: {
     },
   });
 
-  revalidatePath(`/catalog/ingredients/${ingredientId}`);
+  revalidateCatalog();
   return { error: null };
 }
 
@@ -484,7 +539,7 @@ export async function updateIngredientSupplier(input: {
     });
   }
 
-  revalidatePath(`/catalog/ingredients/${existing.ingredient_id}`);
+  revalidateCatalog();
   return { error: null };
 }
 
@@ -537,7 +592,7 @@ export async function removeIngredientSupplier(input: {
     },
   });
 
-  revalidatePath(`/catalog/ingredients/${existing.ingredient_id}`);
+  revalidateCatalog();
   return { error: null };
 }
 

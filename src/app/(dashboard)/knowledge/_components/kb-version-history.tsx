@@ -48,6 +48,7 @@ import {
   type KbVersionDiffData,
 } from "@/lib/knowledge/versions";
 import type { KbBlock, KbPageVersionRow } from "@/types/knowledge";
+import { avatarImageUrl } from "@/lib/people/avatar-thumb";
 
 interface KbVersionHistoryProps {
   pageId: string;
@@ -818,7 +819,7 @@ function Avatar({ author }: { author: EnrichedVersion["author"] }) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={author.avatar_url}
+        src={avatarImageUrl(author.avatar_url, 96)}
         alt={name}
         className="size-8 rounded-full object-cover"
       />

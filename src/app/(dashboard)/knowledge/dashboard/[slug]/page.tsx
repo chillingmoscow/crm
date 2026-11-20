@@ -11,6 +11,7 @@ import {
   type KbAnalyticsPeriod,
 } from "@/lib/knowledge/analytics";
 import { personInitials } from "@/lib/format/initials";
+import { avatarImageUrl } from "@/lib/people/avatar-thumb";
 
 const VALID_PERIODS: KbAnalyticsPeriod[] = ["day", "week", "month"];
 const PERIOD_LABEL: Record<KbAnalyticsPeriod, string> = {
@@ -199,7 +200,7 @@ function Avatar({
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={avatarUrl}
+        src={avatarImageUrl(avatarUrl, 96)}
         alt={name}
         className="size-7 rounded-full object-cover bg-muted shrink-0"
       />

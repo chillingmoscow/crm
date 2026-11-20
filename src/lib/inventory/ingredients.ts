@@ -2,6 +2,7 @@ import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { mediaUrl } from "@/lib/storage/media";
 import {
   buildIngredientHistory,
   frozenDocumentIds,
@@ -39,6 +40,7 @@ export type IngredientDetail = {
   imageFileId: string | null;
   imageUrl: string | null;
   syncedAt: string | null;
+  createdAt: string | null;
   archivedAt: string | null;
 };
 
@@ -87,10 +89,12 @@ type ProductRow = {
   local_description: string | null;
   primary_image_file_id: string | null;
   synced_at: string | null;
+  created_at: string | null;
   archived_at: string | null;
 };
 
-async function signImageUrl(accountId: string, fileId: string | null): Promise<string | null> {
+/** Постоянный адрес фото позиции (`mediaUrl`): браузер держит его месяц. */
+async function productImageUrl(accountId: string, fileId: string | null): Promise<string | null> {
   if (!fileId) return null;
   const admin = asLooseDb(createAdminClient());
   const { data: file } = await admin
@@ -100,10 +104,8 @@ async function signImageUrl(accountId: string, fileId: string | null): Promise<s
     .eq("id", fileId)
     .maybeSingle();
   if (!file?.storage_path) return null;
-  const { data: signed } = await admin.storage
-    .from("account-attachments")
-    .createSignedUrl(file.storage_path, 60 * 60);
-  return signed?.signedUrl ?? null;
+  // Доступ проверил вызывающий (право на номенклатуру, файл этого аккаунта).
+  return mediaUrl("account-attachments", file.storage_path, { access: "admin" });
 }
 
 export async function getIngredientDetail(
@@ -115,7 +117,7 @@ export async function getIngredientDetail(
   const { data: product } = await admin
     .from<ProductRow>("ingredients")
     .select(
-      "id, external_id, name, item_title, group_id, article, barcode, measure_unit_name, current_prime_cost, store_quantity_kg, stock_limit, local_description, primary_image_file_id, synced_at, archived_at",
+      "id, external_id, name, item_title, group_id, article, barcode, measure_unit_name, current_prime_cost, store_quantity_kg, stock_limit, local_description, primary_image_file_id, synced_at, created_at, archived_at",
     )
     .eq("account_id", accountId)
     .eq("id", ingredientId)
@@ -136,7 +138,7 @@ export async function getIngredientDetail(
     groupName = group?.name ?? null;
   }
 
-  const imageUrl = await signImageUrl(accountId, product.primary_image_file_id);
+  const imageUrl = await productImageUrl(accountId, product.primary_image_file_id);
 
   return {
     id: product.id,
@@ -155,6 +157,7 @@ export async function getIngredientDetail(
     imageFileId: product.primary_image_file_id,
     imageUrl,
     syncedAt: product.synced_at,
+    createdAt: product.created_at ?? null,
     archivedAt: product.archived_at,
   };
 }

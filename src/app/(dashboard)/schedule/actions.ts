@@ -13,6 +13,7 @@ import { applyShiftReviews } from "@/lib/payroll/shift-attendance";
 import { dateInZone } from "@/lib/schedule/utils";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
+import { mediaUrl } from "@/lib/storage/media";
 const uuid = z.string().uuid();
 const nullable = uuid.nullable();
 const time = z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/);
@@ -716,9 +717,11 @@ export async function uploadEvidence(runId: string, form: FormData) {
 }
 export async function evidenceUrl(path: string) {
   const db = await client();
-  const { data, error } = await db.storage
+  // Короткая подпись — только проверка, что фото есть и доступно; показываем
+  // его постоянным адресом, чтобы браузер держал фото месяц.
+  const { error } = await db.storage
     .from("schedule-evidence")
-    .createSignedUrl(path, 600);
+    .createSignedUrl(path, 60);
   if (error) return { error: error.message };
-  return { url: data.signedUrl };
+  return { url: mediaUrl("schedule-evidence", path) };
 }

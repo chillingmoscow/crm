@@ -19,6 +19,7 @@ import { SalesShiftsHelp } from "@/app/(dashboard)/sales/shifts/_components/sale
 import { IntegrationsHelp, OfficeCodesHelp, QuickRestoHelp, TelegramHelp, TildaHelp } from "@/app/(dashboard)/settings/integrations/_components/integrations-help";
 
 import { InventoryActsHelp } from "@/app/(dashboard)/documents/inventory/_components/inventory-acts-help";
+import { CatalogHelp } from "@/app/(dashboard)/catalog/_components/catalog-help";
 import { AuditHelp } from "@/app/(dashboard)/org/audit/_components/audit-help";
 import { StoresHelp } from "@/app/(dashboard)/org/stores/_components/stores-help";
 
@@ -84,6 +85,12 @@ export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
       p === "/documents/inventory" || p.startsWith("/documents/inventory/"),
     title: "Акты инвентаризации",
     Content: InventoryActsHelp,
+  },
+  {
+    // Три вида номенклатуры и их карточки делят одну справку.
+    match: (p) => p.startsWith("/catalog/"),
+    title: "Номенклатура",
+    Content: CatalogHelp,
   },
   { match: (p) => p === "/org/audit", title: "Журнал событий", Content: AuditHelp },
 ];

@@ -47,11 +47,13 @@ const nextConfig: NextConfig = {
     },
   },
   images: {
-    // Через оптимизатор идут только уменьшенные фото людей (avatarThumbUrl;
-    // остальные <Image> — unoptimized). Их адреса неизменяемые: новое фото
-    // сотрудника получает новый ?t=, у Glide — новый путь. Поэтому браузер
-    // может держать копию неделю, а не час (по заголовку исходника).
-    minimumCacheTTL: 60 * 60 * 24 * 7,
+    // Через оптимизатор идут уменьшенные фото людей (avatarThumbUrl /
+    // avatarImageUrl; остальные <Image> — unoptimized). Их адреса
+    // неизменяемые: новое фото сотрудника получает новый ?t=, у Glide — новый
+    // путь. Поэтому браузер держит копию месяц, а не час (по заголовку
+    // исходника). Приватные картинки кэшируются так же долго через
+    // /api/media (lib/storage/media.ts).
+    minimumCacheTTL: 60 * 60 * 24 * 30,
     remotePatterns: [
       // Self-hosted Supabase storage (production)
       { protocol: "https", hostname: supabaseHostname },

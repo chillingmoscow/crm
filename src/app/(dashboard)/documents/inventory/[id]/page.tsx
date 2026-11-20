@@ -7,6 +7,8 @@ import {
   getCachedUser,
 } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { chunk } from "@/lib/supabase/fetch-all";
+import { mediaUrl } from "@/lib/storage/media";
 import { getCachedInventoryDocumentBasics, getCachedStoreTitle } from "./layout";
 import { InventoryDocumentEditor } from "./_components/document-editor";
 
@@ -107,21 +109,12 @@ function groupsUsedByDocument(
   return orderedGroups.filter(({ group }) => allowed.has(group.id));
 }
 
-/**
- * Сколько живут подписанные ссылки на фото позиций акта.
- *
- * Час не годится с тех пор, как картинки грузятся лениво: акт на 300 позиций
- * считают на складе, прокручивая список часами, и нижние строки запрашивают
- * свои фото сильно позже открытия формы. Раньше это скрывалось тем, что все
- * 300 картинок запрашивались сразу и попадали в кэш браузера, пока ссылки были
- * свежими; с loading="lazy" такая страховка исчезла, и у длинной смены фото
- * ниже по списку просто не открывались бы.
- *
- * Двенадцать часов покрывают смену целиком. Плата — ссылка-предъявитель живёт
- * дольше; для внутренних фото номенклатуры, которые и так видны только
- * авторизованному сотруднику, это приемлемо.
+/*
+ * Фото позиций отдаются постоянными адресами (`mediaUrl`), а не подписанными
+ * ссылками. Раньше ссылка жила 12 часов, чтобы фото внизу длинного акта
+ * открывались до конца смены (loading="lazy"); постоянному адресу срок не
+ * нужен, а браузер держит фото месяц.
  */
-const ACT_IMAGE_SIGNED_URL_TTL_SECONDS = 12 * 60 * 60;
 
 export default async function InventoryDocumentPage({
   params,
@@ -195,33 +188,27 @@ export default async function InventoryDocumentPage({
       .map((product) => product.primary_image_file_id)
       .filter((fileId): fileId is string => Boolean(fileId));
     const filePathById = new Map<string, string>();
-    if (fileIds.length > 0) {
+    // id режем на части: в акте бывают сотни позиций с фото, а список id в
+    // `.in(...)` уходит в URL запроса.
+    for (const ids of chunk(Array.from(new Set(fileIds)), 150)) {
       const { data: files } = await admin
         .from<AccountFilePathRow[]>("account_files")
         .select("id, storage_path")
         .eq("account_id", accountId)
-        .in("id", fileIds);
+        .in("id", ids);
       for (const file of files ?? []) {
         filePathById.set(file.id, file.storage_path);
       }
     }
 
-    // Батч-подпись всех фото одним запросом к storage (вместо N round-trip'ов
-    // createSignedUrl в Promise.all — заметно ускоряет загрузку формы акта).
-    const allPaths = Array.from(new Set(Array.from(filePathById.values())));
-    const signedByPath = new Map<string, string>();
-    if (allPaths.length > 0) {
-      // Реальный клиент: у loose-обёртки нет типа createSignedUrls.
-      const { data: signedList } = await createAdminClient().storage
-        .from("account-attachments")
-        .createSignedUrls(allPaths, ACT_IMAGE_SIGNED_URL_TTL_SECONDS);
-      for (const entry of signedList ?? []) {
-        if (entry.path && entry.signedUrl) signedByPath.set(entry.path, entry.signedUrl);
-      }
-    }
     for (const product of productRows) {
       const path = product.primary_image_file_id ? filePathById.get(product.primary_image_file_id) : null;
-      imageByProductId.set(product.id, path ? signedByPath.get(path) ?? null : null);
+      // Постоянный адрес: фото позиций браузер держит месяц и не качает
+      // заново на каждом открытии акта. Доступ к акту проверен выше.
+      imageByProductId.set(
+        product.id,
+        path ? mediaUrl("account-attachments", path, { access: "admin" }) : null,
+      );
     }
   }
 

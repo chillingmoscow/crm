@@ -1,5 +1,9 @@
+import type { Metadata } from "next";
+
 import { CATALOG_KINDS } from "../../_lib/kinds";
 import { NomenclatureDetail } from "../../_components/nomenclature-detail";
+
+export const metadata: Metadata = { title: "Блюдо" };
 
 export default async function DishDetailPage({
   params,

@@ -1,5 +1,6 @@
 import type { KbAnalyticsTopUser } from "@/lib/knowledge/analytics";
 import { personInitials } from "@/lib/format/initials";
+import { avatarImageUrl } from "@/lib/people/avatar-thumb";
 
 /** Топ-юзеров по активности в KB. Server-component. Рядом с топ-
  *  страницами на /knowledge/analytics. */
@@ -64,7 +65,7 @@ function Avatar({
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={avatarUrl}
+        src={avatarImageUrl(avatarUrl, 96)}
         alt={name}
         className="size-7 rounded-full object-cover bg-muted shrink-0"
       />

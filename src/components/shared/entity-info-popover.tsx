@@ -30,6 +30,7 @@ import {
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { pluralRu } from "@/lib/format/plural";
 import { personInitials } from "@/lib/format/initials";
+import { avatarImageUrl } from "@/lib/people/avatar-thumb";
 
 interface EntityInfoPopoverProps {
   /** Заголовок попапа: «О должности», «О сотруднике» и т.д. */
@@ -57,6 +58,11 @@ interface EntityInfoPopoverProps {
   updatedByAvatarUrl?: string | null;
   /** Когда true — даты отображаются с HH:mm. */
   showTime?: boolean;
+  /**
+   * Свои строки сразу после ID — например, код позиции во внешней системе.
+   * Строка без значения, как и остальные, не выводится.
+   */
+  extraRows?: { label: string; value: string | null }[];
   /** Когда true — «Изменена» отображается относительно («5 мин назад»). */
   relativeUpdatedAt?: boolean;
 }
@@ -104,7 +110,7 @@ function MiniAvatar({
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={avatarUrl}
+        src={avatarImageUrl(avatarUrl, 64)}
         alt={name ?? ""}
         className="size-4 rounded-full object-cover bg-muted shrink-0"
       />
@@ -139,9 +145,11 @@ export function EntityInfoPopover({
   updatedByAvatarUrl = null,
   showTime = false,
   relativeUpdatedAt = false,
+  extraRows = [],
 }: EntityInfoPopoverProps) {
   const candidates: (Omit<Row, "value"> & { value: string | null })[] = [
     { label: "ID", value: id.slice(0, 8) },
+    ...extraRows,
     {
       label: createdLabel,
       value: createdAt ? formatDate(createdAt, showTime) : null,

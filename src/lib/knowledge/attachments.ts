@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getFileSignedUrl } from "@/lib/files/signed-urls";
+import { mediaUrl } from "@/lib/storage/media";
 
 export { getFileSignedUrl };
 
@@ -128,10 +129,17 @@ export async function getKbAttachmentSignedUrl(
   // Lookup file_id по storage_path → берём signed URL через общий хелпер.
   const { data, error } = await supabase
     .from("account_files")
-    .select("id")
+    .select("id, mime_type")
     .eq("storage_path", storagePath)
     .maybeSingle();
   if (error) return { url: null, error: error.message };
   if (!data) return { url: null, error: "Файл не найден или доступ закрыт" };
+  // Картинки — постоянным адресом: браузер держит их месяц, а не качает на
+  // каждом открытии страницы. Файл читается от имени пользователя, с теми же
+  // правилами, что и подпись. Аудио, видео и документы — подписанной ссылкой:
+  // плееру нужны частичные запросы, их маршрут картинок не отдаёт.
+  if (typeof data.mime_type === "string" && data.mime_type.startsWith("image/")) {
+    return { url: mediaUrl("account-attachments", storagePath), error: null };
+  }
   return getFileSignedUrl(data.id);
 }

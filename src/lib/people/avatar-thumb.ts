@@ -43,3 +43,13 @@ export function avatarThumbUrl(
   if (!supabasePublic && !glide) return url;
   return `/_next/image?url=${encodeURIComponent(url)}&w=${width}&q=75`;
 }
+
+/**
+ * То же для `<img src>`, где адрес уже точно есть: копия нужной ширины через
+ * оптимизатор (браузер держит её месяц — `images.minimumCacheTTL`), а адрес
+ * не из нашего хранилища — как есть. Ширина — из размеров оптимизатора:
+ * 64, 96, 128, 256, 384, 640…
+ */
+export function avatarImageUrl(url: string, width: number = AVATAR_THUMB_WIDTH): string {
+  return avatarThumbUrl(url, width) ?? url;
+}

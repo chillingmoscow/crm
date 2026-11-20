@@ -2,6 +2,7 @@
 
 import { createReactInlineContentSpec } from "@blocknote/react";
 import { personInitials } from "@/lib/format/initials";
+import { avatarImageUrl } from "@/lib/people/avatar-thumb";
 
 /**
  * Atomic @-mention сотрудника. Аналог kbPageMention'а, но с
@@ -40,7 +41,7 @@ export const kbStaffMentionInlineContent = createReactInlineContentSpec(
           {props.avatarUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={props.avatarUrl}
+              src={avatarImageUrl(props.avatarUrl, 64)}
               alt=""
               className="size-[14px] rounded-full object-cover bg-muted shrink-0"
             />

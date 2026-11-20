@@ -17,6 +17,8 @@ import {
   type TaskMessage,
   type TaskPreview,
 } from "@/lib/schedule/tasks";
+import { mediaUrl } from "@/lib/storage/media";
+import { getKbAttachmentSignedUrl } from "@/lib/knowledge/attachments";
 
 async function context() {
   const client = await createClient();
@@ -336,10 +338,12 @@ export async function taskPhotoUrl(path: string) {
   )
     return { error: "Неверная фотография" };
   const { db } = await context();
-  const r = await db.storage.from("task-evidence").createSignedUrl(path, 600);
+  // Короткая подпись — только проверка доступа; показываем постоянным
+  // адресом, чтобы браузер держал фото месяц.
+  const r = await db.storage.from("task-evidence").createSignedUrl(path, 60);
   return r.error
     ? { error: "Фотография недоступна" }
-    : { url: r.data?.signedUrl };
+    : { url: mediaUrl("task-evidence", path) };
 }
 export async function taskHistory(id: string) {
   z.string().uuid().parse(id);
@@ -404,11 +408,8 @@ export async function loadTaskInstructionPage(id: string) {
 }
 export async function taskInstructionFileUrl(url: string) {
   if (!url.startsWith("kbfile://")) return url;
-  const { client } = await context();
-  const path = url.slice("kbfile://".length);
-  const result = await client.storage
-    .from("account-attachments")
-    .createSignedUrl(path, 3600);
-  if (result.error || !result.data) return "";
-  return result.data.signedUrl;
+  await context();
+  // Тот же путь, что у страницы базы знаний: картинки — постоянным адресом,
+  // остальные файлы — подписанной ссылкой.
+  return (await getKbAttachmentSignedUrl(url.slice("kbfile://".length))).url ?? "";
 }

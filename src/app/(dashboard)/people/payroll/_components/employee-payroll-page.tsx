@@ -15,6 +15,7 @@ import { EmployeePay } from "./employee-pay";
 import { RefreshFailedNotice, useAutoRefresh } from "./auto-refresh";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { personInitials } from "@/lib/format/initials";
+import { avatarImageUrl } from "@/lib/people/avatar-thumb";
 
 export function EmployeePayrollPage({
   initial,
@@ -81,7 +82,7 @@ export function EmployeePayrollPage({
       <div className={s.heading}>
         <span className={s.portrait}>
           {employee.avatar_url ? (
-            <img src={employee.avatar_url} alt="" />
+            <img src={avatarImageUrl(employee.avatar_url, 128)} alt="" />
           ) : (
             personInitials(employee.name)
           )}

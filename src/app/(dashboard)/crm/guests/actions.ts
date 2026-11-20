@@ -11,6 +11,7 @@ import {
   type GuestFilters,
   type GuestConfiguration,
 } from "@/lib/guests/types";
+import { mediaUrl } from "@/lib/storage/media";
 function readValue<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
   if (!result.success)
@@ -38,10 +39,9 @@ async function photo<T extends Guest>(
   const path = g.data.photoPath;
   if (!path || !path.startsWith(`${s.account}/${s.venueId}/`))
     return { ...g, photoUrl: null };
-  const r = await s.client.storage
-    .from("crm-guest-photos")
-    .createSignedUrl(path, 300);
-  return { ...g, photoUrl: r.error ? null : r.data.signedUrl };
+  // Путь проверен выше (аккаунт и заведение); файл читается от имени
+  // пользователя. Постоянный адрес — браузер держит фото месяц.
+  return { ...g, photoUrl: mediaUrl("crm-guest-photos", path) };
 }
 export async function loadGuests(
   filters: GuestFilters,
@@ -188,8 +188,5 @@ export async function uploadGuestPhoto(venue: string, form: FormData) {
       .from("crm-guest-photos")
       .upload(path, b, { contentType: type, upsert: false });
   if (r.error) throw Error("Не удалось загрузить фотографию");
-  const signed = await s.client.storage
-    .from("crm-guest-photos")
-    .createSignedUrl(path, 300);
-  return { path, url: signed.data?.signedUrl ?? null };
+  return { path, url: mediaUrl("crm-guest-photos", path) };
 }

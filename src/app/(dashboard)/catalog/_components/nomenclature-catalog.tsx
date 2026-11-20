@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
-import { PackageSearch } from "lucide-react";
 
-import { catalogPath, type CatalogKindConfig } from "../_lib/kinds";
+import type { CatalogKindConfig } from "../_lib/kinds";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
@@ -10,14 +9,10 @@ import {
   getCachedPermissionChecker,
 } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
-import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
-import {
-  InventoryCatalogTree,
-  type CatalogGroup,
-  type CatalogProduct,
-} from "./inventory-catalog-tree";
-import { InventorySyncButton } from "@/app/(dashboard)/inventory/_components/inventory-sync-button";
-import { ScopeToggle } from "./scope-toggle";
+import { chunk, fetchAllRows } from "@/lib/supabase/fetch-all";
+import { mediaUrl } from "@/lib/storage/media";
+import { CatalogTable } from "./catalog-table";
+import type { CatalogGroup, CatalogProduct } from "./catalog-tree";
 
 type GroupRow = {
   id: string;
@@ -39,41 +34,50 @@ type ProductRow = {
   primary_image_file_id: string | null;
   group_id: string | null;
   archived_at: string | null;
-  raw_payload: Record<string, unknown> | null;
 };
 
-async function createSignedImageUrls(accountId: string, fileIds: string[]) {
+type ImageUrls = { thumb: string; preview: string };
+
+/**
+ * Адреса фото: уменьшенная копия для строки и крупная для просмотра при
+ * наведении. Адреса постоянные (`mediaUrl`) — браузер держит фото месяц.
+ * id режем на части: фото может быть у каждой из тысячи позиций, а список id
+ * в `.in(...)` уходит в URL запроса.
+ */
+async function loadImageUrls(accountId: string, fileIds: string[]) {
   const uniqueIds = Array.from(new Set(fileIds.filter(Boolean)));
-  const imageUrlByFileId = new Map<string, string>();
-  if (uniqueIds.length === 0) return imageUrlByFileId;
+  const urlsByFileId = new Map<string, ImageUrls>();
+  if (uniqueIds.length === 0) return urlsByFileId;
 
   const admin = asLooseDb(createAdminClient());
-  const { data: files } = await admin
-    .from<Array<{ id: string; storage_path: string }>>("account_files")
-    .select("id, storage_path")
-    .eq("account_id", accountId)
-    .in("id", uniqueIds);
+  const fileRows = (
+    await Promise.all(
+      chunk(uniqueIds, 150).map(async (ids) => {
+        const { data } = await admin
+          .from<Array<{ id: string; storage_path: string }>>("account_files")
+          .select("id, storage_path")
+          .eq("account_id", accountId)
+          .in("id", ids);
+        return data ?? [];
+      }),
+    )
+  ).flat();
 
-  const fileRows = files ?? [];
-  if (fileRows.length === 0) return imageUrlByFileId;
-
-  // Батч-подпись: один запрос к storage на все пути вместо N round-trip'ов
-  // (createSignedUrl в Promise.all раньше тормозил каталог и refresh после
-  // загрузки фото — особенно на списке из многих ингредиентов). Реальный
-  // клиент: у loose-обёртки нет типа createSignedUrls.
-  const { data: signedList } = await createAdminClient().storage
-    .from("account-attachments")
-    .createSignedUrls(fileRows.map((file) => file.storage_path), 60 * 60);
-  const signedByPath = new Map<string, string>();
-  for (const entry of signedList ?? []) {
-    if (entry.path && entry.signedUrl) signedByPath.set(entry.path, entry.signedUrl);
-  }
+  // Доступ проверен выше (право на номенклатуру, файл этого аккаунта) —
+  // файл читается служебным ключом, как и раньше подпись.
   for (const file of fileRows) {
-    const url = signedByPath.get(file.storage_path);
-    if (url) imageUrlByFileId.set(file.id, url);
+    urlsByFileId.set(file.id, {
+      thumb: mediaUrl("account-attachments", file.storage_path, {
+        access: "admin",
+        transform: { width: 96, height: 96, resize: "cover" },
+      }),
+      preview: mediaUrl("account-attachments", file.storage_path, {
+        access: "admin",
+        transform: { width: 640, resize: "contain" },
+      }),
+    });
   }
-
-  return imageUrlByFileId;
+  return urlsByFileId;
 }
 
 /**
@@ -91,11 +95,10 @@ export async function NomenclatureCatalog({
   const supabase = await createClient();
   const db = asLooseDb(supabase);
 
-  const [can, accountId, { data: activeVenueId }, amountRoundingScale] = await Promise.all([
+  const [can, accountId, { data: activeVenueId }] = await Promise.all([
     getCachedPermissionChecker(),
     getCachedActiveAccountId(),
     supabase.rpc("get_active_venue_id"),
-    getActiveAccountAmountRoundingScale(),
   ]);
   const canView = can("inventory.view_products");
   const canManage = can("inventory.manage_products");
@@ -103,49 +106,47 @@ export async function NomenclatureCatalog({
   if (!canView) redirect("/dashboard");
   if (!accountId) redirect("/dashboard");
 
-  // Сколько venue в аккаунте: при единственном venue toggle бессмыслен
-  // (фильтр «этого заведения» совпадает с «весь каталог»). Скрываем
-  // toggle и форсим режим «весь каталог» — это устраняет confusing
-  // empty state при свежем QR-импорте, когда актов ещё нет.
-  const { data: accountVenues } = await db
-    .from<Array<{ id: string }>>("venues")
-    .select("id")
-    .eq("account_id", accountId);
-  const venueCount = accountVenues?.length ?? 0;
-  const multiVenue = venueCount > 1;
-
-  // Дефолт — «весь каталог»:
-  //   - При первом QR-импорте актов нет → toggle на «этого заведения»
-  //     показывал бы пусто, что сбивало (Issue: empty groups + missing items).
-  //   - Когда у user'а появятся реальные акты, он сам переключит, чтобы
-  //     отфильтровать «что в этом venue».
-  // При venueCount<=1 toggle всё равно скрыт, режим всегда «весь каталог».
-  const venueScoped = multiVenue && scope === "venue";
-
-  const { data: lastSynced } = await db
-    .from<Array<{ synced_at: string | null }>>("ingredients")
-    .select("synced_at")
-    .eq("account_id", accountId)
-    .eq("kind", config.kind)
-    .order("synced_at", { ascending: false })
-    .range(0, 0);
+  // Всё, что не зависит друг от друга, — одним заходом: заведения аккаунта,
+  // время последней синхронизации, категории и позиции раздела.
+  // Категории и позиции читаем постранично: PostgREST отдаёт не больше 1000
+  // строк, а в справочнике ингредиентов их бывает больше.
+  const [{ data: accountVenues }, { data: lastSynced }, groups, products] =
+    await Promise.all([
+      db.from<Array<{ id: string }>>("venues").select("id").eq("account_id", accountId),
+      db
+        .from<Array<{ synced_at: string | null }>>("ingredients")
+        .select("synced_at")
+        .eq("account_id", accountId)
+        .eq("kind", config.kind)
+        .order("synced_at", { ascending: false })
+        .range(0, 0),
+      fetchAllRows(() =>
+        db
+          .from<GroupRow[]>("ingredient_groups")
+          .select("id, external_id, name, parent_group_id, primary_image_file_id")
+          .eq("account_id", accountId)
+          // Категории строго своего раздела: у блюд и полуфабрикатов свои деревья.
+          .eq("kind", config.kind),
+      ),
+      fetchAllRows(() =>
+        db
+          .from<ProductRow[]>("ingredients")
+          .select("id, external_id, name, article, barcode, measure_unit_name, current_prime_cost, store_quantity_kg, primary_image_file_id, group_id, archived_at")
+          .eq("account_id", accountId)
+          .eq("kind", config.kind),
+      ),
+    ]);
   const lastSyncedAt = lastSynced?.[0]?.synced_at ?? null;
 
-  const [{ data: groups }, { data: products }] = await Promise.all([
-    db
-      .from<GroupRow[]>("ingredient_groups")
-      .select("id, external_id, name, parent_group_id, primary_image_file_id")
-      .eq("account_id", accountId)
-      // Категории строго своего раздела: у блюд и полуфабрикатов свои деревья.
-      .eq("kind", config.kind)
-      .order("name"),
-    db
-      .from<ProductRow[]>("ingredients")
-      .select("id, external_id, name, article, barcode, measure_unit_name, current_prime_cost, store_quantity_kg, primary_image_file_id, group_id, archived_at, raw_payload")
-      .eq("account_id", accountId)
-      .eq("kind", config.kind)
-      .order("name"),
-  ]);
+  // Сколько venue в аккаунте: при единственном venue переключатель бессмыслен
+  // (фильтр «этого заведения» совпадает с «весь каталог») — скрываем его и
+  // всегда показываем весь каталог. Это убирает пустой список при свежем
+  // импорте из Quick Resto, когда актов ещё нет.
+  const multiVenue = (accountVenues?.length ?? 0) > 1;
+
+  // Дефолт — «весь каталог»: при первом импорте актов нет, и «этого
+  // заведения» показывал бы пустоту. Сузить список человек может сам.
+  const venueScoped = multiVenue && scope === "venue";
 
   // Тоггл «Этого заведения»: ингредиенты, встречающиеся в актах
   // активного venue. RLS уже venue-scope-ит documents/document_items;
@@ -157,21 +158,23 @@ export async function NomenclatureCatalog({
   if (venueScoped) {
     venueIngredientIds = new Set();
     if (activeVenueId) {
-      const { data: venueDocs } = await db
-        .from<Array<{ id: string }>>("documents")
-        .select("id")
-        .eq("venue_id", activeVenueId);
-      const docIds = (venueDocs ?? []).map((d) => d.id);
-      if (docIds.length > 0) {
-        const { data: usedItems } = await db
-          .from<Array<{ ingredient_id: string | null }>>("document_items")
-          .select("ingredient_id")
-          .in("document_id", docIds);
-        venueIngredientIds = new Set(
-          (usedItems ?? [])
-            .map((i) => i.ingredient_id)
-            .filter((id): id is string => Boolean(id)),
+      const venueDocs = await fetchAllRows(() =>
+        db
+          .from<Array<{ id: string }>>("documents")
+          .select("id")
+          .eq("venue_id", activeVenueId),
+      );
+      const docIds = venueDocs.map((d) => d.id);
+      for (const ids of chunk(docIds, 150)) {
+        const usedItems = await fetchAllRows(() =>
+          db
+            .from<Array<{ id: string; ingredient_id: string | null }>>("document_items")
+            .select("id, ingredient_id")
+            .in("document_id", ids),
         );
+        for (const item of usedItems) {
+          if (item.ingredient_id) venueIngredientIds.add(item.ingredient_id);
+        }
       }
     }
   }
@@ -182,24 +185,31 @@ export async function NomenclatureCatalog({
   // классу Quick Resto, так что проверка была бы дублем — а после появления
   // разделов ещё и вредным: она пропускала только `.SingleProduct` и вычистила
   // бы из блюд и полуфабрикатов вообще все позиции, оставив пустые категории.
-  const productRows = (products ?? [])
-    .filter((row) => !row.archived_at)
-    .filter((row) => !venueIngredientIds || venueIngredientIds.has(row.id));
-  const imageUrlByFileId = await createSignedImageUrls(
+  //
+  // Архивные позиции (удалённые в Quick Resto) отдаём вместе с живыми: список
+  // переключается на них кнопкой «Архив» без похода на сервер. Тоггл
+  // заведения к архиву не применяется — архив и так небольшой.
+  const productRows = products.filter(
+    (row) => row.archived_at || !venueIngredientIds || venueIngredientIds.has(row.id),
+  );
+  const imageUrlByFileId = await loadImageUrls(
     accountId,
     [
-      ...(groups ?? []).map((group) => group.primary_image_file_id ?? ""),
+      ...groups.map((group) => group.primary_image_file_id ?? ""),
       ...productRows.map((product) => product.primary_image_file_id ?? ""),
     ],
   );
 
-  const catalogGroups: CatalogGroup[] = (groups ?? []).map((group) => ({
+  const catalogGroups: CatalogGroup[] = groups.map((group) => ({
     id: group.id,
     externalId: group.external_id,
     name: group.name,
     parentGroupId: group.parent_group_id,
     imageUrl: group.primary_image_file_id
-      ? imageUrlByFileId.get(group.primary_image_file_id) ?? null
+      ? imageUrlByFileId.get(group.primary_image_file_id)?.thumb ?? null
+      : null,
+    previewUrl: group.primary_image_file_id
+      ? imageUrlByFileId.get(group.primary_image_file_id)?.preview ?? null
       : null,
   }));
 
@@ -211,49 +221,35 @@ export async function NomenclatureCatalog({
     barcode: product.barcode,
     measureUnitName: product.measure_unit_name,
     currentPrimeCost: product.current_prime_cost,
-    storeQuantityKg: product.store_quantity_kg,
+    storeQuantity: product.store_quantity_kg,
     groupId: product.group_id,
     imageUrl: product.primary_image_file_id
-      ? imageUrlByFileId.get(product.primary_image_file_id) ?? null
+      ? imageUrlByFileId.get(product.primary_image_file_id)?.thumb ?? null
       : null,
+    previewUrl: product.primary_image_file_id
+      ? imageUrlByFileId.get(product.primary_image_file_id)?.preview ?? null
+      : null,
+    archived: Boolean(product.archived_at),
   }));
 
+  // Почему «этого заведения» может оказаться пустым — объясняем в пустом
+  // состоянии списка, а не отдельной строкой над ним.
+  const scopeNotice = !venueScoped
+    ? null
+    : !activeVenueId
+      ? "Активное заведение не выбрано"
+      : "В актах этого заведения таких позиций пока нет";
+
   return (
-    <div className="w-full px-4 py-4 md:px-8 md:py-6">
-      <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
-            <PackageSearch className="h-5 w-5" />
-          </div>
-          <h1 className="text-2xl font-semibold">{config.title}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{config.description}</p>
-        </div>
-        <InventorySyncButton canSync={canSync} lastSyncedAt={lastSyncedAt} />
-      </div>
-
-      {multiVenue ? (
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <ScopeToggle value={venueScoped ? "venue" : "all"} />
-          {venueScoped && !activeVenueId ? (
-            <span className="text-sm text-muted-foreground">
-              Активное заведение не выбрано — переключитесь на «Весь каталог».
-            </span>
-          ) : venueScoped && productRows.length === 0 ? (
-            <span className="text-sm text-muted-foreground">
-              В этом заведении пока нет актов с этими позициями — переключитесь на «Весь каталог».
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-
-      <InventoryCatalogTree
-        groups={catalogGroups}
-        products={catalogProducts}
-        canManage={canManage}
-        amountRoundingScale={amountRoundingScale}
-        detailBasePath={catalogPath(config)}
-        countNoun={config.countNoun}
-      />
-    </div>
+    <CatalogTable
+      config={config}
+      groups={catalogGroups}
+      products={catalogProducts}
+      canManage={canManage}
+      canSync={canSync}
+      lastSyncedAt={lastSyncedAt}
+      scope={multiVenue ? (venueScoped ? "venue" : "all") : null}
+      scopeNotice={scopeNotice}
+    />
   );
 }

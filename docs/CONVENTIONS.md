@@ -348,7 +348,12 @@ Pass A (этот PR) — только venues + конвенция + reusable. Д
   `bank_accounts` — archive-only (hard-delete блокирован FK от
   транзакций, UI скрывает кнопку с tooltip).
 - **Pass C (inventory):** ingredients (добавить `archived_by`),
-  ingredient_groups, documents, stores.
+  ingredient_groups, documents. **stores — сделано миграцией 365** с
+  осознанными отступлениями (описаны в её шапке): без RLS-сплита (акты
+  архивного склада показывают его название), без «удалить навсегда»
+  (склад вернётся с синхронизацией Quick Resto), архивирует
+  `inventory.manage_stores`, архив — переключатель в ряду инструментов
+  `/org/stores`, а не отдельная страница.
 - **Pass D (knowledge):** kb_collections, kb_pages — переписать
   bespoke `kb-soft-delete-page.ts` на конвенционный триплет.
 - **Pass E (people):** departments, roles, venue_halls. Для roles —

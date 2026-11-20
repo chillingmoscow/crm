@@ -1,6 +1,12 @@
 "use server";
 
-import { createClient, getCachedPermissionChecker } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+  getCachedUser,
+} from "@/lib/supabase/server";
+import { writeAuditEvent } from "@/lib/audit/write";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { revalidatePath } from "next/cache";
 
@@ -133,14 +139,33 @@ export async function setRoleScheduleVisibility(roleId: string, visible: boolean
   if (!venueId || !can("people.manage_roles") || typeof visible !== "boolean") {
     return { error: "Нет доступа к настройке расписания" };
   }
-  const table = asLooseDb(db).from("schedule_hidden_roles");
-  const { error } = visible
-    ? await table.delete().eq("venue_id", venueId).eq("role_id", roleId)
+  const table = asLooseDb(db).from<{ role_id: string }[]>("schedule_hidden_roles");
+  const { data: changed, error } = visible
+    ? await table.delete().eq("venue_id", venueId).eq("role_id", roleId).select("role_id")
     : await table.upsert({ venue_id: venueId, role_id: roleId }, {
       onConflict: "venue_id,role_id",
       ignoreDuplicates: true,
-    });
+    }).select("role_id");
   if (error) return { error: error.message };
+  // Пишем только настоящее переключение: повторный клик ничего не меняет.
+  if (changed && changed.length > 0) {
+    const [user, accountId, role] = await Promise.all([
+      getCachedUser(),
+      getCachedActiveAccountId(),
+      db.from("roles").select("name").eq("id", roleId).maybeSingle(),
+    ]);
+    if (user && accountId) {
+      await writeAuditEvent({
+        accountId,
+        venueId,
+        userId: user.id,
+        actionCode: "schedule.role.visibility_changed",
+        entityType: "role",
+        entityId: roleId,
+        details: { name: role.data?.name ?? null, visible },
+      });
+    }
+  }
   revalidatePath("/schedule");
   revalidatePath(`/people/roles/${roleId}`);
   return { error: null };

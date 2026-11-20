@@ -2,15 +2,22 @@ import "server-only";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { ImageResponse } from "next/og";
-import type { ImageRow, ImageSlot, ScheduleImage } from "./schedule-image";
+import {
+  DAY_COL,
+  LABEL_TEXT,
+  LAYOUT as L,
+  OTHER_TEXT,
+  rowHeight,
+  scheduleImageHeight,
+  slotHeight,
+  type ImageSlot,
+  type ScheduleImage,
+} from "./schedule-image";
 
 /**
- * PNG расписания (next/og). Одна и та же картинка уходит на скачивание и в
- * Telegram, поэтому рисуется на сервере.
- *
- * Размеры — шкала дизайн-системы ×2: картинка 1200px шириной на телефоне
- * показывается примерно в 400pt, то есть каждый пиксель макета — два пикселя
- * картинки. Кегли 40/28/24 — это 20/14/12 из шкалы, радиусы 16/12 — 8/6.
+ * PNG расписания (next/og) в раскладке «По шаблонам». Одна и та же картинка
+ * уходит на скачивание и в Telegram, поэтому рисуется на сервере. Размеры и
+ * высоты строк считает `schedule-image.ts` (шкала дизайн-системы ×2).
  *
  * В растровой картинке нет CSS-переменных, поэтому цвета ниже — значения
  * токенов светлой темы из `globals.css` (комментарий — имя токена).
@@ -35,8 +42,8 @@ const SLOT_BG: Record<string, string> = {
   pink: "#fce7f3",
   red: "#fee2e2",
 };
-/** --palette-{c}-dot: полоска цвета шаблона, как в виде «Список». */
-const SLOT_DOT: Record<string, string> = {
+/** --palette-{c}-dot: точка цвета шаблона, как `ColorDot`. */
+const DOT: Record<string, string> = {
   gray: "#6b7280",
   brown: "#92664a",
   orange: "#f97316",
@@ -47,33 +54,6 @@ const SLOT_DOT: Record<string, string> = {
   pink: "#ec4899",
   red: "#ef4444",
 };
-
-export const IMAGE_WIDTH = 1200;
-const PAD = 48;
-const NAME_COL = 280;
-const DAY_COL = (IMAGE_WIDTH - PAD * 2 - NAME_COL) / 7;
-const HEADER_H = 160;
-const HEAD_ROW_H = 64;
-const GROUP_ROW_H = 60;
-const SLOT_H = 76;
-const SLOT_GAP = 8;
-const CELL_PAD = 8;
-const ROW_MIN_H = 104;
-const EMPTY_H = 200;
-const FOOT = PAD;
-
-const rowHeight = (row: ImageRow) => {
-  const most = Math.max(1, ...row.days.map((d) => d.length));
-  return Math.max(ROW_MIN_H, CELL_PAD * 2 + most * SLOT_H + (most - 1) * SLOT_GAP);
-};
-
-export function scheduleImageHeight(image: ScheduleImage, part: number) {
-  const groups = image.parts[part]?.groups ?? [];
-  const body = groups.length
-    ? groups.reduce((sum, g) => sum + GROUP_ROW_H + g.rows.reduce((s, r) => s + rowHeight(r), 0), 0)
-    : EMPTY_H;
-  return HEADER_H + HEAD_ROW_H + body + FOOT;
-}
 
 let fonts: Promise<{ name: string; data: Buffer; weight: 400 | 500 | 600; style: "normal" }[]> | null = null;
 function loadFonts() {
@@ -92,40 +72,67 @@ function loadFonts() {
   return fonts;
 }
 
+/** Одна строка текста фиксированной высоты: всё, что не влезло, — «…». */
+function Line({ text, width, size = L.font, height = L.line, weight = 400, color = C.foreground }: {
+  text: string;
+  /** Ширина обязательна: без неё «…» не сработает и текст вылезет в соседний столбец. */
+  width: number;
+  size?: number;
+  height?: number;
+  weight?: 400 | 500 | 600;
+  color?: string;
+}) {
+  return (
+    <div
+      style={{
+        display: "block",
+        width,
+        height,
+        lineHeight: `${height}px`,
+        fontSize: size,
+        fontWeight: weight,
+        color,
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
+const SLOT_TEXT = DAY_COL - L.cellPad * 2 - L.slotPadX * 2;
 function Slot({ slot }: { slot: ImageSlot }) {
   return (
     <div
       style={{
         display: "flex",
-        height: SLOT_H,
+        flexDirection: "column",
+        height: slotHeight(slot),
+        padding: `${L.slotPadY}px ${L.slotPadX}px`,
         borderRadius: 12,
         background: SLOT_BG[slot.color] ?? SLOT_BG.gray,
-        overflow: "hidden",
       }}
     >
-      <div style={{ width: 6, background: SLOT_DOT[slot.color] ?? SLOT_DOT.gray }} />
-      <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", paddingLeft: 10 }}>
-        <div style={{ fontSize: 28, fontWeight: 600, lineHeight: 1.2, color: C.foreground }}>{slot.start}</div>
-        <div style={{ fontSize: 24, fontWeight: 400, lineHeight: 1.2, color: C.mutedForeground }}>{slot.end}</div>
-      </div>
+      {slot.title ? <Line text={slot.title} width={SLOT_TEXT} color={C.mutedForeground} /> : null}
+      {slot.name.map((line, i) => (
+        <Line key={`n${i}`} text={line} width={SLOT_TEXT} weight={i === 0 ? 600 : 400} />
+      ))}
+      {slot.time.map((line, i) => (
+        <Line key={`t${i}`} text={line} width={SLOT_TEXT} color={C.mutedForeground} />
+      ))}
     </div>
   );
 }
 
-const oneLine = {
-  display: "block",
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-} as const;
-
 export async function renderScheduleImage(image: ScheduleImage, part: number) {
   const current = image.parts[part];
   if (!current) throw new Error("Нет такой части картинки");
-  const height = scheduleImageHeight(image, part);
   const subtitle = [image.period, image.parts.length > 1 ? `${part + 1} из ${image.parts.length}` : ""]
     .filter(Boolean)
     .join(" · ");
+  const border = `2px solid ${C.border}`;
   return new ImageResponse(
     (
       <div
@@ -134,112 +141,90 @@ export async function renderScheduleImage(image: ScheduleImage, part: number) {
           height: "100%",
           display: "flex",
           flexDirection: "column",
-          padding: `0 ${PAD}px`,
+          padding: `0 ${L.pad}px`,
           background: C.background,
           fontFamily: "Inter",
           color: C.foreground,
         }}
       >
-        <div style={{ height: HEADER_H, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-          <div style={{ ...oneLine, fontSize: 40, fontWeight: 600, lineHeight: 1.3 }}>{image.venueName}</div>
-          <div style={{ ...oneLine, fontSize: 28, lineHeight: 1.45, color: C.mutedForeground }}>
-            {`Расписание · ${subtitle}`}
-          </div>
+        <div style={{ height: L.header, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+          <Line text={image.venueName} width={L.width - L.pad * 2} size={40} height={52} weight={600} />
+          <Line text={`Расписание · ${subtitle}`} width={L.width - L.pad * 2} size={28} height={40} color={C.mutedForeground} />
         </div>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            border: `2px solid ${C.border}`,
-            borderRadius: 16,
-            background: C.card,
-            overflow: "hidden",
-          }}
-        >
-          <div style={{ display: "flex", height: HEAD_ROW_H, background: C.muted, color: C.mutedForeground }}>
-            <div style={{ width: NAME_COL, display: "flex", alignItems: "center", paddingLeft: 24, fontSize: 24, fontWeight: 500 }}>
-              Сотрудники
+        <div style={{ display: "flex", flexDirection: "column", border, borderRadius: 16, background: C.card, overflow: "hidden" }}>
+          <div style={{ display: "flex", height: L.headRow, background: C.muted, color: C.mutedForeground, fontSize: L.font, fontWeight: 500 }}>
+            <div style={{ width: L.labelCol, display: "flex", alignItems: "center", paddingLeft: 24 }}>
+              <Line text="Шаблоны смен" width={L.labelCol - 40} height={L.headRow} color={C.mutedForeground} weight={500} />
             </div>
             {image.days.map((d) => (
               <div
                 key={d.date}
-                style={{
-                  width: DAY_COL,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  borderLeft: `2px solid ${C.border}`,
-                  fontSize: 24,
-                  fontWeight: 500,
-                }}
+                style={{ width: DAY_COL, display: "flex", alignItems: "center", justifyContent: "center", borderLeft: border }}
               >
                 {`${d.weekday} ${d.day}`}
               </div>
             ))}
           </div>
-          {current.groups.length === 0 && (
+          {current.rows.length === 0 && (
             <div
               style={{
-                height: EMPTY_H - 4,
+                height: L.empty - 4,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 fontSize: 28,
                 color: C.mutedForeground,
-                borderTop: `2px solid ${C.border}`,
+                borderTop: border,
               }}
             >
               Опубликованных смен нет
             </div>
           )}
-          {current.groups.map((group) => (
-            <div key={group.id} style={{ display: "flex", flexDirection: "column" }}>
-              <div
-                style={{
-                  height: GROUP_ROW_H,
-                  display: "flex",
-                  alignItems: "center",
-                  paddingLeft: 24,
-                  borderTop: `2px solid ${C.border}`,
-                  background: C.muted,
-                  fontSize: 28,
-                  fontWeight: 600,
-                }}
-              >
-                {`${group.name} · ${group.rows.length}`}
-              </div>
-              {group.rows.map((row) => (
-                <div key={row.key} style={{ display: "flex", height: rowHeight(row), borderTop: `2px solid ${C.border}` }}>
+          {current.rows.map((row) => (
+            <div key={row.key} style={{ display: "flex", height: rowHeight(row), borderTop: border }}>
+              <div style={{ width: L.labelCol, display: "flex", padding: `${L.rowPadY}px 16px ${L.rowPadY}px 24px`, gap: 12 }}>
+                {row.color ? (
                   <div
                     style={{
-                      width: NAME_COL,
-                      display: "flex",
-                      flexDirection: "column",
-                      justifyContent: "center",
-                      padding: "0 16px 0 24px",
+                      width: L.dot,
+                      height: L.dot,
+                      marginTop: (L.titleLine - L.dot) / 2,
+                      borderRadius: L.dot,
+                      background: DOT[row.color] ?? DOT.gray,
+                      flexShrink: 0,
                     }}
-                  >
-                    <div style={{ ...oneLine, fontSize: 28, fontWeight: 500, lineHeight: 1.3 }}>{row.name}</div>
-                    {row.role ? (
-                      <div style={{ ...oneLine, fontSize: 24, lineHeight: 1.4, color: C.mutedForeground }}>{row.role}</div>
-                    ) : null}
-                  </div>
-                  {row.days.map((slots, i) => (
-                    <div
+                  />
+                ) : null}
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  {row.title.map((line, i) => (
+                    <Line
                       key={i}
-                      style={{
-                        width: DAY_COL,
-                        display: "flex",
-                        flexDirection: "column",
-                        padding: CELL_PAD,
-                        gap: SLOT_GAP,
-                        borderLeft: `2px solid ${C.border}`,
-                      }}
-                    >
-                      {slots.map((slot, j) => (
-                        <Slot key={j} slot={slot} />
-                      ))}
-                    </div>
+                      text={line}
+                      width={row.color ? LABEL_TEXT : OTHER_TEXT}
+                      size={L.titleFont}
+                      height={L.titleLine}
+                      weight={500}
+                    />
+                  ))}
+                  {row.subtitle.map((line, i) => (
+                    <Line key={`s${i}`} text={line} width={LABEL_TEXT} color={C.mutedForeground} />
+                  ))}
+                </div>
+              </div>
+              {row.days.map((slots, i) => (
+                <div
+                  key={i}
+                  style={{
+                    width: DAY_COL,
+                    display: "flex",
+                    flexDirection: "column",
+                    padding: L.cellPad,
+                    gap: L.slotGap,
+                    borderLeft: border,
+                  }}
+                >
+                  {slots.map((slot, j) => (
+                    <Slot key={j} slot={slot} />
                   ))}
                 </div>
               ))}
@@ -249,8 +234,8 @@ export async function renderScheduleImage(image: ScheduleImage, part: number) {
       </div>
     ),
     {
-      width: IMAGE_WIDTH,
-      height,
+      width: L.width,
+      height: scheduleImageHeight(current),
       fonts: await loadFonts(),
       headers: { "Cache-Control": "private, no-store" },
     },

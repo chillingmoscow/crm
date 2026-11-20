@@ -3,8 +3,12 @@ import { addDays, dateInZone, dayLabel, timeInZone } from "./utils.ts";
 /**
  * Картинка расписания для команды: кто когда выходит на неделе.
  *
- * Здесь только чистая логика: отбор смен, сбор строк по подразделениям и
- * разбиение на несколько картинок. Рисует картинку `schedule-image-render.tsx`,
+ * Раскладка — как вид «По шаблонам»: строки — шаблоны смен, столбцы — дни
+ * недели, в ячейке — сотрудники с временем. Смены без шаблона (или по
+ * шаблону в архиве) — в последней строке «Другие смены».
+ *
+ * Здесь только чистая логика: отбор смен, строки, раскладка по высоте и
+ * разбиение на несколько картинок. Рисует `schedule-image-render.tsx`,
  * данные собирает `schedule-image-data.ts`.
  *
  * В картинку попадают только опубликованные смены с сотрудником. Черновики,
@@ -20,15 +24,22 @@ export type ImageShift = {
   user_id: string | null;
   payroll_employee_id?: string | null;
   department_id: string | null;
-  role_id: string | null;
   template_id: string | null;
+  title: string;
   color: string;
+};
+export type ImageTemplate = {
+  id: string;
+  name: string;
+  subtitle: string;
+  color: string;
+  department_id: string | null;
+  archived: boolean;
 };
 export type ImagePerson = {
   /** user_id сотрудника или `payroll:<id>` для разового. */
   key: string;
   name: string;
-  role: string;
 };
 export type ScheduleImageInput = {
   venueName: string;
@@ -39,25 +50,27 @@ export type ScheduleImageInput = {
   department: string | null;
   shifts: ImageShift[];
   people: ImagePerson[];
-  departments: { id: string; name: string }[];
-  roles: { id: string; name: string }[];
-  /** Текущие цвета шаблонов: цвет смены равен цвету её шаблона. */
-  templateColors: Record<string, string>;
+  templates: ImageTemplate[];
 };
-export type ImageSlot = { start: string; end: string; color: string };
+/** Сотрудник в ячейке. Строки текста уже разложены: высота картинки считается заранее. */
+export type ImageSlot = {
+  color: string;
+  /** Название смены — только в строке «Другие смены». */
+  title: string | null;
+  name: string[];
+  time: string[];
+};
 export type ImageRow = {
   key: string;
-  name: string;
-  role: string;
-  /** Семь дней недели, в каждом — смены по времени начала. */
+  /** Название шаблона по строкам (не больше двух). */
+  title: string[];
+  /** Подзаголовок шаблона по строкам (0–2). */
+  subtitle: string[];
+  /** Цвет точки шаблона; null у «Другие смены». */
+  color: string | null;
   days: ImageSlot[][];
 };
-export type ImageGroup = { id: string; name: string; rows: ImageRow[] };
-export type ScheduleImagePart = {
-  /** Подпись части: подразделения на картинке и «1 из 2», если подразделение разрезано. */
-  label: string;
-  groups: ImageGroup[];
-};
+export type ScheduleImagePart = { rows: ImageRow[] };
 export type ScheduleImage = {
   venueName: string;
   period: string;
@@ -65,19 +78,104 @@ export type ScheduleImage = {
   parts: ScheduleImagePart[];
 };
 
-export const NO_DEPARTMENT = "none";
-const NO_DEPARTMENT_NAME = "Без подразделения";
 /**
- * Сколько строк помещается на одну картинку. Telegram на телефоне показывает
- * фото во всю ширину, а длинную картинку ужимает: больше ~14 строк уже не
- * прочитать без увеличения. Заголовок подразделения считается за полстроки.
+ * Размеры картинки — шкала дизайн-системы ×2 (макет 720px, картинка 1440px):
+ * кегли 26/24 — это 13/12. Ширина выбрана под столбец дня: в нём должно
+ * помещаться имя до ~10 букв. Telegram показывает фото во всю ширину
+ * телефона, по нажатию — во весь экран с увеличением.
  */
-export const ROWS_PER_IMAGE = 14;
-const GROUP_HEADER_WEIGHT = 0.5;
+export const LAYOUT = {
+  width: 1440,
+  pad: 32,
+  labelCol: 220,
+  header: 150,
+  headRow: 64,
+  empty: 200,
+  footer: 40,
+  cellPad: 6,
+  slotGap: 8,
+  slotPadY: 8,
+  slotPadX: 8,
+  line: 30,
+  titleLine: 34,
+  font: 24,
+  titleFont: 26,
+  rowPadY: 16,
+  dot: 20,
+  /** Тело одной картинки не выше этого: дальше Telegram ужимает фото так, что не прочитать. */
+  maxBody: 1700,
+} as const;
+export const DAY_COL = (LAYOUT.width - LAYOUT.pad * 2 - LAYOUT.labelCol) / 7;
+const SLOT_TEXT = DAY_COL - LAYOUT.cellPad * 2 - LAYOUT.slotPadX * 2;
+/** Ширина текста в столбце шаблонов: отступы 24/16, точка цвета и зазор 12. */
+export const LABEL_TEXT = LAYOUT.labelCol - 24 - 16 - LAYOUT.dot - 12;
+/** Строка «Другие смены» без точки цвета. */
+export const OTHER_TEXT = LAYOUT.labelCol - 24 - 16;
 
 const collator = new Intl.Collator("ru", { sensitivity: "base", numeric: true });
 const personKey = (s: ImageShift) =>
   s.payroll_employee_id ? `payroll:${s.payroll_employee_id}` : s.user_id;
+
+/**
+ * Примерная ширина строки Inter в пикселях. Нужна, чтобы заранее решить,
+ * в одну или две строки встанет текст, — иначе не посчитать высоту картинки.
+ * С запасом: длиннее оценки текст не бывает, в худшем случае поставится «…».
+ */
+export function textWidth(text: string, size: number) {
+  let em = 0;
+  for (const ch of text) {
+    if (/\d/.test(ch)) em += 0.62;
+    else if (/[:.,'’ ]/.test(ch)) em += 0.3;
+    else if (/[–-]/.test(ch)) em += 0.6;
+    else if (/[шщжыюмфШЩЖЫЮМФWMwm]/.test(ch)) em += 0.86;
+    else if (ch === ch.toUpperCase() && ch !== ch.toLowerCase()) em += 0.72;
+    else em += 0.6;
+  }
+  return em * size;
+}
+
+/** «10–22», «10:30–22»; не влезает в столбец — в две строки: «10:30–» и «22:30». */
+export function slotTime(start: string, end: string, width = SLOT_TEXT): string[] {
+  const short = (t: string) => (t.endsWith(":00") ? String(Number(t.slice(0, 2))) : t);
+  const one = `${short(start)}–${short(end)}`;
+  return textWidth(one, LAYOUT.font) <= width ? [one] : [`${short(start)}–`, short(end)];
+}
+
+/** Имя — первое слово в первой строке, остальное во второй: столбец дня узкий. */
+export function slotName(name: string): string[] {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return ["Сотрудник"];
+  return words.length === 1 ? words : [words[0], words.slice(1).join(" ")];
+}
+
+/** Название шаблона в одну-две строки по словам; что не влезло — в конец второй строки (там «…»). */
+export function labelLines(text: string, width = LABEL_TEXT, size: number = LAYOUT.titleFont): string[] {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  for (const word of words) {
+    const last = lines[lines.length - 1];
+    if (last !== undefined && (lines.length === 2 || textWidth(`${last} ${word}`, size) <= width))
+      lines[lines.length - 1] = `${last} ${word}`;
+    else lines.push(word);
+  }
+  return lines;
+}
+
+export const slotHeight = (slot: ImageSlot) =>
+  LAYOUT.slotPadY * 2 + (slot.name.length + slot.time.length + (slot.title ? 1 : 0)) * LAYOUT.line;
+
+export function rowHeight(row: ImageRow) {
+  const label = LAYOUT.rowPadY * 2 + row.title.length * LAYOUT.titleLine + row.subtitle.length * LAYOUT.line;
+  const cells = row.days.map((slots) =>
+    slots.reduce((sum, s) => sum + slotHeight(s), 0) + Math.max(0, slots.length - 1) * LAYOUT.slotGap + LAYOUT.cellPad * 2,
+  );
+  return Math.max(label, ...cells);
+}
+
+export function scheduleImageHeight(part: ScheduleImagePart) {
+  const body = part.rows.length ? part.rows.reduce((sum, r) => sum + rowHeight(r), 0) : LAYOUT.empty;
+  return LAYOUT.header + LAYOUT.headRow + body + LAYOUT.footer;
+}
 
 /** «23–29 ноября 2026», «30 ноября – 6 декабря 2026», «29 декабря 2025 – 4 января 2026». */
 export function weekPeriodLabel(week: string) {
@@ -99,98 +197,79 @@ export function teamVisibleShifts(input: Pick<ScheduleImageInput, "shifts" | "ti
       s.published &&
       !!personKey(s) &&
       days.has(dateInZone(s.starts_at, input.timezone)) &&
-      (!input.department ||
-        (input.department === NO_DEPARTMENT ? !s.department_id : s.department_id === input.department)),
+      (!input.department || s.department_id === input.department),
   );
 }
-
-/** Подразделения со строками сотрудников; порядок — по названию, «Без подразделения» в конце. */
-export function buildImageGroups(input: ScheduleImageInput): ImageGroup[] {
-  const dates = Array.from({ length: 7 }, (_, i) => addDays(input.week, i));
-  const people = new Map(input.people.map((p) => [p.key, p]));
-  const departments = new Map(input.departments.map((d) => [d.id, d.name]));
-  const roles = new Map(input.roles.map((r) => [r.id, r.name]));
-  const groups = new Map<string, Map<string, { shifts: ImageShift[] }>>();
-  for (const shift of teamVisibleShifts(input)) {
-    const group = shift.department_id && departments.has(shift.department_id) ? shift.department_id : NO_DEPARTMENT;
-    const rows = groups.get(group) ?? new Map();
-    groups.set(group, rows);
-    const key = personKey(shift)!;
-    const row = rows.get(key) ?? { shifts: [] };
-    rows.set(key, row);
-    row.shifts.push(shift);
-  }
-  const result: ImageGroup[] = [...groups].map(([id, rows]) => ({
-    id,
-    name: id === NO_DEPARTMENT ? NO_DEPARTMENT_NAME : departments.get(id)!,
-    rows: [...rows].map(([key, { shifts }]) => {
-      const person = people.get(key);
-      // Должность в строке — та, на которую человек выходит в этом подразделении.
-      const shiftRoles = [...new Set(shifts.map((s) => (s.role_id ? roles.get(s.role_id) : null)).filter(Boolean))] as string[];
-      return {
-        key,
-        name: person?.name || "Сотрудник",
-        role: shiftRoles.length ? shiftRoles.sort(collator.compare).join(", ") : person?.role ?? "",
-        days: dates.map((date) =>
-          shifts
-            .filter((s) => dateInZone(s.starts_at, input.timezone) === date)
-            .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
-            .map((s) => ({
-              start: timeInZone(s.starts_at, input.timezone),
-              end: timeInZone(s.ends_at, input.timezone),
-              color: (s.template_id && input.templateColors[s.template_id]) || s.color,
-            })),
-        ),
-      };
-    }).sort((a, b) => collator.compare(a.role, b.role) || collator.compare(a.name, b.name)),
-  }));
-  return result.sort((a, b) =>
-    a.id === NO_DEPARTMENT ? 1 : b.id === NO_DEPARTMENT ? -1 : collator.compare(a.name, b.name),
-  );
-}
-
-const weight = (groups: ImageGroup[]) =>
-  groups.reduce((sum, g) => sum + g.rows.length + GROUP_HEADER_WEIGHT, 0);
 
 /**
- * Делит подразделения на картинки. Подразделение не разрывается, пока оно
- * помещается на одну картинку; соседние маленькие подразделения собираются
- * вместе. Подразделение больше одной картинки режется на равные части
- * «Кухня · 1 из 2». Пустая неделя — одна пустая картинка.
+ * Строки картинки: шаблоны, по которым на неделе есть смены, в порядке вида
+ * «По шаблонам» (название, подзаголовок), затем «Другие смены».
  */
-export function splitImageParts(groups: ImageGroup[], capacity = ROWS_PER_IMAGE): ScheduleImagePart[] {
-  const parts: ImageGroup[][] = [];
-  let current: ImageGroup[] = [];
-  const flush = () => {
-    if (current.length) parts.push(current);
-    current = [];
-  };
-  const labels = new Map<ImageGroup, string>();
-  for (const group of groups) {
-    // Одно подразделение на картинке: заголовок не отнимает места у строк.
-    if (group.rows.length > capacity) {
-      flush();
-      const pieces = Math.ceil(group.rows.length / Math.floor(capacity));
-      const size = Math.ceil(group.rows.length / pieces);
-      for (let i = 0; i < pieces; i++) {
-        const piece = { ...group, rows: group.rows.slice(i * size, (i + 1) * size) };
-        labels.set(piece, `${group.name} · ${i + 1} из ${pieces}`);
-        parts.push([piece]);
-      }
-      continue;
-    }
-    if (weight([...current, group]) > capacity) flush();
-    current.push(group);
+export function buildImageRows(input: ScheduleImageInput): ImageRow[] {
+  const dates = Array.from({ length: 7 }, (_, i) => addDays(input.week, i));
+  const people = new Map(input.people.map((p) => [p.key, p.name]));
+  const templates = new Map(
+    input.templates
+      .filter((t) => !t.archived && (!input.department || t.department_id === input.department))
+      .map((t) => [t.id, t]),
+  );
+  const byRow = new Map<string, ImageShift[]>();
+  for (const shift of teamVisibleShifts(input)) {
+    const key = shift.template_id && templates.has(shift.template_id) ? shift.template_id : "other";
+    byRow.set(key, [...(byRow.get(key) ?? []), shift]);
   }
-  flush();
-  if (!parts.length) return [{ label: "", groups: [] }];
-  return parts.map((groupsOfPart) => ({
-    label: groupsOfPart.map((g) => labels.get(g) ?? g.name).join(", "),
-    groups: groupsOfPart,
-  }));
+  const cells = (shifts: ImageShift[], other: boolean, color: string | null) =>
+    dates.map((date) =>
+      shifts
+        .filter((s) => dateInZone(s.starts_at, input.timezone) === date)
+        .sort((a, b) => a.starts_at.localeCompare(b.starts_at) || collator.compare(people.get(personKey(a)!) ?? "", people.get(personKey(b)!) ?? ""))
+        .map((s) => ({
+          // Цвет смены равен текущему цвету её шаблона.
+          color: color ?? s.color,
+          title: other ? s.title : null,
+          name: slotName(people.get(personKey(s)!) ?? ""),
+          time: slotTime(timeInZone(s.starts_at, input.timezone), timeInZone(s.ends_at, input.timezone)),
+        })),
+    );
+  const rows: ImageRow[] = [...templates.values()]
+    .filter((t) => byRow.has(t.id))
+    .sort((a, b) => collator.compare(a.name, b.name) || collator.compare(a.subtitle, b.subtitle))
+    .map((t) => ({
+      key: t.id,
+      title: labelLines(t.name || "Шаблон"),
+      subtitle: labelLines(t.subtitle, LABEL_TEXT, LAYOUT.font),
+      color: t.color,
+      days: cells(byRow.get(t.id)!, false, t.color),
+    }));
+  const other = byRow.get("other");
+  if (other)
+    rows.push({ key: "other", title: labelLines("Другие смены", OTHER_TEXT), subtitle: [], color: null, days: cells(other, true, null) });
+  return rows;
 }
 
-export function buildScheduleImage(input: ScheduleImageInput, capacity = ROWS_PER_IMAGE): ScheduleImage {
+/**
+ * Делит строки на картинки по высоте: строки не режутся, картинка не выше
+ * `maxBody`. Пустая неделя — одна пустая картинка.
+ */
+export function splitImageParts(rows: ImageRow[], maxBody: number = LAYOUT.maxBody): ScheduleImagePart[] {
+  const parts: ScheduleImagePart[] = [];
+  let current: ImageRow[] = [];
+  let height = 0;
+  for (const row of rows) {
+    const h = rowHeight(row);
+    if (current.length && height + h > maxBody) {
+      parts.push({ rows: current });
+      current = [];
+      height = 0;
+    }
+    current.push(row);
+    height += h;
+  }
+  if (current.length || !parts.length) parts.push({ rows: current });
+  return parts;
+}
+
+export function buildScheduleImage(input: ScheduleImageInput, maxBody: number = LAYOUT.maxBody): ScheduleImage {
   return {
     venueName: input.venueName,
     period: weekPeriodLabel(input.week),
@@ -199,14 +278,14 @@ export function buildScheduleImage(input: ScheduleImageInput, capacity = ROWS_PE
       const weekday = dayLabel(date, { weekday: "short" });
       return { date, weekday: weekday.charAt(0).toUpperCase() + weekday.slice(1), day: String(Number(date.slice(8))) };
     }),
-    parts: splitImageParts(buildImageGroups(input), capacity),
+    parts: splitImageParts(buildImageRows(input), maxBody),
   };
 }
 
-/** Имя файла картинки: «Расписание 23–29 ноября 2026 · Кухня.png». */
+/** Имя файла картинки: «Расписание 23–29 ноября 2026.png», при нескольких — «… · 1 из 2.png». */
 export function scheduleImageFileName(image: Pick<ScheduleImage, "period" | "parts">, part: number) {
-  const label = image.parts.length > 1 ? image.parts[part]?.label : "";
-  return `Расписание ${image.period}${label ? ` · ${label}` : ""}.png`.replace(/[\\/:*?"<>|]/g, " ");
+  const n = image.parts.length;
+  return `Расписание ${image.period}${n > 1 ? ` · ${part + 1} из ${n}` : ""}.png`.replace(/[\\/:*?"<>|]/g, " ");
 }
 
 /** Подпись к фото в Telegram (HTML). */

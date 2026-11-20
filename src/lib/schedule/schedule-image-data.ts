@@ -3,7 +3,7 @@ import { z } from "zod";
 import { createClient, getCachedActiveAccountId, getCachedPermissions, getCachedUser } from "@/lib/supabase/server";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
 import { addDays, weekStart } from "./utils";
-import { buildScheduleImage, NO_DEPARTMENT, type ImageShift, type ScheduleImage } from "./schedule-image";
+import { buildScheduleImage, type ImageShift, type ImageTemplate, type ScheduleImage } from "./schedule-image";
 
 /**
  * Данные для картинки расписания. Читается под пользователем (RLS), а не
@@ -17,7 +17,7 @@ export const scheduleImageRequest = z.object({
     const d = new Date(v + "T00:00:00Z");
     return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === v;
   }, "Некорректная неделя"),
-  department: z.union([z.string().uuid(), z.literal(NO_DEPARTMENT)]).nullable().default(null),
+  department: z.string().uuid().nullable().default(null),
 });
 export type ScheduleImageRequest = z.input<typeof scheduleImageRequest>;
 
@@ -65,31 +65,28 @@ export async function loadScheduleImage(
   // С запасом в сутки по краям: точная неделя считается по часам заведения.
   const from = `${addDays(week, -1)}T00:00:00Z`;
   const to = `${addDays(week, 8)}T00:00:00Z`;
-  const [venue, shifts, templates, staff, options, departments, roles] = await Promise.all([
+  const [venue, shifts, templates, staff, options] = await Promise.all([
     db.from<{ name: string; timezone: string | null }>("venues").select("name,timezone").eq("id", venueId).single(),
     db
       .from<ImageShift[]>("schedule_shifts")
-      .select("id,published,starts_at,ends_at,user_id,payroll_employee_id,department_id,role_id,template_id,color")
+      .select("id,published,starts_at,ends_at,user_id,payroll_employee_id,department_id,template_id,title,color")
       .eq("venue_id", venueId)
       .eq("published", true)
       .gte("starts_at", from)
       .lt("starts_at", to)
       .order("starts_at")
       .limit(5000),
-    db.from<{ id: string; color: string }[]>("schedule_templates").select("id,color").eq("venue_id", venueId),
+    db.from<ImageTemplate[]>("schedule_templates").select("id,name,subtitle,color,department_id,archived").eq("venue_id", venueId),
     db.rpc("get_venue_staff", { p_venue_id: venueId }),
     db.rpc("schedule_payroll_options"),
-    db.from<{ id: string; name: string }[]>("departments").select("id,name").eq("venue_id", venueId),
-    db.from<{ id: string; name: string }[]>("roles").select("id,name").eq("venue_id", venueId),
   ]);
   const venueRow = ok(venue, "заведение");
   const staffRows = (ok(staff, "сотрудников") ?? []) as {
     user_id: string;
     first_name: string | null;
     last_name: string | null;
-    role_name: string;
   }[];
-  const casual = ((ok(options, "разовых сотрудников") as { employees?: { id: string; name: string; role_name: string }[] } | null)
+  const casual = ((ok(options, "разовых сотрудников") as { employees?: { id: string; name: string }[] } | null)
     ?.employees ?? []);
   return buildScheduleImage({
     venueName: venueRow.name,
@@ -101,12 +98,9 @@ export async function loadScheduleImage(
       ...staffRows.map((s) => ({
         key: s.user_id,
         name: [s.first_name, s.last_name].filter(Boolean).join(" "),
-        role: s.role_name,
       })),
-      ...casual.map((e) => ({ key: `payroll:${e.id}`, name: e.name, role: `${e.role_name} · разовый` })),
+      ...casual.map((e) => ({ key: `payroll:${e.id}`, name: e.name })),
     ],
-    departments: ok(departments, "подразделения") ?? [],
-    roles: ok(roles, "должности") ?? [],
-    templateColors: Object.fromEntries((ok(templates, "шаблоны") ?? []).map((t) => [t.id, t.color])),
+    templates: ok(templates, "шаблоны") ?? [],
   });
 }

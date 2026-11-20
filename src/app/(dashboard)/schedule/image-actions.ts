@@ -19,7 +19,7 @@ import { scheduleImageCaption, scheduleImageFileName } from "@/lib/schedule/sche
  */
 export type ScheduleImageChat = { chatId: string; title: string };
 export type ScheduleImageSetup = {
-  parts: { label: string; fileName: string }[];
+  parts: { fileName: string }[];
   /** На неделе нет опубликованных смен с сотрудником: отправлять и скачивать нечего. */
   empty: boolean;
   canSend: boolean;
@@ -28,7 +28,7 @@ export type ScheduleImageSetup = {
 };
 
 const EMPTY_MESSAGE = "На этой неделе нет опубликованных смен";
-const isEmpty = (image: { parts: { groups: unknown[] }[] }) => image.parts.every((p) => !p.groups.length);
+const isEmpty = (image: { parts: { rows: unknown[] }[] }) => image.parts.every((p) => !p.rows.length);
 const message = (e: unknown, fallback: string) =>
   e instanceof z.ZodError ? "Некорректная неделя" : e instanceof Error ? e.message : fallback;
 
@@ -64,7 +64,7 @@ export async function scheduleImageSetup(
       scope.canSend ? telegramTargets(scope.accountId, scope.venueId) : null,
     ]);
     return {
-      parts: image.parts.map((p, i) => ({ label: p.label, fileName: scheduleImageFileName(image, i) })),
+      parts: image.parts.map((_, i) => ({ fileName: scheduleImageFileName(image, i) })),
       empty: isEmpty(image),
       canSend: scope.canSend,
       telegram: {
@@ -94,7 +94,7 @@ export async function sendScheduleImage(
     if (!bot) return { error: "Бот Telegram не подключён" };
     const image = await loadScheduleImage(scope, request);
     if (isEmpty(image)) return { error: EMPTY_MESSAGE };
-    if (image.parts.length > 10) return { error: "Слишком много картинок для одного сообщения: выберите подразделение" };
+    if (image.parts.length > 10) return { error: "Слишком много картинок для одного сообщения: выберите подразделение в фильтре" };
     const photos = await Promise.all(
       image.parts.map(async (_, i) => ({ data: await renderScheduleImagePng(image, i), name: scheduleImageFileName(image, i) })),
     );

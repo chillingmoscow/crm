@@ -2,14 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  buildImageGroups,
+  buildImageRows,
   buildScheduleImage,
+  labelLines,
+  rowHeight,
   scheduleImageCaption,
   scheduleImageFileName,
+  slotName,
+  slotTime,
   splitImageParts,
   teamVisibleShifts,
   weekPeriodLabel,
-  type ImageGroup,
+  type ImageRow,
   type ImageShift,
   type ScheduleImageInput,
 } from "./schedule-image.ts";
@@ -25,9 +29,9 @@ const shift = (over: Partial<ImageShift> = {}): ImageShift => ({
   user_id: "u1",
   payroll_employee_id: null,
   department_id: "kitchen",
-  role_id: "cook",
-  template_id: null,
-  color: "orange",
+  template_id: "cook",
+  title: "Повар",
+  color: "gray",
   ...over,
 });
 const input = (shifts: ImageShift[], over: Partial<ScheduleImageInput> = {}): ScheduleImageInput => ({
@@ -37,21 +41,18 @@ const input = (shifts: ImageShift[], over: Partial<ScheduleImageInput> = {}): Sc
   department: null,
   shifts,
   people: [
-    { key: "u1", name: "Анна Белова", role: "Повар" },
-    { key: "u2", name: "Борис Волков", role: "Бармен" },
-    { key: "u3", name: "Вера Глебова", role: "Повар" },
-    { key: "payroll:p1", name: "Гоша", role: "Повар · разовый" },
+    { key: "u1", name: "Анна Белова" },
+    { key: "u2", name: "Борис Волков" },
+    { key: "u3", name: "Вера Глебова" },
+    { key: "payroll:p1", name: "Гоша" },
   ],
-  departments: [
-    { id: "kitchen", name: "Кухня" },
-    { id: "bar", name: "Бар" },
+  templates: [
+    { id: "cook", name: "Повар", subtitle: "", color: "orange", department_id: "kitchen", archived: false },
+    { id: "bar-day", name: "Бармен", subtitle: "день", color: "blue", department_id: "bar", archived: false },
+    { id: "bar-night", name: "Бармен", subtitle: "вечер", color: "purple", department_id: "bar", archived: false },
+    { id: "old", name: "Старый", subtitle: "", color: "red", department_id: "kitchen", archived: true },
+    { id: "idle", name: "Без смен", subtitle: "", color: "green", department_id: null, archived: false },
   ],
-  roles: [
-    { id: "cook", name: "Повар" },
-    { id: "barman", name: "Бармен" },
-    { id: "chef", name: "Су-шеф" },
-  ],
-  templateColors: {},
   ...over,
 });
 
@@ -69,75 +70,87 @@ test("teamVisibleShifts: только опубликованные смены с
   assert.deepEqual(ids, [visible.id, casual.id, sundayLate.id, mondayEarly.id]);
 });
 
-test("teamVisibleShifts: фильтр подразделения, включая «без подразделения»", () => {
-  const kitchen = shift();
-  const bar = shift({ department_id: "bar" });
-  const none = shift({ department_id: null });
-  assert.deepEqual(teamVisibleShifts(input([kitchen, bar, none], { department: "bar" })).map((s) => s.id), [bar.id]);
-  assert.deepEqual(teamVisibleShifts(input([kitchen, bar, none], { department: "none" })).map((s) => s.id), [none.id]);
-});
-
-test("buildImageGroups: строки по подразделениям, дни недели, время по часам заведения", () => {
-  const groups = buildImageGroups(input([
-    shift({ starts_at: "2026-11-24T15:00:00Z", ends_at: "2026-11-24T21:00:00Z" }), // вт 18:00–00:00
-    shift(), // пн 10:00–22:00
-    shift({ user_id: "u2", department_id: "bar", role_id: "barman", template_id: "t1", color: "gray" }),
-    shift({ user_id: null, payroll_employee_id: "p1", role_id: null }),
-    shift({ user_id: "u3", department_id: null, role_id: "cook" }),
-  ], { templateColors: { t1: "purple" } }));
-  assert.deepEqual(groups.map((g) => g.name), ["Бар", "Кухня", "Без подразделения"]);
-  const [bar, kitchen, none] = groups;
-  assert.equal(bar.rows[0].days[0][0].color, "purple", "цвет смены — текущий цвет шаблона");
-  assert.deepEqual(kitchen.rows.map((r) => [r.name, r.role]), [
-    ["Анна Белова", "Повар"],
-    ["Гоша", "Повар · разовый"],
-  ]);
-  const anna = kitchen.rows[0];
-  assert.equal(anna.days.length, 7);
-  assert.deepEqual(anna.days[0], [{ start: "10:00", end: "22:00", color: "orange" }]);
-  assert.deepEqual(anna.days[1], [{ start: "18:00", end: "00:00", color: "orange" }]);
-  assert.deepEqual(anna.days.slice(2), [[], [], [], [], []]);
-  assert.equal(none.rows[0].name, "Вера Глебова");
-});
-
-test("buildImageGroups: две смены в день идут по времени, должность — по сменам в подразделении", () => {
-  const [kitchen] = buildImageGroups(input([
-    shift({ starts_at: "2026-11-23T15:00:00Z", ends_at: "2026-11-23T20:00:00Z", role_id: "chef" }),
-    shift({ starts_at: "2026-11-23T06:00:00Z", ends_at: "2026-11-23T10:00:00Z" }),
+test("buildImageRows: строки — шаблоны со сменами в порядке вида «По шаблонам», затем «Другие смены»", () => {
+  const rows = buildImageRows(input([
+    shift(),
+    shift({ user_id: "u2", template_id: "bar-night", department_id: "bar" }),
+    shift({ user_id: "u3", template_id: "bar-day", department_id: "bar" }),
+    shift({ user_id: "u2", template_id: "old", title: "Старый", color: "red" }),
+    shift({ user_id: "u3", template_id: null, title: "Инвентаризация", color: "yellow" }),
   ]));
-  assert.deepEqual(kitchen.rows[0].days[0].map((s) => s.start), ["09:00", "18:00"]);
-  assert.equal(kitchen.rows[0].role, "Повар, Су-шеф");
+  assert.deepEqual(rows.map((r) => [r.title.join(" "), r.subtitle.join(" ")]), [
+    ["Бармен", "вечер"],
+    ["Бармен", "день"],
+    ["Повар", ""],
+    ["Другие смены", ""],
+  ]);
+  const other = rows[3];
+  assert.equal(other.color, null);
+  assert.deepEqual(other.days[0].map((s) => [s.title, s.name.join(" "), s.color]), [
+    ["Старый", "Борис Волков", "red"],
+    ["Инвентаризация", "Вера Глебова", "yellow"],
+  ]);
 });
 
-const group = (name: string, rows: number): ImageGroup => ({
-  id: name,
-  name,
-  rows: Array.from({ length: rows }, (_, i) => ({ key: `${name}${i}`, name: `${name}${i}`, role: "", days: [] })),
+test("buildImageRows: ячейка — сотрудники и время по часам заведения, цвет — цвет шаблона", () => {
+  const [cook] = buildImageRows(input([
+    shift({ user_id: "u3", starts_at: "2026-11-24T06:30:00Z", ends_at: "2026-11-24T19:00:00Z" }), // вт 09:30–22:00
+    shift({ starts_at: "2026-11-24T06:30:00Z", ends_at: "2026-11-24T19:00:00Z" }),
+    shift({ user_id: null, payroll_employee_id: "p1", starts_at: "2026-11-24T15:00:00Z", ends_at: "2026-11-24T21:00:00Z" }),
+  ]));
+  assert.equal(cook.days.length, 7);
+  assert.deepEqual(cook.days[0], []);
+  assert.deepEqual(cook.days[1], [
+    { color: "orange", title: null, name: ["Анна", "Белова"], time: ["09:30–22"] },
+    { color: "orange", title: null, name: ["Вера", "Глебова"], time: ["09:30–22"] },
+    { color: "orange", title: null, name: ["Гоша"], time: ["18–0"] },
+  ]);
 });
 
-test("splitImageParts: маленькие подразделения собираются на одну картинку", () => {
-  const parts = splitImageParts([group("Бар", 3), group("Зал", 4), group("Кухня", 5)], 14);
-  assert.equal(parts.length, 1);
-  assert.equal(parts[0].label, "Бар, Зал, Кухня");
+test("buildImageRows: фильтр подразделения — шаблоны и смены этого подразделения", () => {
+  const rows = buildImageRows(input([
+    shift(),
+    shift({ user_id: "u2", template_id: "bar-day", department_id: "bar" }),
+    shift({ user_id: "u3", template_id: null, department_id: "bar" }),
+  ], { department: "bar" }));
+  assert.deepEqual(rows.map((r) => r.key), ["bar-day", "other"]);
 });
 
-test("splitImageParts: подразделение не разрывается, пока помещается", () => {
-  const parts = splitImageParts([group("Бар", 6), group("Зал", 7), group("Кухня", 9)], 14);
-  assert.deepEqual(parts.map((p) => p.label), ["Бар, Зал", "Кухня"]);
-  // Ровно 14 строк — ещё одна картинка: заголовок одного подразделения места не отнимает.
-  assert.deepEqual(splitImageParts([group("Кухня", 14)], 14).map((p) => p.label), ["Кухня"]);
+test("slotTime, slotName, labelLines: текст раскладывается под узкий столбец", () => {
+  assert.deepEqual(slotTime("10:00", "22:00"), ["10–22"]);
+  assert.deepEqual(slotTime("09:00", "22:00"), ["9–22"]);
+  assert.deepEqual(slotTime("10:30", "22:00"), ["10:30–22"]);
+  assert.deepEqual(slotTime("10:30", "22:30"), ["10:30–", "22:30"]);
+  assert.deepEqual(slotTime("10:30", "22:30"), ["10:30–", "22:30"]);
+  assert.deepEqual(slotName("Анна Мария Белова"), ["Анна", "Мария Белова"]);
+  assert.deepEqual(slotName("  "), ["Сотрудник"]);
+  assert.deepEqual(labelLines("Бар"), ["Бар"]);
+  assert.deepEqual(labelLines("Старший повар горячего цеха"), ["Старший", "повар горячего цеха"]);
+  assert.deepEqual(labelLines(""), []);
+  assert.deepEqual(labelLines("холодный цех", 200, 24), ["холодный цех"]);
+  assert.deepEqual(labelLines("холодный цех", 140, 24), ["холодный", "цех"]);
 });
 
-test("splitImageParts: большое подразделение режется на равные части", () => {
-  const parts = splitImageParts([group("Бар", 2), group("Кухня", 30), group("Зал", 3)], 14);
-  assert.deepEqual(parts.map((p) => p.label), ["Бар", "Кухня · 1 из 3", "Кухня · 2 из 3", "Кухня · 3 из 3", "Зал"]);
-  assert.deepEqual(parts.slice(1, 4).map((p) => p.groups[0].rows.length), [10, 10, 10]);
-  assert.deepEqual(splitImageParts([group("Кухня", 15)], 14).map((p) => p.groups[0].rows.length), [8, 7]);
-  assert.equal(parts.flatMap((p) => p.groups.flatMap((g) => g.rows)).length, 35, "никто не потерялся");
+const row = (key: string, slotsPerDay: number): ImageRow => ({
+  key,
+  title: [key],
+  subtitle: [],
+  color: "blue",
+  days: Array.from({ length: 7 }, () =>
+    Array.from({ length: slotsPerDay }, () => ({ color: "blue", title: null, name: ["Анна", "Белова"], time: ["10–22"] })),
+  ),
 });
 
-test("splitImageParts: пустая неделя — одна пустая картинка", () => {
-  assert.deepEqual(splitImageParts([]), [{ label: "", groups: [] }]);
+test("splitImageParts: делит по высоте, строку не режет", () => {
+  const small = row("a", 1);
+  const big = row("b", 3);
+  const h = rowHeight(small);
+  assert.ok(rowHeight(big) > h * 2, "три сотрудника в день — строка выше");
+  assert.deepEqual(splitImageParts([small, small, small], h * 3).map((p) => p.rows.length), [3]);
+  assert.deepEqual(splitImageParts([small, small, small], h * 2).map((p) => p.rows.length), [2, 1]);
+  // Строка выше предела — на отдельной картинке целиком.
+  assert.deepEqual(splitImageParts([small, big, small], h * 2).map((p) => p.rows.map((r) => r.key)), [["a"], ["b"], ["a"]]);
+  assert.deepEqual(splitImageParts([]), [{ rows: [] }]);
 });
 
 test("weekPeriodLabel: месяц и год пишутся один раз, если совпадают", () => {
@@ -147,10 +160,10 @@ test("weekPeriodLabel: месяц и год пишутся один раз, ес
 });
 
 test("buildScheduleImage: шапка дней, имя файла и подпись", () => {
-  const image = buildScheduleImage(input([shift(), shift({ user_id: "u2", department_id: "bar" })]), 1.5);
+  const image = buildScheduleImage(input([shift(), shift({ user_id: "u2", template_id: "bar-day", department_id: "bar" })]), 1);
   assert.deepEqual(image.days.map((d) => `${d.weekday} ${d.day}`), ["Пн 23", "Вт 24", "Ср 25", "Чт 26", "Пт 27", "Сб 28", "Вс 29"]);
   assert.equal(image.parts.length, 2);
-  assert.equal(scheduleImageFileName(image, 1), "Расписание 23–29 ноября 2026 · Кухня.png");
+  assert.equal(scheduleImageFileName(image, 1), "Расписание 23–29 ноября 2026 · 2 из 2.png");
   assert.equal(scheduleImageFileName({ ...image, parts: image.parts.slice(0, 1) }, 0), "Расписание 23–29 ноября 2026.png");
   assert.equal(scheduleImageCaption({ venueName: "Бар <&>", period: image.period }), "<b>Расписание на 23–29 ноября 2026</b>\nБар &lt;&amp;&gt;");
 });

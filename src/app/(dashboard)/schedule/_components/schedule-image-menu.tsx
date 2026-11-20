@@ -232,12 +232,12 @@ function SendDialog({
               className="grid max-h-[50dvh] gap-3 overflow-y-auto rounded-lg border bg-muted p-3"
               aria-label={parts > 1 ? `Превью: ${parts} картинки` : "Превью картинки"}
             >
-              {setup.parts.map((part, i) => (
+              {setup.parts.map((_, i) => (
                 // eslint-disable-next-line @next/next/no-img-element -- PNG с сервера, оптимизация next/image не нужна
                 <img
                   key={i}
                   src={imageUrl(i)}
-                  alt={part.label ? `Расписание: ${part.label}` : "Расписание"}
+                  alt={parts > 1 ? `Расписание, картинка ${i + 1} из ${parts}` : "Расписание"}
                   className="w-full rounded-md border bg-background"
                 />
               ))}

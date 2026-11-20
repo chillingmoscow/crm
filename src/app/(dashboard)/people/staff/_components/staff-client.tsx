@@ -86,6 +86,9 @@ type Props = {
   currentUserId: string;
   /** Право people.edit_staff у текущего пользователя. */
   canEditStaff: boolean;
+  /** people.view_staff + people.view_staff_details. Без них сервер не отдаёт
+   *  контакты, даты и причину увольнения коллег, а карточка не открывается. */
+  canSeeStaffDetails: boolean;
   /** null when casual workers are unavailable (e.g. before the database update). */
   casual: { employees: CasualStaffRow[]; roles: { id: string; name: string }[] } | null;
   /** Opened from the schedule: «Добавить → Разовый» is shown right away. */
@@ -104,10 +107,10 @@ function formatDate(iso: string | null | undefined) {
 function displayName(m: {
   first_name: string | null;
   last_name: string | null;
-  email: string;
+  email: string | null;
 }): string {
   const n = [m.first_name, m.last_name].filter(Boolean).join(" ");
-  return n || m.email.split("@")[0];
+  return n || m.email?.split("@")[0] || "Без имени";
 }
 
 function genderShort(g: string | null) {
@@ -222,7 +225,7 @@ function StaffAvatar({
     avatar_url: string | null;
     first_name: string | null;
     last_name: string | null;
-    email: string;
+    email: string | null;
   };
   faded?: boolean;
 }) {
@@ -245,6 +248,7 @@ export function StaffClient({
   venueId,
   currentUserId,
   canEditStaff,
+  canSeeStaffDetails,
   casual,
   openAddCasual = false,
 }: Props) {
@@ -357,6 +361,30 @@ export function StaffClient({
             !member.email_confirmed);
         const medbook = medbookStatus(member.medical_book_date);
         const bday = birthdayStatus(member.birth_date);
+        const nameLabel = (
+          <>
+            {displayName(member)}
+            {isMe && (
+              <span className="ml-2 text-xs text-muted-foreground font-normal">
+                (вы)
+              </span>
+            )}
+          </>
+        );
+        // Без права на детали — только имя: статусы аккаунта, медкнижки,
+        // дня рождения и пола строятся на данных, которых сервер не отдаёт.
+        if (!canSeeStaffDetails)
+          return (
+            <div className="min-w-0 flex items-center gap-2">
+              <span
+                data-tip={displayName(member)}
+                data-tip-overflow
+                className="font-medium text-sm truncate min-w-0"
+              >
+                {nameLabel}
+              </span>
+            </div>
+          );
         return (
           <div className="min-w-0 flex items-center gap-2">
             <Link
@@ -365,12 +393,7 @@ export function StaffClient({
               data-tip-overflow
               className="font-medium text-sm truncate min-w-0 hover:text-brand"
             >
-              {displayName(member)}
-              {isMe && (
-                <span className="ml-2 text-xs text-muted-foreground font-normal">
-                  (вы)
-                </span>
-              )}
+              {nameLabel}
             </Link>
             {isPlaceholder && (
               <span
@@ -553,15 +576,23 @@ export function StaffClient({
       case "avatar":
         return <StaffAvatar member={member} faded />;
       case "name":
-        return (
+        return canSeeStaffDetails ? (
           <Link
             href={`/people/staff/${member.user_id}`}
             data-tip={displayName(member)}
-              data-tip-overflow
+            data-tip-overflow
             className="block truncate text-sm font-medium hover:text-brand"
           >
             {displayName(member)}
           </Link>
+        ) : (
+          <span
+            data-tip={displayName(member)}
+            data-tip-overflow
+            className="block truncate text-sm font-medium"
+          >
+            {displayName(member)}
+          </span>
         );
       case "email":
         return (
@@ -675,6 +706,7 @@ export function StaffClient({
         renderCell={renderCell}
         renderInvCell={renderInvCell}
         renderFiredCell={renderFiredCell}
+        canSeeDetails={canSeeStaffDetails}
         onRestore={(uvrId) => {
           const member = fired.find((m) => m.uvr_id === uvrId);
           setConfirmAction({

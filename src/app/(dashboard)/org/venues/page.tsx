@@ -1,7 +1,18 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+  getCachedUser,
+} from "@/lib/supabase/server";
+import { asLooseDb } from "@/lib/supabase/loose";
+import { listLegalEntities } from "@/lib/org/legal-entities";
 import { VenuesClient } from "./_components/venues-client";
-import type { Json, WorkingHours } from "@/types/database";
+import type { WorkingHours } from "@/types/database";
+
+export const metadata: Metadata = { title: "Заведения" };
 
 export type VenueRow = {
   id: string;
@@ -12,128 +23,75 @@ export type VenueRow = {
   currency: string;
   timezone: string;
   working_hours: WorkingHours | null;
-  halls_count: number;
-  tables_count: number;
-  imported_from_quickresto?: boolean;
+  /** Название юрлица по умолчанию; null — не выбрано или нет права видеть юрлица. */
+  legal_entity_name: string | null;
+  imported_from_quickresto: boolean;
+};
+
+type RawVenue = Omit<VenueRow, "legal_entity_name" | "imported_from_quickresto"> & {
+  default_legal_entity_id: string | null;
 };
 
 export default async function VenuesPage() {
-  const supabase = await createClient();
-  type LooseQueryBuilder = {
-  select: (columns: string) => LooseQueryBuilder;
-  eq: (column: string, value: unknown) => LooseQueryBuilder;
-  in: (column: string, values: string[]) => LooseQueryBuilder;
-  order: (column: string, options?: Record<string, unknown>) => LooseQueryBuilder;
-};
-
-const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder };
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const [user, supabase] = await Promise.all([getCachedUser(), createClient()]);
   if (!user) redirect("/login");
 
-  const { data: account } = await supabase
-    .from("accounts")
-    .select("id")
-    .eq("owner_id", user.id)
-    .maybeSingle();
+  // Список — по праву «Видеть заведения», как и пункт меню. RLS venues_select
+  // отдаёт владельцу все заведения аккаунта, остальным — те, где у них
+  // есть активная роль. Правка — org.manage_venues (venues_update),
+  // создание, архив и удаление — только владелец (venues_insert/_delete).
+  const can = await getCachedPermissionChecker();
+  if (!can("org.view_venues")) redirect("/dashboard");
 
-  if (!account) {
-    return (
-      <div className="p-8">
-        <h1 className="text-2xl font-semibold">Заведения</h1>
-        <p className="text-muted-foreground mt-2">
-          Управление заведениями доступно только владельцу аккаунта
-        </p>
-      </div>
-    );
+  const accountId = await getCachedActiveAccountId();
+  if (!accountId) redirect("/dashboard");
+
+  const db = asLooseDb(supabase);
+  const [{ data: isOwner }, { data: venuesRaw }, { rows: legalEntities }, { data: links }] =
+    await Promise.all([
+      supabase.rpc("is_account_owner", { p_account_id: accountId }),
+      db
+        .from<RawVenue[]>("venues")
+        .select(
+          "id, name, type, address, phone, currency, timezone, working_hours, default_legal_entity_id",
+        )
+        .eq("account_id", accountId)
+        .is("archived_at", null)
+        .order("name"),
+      can("org.view_legal_entities") ? listLegalEntities() : Promise.resolve({ rows: [] }),
+      db
+        .from<{ local_id: string }[]>("external_entity_links")
+        .select("local_id")
+        .eq("account_id", accountId)
+        .eq("provider", "quickresto")
+        .eq("entity_type", "venue"),
+    ]);
+
+  let archivedCount = 0;
+  if (isOwner) {
+    const { count } = await db
+      .from("venues")
+      .select("id", { count: "exact", head: true })
+      .eq("account_id", accountId)
+      .not("archived_at", "is", null);
+    archivedCount = count ?? 0;
   }
 
-  // ВСЕ venues аккаунта (live + archived), потом разделяем в JS.
-  // RLS пустит owner'а к обоим состояниям (venues_select + archived_owner).
-  type RawVenue = {
-    id: string;
-    name: string;
-    type: string;
-    address: string | null;
-    phone: string | null;
-    currency: string;
-    timezone: string;
-    working_hours: WorkingHours | null;
-    archived_at: string | null;
-  };
-  const { data: venuesRaw } = (await db
-    .from("venues")
-    .select("id, name, type, address, phone, currency, timezone, working_hours, archived_at")
-    .eq("account_id", account.id)
-    .order("name")) as unknown as { data: RawVenue[] | null };
-
-  const allList = venuesRaw ?? [];
-  const archivedCount = allList.filter((v) => v.archived_at !== null).length;
-  const rawList = allList.filter((v) => v.archived_at === null);
-  const venueIds = rawList.map((v) => v.id);
-
-  const hallCountMap: Record<string, number> = {};
-  const tableCountMap: Record<string, number> = {};
-
-  if (venueIds.length > 0) {
-    const { data: hallsData } = await supabase
-      .from("venue_halls")
-      .select("id, venue_id")
-      .in("venue_id", venueIds);
-
-    const halls = hallsData ?? [];
-    halls.forEach((h) => {
-      hallCountMap[h.venue_id] = (hallCountMap[h.venue_id] ?? 0) + 1;
-    });
-
-    const hallIds = halls.map((h) => h.id);
-    if (hallIds.length > 0) {
-      const { data: layoutsData } = await supabase
-        .from("hall_layouts")
-        .select("hall_id, objects")
-        .in("hall_id", hallIds);
-
-      const hallVenueMap: Record<string, string> = {};
-      halls.forEach((h) => { hallVenueMap[h.id] = h.venue_id; });
-
-      (layoutsData ?? []).forEach((layout) => {
-        const venueId = hallVenueMap[layout.hall_id];
-        if (!venueId) return;
-        const objects = Array.isArray(layout.objects)
-          ? layout.objects
-          : ((layout.objects as Json[] | null) ?? []);
-        const tableCount = (objects as { kind?: string }[]).filter((o) => o.kind === "table").length;
-        tableCountMap[venueId] = (tableCountMap[venueId] ?? 0) + tableCount;
-      });
-    }
-  }
-
-  const venues: VenueRow[] = rawList.map((v) => ({
+  const legalEntityNames = new Map(legalEntities.map((le) => [le.id, le.short_name ?? le.name]));
+  const imported = new Set((links ?? []).map((l) => l.local_id));
+  const venues: VenueRow[] = (venuesRaw ?? []).map(({ default_legal_entity_id, ...v }) => ({
     ...v,
-    working_hours: (v.working_hours as WorkingHours | null) ?? null,
-    halls_count: hallCountMap[v.id] ?? 0,
-    tables_count: tableCountMap[v.id] ?? 0,
+    legal_entity_name: default_legal_entity_id
+      ? legalEntityNames.get(default_legal_entity_id) ?? null
+      : null,
+    imported_from_quickresto: imported.has(v.id),
   }));
 
-  const venueIdsForImport = venues.map((v) => v.id);
-  let importedVenueLinks: { local_id: string }[] = [];
-  if (venueIdsForImport.length > 0) {
-    const result = (await db
-      .from("external_entity_links")
-      .select("local_id")
-      .eq("account_id", account.id)
-      .eq("provider", "quickresto")
-      .eq("entity_type", "venue")
-      .in("local_id", venueIdsForImport)) as unknown as { data: { local_id: string }[] | null };
-    importedVenueLinks = result.data ?? [];
-  }
-
-  const importedVenueSet = new Set(importedVenueLinks.map((row) => row.local_id));
-  const enrichedVenues = venues.map((venue) => ({
-    ...venue,
-    imported_from_quickresto: importedVenueSet.has(venue.id),
-  }));
-
-  return <VenuesClient venues={enrichedVenues} archivedCount={archivedCount} />;
+  return (
+    <VenuesClient
+      venues={venues}
+      archivedCount={archivedCount}
+      canCreate={Boolean(isOwner)}
+    />
+  );
 }

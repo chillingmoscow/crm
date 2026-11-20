@@ -105,7 +105,7 @@ export async function updateVenue(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
 
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from("venues")
     .update({
       name:                    data.name,
@@ -132,11 +132,55 @@ export async function updateVenue(
         ? { inventory_recount_threshold_percent: data.inventoryRecountThresholdPercent }
         : {}),
     })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
 
   if (error) return { error: error.message };
+  // RLS venues_update (org.manage_venues) молча пропускает строку без
+  // прав: без проверки пользователь видел бы «Сохранено», а данные стояли.
+  if (!updated?.length) return { error: NO_EDIT_RIGHTS };
 
   revalidatePath("/org/venues");
+  revalidatePath(`/org/venues/${id}`);
+  return { error: null };
+}
+
+const NO_EDIT_RIGHTS =
+  "Нет прав менять это заведение. Их выдаёт владелец аккаунта в настройках должности";
+
+/**
+ * Пороги авто-маркера пересчёта (миграция 209) — вкладка «Инвентаризация»
+ * карточки. Отдельно от `updateVenue`: секция сохраняется своей частью
+ * общей полосы и не должна переписывать поля «Основного».
+ */
+export async function updateVenueRecountThresholds(
+  id: string,
+  values: { sum: number; percent: number },
+): Promise<{ error: string | null }> {
+  if (!Number.isFinite(values.sum) || values.sum < 0)
+    return { error: "Порог по сумме не может быть меньше нуля" };
+  if (!Number.isFinite(values.percent) || values.percent < 0 || values.percent > 100)
+    return { error: "Порог по проценту должен быть от 0 до 100" };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован" };
+
+  // Колонки миграции 209 ещё не в Database-типах.
+  const { data: updated, error } = await asLooseDb(supabase)
+    .from<{ id: string }[]>("venues")
+    .update({
+      inventory_recount_threshold_sum: values.sum,
+      inventory_recount_threshold_percent: values.percent,
+    })
+    .eq("id", id)
+    .select("id");
+  if (error) return { error: error.message };
+  if (!updated?.length) return { error: NO_EDIT_RIGHTS };
+
+  revalidatePath(`/org/venues/${id}`);
   return { error: null };
 }
 

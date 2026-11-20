@@ -515,7 +515,9 @@ export interface AccountVenueRow {
  * venues here. Trying to attach those would fail at the composite FK
  * (migration 036) and produce confusing UI errors.
  */
-export async function listAccountVenues(): Promise<{
+export async function listAccountVenues(
+  opts: { liveOnly?: boolean } = {},
+): Promise<{
   rows: AccountVenueRow[];
   error: string | null;
 }> {
@@ -531,11 +533,15 @@ export async function listAccountVenues(): Promise<{
     };
   }
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("venues")
     .select("id, name, default_legal_entity_id")
-    .eq("account_id", accountId as unknown as string)
-    .order("name", { ascending: true });
+    .eq("account_id", accountId as unknown as string);
+  // Владелец видит и архивные заведения (venues_select_archived_owner,
+  // миграция 198). Финансам они нужны для подписей старых операций, а в
+  // привязках юрлица им не место — там зовём с `liveOnly`.
+  if (opts.liveOnly) query = query.is("archived_at" as never, null);
+  const { data, error } = await query.order("name", { ascending: true });
   if (error) return { rows: [], error: error.message };
   return { rows: (data ?? []) as AccountVenueRow[], error: null };
 }

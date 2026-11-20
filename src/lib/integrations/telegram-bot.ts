@@ -60,6 +60,15 @@ export type TelegramBot = {
     photoUrl: string,
     caption: string,
   ) => Promise<TelegramApiResult<{ message_id?: number }>>;
+  /**
+   * Uploads PNG files: one becomes a photo, several an album (Telegram allows 2–10 per album).
+   * The HTML caption goes on the first photo.
+   */
+  sendPhotoFiles: (
+    chatId: string,
+    photos: { data: ArrayBuffer; name: string }[],
+    caption: string,
+  ) => Promise<TelegramApiResult<{ message_id?: number } | { message_id?: number }[]>>;
 };
 
 /** Loads the organization's bot; null when Telegram is not configured for the account. */
@@ -87,6 +96,20 @@ export async function loadTelegramBot(
         body: JSON.stringify(payload),
         cache: "no-store",
         signal: AbortSignal.timeout(12000),
+      });
+    } catch {
+      throw new Error("Telegram не ответил");
+    }
+    return readTelegramResponse<T>(response);
+  };
+  const upload = async <T>(method: string, form: FormData): Promise<TelegramApiResult<T>> => {
+    let response: Response;
+    try {
+      response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+        method: "POST",
+        body: form,
+        cache: "no-store",
+        signal: AbortSignal.timeout(30000),
       });
     } catch {
       throw new Error("Telegram не ответил");
@@ -139,5 +162,29 @@ export async function loadTelegramBot(
         caption,
         parse_mode: "HTML",
       }),
+    sendPhotoFiles: async (chatId, photos, caption) => {
+      if (!photos.length || photos.length > 10) throw new Error("Можно отправить от 1 до 10 картинок");
+      const form = new FormData();
+      form.set("chat_id", chatId);
+      const file = (p: { data: ArrayBuffer; name: string }) => new Blob([p.data], { type: "image/png" });
+      if (photos.length === 1) {
+        form.set("photo", file(photos[0]), photos[0].name);
+        form.set("caption", caption);
+        form.set("parse_mode", "HTML");
+        return upload("sendPhoto", form);
+      }
+      photos.forEach((p, i) => form.set(`photo${i}`, file(p), p.name));
+      form.set(
+        "media",
+        JSON.stringify(
+          photos.map((_, i) => ({
+            type: "photo",
+            media: `attach://photo${i}`,
+            ...(i === 0 ? { caption, parse_mode: "HTML" } : {}),
+          })),
+        ),
+      );
+      return upload("sendMediaGroup", form);
+    },
   };
 }

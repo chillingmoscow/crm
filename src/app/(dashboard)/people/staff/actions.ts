@@ -126,21 +126,6 @@ export async function getStaff(venueId: string): Promise<StaffMember[]> {
   return (data ?? []) as StaffMember[];
 }
 
-export async function getStaffProfile(
-  userId: string
-): Promise<StaffProfile | null> {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("profiles")
-    .select(
-      "id, first_name, last_name, phone, telegram_id, gender, birth_date, birth_date_set_at, address, avatar_url"
-    )
-    .eq("id", userId)
-    .returns<StaffProfile[]>()
-    .maybeSingle();
-  return data ?? null;
-}
-
 export async function updateStaffProfile(
   userId: string,
   data: Partial<ProfileUpdate>

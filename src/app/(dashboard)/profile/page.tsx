@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { ProfileSettingsPage } from "./_components/profile-settings-page";
 import type { OwnProfile } from "./actions";
 
@@ -15,7 +16,10 @@ export default async function ProfilePage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: profile } = await supabase
+  // Телефон, Telegram, дату рождения и адрес из profiles пользовательский
+  // клиент не читает (миграция 360) — свой профиль берём admin-клиентом
+  // по id из проверенной сессии.
+  const { data: profile } = await createAdminClient()
     .from("profiles")
     .select(
       "id, first_name, last_name, phone, telegram_id, gender, birth_date, birth_date_set_at, address, avatar_url",

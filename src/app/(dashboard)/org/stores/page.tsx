@@ -1,5 +1,5 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { Warehouse } from "lucide-react";
 
 import {
   createClient,
@@ -8,32 +8,15 @@ import {
 } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
-import { StoresClient } from "./_components/stores-client";
-import { InventorySyncButton } from "@/app/(dashboard)/inventory/_components/inventory-sync-button";
+import {
+  StoresClient,
+  type DepartmentRow,
+  type StoreActStats,
+  type StoreRow,
+  type VenueRow,
+} from "./_components/stores-client";
 
-type StoreRow = {
-  id: string;
-  external_id: string;
-  title: string;
-  store_code: string | null;
-  description: string | null;
-  local_venue_id: string | null;
-  department_id: string | null;
-  department_scope: "unset" | "shared" | "department";
-};
-
-type DepartmentRow = {
-  id: string;
-  name: string;
-  venue_id: string;
-  archived_at: string | null;
-};
-
-type VenueRow = {
-  id: string;
-  name: string;
-  archived_at: string | null;
-};
+export const metadata: Metadata = { title: "Склады" };
 
 export default async function InventoryStoresPage() {
   const supabase = await createClient();
@@ -43,24 +26,14 @@ export default async function InventoryStoresPage() {
     getCachedPermissionChecker(),
     getCachedActiveAccountId(),
   ]);
-  const canView = can("inventory.view_stores");
-  const canManage = can("inventory.manage_stores");
-  const canSync = can("inventory.sync_quickresto");
-  if (!canView) redirect("/dashboard");
+  if (!can("inventory.view_stores")) redirect("/dashboard");
   if (!accountId) redirect("/dashboard");
 
-  const { data: lastSynced } = await db
-    .from<Array<{ synced_at: string | null }>>("stores")
-    .select("synced_at")
-    .eq("account_id", accountId)
-    .order("synced_at", { ascending: false })
-    .range(0, 0);
-  const lastSyncedAt = lastSynced?.[0]?.synced_at ?? null;
-
-  const [{ data: stores }, { data: venues }] = await Promise.all([
+  const [{ data: stores }, { data: venues }, statsResult] = await Promise.all([
     db
       .from<StoreRow[]>("stores")
-      .select("id, external_id, title, store_code, description, local_venue_id, department_id, department_scope")
+      // archived_at — миграция 365, в сгенерированных типах её ещё нет.
+      .select("id, title, store_code, description, local_venue_id, department_id, department_scope, synced_at, archived_at")
       .eq("account_id", accountId)
       .order("title"),
     supabase
@@ -71,7 +44,27 @@ export default async function InventoryStoresPage() {
       .select("id, name, archived_at")
       .eq("account_id", accountId)
       .order("name"),
+    // Число актов и дата последнего по складу — столбец «Последний акт».
+    db.rpc("store_act_stats"),
   ]);
+  // Без статистики страница работает: столбец покажет прочерки.
+  if (statsResult.error) console.error("[stores] act stats failed", statsResult.error);
+  const actStats = (statsResult.data ?? []) as Array<{
+    store_id: string;
+    acts_count: number | string;
+    last_act_at: string | null;
+  }>;
+  const statsByStore: Record<string, StoreActStats> = {};
+  for (const row of actStats) {
+    statsByStore[row.store_id] = { count: Number(row.acts_count), lastActAt: row.last_act_at };
+  }
+  // Последняя синхронизация — из того же списка, отдельный запрос не нужен:
+  // полная синхронизация проставляет synced_at всем складам аккаунта.
+  const lastSyncedAt =
+    (stores ?? []).reduce<string | null>(
+      (latest, store) => (store.synced_at && (!latest || store.synced_at > latest) ? store.synced_at : latest),
+      null,
+    );
 
   // Подразделения читаем service-role'ом НАМЕРЕННО, не «чините» на обычный клиент:
   // политика departments требует people.view_roles, а управляющий складами этого
@@ -96,26 +89,16 @@ export default async function InventoryStoresPage() {
     : { data: [] as DepartmentRow[] };
 
   return (
-    <div className="w-full px-4 py-4 md:px-8 md:py-6">
-      <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-sky-50 text-sky-700">
-            <Warehouse className="h-5 w-5" />
-          </div>
-          <h1 className="text-2xl font-semibold">Склады</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Склады из Quick Resto: к какому заведению относится склад и чьё подразделение отвечает за недостачу по нему.
-          </p>
-        </div>
-        <InventorySyncButton canSync={Boolean(canSync)} lastSyncedAt={lastSyncedAt} />
-      </div>
-
-      <StoresClient
-        stores={stores ?? []}
-        venues={(venues ?? []) as VenueRow[]}
-        departments={departments ?? []}
-        canManage={Boolean(canManage)}
-      />
-    </div>
+    <StoresClient
+      stores={stores ?? []}
+      venues={(venues ?? []) as VenueRow[]}
+      departments={departments ?? []}
+      actStats={statsByStore}
+      lastSyncedAt={lastSyncedAt}
+      canManage={can("inventory.manage_stores")}
+      canSync={can("inventory.sync_quickresto")}
+      canViewDocuments={can("inventory.view_documents")}
+      canViewHistory={can("inventory.view_results")}
+    />
   );
 }

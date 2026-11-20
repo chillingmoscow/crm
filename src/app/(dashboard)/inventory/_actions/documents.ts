@@ -233,33 +233,22 @@ export async function updateInventoryStoreVenue(input: {
     .eq("account_id", ctx.accountId)
     .maybeSingle();
 
-  const { error } = await admin
-    .from("stores")
-    .update({ local_venue_id: input.venueId || null })
-    .eq("id", input.storeId)
-    .eq("account_id", ctx.accountId);
+  // RPC клиентом пользователя (миграция 365), а не UPDATE service-role'ом:
+  // журнал событий пишет автора смены заведения из auth.uid().
+  const { error } = await asLooseDb(ctx.supabase).rpc("set_store_venue", {
+    p_store_id: input.storeId,
+    p_venue_id: input.venueId || null,
+  });
 
-  if (error) return { error: error.message };
-
-  if (ctx.user && (before?.local_venue_id ?? null) !== (input.venueId || null)) {
-    const venueNames = await venueNamesById(admin, ctx.accountId, [
-      before?.local_venue_id ?? null,
-      input.venueId || null,
-    ]);
-    await writeAuditEvent({
-      accountId: ctx.accountId,
-      venueId: input.venueId || before?.local_venue_id || ctx.venueId,
-      userId: ctx.user.id,
-      actionCode: "store.venue_changed",
-      entityType: "store",
-      entityId: input.storeId,
-      details: {
-        title: before?.title ?? null,
-        old_venue_name: before?.local_venue_id ? venueNames.get(before.local_venue_id) ?? null : null,
-        new_venue_name: input.venueId ? venueNames.get(input.venueId) ?? null : null,
-      },
-    });
+  if (error) {
+    console.error("[stores] venue update failed", error);
+    // Отказы RPC написаны для пользователя («Заведение в архиве…»), прочее — технические.
+    return { error: (error as { code?: string }).code === "P0001" ? error.message : "Не удалось сохранить заведение склада. Повторите попытку" };
   }
+
+  // Событие store.venue_changed в общий журнал пишет триггер stores_audit_trigger
+  // (миграция 365) с автором из auth.uid(): он же ловит смену заведения не из
+  // этого экрана (удаление заведения). Писать его ещё и отсюда — дубль.
 
   // Пропагация venue в documents.venue_id — на уровне БД (триггер
   // trg_stores_propagate_venue_to_documents, миграция 194), атомарно
@@ -442,19 +431,4 @@ async function logDeletedDocuments(
       };
     }),
   );
-}
-
-async function venueNamesById(
-  admin: ReturnType<typeof asLooseDb>,
-  accountId: string,
-  ids: Array<string | null>,
-): Promise<Map<string, string>> {
-  const wanted = ids.filter((id): id is string => Boolean(id));
-  if (wanted.length === 0) return new Map();
-  const { data } = await admin
-    .from<Array<{ id: string; name: string }>>("venues")
-    .select("id, name")
-    .eq("account_id", accountId)
-    .in("id", wanted);
-  return new Map((data ?? []).map((v) => [v.id, v.name]));
 }

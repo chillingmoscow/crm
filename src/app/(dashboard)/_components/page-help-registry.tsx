@@ -20,6 +20,7 @@ import { IntegrationsHelp, OfficeCodesHelp, QuickRestoHelp, TelegramHelp, TildaH
 
 import { InventoryActsHelp } from "@/app/(dashboard)/documents/inventory/_components/inventory-acts-help";
 import { AuditHelp } from "@/app/(dashboard)/org/audit/_components/audit-help";
+import { StoresHelp } from "@/app/(dashboard)/org/stores/_components/stores-help";
 
 /**
  * Реестр контекстной справки для кнопки «?» в топ-баре (page-help-button).
@@ -54,6 +55,7 @@ export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
   { match: p => p === "/people/candidates" || p.startsWith("/people/candidates/"), title: "Кандидаты", Content: CandidatesHelp },
   { match: p => p === "/people/roles" || p.startsWith("/people/roles/"), title: "Должности", Content: RolesHelp },
   { match: p => p === "/people/departments" || p.startsWith("/people/departments/"), title: "Подразделения", Content: DepartmentsHelp },
+  { match: p => p === "/org/stores", title: "Склады", Content: StoresHelp },
   { match: p => p === "/notifications", title: "Уведомления", Content: NotificationsHelp },
   { match: p => p === "/org/legal-entities" || p.startsWith("/org/legal-entities/"), title: "Юридические лица", Content: LegalEntitiesHelp },
   // /org/venues/[id]/payroll — «Условия оплаты», к ним относится справка «Зарплаты» ниже.

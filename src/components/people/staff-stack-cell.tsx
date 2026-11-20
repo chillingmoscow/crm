@@ -14,7 +14,7 @@ import { pluralRu } from "@/lib/format/plural";
 import { avatarThumbUrl } from "@/lib/people/avatar-thumb";
 import { cn } from "@/lib/utils";
 
-export type RoleStaffMember = {
+export type StaffStackMember = {
   id: string;
   name: string;
   avatarUrl: string | null;
@@ -27,7 +27,7 @@ function MiniAvatar({
   person,
   className,
 }: {
-  person: RoleStaffMember;
+  person: StaffStackMember;
   className?: string;
 }) {
   const [failed, setFailed] = useState(false);
@@ -57,16 +57,17 @@ function MiniAvatar({
 }
 
 /**
- * Ячейка «Сотрудники» в списке должностей: до трёх аватаров и число. По
- * наведению (или нажатию на телефоне) — карточка со списком людей на этой
- * должности, каждый ведёт в свою карточку сотрудника.
+ * Ячейка «Сотрудники» в списках должностей и подразделений: до трёх аватаров
+ * и число. По наведению (или нажатию на телефоне) — карточка со списком
+ * людей, каждый ведёт в свою карточку сотрудника.
  */
-export function RoleStaffCell({
-  roleName,
+export function StaffStackCell({
+  title,
   staff,
 }: {
-  roleName: string;
-  staff: RoleStaffMember[];
+  /** Чьи это люди: название должности или подразделения. */
+  title: string;
+  staff: StaffStackMember[];
 }) {
   const [open, setOpen] = useState(false);
   if (staff.length === 0)
@@ -78,7 +79,7 @@ export function RoleStaffCell({
       <HoverCardTrigger asChild>
         <button
           type="button"
-          aria-label={`${label} на должности «${roleName}»`}
+          aria-label={`${label}: ${title}`}
           aria-expanded={open}
           onClick={(event) => {
             event.stopPropagation();
@@ -101,7 +102,7 @@ export function RoleStaffCell({
         className="w-72 max-w-[calc(100vw-32px)] p-1"
       >
         <p className="px-2 pb-1 pt-1.5 text-xs font-medium text-muted-foreground">
-          {roleName}
+          {title}
         </p>
         <ul className="max-h-72 overflow-y-auto">
           {staff.map((p) => (

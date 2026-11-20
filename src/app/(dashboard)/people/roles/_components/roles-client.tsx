@@ -15,7 +15,10 @@ import { arrayMove } from "@dnd-kit/sortable";
 import { Check, Lock, Plus, SearchX, Shield } from "lucide-react";
 import { iconForRole } from "./role-icons";
 import { IconPicker } from "./icon-picker";
-import { RoleStaffCell, type RoleStaffMember } from "./role-staff-cell";
+import {
+  StaffStackCell,
+  type StaffStackMember,
+} from "@/components/people/staff-stack-cell";
 import { paletteText, type PaletteColor } from "@/lib/palette";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
@@ -80,7 +83,7 @@ type Props = {
   accountId: string | null;
   activeVenueId: string | null;
   /** Активные сотрудники заведения по должностям, по алфавиту. */
-  staffByRole: Record<string, RoleStaffMember[]>;
+  staffByRole: Record<string, StaffStackMember[]>;
   importedRoleIds: string[];
   departments: DepartmentLite[];
 };
@@ -322,8 +325,8 @@ export function RolesClient({
       minSize: 120,
       accessorFn: (r) => staffByRole[r.id]?.length ?? 0,
       cell: ({ row }) => (
-        <RoleStaffCell
-          roleName={row.original.name}
+        <StaffStackCell
+          title={row.original.name}
           staff={staffByRole[row.original.id] ?? []}
         />
       ),

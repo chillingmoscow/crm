@@ -11,6 +11,8 @@ import {
 
 import { SalesShiftsHelp } from "@/app/(dashboard)/sales/shifts/_components/sales-shifts-help";
 
+import { IntegrationsHelp, QuickRestoHelp, TelegramHelp, TildaHelp } from "@/app/(dashboard)/settings/integrations/_components/integrations-help";
+
 import { InventoryActsHelp } from "@/app/(dashboard)/documents/inventory/_components/inventory-acts-help";
 
 /**
@@ -35,6 +37,10 @@ export type PageHelpEntry = {
 };
 
 export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
+  { match: p => p === "/settings/integrations", title: "Интеграции", Content: IntegrationsHelp },
+  { match: p => p === "/settings/integrations/tilda", title: "Tilda", Content: TildaHelp },
+  { match: p => p === "/settings/integrations/telegram", title: "Telegram", Content: TelegramHelp },
+  { match: p => p === "/settings/integrations/quickresto", title: "Quick Resto", Content: QuickRestoHelp },
   { match: p => p === "/people/staff", title: "Сотрудники", Content: StaffHelp },
   { match: p => p === "/people/candidates" || p.startsWith("/people/candidates/"), title: "Кандидаты", Content: CandidatesHelp },
   { match: p => p === "/notifications", title: "Уведомления", Content: NotificationsHelp },

@@ -1,12 +1,14 @@
 "use client";
 import { useState, useTransition } from "react";
-import { Archive, ArchiveRestore, MessagesSquare, Pencil, Plus, ShieldCheck } from "lucide-react";
+import { Archive, ArchiveRestore, MoreHorizontal, Pencil, Plus, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { EditDrawer } from "@/components/ui/edit-drawer";
+import { DrawerSection } from "@/components/ui/drawer-blocks";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { MultiOptionPicker } from "@/components/shared/multi-option-picker";
 import { candidateError } from "@/lib/candidates/errors";
 import { cn } from "@/lib/utils";
@@ -16,7 +18,7 @@ import { checkTelegramChat, saveTelegramChat, setTelegramChatArchived, type Chat
 type Draft = { id?: string; title: string; chat_id: string; invite: boolean; role_ids: string[] };
 const empty: Draft = { title: "", chat_id: "", invite: true, role_ids: [] };
 
-export function TelegramChats({ chats, roles, connected }: { chats: TelegramChatRow[]; roles: ChatRoleOption[]; connected: boolean }) {
+export function TelegramChats({ chats, roles }: { chats: TelegramChatRow[]; roles: ChatRoleOption[] }) {
   const [draft, setDraft] = useState<Draft | null>(null), [error, setError] = useState(""), [busy, start] = useTransition();
   const [checks, setChecks] = useState<Record<string, ChatCheck>>({}), [showArchive, setShowArchive] = useState(false);
   const live = chats.filter(c => !c.archived_at), archived = chats.filter(c => c.archived_at);
@@ -24,50 +26,54 @@ export function TelegramChats({ chats, roles, connected }: { chats: TelegramChat
   const rolesText = (c: TelegramChatRow) => !c.invite ? "Не приглашаем" : c.role_ids.length ? c.role_ids.map(id => roleName.get(id) ?? "Архивная должность").join(", ") : "Все должности";
   const close = () => { setDraft(null); setError(""); };
   const run = (fn: () => Promise<void>) => start(async () => { try { await fn(); } catch (e) { toast.error(candidateError(e, "Не удалось выполнить действие")); } });
-  const row = (c: TelegramChatRow) => <div key={c.id} className={cn("flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between", c.archived_at && "opacity-70")}>
-    <div className="min-w-0 space-y-1">
+  const check = (c: TelegramChatRow) => run(async () => { const r = await checkTelegramChat(c.id); setChecks(v => ({ ...v, [c.id]: r })); });
+
+  const row = (c: TelegramChatRow) => <li key={c.id} className={cn("flex items-center gap-3 py-3 first:pt-0 last:pb-0", c.archived_at && "opacity-60")}>
+    <div className="min-w-0 flex-1">
       <p className="truncate text-sm font-medium">{c.title}</p>
-      <p className="break-all text-xs text-muted-foreground">ID {c.chat_id}</p>
-      <p className="text-xs leading-5 text-muted-foreground"><span className="font-medium text-foreground">{c.invite ? "Приглашать при приёме" : "Не приглашать при приёме"}</span> · {rolesText(c)}</p>
-      {checks[c.id] ? <p role="status" className={cn("text-xs", checks[c.id].tone === "success" ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400")}>{checks[c.id].message}</p> : null}
+      <p className="truncate text-xs text-muted-foreground">{rolesText(c)}</p>
+      {checks[c.id] ? <p role="status" className={cn("mt-0.5 text-xs", checks[c.id].tone === "success" ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400")}>{checks[c.id].message}</p> : null}
     </div>
-    <div className="flex shrink-0 flex-wrap gap-2">
-      {!c.archived_at ? <>
-        {connected ? <Button variant="outline" size="sm" disabled={busy} onClick={() => run(async () => { const r = await checkTelegramChat(c.id); setChecks(v => ({ ...v, [c.id]: r })); })}><ShieldCheck className="mr-2 size-4" />Проверить</Button> : null}
-        <Button variant="outline" size="sm" disabled={busy} onClick={() => setDraft({ id: c.id, title: c.title, chat_id: c.chat_id, invite: c.invite, role_ids: c.role_ids })}><Pencil className="mr-2 size-4" />Изменить</Button>
-        <Button variant="outline" size="sm" disabled={busy} onClick={() => run(async () => { await setTelegramChatArchived(c.id, true); toast.success("Чат в архиве"); })}><Archive className="mr-2 size-4" />В архив</Button>
-      </> : <Button variant="outline" size="sm" disabled={busy} onClick={() => run(async () => { await setTelegramChatArchived(c.id, false); toast.success("Чат восстановлен"); })}><ArchiveRestore className="mr-2 size-4" />Восстановить</Button>}
-    </div>
-  </div>;
+    {c.archived_at ? <Button variant="ghost" size="sm" disabled={busy} onClick={() => run(async () => { await setTelegramChatArchived(c.id, false); toast.success("Чат восстановлен"); })}><ArchiveRestore className="mr-2 size-4" />Восстановить</Button>
+      : <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="size-8 shrink-0" aria-label={`Действия с чатом ${c.title}`} disabled={busy}><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-52">
+          <DropdownMenuItem onSelect={() => check(c)}><ShieldCheck className="mr-2 size-4" />Проверить права бота</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setDraft({ id: c.id, title: c.title, chat_id: c.chat_id, invite: c.invite, role_ids: c.role_ids })}><Pencil className="mr-2 size-4" />Изменить</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => run(async () => { await setTelegramChatArchived(c.id, true); toast.success("Чат в архиве"); })}><Archive className="mr-2 size-4" />В архив</DropdownMenuItem>
+        </DropdownMenuContent></DropdownMenu>}
+  </li>;
+
   return <>
-    <IntegrationSection title="Чаты" description="Чаты, в которые приглашают принятых сотрудников и из которых исключают уволенных. Бот должен быть администратором чата с правом приглашать и блокировать участников."
-      actions={<Button size="sm" onClick={() => setDraft(empty)}><Plus className="mr-2 size-4" />Добавить чат</Button>}>
-      {live.length ? <div className="divide-y">{live.map(row)}</div>
-        : <div className="flex flex-col items-center gap-2 py-6 text-center"><MessagesSquare className="size-8 text-muted-foreground" /><p className="text-sm font-medium">Чатов пока нет</p><IntegrationNotice>Добавьте чаты сотрудников, чтобы после приёма приходили ссылки-приглашения, а при увольнении сотрудник исключался автоматически.</IntegrationNotice></div>}
-      {archived.length ? <div className="space-y-3 border-t pt-4">
-        <Button variant="ghost" size="sm" onClick={() => setShowArchive(v => !v)}>{showArchive ? "Скрыть архив" : `Архив (${archived.length})`}</Button>
-        {showArchive ? <div className="divide-y">{archived.map(row)}</div> : null}
+    <IntegrationSection title="Чаты сотрудников" description="Принятых приглашаем, уволенных исключаем."
+      actions={<Button variant="outline" size="sm" onClick={() => setDraft(empty)}><Plus className="mr-2 size-4" />Добавить чат</Button>}>
+      {live.length ? <ul className="divide-y">{live.map(row)}</ul> : <IntegrationNotice>Чатов пока нет.</IntegrationNotice>}
+      {archived.length ? <div className="space-y-3 border-t pt-3">
+        <button type="button" className="text-[13px] text-muted-foreground hover:text-foreground" onClick={() => setShowArchive(v => !v)}>{showArchive ? "Скрыть архив" : `Архив · ${archived.length}`}</button>
+        {showArchive ? <ul className="divide-y">{archived.map(row)}</ul> : null}
       </div> : null}
     </IntegrationSection>
-    <Dialog open={!!draft} onOpenChange={o => { if (!o && !busy) close(); }}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader><DialogTitle>{draft?.id ? "Изменить чат" : "Добавить чат"}</DialogTitle><DialogDescription>Бот должен быть добавлен в чат как администратор.</DialogDescription></DialogHeader>
-        {draft ? <div className="space-y-4">
-          <div className="space-y-2"><Label htmlFor="chat-title">Название</Label><Input id="chat-title" value={draft.title} disabled={busy} onChange={e => setDraft({ ...draft, title: e.target.value })} placeholder="Например, Общий чат бара" /></div>
-          <div className="space-y-2"><Label htmlFor="chat-id">ID чата</Label><Input id="chat-id" inputMode="text" autoCapitalize="off" autoCorrect="off" value={draft.chat_id} disabled={busy} onChange={e => setDraft({ ...draft, chat_id: e.target.value })} placeholder="-100…" /></div>
-          <div className="flex items-center justify-between gap-4"><Label htmlFor="chat-invite">Приглашать при приёме</Label><Switch id="chat-invite" checked={draft.invite} disabled={busy} onCheckedChange={v => setDraft({ ...draft, invite: v })} /></div>
-          {draft.invite ? <div className="space-y-2"><Label htmlFor="chat-roles">Должности</Label>
+    <EditDrawer open={!!draft} onOpenChange={o => { if (!o && !busy) close(); }} title={draft?.id ? "Изменить чат" : "Новый чат"} description="Сначала добавьте бота в чат администратором с правом приглашать и блокировать участников."
+      footer={<><Button variant="outline" disabled={busy} onClick={close}>Отмена</Button>
+        <Button disabled={busy || !draft?.title.trim() || !draft?.chat_id.trim()} onClick={() => start(async () => {
+          if (!draft) return; setError("");
+          try { await saveTelegramChat({ title: draft.title, chat_id: draft.chat_id, invite: draft.invite, role_ids: draft.invite ? draft.role_ids : [] }, draft.id); toast.success("Чат сохранён"); close(); }
+          catch (e) { setError(candidateError(e, "Не удалось сохранить чат")); }
+        })}>{busy ? "Сохраняем…" : draft?.id ? "Сохранить" : "Добавить чат"}</Button></>}>
+      {draft ? <>
+        <DrawerSection title="Чат">
+          <div className="space-y-1.5"><Label htmlFor="chat-title">Название</Label><Input id="chat-title" value={draft.title} disabled={busy} onChange={e => setDraft({ ...draft, title: e.target.value })} placeholder="Общий чат бара" /></div>
+          <div className="space-y-1.5"><Label htmlFor="chat-id">ID чата</Label><Input id="chat-id" autoCapitalize="off" autoCorrect="off" autoComplete="off" value={draft.chat_id} disabled={busy} onChange={e => setDraft({ ...draft, chat_id: e.target.value })} placeholder="-1001234567890" />
+            <p className="text-xs text-muted-foreground">Откройте чат в web.telegram.org — ID в адресе после #.</p></div>
+        </DrawerSection>
+        <DrawerSection title="Кого приглашать">
+          <label className="flex items-center justify-between gap-4 text-sm font-medium">Приглашать при приёме<Switch checked={draft.invite} disabled={busy} onCheckedChange={v => setDraft({ ...draft, invite: v })} /></label>
+          {draft.invite ? <div className="space-y-1.5"><Label htmlFor="chat-roles">Должности</Label>
             <MultiOptionPicker id="chat-roles" label="Должности" options={roles} selectedIds={draft.role_ids} disabled={busy} placeholder="Все должности" onChange={ids => setDraft({ ...draft, role_ids: ids })} />
-            <IntegrationNotice>Если не выбрано ни одной, чат подходит для всех должностей.</IntegrationNotice></div> : null}
-          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-        </div> : null}
-        <DialogFooter className="gap-2 sm:gap-0"><Button variant="outline" disabled={busy} onClick={close}>Отмена</Button>
-          <Button disabled={busy || !draft?.title.trim() || !draft?.chat_id.trim()} onClick={() => start(async () => {
-            if (!draft) return; setError("");
-            try { await saveTelegramChat({ title: draft.title, chat_id: draft.chat_id, invite: draft.invite, role_ids: draft.invite ? draft.role_ids : [] }, draft.id); toast.success("Чат сохранён"); close(); }
-            catch (e) { setError(candidateError(e, "Не удалось сохранить чат")); }
-          })}>{busy ? "Сохраняем…" : "Сохранить"}</Button></DialogFooter>
-      </DialogContent>
-    </Dialog>
+            <p className="text-xs text-muted-foreground">Не выбрано — приглашаем все должности.</p></div> : null}
+        </DrawerSection>
+        {error ? <p role="alert" className="mt-4 text-xs text-destructive">{error}</p> : null}
+      </> : null}
+    </EditDrawer>
   </>;
 }

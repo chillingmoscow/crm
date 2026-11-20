@@ -8,7 +8,8 @@ import { Switch } from "@/components/ui/switch";
 import { TimePicker } from "@/components/ui/time-picker";
 import { OptionSelect } from "@/components/ui/option-select";
 import { MultiOptionPicker } from "@/components/shared/multi-option-picker";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { EditDrawer } from "@/components/ui/edit-drawer";
+import { DrawerSection } from "@/components/ui/drawer-blocks";
 import { candidateError } from "@/lib/candidates/errors";
 import {
   WEEKDAY_SHORT,
@@ -60,7 +61,7 @@ export function ScheduleMessages({ settings, chats }: { settings: ScheduleMessag
         </div>)}
       </div>
       <Button variant="outline" size="sm" className="shrink-0 self-start" onClick={() => setDraft({ ...s, daily: !!s.chat_id, reminder: s.reminder_chat_ids.length > 0 })}>
-        <Pencil className="mr-2 size-4" />Изменить
+        <Pencil className="size-4" />Изменить
       </Button>
     </div>;
   };
@@ -79,71 +80,15 @@ export function ScheduleMessages({ settings, chats }: { settings: ScheduleMessag
   });
 
   return <>
-    <IntegrationSection title="График и задачи" description="Список задач на день и напоминание сотрудникам сдать пожелания к графику. Время — по часам заведения.">
-      {settings.length ? <div className="divide-y">{settings.map(row)}</div> : <IntegrationNotice>Заведений пока нет.</IntegrationNotice>}
-      {!live.length ? <IntegrationNotice>Чтобы выбрать чат, сначала добавьте его в разделе «Чаты» ниже.</IntegrationNotice> : null}
+    <IntegrationSection title="График и задачи" description="Список задач на день и напоминание сдать пожелания к графику. Время по часам заведения">
+      {settings.length ? <div className="divide-y">{settings.map(row)}</div> : <IntegrationNotice>Заведений пока нет</IntegrationNotice>}
+      {!live.length ? <IntegrationNotice>Чтобы выбрать чат, сначала добавьте его в «Чаты сотрудников» ниже</IntegrationNotice> : null}
     </IntegrationSection>
-    <Dialog open={!!draft} onOpenChange={(o) => { if (!o && !busy) close(); }}>
-      <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>График и задачи{many && draft ? ` · ${draft.venue_name}` : ""}</DialogTitle>
-          <DialogDescription>Время — по часам заведения.</DialogDescription>
-        </DialogHeader>
-        {draft ? <div className="space-y-6">
-          <section className="space-y-4">
-            <div className="flex items-center justify-between gap-4">
-              <Label htmlFor="daily-on" className="text-base font-semibold">Список задач на день</Label>
-              <Switch id="daily-on" checked={draft.daily} disabled={busy} onCheckedChange={(v) => setDraft({ ...draft, daily: v })} />
-            </div>
-            {draft.daily ? <>
-              <div className="space-y-2"><Label htmlFor="daily-chat">Чат</Label>
-                <OptionSelect id="daily-chat" aria-label="Чат для списка задач" value={draft.chat_id ?? ""} disabled={busy || !live.length}
-                  placeholder={live.length ? "Выберите чат" : "Нет чатов"} onValueChange={(v) => setDraft({ ...draft, chat_id: v || null })}
-                  options={live.map((c) => ({ value: c.chat_id, label: c.title }))} /></div>
-              <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem]">
-                <div className="space-y-2"><Label id="daily-days-label">Дни</Label>
-                  <div role="group" aria-labelledby="daily-days-label" className="flex flex-wrap gap-1">
-                    {WEEK.map((d) => {
-                      const on = draft.daily_days.includes(d);
-                      return <Button key={d} type="button" size="sm" variant={on ? "default" : "outline"} aria-pressed={on} disabled={busy}
-                        onClick={() => toggleDay(d)} className="h-8 min-w-9 px-2 text-xs">{WEEKDAY_SHORT[d - 1]}</Button>;
-                    })}
-                  </div></div>
-                <div className="space-y-2"><Label htmlFor="daily-time">Время</Label>
-                  <TimePicker id="daily-time" clearable={false} value={draft.daily_time} disabled={busy} onChange={(v) => setDraft({ ...draft, daily_time: v })} /></div>
-              </div>
-              <IntegrationNotice>{dailyLabel ? `${dailyLabel}, если на этот день есть задачи.` : "Выберите хотя бы один день."}</IntegrationNotice>
-            </> : null}
-          </section>
-          <section className="space-y-4 border-t pt-6">
-            <div className="flex items-center justify-between gap-4">
-              <Label htmlFor="reminder-on" className="text-base font-semibold">Напоминание сдать график</Label>
-              <Switch id="reminder-on" checked={draft.reminder} disabled={busy} onCheckedChange={(v) => setDraft({ ...draft, reminder: v })} />
-            </div>
-            {draft.reminder ? <>
-              <div className="space-y-2"><Label htmlFor="reminder-chats">Чаты</Label>
-                <MultiOptionPicker id="reminder-chats" label="Чаты" disabled={busy || !live.length} placeholder={live.length ? "Выберите чаты" : "Нет чатов"}
-                  options={live.map((c) => ({ id: c.chat_id, label: c.title }))} selectedIds={draft.reminder_chat_ids}
-                  onChange={(ids) => setDraft({ ...draft, reminder_chat_ids: ids })} /></div>
-              <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_8rem]">
-                <div className="space-y-2"><Label htmlFor="reminder-open">Начать сбор</Label>
-                  <OptionSelect id="reminder-open" aria-label="Начать сбор" value={String(draft.schedule_open_day)} disabled={busy}
-                    onValueChange={(v) => setDraft({ ...draft, schedule_open_day: Number(v) })} options={dayOptions} /></div>
-                <div className="space-y-2"><Label htmlFor="reminder-deadline">Последний день</Label>
-                  <OptionSelect id="reminder-deadline" aria-label="Последний день" value={String(draft.schedule_deadline_day)} disabled={busy}
-                    onValueChange={(v) => setDraft({ ...draft, schedule_deadline_day: Number(v) })} options={dayOptions} /></div>
-                <div className="space-y-2"><Label htmlFor="reminder-time">Время</Label>
-                  <TimePicker id="reminder-time" clearable={false} value={draft.schedule_time} disabled={busy} onChange={(v) => setDraft({ ...draft, schedule_time: v })} /></div>
-              </div>
-              <IntegrationNotice>{reminderLabel ? `${reminderLabel}.` : "Начало сбора и последний день должны быть разными днями."}</IntegrationNotice>
-            </> : null}
-          </section>
-          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-        </div> : null}
-        <DialogFooter className="gap-2 sm:gap-0">
-          <Button variant="outline" disabled={busy} onClick={close}>Отмена</Button>
-          <span data-tip={problem ?? undefined} className="inline-flex">
-            <Button disabled={busy || !!problem} onClick={() => start(async () => {
+    <EditDrawer open={!!draft} onOpenChange={(o) => { if (!o && !busy) close(); }}
+      title={many && draft ? `График и задачи · ${draft.venue_name}` : "График и задачи"} description="Время по часам заведения"
+      footer={<>
+        <Button variant="outline" disabled={busy} onClick={close}>Отмена</Button>
+        <Button disabled={busy || !!problem} onClick={() => start(async () => {
               if (!draft) return; setError("");
               try {
                 await saveScheduleMessages({
@@ -160,9 +105,51 @@ export function ScheduleMessages({ settings, chats }: { settings: ScheduleMessag
                 close();
               } catch (e) { setError(candidateError(e, "Не удалось сохранить сообщения")); }
             })}>{busy ? "Сохраняем…" : "Сохранить"}</Button>
-          </span>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </>}>
+      {draft ? <>
+        <DrawerSection title="Список задач на день" actions={<Switch id="daily-on" aria-label="Отправлять список задач" checked={draft.daily} disabled={busy} onCheckedChange={(v) => setDraft({ ...draft, daily: v })} />}>
+          {draft.daily ? <>
+            <div className="grid gap-2"><Label htmlFor="daily-chat">Чат</Label>
+              <OptionSelect id="daily-chat" value={draft.chat_id ?? ""} disabled={busy || !live.length}
+                placeholder={live.length ? "Выберите чат" : "Нет чатов"} onValueChange={(v) => setDraft({ ...draft, chat_id: v || null })}
+                options={live.map((c) => ({ value: c.chat_id, label: c.title }))} /></div>
+            <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem]">
+              <div className="grid gap-2"><Label id="daily-days-label">Дни</Label>
+                <div role="group" aria-labelledby="daily-days-label" className="flex flex-wrap gap-x-2 gap-y-2 sm:gap-1">
+                  {WEEK.map((d) => {
+                    const on = draft.daily_days.includes(d);
+                    return <Button key={d} type="button" size="sm" variant={on ? "default" : "outline"} aria-pressed={on} disabled={busy}
+                      onClick={() => toggleDay(d)} className="touch-target h-8 min-w-9 px-2 text-xs">{WEEKDAY_SHORT[d - 1]}</Button>;
+                  })}
+                </div></div>
+              <div className="grid gap-2"><Label htmlFor="daily-time">Время</Label>
+                <TimePicker id="daily-time" clearable={false} value={draft.daily_time} disabled={busy} onChange={(v) => setDraft({ ...draft, daily_time: v })} /></div>
+            </div>
+            <p className="text-xs text-muted-foreground">{dailyLabel ? `${dailyLabel}, если на этот день есть задачи` : "Выберите хотя бы один день"}</p>
+          </> : null}
+        </DrawerSection>
+        <DrawerSection title="Напоминание сдать график" actions={<Switch id="reminder-on" aria-label="Отправлять напоминание" checked={draft.reminder} disabled={busy} onCheckedChange={(v) => setDraft({ ...draft, reminder: v })} />}>
+          {draft.reminder ? <>
+            <div className="grid gap-2"><Label htmlFor="reminder-chats">Чаты</Label>
+              <MultiOptionPicker id="reminder-chats" label="Чаты" disabled={busy || !live.length} placeholder={live.length ? "Выберите чаты" : "Нет чатов"}
+                options={live.map((c) => ({ id: c.chat_id, label: c.title }))} selectedIds={draft.reminder_chat_ids}
+                onChange={(ids) => setDraft({ ...draft, reminder_chat_ids: ids })} /></div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-2"><Label htmlFor="reminder-open">Начать сбор</Label>
+                <OptionSelect id="reminder-open" value={String(draft.schedule_open_day)} disabled={busy}
+                  onValueChange={(v) => setDraft({ ...draft, schedule_open_day: Number(v) })} options={dayOptions} /></div>
+              <div className="grid gap-2"><Label htmlFor="reminder-deadline">Последний день</Label>
+                <OptionSelect id="reminder-deadline" value={String(draft.schedule_deadline_day)} disabled={busy}
+                  onValueChange={(v) => setDraft({ ...draft, schedule_deadline_day: Number(v) })} options={dayOptions} /></div>
+            </div>
+            <div className="grid gap-2 sm:w-1/2 sm:pr-2"><Label htmlFor="reminder-time">Время</Label>
+              <TimePicker id="reminder-time" clearable={false} value={draft.schedule_time} disabled={busy} onChange={(v) => setDraft({ ...draft, schedule_time: v })} /></div>
+            <p className="text-xs text-muted-foreground">{reminderLabel ?? "Начало сбора и последний день должны быть разными днями"}</p>
+          </> : null}
+        </DrawerSection>
+        {problem && (draft.daily || draft.reminder) ? <p className="text-xs text-amber-700 dark:text-amber-400">{problem}</p> : null}
+        {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
+      </> : null}
+    </EditDrawer>
   </>;
 }

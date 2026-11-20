@@ -14,6 +14,8 @@ import {
 
 import { SalesShiftsHelp } from "@/app/(dashboard)/sales/shifts/_components/sales-shifts-help";
 
+import { IntegrationsHelp, OfficeCodesHelp, QuickRestoHelp, TelegramHelp, TildaHelp } from "@/app/(dashboard)/settings/integrations/_components/integrations-help";
+
 import { InventoryActsHelp } from "@/app/(dashboard)/documents/inventory/_components/inventory-acts-help";
 
 /**
@@ -38,6 +40,11 @@ export type PageHelpEntry = {
 };
 
 export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
+  { match: p => p === "/settings/integrations", title: "Интеграции", Content: IntegrationsHelp },
+  { match: p => p === "/settings/integrations/tilda", title: "Tilda", Content: TildaHelp },
+  { match: p => p === "/settings/integrations/telegram", title: "Telegram", Content: TelegramHelp },
+  { match: p => p === "/settings/integrations/quickresto", title: "Quick Resto", Content: QuickRestoHelp },
+  { match: p => p === "/settings/integrations/office-codes", title: "Коды замка", Content: OfficeCodesHelp },
   // Список и карточка раздела делят одну справку (docs/design-system.md,
   // «Top bar → Когда что показывать»).
   { match: p => p === "/people/staff" || p.startsWith("/people/staff/"), title: "Сотрудники", Content: StaffHelp },

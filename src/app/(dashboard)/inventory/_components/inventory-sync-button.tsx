@@ -59,7 +59,7 @@ export function InventorySyncButton({ canSync, lastSyncedAt }: Props) {
           ) : (
             <RefreshCw className="h-4 w-4" />
           )}
-          <span className="ml-2">Синхронизировать с QuickResto</span>
+          <span className="ml-2">Синхронизировать с Quick Resto</span>
         </Button>
       ) : null}
       <span className="text-xs text-muted-foreground">

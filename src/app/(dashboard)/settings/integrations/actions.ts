@@ -17,8 +17,9 @@ export async function readTildaConnection(): Promise<ConnectionView> {
   const row = checked(await s.db.from<NonNullable<ConnectionView>>("candidate_connections")
     .select("id,enabled,form_id,telegram_chat_id,last_received_at").eq("account_id", s.accountId).maybeSingle());
   if (!row) return null;
+  // Only application notifications belong to Tilda; other job kinds are shown in the Telegram delivery log.
   const jobs = checked(await s.db.from<{ state: string }[]>("candidate_jobs").select("state")
-    .eq("account_id", s.accountId).neq("state", "done")) ?? [];
+    .eq("account_id", s.accountId).eq("kind", "notify").neq("state", "done")) ?? [];
   return { ...row, telegram_configured: false, pending_jobs: jobs.filter(j => j.state !== "error").length, failed_jobs: jobs.filter(j => j.state === "error").length };
 }
 

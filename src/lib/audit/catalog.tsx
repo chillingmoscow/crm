@@ -1,7 +1,9 @@
 import Link from "next/link";
 import {
+  Archive,
   FileText,
   ImagePlus,
+  RotateCcw,
   Store,
   Trash2,
   Truck,
@@ -170,6 +172,13 @@ export const catalogAuditSpecs: Record<string, AuditEventSpec> = {
       <>снял(а) привязку склада {storeName(e)} к подразделению</>
     ),
   ),
+  // Архив склада (миграция 365): пишет триггер stores_audit_trigger.
+  "store.archived": spec(Archive, "text-muted-foreground bg-muted", (e) => (
+    <>отправил(а) в архив склад {storeName(e)}</>
+  )),
+  "store.restored": spec(RotateCcw, "text-foreground bg-muted", (e) => (
+    <>вернул(а) из архива склад {storeName(e)}</>
+  )),
   "inventory.document_deleted": spec(Trash2, DANGER, (e) => (
     <>
       удалил(а) акт инвентаризации{" "}

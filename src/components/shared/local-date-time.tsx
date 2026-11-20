@@ -26,6 +26,24 @@ function format(value: string, timeZone?: string): string {
   });
 }
 
+/**
+ * То же время строкой — для атрибутов (`data-tip`), куда компонент не вставить.
+ * Правило гидратации то же: сначала фиксированный пояс, после монтирования —
+ * пояс пользователя.
+ */
+export function useLocalDateTimeText(
+  value: string | null | undefined,
+  fallback = "—",
+): string {
+  const [text, setText] = useState(() => (value ? format(value, FIXED_ZONE) : fallback));
+
+  useEffect(() => {
+    setText(value ? format(value) : fallback);
+  }, [value, fallback]);
+
+  return text;
+}
+
 export function LocalDateTime({
   value,
   fallback = "—",
@@ -33,11 +51,5 @@ export function LocalDateTime({
   value: string | null | undefined;
   fallback?: string;
 }) {
-  const [text, setText] = useState(() => (value ? format(value, FIXED_ZONE) : fallback));
-
-  useEffect(() => {
-    setText(value ? format(value) : fallback);
-  }, [value, fallback]);
-
-  return <>{text}</>;
+  return <>{useLocalDateTimeText(value, fallback)}</>;
 }

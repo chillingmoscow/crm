@@ -1,586 +1,406 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { Controller, useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { toast } from "sonner";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Plus, Building2, X, Settings2, Search, Filter, Archive } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { IconTooltip } from "@/components/ui/icon-tooltip";
-import { Input } from "@/components/ui/input";
-import { OptionSelect } from "@/components/ui/option-select";
-import { TimePicker } from "@/components/ui/time-picker";
-import { PhoneInput } from "@/components/ui/phone-input";
-import { formatPhoneDisplay } from "@/lib/format/phone";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { Switch } from "@/components/ui/switch";
+import { useRouter } from "next/navigation";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { EditDrawer } from "@/components/ui/edit-drawer";
-import { DrawerSection } from "@/components/ui/drawer-blocks";
-import { VENUE_TYPES, CURRENCIES, TIMEZONES, DAYS_OF_WEEK, type DayKey } from "@/lib/constants";
-import { createVenue } from "../actions";
+  getCoreRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type ColumnDef,
+} from "@tanstack/react-table";
+import { arrayMove } from "@dnd-kit/sortable";
+import { Archive, Building2, Plus, SearchX } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { PageFrame } from "@/components/shared/page-frame";
+import {
+  DataTable,
+  TableColumnManager,
+  TableConditions,
+  TableControls,
+  TableFilterChip,
+  TableIconButton,
+  TablePageHeader,
+  TablePagination,
+  TableSortPicker,
+  useTableState,
+} from "@/components/shared/table";
+import { formatPhoneDisplay } from "@/lib/format/phone";
+import { timezoneLabel, venueTypeLabel, VENUE_TYPE_OPTIONS } from "@/lib/org/venue-labels";
 import type { VenueRow } from "../page";
-import type { VenueType, WorkingHours } from "@/types/database";
+import { VenueCreateDrawer } from "./venue-create-drawer";
 
-// ── Column definitions ───────────────────────────────────────
-type ColKey = "name" | "type" | "qr_import" | "address" | "phone" | "currency" | "timezone" | "halls_count" | "tables_count";
+type ColKey = "name" | "type" | "address" | "phone" | "legal_entity" | "timezone" | "currency";
 
-const COL_DEFS: {
-  key: ColKey; label: string; width: string; required?: boolean;
-}[] = [
-  { key: "name",         label: "Название",      width: "1fr",   required: true },
-  { key: "type",         label: "Тип",           width: "120px" },
-  { key: "qr_import",    label: "Импорт из QR",  width: "120px" },
-  { key: "halls_count",  label: "Залы",          width: "70px" },
-  { key: "tables_count", label: "Столы",         width: "70px" },
-  { key: "address",      label: "Адрес",         width: "1fr" },
-  { key: "phone",        label: "Телефон",       width: "140px" },
-  { key: "currency",     label: "Валюта",        width: "80px" },
-  { key: "timezone",     label: "Часовой пояс",  width: "160px" },
-];
-
-const DEFAULT_COLS: ColKey[] = ["name", "type", "qr_import", "halls_count", "tables_count", "address", "phone"];
-
-function buildGrid(visible: Set<ColKey>) {
-  return COL_DEFS.filter((c) => visible.has(c.key)).map((c) => c.width).join(" ");
-}
-
-// Единый источник правды по типам — VENUE_TYPES в @/lib/constants
-// (11 значений). Локальная карта на 5 элементов оставляла «hookah» и
-// прочие новые типы (миграция 026) без локализации в списке.
-const VENUE_TYPE_LABELS: Record<string, string> = Object.fromEntries(
-  VENUE_TYPES.map((t) => [t.value, t.label]),
-);
-
-const INITIAL_WORKING_HOURS: WorkingHours = {
-  mon: { open: "10:00", close: "22:00", closed: false },
-  tue: { open: "10:00", close: "22:00", closed: false },
-  wed: { open: "10:00", close: "22:00", closed: false },
-  thu: { open: "10:00", close: "22:00", closed: false },
-  fri: { open: "10:00", close: "23:00", closed: false },
-  sat: { open: "11:00", close: "23:00", closed: false },
-  sun: { open: "11:00", close: "22:00", closed: false },
+const labels: Record<ColKey, string> = {
+  name: "Заведение",
+  type: "Тип",
+  address: "Адрес",
+  phone: "Телефон",
+  legal_entity: "Юрлицо",
+  timezone: "Часовой пояс",
+  currency: "Валюта",
 };
+const columnConfig = [
+  { id: "name", defaultSize: 300 },
+  { id: "type", defaultSize: 140 },
+  { id: "address", defaultSize: 300 },
+  { id: "phone", defaultSize: 170 },
+  { id: "legal_entity", defaultSize: 200 },
+  { id: "timezone", defaultSize: 220, defaultVisible: false },
+  { id: "currency", defaultSize: 110, defaultVisible: false },
+];
+const sortFields: ColKey[] = ["name", "type", "address", "legal_entity", "timezone"];
+const collator = new Intl.Collator("ru", { sensitivity: "base", numeric: true });
+const dash = <span className="text-muted-foreground">—</span>;
 
-const schema = z.object({
-  name:     z.string().min(1, "Введите название"),
-  // Принимаем любой непустой type — VENUE_TYPES в дропдауне даёт 11
-  // значений (миграция 026), DB-enum — источник правды. Был жёсткий
-  // z.enum на 5 старых типов → выбор «Кальянной» молча падал на
-  // zod-валидации (форма не сабмитилась). См. тот же фикс в
-  // venue-detail-page.tsx (комментарий там).
-  type:     z.string().min(1),
-  address:  z.string().optional(),
-  phone:    z.string().optional(),
-  currency: z.string().min(1),
-  timezone: z.string().min(1),
-});
-
-type Form = z.infer<typeof schema>;
-
-type Props = {
+export function VenuesClient({
+  venues,
+  archivedCount,
+  canCreate,
+}: {
   venues: VenueRow[];
   archivedCount: number;
-};
-
-// ── Column settings dropdown ─────────────────────────────────
-function ColumnSettings({ visible, onChange }: {
-  visible: Set<ColKey>;
-  onChange: (key: ColKey, on: boolean) => void;
+  /** Создавать и архивировать заведения может только владелец аккаунта. */
+  canCreate: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, [open]);
-
-  return (
-    <div className="relative" ref={ref}>
-      <IconTooltip label="Столбцы таблицы">
-        <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setOpen((v) => !v)}>
-          <Settings2 className="w-4 h-4" />
-        </Button>
-      </IconTooltip>
-      {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 bg-background border rounded-lg shadow-md p-2 min-w-[200px]">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground px-2 pb-1.5">
-            Столбцы таблицы
-          </p>
-          {COL_DEFS.filter((c) => !c.required).map((col) => (
-            <label
-              key={col.key}
-              className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted cursor-pointer text-sm select-none"
-            >
-              <input
-                type="checkbox"
-                checked={visible.has(col.key)}
-                onChange={(e) => onChange(col.key, e.target.checked)}
-                className="accent-primary"
-              />
-              {col.label}
-            </label>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Filter dropdown ──────────────────────────────────────────
-type VenueFilter = {
-  type: string | null;
-  importedFromQr: "all" | "yes" | "no";
-};
-
-function FilterPanel({ filter, onChange }: {
-  filter: VenueFilter;
-  onChange: (f: VenueFilter) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => {
-      // Список селекта рендерится в портал вне панели — клик по пункту
-      // не должен закрывать фильтры.
-      if ((e.target as Element).closest?.("[data-radix-popper-content-wrapper]")) return;
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, [open]);
-
-  const isActive = filter.type !== null || filter.importedFromQr !== "all";
-
-  return (
-    <div className="relative" ref={ref}>
-      <IconTooltip label={isActive ? "Фильтры (активны)" : "Фильтры"}>
-        <Button
-          variant="outline"
-          size="icon"
-          className={`h-8 w-8 ${isActive ? "border-primary text-primary" : ""}`}
-          onClick={() => setOpen((v) => !v)}
-        >
-          <Filter className="w-4 h-4" />
-        </Button>
-      </IconTooltip>
-      {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 bg-background border rounded-lg shadow-md p-3 min-w-[200px] space-y-3">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            Фильтры
-          </p>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Тип заведения</Label>
-            <OptionSelect
-              aria-label="Тип заведения"
-              className="h-8 w-full px-2"
-              value={filter.type ?? ""}
-              onValueChange={(v) => onChange({ ...filter, type: v || null })}
-              options={[
-                { value: "", label: "Все типы" },
-                ...VENUE_TYPES.map((t) => ({ value: t.value, label: t.label })),
-              ]}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Импорт из QR</Label>
-            <OptionSelect
-              aria-label="Импорт из QR"
-              className="h-8 w-full px-2"
-              value={filter.importedFromQr}
-              onValueChange={(v) =>
-                onChange({
-                  ...filter,
-                  importedFromQr: v as VenueFilter["importedFromQr"],
-                })
-              }
-              options={[
-                { value: "all", label: "Все" },
-                { value: "yes", label: "Только импортированные" },
-                { value: "no", label: "Только созданные вручную" },
-              ]}
-            />
-          </div>
-          {isActive && (
-            <button
-              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
-              onClick={() => onChange({ type: null, importedFromQr: "all" })}
-            >
-              Сбросить фильтры
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Main component ───────────────────────────────────────────
-export function VenuesClient({ venues: initialVenues, archivedCount }: Props) {
   const router = useRouter();
-  const [venues, setVenues] = useState(initialVenues);
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [workingHours, setWorkingHours] = useState<WorkingHours>(INITIAL_WORKING_HOURS);
-  const [isPending, startTransition] = useTransition();
+  // Без legacyVisibilityKey: в старом наборе столбцов не было «Юрлица»,
+  // перенос спрятал бы новый столбец у всех, кто уже настраивал таблицу.
+  const st = useTableState({ tableId: "org.venues", columns: columnConfig });
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [typeFilter, setTypeFilter] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+  const firstPage = () => st.setPagination((p) => ({ ...p, pageIndex: 0 }));
 
-  // Column visibility — persisted in localStorage
-  const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(() => {
-    if (typeof window === "undefined") return new Set(DEFAULT_COLS);
-    try {
-      const saved = localStorage.getItem("crm-venues-visible-cols");
-      if (saved) return new Set(JSON.parse(saved) as ColKey[]);
-    } catch {}
-    return new Set(DEFAULT_COLS);
-  });
-  const toggleCol = (key: ColKey, on: boolean) => {
-    setVisibleCols((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(key); else next.delete(key);
-      try { localStorage.setItem("crm-venues-visible-cols", JSON.stringify([...next])); } catch {}
-      return next;
-    });
-  };
-  const template = buildGrid(visibleCols);
-
-  // Search
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (searchOpen) setTimeout(() => searchInputRef.current?.focus(), 50);
-  }, [searchOpen]);
-
-  // Filter
-  const [filter, setFilter] = useState<VenueFilter>({ type: null, importedFromQr: "all" });
-
-  const { register, handleSubmit, setValue, reset, control, formState: { errors } } =
-    useForm<Form>({
-      resolver: zodResolver(schema),
-      defaultValues: { type: "restaurant", currency: "RUB", timezone: "Europe/Moscow" },
-    });
-
-  function openCreate() {
-    setWorkingHours(INITIAL_WORKING_HOURS);
-    reset({ name: "", type: "restaurant", address: "", phone: "", currency: "RUB", timezone: "Europe/Moscow" });
-    setSheetOpen(true);
-  }
-
-  const toggleDay = (day: DayKey) => {
-    setWorkingHours((prev) => ({
-      ...prev,
-      [day]: {
-        ...prev[day],
-        closed: !prev[day]?.closed,
-        open:   prev[day]?.open  ?? "10:00",
-        close:  prev[day]?.close ?? "22:00",
-      },
-    }));
+  const q = st.search.toLocaleLowerCase("ru").trim();
+  const filtered = useMemo(
+    () =>
+      venues.filter((v) => {
+        if (
+          q &&
+          ![v.name, v.address ?? "", v.phone ?? "", formatPhoneDisplay(v.phone ?? "")].some((s) =>
+            s.toLocaleLowerCase("ru").includes(q),
+          )
+        )
+          return false;
+        if (typeFilter && v.type !== typeFilter) return false;
+        if (sourceFilter === "quickresto" && !v.imported_from_quickresto) return false;
+        if (sourceFilter === "manual" && v.imported_from_quickresto) return false;
+        return true;
+      }),
+    [venues, q, typeFilter, sourceFilter],
+  );
+  const hasFilters = !!typeFilter || !!sourceFilter;
+  const isFiltered = q.length > 0 || hasFilters;
+  const resetConditions = () => {
+    setTypeFilter("");
+    setSourceFilter("");
+    st.setSearch("");
+    st.setSorting([]);
+    firstPage();
   };
 
-  const setTime = (day: DayKey, field: "open" | "close", value: string) => {
-    setWorkingHours((prev) => ({ ...prev, [day]: { ...prev[day], [field]: value } }));
-  };
+  const text = (value: string | null | undefined) =>
+    value ? (
+      <span className="block truncate" data-tip={value}>
+        {value}
+      </span>
+    ) : (
+      dash
+    );
 
-  const onSubmit = (values: Form) => {
-    startTransition(async () => {
-      const result = await createVenue({
-        name: values.name, type: values.type as VenueType,
-        address: values.address, phone: values.phone,
-        currency: values.currency, timezone: values.timezone,
-        workingHours,
-      });
-      if (result.error) { toast.error(result.error); return; }
-      toast.success("Заведение создано");
-      if (result.id) {
-        setVenues((prev) => [...prev, {
-          id: result.id!, name: values.name, type: values.type,
-          address: values.address ?? null, phone: values.phone ?? null,
-          currency: values.currency, timezone: values.timezone, working_hours: workingHours,
-          halls_count: 0, tables_count: 0,
-        }]);
-      }
-      setSheetOpen(false);
-    });
-  };
-
-  // ── Filtering ───────────────────────────────────────────────
-  const q = searchQuery.toLowerCase().trim();
-  const filteredVenues = venues.filter((v) => {
-    if (q && !v.name.toLowerCase().includes(q) &&
-        !(v.address ?? "").toLowerCase().includes(q) &&
-        !(v.phone ?? "").toLowerCase().includes(q)) return false;
-    if (filter.type && v.type !== filter.type) return false;
-    if (filter.importedFromQr === "yes" && !v.imported_from_quickresto) return false;
-    if (filter.importedFromQr === "no" && v.imported_from_quickresto) return false;
-    return true;
-  });
-  const isFiltered = q.length > 0 || filter.type !== null || filter.importedFromQr !== "all";
-
-  // ── Cell renderers ─────────────────────────────────────────
-  const renderCell = (key: ColKey, venue: VenueRow) => {
-    switch (key) {
-      case "name":
+  const columns: ColumnDef<VenueRow>[] = [
+    {
+      id: "name",
+      header: labels.name,
+      size: 300,
+      minSize: 200,
+      enableHiding: false,
+      accessorFn: (v) => v.name,
+      sortingFn: (a, b) => collator.compare(a.original.name, b.original.name),
+      cell: ({ row }) => {
+        const v = row.original;
         return (
-          <div className="min-w-0">
-            <div className="font-medium text-sm truncate">{venue.name}</div>
-          </div>
+          <span className="flex min-w-0 items-center gap-3">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <Building2 className="size-4" />
+            </span>
+            <Link
+              href={`/org/venues/${v.id}`}
+              className="min-w-0 truncate font-medium hover:underline"
+              data-tip={v.name}
+            >
+              {v.name}
+            </Link>
+            {v.imported_from_quickresto ? (
+              <StatusBadge tone="neutral" tip="Заведение пришло из Quick Resto" className="shrink-0">
+                Quick Resto
+              </StatusBadge>
+            ) : null}
+          </span>
         );
-      case "type":
-        return <Badge variant="secondary" className="text-xs cursor-default">{VENUE_TYPE_LABELS[venue.type] ?? venue.type}</Badge>;
-      case "qr_import":
-        return <div className="text-sm text-muted-foreground">{venue.imported_from_quickresto ? "Да" : "Нет"}</div>;
-      case "address":
-        return <div className="text-sm text-muted-foreground truncate">{venue.address || "—"}</div>;
-      case "phone":
-        return <div className="text-sm text-muted-foreground truncate">{venue.phone ? formatPhoneDisplay(venue.phone) : "—"}</div>;
-      case "currency":
-        return <div className="text-sm text-muted-foreground">{venue.currency}</div>;
-      case "timezone":
-        return <div className="text-sm text-muted-foreground truncate">{venue.timezone.split("/")[1]?.replace(/_/g, " ") ?? venue.timezone}</div>;
-      case "halls_count":
-        return <div className="text-sm text-muted-foreground tabular-nums">{venue.halls_count}</div>;
-      case "tables_count":
-        return <div className="text-sm text-muted-foreground tabular-nums">{venue.tables_count}</div>;
-    }
+      },
+    },
+    {
+      id: "type",
+      header: labels.type,
+      size: 140,
+      minSize: 90,
+      accessorFn: (v) => venueTypeLabel(v.type),
+      cell: ({ getValue }) => text(getValue() as string),
+    },
+    {
+      id: "address",
+      header: labels.address,
+      size: 300,
+      minSize: 120,
+      accessorFn: (v) => v.address ?? undefined,
+      sortUndefined: "last",
+      cell: ({ getValue }) => text(getValue() as string | undefined),
+    },
+    {
+      id: "phone",
+      header: labels.phone,
+      size: 170,
+      minSize: 120,
+      accessorFn: (v) => v.phone ?? undefined,
+      enableSorting: false,
+      cell: ({ getValue }) => {
+        const v = getValue() as string | undefined;
+        return v ? <span className="tabular-nums">{formatPhoneDisplay(v)}</span> : dash;
+      },
+    },
+    {
+      id: "legal_entity",
+      header: labels.legal_entity,
+      size: 200,
+      minSize: 120,
+      accessorFn: (v) => v.legal_entity_name ?? undefined,
+      sortUndefined: "last",
+      cell: ({ getValue }) => text(getValue() as string | undefined),
+    },
+    {
+      id: "timezone",
+      header: labels.timezone,
+      size: 220,
+      minSize: 140,
+      accessorFn: (v) => timezoneLabel(v.timezone),
+      cell: ({ getValue }) => text(getValue() as string),
+    },
+    {
+      id: "currency",
+      header: labels.currency,
+      size: 110,
+      minSize: 90,
+      accessorFn: (v) => v.currency,
+      enableSorting: false,
+      cell: ({ getValue }) => <span>{getValue() as string}</span>,
+    },
+  ];
+
+  const table = useReactTable({
+    data: filtered,
+    columns,
+    state: {
+      sorting: st.sorting,
+      pagination: st.pagination,
+      columnVisibility: { ...st.columnVisibility, name: true },
+      columnOrder: st.columnOrder,
+      columnSizing: st.columnSizing,
+    },
+    onSortingChange: st.setSorting,
+    onPaginationChange: st.setPagination,
+    onColumnVisibilityChange: st.setColumnVisibility,
+    onColumnSizingChange: st.setColumnSizing,
+    getRowId: (v) => v.id,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    autoResetPageIndex: false,
+  });
+  const changeSorting = (next: typeof st.sorting) => {
+    st.setSorting(next);
+    firstPage();
   };
 
   return (
-    <div className="p-6 md:p-8 w-full">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Заведения</h1>
-          <p className="text-muted-foreground mt-1 text-sm">
-            {venues.length > 0
-              ? `${venues.length} ${venues.length === 1 ? "заведение" : venues.length < 5 ? "заведения" : "заведений"}`
-              : "Нет заведений"}
-            {isFiltered && ` · показано ${filteredVenues.length}`}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Search */}
-          <div className="flex items-center gap-1">
-            {searchOpen && (
-              <div className="relative">
-                <Input
-                  ref={searchInputRef}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Поиск"
-                  className="h-8 w-48 text-sm pr-7"
+    <PageFrame className="flex min-w-0 flex-col gap-4">
+      <Breadcrumbs items={[{ label: "Организация" }, { label: "Заведения" }]} />
+      <TablePageHeader
+        title="Заведения"
+        count={isFiltered ? `${filtered.length} из ${venues.length}` : venues.length}
+        actions={
+          <TableControls
+            search={{
+              value: st.search,
+              onChange: (v) => {
+                st.setSearch(v);
+                firstPage();
+              },
+              open: st.searchOpen,
+              onOpenChange: st.setSearchOpen,
+              placeholder: "Название, адрес или телефон",
+            }}
+            filters={{
+              active: hasFilters,
+              onClick: () => setFiltersOpen((v) => !v),
+            }}
+            sort={{
+              active: st.sorting.length > 0,
+              content: (
+                <TableSortPicker
+                  sorting={st.sorting}
+                  onChange={changeSorting}
+                  fields={sortFields}
+                  labels={labels}
                 />
-                {searchQuery && (
-                  <button
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => setSearchQuery("")}
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            )}
-            <IconTooltip label={searchOpen ? "Скрыть поиск" : "Поиск по заведениям"}>
-              <Button
-                variant="outline"
-                size="icon"
-                className={`h-8 w-8 ${searchOpen ? "border-primary text-primary" : ""}`}
-                onClick={() => { if (searchOpen) setSearchQuery(""); setSearchOpen((v) => !v); }}
-              >
-                <Search className="w-4 h-4" />
-              </Button>
-            </IconTooltip>
-          </div>
-
-          <FilterPanel filter={filter} onChange={setFilter} />
-          <ColumnSettings visible={visibleCols} onChange={toggleCol} />
-
-          {archivedCount > 0 ? (
-            <Button asChild variant="outline" size="sm" className="text-muted-foreground">
-              <Link href="/org/venues/archive">
-                <Archive className="w-4 h-4 mr-1.5" />
-                Архив ({archivedCount})
-              </Link>
-            </Button>
-          ) : null}
-
-          <Button onClick={openCreate} size="sm">
-            <Plus className="w-4 h-4 mr-1.5" />
-            Добавить
-          </Button>
-        </div>
-      </div>
-
-      {/* Empty state */}
-      {venues.length === 0 && (
-        <div className="rounded-lg border border-dashed flex flex-col items-center justify-center p-16 text-center">
-          <Building2 className="w-10 h-10 text-muted-foreground mb-3" />
-          <p className="text-sm font-medium">Нет заведений</p>
-          <p className="text-sm text-muted-foreground mt-1">Добавьте первое заведение, чтобы начать работу</p>
-          <Button onClick={openCreate} size="sm" className="mt-4">
-            <Plus className="w-4 h-4 mr-1.5" />
-            Добавить заведение
-          </Button>
-        </div>
-      )}
-
-      {/* Venues table */}
-      {venues.length > 0 && (
-        <div className="rounded-lg border overflow-hidden">
-          {/* Header */}
-          <div
-            className="grid gap-3 px-4 py-3 bg-muted/50 text-xs font-medium text-muted-foreground uppercase tracking-wide border-b"
-            style={{ gridTemplateColumns: template }}
-          >
-            {COL_DEFS.filter((c) => visibleCols.has(c.key)).map((col) => (
-              <span key={col.key}>{col.label}</span>
-            ))}
-          </div>
-
-          {/* Rows */}
-          {filteredVenues.map((venue, i) => (
-            <div key={venue.id}>
-              {i > 0 && <Separator />}
-              <div
-                className="grid gap-3 items-center px-4 py-3 hover:bg-muted/30 transition-colors cursor-pointer"
-                style={{ gridTemplateColumns: template }}
-                onClick={() => router.push(`/org/venues/${venue.id}`)}
-              >
-                {COL_DEFS.filter((c) => visibleCols.has(c.key)).map((col) => (
-                  <div key={col.key}>{renderCell(col.key, venue)}</div>
-                ))}
-              </div>
-            </div>
-          ))}
-
-          {/* No results */}
-          {isFiltered && filteredVenues.length === 0 && (
-            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-              Нет заведений, соответствующих фильтрам
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Create Sheet */}
-      <EditDrawer
-        open={sheetOpen}
-        onOpenChange={setSheetOpen}
-        title="Новое заведение"
-        footer={
-          <>
-            <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>
-              Отмена
-            </Button>
-            <Button type="submit" form="new-venue-form" disabled={isPending}>
-              Создать
-            </Button>
-          </>
+              ),
+            }}
+            columns={{
+              content: (
+                <TableColumnManager
+                  columns={st.columnOrder.map((id) => {
+                    const c = table.getColumn(id)!;
+                    return {
+                      id,
+                      label: labels[id as ColKey],
+                      visible: c.getIsVisible(),
+                      canHide: c.getCanHide(),
+                    };
+                  })}
+                  onVisibilityChange={(id, v) => table.getColumn(id)?.toggleVisibility(v)}
+                  onMoveColumn={(a, b) =>
+                    st.setColumnOrder((order) => arrayMove(order, order.indexOf(a), order.indexOf(b)))
+                  }
+                  onReset={st.resetColumns}
+                />
+              ),
+            }}
+            secondaryActions={
+              canCreate && archivedCount > 0 ? (
+                <TableIconButton
+                  label={`Архив заведений (${archivedCount})`}
+                  onClick={() => router.push("/org/venues/archive")}
+                >
+                  <Archive />
+                </TableIconButton>
+              ) : null
+            }
+            primaryActions={
+              canCreate ? (
+                <Button size="sm" className="h-9 gap-2" onClick={() => setCreateOpen(true)}>
+                  <Plus className="size-4" />
+                  Добавить заведение
+                </Button>
+              ) : null
+            }
+          />
         }
+      />
+      <TableConditions
+        label="Условия списка заведений"
+        open={filtersOpen}
+        hasFilters={hasFilters}
+        sorting={st.sorting}
+        onSortingChange={changeSorting}
+        sortFields={sortFields}
+        sortLabels={labels}
+        search={st.search}
+        onSearchClear={() => {
+          st.setSearch("");
+          firstPage();
+        }}
+        onReset={resetConditions}
       >
-        <form id="new-venue-form" onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-          <div className="space-y-2">
-            <Label htmlFor="name">Название *</Label>
-            <Input id="name" placeholder="Ресторан «Берёзка»" {...register("name")} />
-            {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
-          </div>
+        {(filtersOpen || hasFilters) && (
+          <>
+            <TableFilterChip
+              label="Тип"
+              value={typeFilter}
+              onChange={(v) => {
+                setTypeFilter(v);
+                firstPage();
+              }}
+              options={[{ value: "", label: "Все типы" }, ...VENUE_TYPE_OPTIONS]}
+            />
+            <TableFilterChip
+              label="Источник"
+              value={sourceFilter}
+              onChange={(v) => {
+                setSourceFilter(v);
+                firstPage();
+              }}
+              options={[
+                { value: "", label: "Все заведения" },
+                { value: "quickresto", label: "Из Quick Resto" },
+                { value: "manual", label: "Созданы вручную" },
+              ]}
+            />
+          </>
+        )}
+      </TableConditions>
 
-          <div className="space-y-2">
-            <Label>Тип заведения *</Label>
-            <Select defaultValue="restaurant" onValueChange={(v) => setValue("type", v as Form["type"])}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {VENUE_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
+      {venues.length === 0 ? (
+        <EmptyState
+          icon={Building2}
+          title="Заведений пока нет"
+          description={
+            canCreate
+              ? "Добавьте первое заведение: к нему привязываются сотрудники, график и продажи"
+              : "Заведения добавляет владелец аккаунта"
+          }
+          action={
+            canCreate ? (
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus className="mr-2 size-4" />
+                Добавить заведение
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon={SearchX}
+          title="Заведения не найдены"
+          description="Измените условия поиска или сбросьте фильтры"
+          action={
+            <Button variant="outline" onClick={resetConditions}>
+              Очистить все
+            </Button>
+          }
+        />
+      ) : (
+        <>
+          <DataTable
+            table={table}
+            label="Заведения"
+            labels={labels}
+            onColumnSizingChange={st.setColumnSizing}
+            sorting={st.sorting}
+            onSortingChange={changeSorting}
+            sortable={sortFields}
+            onRowClick={(row) => router.push(`/org/venues/${row.original.id}`)}
+            empty={null}
+            mobile={{ label: "Карточки заведений", nameColumn: "name" }}
+          />
+          <TablePagination
+            pageIndex={st.pagination.pageIndex}
+            pageSize={st.pagination.pageSize}
+            total={filtered.length}
+            onPageChange={(pageIndex) => st.setPagination((p) => ({ ...p, pageIndex }))}
+            onPageSizeChange={(pageSize) => st.setPagination({ pageIndex: 0, pageSize })}
+          />
+        </>
+      )}
 
-          <div className="grid grid-cols-1 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="address">Адрес</Label>
-              <Input id="address" placeholder="г. Москва, ул. Пушкина, 1" {...register("address")} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="phone">Телефон</Label>
-              <Controller
-                control={control}
-                name="phone"
-                render={({ field }) => (
-                  <PhoneInput
-                    id="phone"
-                    value={field.value ?? ""}
-                    onChange={field.onChange}
-                    onBlur={field.onBlur}
-                  />
-                )}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Валюта *</Label>
-              <Select defaultValue="RUB" onValueChange={(v) => setValue("currency", v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {CURRENCIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Часовой пояс *</Label>
-              <Select defaultValue="Europe/Moscow" onValueChange={(v) => setValue("timezone", v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {TIMEZONES.map((tz) => <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <DrawerSection title="Часы работы">
-            <div className="space-y-2">
-              {DAYS_OF_WEEK.map(({ key, label }) => {
-                const day = workingHours[key];
-                const isClosed = day?.closed ?? false;
-                return (
-                  <div key={key} className="flex items-center gap-3">
-                    <span className="w-7 text-sm font-medium text-muted-foreground">{label}</span>
-                    <Switch checked={!isClosed} onCheckedChange={() => toggleDay(key)} />
-                    {isClosed ? (
-                      <span className="text-sm text-muted-foreground">Выходной</span>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <TimePicker value={day?.open ?? "10:00"} onChange={(v) => setTime(key, "open", v)} className="w-28 h-8 text-sm" />
-                        <span className="text-muted-foreground text-sm">—</span>
-                        <TimePicker value={day?.close ?? "22:00"} onChange={(v) => setTime(key, "close", v)} className="w-28 h-8 text-sm" />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </DrawerSection>
-        </form>
-      </EditDrawer>
-    </div>
+      {canCreate ? <VenueCreateDrawer open={createOpen} onOpenChange={setCreateOpen} /> : null}
+    </PageFrame>
   );
 }

@@ -1,59 +1,125 @@
 "use client";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
-import { ChevronDown, KeyRound, Pencil } from "lucide-react";
+import { KeyRound, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
-import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
-import { LocalDateTime } from "@/components/shared/local-date-time";
+import { EditDrawer } from "@/components/ui/edit-drawer";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { Metric, MetricStrip } from "@/components/shared/metric-strip";
 import { candidateError } from "@/lib/candidates/errors";
+import { countRu, pluralRu } from "@/lib/format/plural";
 import type { ConnectionView } from "@/lib/candidates/types";
 import { readTildaConnection, saveTildaConnection } from "../actions";
-import { IntegrationLayout, IntegrationSection, IntegrationStatus } from "../_components/integration-layout";
+import { IntegrationLayout, IntegrationSection, IntegrationStatus, IntegrationWarning } from "../_components/integration-layout";
 import { CopyValue } from "../_components/copy-value";
 
-export function TildaSettings({ initial, siteUrl }: { initial: ConnectionView; siteUrl: string }) {
-  const [connection, setConnection] = useState(initial), [editing, setEditing] = useState(!initial);
-  const [form, setForm] = useState(initial?.form_id ?? ""), [enabled, setEnabled] = useState(initial?.enabled ?? false);
-  const [secret, setSecret] = useState(""), [rotate, setRotate] = useState(false), [error, setError] = useState("");
-  const [busy, start] = useTransition();
+/** «17 ноября» and «в 20:01» in the viewer's zone; the first render uses a fixed zone to match the server. */
+function useDayAndTime(iso: string | null) {
+  const format = (zone?: string) => iso ? {
+    day: new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "long", ...(zone ? { timeZone: zone } : {}) }),
+    time: new Date(iso).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", ...(zone ? { timeZone: zone } : {}) }),
+  } : null;
+  const [value, setValue] = useState(() => format("Europe/Moscow"));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setValue(format()), [iso]);
+  return value;
+}
+
+export function TildaSettings({ initial, recent, notifyChat, siteUrl }: { initial: ConnectionView; recent: number; notifyChat: string | null; siteUrl: string }) {
+  const [connection, setConnection] = useState(initial), [secret, setSecret] = useState("");
+  const [drawer, setDrawer] = useState(false), [form, setForm] = useState(initial?.form_id ?? ""), [created, setCreated] = useState("");
+  const [rotate, setRotate] = useState(false), [error, setError] = useState(""), [busy, start] = useTransition();
   const [origin, setOrigin] = useState(siteUrl);
   useEffect(() => { if (!siteUrl) setOrigin(window.location.origin); }, [siteUrl]);
+  const last = useDayAndTime(connection?.last_received_at ?? null);
   const url = connection ? `${origin.replace(/\/$/, "")}/api/webhooks/tilda/candidates/${connection.id}` : "";
-  const save = (replaceKey = false) => start(async () => {
+
+  const save = (patch: { enabled?: boolean; form_id?: string; rotate?: boolean }, onDone: (secret: string | null) => void) => start(async () => {
     setError("");
     try {
-      const saved = await saveTildaConnection({ enabled: replaceKey ? connection!.enabled : enabled, form_id: replaceKey ? connection!.form_id : form, rotate: replaceKey });
-      if (saved.secret) setSecret(saved.secret);
-      setConnection(await readTildaConnection()); setEditing(false); setRotate(false);
-      toast.success(replaceKey ? "Ключ обновлён. Укажите его в Тильде." : "Настройки Тильды сохранены");
-    } catch (e) { setError(candidateError(e, "Не удалось сохранить подключение Тильды")); }
+      const saved = await saveTildaConnection({ enabled: patch.enabled ?? connection?.enabled ?? false, form_id: patch.form_id ?? connection?.form_id, rotate: patch.rotate });
+      setConnection(await readTildaConnection());
+      onDone(saved.secret);
+    } catch (e) {
+      const message = candidateError(e, "Не удалось сохранить подключение Tilda");
+      if (patch.enabled !== undefined) toast.error(message); else setError(message);
+    }
   });
-  return <IntegrationLayout title="Тильда" description="Анкеты с сайта поступают прямо в список кандидатов."
-    status={<IntegrationStatus tone={connection?.enabled ? "success" : "neutral"}>{connection ? connection.enabled ? "Приём включён" : "Приём выключен" : "Не настроено"}</IntegrationStatus>}>
-    <div className="max-w-3xl space-y-5">
-      <IntegrationSection title="Приём анкет" actions={!editing ? <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Pencil className="mr-2 size-4" />Изменить</Button> : null}>
-        {editing ? <form className="space-y-5" onSubmit={e => { e.preventDefault(); save(); }}>
-          <div className="max-w-md space-y-2"><Label htmlFor="tilda-form">ID формы</Label><Input id="tilda-form" value={form} onChange={e => setForm(e.target.value)} placeholder="form356864639" disabled={busy} autoComplete="off" /></div>
-          <div className="flex items-center justify-between gap-4"><Label htmlFor="tilda-enabled">Принимать новые анкеты</Label><Switch id="tilda-enabled" checked={enabled} onCheckedChange={setEnabled} disabled={busy} /></div>
-          <div className="flex gap-2"><Button size="sm" disabled={busy || !form.trim()}>{busy ? "Сохраняем…" : "Сохранить"}</Button>{connection ? <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => { setForm(connection.form_id); setEnabled(connection.enabled); setError(""); setEditing(false); }}>Отмена</Button> : null}</div>
-        </form> : <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2"><div><dt className="text-muted-foreground">Форма</dt><dd className="mt-1 font-medium">{connection?.form_id}</dd></div><div><dt className="text-muted-foreground">Последняя анкета</dt><dd className="mt-1">{connection?.last_received_at ? <LocalDateTime value={connection.last_received_at} /> : "Пока не поступала"}</dd></div></dl>}
-        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-        {connection?.failed_jobs ? <p className="text-sm text-destructive">Требуют проверки: {connection.failed_jobs}.</p> : null}
-      </IntegrationSection>
-      {url ? <IntegrationSection title="Подключение формы">
-        <div className="space-y-2"><Label>Адрес webhook</Label><CopyValue value={url} label="адрес webhook" /></div>
-        {secret ? <div className="space-y-2"><Label>Новый ключ доступа</Label><CopyValue value={secret} label="ключ доступа" /><p className="text-sm text-muted-foreground">Скопируйте ключ в Тильду. После ухода со страницы он больше не показывается.</p></div> : null}
-        <details className="group border-t pt-4"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium">Как подключить форму<ChevronDown className="size-4 transition-transform group-open:rotate-180 motion-reduce:transition-none" /></summary>
-          <ol className="mt-4 list-decimal space-y-3 pl-5 text-sm leading-6 text-muted-foreground"><li>В Тильде откройте настройки сайта → Формы → Webhook и укажите адрес выше.</li><li>В настройках API выберите передачу ключа в заголовке <code className="text-foreground">x-tilda-key</code>. Вставьте ключ подключения.</li><li>Выберите приёмщик в анкете кандидата и опубликуйте страницу. Если раньше использовался другой приёмщик, отключите его только у этой формы.</li></ol>
-        </details>
-        {!secret ? <div className="border-t pt-4"><Button variant="outline" size="sm" disabled={busy} onClick={() => setRotate(true)}><KeyRound className="mr-2 size-4" />Заменить ключ</Button></div> : null}
-      </IntegrationSection> : null}
-      <p className="text-sm leading-6 text-muted-foreground">Уведомления внутри CRM включены автоматически. Чаты настраиваются в <Link className="text-brand hover:underline" href="/settings/integrations/telegram">Telegram</Link>.</p>
-    </div>
-    <AlertDialog open={rotate} onOpenChange={v => { if (!busy) setRotate(v); }}><AlertDialogContent className="w-[calc(100%-2rem)] rounded-xl"><AlertDialogHeader><AlertDialogTitle>Заменить ключ Тильды?</AlertDialogTitle><AlertDialogDescription>Старый ключ перестанет работать. После замены нужно указать новый ключ в Тильде, иначе анкеты не будут поступать.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={busy}>Отмена</AlertDialogCancel><AlertDialogAction disabled={busy} onClick={e => { e.preventDefault(); save(true); }}>Заменить ключ</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+  const openDrawer = () => { setForm(connection?.form_id ?? ""); setError(""); setCreated(""); setDrawer(true); };
+  const closeDrawer = () => { if (!busy) { setDrawer(false); setCreated(""); } };
+
+  const failed = connection?.failed_jobs ?? 0;
+  return <IntegrationLayout provider="tilda" title="Tilda"
+    status={<IntegrationStatus tone={connection?.enabled ? "success" : "neutral"}>{!connection ? "Не настроено" : connection.enabled ? "Работает" : "Выключено"}</IntegrationStatus>}
+    context={connection ? <>Уведомления: {notifyChat ? <Link href="/settings/integrations/telegram" className="text-foreground hover:underline">{notifyChat}</Link> : <Link href="/settings/integrations/telegram" className="text-brand hover:underline">настроить Telegram</Link>}</> : "Анкеты с сайта попадают в «Кандидаты»"}
+    actions={connection ? <label className="flex h-9 items-center gap-3 text-sm font-medium">Принимать анкеты
+      <Switch checked={connection.enabled} disabled={busy} onCheckedChange={enabled => save({ enabled }, () => toast.success(enabled ? "Приём анкет включён" : "Приём анкет выключен"))} /></label> : null}>
+
+    {failed ? <IntegrationWarning action={<Link href="/settings/integrations/telegram#undelivered" className="shrink-0 text-sm font-medium text-brand hover:underline">Открыть журнал</Link>}>
+      {countRu(failed, "уведомление", "уведомления", "уведомлений")} о новых анкетах не {failed === 1 ? "дошло" : "дошли"} в Telegram. Сами анкеты сохранены
+    </IntegrationWarning> : null}
+
+    {connection ? <MetricStrip label="Анкеты с сайта">
+      <Metric label="Анкеты за 30 дней" value={recent} hint={pluralRu(recent, "анкета", "анкеты", "анкет")} />
+      <Metric label="Последняя анкета" value={last?.day ?? "—"} hint={last ? `в ${last.time}` : "Анкет ещё не было"} />
+    </MetricStrip> : null}
+
+    {connection ? <IntegrationSection title="Подключение формы" description="Делается один раз в настройках сайта в Tilda">
+      <ol className="flex flex-col gap-5">
+        <Step n={1} title="ID формы" action={<Button variant="outline" size="sm" onClick={openDrawer}><Pencil className="size-4" />Изменить</Button>}>
+          <p className="font-mono text-sm">{connection.form_id}</p>
+        </Step>
+        <Step n={2} title="Адрес приёмщика" hint="Tilda: Настройки сайта → Формы → Webhook. Вставьте этот адрес">
+          <CopyValue value={url} label="адрес приёмщика" />
+        </Step>
+        <Step n={3} title="Ключ доступа" hint={<>Пароль, по которому мы узнаём ваш сайт. В приёмщике Tilda передавайте его в заголовке <code className="text-foreground">x-tilda-key</code></>}
+          action={!secret ? <Button variant="outline" size="sm" onClick={() => { setError(""); setRotate(true); }}><KeyRound className="size-4" />Выпустить новый ключ</Button> : null}>
+          {secret ? <div className="flex flex-col gap-2"><CopyValue value={secret} label="ключ доступа" /><p className="text-xs text-amber-700 dark:text-amber-400">Ключ показывается один раз. Вставьте его в Tilda сейчас</p></div>
+            : <p className="text-[13px] text-muted-foreground">Ключ уже выдан и здесь не показывается</p>}
+        </Step>
+        <Step n={4} title="Подключите приёмщик к форме" hint="В настройках блока формы отметьте этот приёмщик и опубликуйте страницу. Если раньше был другой приёмщик, отключите его у этой формы" />
+      </ol>
+    </IntegrationSection> : <IntegrationSection title="Форма не подключена" description="Укажите форму сайта, с которой принимать анкеты"
+      actions={<Button size="sm" onClick={openDrawer}>Подключить форму</Button>}>
+      <p className="text-[13px] text-muted-foreground">После подключения здесь появятся адрес приёмщика и ключ доступа для настроек Tilda</p>
+    </IntegrationSection>}
+
+    <EditDrawer open={drawer} onOpenChange={o => { if (!o) closeDrawer(); }} title={created ? "Форма подключена" : connection ? "ID формы" : "Подключение формы"}
+      description={created ? "Скопируйте ключ: он показывается один раз" : undefined}
+      footer={created ? <Button onClick={closeDrawer}>Готово</Button> : <><Button variant="outline" disabled={busy} onClick={closeDrawer}>Отмена</Button>
+        <Button disabled={busy || !form.trim()} onClick={() => save({ form_id: form.trim() }, newSecret => {
+          if (newSecret) { setSecret(newSecret); setCreated(newSecret); toast.success("Форма подключена"); }
+          else { setDrawer(false); toast.success("ID формы сохранён"); }
+        })}>{busy ? "Сохраняем…" : connection ? "Сохранить" : "Подключить форму"}</Button></>}>
+      {created ? <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-2"><p className="text-sm font-medium">Адрес приёмщика</p><CopyValue value={url} label="адрес приёмщика" />
+          <p className="text-xs text-muted-foreground">Tilda: Настройки сайта → Формы → Webhook</p></div>
+        <div className="flex flex-col gap-2"><p className="text-sm font-medium">Ключ доступа</p><CopyValue value={created} label="ключ доступа" />
+          <p className="text-xs text-muted-foreground">В приёмщике Tilda передавайте его в заголовке x-tilda-key</p></div>
+      </div> : <Field label="ID формы" required hint="Например, form356864639" error={error || undefined}>
+        {control => <Input {...control} value={form} onChange={e => setForm(e.target.value)} placeholder="form356864639" disabled={busy} autoComplete="off"
+          onKeyDown={e => { if (e.key === "Enter" && form.trim() && !busy) save({ form_id: form.trim() }, s => { if (s) { setSecret(s); setCreated(s); } else setDrawer(false); }); }} />}
+      </Field>}
+    </EditDrawer>
+
+    <ConfirmDialog open={rotate} onOpenChange={setRotate} busy={busy} error={error || undefined}
+      title="Выпустить новый ключ Tilda?" confirmLabel="Выпустить ключ" pendingLabel="Выпускаем…"
+      description="Нужно, только если ключ потерян или попал к посторонним. Старый ключ перестанет работать сразу: пока новый не вставлен в Tilda, анкеты приходить не будут"
+      onConfirm={() => save({ rotate: true }, s => { if (s) setSecret(s); setRotate(false); toast.success("Новый ключ выпущен. Вставьте его в Tilda"); })} />
   </IntegrationLayout>;
+}
+
+function Step({ n, title, hint, action, children }: { n: number; title: string; hint?: ReactNode; action?: ReactNode; children?: ReactNode }) {
+  return <li className="flex gap-3">
+    <span aria-hidden="true" className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">{n}</span>
+    <div className="flex min-w-0 flex-1 flex-col gap-2">
+      <div className="flex min-h-6 flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-medium">{title}</h3>{action}</div>
+      {hint ? <p className="text-[13px] text-muted-foreground">{hint}</p> : null}
+      {children}
+    </div>
+  </li>;
 }

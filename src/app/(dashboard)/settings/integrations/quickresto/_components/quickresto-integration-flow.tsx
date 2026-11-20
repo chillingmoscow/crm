@@ -16,6 +16,10 @@ interface Props {
   initialBackOfficeLogin?: string | null;
   initialBotRoleExternalId?: number | null;
   initialBotEmployeeExternalId?: number | null;
+  /** 1 — full connection; 5 — only choose and load data over an existing connection. */
+  initialStep?: 1 | 5;
+  /** Leaving the flow from its first step; defaults to the integrations list. */
+  onExit?: () => void;
 }
 
 type QuickRestoState = {
@@ -59,9 +63,13 @@ export function QuickRestoIntegrationFlow({
   initialBackOfficeLogin,
   initialBotRoleExternalId,
   initialBotEmployeeExternalId,
+  initialStep = 1,
+  onExit,
 }: Props) {
   const router = useRouter();
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState<number>(initialStep);
+  const exit = onExit ?? (() => router.push("/settings/integrations"));
+  const label = (n: number) => `Шаг ${n - initialStep + 1} из ${7 - initialStep}`;
   const [state, setState] = useState<QuickRestoState>({
     ...INITIAL_STATE,
     quickRestoLogin: initialLogin,
@@ -81,8 +89,8 @@ export function QuickRestoIntegrationFlow({
         <StepQuickRestoCredentials
           accountId={accountId}
           initialLogin={state.quickRestoLogin}
-          stepLabel="Шаг 1 из 6"
-          onBack={() => router.push("/settings/integrations")}
+          stepLabel={label(1)}
+          onBack={exit}
           onNext={({ login, connectionId }) => {
             update({
               quickRestoLogin: login,
@@ -97,7 +105,7 @@ export function QuickRestoIntegrationFlow({
         <StepQuickRestoBotRole
           accountId={accountId}
           connectionId={state.quickRestoConnectionId}
-          stepLabel="Шаг 2 из 6"
+          stepLabel={label(2)}
           onBack={() => setStep(1)}
           onNext={({ roleId }) => {
             update({ quickRestoBotRoleExternalId: roleId });
@@ -111,7 +119,7 @@ export function QuickRestoIntegrationFlow({
           accountId={accountId}
           connectionId={state.quickRestoConnectionId}
           roleExternalId={state.quickRestoBotRoleExternalId}
-          stepLabel="Шаг 3 из 6"
+          stepLabel={label(3)}
           onBack={() => setStep(2)}
           onNext={({ employeeId, login }) => {
             update({
@@ -128,7 +136,7 @@ export function QuickRestoIntegrationFlow({
           accountId={accountId}
           connectionId={state.quickRestoConnectionId}
           initialLogin={state.quickRestoBackOfficeLogin}
-          stepLabel="Шаг 4 из 6"
+          stepLabel={label(4)}
           onBack={() => setStep(3)}
           onNext={({ login }) => {
             update({
@@ -143,7 +151,7 @@ export function QuickRestoIntegrationFlow({
         <StepQuickRestoOptions
           accountId={accountId}
           connectionId={state.quickRestoConnectionId}
-          stepLabel="Шаг 5 из 6"
+          stepLabel={label(5)}
           importVenues={state.importVenues}
           importRoles={state.importRoles}
           importEmployees={state.importEmployees}
@@ -154,7 +162,7 @@ export function QuickRestoIntegrationFlow({
           selectedRoleExternalIds={state.selectedRoleExternalIds}
           selectedEmployeeExternalIds={state.selectedEmployeeExternalIds}
           onUpdate={update}
-          onBack={() => setStep(4)}
+          onBack={() => (initialStep === 5 ? exit() : setStep(4))}
           onNext={() => setStep(6)}
         />
       ) : null}
@@ -163,7 +171,7 @@ export function QuickRestoIntegrationFlow({
         <StepQuickRestoImport
           accountId={accountId}
           connectionId={state.quickRestoConnectionId}
-          stepLabel="Шаг 6 из 6"
+          stepLabel={label(6)}
           importVenues={state.importVenues}
           importRoles={state.importRoles}
           importEmployees={state.importEmployees}

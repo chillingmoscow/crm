@@ -1,83 +1,34 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Controller, useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
+import { Building2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { PhoneInput } from "@/components/ui/phone-input";
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
-import { TimePicker } from "@/components/ui/time-picker";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { VENUE_TYPES, CURRENCIES, TIMEZONES, DAYS_OF_WEEK, type DayKey } from "@/lib/constants";
-import { updateVenue, type VenueArchiveImpact } from "../../actions";
-import type { VenueType, WorkingHours } from "@/types/database";
-import { FloorPlanTab } from "./floor-plan-tab";
-import { VenueDangerZone } from "./venue-danger-zone";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { ProfileTabsList, Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs";
 import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
+import { PageHeaderActions } from "@/components/shared/page-header-actions";
+import { ProfilePageFrame } from "@/components/shared/page-frame";
+import { ProfileHeader } from "@/components/shared/profile-header";
+import { SaveBarScope } from "@/components/shared/save-bar";
 import type { AuditEvent } from "@/lib/audit/list";
+import { venueTypeLabel } from "@/lib/org/venue-labels";
 import type { SalesConfiguration } from "@/lib/sales/types";
+import type { WorkingHours } from "@/types/database";
+import { PayrollSettings } from "@/app/(dashboard)/people/payroll/_components/payroll-settings";
+import { restoreVenue, type VenueArchiveImpact } from "../../actions";
+import { RecountThresholdsSection } from "./recount-thresholds-section";
 import { SalesSettingsTab } from "./sales-settings-tab";
 import { StockSettingsTab } from "./stock-settings-tab";
-import { PageFrame } from "@/components/shared/page-frame";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import tabStyle from "@/components/shared/workspace-tabs.module.css";
+import { VenueDangerZone } from "./venue-danger-zone";
+import { VenueMainSections } from "./venue-main-sections";
 
-import {PayrollSettings} from "@/app/(dashboard)/people/payroll/_components/payroll-settings";
-
-const INITIAL_WORKING_HOURS: WorkingHours = {
-  mon: { open: "10:00", close: "22:00", closed: false },
-  tue: { open: "10:00", close: "22:00", closed: false },
-  wed: { open: "10:00", close: "22:00", closed: false },
-  thu: { open: "10:00", close: "22:00", closed: false },
-  fri: { open: "10:00", close: "23:00", closed: false },
-  sat: { open: "11:00", close: "23:00", closed: false },
-  sun: { open: "11:00", close: "22:00", closed: false },
-};
-
-// `type` was a tight enum mirroring the original 5-value venue_type
-// from migration 001. Migration 026 added 8 more (snack_bar, hookah,
-// pastry_shop, coffee_shop, pub, pizzeria, canteen, fast_food) but
-// this schema wasn't updated — saves silently failed on zod validation
-// for every venue with one of the new types. The DB enum is the source
-// of truth; the Select dropdown is bound to VENUE_TYPES already, so we
-// just accept any non-empty string here and let the DB catch nonsense.
-const schema = z.object({
-  name:                    z.string().min(1, "Введите название"),
-  type:                    z.string().min(1),
-  address:                 z.string().optional(),
-  phone:                   z.string().optional(),
-  currency:                z.string().min(1),
-  timezone:                z.string().min(1),
-  comment:                 z.string().optional(),
-  default_legal_entity_id: z.string().nullable().optional(),
-  inventory_recount_threshold_sum: z.coerce
-    .number({ invalid_type_error: "Введите число" })
-    .min(0, "Не меньше 0"),
-  inventory_recount_threshold_percent: z.coerce
-    .number({ invalid_type_error: "Введите число" })
-    .min(0, "Не меньше 0")
-    .max(100, "Не больше 100"),
-});
-
-type Form = z.infer<typeof schema>;
-
-type Venue = {
+export type VenueDetail = {
   id: string;
   name: string;
   type: string;
@@ -90,439 +41,266 @@ type Venue = {
   default_legal_entity_id: string | null;
   inventory_recount_threshold_sum: number | null;
   inventory_recount_threshold_percent: number | null;
+  archived_at: string | null;
+  created_at: string;
 };
 
-export type LegalEntityOption = {
-  id: string;
-  name: string;
-  legal_form: string;
-};
-
-const BASE_TABS = ["Основное", "Карта залов"] as const;
-type Tab = "Основное" | "Карта залов" | "Продажи" | "Оплата труда" | "Инвентаризация" | "Журнал";
+/** Вкладки, на которые можно сослаться через `?tab=`. */
+export type VenueTab = "main" | "sales" | "payroll" | "inventory" | "audit";
+type TabKey = VenueTab | "danger";
 
 export function VenueDetailPage({
   venue,
+  initialTab,
   importedFromQuickResto,
   legalEntities,
-  canViewAudit,
-  canArchive,
+  canManage,
+  isOwner,
   canHardDelete,
+  canViewAudit,
+  canViewStockRules,
+  canConfigurePayroll,
+  salesConfiguration,
   archiveImpact,
   initialAuditEvents,
   initialAuditHasMore,
-  salesConfiguration,
-  initialTab,
-  canViewStockRules,
-  canConfigurePayroll,
 }: {
-  venue: Venue;
+  venue: VenueDetail;
+  initialTab?: VenueTab;
   importedFromQuickResto: boolean;
-  legalEntities: LegalEntityOption[];
-  canViewAudit: boolean;
-  /** Owner-check — archive/restore/delete actions гейтятся им на сервере
-      (assertVenueOwner). */
-  canArchive: boolean;
+  legalEntities: { id: string; name: string }[];
+  /** Право правки заведения (org.manage_venues). */
+  canManage: boolean;
+  /** Архив, восстановление и удаление — только владелец аккаунта. */
+  isOwner: boolean;
   canHardDelete: boolean;
+  canViewAudit: boolean;
+  canViewStockRules: boolean;
+  /** «Оплата труда» — по праву настройки зарплаты, а не продаж. */
+  canConfigurePayroll: boolean;
+  salesConfiguration: SalesConfiguration | null;
   archiveImpact: VenueArchiveImpact;
   initialAuditEvents: AuditEvent[];
   initialAuditHasMore: boolean;
-  salesConfiguration: SalesConfiguration | null;
-  initialTab?: 'inventory' | 'audit' | 'sales' | 'payroll';
-  canViewStockRules:boolean;
-  /** Вкладка «Оплата труда» — по праву настройки зарплаты, а не продаж. */
-  canConfigurePayroll: boolean;
 }) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-  const [workingHours, setWorkingHours] = useState<WorkingHours>(
-    venue.working_hours ?? INITIAL_WORKING_HOURS
+  const isArchived = !!venue.archived_at;
+  const available: Record<TabKey, boolean> = {
+    main: true,
+    sales: !!salesConfiguration && !isArchived,
+    payroll: canConfigurePayroll && !isArchived,
+    inventory: canViewStockRules && !isArchived,
+    audit: canViewAudit,
+    danger: isOwner && !isArchived,
+  };
+  const [tab, setTab] = useState<TabKey>(
+    initialTab && available[initialTab] ? initialTab : "main",
   );
-  const [activeTab, setActiveTab] = useState<Tab>(
-    initialTab === 'inventory' && canViewStockRules ? 'Инвентаризация'
-      : initialTab === 'audit' && canViewAudit ? 'Журнал'
-      : initialTab === 'sales' && salesConfiguration ? 'Продажи'
-      : initialTab === 'payroll' && canConfigurePayroll ? 'Оплата труда'
-      : 'Основное'
-  );
-  // Вкладка «Оплата труда» правится на месте и сохраняется полосой SaveBar:
-  // после первого открытия она остаётся смонтированной, чтобы несохранённые
-  // правки не пропадали при переключении вкладок (DS «SaveBar»).
-  const [payrollVisited, setPayrollVisited] = useState(false);
-  useEffect(() => {
-    if (activeTab === "Оплата труда") setPayrollVisited(true);
-  }, [activeTab]);
-  const TABS: Tab[] = [
-    ...BASE_TABS,
-    ...(salesConfiguration ? ["Продажи" as const] : []),
-    ...(canConfigurePayroll ? ["Оплата труда" as const] : []),
-    ...(canViewStockRules ? ['Инвентаризация' as const] : []),
-    ...(canViewAudit ? ["Журнал" as const] : []),
-  ];
-  const tabList = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const list = tabList.current;
-    if (!list) return;
-    const revealSelected = () => {
-      const selected = list.querySelector<HTMLElement>('[data-state="active"]');
-      if (!selected) return;
-      const left = selected.getBoundingClientRect().left - list.getBoundingClientRect().left + list.scrollLeft;
-      if (left < list.scrollLeft) list.scrollLeft = left;
-      else if (left + selected.offsetWidth > list.scrollLeft + list.clientWidth)
-        list.scrollLeft = left + selected.offsetWidth - list.clientWidth;
-    };
-    revealSelected();
-    const observer = new ResizeObserver(revealSelected);
-    observer.observe(list);
-    return () => observer.disconnect();
-  }, [activeTab]);
-
-  const { register, handleSubmit, setValue, watch, control, formState: { errors } } = useForm<Form>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      name:                    venue.name,
-      type:                    venue.type as Form["type"],
-      address:                 venue.address ?? "",
-      phone:                   venue.phone ?? "",
-      currency:                venue.currency,
-      timezone:                venue.timezone,
-      comment:                 venue.comment ?? "",
-      default_legal_entity_id: venue.default_legal_entity_id,
-      inventory_recount_threshold_sum:
-        venue.inventory_recount_threshold_sum ?? 500,
-      inventory_recount_threshold_percent:
-        venue.inventory_recount_threshold_percent ?? 10,
-    },
-  });
-  const selectedLegalEntityId = watch("default_legal_entity_id") ?? null;
-
-  const toggleDay = (day: DayKey) => {
-    setWorkingHours((prev) => ({
-      ...prev,
-      [day]: {
-        ...prev[day],
-        closed: !prev[day]?.closed,
-        open:   prev[day]?.open  ?? "10:00",
-        close:  prev[day]?.close ?? "22:00",
-      },
-    }));
+  // Вкладки с правкой на месте после первого открытия остаются
+  // смонтированными: несохранённые правки не пропадают при переключении,
+  // а полоса сохранения видна на любой вкладке (DS «SaveBar»).
+  const [visited, setVisited] = useState<Set<TabKey>>(() => new Set([tab]));
+  const openTab = (next: TabKey) => {
+    setTab(next);
+    setVisited((prev) => (prev.has(next) ? prev : new Set(prev).add(next)));
   };
 
-  const setTime = (day: DayKey, field: "open" | "close", value: string) => {
-    setWorkingHours((prev) => ({ ...prev, [day]: { ...prev[day], [field]: value } }));
-  };
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [restoring, startRestore] = useTransition();
 
-  const onSubmit = (values: Form) => {
-    startTransition(async () => {
-      const result = await updateVenue(venue.id, {
-        name: values.name, type: values.type as VenueType,
-        address: values.address, phone: values.phone,
-        currency: values.currency, timezone: values.timezone,
-        workingHours,
-        comment: values.comment || null,
-        defaultLegalEntityId: values.default_legal_entity_id ?? null,
-        inventoryRecountThresholdSum: values.inventory_recount_threshold_sum,
-        inventoryRecountThresholdPercent: values.inventory_recount_threshold_percent,
-      });
-      if (result.error) { toast.error(result.error); return; }
-      toast.success("Изменения сохранены");
+  const readOnly = !canManage || isArchived;
+  const lockMessage = isArchived
+    ? "Заведение в архиве. Восстановите его, чтобы менять настройки"
+    : !canManage
+      ? "Менять заведение могут те, кто управляет заведениями"
+      : null;
+
+  const context = [venueTypeLabel(venue.type), venue.address].filter(Boolean).join(" · ");
+
+  const restore = () => {
+    setRestoreError(null);
+    startRestore(async () => {
+      const { error } = await restoreVenue(venue.id);
+      if (error) {
+        setRestoreError(error);
+        return;
+      }
+      setRestoreOpen(false);
+      toast.success(`Заведение «${venue.name}» восстановлено`);
+      router.refresh();
     });
   };
 
+  const kept = (key: TabKey) => visited.has(key);
+
   return (
-    <PageFrame>
-      <Tabs className={tabStyle.tabs} value={activeTab} onValueChange={(value) => setActiveTab(value as Tab)}>
-      {/* Header + title + tabs — full width */}
-      <div>
-        <div className="flex items-center justify-between mb-6">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-1.5 text-muted-foreground hover:text-foreground -ml-2"
-            onClick={() => router.push("/org/venues")}
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Заведения
-          </Button>
-          {activeTab === "Основное" && (
-            <Button onClick={handleSubmit(onSubmit)} disabled={isPending} size="sm">
-              Сохранить
-            </Button>
-          )}
-        </div>
-
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold">{venue.name}</h1>
-          {importedFromQuickResto ? (
-            <Badge variant="outline" className="mt-2 text-xs border-blue-200 text-blue-700">
-              Импортировано из QuickResto
-            </Badge>
-          ) : null}
-        </div>
-
-        {/* Tabs */}
-          <TabsList ref={tabList} aria-label="Настройки заведения">
-            {TABS.map((tab) => (
-              <TabsTrigger
-                key={tab}
-                value={tab}
-                className="shrink-0"
-              >
-                {tab}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-      </div>
-
-      <TabsContent value={activeTab}>
-      {/* ── Tab: Основное ─────────────────────────────────────── */}
-      {activeTab === "Основное" && (
-        <div className="max-w-2xl mx-auto">
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          {/* Row 1: Name + Type */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="col-span-2 space-y-2">
-              <Label htmlFor="name">Название *</Label>
-              <Input id="name" placeholder="Ресторан «Берёзка»" {...register("name")} />
-              {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label>Тип заведения *</Label>
-              <Select
-                defaultValue={venue.type}
-                onValueChange={(v) => setValue("type", v as Form["type"])}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {VENUE_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Row 2: Address + Phone */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="address">Адрес</Label>
-              <Input id="address" placeholder="г. Москва, ул. Пушкина, 1" {...register("address")} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="phone">Телефон</Label>
-              <Controller
-                control={control}
-                name="phone"
-                render={({ field }) => (
-                  <PhoneInput
-                    id="phone"
-                    value={field.value ?? ""}
-                    onChange={field.onChange}
-                    onBlur={field.onBlur}
-                  />
-                )}
-              />
-            </div>
-          </div>
-
-          {/* Row 3: Currency + Timezone */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Валюта *</Label>
-              <Select defaultValue={venue.currency} onValueChange={(v) => setValue("currency", v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {CURRENCIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Часовой пояс *</Label>
-              <Select defaultValue={venue.timezone} onValueChange={(v) => setValue("timezone", v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {TIMEZONES.map((tz) => <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Row 4: Legal entity picker. Each venue runs under a "default"
-               legal entity used for finance documents. Stage 2B feature. */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Юрлицо по умолчанию</Label>
-              {legalEntities.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  Сначала создайте юрлицо в разделе{" "}
-                  <Link href="/org/legal-entities" className="underline underline-offset-2">
-                    Юрлица
-                  </Link>
-                  .
-                </p>
-              ) : (
-                <Select
-                  value={selectedLegalEntityId ?? "__none__"}
-                  onValueChange={(v) =>
-                    setValue("default_legal_entity_id", v === "__none__" ? null : v, {
-                      shouldDirty: true,
-                    })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Не выбрано" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">Не выбрано</SelectItem>
-                    {legalEntities.map((le) => (
-                      <SelectItem key={le.id} value={le.id}>
-                        {le.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-          </div>
-
-          <Separator />
-
-          <div className="space-y-3">
-            <Label>Часы работы</Label>
-            <div className="space-y-2">
-              {DAYS_OF_WEEK.map(({ key, label }) => {
-                const day = workingHours[key];
-                const isClosed = day?.closed ?? false;
-                return (
-                  <div key={key} className="flex items-center gap-3">
-                    <span className="w-7 text-sm font-medium text-muted-foreground">{label}</span>
-                    <Switch checked={!isClosed} onCheckedChange={() => toggleDay(key)} />
-                    {isClosed ? (
-                      <span className="text-sm text-muted-foreground">Выходной</span>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <TimePicker
-                          value={day?.open ?? "10:00"}
-                          onChange={(v) => setTime(key, "open", v)}
-                          className="w-28 h-8 text-sm"
-                        />
-                        <span className="text-muted-foreground text-sm">—</span>
-                        <TimePicker
-                          value={day?.close ?? "22:00"}
-                          onChange={(v) => setTime(key, "close", v)}
-                          className="w-28 h-8 text-sm"
-                        />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <Separator />
-
-          {/* Inventory recount thresholds (миграция 209). Если хотя бы один
-              из двух порогов перекрыт по строке, авто-маркер на «Итогах»
-              отметит её — менеджер сможет отправить акт на пересчёт. */}
-          <div className="space-y-3">
-            <div>
-              <h3 className="text-sm font-medium">Инвентаризация</h3>
-              <p className="text-xs text-muted-foreground">
-                Пороги авто-маркера пересчёта по этому заведению. Если
-                расхождение по строке превышает любой из порогов, она
-                автоматически помечается как требующая пересчёта.
-              </p>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="inventory_recount_threshold_sum">
-                  Порог по сумме, ₽
-                </Label>
-                <Input
-                  id="inventory_recount_threshold_sum"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  {...register("inventory_recount_threshold_sum")}
-                />
-                {errors.inventory_recount_threshold_sum ? (
-                  <p className="text-xs text-destructive">
-                    {errors.inventory_recount_threshold_sum.message}
-                  </p>
-                ) : null}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="inventory_recount_threshold_percent">
-                  Порог по проценту, %
-                </Label>
-                <Input
-                  id="inventory_recount_threshold_percent"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  max="100"
-                  {...register("inventory_recount_threshold_percent")}
-                />
-                {errors.inventory_recount_threshold_percent ? (
-                  <p className="text-xs text-destructive">
-                    {errors.inventory_recount_threshold_percent.message}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          </div>
-
-          <Separator />
-
-          <div className="space-y-2">
-            <Label htmlFor="comment">Комментарий</Label>
-            <Textarea
-              id="comment"
-              placeholder="Дополнительные заметки о заведении..."
-              {...register("comment")}
-              rows={3}
-            />
-          </div>
-
-          {canArchive ? (
-            <VenueDangerZone
-              venueId={venue.id}
-              venueName={venue.name}
-              impact={archiveImpact}
-              canHardDelete={canHardDelete}
-            />
-          ) : null}
-        </form>
-        </div>
-      )}
-
-      {/* ── Tab: Карта залов ──────────────────────────────────── */}
-      {activeTab === "Карта залов" && (
-        <FloorPlanTab venueId={venue.id} />
-      )}
-
-      {activeTab === "Продажи" && salesConfiguration && (
-        <SalesSettingsTab initial={salesConfiguration} />
-      )}
-      {activeTab === 'Инвентаризация' && <StockSettingsTab key={venue.id} venueId={venue.id}/>}
-
-      {/* ── Tab: Журнал ───────────────────────────────────────── */}
-      {(activeTab === "Оплата труда" || payrollVisited) && (
-        <div hidden={activeTab !== "Оплата труда"}>
-          <PayrollSettings venueId={venue.id}/>
-        </div>
-      )}
-      {activeTab === "Журнал" && (
-        <EntityAuditTab
-          mode="entity"
-          entityType="venue"
-          entityId={venue.id}
-          canView={canViewAudit}
-          initialEvents={initialAuditEvents}
-          initialHasMore={initialAuditHasMore}
+    <div className="flex flex-1 flex-col">
+      <Breadcrumbs
+        items={[
+          { label: "Организация" },
+          { label: "Заведения", href: "/org/venues" },
+          { label: venue.name },
+        ]}
+      />
+      <PageHeaderActions>
+        <EntityInfoPopover
+          title="О заведении"
+          id={venue.id}
+          createdLabel="Создано"
+          createdAt={venue.created_at}
+          createdByName={null}
+          updatedAt={null}
+          updatedByName={null}
         />
-      )}
-      </TabsContent>
-      </Tabs>
-    </PageFrame>
+      </PageHeaderActions>
+
+      <ProfilePageFrame>
+        <SaveBarScope>
+          <ProfileHeader
+            name={venue.name}
+            wrapName
+            avatar={
+              <div
+                aria-hidden
+                className="flex size-14 items-center justify-center rounded-[14px] bg-muted text-muted-foreground"
+              >
+                <Building2 className="size-7" />
+              </div>
+            }
+            actions={
+              isArchived && isOwner ? (
+                <Button variant="outline" className="gap-2" onClick={() => setRestoreOpen(true)}>
+                  <RotateCcw className="size-4" />
+                  Восстановить
+                </Button>
+              ) : undefined
+            }
+          >
+            {context ? <span className="text-sm text-muted-foreground">{context}</span> : null}
+            {isArchived ? <StatusBadge tone="neutral">В архиве</StatusBadge> : null}
+            {importedFromQuickResto ? (
+              <StatusBadge tone="neutral" tip="Заведение пришло из Quick Resto">
+                Quick Resto
+              </StatusBadge>
+            ) : null}
+          </ProfileHeader>
+
+          <Tabs value={tab} onValueChange={(v) => openTab(v as TabKey)}>
+            <ProfileTabsList>
+              <TabsTrigger value="main">Основное</TabsTrigger>
+              {available.sales && <TabsTrigger value="sales">Продажи</TabsTrigger>}
+              {available.payroll && <TabsTrigger value="payroll">Оплата труда</TabsTrigger>}
+              {available.inventory && <TabsTrigger value="inventory">Инвентаризация</TabsTrigger>}
+              {available.audit && <TabsTrigger value="audit">Журнал</TabsTrigger>}
+              {available.danger && <TabsTrigger value="danger">Опасная зона</TabsTrigger>}
+            </ProfileTabsList>
+
+            <TabsContent
+              value="main"
+              forceMount
+              className="flex flex-col gap-5 data-[state=inactive]:hidden"
+            >
+              {isArchived ? (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+                  Заведение в архиве: его нет в списках и переключателе заведений.
+                  Документы, операции и склады сохранены
+                </div>
+              ) : null}
+              <VenueMainSections
+                key={JSON.stringify([
+                  venue.name,
+                  venue.type,
+                  venue.address,
+                  venue.phone,
+                  venue.comment,
+                  venue.currency,
+                  venue.timezone,
+                  venue.default_legal_entity_id,
+                  venue.working_hours,
+                ])}
+                venue={venue}
+                legalEntities={legalEntities}
+                readOnly={readOnly}
+                lockMessage={lockMessage}
+              />
+            </TabsContent>
+
+            {available.sales && salesConfiguration && (
+              <TabsContent value="sales">
+                <SalesSettingsTab initial={salesConfiguration} />
+              </TabsContent>
+            )}
+
+            {available.payroll && kept("payroll") && (
+              <TabsContent
+                value="payroll"
+                forceMount
+                className="data-[state=inactive]:hidden"
+              >
+                <PayrollSettings venueId={venue.id} />
+              </TabsContent>
+            )}
+
+            {available.inventory && kept("inventory") && (
+              <TabsContent
+                value="inventory"
+                forceMount
+                className="flex flex-col gap-5 data-[state=inactive]:hidden"
+              >
+                <RecountThresholdsSection
+                  key={`${venue.inventory_recount_threshold_sum}|${venue.inventory_recount_threshold_percent}`}
+                  venueId={venue.id}
+                  initialSum={venue.inventory_recount_threshold_sum}
+                  initialPercent={venue.inventory_recount_threshold_percent}
+                  canEdit={!readOnly}
+                  currency={venue.currency}
+                />
+                <StockSettingsTab key={venue.id} venueId={venue.id} />
+              </TabsContent>
+            )}
+
+            {available.audit && (
+              <TabsContent value="audit">
+                <EntityAuditTab
+                  mode="entity"
+                  entityType="venue"
+                  entityId={venue.id}
+                  canView={canViewAudit}
+                  initialEvents={initialAuditEvents}
+                  initialHasMore={initialAuditHasMore}
+                />
+              </TabsContent>
+            )}
+
+            {available.danger && (
+              <TabsContent value="danger">
+                <VenueDangerZone
+                  venueId={venue.id}
+                  venueName={venue.name}
+                  impact={archiveImpact}
+                  canHardDelete={canHardDelete}
+                />
+              </TabsContent>
+            )}
+          </Tabs>
+        </SaveBarScope>
+      </ProfilePageFrame>
+
+      <ConfirmDialog
+        open={restoreOpen}
+        onOpenChange={(open) => {
+          setRestoreOpen(open);
+          if (!open) setRestoreError(null);
+        }}
+        title={`Восстановить заведение «${venue.name}»?`}
+        description="Заведение вернётся в списки и переключатель, сотрудники снова смогут в него переключиться"
+        confirmLabel="Восстановить заведение"
+        pendingLabel="Восстанавливаем…"
+        busy={restoring}
+        error={restoreError}
+        onConfirm={restore}
+      />
+    </div>
   );
 }

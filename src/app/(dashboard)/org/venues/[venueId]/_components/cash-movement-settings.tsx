@@ -7,16 +7,14 @@ import { EditDrawer } from "@/components/ui/edit-drawer";
 import { DrawerSection } from "@/components/ui/drawer-blocks";
 import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Label } from "@/components/ui/label";
+import { Field } from "@/components/ui/field";
+import { OptionSelect } from "@/components/ui/option-select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { AmountInput } from "@/components/finance/amount-input";
+import { ProfileSection } from "@/components/shared/profile-section";
+import { countRu } from "@/lib/format/plural";
+import { formatDayMonthTime } from "@/lib/format/date";
 import {
   cashMovementDefaults,
   cashMovementRulesSchema,
@@ -27,6 +25,11 @@ import {
   saveMovementConfiguration,
   type MovementConfiguration,
 } from "@/app/(dashboard)/sales/shifts/cash-movement-actions";
+import { RuleHistory } from "./rule-history";
+
+/** Сообщение загрузчика, когда правила инкассаций пользователю недоступны. */
+const NO_ACCESS = "Правила изменяет владелец в выбранном заведении";
+
 function Choice({
   name,
   label,
@@ -41,21 +44,17 @@ function Choice({
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="space-y-2">
-      <Label htmlFor={name}>{label}</Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger id={name} className="w-full">
-          <SelectValue placeholder="Выберите" />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((o) => (
-            <SelectItem key={o.id} value={o.id}>
-              {o.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
+    <Field id={name} label={label} required>
+      {(control) => (
+        <OptionSelect
+          {...control}
+          value={value}
+          onValueChange={onChange}
+          placeholder="Выберите"
+          options={options.map((o) => ({ value: o.id, label: o.name }))}
+        />
+      )}
+    </Field>
   );
 }
 function Form({
@@ -136,12 +135,12 @@ function Form({
             disabled={busy || !reason.trim()}
             onClick={() => void submit()}
           >
-            {busy ? "Сохраняем…" : "Сохранить правила"}
+            {busy ? "Сохраняем…" : "Сохранить"}
           </Button>
         </>
       }
     >
-      <fieldset disabled={busy} className="min-w-0 space-y-5">
+      <fieldset disabled={busy} className="flex min-w-0 flex-col gap-5">
         <DrawerSection title="Счета">
           {(
             [
@@ -214,30 +213,30 @@ function Form({
           }
         >
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="movement-lookback">
-                Повторно проверять, дней
-              </Label>
-              <Input
-                id="movement-lookback"
-                type="number"
-                min={1}
-                max={90}
-                value={rules.lookbackDays}
-                onChange={(e) => set("lookbackDays", Number(e.target.value))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="movement-interval">Интервал, минут</Label>
-              <Input
-                id="movement-interval"
-                type="number"
-                min={15}
-                max={1440}
-                value={rules.intervalMinutes}
-                onChange={(e) => set("intervalMinutes", Number(e.target.value))}
-              />
-            </div>
+            <Field id="movement-lookback" label="Повторно проверять, дней" required>
+              {(control) => (
+                <Input
+                  {...control}
+                  type="number"
+                  min={1}
+                  max={90}
+                  value={rules.lookbackDays}
+                  onChange={(e) => set("lookbackDays", Number(e.target.value))}
+                />
+              )}
+            </Field>
+            <Field id="movement-interval" label="Интервал, минут" required>
+              {(control) => (
+                <Input
+                  {...control}
+                  type="number"
+                  min={15}
+                  max={1440}
+                  value={rules.intervalMinutes}
+                  onChange={(e) => set("intervalMinutes", Number(e.target.value))}
+                />
+              )}
+            </Field>
           </div>
           <p className="text-xs text-muted-foreground">
             Поздние выгрузки относятся к дате исходной кассовой смены.
@@ -266,15 +265,16 @@ function Form({
                   ["tipsPattern", "Чаевые"],
                 ] as const
               ).map(([key, label]) => (
-                <div key={key} className="space-y-2">
-                  <Label htmlFor={`movement-${key}`}>{label}</Label>
-                  <Input
-                    id={`movement-${key}`}
-                    value={rules[key]}
-                    maxLength={200}
-                    onChange={(e) => set(key, e.target.value)}
-                  />
-                </div>
+                <Field key={key} id={`movement-${key}`} label={label} required>
+                  {(control) => (
+                    <Input
+                      {...control}
+                      value={rules[key]}
+                      maxLength={200}
+                      onChange={(e) => set(key, e.target.value)}
+                    />
+                  )}
+                </Field>
               ))}
             </div>
           )}
@@ -308,6 +308,7 @@ function Form({
                           variant="ghost"
                           size="icon"
                           aria-label="Убрать решение"
+                          data-tip="Убрать решение"
                           onClick={() =>
                             set(
                               "overrides",
@@ -319,54 +320,51 @@ function Form({
                         </Button>
                       </div>
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <div className="space-y-2">
-                          <Label htmlFor={`movement-id-${i}`}>
-                            Номер Quick Resto
-                          </Label>
-                          <Input
-                            id={`movement-id-${i}`}
-                            inputMode="numeric"
-                            value={o.sourceId || ""}
-                            onChange={(e) =>
-                              patch(i, { sourceId: Number(e.target.value) })
+                        <Field id={`movement-id-${i}`} label="Номер Quick Resto" required>
+                          {(control) => (
+                            <Input
+                              {...control}
+                              inputMode="numeric"
+                              value={o.sourceId || ""}
+                              onChange={(e) =>
+                                patch(i, { sourceId: Number(e.target.value) })
+                              }
+                            />
+                          )}
+                        </Field>
+                        <Field id={`movement-date-${i}`} label="Дата смены" required>
+                          {(control) => (
+                            <DatePicker
+                              id={control.id}
+                              value={o.date}
+                              disabled={busy}
+                              onChange={(date) => patch(i, { date })}
+                            />
+                          )}
+                        </Field>
+                      </div>
+                      <Field id={`movement-amount-${i}`} label="Сумма" required>
+                        {(control) => (
+                          <AmountInput
+                            id={control.id}
+                            value={o.amountCents ? o.amountCents / 100 : null}
+                            onChange={(v) =>
+                              patch(i, {
+                                amountCents: Math.round((v ?? 0) * 100),
+                              })
                             }
                           />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor={`movement-date-${i}`}>Дата смены</Label>
-                          <DatePicker
-                            id={`movement-date-${i}`}
-                            value={o.date}
-                            disabled={busy}
-                            onChange={(date) => patch(i, { date })}
+                        )}
+                      </Field>
+                      <Field id={`movement-comment-${i}`} label="Исходный комментарий">
+                        {(control) => (
+                          <Input
+                            {...control}
+                            value={o.comment}
+                            onChange={(e) => patch(i, { comment: e.target.value })}
                           />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor={`movement-amount-${i}`}>Сумма, ₽</Label>
-                        <Input
-                          id={`movement-amount-${i}`}
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          value={o.amountCents ? o.amountCents / 100 : ""}
-                          onChange={(e) =>
-                            patch(i, {
-                              amountCents: Math.round(Number(e.target.value) * 100),
-                            })
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor={`movement-comment-${i}`}>
-                          Исходный комментарий
-                        </Label>
-                        <Input
-                          id={`movement-comment-${i}`}
-                          value={o.comment}
-                          onChange={(e) => patch(i, { comment: e.target.value })}
-                        />
-                      </div>
+                        )}
+                      </Field>
                       <Choice
                         name={`movement-type-${i}`}
                         label="Тип кассовой операции"
@@ -410,17 +408,16 @@ function Form({
                           onChange={(categoryId) => patch(i, { categoryId })}
                         />
                       )}
-                      <div className="space-y-2">
-                        <Label htmlFor={`movement-reason-${i}`}>
-                          Основание решения
-                        </Label>
-                        <Textarea
-                          id={`movement-reason-${i}`}
-                          value={o.reason}
-                          maxLength={1000}
-                          onChange={(e) => patch(i, { reason: e.target.value })}
-                        />
-                      </div>
+                      <Field id={`movement-reason-${i}`} label="Основание решения" required>
+                        {(control) => (
+                          <Textarea
+                            {...control}
+                            value={o.reason}
+                            maxLength={1000}
+                            onChange={(e) => patch(i, { reason: e.target.value })}
+                          />
+                        )}
+                      </Field>
                     </div>
                   ))}
                 </div>
@@ -453,18 +450,17 @@ function Form({
             </div>
           )}
         </DrawerSection>
-        <DrawerSection title="Основание изменения правил">
-          <Label htmlFor="movement-reason" className="sr-only">
-            Основание изменения правил
-          </Label>
-          <Textarea
-            id="movement-reason"
-            value={reason}
-            maxLength={1000}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Что изменили и почему"
-          />
-        </DrawerSection>
+        <Field id="movement-reason" label="Основание изменения правил" required>
+          {(control) => (
+            <Textarea
+              {...control}
+              value={reason}
+              maxLength={1000}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Что изменили и почему"
+            />
+          )}
+        </Field>
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}
@@ -491,60 +487,54 @@ export function CashMovementSettingsSection({ venueId }: { venueId: string }) {
       live = false;
     };
   }, [venueId]);
+  // Нет права — секции нет (как у «Проведения финансовых операций»).
+  if (error === NO_ACCESS) return null;
   return (
-    <section className="space-y-4 rounded-lg border p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="font-semibold">Инкассации и внесения</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Переводы из кассы, такси и выдача чаевых
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={!data}
-          onClick={() => setOpen(true)}
-        >
-          <Settings2 className="mr-2 size-4" />
-          Настроить
-        </Button>
-      </div>
+    <ProfileSection
+      title="Инкассации и внесения"
+      description="Переводы из кассы, такси и выдача чаевых"
+      actions={
+        data ? (
+          <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+            <Settings2 />
+            Настроить
+          </Button>
+        ) : null
+      }
+    >
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       )}
       {data && !data.versions.length && (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-[13px] text-muted-foreground">
           Счета и статьи пока не сопоставлены. Сверка не создаёт операций.
         </p>
       )}
       {!!data?.versions.length && (
-        <details className="border-t pt-4 text-sm">
-          <summary className="cursor-pointer text-muted-foreground">
-            История правил
-          </summary>
-          <ol className="mt-3 divide-y">
+        <RuleHistory count={data.versions.length}>
+          <ol className="divide-y text-sm">
             {data.versions.map((v) => (
               <li key={v.id} className="space-y-1 py-3">
                 <p>
                   Версия {v.version} · {v.actor_name}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {new Date(v.created_at).toLocaleString("ru-RU")} · {v.reason}
+                  {formatDayMonthTime(v.created_at)} · {v.reason}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Повторная сверка за {v.config.lookbackDays} дней ·{" "}
+                  Повторная сверка за{" "}
+                  {countRu(v.config.lookbackDays, "день", "дня", "дней")} ·{" "}
                   {v.config.autoRead
-                    ? `каждые ${v.config.intervalMinutes} мин.`
+                    ? `каждые ${v.config.intervalMinutes} мин`
                     : "вручную"}{" "}
                   · ручных решений {v.config.overrides.length}
                 </p>
               </li>
             ))}
           </ol>
-        </details>
+        </RuleHistory>
       )}
       {open && data && (
         <Form
@@ -556,6 +546,6 @@ export function CashMovementSettingsSection({ venueId }: { venueId: string }) {
           }}
         />
       )}
-    </section>
+    </ProfileSection>
   );
 }

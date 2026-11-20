@@ -13,7 +13,7 @@ export type ChatCheck = { tone: "success" | "warning"; message: string };
 const columns = "id,chat_id,title,invite,role_ids,archived_at";
 const chatSchema = z.object({
   title: z.string().trim().min(1, "Укажите название чата").max(200),
-  chat_id: z.string().trim().regex(/^-?\d+$/, "ID чата — число, например -1001234567890"),
+  chat_id: z.string().trim().regex(/^-?\d+$/, "ID чата: число, например -1001234567890"),
   invite: z.boolean(),
   role_ids: z.array(z.string().uuid()).max(200),
 });

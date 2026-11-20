@@ -22,6 +22,10 @@ export type InnInputProps = {
   id?: string;
   /** Hide the inline "Подтянуть из DaData" button. */
   hideLookupButton?: boolean;
+  /** Связь с подписью, подсказкой и ошибкой из `Field`. */
+  "aria-describedby"?: string;
+  "aria-invalid"?: boolean;
+  "aria-required"?: boolean;
 };
 
 /**
@@ -32,7 +36,16 @@ export type InnInputProps = {
  */
 export const InnInput = forwardRef<HTMLInputElement, InnInputProps>(
   function InnInput(
-    { value, onChange, onParty, disabled, placeholder, id, hideLookupButton },
+    {
+      value,
+      onChange,
+      onParty,
+      disabled,
+      placeholder,
+      id,
+      hideLookupButton,
+      ...aria
+    },
     ref
   ) {
     const [loading, setLoading] = useState(false);
@@ -86,21 +99,25 @@ export const InnInput = forwardRef<HTMLInputElement, InnInputProps>(
           onChange={(e) => onChange(e.target.value.replace(/\D/g, ""))}
           disabled={disabled}
           maxLength={12}
+          {...aria}
         />
         {!hideLookupButton && (
           <Button
             type="button"
-            variant="secondary"
+            variant="outline"
             onClick={onLookup}
             disabled={!canLookup || loading || disabled}
-            className="shrink-0"
+            className="h-10 shrink-0 gap-2"
+            data-tip={
+              canLookup ? "Подтянуть реквизиты из ЕГРЮЛ через DaData" : undefined
+            }
           >
             {loading ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="size-4 animate-spin" />
             ) : (
-              <Search className="mr-2 h-4 w-4" />
+              <Search className="size-4" />
             )}
-            Из DaData
+            {loading ? "Ищем…" : "Заполнить по ИНН"}
           </Button>
         )}
       </div>

@@ -1,27 +1,47 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import {
+  getCoreRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type ColumnDef,
+} from "@tanstack/react-table";
+import { arrayMove } from "@dnd-kit/sortable";
+import { Archive, ArchiveRestore, Building2, SearchX, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { RotateCcw, AlertTriangle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { HardDeleteConfirmDialog } from "@/components/shared/hard-delete-confirm-dialog";
+import { PageFrame } from "@/components/shared/page-frame";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+  DataTable,
+  ROW_MENU_COLUMN_SIZE,
+  TableColumnManager,
+  TableConditions,
+  TableControls,
+  TableIconButton,
+  TablePageHeader,
+  TablePagination,
+  TableRowMenu,
+  TableSortPicker,
+  useTableState,
+} from "@/components/shared/table";
+import { formatDateCell } from "@/lib/format/date";
+import { venueTypeLabel } from "@/lib/org/venue-labels";
 import {
-  HardDeleteConfirmDialog,
-  type DeleteImpact,
-} from "@/components/shared/hard-delete-confirm-dialog";
-import { restoreVenue, deleteVenue, getVenueArchiveImpact, type VenueArchiveImpact } from "../../actions";
-import { VENUE_TYPES } from "@/lib/constants";
+  deleteVenue,
+  getVenueArchiveImpact,
+  restoreVenue,
+  type VenueArchiveImpact,
+} from "../../actions";
+import { venueDeleteImpact } from "../../[venueId]/_components/venue-danger-zone";
 
 export type ArchivedVenueRow = {
   id: string;
@@ -29,159 +49,353 @@ export type ArchivedVenueRow = {
   type: string;
   address: string | null;
   archived_at: string;
-  archived_by_name: string;
+  archived_by_name: string | null;
 };
 
-const VENUE_TYPE_LABELS: Record<string, string> = Object.fromEntries(
-  VENUE_TYPES.map((t) => [t.value, t.label]),
-);
-
-function formatDate(iso: string) {
-  try {
-    return new Intl.DateTimeFormat("ru-RU", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(new Date(iso));
-  } catch {
-    return iso;
-  }
-}
+type ColKey = "name" | "address" | "archived_at" | "archived_by";
+const labels: Record<ColKey, string> = {
+  name: "Заведение",
+  address: "Адрес",
+  archived_at: "В архиве с",
+  archived_by: "Кто архивировал",
+};
+const columnConfig = [
+  { id: "name", defaultSize: 360 },
+  { id: "address", defaultSize: 260 },
+  { id: "archived_at", defaultSize: 150 },
+  { id: "archived_by", defaultSize: 200 },
+  { id: "actions", defaultSize: ROW_MENU_COLUMN_SIZE },
+];
+const sortFields: ColKey[] = ["name", "address", "archived_at", "archived_by"];
+const collator = new Intl.Collator("ru", { sensitivity: "base", numeric: true });
+const displayName = (r: ArchivedVenueRow) => r.name;
+const dash = <span className="text-muted-foreground">—</span>;
 
 export function ArchivedVenuesClient({ rows }: { rows: ArchivedVenueRow[] }) {
   const router = useRouter();
-  const [restorePending, startRestoreTransition] = useTransition();
-  const [restoreTarget, setRestoreTarget] = useState<ArchivedVenueRow | null>(null);
+  const st = useTableState({ tableId: "org.venues.archive", columns: columnConfig });
+  const firstPage = () => st.setPagination((p) => ({ ...p, pageIndex: 0 }));
 
-  // hard-delete: подгружаем impact лениво (только когда открыли диалог)
+  const [restoreTarget, setRestoreTarget] = useState<ArchivedVenueRow | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [restoring, startRestore] = useTransition();
   const [deleteTarget, setDeleteTarget] = useState<ArchivedVenueRow | null>(null);
   const [deleteImpact, setDeleteImpact] = useState<VenueArchiveImpact | null>(null);
 
-  const handleOpenDelete = async (row: ArchivedVenueRow) => {
-    setDeleteTarget(row);
+  const q = st.search.toLocaleLowerCase("ru").trim();
+  const filtered = useMemo(
+    () =>
+      rows.filter(
+        (r) =>
+          !q ||
+          [r.name, r.address ?? ""].some((v) =>
+            v.toLocaleLowerCase("ru").includes(q),
+          ),
+      ),
+    [rows, q],
+  );
+
+  const openDelete = async (row: ArchivedVenueRow) => {
     setDeleteImpact(null);
-    const impact = await getVenueArchiveImpact(row.id);
-    setDeleteImpact(impact);
+    setDeleteTarget(row);
+    setDeleteImpact(await getVenueArchiveImpact(row.id));
   };
 
-  const handleRestore = (row: ArchivedVenueRow) => {
-    startRestoreTransition(async () => {
-      const result = await restoreVenue(row.id);
-      if (result.error) {
-        toast.error(result.error);
+  const restore = () => {
+    if (!restoreTarget) return;
+    const target = restoreTarget;
+    setRestoreError(null);
+    startRestore(async () => {
+      const { error } = await restoreVenue(target.id);
+      if (error) {
+        setRestoreError(error);
         return;
       }
-      toast.success(`Заведение «${row.name}» восстановлено`);
+      toast.success(`Заведение «${displayName(target)}» восстановлено`);
       setRestoreTarget(null);
       router.refresh();
     });
   };
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    const result = await deleteVenue(deleteTarget.id, {
-      confirmName: deleteTarget.name,
-    });
-    if (result.error) {
-      toast.error(result.error);
-      return;
-    }
-    toast.success(`Заведение «${deleteTarget.name}» удалено`);
-    setDeleteTarget(null);
-    setDeleteImpact(null);
-    router.refresh();
+  const columns: ColumnDef<ArchivedVenueRow>[] = [
+    {
+      id: "name",
+      header: labels.name,
+      size: 360,
+      minSize: 220,
+      enableHiding: false,
+      accessorFn: displayName,
+      sortingFn: (a, b) => collator.compare(displayName(a.original), displayName(b.original)),
+      cell: ({ row }) => {
+        const r = row.original;
+        const subtitle = venueTypeLabel(r.type);
+        return (
+          <span className="flex min-w-0 items-center gap-3">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <Building2 className="size-4" />
+            </span>
+            <div className="min-w-0">
+              <Link
+                href={`/org/venues/${r.id}`}
+                className="block truncate font-medium hover:underline"
+                data-tip={displayName(r)}
+              >
+                {displayName(r)}
+              </Link>
+              <div className="mt-0.5 truncate text-xs text-muted-foreground" data-tip={subtitle}>
+                {subtitle}
+              </div>
+            </div>
+          </span>
+        );
+      },
+    },
+    {
+      id: "address",
+      header: labels.address,
+      size: 260,
+      minSize: 120,
+      accessorFn: (r) => r.address ?? undefined,
+      sortUndefined: "last",
+      cell: ({ getValue }) => {
+        const v = getValue() as string | undefined;
+        return v ? <span className="block truncate" data-tip={v}>{v}</span> : dash;
+      },
+    },
+    {
+      id: "archived_at",
+      header: labels.archived_at,
+      size: 150,
+      minSize: 120,
+      accessorFn: (r) => r.archived_at,
+      cell: ({ getValue }) => (
+        <span className="tabular-nums">{formatDateCell(getValue() as string) ?? "—"}</span>
+      ),
+    },
+    {
+      id: "archived_by",
+      header: labels.archived_by,
+      size: 200,
+      minSize: 150,
+      accessorFn: (r) => r.archived_by_name ?? undefined,
+      sortUndefined: "last",
+      cell: ({ getValue }) => {
+        const v = getValue() as string | undefined;
+        return v ? <span className="block truncate" data-tip={v}>{v}</span> : dash;
+      },
+    },
+    {
+      id: "actions",
+      size: ROW_MENU_COLUMN_SIZE,
+      minSize: ROW_MENU_COLUMN_SIZE,
+      maxSize: ROW_MENU_COLUMN_SIZE,
+      enableHiding: false,
+      enableResizing: false,
+      cell: ({ row }) => (
+        <TableRowMenu
+          actions={[
+            {
+              label: "Восстановить",
+              icon: <ArchiveRestore />,
+              onSelect: () => {
+                setRestoreError(null);
+                setRestoreTarget(row.original);
+              },
+            },
+            {
+              label: "Удалить навсегда",
+              icon: <Trash2 />,
+              destructive: true,
+              separatorBefore: true,
+              onSelect: () => void openDelete(row.original),
+            },
+          ]}
+        />
+      ),
+    },
+  ];
+
+  const table = useReactTable({
+    data: filtered,
+    columns,
+    state: {
+      sorting: st.sorting,
+      pagination: st.pagination,
+      columnVisibility: { ...st.columnVisibility, name: true, actions: true },
+      columnOrder: st.columnOrder,
+      columnSizing: st.columnSizing,
+    },
+    onSortingChange: st.setSorting,
+    onPaginationChange: st.setPagination,
+    onColumnVisibilityChange: st.setColumnVisibility,
+    onColumnSizingChange: st.setColumnSizing,
+    getRowId: (r) => r.id,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    autoResetPageIndex: false,
+  });
+  const changeSorting = (next: typeof st.sorting) => {
+    st.setSorting(next);
+    firstPage();
+  };
+  const resetConditions = () => {
+    st.setSearch("");
+    st.setSorting([]);
+    firstPage();
   };
 
-  if (rows.length === 0) {
-    return (
-      <div className="rounded-md border bg-muted/20 px-6 py-12 text-center">
-        <p className="text-sm text-muted-foreground">Архив пуст</p>
-      </div>
-    );
-  }
-
   return (
-    <>
-      <div className="overflow-hidden rounded-md border">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-            <tr>
-              <th className="px-3 py-2 text-left font-medium">Название</th>
-              <th className="px-3 py-2 text-left font-medium">Тип</th>
-              <th className="px-3 py-2 text-left font-medium">Адрес</th>
-              <th className="px-3 py-2 text-left font-medium">Архивировано</th>
-              <th className="px-3 py-2 text-left font-medium">Кем</th>
-              <th className="px-3 py-2 text-right font-medium">Действия</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.id} className="border-t">
-                <td className="px-3 py-2.5 font-medium">{row.name}</td>
-                <td className="px-3 py-2.5 text-muted-foreground">
-                  {VENUE_TYPE_LABELS[row.type] ?? row.type}
-                </td>
-                <td className="px-3 py-2.5 text-muted-foreground">{row.address ?? "—"}</td>
-                <td className="px-3 py-2.5 text-muted-foreground">{formatDate(row.archived_at)}</td>
-                <td className="px-3 py-2.5 text-muted-foreground">{row.archived_by_name}</td>
-                <td className="px-3 py-2.5">
-                  <div className="flex items-center justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setRestoreTarget(row)}
-                      disabled={restorePending}
-                    >
-                      <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                      Восстановить
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
-                      onClick={() => handleOpenDelete(row)}
-                    >
-                      <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />
-                      Удалить навсегда
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+    <PageFrame className="flex min-w-0 flex-col gap-4">
+      <Breadcrumbs
+        items={[
+          { label: "Организация" },
+          { label: "Заведения", href: "/org/venues" },
+          { label: "Архив" },
+        ]}
+      />
+      <TablePageHeader
+        title="Заведения в архиве"
+        count={q ? `${filtered.length} из ${rows.length}` : rows.length}
+        actions={
+          <TableControls
+            search={{
+              value: st.search,
+              onChange: (v) => {
+                st.setSearch(v);
+                firstPage();
+              },
+              open: st.searchOpen,
+              onOpenChange: st.setSearchOpen,
+              placeholder: "Название или адрес",
+            }}
+            sort={{
+              active: st.sorting.length > 0,
+              content: (
+                <TableSortPicker
+                  sorting={st.sorting}
+                  onChange={changeSorting}
+                  fields={sortFields}
+                  labels={labels}
+                />
+              ),
+            }}
+            columns={{
+              content: (
+                <TableColumnManager
+                  columns={st.columnOrder
+                    .filter((id) => id !== "actions")
+                    .map((id) => {
+                      const c = table.getColumn(id)!;
+                      return {
+                        id,
+                        label: labels[id as ColKey],
+                        visible: c.getIsVisible(),
+                        canHide: c.getCanHide(),
+                      };
+                    })}
+                  onVisibilityChange={(id, v) => table.getColumn(id)?.toggleVisibility(v)}
+                  onMoveColumn={(a, b) =>
+                    st.setColumnOrder((order) => arrayMove(order, order.indexOf(a), order.indexOf(b)))
+                  }
+                  onReset={st.resetColumns}
+                />
+              ),
+            }}
+            secondaryActions={
+              <TableIconButton
+                label="Вернуться к действующим заведениям"
+                active
+                onClick={() => router.push("/org/venues")}
+              >
+                <Archive />
+              </TableIconButton>
+            }
+          />
+        }
+      />
+      <TableConditions
+        label="Условия архива заведений"
+        open={false}
+        hasFilters={false}
+        sorting={st.sorting}
+        onSortingChange={changeSorting}
+        sortFields={sortFields}
+        sortLabels={labels}
+        search={st.search}
+        onSearchClear={() => {
+          st.setSearch("");
+          firstPage();
+        }}
+        onReset={resetConditions}
+      />
 
-      {/* Restore confirmation — простой alert (без name-input) */}
-      <AlertDialog open={!!restoreTarget} onOpenChange={(open) => !open && setRestoreTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Восстановить заведение?</AlertDialogTitle>
-            <AlertDialogDescription>
-              «{restoreTarget?.name}» снова появится во всех списках. Связанные
-              данные продолжат работать как раньше.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={restorePending}>Отмена</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                if (restoreTarget) handleRestore(restoreTarget);
-              }}
-              disabled={restorePending}
-            >
-              Восстановить
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {rows.length === 0 ? (
+        <EmptyState
+          icon={Archive}
+          title="Архив пуст"
+          description="Сюда попадают закрытые заведения. Их документы, операции и склады сохраняются"
+          action={
+            <Button variant="outline" onClick={() => router.push("/org/venues")}>
+              К действующим заведениям
+            </Button>
+          }
+        />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon={SearchX}
+          title="Заведения не найдены"
+          description="Измените условия поиска"
+          action={
+            <Button variant="outline" onClick={resetConditions}>
+              Очистить все
+            </Button>
+          }
+        />
+      ) : (
+        <>
+          <DataTable
+            table={table}
+            label="Заведения в архиве"
+            labels={labels}
+            onColumnSizingChange={st.setColumnSizing}
+            sorting={st.sorting}
+            onSortingChange={changeSorting}
+            sortable={sortFields}
+            onRowClick={(row) => router.push(`/org/venues/${row.original.id}`)}
+            empty={null}
+            mobile={{ label: "Карточки заведений в архиве", nameColumn: "name" }}
+          />
+          <TablePagination
+            pageIndex={st.pagination.pageIndex}
+            pageSize={st.pagination.pageSize}
+            total={filtered.length}
+            onPageChange={(pageIndex) => st.setPagination((p) => ({ ...p, pageIndex }))}
+            onPageSizeChange={(pageSize) => st.setPagination({ pageIndex: 0, pageSize })}
+          />
+        </>
+      )}
 
-      {/* Hard-delete confirmation — reusable c name-input */}
+      <ConfirmDialog
+        open={!!restoreTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRestoreTarget(null);
+            setRestoreError(null);
+          }
+        }}
+        title={restoreTarget ? `Восстановить заведение «${displayName(restoreTarget)}»?` : ""}
+        description="Заведение вернётся в списки и переключатель, сотрудники снова смогут в него переключиться"
+        confirmLabel="Восстановить заведение"
+        pendingLabel="Восстанавливаем…"
+        busy={restoring}
+        error={restoreError}
+        onConfirm={restore}
+      />
+
       {deleteTarget ? (
         <HardDeleteConfirmDialog
-          open={!!deleteTarget}
+          open
           onOpenChange={(open) => {
             if (!open) {
               setDeleteTarget(null);
@@ -190,26 +404,20 @@ export function ArchivedVenuesClient({ rows }: { rows: ArchivedVenueRow[] }) {
           }}
           entityGenitive="заведение"
           entityName={deleteTarget.name}
-          impact={buildDeleteImpact(deleteImpact)}
+          impact={deleteImpact ? venueDeleteImpact(deleteImpact) : []}
           restrictedBy={[]}
-          onConfirm={handleDelete}
+          onConfirm={async () => {
+            const result = await deleteVenue(deleteTarget.id, {
+              confirmName: deleteTarget.name,
+            });
+            if (result.error) return { error: result.error };
+            toast.success(`Заведение «${displayName(deleteTarget)}» удалено`);
+            setDeleteTarget(null);
+            setDeleteImpact(null);
+            router.refresh();
+          }}
         />
       ) : null}
-    </>
+    </PageFrame>
   );
-}
-
-function buildDeleteImpact(impact: VenueArchiveImpact | null): DeleteImpact[] {
-  if (!impact) return [];
-  return [
-    { label: "Отделов", count: impact.departments, tone: "cascade" },
-    { label: "Ролей", count: impact.roles, tone: "cascade" },
-    { label: "Привязок сотрудников", count: impact.staff, tone: "cascade" },
-    { label: "Приглашений", count: impact.invitations, tone: "cascade" },
-    { label: "Залов", count: impact.halls, tone: "cascade" },
-    { label: "Документов", count: impact.documents, tone: "unbind" },
-    { label: "Транзакций", count: impact.transactions, tone: "unbind" },
-    { label: "Складов", count: impact.stores, tone: "unbind" },
-    { label: "Банк-счетов", count: impact.bankAccounts, tone: "unbind" },
-  ];
 }

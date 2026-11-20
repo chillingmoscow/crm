@@ -3,15 +3,15 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Archive, AlertTriangle } from "lucide-react";
+import { Archive, Trash2 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { ArchiveConfirmDialog } from "@/components/shared/archive-confirm-dialog";
 import {
   HardDeleteConfirmDialog,
   type DeleteImpact,
   type DeleteRestriction,
 } from "@/components/shared/hard-delete-confirm-dialog";
+import { ProfileDangerAction } from "@/components/shared/profile-danger-zone";
 import {
   archiveLegalEntity,
   restoreLegalEntity,
@@ -19,74 +19,61 @@ import {
   type LegalEntityArchiveImpact,
 } from "@/lib/org/legal-entities";
 
-type Props = {
-  legalEntityId: string;
-  legalEntityName: string;
-  impact: LegalEntityArchiveImpact;
-  /** true только для владельца аккаунта (org.delete_legal_entity). */
-  canHardDelete: boolean;
-};
-
 const UNDO_WINDOW_MS = 15_000;
 
+/** Что мешает удалить юрлицо навсегда — общая логика карточки и архива. */
+export function legalEntityDeleteRestrictions(
+  impact: LegalEntityArchiveImpact,
+): DeleteRestriction[] {
+  const out: DeleteRestriction[] = [];
+  if (impact.bankAccounts > 0)
+    out.push({
+      label: "Банковские счета",
+      count: impact.bankAccounts,
+      hint: "Удалите счета или перенесите их на другое юрлицо",
+    });
+  if (impact.transactions > 0)
+    out.push({
+      label: "Операции",
+      count: impact.transactions,
+      hint: "История операций не даёт удалить юрлицо. Оставьте его в архиве",
+    });
+  if (impact.venuesAsDefault > 0)
+    out.push({
+      label: "Заведения",
+      count: impact.venuesAsDefault,
+      hint: "Отвяжите заведения на вкладке «Заведения»",
+    });
+  return out;
+}
+
+export function legalEntityDeleteImpact(impact: LegalEntityArchiveImpact): DeleteImpact[] {
+  return [{ label: "Документы", count: impact.attachments, tone: "cascade" }];
+}
+
+/**
+ * «Опасная зона» юрлица: архив (обратимо) и удаление навсегда. Показывается
+ * только владельцу аккаунта — сервер проверяет его же.
+ */
 export function LegalEntityDangerZone({
   legalEntityId,
   legalEntityName,
   impact,
   canHardDelete,
-}: Props) {
+}: {
+  legalEntityId: string;
+  legalEntityName: string;
+  impact: LegalEntityArchiveImpact;
+  canHardDelete: boolean;
+}) {
   const router = useRouter();
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
-  const archiveImpact = [
-    { label: "Банк-счетов", count: impact.bankAccounts },
-    { label: "Транзакций", count: impact.transactions },
-    { label: "Документов", count: impact.attachments },
-    { label: "Заведений (по умолчанию)", count: impact.venuesAsDefault },
-  ];
-
-  // RESTRICT-блокеры для hard-delete: пока хоть один не-ноль —
-  // hard-delete упадёт. Это конструктивная особенность модели (нельзя
-  // удалить юрлицо пока есть финансовая привязка). UI показывает
-  // блокеры и предлагает «Архивировать».
-  const restrictedBy: DeleteRestriction[] = [];
-  if (impact.bankAccounts > 0) {
-    restrictedBy.push({
-      label: "Банк-счетов",
-      count: impact.bankAccounts,
-      hint: "Удалите или перепривяжите счета к другому юрлицу.",
-    });
-  }
-  if (impact.transactions > 0) {
-    restrictedBy.push({
-      label: "Транзакций",
-      count: impact.transactions,
-      hint: "Финансовая история блокирует удаление навсегда — используйте «Архивировать».",
-    });
-  }
-  if (impact.venuesAsDefault > 0) {
-    restrictedBy.push({
-      label: "Заведений",
-      count: impact.venuesAsDefault,
-      hint: "Смените юрлицо по умолчанию в карточке каждого заведения.",
-    });
-  }
-
-  const deleteImpact: DeleteImpact[] = [
-    { label: "Документов", count: impact.attachments, tone: "cascade" },
-  ];
-
   const handleArchive = async () => {
-    const result = await archiveLegalEntity(legalEntityId, {
-      confirmName: legalEntityName,
-    });
-    if (result.error) {
-      toast.error(result.error);
-      return;
-    }
+    const result = await archiveLegalEntity(legalEntityId, { confirmName: legalEntityName });
+    if (result.error) return { error: result.error };
     setArchiveOpen(false);
-
     toast(`Юрлицо «${legalEntityName}» в архиве`, {
       duration: UNDO_WINDOW_MS,
       action: {
@@ -97,25 +84,19 @@ export function LegalEntityDangerZone({
             toast.error(r.error);
             return;
           }
-          toast.success("Восстановлено");
+          toast.success(`Юрлицо «${legalEntityName}» восстановлено`);
           router.push(`/org/legal-entities/${legalEntityId}`);
           router.refresh();
         },
       },
     });
-
     router.push("/org/legal-entities");
     router.refresh();
   };
 
   const handleDelete = async () => {
-    const result = await deleteLegalEntity(legalEntityId, {
-      confirmName: legalEntityName,
-    });
-    if (result.error) {
-      toast.error(result.error);
-      return;
-    }
+    const result = await deleteLegalEntity(legalEntityId, { confirmName: legalEntityName });
+    if (result.error) return { error: result.error };
     setDeleteOpen(false);
     toast.success(`Юрлицо «${legalEntityName}» удалено`);
     router.push("/org/legal-entities");
@@ -123,85 +104,45 @@ export function LegalEntityDangerZone({
   };
 
   return (
-    <div className="mt-10 space-y-6 border-t pt-8">
-      <h2 className="text-base font-medium">Опасная зона</h2>
-
-      <div className="rounded-md border bg-muted/20 p-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-1">
-            <h3 className="flex items-center gap-2 text-sm font-medium">
-              <Archive className="h-4 w-4 text-muted-foreground" />
-              Архивировать юрлицо
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              Скроет юрлицо из всех выборов в новых счетах, транзакциях и
-              заведениях. История по существующим записям сохранится.
-              Восстановить можно из раздела «Архив».
-            </p>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setArchiveOpen(true)}
-            className="shrink-0"
-          >
-            <Archive className="mr-1.5 h-4 w-4" />
-            Архивировать
-          </Button>
-        </div>
-      </div>
-
-      <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-1">
-            <h3 className="flex items-center gap-2 text-sm font-medium text-destructive">
-              <AlertTriangle className="h-4 w-4" />
-              Удалить навсегда
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              Полное удаление возможно только если у юрлица не осталось
-              финансовых привязок (банк-счетов, транзакций, заведений).
-              В большинстве случаев используйте «Архивировать» — данные
-              сохранятся, а юрлицо перестанет появляться в выборах.
-            </p>
-            {!canHardDelete ? (
-              <p className="text-xs text-muted-foreground">
-                Доступно только владельцу аккаунта.
-              </p>
-            ) : null}
-          </div>
-          <Button
-            type="button"
-            variant="destructive"
-            size="sm"
-            disabled={!canHardDelete}
-            onClick={() => setDeleteOpen(true)}
-            className="shrink-0"
-          >
-            <AlertTriangle className="mr-1.5 h-4 w-4" />
-            Удалить навсегда
-          </Button>
-        </div>
-      </div>
+    <div className="flex flex-col gap-3">
+      <ProfileDangerAction
+        icon={Archive}
+        title="Архивировать юрлицо"
+        description="Юрлицо пропадёт из выборов в новых счетах, операциях и заведениях. Счета, операции и документы сохранятся. Вернуть можно из архива юрлиц"
+        actionLabel="Архивировать"
+        onAction={() => setArchiveOpen(true)}
+      />
+      {canHardDelete ? (
+        <ProfileDangerAction
+          icon={Trash2}
+          title="Удалить навсегда"
+          description="Только для юрлица без счетов, операций и заведений, например созданного по ошибке. В остальных случаях отправьте его в архив"
+          actionLabel="Удалить"
+          onAction={() => setDeleteOpen(true)}
+        />
+      ) : null}
 
       <ArchiveConfirmDialog
         open={archiveOpen}
         onOpenChange={setArchiveOpen}
         entityGenitive="юрлицо"
         entityName={legalEntityName}
-        impact={archiveImpact}
-        description="Скрыть юрлицо из всех выборов и списков. Существующие банк-счета, транзакции и заведения сохраняют ссылку — история не теряется. Восстановить можно в любой момент."
+        impact={[
+          { label: "Банковские счета", count: impact.bankAccounts },
+          { label: "Операции", count: impact.transactions },
+          { label: "Документы", count: impact.attachments },
+          { label: "Заведения", count: impact.venuesAsDefault },
+        ]}
+        description="Это не удаление: юрлицо пропадёт из выборов, а счета, операции и заведения сохранят ссылку на него. Вернуть можно из архива юрлиц в любой момент"
         onConfirm={handleArchive}
       />
-
       <HardDeleteConfirmDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         entityGenitive="юрлицо"
         entityName={legalEntityName}
-        impact={deleteImpact}
-        restrictedBy={restrictedBy}
+        impact={legalEntityDeleteImpact(impact)}
+        restrictedBy={legalEntityDeleteRestrictions(impact)}
         onConfirm={handleDelete}
       />
     </div>

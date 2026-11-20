@@ -1,5 +1,6 @@
 import type { Database, Json } from "@/types/database";
 import type { TemplateVariant } from "./template-times";
+import type { ShiftSwap } from "./shift-swaps";
 
 export type { TemplateVariant };
 
@@ -175,6 +176,11 @@ export type ScheduleData = {
   sameDepartmentRateFrom?: string | null;
   departments: { id: string; name: string }[];
   roles: { id: string; name: string; department_id: string | null }[];
+  /**
+   * Заявки на замену, видимые пользователю: свои, адресованные ему и —
+   * с правом назначения — все открытые и недавние.
+   */
+  swaps: ShiftSwap[];
 };
 
 // UI identity only; never pass this synthetic key as an authenticated user ID.

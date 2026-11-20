@@ -121,8 +121,25 @@ const toConfig = (definitions: StaffColumn[]) =>
     defaultSize: c.size,
     defaultVisible: c.visible,
   }));
+// Контакты, пол, дата рождения и причина увольнения коллег приходят с сервера
+// только при праве на детали сотрудника (миграция 359). Без права эти колонки
+// были бы пустыми — убираем их вместе с поиском и фильтром по ним.
+const personalColumns = new Set<StaffColKey>([
+  "email",
+  "phone",
+  "telegram",
+  "gender",
+  "birth_date",
+  "fired_reason",
+]);
+const withoutPersonal = (definitions: StaffColumn[]) =>
+  definitions.filter((c) => !personalColumns.has(c.id));
+const limitedActiveDefinitions = withoutPersonal(activeDefinitions);
+const limitedFiredDefinitions = withoutPersonal(firedDefinitions);
 const activeConfig = toConfig(activeDefinitions);
 const firedConfig = toConfig(firedDefinitions);
+const limitedActiveConfig = toConfig(limitedActiveDefinitions);
+const limitedFiredConfig = toConfig(limitedFiredDefinitions);
 const labels = Object.fromEntries(
   [...activeDefinitions, ...firedDefinitions].map((c) => [c.id, c.label]),
 );
@@ -132,7 +149,8 @@ const collator = new Intl.Collator("ru", {
 });
 const name = (m: StaffMember | FiredStaffMember) =>
   [m.first_name, m.last_name].filter(Boolean).join(" ") ||
-  m.email.split("@")[0];
+  m.email?.split("@")[0] ||
+  "Без имени";
 function value(row: Row, id: StaffColKey): string | undefined {
   if (row.kind === "casual") {
     const c = row.casual;
@@ -204,6 +222,7 @@ export function StaffTable({
   secondaryActions,
   overviewPanel,
   canEdit,
+  canSeeDetails,
   isPending,
   onCancelInvitation,
   onRestore,
@@ -226,12 +245,21 @@ export function StaffTable({
   secondaryActions: ReactNode;
   overviewPanel: ReactNode;
   canEdit: boolean;
+  /** people.view_staff + people.view_staff_details: личные данные коллег и
+   *  карточка сотрудника. Без права строки штатных и уволенных не открываются. */
+  canSeeDetails: boolean;
   isPending: boolean;
   onCancelInvitation: (id: string) => void;
   onRestore: (id: string) => void;
 }) {
   const router = useRouter();
-  const definitions = showFired ? firedDefinitions : activeDefinitions;
+  const definitions = canSeeDetails
+    ? showFired
+      ? firedDefinitions
+      : activeDefinitions
+    : showFired
+      ? limitedFiredDefinitions
+      : limitedActiveDefinitions;
   const sortable = new Set(
     definitions.filter((c) => c.id !== "avatar").map((c) => c.id),
   );
@@ -239,7 +267,13 @@ export function StaffTable({
   const st = useTableState({
     tableId: `staff.list.${preferenceKey}${showFired ? ".fired" : ""}`,
     legacyVisibilityKey: showFired ? undefined : "crm-staff-visible-cols",
-    columns: showFired ? firedConfig : activeConfig,
+    columns: canSeeDetails
+      ? showFired
+        ? firedConfig
+        : activeConfig
+      : showFired
+        ? limitedFiredConfig
+        : limitedActiveConfig,
     defaultPageSize: 25,
   });
   // Same chip vocabulary as Candidates; filtering is local because the full venue roster is loaded.
@@ -369,6 +403,13 @@ export function StaffTable({
         ) : null,
     },
   ];
+  // Карточка штатного/уволенного требует права на детали (иначе редирект);
+  // разовые открываются в «Зарплате» по своим правам.
+  const opensCard = (
+    row: Row,
+  ): row is Exclude<Row, { kind: "invitation" }> =>
+    row.kind === "casual" ||
+    (row.kind !== "invitation" && canSeeDetails);
   const table = useReactTable({
     data: rows,
     columns,
@@ -439,7 +480,9 @@ export function StaffTable({
               },
               open: st.searchOpen,
               onOpenChange: st.setSearchOpen,
-              placeholder: "Имя, телефон, email или должность",
+              placeholder: canSeeDetails
+                ? "Имя, телефон, email или должность"
+                : "Имя или должность",
             }}
             filters={{
               active,
@@ -534,7 +577,7 @@ export function StaffTable({
             ]}
           />
         )}
-        {!showFired && (filtersVisible || !!filter.gender) && (
+        {!showFired && canSeeDetails && (filtersVisible || !!filter.gender) && (
           <TableFilterChip
             label="Пол"
             value={filter.gender}
@@ -598,11 +641,10 @@ export function StaffTable({
           onSortingChange={changeSorting}
           sortable={sortable}
           onRowClick={(row) => {
-            if (row.original.kind !== "invitation")
-              router.push(rowHref(row.original));
+            if (opensCard(row.original)) router.push(rowHref(row.original));
           }}
           rowClassName={(row) =>
-            row.original.kind === "invitation" ? "!cursor-default" : undefined
+            opensCard(row.original) ? undefined : "!cursor-default"
           }
           empty="По этим условиям сотрудников нет"
           mobile={{

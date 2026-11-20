@@ -86,6 +86,10 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
   // раньше здесь сверялся код должности, и человек с правом на своей должности
   // не видел «Добавить» в списке.
   const canEdit = can("people.edit_staff");
+  // Тот же набор, что открывает карточку сотрудника: без него сервер не отдаёт
+  // контакты и даты коллег (миграция 359), а карточка редиректит.
+  const canSeeStaffDetails =
+    can("people.view_staff") && can("people.view_staff_details");
   // The till PIN column: codes are shown only to the venue's senior roles.
   const canSeePins = ["owner", "manager", "admin"].includes(activeRoleCode ?? "");
   const pinResult = canSeePins
@@ -137,6 +141,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       venueId={venueId}
       currentUserId={user.id}
       canEditStaff={canEdit}
+      canSeeStaffDetails={canSeeStaffDetails}
       casual={casual}
       openAddCasual={(await searchParams).add === "casual" && canEdit && !!casual}
     />

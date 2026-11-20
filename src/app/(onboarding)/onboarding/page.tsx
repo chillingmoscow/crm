@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 import { OnboardingWizard } from "./_components/wizard";
 import { getSystemRoles } from "./actions";
@@ -20,7 +21,10 @@ export default async function OnboardingPage({
   await syncPendingInvitationsForUser({ userId: user.id, email: user.email });
 
   // Если онбординг уже пройден — в дашборд
-  const { data: profile } = await supabase
+  // Телефон, Telegram, дату рождения и адрес из profiles пользовательский
+  // клиент не читает (миграция 360) — свой профиль берём admin-клиентом
+  // по id из проверенной сессии.
+  const { data: profile } = await createAdminClient()
     .from("profiles")
     .select("active_venue_id, first_name, last_name, photo_url, avatar_url, gender, birth_date, phone, telegram_id, address")
     .eq("id", user.id)

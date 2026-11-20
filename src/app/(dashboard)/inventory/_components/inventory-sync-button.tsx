@@ -6,26 +6,28 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { LocalDateTime, useLocalDateTime } from "@/components/shared/local-date-time";
+import { LocalDateTime, useLocalDateTimeText } from "@/components/shared/local-date-time";
 import { syncQuickRestoInventory } from "@/app/(dashboard)/inventory/_actions/sync";
 
 type Props = {
   canSync: boolean;
   lastSyncedAt: string | null;
   /**
-   * `toolbar` — кнопка 36px для ряда инструментов списка: время последней
-   * синхронизации уходит в подсказку, отдельной строки под кнопкой нет.
+   * `stacked` — кнопка и строка «Последняя синхронизация» под ней (страницы,
+   * ещё не приведённые к эталону шапки). `toolbar` — кнопка 36px для ряда
+   * инструментов списка (docs/design-system.md, «Page header»): время
+   * последней синхронизации уходит в подсказку, второй строки нет.
    */
-  variant?: "default" | "toolbar";
+  layout?: "stacked" | "toolbar";
 };
 
-// Полная синхронизация Quick Resto (группы, ингредиенты, склады, акты).
+// Полная синхронизация QuickResto (группы, ингредиенты, склады, акты).
 // Гранулярная синхронизация по типу позиции — отдельная задача (бэклог,
 // требует расширения scope в syncQuickRestoInventory на бэкенде).
-export function InventorySyncButton({ canSync, lastSyncedAt, variant = "default" }: Props) {
+export function InventorySyncButton({ canSync, lastSyncedAt, layout = "stacked" }: Props) {
   const router = useRouter();
+  const lastSyncedText = useLocalDateTimeText(lastSyncedAt, "ещё не было");
   const [isPending, startTransition] = useTransition();
-  const lastSyncedText = useLocalDateTime(lastSyncedAt, "datetime", "ещё не было");
 
   const runSync = () => {
     startTransition(async () => {
@@ -56,24 +58,21 @@ export function InventorySyncButton({ canSync, lastSyncedAt, variant = "default"
     });
   };
 
-  if (variant === "toolbar") {
+  if (layout === "toolbar") {
     if (!canSync) return null;
     return (
-      <Button
-        type="button"
-        size="sm"
-        className="h-9 gap-2"
-        onClick={runSync}
-        disabled={isPending}
-        data-tip={`Последняя синхронизация: ${lastSyncedText}`}
+      // Подсказка — на обёртке: у неактивной кнопки (идёт синхронизация)
+      // pointer-events выключены, события получает span.
+      <span
+        className="inline-flex"
+        data-tip="Загрузить склады, номенклатуру и акты из Quick Resto"
+        data-tip-sub={`Последняя синхронизация: ${lastSyncedText}`}
       >
-        {isPending ? (
-          <Loader2 className="size-4 animate-spin" />
-        ) : (
-          <RefreshCw className="size-4" />
-        )}
-        {isPending ? "Синхронизируем…" : "Синхронизировать"}
-      </Button>
+        <Button type="button" size="sm" className="h-9 min-w-44 gap-2" onClick={runSync} disabled={isPending}>
+          {isPending ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+          {isPending ? "Синхронизируем…" : "Синхронизировать"}
+        </Button>
+      </span>
     );
   }
 

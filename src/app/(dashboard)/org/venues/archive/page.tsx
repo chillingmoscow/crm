@@ -1,11 +1,11 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
-import { Button } from "@/components/ui/button";
 import { ArchivedVenuesClient, type ArchivedVenueRow } from "./_components/archived-venues-client";
+
+export const metadata: Metadata = { title: "Архив заведений" };
 
 export default async function VenuesArchivePage() {
   const supabase = await createClient();
@@ -58,8 +58,8 @@ export default async function VenuesArchivePage() {
       .select("id, first_name, last_name")
       .in("id", archivedByIds);
     (profiles ?? []).forEach((p) => {
-      const display = `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim() || "—";
-      profileNameMap.set(p.id, display);
+      const display = `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim();
+      if (display) profileNameMap.set(p.id, display);
     });
   }
 
@@ -69,31 +69,8 @@ export default async function VenuesArchivePage() {
     type: r.type,
     address: r.address,
     archived_at: r.archived_at,
-    archived_by_name: r.archived_by ? profileNameMap.get(r.archived_by) ?? "—" : "—",
+    archived_by_name: r.archived_by ? profileNameMap.get(r.archived_by) ?? null : null,
   }));
 
-  return (
-    <div className="p-6 md:p-8 w-full max-w-5xl">
-      <div className="mb-6 flex items-center justify-between">
-        <Button asChild variant="ghost" size="sm" className="-ml-2 gap-1.5 text-muted-foreground hover:text-foreground">
-          <Link href="/org/venues">
-            <ArrowLeft className="w-4 h-4" />
-            Заведения
-          </Link>
-        </Button>
-      </div>
-
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold">Архив заведений</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Архивированные заведения скрыты из всех списков и переключателей.
-          Связанные данные (документы, транзакции, склады) сохранены.
-          Восстановите, чтобы вернуть в работу; «Удалить навсегда» уничтожит
-          заведение и каскадом отделы / роли / залы / приглашения.
-        </p>
-      </div>
-
-      <ArchivedVenuesClient rows={list} />
-    </div>
-  );
+  return <ArchivedVenuesClient rows={list} />;
 }

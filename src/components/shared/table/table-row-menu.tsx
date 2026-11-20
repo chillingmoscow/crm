@@ -39,9 +39,11 @@ type TableRowMenuProps = {
       на тач-устройствах закрытие меню оставляет «призрачный» click, который
       попадает на кликабельную карточку под меню. */
   onOpenChange?: (open: boolean) => void;
+  /** Подпись кнопки и подсказки. В шапке панели — «Действия со складом» и т. п. */
+  label?: string;
 };
 
-export function TableRowMenu({ actions, onOpenChange }: TableRowMenuProps) {
+export function TableRowMenu({ actions, onOpenChange, label = "Действия строки" }: TableRowMenuProps) {
   return (
     <DropdownMenu onOpenChange={onOpenChange}>
       <Tooltip delayDuration={450}>
@@ -49,12 +51,12 @@ export function TableRowMenu({ actions, onOpenChange }: TableRowMenuProps) {
           <DropdownMenuTrigger asChild>
             <Button type="button" variant="ghost" size="icon" className="touch-target h-8 w-8 text-foreground/80 hover:text-foreground">
               <MoreHorizontal className="h-4 w-4" />
-              <span className="sr-only">Действия строки</span>
+              <span className="sr-only">{label}</span>
             </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
         <TooltipContent sideOffset={6}>
-          Действия строки
+          {label}
         </TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="end" className="w-56">

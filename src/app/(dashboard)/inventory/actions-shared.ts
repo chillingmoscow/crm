@@ -5,6 +5,7 @@
 import "server-only";
 
 import { revalidatePath } from "next/cache";
+import { writeAuditEvent } from "@/lib/audit/write";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
@@ -1448,12 +1449,7 @@ export async function writeInventoryResultEvent(input: {
     payload,
     created_by: input.userId,
   });
-  await input.supabase.rpc("log_audit", {
-    p_action_code: `inventory.${input.eventType}`,
-    p_entity_type: "inventory_document",
-    p_entity_id: input.documentId,
-    p_details: payload as never,
-  });
+  await writeInventoryAudit(input, payload);
 }
 
 /**
@@ -1491,11 +1487,34 @@ export async function writeInventoryResultEvents(input: {
     );
     if (error) throw new Error(error.message);
   }
-  await input.supabase.rpc("log_audit", {
-    p_action_code: `inventory.${input.eventType}`,
-    p_entity_type: "inventory_document",
-    p_entity_id: input.documentId,
-    p_details: (input.auditPayload ?? { bulk: true, count: input.events.length }) as never,
+  await writeInventoryAudit(
+    input,
+    input.auditPayload ?? { bulk: true, count: input.events.length },
+  );
+}
+
+/** Строка общего журнала про акт. Раньше — rpc('log_audit') клиентом
+ *  пользователя; прямой вызов закрыт миграцией 362, поэтому пишем
+ *  серверно, с заведением активной сессии, как делала log_audit. */
+async function writeInventoryAudit(
+  input: {
+    supabase: Awaited<ReturnType<typeof createClient>>;
+    accountId: string;
+    userId: string;
+    documentId: string;
+    eventType: string;
+  },
+  details: Record<string, unknown>,
+) {
+  const { data: venueId } = await input.supabase.rpc("get_active_venue_id");
+  await writeAuditEvent({
+    accountId: input.accountId,
+    venueId: (venueId as string | null) ?? null,
+    userId: input.userId,
+    actionCode: `inventory.${input.eventType}`,
+    entityType: "inventory_document",
+    entityId: input.documentId,
+    details,
   });
 }
 

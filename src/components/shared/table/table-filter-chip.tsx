@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { Check, ChevronDown, X } from "lucide-react";
+import { useRef, useState } from "react";
+import { Check, ChevronDown, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverContent,
@@ -10,22 +11,47 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
-/** Shared filter chip; multiple selections stay open until dismissed. */
+/** Shared filter chip; multiple selections stay open until dismissed.
+ *  `searchPlaceholder` adds a search field above long option lists
+ *  (сотрудники, контрагенты): the list filters by label, selected
+ *  options stay visible. */
 export function TableFilterChip({
   label,
   multiple,
   value,
   options,
   onChange,
-}: { label: string; options: { value: string; label: string }[] } & (
+  searchPlaceholder,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  searchPlaceholder?: string;
+} & (
   | { multiple: true; value: string[]; onChange: (value: string[]) => void }
   | { multiple?: false; value: string; onChange: (value: string) => void }
 )) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
   const selected = Array.isArray(value) ? value : value ? [value] : [];
   const active = selected.length > 0;
+  const needle = query.trim().toLocaleLowerCase("ru");
+  const visible =
+    searchPlaceholder && needle
+      ? options.filter(
+          (o) =>
+            selected.includes(o.value) ||
+            o.label.toLocaleLowerCase("ru").includes(needle),
+        )
+      : options;
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setQuery("");
+      }}
+    >
       <div className="relative inline-flex">
         <PopoverTrigger asChild>
           <Button
@@ -71,16 +97,35 @@ export function TableFilterChip({
         tabIndex={-1}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
-          if (event.target instanceof HTMLElement)
+          if (searchRef.current) searchRef.current.focus({ preventScroll: true });
+          else if (event.target instanceof HTMLElement)
             event.target.focus({ preventScroll: true });
         }}
         className="w-64 max-w-[calc(100vw-24px)] p-1"
       >
+        {searchPlaceholder ? (
+          <div className="relative mb-1">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              ref={searchRef}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={searchPlaceholder}
+              aria-label={searchPlaceholder}
+              className="h-8 pl-8 text-base sm:text-sm"
+            />
+          </div>
+        ) : null}
         <div
           className="max-h-72 overflow-y-auto"
           aria-label={`Варианты: ${label}`}
         >
-          {options.map((o) => (
+          {visible.length === 0 ? (
+            <p className="px-3 py-2 text-sm text-muted-foreground">
+              Ничего не найдено
+            </p>
+          ) : null}
+          {visible.map((o) => (
             <button
               key={o.value}
               type="button"

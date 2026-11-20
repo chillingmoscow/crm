@@ -559,7 +559,7 @@ export function CatalogTable({
               </IconTooltip>
             }
             primaryActions={
-              <InventorySyncButton canSync={canSync} lastSyncedAt={lastSyncedAt} variant="toolbar" />
+              <InventorySyncButton canSync={canSync} lastSyncedAt={lastSyncedAt} layout="toolbar" />
             }
           />
         }

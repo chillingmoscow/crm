@@ -5,11 +5,16 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { DrawerSection } from "@/components/ui/drawer-blocks";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { OptionSelect } from "@/components/ui/option-select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AmountInput } from "@/components/finance/amount-input";
+import { ProfileSection } from "@/components/shared/profile-section";
+import { formatRub } from "@/components/shared/money";
+import { formatDayMonthTime } from "@/lib/format/date";
 import {
   initialCashControlRules,
   type CashControlRules,
@@ -19,7 +24,13 @@ import {
   saveCashConfiguration,
   type CashConfiguration,
 } from "@/app/(dashboard)/sales/shifts/cash-control-actions";
-import { money } from "@/lib/sales/format";
+import { RuleHistory } from "./rule-history";
+
+/** Сообщение загрузчика, когда у пользователя нет права на контроль кассы. */
+const NO_ACCESS = "Нет доступа к контролю кассы";
+
+const rub = (cents: number) => formatRub(cents / 100, { fraction: "auto" });
+
 function Form({
   data,
   onClose,
@@ -32,27 +43,43 @@ function Form({
   const previous = data.versions[0],
     initial = previous?.config ?? initialCashControlRules;
   const [rules, setRules] = useState<CashControlRules>(initial),
-    [threshold, setThreshold] = useState(String(initial.thresholdCents / 100)),
+    [threshold, setThreshold] = useState<number | null>(
+      initial.thresholdCents / 100,
+    ),
     [interval, setIntervalMinutes] = useState(String(initial.intervalMinutes)),
     [reason, setReason] = useState(""),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState<string | null>(null);
+    [error, setError] = useState<string | null>(null),
+    [invalid, setInvalid] = useState<{
+      threshold?: string;
+      interval?: string;
+    }>({});
   const submit = async () => {
+    const problems = {
+      threshold:
+        threshold === null ||
+        Math.abs(threshold * 100 - Math.round(threshold * 100)) > 0.000001
+          ? "Укажите сумму, не больше двух знаков после запятой"
+          : undefined,
+      interval:
+        rules.autoRead && !/^\d+$/.test(interval.trim())
+          ? "Укажите целое число минут"
+          : undefined,
+    };
+    setInvalid(problems);
+    if (problems.threshold || problems.interval) return;
     setBusy(true);
     setError(null);
     try {
-      if (
-        !/^\d+(?:[.,]\d{1,2})?$/.test(threshold.trim()) ||
-        !/^\d+$/.test(interval.trim())
-      )
-        throw new Error("Проверьте порог и интервал проверки");
       const saved = await saveCashConfiguration({
         venueId: data.venueId,
         version: previous?.version ?? 0,
         config: {
           ...rules,
-          thresholdCents: Math.round(Number(threshold.replace(",", ".")) * 100),
-          intervalMinutes: Number(interval),
+          thresholdCents: Math.round((threshold ?? 0) * 100),
+          intervalMinutes: /^\d+$/.test(interval.trim())
+            ? Number(interval)
+            : initial.intervalMinutes,
         },
         reason,
       });
@@ -81,29 +108,31 @@ function Form({
             disabled={busy || !reason.trim()}
             onClick={() => void submit()}
           >
-            {busy ? "Сохраняем…" : "Сохранить правила"}
+            {busy ? "Сохраняем…" : "Сохранить"}
           </Button>
         </>
       }
     >
       <fieldset
         disabled={busy || !data.canManage}
-        className="min-w-0 space-y-5"
+        className="flex min-w-0 flex-col gap-5"
       >
         <DrawerSection title="Расхождения">
-          <div className="space-y-2">
-            <Label htmlFor="cash-threshold">Порог расхождения, ₽</Label>
-            <Input
-              id="cash-threshold"
-              inputMode="decimal"
-              value={threshold}
-              onChange={(e) => setThreshold(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              0 — показывать любое ненулевое расхождение. Недостача и излишек
-              сравниваются с одним порогом.
-            </p>
-          </div>
+          <Field
+            id="cash-threshold"
+            label="Порог расхождения"
+            required
+            hint="0: показывать любое ненулевое расхождение. Недостача и излишек сравниваются с одним порогом."
+            error={invalid.threshold}
+          >
+            {(control) => (
+              <AmountInput
+                id={control.id}
+                value={threshold}
+                onChange={setThreshold}
+              />
+            )}
+          </Field>
           {(
             [
               ["opening", "Проверять открытие"],
@@ -128,21 +157,35 @@ function Form({
               id="cash-notify"
               aria-label="Уведомления в приложении"
               checked={rules.notifyFinance}
-              onCheckedChange={(v) => setRules((r) => ({ ...r, notifyFinance: v }))}
+              onCheckedChange={(v) =>
+                setRules((r) => ({ ...r, notifyFinance: v }))
+              }
             />
           }
         >
           {rules.notifyFinance && (
-            <div className="space-y-2">
-              <Label htmlFor="cash-audience">Получатели</Label>
-              <Select value={rules.notificationAudience} onValueChange={(v) => setRules((r) => ({ ...r, notificationAudience: v as CashControlRules["notificationAudience"] }))}>
-                <SelectTrigger id="cash-audience"><SelectValue /></SelectTrigger>
-                <SelectContent className="w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-2rem)]">
-                  <SelectItem value="owner_finance">Владелец и пользователи с доступом к финансам</SelectItem>
-                  <SelectItem value="owner">Только владелец</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <Field id="cash-audience" label="Получатели" required>
+              {(control) => (
+                <OptionSelect
+                  {...control}
+                  value={rules.notificationAudience}
+                  onValueChange={(v) =>
+                    setRules((r) => ({
+                      ...r,
+                      notificationAudience:
+                        v as CashControlRules["notificationAudience"],
+                    }))
+                  }
+                  options={[
+                    {
+                      value: "owner_finance",
+                      label: "Владелец и пользователи с доступом к финансам",
+                    },
+                    { value: "owner", label: "Только владелец" },
+                  ]}
+                />
+              )}
+            </Field>
           )}
         </DrawerSection>
         <DrawerSection
@@ -158,32 +201,35 @@ function Form({
           }
         >
           {rules.autoRead && (
-            <div className="space-y-2">
-              <Label htmlFor="cash-interval">Интервал проверки, минут</Label>
-              <Input
-                id="cash-interval"
-                inputMode="numeric"
-                value={interval}
-                onChange={(e) => setIntervalMinutes(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                От 15 минут до суток.
-              </p>
-            </div>
+            <Field
+              id="cash-interval"
+              label="Интервал проверки, минут"
+              required
+              hint="От 15 минут до суток."
+              error={invalid.interval}
+            >
+              {(control) => (
+                <Input
+                  {...control}
+                  inputMode="numeric"
+                  value={interval}
+                  onChange={(e) => setIntervalMinutes(e.target.value)}
+                />
+              )}
+            </Field>
           )}
         </DrawerSection>
-        <DrawerSection title="Основание изменения">
-          <Label htmlFor="cash-reason" className="sr-only">
-            Основание изменения
-          </Label>
-          <Textarea
-            id="cash-reason"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            maxLength={1000}
-            placeholder="Что изменили и почему"
-          />
-        </DrawerSection>
+        <Field id="cash-reason" label="Основание изменения" required>
+          {(control) => (
+            <Textarea
+              {...control}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              maxLength={1000}
+              placeholder="Что изменили и почему"
+            />
+          )}
+        </Field>
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}
@@ -193,6 +239,14 @@ function Form({
     </EditDrawer>
   );
 }
+
+const audience = (c: CashControlRules) =>
+  c.notifyFinance
+    ? c.notificationAudience === "owner"
+      ? "владельцу"
+      : "владельцу и финансам"
+    : "выкл.";
+
 export function CashControlSettingsSection({ venueId }: { venueId: string }) {
   const [data, setData] = useState<CashConfiguration | null>(null),
     [error, setError] = useState<string | null>(null),
@@ -210,59 +264,60 @@ export function CashControlSettingsSection({ venueId }: { venueId: string }) {
       live = false;
     };
   }, [venueId]);
+  // Нет права — секции нет (как у «Проведения финансовых операций»).
+  if (error === NO_ACCESS) return null;
   const current = data?.versions[0];
   return (
-    <section className="space-y-4 rounded-lg border p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="font-semibold">Контроль кассы</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {current
-              ? `Порог ${money(current.config.thresholdCents / 100)} ₽ · ${current.config.autoRead ? `каждые ${current.config.intervalMinutes} мин.` : "ручная проверка"}`
-              : "Расхождения при открытии и закрытии смен"}
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={!data?.canManage}
-          onClick={() => setOpen(true)}
-        >
-          <Settings2 className="mr-2 size-4" />
-          Настроить
-        </Button>
-      </div>
+    <ProfileSection
+      title="Контроль кассы"
+      description={
+        current
+          ? `Порог ${rub(current.config.thresholdCents)} · ${current.config.autoRead ? `каждые ${current.config.intervalMinutes} мин` : "ручная проверка"}`
+          : "Расхождения при открытии и закрытии смен"
+      }
+      locked={
+        data && !data.canManage
+          ? { tone: "locked", message: "Правила контроля кассы изменяет владелец" }
+          : undefined
+      }
+      actions={
+        data?.canManage ? (
+          <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+            <Settings2 />
+            Настроить
+          </Button>
+        ) : null
+      }
+    >
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       )}
-      {current && (
-        <details className="border-t pt-4 text-sm">
-          <summary className="cursor-pointer text-muted-foreground">
-            История правил
-          </summary>
-          <ol className="mt-3 divide-y">
+      {data && current && (
+        <RuleHistory count={data.versions.length}>
+          <ol className="divide-y text-sm">
             {data.versions.map((v) => (
               <li key={v.id} className="space-y-1 py-3">
                 <p>
                   Версия {v.version} · {v.actor_name}
                 </p>
                 <p className="text-muted-foreground">
-                  {new Date(v.created_at).toLocaleString("ru-RU")} · {v.reason}
+                  {formatDayMonthTime(v.created_at)} · {v.reason}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Порог {money(v.config.thresholdCents / 100)} ₽ · открытие{" "}
+                  Порог {rub(v.config.thresholdCents)} · открытие{" "}
                   {v.config.opening ? "вкл." : "выкл."} · закрытие{" "}
                   {v.config.closing ? "вкл." : "выкл."} ·{" "}
                   {v.config.autoRead
-                    ? `каждые ${v.config.intervalMinutes} мин.`
-                    : "ручная проверка"} · уведомления {v.config.notifyFinance ? v.config.notificationAudience === "owner" ? "владельцу" : "владельцу и финансам" : "выкл."}
+                    ? `каждые ${v.config.intervalMinutes} мин`
+                    : "ручная проверка"}{" "}
+                  · уведомления {audience(v.config)}
                 </p>
               </li>
             ))}
           </ol>
-        </details>
+        </RuleHistory>
       )}
       {open && data && (
         <Form
@@ -274,6 +329,6 @@ export function CashControlSettingsSection({ venueId }: { venueId: string }) {
           }}
         />
       )}
-    </section>
+    </ProfileSection>
   );
 }

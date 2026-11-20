@@ -70,6 +70,17 @@ export function useLocalDateTime(
   return text;
 }
 
+/**
+ * То же время строкой «20.11.2026, 14:30» — для атрибутов (`data-tip`), куда
+ * компонент не вставить. Короткая форма `useLocalDateTime(value, "datetime")`.
+ */
+export function useLocalDateTimeText(
+  value: string | null | undefined,
+  fallback = "—",
+): string {
+  return useLocalDateTime(value, "datetime", fallback);
+}
+
 export function LocalDateTime({
   value,
   variant = "datetime",

@@ -132,8 +132,13 @@ const SaveBarScopeContext = createContext<ScopeApi | null>(null);
  * медкнижка). Секции подключаются через `useSaveSection`; «Сохранить»
  * сохраняет все изменённые по очереди и останавливается на первой ошибке.
  * Полоса рендерится последним элементом внутри области.
+ *
+ * Вложенная область не рисует свою полосу, а отдаёт секции внешней:
+ * блок, у которого своя область (настройки оплаты), встраивается во
+ * вкладку карточки, и на экране остаётся одна полоса.
  */
 export function SaveBarScope({ children }: { children: ReactNode }) {
+  const parent = useContext(SaveBarScopeContext);
   const [sections, setSections] = useState<Record<string, Snapshot>>({});
   const [saving, setSaving] = useState(false);
   const handlers = useRef(new Map<string, { current: SaveSection }>());
@@ -182,6 +187,8 @@ export function SaveBarScope({ children }: { children: ReactNode }) {
       setSaving(false);
     }
   };
+
+  if (parent) return <>{children}</>;
 
   return (
     <SaveBarScopeContext.Provider value={api}>

@@ -24,6 +24,7 @@ const FIELD_VALUES: Record<string, Record<string, string>> = {
     income: "Доход", expense: "Расход", transfer: "Перевод",
     checking: "Расчётный счёт", debit_card: "Карта", cash: "Касса", fund: "Фонд", safe: "Сейф",
   },
+  review_mode: { auto: "Без проверки", manager: "Проверяет управляющий" },
   legal_form: { IP: "ИП", OOO: "ООО", AO: "АО", PAO: "ПАО", NKO: "НКО", OTHER: "Иное" },
   tax_system: {
     OSN: "ОСН", USN_INCOME: "УСН · доходы", USN_INCOME_EXPENSE: "УСН · доходы минус расходы",
@@ -63,6 +64,8 @@ const SECTIONS: Record<string, string> = {
   legal_entity: "Юрлица", account: "Аккаунт", invitation: "Приглашения",
   kb_page: "База знаний", kb_thread: "База знаний",
   candidate: "Кандидаты", crm:"Гости",
+  catalog: "Номенклатура", store: "Склады", schedule: "Расписание",
+  cash: "Финансы", stock: "Склад",
 };
 
 /** A new backend event must not expose its technical code in the journal. */
@@ -106,6 +109,38 @@ const FIELD_LABELS: Record<string, string> = {
   external_state: "обработка бонусов",
   employee_id: "сотрудник",
   kind: "тип записи",
+  // catalog
+  local_description: "описание",
+  supplier_article: "артикул поставщика",
+  supplier_price: "цена поставщика",
+  is_preferred: "основной поставщик",
+  note: "заметка",
+  // schedule
+  shift_date: "дата",
+  shift_time: "время",
+  shift_employee: "сотрудник",
+  shift_role: "должность",
+  shift_title: "название смены",
+  enabled: "задача включена",
+  review_mode: "проверка",
+  penalty_enabled: "штраф за невыполнение",
+  fine_amount: "сумма штрафа",
+  reward_amount: "вознаграждение",
+  starts_on: "действует с",
+  enabled_from: "задачи работают с",
+  paused: "пауза",
+  chat_id: "чат для задач",
+  daily_days: "дни сообщения о задачах",
+  daily_time: "время сообщения о задачах",
+  reminder_chat_ids: "чаты напоминания о графике",
+  schedule_open_day: "начало сбора графика",
+  schedule_deadline_day: "последний день сдачи графика",
+  schedule_time: "время напоминания о графике",
+  // sales settings
+  sales_enabled: "автообновление продаж",
+  sales_day_start_hour: "начало рабочих суток, час",
+  // stores
+  local_venue_id: "заведение",
   // finance (общие)
   name: "название",
   type: "тип",

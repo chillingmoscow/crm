@@ -30,7 +30,7 @@ export const AUDIT_ACTION_CATEGORIES: {
  *  видишь только *.created). «Прочее»-категории намеренно нет:
  *  чистый фильтр по понятным типам действий. */
 const CATEGORY_SUFFIXES: Record<AuditActionCategory, string[]> = {
-  created: [".created", ".sent", ".imported"],
+  created: [".created", ".sent", ".imported", ".requested"],
   // Приём в команду (сотрудник, кандидат) и увольнение с закрытием доступов.
   staffing: [".hired", ".fired", ".access_removed"],
   changed: [
@@ -57,6 +57,15 @@ const CATEGORY_SUFFIXES: Record<AuditActionCategory, string[]> = {
     ".resolved",
     ".unresolved",
     ".expense_linked",
+    ".supplier_added",
+    ".supplier_removed",
+    // Расписание: публикация, решения по чек-листам, заменам и отчётам.
+    ".published",
+    ".applied",
+    ".approved",
+    ".returned",
+    ".rejected",
+    ".answered",
   ],
   deleted: [".deleted", ".archived", ".cancelled"],
   restored: [".restored"],

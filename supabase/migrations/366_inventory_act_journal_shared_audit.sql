@@ -7,7 +7,8 @@
 --   1. audit_logs_select пускал только с org.view_audit — проверяющий без
 --      доступа к общему журналу потерял бы журнал акта. Расширяем единственную
 --      permissive-политику OR'ом: события конкретного акта (entity_id задан)
---      читаются и с inventory.view_results. Прочие разделы журнала — как были.
+--      читаются и с inventory.view_results — если сам акт виден пользователю
+--      (documents_select). Прочие разделы журнала — как были.
 --   2. В details не было текста события и названий позиций — по одному коду
 --      не понять, какую строку отметили. Дозаполняем из inventory_result_events
 --      (сообщение, число событий одной команды).
@@ -42,6 +43,12 @@ create policy "audit_logs_select"
         and entity_id is not null
         and action_code like 'inventory.%'
         and (select public.has_permission('inventory.view_results'))
+        -- Журнал виден ровно тем, кто видит сам акт: documents_select (RLS
+        -- подзапроса) уже учитывает заведение, view_all_venues и
+        -- проверяющего из другого заведения (195, 210). Без этого
+        -- view_results в одном заведении открывал журналы актов всех
+        -- заведений аккаунта.
+        and exists (select 1 from public.documents d where d.id = audit_logs.entity_id)
       )
     )
   );

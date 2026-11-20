@@ -206,7 +206,7 @@ URL-параметры (можно делиться ссылкой на отфи
     `157_audit_cascade_guard_for_154.sql` — приглашения / должности.
   - `155_finance_audit_triggers.sql` — финансы.
   - `156_org_audit_triggers.sql` — venues / legal_entities / accounts.
-  - `362_schedule_audit_log.sql` — расписание: из внутренних историй
+  - `363_schedule_audit_log.sql` — расписание: из внутренних историй
     (`schedule_events`, `schedule_task_history`, `schedule_shift_swaps`).
 - UI:
   - `src/app/(dashboard)/org/audit/page.tsx`

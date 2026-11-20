@@ -31,7 +31,7 @@ import type { AuditEventSpec } from "./format";
 import { formatAuditDate } from "./labels";
 
 // «Расписание» в общем журнале: `schedule.*`. Смены, шаблоны, чек-листы,
-// замены и задачи пишут триггеры (миграция 362) по внутренним историям
+// замены и задачи пишут триггеры (миграция 363) по внутренним историям
 // расписания; видимость должностей и сообщения в Telegram — server actions.
 
 const INFO = "text-brand bg-brand/10";

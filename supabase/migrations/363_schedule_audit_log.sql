@@ -416,7 +416,9 @@ end $$;
 
 -- schedule_apply_template: функция с правами вызывающего, поэтому итог
 -- пишет через public.log_audit (контекст — активные аккаунт и заведение,
--- автор — auth.uid()). Ничего не обновилось — строки нет.
+-- автор — auth.uid()). Вызов изнутри функции, не верхним уровнем, —
+-- запрет прямых вызовов из 362 его пропускает. Ничего не обновилось —
+-- строки нет.
 do $$
 declare
   definition text := pg_get_functiondef('public.schedule_apply_template(uuid,date,text)'::regprocedure);

@@ -1,21 +1,10 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { AlertTriangle } from "lucide-react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
 export type DeleteImpact = {
   label: string;
@@ -38,17 +27,39 @@ export type DeleteRestriction = {
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Что удаляем, в винительном падеже («заведение», «юрлицо»). */
   entityGenitive: string;
   entityName: string;
   impact: DeleteImpact[];
   /**
-   * Если непусто — кнопка подтверждения disabled, сверху показывается
-   * блокирующий блок с подсказкой. На сервере re-checked тоже.
+   * Если непусто — диалог объясняет, что мешает удалению, кнопка
+   * подтверждения выключена. На сервере проверяется ещё раз.
    */
   restrictedBy: DeleteRestriction[];
+  /** Возврат `{ error }` оставляет диалог открытым с ошибкой внутри. */
   onConfirm: () => Promise<{ error: string | null } | void>;
 };
 
+function ImpactList({ title, rows }: { title: string; rows: DeleteImpact[] }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-xs text-muted-foreground">{title}</p>
+      <ul className="divide-y rounded-[10px] border text-sm">
+        {rows.map((row) => (
+          <li key={row.label} className="flex justify-between gap-4 px-3 py-2">
+            <span className="text-muted-foreground">{row.label}</span>
+            <span className="font-medium tabular-nums">{row.count}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Безвозвратное удаление на общем `ConfirmDialog`: что удалится вместе с
+ * записью, что отвяжется, что мешает удалить. Название вводится руками.
+ */
 export function HardDeleteConfirmDialog({
   open,
   onOpenChange,
@@ -59,6 +70,7 @@ export function HardDeleteConfirmDialog({
   onConfirm,
 }: Props) {
   const [input, setInput] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const matches = input.trim() === entityName.trim();
   const blocked = restrictedBy.length > 0;
@@ -67,122 +79,74 @@ export function HardDeleteConfirmDialog({
   const unbind = visibleImpact.filter((row) => row.tone === "unbind");
 
   useEffect(() => {
-    if (!open) setInput("");
+    if (!open) {
+      setInput("");
+      setError(null);
+    }
   }, [open]);
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle className="flex items-center gap-2 text-destructive">
-            <AlertTriangle className="h-5 w-5" />
-            Удалить {entityGenitive} навсегда
-          </AlertDialogTitle>
-          <AlertDialogDescription asChild>
-            <div className="space-y-2">
-              <p>
-                <span className="font-medium text-destructive">
-                  Действие необратимо.
-                </span>{" "}
-                Часть данных будет полностью удалена, часть — отвяжется и
-                продолжит существовать как «без заведения».
-              </p>
-              <p className="text-sm">
-                Если не уверены — воспользуйтесь «Архивировать»: сущность
-                скроется, но данные сохранятся.
-              </p>
-            </div>
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-
-        {blocked ? (
-          <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
-            <p className="mb-1 text-xs font-medium text-destructive">
-              Нельзя удалить — есть блокирующие связи:
-            </p>
-            <ul className="space-y-1 text-sm">
-              {restrictedBy.map((row) => (
-                <li key={row.label}>
-                  <span className="font-medium">{row.label}:</span>{" "}
-                  <span className="tabular-nums">{row.count}</span>
-                  {row.hint ? (
-                    <span className="block text-xs text-muted-foreground">
-                      {row.hint}
-                    </span>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-
-        {cascade.length > 0 ? (
-          <div className="rounded-md border bg-muted/30 px-3 py-2">
-            <p className="mb-1.5 text-xs font-medium text-destructive">
-              Будет удалено вместе:
-            </p>
-            <ul className="space-y-0.5 text-sm">
-              {cascade.map((row) => (
-                <li key={row.label} className="flex justify-between gap-4">
-                  <span className="text-muted-foreground">{row.label}</span>
-                  <span className="font-medium tabular-nums">{row.count}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-
-        {unbind.length > 0 ? (
-          <div className="rounded-md border bg-muted/30 px-3 py-2">
-            <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-              Отвяжется (сохранится без привязки):
-            </p>
-            <ul className="space-y-0.5 text-sm">
-              {unbind.map((row) => (
-                <li key={row.label} className="flex justify-between gap-4">
-                  <span className="text-muted-foreground">{row.label}</span>
-                  <span className="font-medium tabular-nums">{row.count}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-
-        <div className="space-y-1.5">
-          <Label htmlFor="hard-delete-confirm-input" className="text-sm">
-            Для подтверждения введите название:{" "}
-            <span className="font-medium text-foreground">{entityName}</span>
-          </Label>
-          <Input
-            id="hard-delete-confirm-input"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={entityName}
-            autoComplete="off"
-            spellCheck={false}
-            disabled={blocked}
-          />
+    <ConfirmDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={`Удалить ${entityGenitive} «${entityName}» навсегда?`}
+      description={
+        blocked
+          ? "Сейчас удалить нельзя: к записи привязаны данные, которые без неё потеряют смысл. Архив скроет запись и сохранит историю"
+          : "Действие нельзя отменить. Если сомневаетесь, отправьте запись в архив: она скроется, а данные сохранятся"
+      }
+      confirmLabel="Удалить навсегда"
+      pendingLabel="Удаляем…"
+      destructive
+      busy={isPending}
+      confirmDisabled={blocked || !matches}
+      error={error}
+      onConfirm={() => {
+        setError(null);
+        startTransition(async () => {
+          const result = await onConfirm();
+          if (result && result.error) setError(result.error);
+        });
+      }}
+    >
+      {blocked ? (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+          <p className="font-medium">Мешает удалению</p>
+          <ul className="mt-1.5 flex flex-col gap-1.5">
+            {restrictedBy.map((row) => (
+              <li key={row.label}>
+                <span>
+                  {row.label}: <span className="tabular-nums">{row.count}</span>
+                </span>
+                {row.hint ? (
+                  <span className="block text-xs text-muted-foreground">{row.hint}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
         </div>
-
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={isPending}>Отмена</AlertDialogCancel>
-          <AlertDialogAction
-            disabled={!matches || isPending || blocked}
-            className={cn(
-              buttonVariants({ variant: "destructive" }),
-              "shadow-sm",
+      ) : (
+        <>
+          {cascade.length > 0 ? (
+            <ImpactList title="Удалится вместе с записью" rows={cascade} />
+          ) : null}
+          {unbind.length > 0 ? (
+            <ImpactList title="Отвяжется, но сохранится" rows={unbind} />
+          ) : null}
+          <Field id="hard-delete-confirm-input" label="Введите название для подтверждения">
+            {(control) => (
+              <Input
+                {...control}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={entityName}
+                autoComplete="off"
+                spellCheck={false}
+              />
             )}
-            onClick={(e) => {
-              e.preventDefault();
-              startTransition(async () => {
-                await onConfirm();
-              });
-            }}
-          >
-            {isPending ? "Удаление…" : "Удалить навсегда"}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+          </Field>
+        </>
+      )}
+    </ConfirmDialog>
   );
 }

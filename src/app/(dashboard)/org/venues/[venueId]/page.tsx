@@ -1,29 +1,23 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+
 import {
   createClient,
+  getCachedActiveAccountId,
   getCachedPermissionChecker,
+  getCachedUser,
 } from "@/lib/supabase/server";
-import { VenueDetailPage } from "./_components/venue-detail-page";
+import { asLooseDb } from "@/lib/supabase/loose";
 import { listLegalEntities } from "@/lib/org/legal-entities";
 import { listAuditEvents } from "@/lib/audit/list";
-import { getVenueArchiveImpact } from "../actions";
-import type { WorkingHours } from "@/types/database";
 import { loadSalesConfiguration } from "@/app/(dashboard)/sales/shifts/actions";
+import type { WorkingHours } from "@/types/database";
+import { getVenueArchiveImpact } from "../actions";
+import { VenueDetailPage, type VenueDetail, type VenueTab } from "./_components/venue-detail-page";
 
-type VenueDetail = {
-  id: string;
-  name: string;
-  type: string;
-  address: string | null;
-  phone: string | null;
-  currency: string;
-  timezone: string;
-  working_hours: WorkingHours | null;
-  comment: string | null;
-  default_legal_entity_id: string | null;
-  inventory_recount_threshold_sum: number | null;
-  inventory_recount_threshold_percent: number | null;
-};
+export const metadata: Metadata = { title: "Заведение" };
+
+const TABS: VenueTab[] = ["main", "sales", "payroll", "inventory", "audit"];
 
 export default async function VenueDetailServerPage({
   params,
@@ -32,105 +26,75 @@ export default async function VenueDetailServerPage({
   params: Promise<{ venueId: string }>;
   searchParams: Promise<{ tab?: string }>;
 }) {
-  const { venueId } = await params;
-  const requestedTab = (await searchParams).tab;
-  const initialTab =
-    requestedTab === "inventory" ||
-    requestedTab === "audit" ||
-    requestedTab === "sales" ||
-    requestedTab === "payroll"
-      ? requestedTab
-      : undefined;
-  const supabase = await createClient();
-  type LooseQueryBuilder = {
-    select: (columns: string) => LooseQueryBuilder;
-    eq: (column: string, value: unknown) => LooseQueryBuilder;
-    maybeSingle: () => Promise<{ data: unknown }>;
-  };
-  const db = supabase as unknown as {
-    from: (table: string) => LooseQueryBuilder;
-  };
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const [{ venueId }, { tab }] = await Promise.all([params, searchParams]);
+  const [user, supabase] = await Promise.all([getCachedUser(), createClient()]);
   if (!user) redirect("/login");
 
-  // Only account owner can manage venues
-  const { data: account } = await supabase
-    .from("accounts")
-    .select("id")
-    .eq("owner_id", user.id)
-    .maybeSingle();
+  // Карточка открывается по тому же праву, что и список. RLS venues_select
+  // пускает к своим заведениям; правка — org.manage_venues (venues_update),
+  // архив и удаление — владелец (assertVenueOwner на сервере).
+  const can = await getCachedPermissionChecker();
+  if (!can("org.view_venues")) redirect("/dashboard");
+  const accountId = await getCachedActiveAccountId();
+  if (!accountId) redirect("/org/venues");
 
-  if (!account) redirect("/org/venues");
-
-  const { data: venue } = await supabase
-    .from("venues")
+  const db = asLooseDb(supabase);
+  const { data: venue } = await db
+    .from<VenueDetail>("venues")
     .select(
-      "id, name, type, address, phone, currency, timezone, working_hours, comment, default_legal_entity_id, inventory_recount_threshold_sum, inventory_recount_threshold_percent",
+      "id, name, type, address, phone, currency, timezone, working_hours, comment, default_legal_entity_id, inventory_recount_threshold_sum, inventory_recount_threshold_percent, archived_at, created_at",
     )
     .eq("id", venueId)
-    .eq("account_id", account.id)
-    .returns<VenueDetail[]>()
+    .eq("account_id", accountId)
     .maybeSingle();
-
   if (!venue) redirect("/org/venues");
 
-  const importedVenueResult = (await db
-    .from("external_entity_links")
-    .select("id")
-    .eq("account_id", account.id)
-    .eq("provider", "quickresto")
-    .eq("entity_type", "venue")
-    .eq("local_id", venueId)
-    .maybeSingle()) as unknown as { data: { id: string } | null };
+  const canViewAudit = Boolean(can("org.view_audit"));
+  const canViewStockRules = Boolean(can("inventory.view_results"));
+  const canConfigurePayroll = Boolean(can("payroll.configure"));
+  const canConfigureSales = Boolean(can("sales.configure_shifts") && can("sales.view_shifts"));
 
-  // Account legal entities for the picker. Fetched here so the client
-  // component doesn't need to call a server action just to populate
-  // a select.
-  const { rows: legalEntities } = await listLegalEntities();
+  const [{ data: isOwner }, { data: link }, { rows: legalEntities }, archiveImpact, auditResult, salesConfiguration] =
+    await Promise.all([
+      supabase.rpc("is_account_owner", { p_account_id: accountId }),
+      db
+        .from<{ id: string }>("external_entity_links")
+        .select("id")
+        .eq("account_id", accountId)
+        .eq("provider", "quickresto")
+        .eq("entity_type", "venue")
+        .eq("local_id", venueId)
+        .maybeSingle(),
+      can("org.view_legal_entities") ? listLegalEntities() : Promise.resolve({ rows: [] }),
+      getVenueArchiveImpact(venueId),
+      canViewAudit
+        ? listAuditEvents({ entityType: "venue", entityId: venueId })
+        : Promise.resolve({ events: [], hasMore: false, error: null }),
+      // Настройки продаж читаются в контексте заведения; если нельзя
+      // (например, открыто не активное заведение), вкладку просто не
+      // показываем, а не роняем всю карточку.
+      canConfigureSales ? loadSalesConfiguration(venueId).catch(() => null) : Promise.resolve(null),
+    ]);
 
-  // Журнал. Префетч первой страницы, если у юзера есть org.view_audit.
-  // + Permission на hard-delete + impact-счётчики для danger zone.
-  const [can, archiveImpact] = await Promise.all([
-    getCachedPermissionChecker(),
-    getVenueArchiveImpact(venueId),
-  ]);
-  const canViewAudit = can("org.view_audit");
-  const canHardDelete = can("org.delete_venue");
+  const requested = TABS.find((t) => t === tab);
 
-  const auditResult = canViewAudit
-    ? await listAuditEvents({ entityType: "venue", entityId: venueId })
-    : { events: [], hasMore: false, error: null };
-
-  // Эта страница уже редиректит не-владельца (account найден через
-  // owner_id выше), поэтому canArchive здесь всегда true. Передаём
-  // явно для консистентности контракта VenueDetailPage.
   return (
     <VenueDetailPage
-      key={`${venueId}:${initialTab ?? "main"}`}
-      initialTab={initialTab}
-      canViewStockRules={Boolean(can("inventory.view_results"))}
-      canConfigurePayroll={Boolean(can("payroll.configure"))}
-      venue={venue}
-      importedFromQuickResto={Boolean(importedVenueResult.data?.id)}
-      legalEntities={legalEntities.map((le) => ({
-        id: le.id,
-        name: le.short_name ?? le.name,
-        legal_form: le.legal_form,
-      }))}
-      canViewAudit={Boolean(canViewAudit)}
-      canArchive={true}
-      canHardDelete={Boolean(canHardDelete)}
+      key={`${venueId}:${requested ?? "main"}`}
+      venue={{ ...venue, working_hours: (venue.working_hours as WorkingHours | null) ?? null }}
+      initialTab={requested}
+      importedFromQuickResto={Boolean(link?.id)}
+      legalEntities={legalEntities.map((le) => ({ id: le.id, name: le.short_name ?? le.name }))}
+      canManage={Boolean(can("org.manage_venues"))}
+      isOwner={Boolean(isOwner)}
+      canHardDelete={Boolean(can("org.delete_venue"))}
+      canViewAudit={canViewAudit}
+      canViewStockRules={canViewStockRules}
+      canConfigurePayroll={canConfigurePayroll}
+      salesConfiguration={salesConfiguration}
       archiveImpact={archiveImpact}
       initialAuditEvents={auditResult.events}
       initialAuditHasMore={auditResult.hasMore}
-      salesConfiguration={
-        can("sales.configure_shifts") && can("sales.view_shifts")
-          ? await loadSalesConfiguration(venueId)
-          : null
-      }
     />
   );
 }

@@ -42,6 +42,35 @@ export function CategoryColorDot({
 }
 
 /**
+ * Полоска доли статьи (дашборд «Топ статей расходов») в цвете статьи.
+ * Без цвета и для «Без статьи» — нейтральная, чтобы цвет оставался
+ * приметой конкретной статьи, а не типа операции.
+ */
+export function CategoryShareBar({
+  color,
+  percent,
+}: {
+  color: string | null | undefined;
+  percent: number;
+}) {
+  const palette = normalizePaletteColor(color);
+  const legacyHex = !palette && color && HEX.test(color) ? (color.startsWith("#") ? color : `#${color}`) : null;
+  const width = `${Math.max(0, Math.min(100, percent))}%`;
+  return (
+    <div className="h-1.5 overflow-hidden rounded-sm bg-muted" aria-hidden="true">
+      <div
+        className={cn(
+          "h-full rounded-sm",
+          palette && palette !== "default" ? paletteDot(palette) : legacyHex ? null : "bg-muted-foreground/40",
+        )}
+        // Hex — данные прежнего учёта, не токен интерфейса.
+        style={legacyHex ? { width, backgroundColor: legacyHex } : { width }}
+      />
+    </div>
+  );
+}
+
+/**
  * Выбор цвета статьи — кружки 28px (docs/design-system.md § «Выбор цвета»).
  * Цвет необязателен: «Без цвета» — текстовая ссылка в строке подписи.
  */

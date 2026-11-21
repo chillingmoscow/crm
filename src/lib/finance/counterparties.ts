@@ -28,8 +28,6 @@ export type ListCounterpartiesOptions = {
   /** When true, includes soft-deleted rows (deleted_at is not null). */
   include_deleted?: boolean;
   group_id?: string | null;
-  /** Substring search (ILIKE) over name / inn / contact_person. */
-  q?: string;
 };
 
 export async function listCounterparties(
@@ -43,12 +41,6 @@ export async function listCounterparties(
     query = opts.group_id === null
       ? query.is("group_id", null)
       : query.eq("group_id", opts.group_id);
-  }
-  if (opts.q && opts.q.trim()) {
-    const term = `%${opts.q.trim()}%`;
-    query = query.or(
-      `name.ilike.${term},inn.ilike.${term},contact_person.ilike.${term}`
-    );
   }
 
   const { data, error } = await query.order("name", { ascending: true });
@@ -104,7 +96,12 @@ async function validateCounterparty(
 
 /** Пустые строки уходят в базу как null, текст — без пробелов по краям. */
 function normalize(input: Partial<CounterpartyFormInput>): Partial<CounterpartyFormInput> {
-  const out: Partial<CounterpartyFormInput> = { ...input };
+  // Только поля формы: аккаунт, архив, авторство и сверку с ЕГРЮЛ из запроса
+  // не принимаем, даже если их прислали в обход интерфейса.
+  const out: Partial<CounterpartyFormInput> = {};
+  if (input.name !== undefined) out.name = String(input.name).trim();
+  if (input.legal_form !== undefined) out.legal_form = input.legal_form;
+  if (input.group_id !== undefined) out.group_id = input.group_id || null;
   for (const key of [
     "inn",
     "kpp",
@@ -115,9 +112,8 @@ function normalize(input: Partial<CounterpartyFormInput>): Partial<CounterpartyF
     "address",
     "description",
   ] as const) {
-    if (out[key] !== undefined) out[key] = out[key]?.trim() || null;
+    if (input[key] !== undefined) out[key] = input[key] ? String(input[key]).trim() || null : null;
   }
-  if (out.name !== undefined) out.name = out.name.trim();
   return out;
 }
 
@@ -476,9 +472,13 @@ async function duplicateGroupName(
 ): Promise<boolean> {
   const { data } = await supabase
     .from("counterparty_groups")
-    .select("id")
+    .select("id, name")
     .ilike("name", name.replace(/[\\%_]/g, (c) => `\\${c}`));
-  return (data ?? []).some((row) => row.id !== exceptId);
+  // ilike — только предфильтр (PostgREST читает `*` как `%`).
+  const lower = name.trim().toLocaleLowerCase("ru");
+  return (data ?? []).some(
+    (row) => row.id !== exceptId && row.name.trim().toLocaleLowerCase("ru") === lower,
+  );
 }
 
 export async function createCounterpartyGroup(
@@ -544,9 +544,12 @@ export async function updateCounterpartyGroup(
     .maybeSingle();
   if (!group) return { error: "Группа не найдена" };
 
-  const next: Partial<CounterpartyGroupFormInput> = { ...patch };
-  if (next.name !== undefined) {
-    next.name = next.name.trim();
+  // Только поля формы, без аккаунта.
+  const next: Partial<CounterpartyGroupFormInput> = {};
+  if (patch.description !== undefined) next.description = patch.description?.trim() || null;
+  if (patch.sort_order !== undefined) next.sort_order = Number(patch.sort_order) || 0;
+  if (patch.name !== undefined) {
+    next.name = String(patch.name).trim();
     if (!next.name) return { error: "Укажите название группы" };
     if (next.name !== group.name && (await duplicateGroupName(supabase, next.name, id))) {
       return { error: `Группа «${next.name}» уже есть` };

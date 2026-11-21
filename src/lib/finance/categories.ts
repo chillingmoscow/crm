@@ -112,9 +112,19 @@ async function findDuplicate(
     .select("id, name")
     .eq("type", type)
     .is("archived_at", null)
-    .ilike("name", name.replace(/[\\%_]/g, (c) => `\\${c}`));
-  const match = (data ?? []).find((row) => row.id !== exceptId);
+    .ilike("name", escapeLike(name));
+  // ilike — только предфильтр (PostgREST читает `*` как `%`); решает точное
+  // сравнение без учёта регистра.
+  const match = (data ?? []).find((row) => row.id !== exceptId && sameName(row.name, name));
   return match ? match.name : null;
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+function sameName(a: string, b: string): boolean {
+  return a.trim().toLocaleLowerCase("ru") === b.trim().toLocaleLowerCase("ru");
 }
 
 /** Группа подходит статье: у группы без типа или «любой» — любые статьи. */
@@ -200,15 +210,20 @@ export async function updateFinanceCategory(
   const row = await loadCategory(supabase, id);
   if (!row) return { error: "Статья не найдена" };
 
-  const next: Partial<FinanceCategoryFormInput> = { ...patch };
-  if (next.name !== undefined) next.name = next.name.trim();
-  if (next.description !== undefined) next.description = next.description?.trim() || null;
-
   // Тип статьи не меняется: старые операции остались бы в чужом разделе.
-  if (next.type !== undefined && next.type !== row.type) {
+  if (patch.type !== undefined && patch.type !== row.type) {
     return { error: "Тип статьи изменить нельзя. Создайте новую статью нужного типа" };
   }
-  delete next.type;
+
+  // Только поля формы: служебные (тип, системность, ФОТ, архив, аккаунт)
+  // из запроса не принимаем, даже если их прислали в обход интерфейса.
+  const next: Partial<Omit<FinanceCategoryFormInput, "type">> = {};
+  if (patch.name !== undefined) next.name = String(patch.name).trim();
+  if (patch.description !== undefined) next.description = patch.description?.trim() || null;
+  if (patch.color !== undefined) next.color = patch.color || null;
+  if (patch.icon !== undefined) next.icon = patch.icon || null;
+  if (patch.group_id !== undefined) next.group_id = patch.group_id || null;
+  if (patch.sort_order !== undefined) next.sort_order = Number(patch.sort_order) || 0;
 
   const renamed = next.name !== undefined && next.name !== row.name;
   const regrouped = next.group_id !== undefined && (next.group_id ?? null) !== row.group_id;
@@ -449,10 +464,10 @@ async function duplicateGroupName(
   exceptId?: string,
 ): Promise<boolean> {
   const { data } = await asLooseDb(supabase)
-    .from<Array<{ id: string }>>("finance_category_groups")
-    .select("id")
-    .ilike("name", name.replace(/[\\%_]/g, (c) => `\\${c}`));
-  return (data ?? []).some((row) => row.id !== exceptId);
+    .from<Array<{ id: string; name: string }>>("finance_category_groups")
+    .select("id, name")
+    .ilike("name", escapeLike(name));
+  return (data ?? []).some((row) => row.id !== exceptId && sameName(row.name, name));
 }
 
 const GROUP_TYPE_LABEL: Record<string, string> = {
@@ -521,9 +536,12 @@ export async function updateFinanceCategoryGroup(
   const group = await loadCategoryGroup(supabase, id);
   if (!group) return { error: "Группа не найдена" };
 
-  const next: Partial<FinanceCategoryGroupFormInput> = { ...patch };
-  if (next.name !== undefined) {
-    next.name = next.name.trim();
+  // Только поля формы, без аккаунта и признака ФОТ.
+  const next: Partial<FinanceCategoryGroupFormInput> = {};
+  if (patch.type !== undefined) next.type = patch.type ?? null;
+  if (patch.sort_order !== undefined) next.sort_order = Number(patch.sort_order) || 0;
+  if (patch.name !== undefined) {
+    next.name = String(patch.name).trim();
     if (!next.name) return { error: "Укажите название группы" };
     if (next.name !== group.name && (await duplicateGroupName(supabase, next.name, id))) {
       return { error: `Группа «${next.name}» уже есть` };

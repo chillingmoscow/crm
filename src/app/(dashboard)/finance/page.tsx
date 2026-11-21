@@ -28,6 +28,7 @@ import {
 } from "@/lib/finance/statistics";
 import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
 import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
+import { CategoryColorDot, CategoryShareBar } from "@/components/finance/category-color";
 import { DashboardPeriodFilter } from "./_components/dashboard-period-filter";
 import type { TransactionRow } from "@/types/finance";
 
@@ -92,6 +93,7 @@ export default async function FinanceDashboardPage({
   const venueNameById = new Map(venues.map((v) => [v.id, v.name]));
   const bankAccountNameById = new Map(bankAccounts.map((b) => [b.id, b.name]));
   const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
+  const categoryColorById = new Map(categories.map((c) => [c.id, c.color]));
 
   // Total balance — sum of per-LE balances (in RUB; mixed currencies
   // are summed naively per the lib's MVP spec).
@@ -262,6 +264,7 @@ export default async function FinanceDashboardPage({
                   label: c.category_id
                     ? categoryNameById.get(c.category_id) ?? "—"
                     : "Без статьи",
+                  color: c.category_id ? categoryColorById.get(c.category_id) ?? null : null,
                   amount: c.amount,
                   count:  c.count,
                 }))}
@@ -304,11 +307,17 @@ export default async function FinanceDashboardPage({
                             {bankAccountNameById.get(tx.bank_account_id) ?? "—"}
                             {tx.description ? ` — ${tx.description}` : ""}
                           </div>
-                          <div className="text-xs text-muted-foreground">
-                            {formatDate(tx.date)}
-                            {tx.category_id
-                              ? ` • ${categoryNameById.get(tx.category_id) ?? "статья"}`
-                              : ""}
+                          <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                            <span className="shrink-0">{formatDate(tx.date)}</span>
+                            {tx.category_id ? (
+                              <>
+                                <span aria-hidden="true">•</span>
+                                <CategoryColorDot color={categoryColorById.get(tx.category_id)} size="sm" />
+                                <span className="truncate">
+                                  {categoryNameById.get(tx.category_id) ?? "статья"}
+                                </span>
+                              </>
+                            ) : null}
                           </div>
                         </div>
                       </div>
@@ -343,7 +352,7 @@ function CategoryBars({
   total,
   amountRoundingScale,
 }: {
-  rows: { id: string | null; label: string; amount: number; count: number }[];
+  rows: { id: string | null; label: string; color: string | null; amount: number; count: number }[];
   total: number;
   amountRoundingScale: AmountRoundingScale;
 }) {
@@ -354,8 +363,9 @@ function CategoryBars({
         return (
           <li key={row.id ?? "__none__"} className="space-y-1.5">
             <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="truncate flex items-center gap-2">
-                {row.label}
+              <span className="flex min-w-0 items-center gap-2">
+                <CategoryColorDot color={row.color} size="md" />
+                <span className="truncate">{row.label}</span>
                 <Badge variant="secondary" className="text-xs font-normal">
                   {row.count}
                 </Badge>
@@ -364,13 +374,7 @@ function CategoryBars({
                 {formatRub(row.amount, amountRoundingScale)}
               </span>
             </div>
-            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-              <div
-                className="h-full bg-rose-500/70"
-                style={{ width: `${pct}%` }}
-                aria-hidden
-              />
-            </div>
+            <CategoryShareBar color={row.color} percent={pct} />
             <div className="text-xs text-muted-foreground tabular-nums">
               {pct}% от показанных
             </div>

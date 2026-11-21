@@ -153,12 +153,14 @@ export function salesSource(
         timeZone: 0,
       });
     },
+    // Два календарных дня: рабочий день идёт через полночь. Отчёты вне
+    // окна рабочего дня отсекает zReportIdsInWindow (как у контроля кассы).
     zList: () =>
       publicRead("front.zreport", undefined, [
         {
           field: "localOpenedTime",
           operation: "range",
-          value: { since: date, till: addDays(date, 1) },
+          value: { since: date, till: addDays(date, 2) },
         },
       ]) as Promise<Record<string, unknown>[]>,
     cashControlList: () =>

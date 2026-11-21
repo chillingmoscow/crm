@@ -57,8 +57,8 @@ import type { LegalEntityRow } from "@/lib/org/legal-entities";
 
 import { useRouter } from "next/navigation";
 
-import { CategoryFormSheet } from "./category-form-sheet";
-import { CounterpartyFormSheet } from "./counterparty-form-sheet";
+import { CategoryDrawer } from "@/components/finance/category-drawer";
+import { CounterpartyCreateDrawer } from "@/components/finance/counterparty-create-drawer";
 import {
   BankAccountFormSheet,
   type CreatedBankAccount,
@@ -83,6 +83,7 @@ type Props = {
   counterparties: CounterpartyRow[];
   canDelete: boolean;
   amountRoundingScale: AmountRoundingScale;
+  dadataEnabled: boolean;
 };
 
 type FormState = {
@@ -125,6 +126,7 @@ export function TransactionFormSheet({
   counterparties,
   canDelete,
   amountRoundingScale,
+  dadataEnabled,
 }: Props) {
   const router = useRouter();
   const open = mode.kind !== "closed";
@@ -505,18 +507,23 @@ export function TransactionFormSheet({
       </EditDrawer>
 
       {/* Inline-create sheets — nested on top of the form */}
-      <CategoryFormSheet
+      <CategoryDrawer
         open={categorySheetOpen}
-        defaultType={form.type === "income" ? "income" : "expense"}
-        onClose={() => setCategorySheetOpen(false)}
-        onCreated={(id) => {
+        onOpenChange={setCategorySheetOpen}
+        category={null}
+        // Тип статьи задаёт операция: статья другого типа в ней не выбирается.
+        createType={form.type === "income" ? "income" : "expense"}
+        lockType
+        canManage
+        onSaved={(id) => {
           update("category_id", id);
           setCategorySheetOpen(false);
         }}
       />
-      <CounterpartyFormSheet
+      <CounterpartyCreateDrawer
         open={counterpartySheetOpen}
-        onClose={() => setCounterpartySheetOpen(false)}
+        onOpenChange={setCounterpartySheetOpen}
+        dadataEnabled={dadataEnabled}
         onCreated={(id) => {
           update("counterparty_id", id);
           setCounterpartySheetOpen(false);

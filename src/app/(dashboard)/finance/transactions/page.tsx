@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { getCachedPermissionChecker } from "@/lib/supabase/server";
+import { isDadataConfigured } from "@/lib/dadata/client";
 import { listLegalEntities, listAccountVenues } from "@/lib/org/legal-entities";
 import { listBankAccounts, listBankAccountGroups } from "@/lib/finance/bank-accounts";
 import {
@@ -144,6 +145,7 @@ export default async function TransactionsServerPage({
       canDelete={!!canDelete}
       canExport={!!canExport}
       amountRoundingScale={amountRoundingScale}
+      dadataEnabled={isDadataConfigured()}
     />
   );
 }

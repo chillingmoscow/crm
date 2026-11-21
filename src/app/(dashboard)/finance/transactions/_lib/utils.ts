@@ -1,20 +1,10 @@
-// Helpers for the transactions module: amount/date formatting, color
-// generation for new categories, URL detection in descriptions.
+// Helpers for the transactions module: amount/date formatting and URL
+// detection in descriptions. Цвет новой статьи выбирают кружками палитры
+// (components/finance/category-color.tsx).
 //
 // Behaviour matches the legacy CRA build (see docs/finance/legacy-transactions-spec.md §10),
 // except formatDateTimeShort, which renders the "DD.MM · HH:MM" pattern
 // from the new design.
-
-const CATEGORY_COLORS = [
-  "#FF6B6B", "#FF9F43", "#FFA94D", "#FFC93C", "#A0E14C",
-  "#4ECDC4", "#45B7D1", "#5C6BC0", "#7E57C2", "#AB47BC",
-  "#EC407A", "#26A69A", "#66BB6A", "#9CCC65", "#FFCA28",
-  "#FFA726",
-] as const;
-
-export function generateRandomColor(): string {
-  return CATEGORY_COLORS[Math.floor(Math.random() * CATEGORY_COLORS.length)];
-}
 
 /** Forms 1234,56 ₽-style strings using ru-RU locale. signDisplay: 'never' — sign is rendered separately by the UI. */
 export function formatCurrency(

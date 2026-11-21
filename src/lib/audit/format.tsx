@@ -44,6 +44,7 @@ import {guestAuditSpecs} from "./guests";
 import { candidateAuditSpecs } from "./candidates";
 import { catalogAuditSpecs } from "./catalog";
 import { scheduleAuditSpecs } from "./schedule";
+import { financeDirectoryAuditSpecs } from "./finance-directory";
 import { writeoffAuditSpecs } from "./writeoffs";
 import { ChangeLines } from "./change-lines";
 
@@ -288,6 +289,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   ...guestAuditSpecs,
   ...catalogAuditSpecs,
   ...scheduleAuditSpecs,
+  ...financeDirectoryAuditSpecs,
   ...writeoffAuditSpecs,
   "integration.updated": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",

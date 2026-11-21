@@ -22,6 +22,8 @@ import { InventoryActsHelp } from "@/app/(dashboard)/documents/inventory/_compon
 import { CatalogHelp } from "@/app/(dashboard)/catalog/_components/catalog-help";
 import { AuditHelp } from "@/app/(dashboard)/org/audit/_components/audit-help";
 import { StoresHelp } from "@/app/(dashboard)/org/stores/_components/stores-help";
+import { CategoriesHelp } from "@/app/(dashboard)/finance/categories/_components/categories-help";
+import { CounterpartiesHelp } from "@/app/(dashboard)/finance/counterparties/_components/counterparties-help";
 
 /**
  * Реестр контекстной справки для кнопки «?» в топ-баре (page-help-button).
@@ -93,6 +95,12 @@ export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
     Content: CatalogHelp,
   },
   { match: (p) => p === "/org/audit", title: "Журнал событий", Content: AuditHelp },
+  { match: (p) => p === "/finance/categories", title: "Статьи", Content: CategoriesHelp },
+  {
+    match: (p) => p === "/finance/counterparties" || p.startsWith("/finance/counterparties/"),
+    title: "Контрагенты",
+    Content: CounterpartiesHelp,
+  },
 ];
 
 /** Справка для текущего пути или null, если её нет. */

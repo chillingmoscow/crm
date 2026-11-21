@@ -1,6 +1,6 @@
 import { ArrowLeftRight, ArrowRight } from "lucide-react";
 
-import { ColorDot } from "@/components/ui/color-dot";
+import { CategoryColorDot } from "@/components/finance/category-color";
 import {
   formatAmount,
   signedAmountClass,
@@ -79,7 +79,10 @@ export function CategoryCell({
     return <span className="text-muted-foreground">Без статьи</span>;
   return (
     <span className="flex min-w-0 items-center gap-2" data-tip={category.name}>
-      <ColorDot color={category.color} />
+      {/* Место под точку держим и без цвета: названия статей стоят ровно. */}
+      <span className="flex size-2 shrink-0 items-center justify-center">
+        <CategoryColorDot color={category.color} size="sm" />
+      </span>
       <span className="truncate">{category.name}</span>
     </span>
   );

@@ -171,6 +171,8 @@ type Props = {
   permissions: TransactionPermissions;
   currentUserId: string | null;
   amountRoundingScale: AmountRoundingScale;
+  /** DaData настроена: при создании контрагента реквизиты подтянутся по ИНН. */
+  dadataEnabled: boolean;
 };
 
 /** Строка списка: операция и число её файлов (`finance_transactions_page`). */
@@ -191,6 +193,7 @@ export function TransactionsPage({
   permissions,
   currentUserId,
   amountRoundingScale,
+  dadataEnabled,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -1385,6 +1388,7 @@ export function TransactionsPage({
         permissions={permissions}
         currentUserId={currentUserId}
         amountRoundingScale={amountRoundingScale}
+        dadataEnabled={dadataEnabled}
       />
     </PageFrame>
   );

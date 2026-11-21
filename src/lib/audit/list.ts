@@ -290,7 +290,7 @@ export async function listAuditEvents(input?: {
       input.entityId,
     )
   ) {
-    // Массовая правка пишет одно событие на команду (миграция 370) со
+    // Массовая правка пишет одно событие на команду (миграция 371) со
     // списком операций в details.ids — в истории операции оно тоже нужно.
     query = query.or(
       `and(entity_type.eq.transaction,entity_id.eq.${input.entityId}),` +

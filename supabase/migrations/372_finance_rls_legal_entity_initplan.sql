@@ -1,5 +1,5 @@
 -- ============================================================
--- 371_finance_rls_legal_entity_initplan.sql
+-- 372_finance_rls_legal_entity_initplan.sql
 --
 -- transactions_select и bank_accounts_select вызывали
 -- get_active_legal_entity_id() на КАЖДОЙ строке: в отличие от соседних

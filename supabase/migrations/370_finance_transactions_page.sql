@@ -1,5 +1,5 @@
 -- ============================================================
--- 369_finance_transactions_page.sql
+-- 370_finance_transactions_page.sql
 --
 -- Список «Финансы → Транзакции» одной функцией: страница строк, итоги
 -- (приход / расход) и счётчики по одним и тем же условиям.
@@ -71,7 +71,7 @@ as $$
 $$;
 
 comment on function public.finance_transaction_lock(uuid) is
-  'Признак блокировки операции связью с зарплатой: payroll | uniform | null. Миграция 369.';
+  'Признак блокировки операции связью с зарплатой: payroll | uniform | null. Миграция 370.';
 
 revoke all on function public.finance_transaction_lock(uuid) from public, anon;
 grant execute on function public.finance_transaction_lock(uuid) to authenticated;
@@ -245,7 +245,7 @@ end;
 $$;
 
 comment on function public.finance_transactions_page(jsonb, text[], integer, integer) is
-  'Список «Финансы → Транзакции»: страница строк, итоги и счётчики по одним условиям. SECURITY INVOKER — строки режет RLS transactions_select. Миграция 369.';
+  'Список «Финансы → Транзакции»: страница строк, итоги и счётчики по одним условиям. SECURITY INVOKER — строки режет RLS transactions_select. Миграция 370.';
 
 revoke all on function public.finance_transactions_page(jsonb, text[], integer, integer) from public, anon;
 grant execute on function public.finance_transactions_page(jsonb, text[], integer, integer) to authenticated;

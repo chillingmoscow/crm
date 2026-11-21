@@ -33,7 +33,6 @@
 - `src/components/ui/sidebar.tsx:237` (300ms collapse), `src/lib/overlay-classes.ts` (200/150ms), `src/app/globals.css` (theme-transition) — глобально учесть `prefers-reduced-motion: reduce` для всех анимаций (только `.theme-transition` уже учитывает).
 
 ### Phone normalization — отложенная зачистка
-- `src/app/(dashboard)/finance/counterparties/` — CRM контрагенты тоже хранят `phone`; миграция 166 их не трогает. Пройтись отдельной задачей через `formatPhoneDisplay` + миграция.
 - `src/app/(dashboard)/org/legal-entities/` — юрлица: телефон может приходить из DaData в произвольном формате; решить, нормализовать или оставить как источник истины DaData.
 
 ### Дизайн-система — токены

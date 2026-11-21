@@ -37,8 +37,8 @@ import type {
 import type { AccountVenueRow, LegalEntityRow } from "@/lib/org/legal-entities";
 import { uploadTransactionFile } from "@/lib/finance/transaction-files";
 
-import { CategoryFormSheet } from "./category-form-sheet";
-import { CounterpartyFormSheet } from "./counterparty-form-sheet";
+import { CategoryDrawer } from "@/components/finance/category-drawer";
+import { CounterpartyCreateDrawer } from "@/components/finance/counterparty-create-drawer";
 import { TransactionFiles } from "./transaction-files";
 import {
   BankAccountCreateDrawer,
@@ -89,6 +89,8 @@ type Props = {
   permissions: TransactionPermissions;
   currentUserId: string | null;
   amountRoundingScale: AmountRoundingScale;
+  /** DaData настроена: при создании контрагента реквизиты подтянутся по ИНН. */
+  dadataEnabled: boolean;
 };
 
 type FormState = {
@@ -133,6 +135,7 @@ export function TransactionFormSheet({
   permissions,
   currentUserId,
   amountRoundingScale,
+  dadataEnabled,
 }: Props) {
   const router = useRouter();
   const open = mode.kind !== "closed";
@@ -685,19 +688,24 @@ export function TransactionFormSheet({
 
       {/* Создание справочника из формы — единственное исключение из «панель
           поверх панели»: правка образца из формы, которая его использует. */}
-      <CategoryFormSheet
+      {/* Общие панели «Статей» и «Контрагентов»: тип статьи задаёт операция. */}
+      <CategoryDrawer
         open={categorySheetOpen}
-        defaultType={form.type === "income" ? "income" : "expense"}
-        onClose={() => setCategorySheetOpen(false)}
-        onCreated={(id) => {
+        onOpenChange={setCategorySheetOpen}
+        category={null}
+        createType={form.type === "income" ? "income" : "expense"}
+        lockType
+        canManage={permissions.manageCategories}
+        onSaved={(id) => {
           patch({ category_id: id });
           setCategorySheetOpen(false);
           router.refresh();
         }}
       />
-      <CounterpartyFormSheet
+      <CounterpartyCreateDrawer
         open={counterpartySheetOpen}
-        onClose={() => setCounterpartySheetOpen(false)}
+        onOpenChange={setCounterpartySheetOpen}
+        dadataEnabled={dadataEnabled}
         onCreated={(id) => {
           patch({ counterparty_id: id });
           setCounterpartySheetOpen(false);

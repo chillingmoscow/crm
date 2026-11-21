@@ -1,6 +1,5 @@
-import Link from "next/link";
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
 
 import {
   createClient,
@@ -9,12 +8,17 @@ import {
 } from "@/lib/supabase/server";
 import {
   getCounterparty,
-  listCounterpartyGroups,
   getCounterpartyArchiveImpact,
+  listCounterpartyGroups,
 } from "@/lib/finance/counterparties";
+import { loadCounterpartyActivity, operationDay } from "@/lib/finance/activity";
+import { parsePeriod, periodParam, periodRange } from "@/lib/finance/period";
 import { listCounterpartyAttachments } from "@/lib/files/attachments";
 import { isDadataConfigured } from "@/lib/dadata/client";
-import { CounterpartyDetail } from "./_components/counterparty-detail";
+import { listAuditEvents } from "@/lib/audit/list";
+import { CounterpartyCard, type CounterpartyOperation } from "./_components/counterparty-card";
+
+export const metadata: Metadata = { title: "Контрагент" };
 
 const DOC_TYPE_LABELS: Record<string, string> = {
   receipt:          "Чек",
@@ -27,48 +31,101 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   other:            "Прочее",
 };
 
+/** Сколько последних операций показывает вкладка «Операции». */
+const RECENT_OPERATIONS = 20;
+
+type AuditProfile = { id: string; first_name: string | null; last_name: string | null };
+
 export default async function CounterpartyDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ period?: string }>;
 }) {
-  const { id } = await params;
+  const [{ id }, query] = await Promise.all([params, searchParams]);
+  // Период вкладки «Операции»: тот же `?period=`, что в списке; без него — всё время.
+  const period = parsePeriod(query.period);
+  const range = periodRange(period);
   const supabase = await createClient();
 
-  // Permission checks resolved up front so all child gates align with the
-  // RLS that actually runs on click. The attachment uploader has its own
-  // RLS (finance.upload_attachments for INSERT, finance.delete_attachments
-  // for DELETE) — gating the upload button on manage_counterparties alone
-  // would let those buttons show and then fail at click.
+  // Права считаем заранее, чтобы кнопки совпадали с RLS, которая сработает
+  // на нажатии: у вложений свои права (finance.upload_attachments на
+  // загрузку, finance.delete_attachments на удаление).
   const [can, activeAccountId] = await Promise.all([
     getCachedPermissionChecker(),
     getCachedActiveAccountId(),
   ]);
-  const canView = can("finance.view_counterparties");
-  const canManage = can("finance.manage_counterparties");
-  const canUploadAttachments = can("finance.upload_attachments");
-  const canDeleteAttachments = can("finance.delete_attachments");
-  const canHardDelete = can("finance.delete_counterparty");
-  if (!canView) redirect("/dashboard");
-
-  // canArchive — owner-check для гейта DangerZone (archive/restore/delete
-  // actions требуют owner на сервере независимо от canManage).
-  const { data: isOwner } = activeAccountId
-    ? await supabase.rpc("is_account_owner", { p_account_id: activeAccountId })
-    : { data: false };
+  if (!can("finance.view_counterparties")) redirect("/dashboard");
+  const canManage = Boolean(can("finance.manage_counterparties"));
+  const canViewTransactions = Boolean(can("finance.view_transactions"));
+  const canViewAudit = Boolean(can("org.view_audit"));
 
   const { row, error } = await getCounterparty(id);
   if (error || !row) redirect("/finance/counterparties");
 
-  const [{ rows: groups }, { rows: attachmentRows }, archiveImpact] = await Promise.all([
+  const [
+    { data: isOwner },
+    { rows: groups },
+    { rows: attachmentRows },
+    archiveImpact,
+    activity,
+    recent,
+    auditResult,
+  ] = await Promise.all([
+    // Архив, возврат и удаление проверяют владельца на сервере — им же гейтим.
+    activeAccountId
+      ? supabase.rpc("is_account_owner", { p_account_id: activeAccountId })
+      : Promise.resolve({ data: false }),
     listCounterpartyGroups(),
     listCounterpartyAttachments(id),
     getCounterpartyArchiveImpact(id),
+    canViewTransactions ? loadCounterpartyActivity(period) : Promise.resolve(null),
+    canViewTransactions
+      ? (() => {
+          // Границы — как у фильтра «Транзакций»: дата операции — полночь UTC.
+          let recentQuery = supabase
+            .from("transactions")
+            .select("id, date, type, amount, description, category_id, bank_account_id")
+            .eq("counterparty_id", id)
+            .is("deleted_at", null)
+            .in("type", ["income", "expense"]);
+          if (range.from) recentQuery = recentQuery.gte("date", range.from);
+          if (range.to) recentQuery = recentQuery.lte("date", range.to);
+          return recentQuery.order("date", { ascending: false }).limit(RECENT_OPERATIONS);
+        })()
+      : Promise.resolve({ data: [] as never[] }),
+    canViewAudit
+      ? listAuditEvents({ entityType: "counterparty", entityId: id })
+      : Promise.resolve({ events: [], hasMore: false, error: null }),
   ]);
 
-  // Map server-side joined rows to the AttachmentRowDisplay shape used
-  // by the shared <AttachmentUploader>. The label is rendered here
-  // (server) so the client doesn't carry a doc-type → label dictionary.
+  // Подписи операций: статьи и счета одним запросом каждые.
+  const recentRows = recent.data ?? [];
+  const categoryIds = [...new Set(recentRows.map((tx) => tx.category_id).filter((v): v is string => Boolean(v)))];
+  const accountIds = [...new Set(recentRows.map((tx) => tx.bank_account_id))];
+  const [{ data: categories }, { data: accounts }] = await Promise.all([
+    categoryIds.length
+      ? supabase.from("finance_categories").select("id, name").in("id", categoryIds)
+      : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+    accountIds.length
+      ? supabase.from("bank_accounts").select("id, name").in("id", accountIds)
+      : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+  ]);
+  const categoryName = new Map((categories ?? []).map((c) => [c.id, c.name]));
+  const accountName = new Map((accounts ?? []).map((a) => [a.id, a.name]));
+  const operations: CounterpartyOperation[] = recentRows.map((tx) => ({
+    id: tx.id,
+    date: operationDay(tx.date) ?? tx.date,
+    type: tx.type as "income" | "expense",
+    amount: Number(tx.amount),
+    description: tx.description,
+    categoryName: tx.category_id ? categoryName.get(tx.category_id) ?? null : null,
+    accountName: accountName.get(tx.bank_account_id) ?? null,
+  }));
+
+  // Вложения — в вид общего AttachmentUploader. Подпись типа документа
+  // собирается здесь, чтобы клиент не нёс словарь типов.
   const attachments = attachmentRows.map((att) => ({
     fileId:     att.file.id,
     name:       att.file.name,
@@ -77,40 +134,55 @@ export default async function CounterpartyDetailPage({
     document_type_label:
       [DOC_TYPE_LABELS[att.document_type] ?? att.document_type, att.document_number, att.document_date]
         .filter(Boolean)
-        .join(" • ") || null,
+        .join(" · ") || null,
   }));
 
+  // Кто создал и менял — для «О контрагенте» в верхней панели.
+  const auditIds = [row.created_by, row.updated_by].filter((v): v is string => Boolean(v));
+  const { data: profiles } = auditIds.length
+    ? await supabase.from("profiles").select("id, first_name, last_name").in("id", auditIds)
+    : { data: [] as AuditProfile[] };
+  const profileName = (uid: string | null | undefined) => {
+    const p = (profiles as AuditProfile[] | null)?.find((x) => x.id === uid);
+    if (!p) return null;
+    const first = (p.first_name ?? "").trim();
+    const last = (p.last_name ?? "").trim();
+    if (!first && !last) return null;
+    return last ? `${first} ${last.charAt(0)}.`.trim() : first;
+  };
+
+  const stats = activity?.[id];
   return (
-    <div className="p-6 md:p-8 w-full max-w-4xl">
-      <Link
-        href="/finance/counterparties"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        К списку контрагентов
-      </Link>
-
-      <h1 className="text-2xl font-semibold mb-1">{row.name}</h1>
-      <p className="text-muted-foreground text-sm mb-6">
-        {row.inn ? `ИНН ${row.inn}` : "ИНН не указан"}
-        {row.kpp ? ` • КПП ${row.kpp}` : ""}
-        {row.dadata_synced_at
-          ? ` • DaData ${new Date(row.dadata_synced_at).toLocaleDateString("ru-RU")}`
-          : ""}
-      </p>
-
-      <CounterpartyDetail
-        row={row}
-        groups={groups}
-        attachments={attachments}
-        canManage={!!canManage}
-        canUploadAttachments={!!canUploadAttachments}
-        canDeleteAttachments={!!canDeleteAttachments}
-        canArchive={!!isOwner}
-        canHardDelete={!!canHardDelete}
-        archiveImpact={archiveImpact}
-        dadataEnabled={isDadataConfigured()}
-      />
-    </div>
+    <CounterpartyCard
+      row={row}
+      groups={groups.map((group) => ({ id: group.id, name: group.name }))}
+      attachments={attachments}
+      operations={operations}
+      activity={
+        activity
+          ? {
+              operations: stats?.operations ?? 0,
+              lastDate: stats?.lastDate ?? null,
+              incomeTotal: stats?.incomeTotal ?? 0,
+              expenseTotal: stats?.expenseTotal ?? 0,
+            }
+          : null
+      }
+      canManage={canManage}
+      canUploadAttachments={Boolean(can("finance.upload_attachments"))}
+      canDeleteAttachments={Boolean(can("finance.delete_attachments"))}
+      canViewTransactions={canViewTransactions}
+      canViewAudit={canViewAudit}
+      isOwner={Boolean(isOwner)}
+      canHardDelete={Boolean(isOwner) && Boolean(can("finance.delete_counterparty"))}
+      archiveImpact={archiveImpact}
+      dadataEnabled={isDadataConfigured()}
+      period={periodParam(period)}
+      today={new Date().toISOString().slice(0, 10)}
+      initialAuditEvents={auditResult.events}
+      initialAuditHasMore={auditResult.hasMore}
+      createdByName={profileName(row.created_by)}
+      updatedByName={profileName(row.updated_by)}
+    />
   );
 }

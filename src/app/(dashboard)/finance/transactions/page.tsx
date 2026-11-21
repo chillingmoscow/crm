@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
+import { isDadataConfigured } from "@/lib/dadata/client";
+
 import {
   getCachedPermissionChecker,
   getCachedUser,
@@ -26,7 +28,7 @@ type SearchParams = Record<string, string | string[] | undefined>;
  *
  * Адрес — источник условий списка: фильтры, поиск, сортировка, страница,
  * режим «Удалённые» (разбор — `parseTransactionQuery`). Строки, итоги и
- * счётчики приходят одним вызовом `finance_transactions_page` (миграция 369).
+ * счётчики приходят одним вызовом `finance_transactions_page` (миграция 370).
  *
  * Права:
  * - finance.view_transactions — вход на страницу;
@@ -160,6 +162,7 @@ export default async function TransactionsServerPage({
       permissions={permissions}
       currentUserId={user?.id ?? null}
       amountRoundingScale={amountRoundingScale}
+      dadataEnabled={isDadataConfigured()}
     />
   );
 }

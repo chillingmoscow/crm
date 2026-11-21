@@ -1,5 +1,5 @@
 -- ============================================================
--- 370_transactions_bulk_update_audit.sql
+-- 371_transactions_bulk_update_audit.sql
 --
 -- 1. Журнал операций (transactions_audit_trigger):
 --    - смена заведения (venue_id) теперь попадает в журнал: раньше её не
@@ -293,7 +293,7 @@ end;
 $$;
 
 comment on function public.finance_bulk_update_transactions(uuid[], text, uuid) is
-  'Массовая смена статьи, контрагента или заведения у операций. SECURITY INVOKER: права — политика transactions_update. Одна запись журнала на команду. Миграция 370.';
+  'Массовая смена статьи, контрагента или заведения у операций. SECURITY INVOKER: права — политика transactions_update. Одна запись журнала на команду. Миграция 371.';
 
 revoke all on function public.finance_bulk_update_transactions(uuid[], text, uuid) from public, anon;
 grant execute on function public.finance_bulk_update_transactions(uuid[], text, uuid) to authenticated;

@@ -30,16 +30,13 @@ export default async function InventoryDocumentDangerPage({
   const document = await getCachedInventoryDocumentBasics(id, accountId as string);
   if (!document) notFound();
 
-  return (
-    <div className="w-full px-4 py-6 md:px-8">
-      <DangerZone
-        documentId={document.id}
-        documentNumber={document.document_number}
-        deleteLockReason={getDeleteLockReason({
-          status: String(document.status),
-          resultsSnapshotAt: document.results_snapshot_at,
-        })}
-      />
-    </div>
-  );
+  // Удалить уже нельзя (проведён, итоги зафиксированы) — вкладки нет и в
+  // шапке; прямой заход по адресу возвращает на форму акта.
+  const deleteLockReason = getDeleteLockReason({
+    status: String(document.status),
+    resultsSnapshotAt: document.results_snapshot_at,
+  });
+  if (deleteLockReason) redirect(`/documents/inventory/${id}/overview`);
+
+  return <DangerZone documentId={document.id} documentNumber={document.document_number} />;
 }

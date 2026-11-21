@@ -5,9 +5,10 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
-import { getCachedPermissionChecker } from "@/lib/supabase/server";
-import { isInventoryFormLocked } from "@/lib/inventory/act-status";
-import { pluralRu } from "@/lib/format/plural";
+import { getCachedPermissions } from "@/lib/supabase/server";
+import { canFillInventoryAct, isInventoryFormLocked } from "@/lib/inventory/act-status";
+import { countRu, pluralRu } from "@/lib/format/plural";
+import { countMissingSubmitItems } from "@/lib/inventory/submit-completeness";
 import { runWithConcurrency } from "@/lib/run-with-concurrency";
 import type { InventorySubmissionResult } from "@/lib/inventory/submit-batches";
 import {
@@ -17,6 +18,7 @@ import {
 } from "@/lib/integrations/quickresto/client";
 import {
   type InventoryProductLookup,
+  DOCUMENT_CHANGED_ERROR,
   actionErrorMessage,
   catalogKey,
   amountsEqual,
@@ -28,6 +30,7 @@ import {
   getActiveContext,
   getConnection,
   inventoryDocumentItems,
+  isDocumentStatusStill,
   listBackOfficeInventoryItemsWithSession,
   notifyInventoryDocumentEvent,
   num,
@@ -35,6 +38,7 @@ import {
   readActualAmountsByExternalItemId,
   sameDate,
   syncDocumentItems,
+  transitionDocumentStatus,
   withBackOfficeSession,
   writeInventoryResultEvent
 } from "../actions-shared";
@@ -63,19 +67,22 @@ export async function markInventoryDraftStarted(input: {
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
   // Permission-гейт зеркалит submitInventoryDocumentDraft: двигать статус
-  // может тот, кто реально заполняет акт — менеджер или назначенный
-  // исполнитель с правом «Заполнять назначенные акты». Иначе любой
+  // может тот, кто реально заполняет акт (canFillInventoryAct). Иначе любой
   // авторизованный пользователь мог бы дёрнуть action напрямую.
-  const can = await getCachedPermissionChecker();
-  const canManage = can("inventory.manage_documents");
-  const canFill = can("inventory.fill_assigned_documents");
+  const permissions = await getCachedPermissions();
 
   const admin = asLooseDb(createAdminClient());
   try {
     await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
     const { data: document } = await admin
-      .from<{ id: string; status: string; assigned_to: string | null; archived_at: string | null }>("documents")
-      .select("id, status, assigned_to, archived_at")
+      .from<{
+        id: string;
+        status: string;
+        assigned_to: string | null;
+        reviewer_id: string | null;
+        archived_at: string | null;
+      }>("documents")
+      .select("id, status, assigned_to, reviewer_id, archived_at")
       .eq("id", input.documentId)
       .eq("account_id", ctx.accountId)
       .maybeSingle();
@@ -84,19 +91,25 @@ export async function markInventoryDraftStarted(input: {
     // в QR (архивный).
     if (!document?.id) return { error: null };
     if (document.archived_at) return { error: null };
-    if (document.assigned_to !== ctx.user.id) return { error: null };
-    const allowed = canManage || canFill;
+    const allowed = canFillInventoryAct({
+      permissions,
+      userId: ctx.user.id,
+      assignedTo: document.assigned_to,
+      reviewerId: document.reviewer_id,
+    });
     if (!allowed) return { error: null };
     if (document.status !== "assigned" && document.status !== "synced") return { error: null };
 
-    const { error } = await admin
-      .from("documents")
-      .update({ status: "in_progress" })
-      .eq("id", document.id)
-      .eq("account_id", ctx.accountId)
-      // guard от гонки: апдейтим, только пока статус ещё «не начат».
-      .in("status", ["assigned", "synced"]);
-    if (error) throw new Error(error.message);
+    // guard от гонки: апдейтим, только пока статус ещё «не начат». Проиграли
+    // (акт уже сдали / переназначили) — молча выходим, без записи в журнал.
+    const applied = await transitionDocumentStatus({
+      admin,
+      accountId: ctx.accountId,
+      documentId: document.id,
+      from: ["assigned", "synced"],
+      patch: { status: "in_progress" },
+    });
+    if (!applied) return { error: null };
 
     await writeInventoryResultEvent({
       supabase: ctx.supabase,
@@ -127,9 +140,7 @@ export async function submitInventoryDocumentDraft(input: {
     return { resultsHasLineAmounts: false, error: ctx.error };
   }
 
-  const can = await getCachedPermissionChecker();
-  const canManage = can("inventory.manage_documents");
-  const canFill = can("inventory.fill_assigned_documents");
+  const permissions = await getCachedPermissions();
 
   const admin = asLooseDb(createAdminClient());
   try {
@@ -167,8 +178,15 @@ export async function submitInventoryDocumentDraft(input: {
   if (document.archived_at) {
     return { resultsHasLineAmounts: false, error: "Этот акт удалён в Quick Resto и недоступен." };
   }
-  const allowed = canManage || (canFill && document.assigned_to === ctx.user.id);
-  if (!allowed) return { resultsHasLineAmounts: false, error: "Недостаточно прав" };
+  // Заполнять может управляющий актами, исполнитель или проверяющий акта
+  // (canFillInventoryAct) — та же проверка, что открывает форму.
+  const allowed = canFillInventoryAct({
+    permissions,
+    userId: ctx.user.id,
+    assignedTo: document.assigned_to,
+    reviewerId: document.reviewer_id,
+  });
+  if (!allowed) return { resultsHasLineAmounts: false, error: "Заполнять этот акт может исполнитель, проверяющий или управляющий актами" };
   if (document.processed) return { resultsHasLineAmounts: false, error: "Акт уже проведен в Quick Resto" };
   // Заполнение закрыто, когда акт уже ушёл на проверку / финализирован /
   // не синкнулся (статусная машина). recount_pending — НЕ заблокирован
@@ -223,13 +241,37 @@ export async function submitInventoryDocumentDraft(input: {
       external_item_id: string;
       needs_recount: boolean | null;
       recount_previous_amount: number | null;
+      submitted_amount: number | null;
     };
     const localItemsResult = await admin
       .from<LocalItemRow[]>("document_items")
-      .select("id, external_item_id, needs_recount, recount_previous_amount")
+      .select("id, external_item_id, needs_recount, recount_previous_amount, submitted_amount")
       .eq("document_id", document.id);
+    if (localItemsResult.error) throw new Error(localItemsResult.error.message);
     const localItems = (localItemsResult.data ?? []) as LocalItemRow[];
     const localItemById = new Map(localItems.map((item) => [item.id, item]));
+
+    // «Завершить» — только когда заполнены все нужные строки. В форме кнопка
+    // неактивна, но это браузер: прямой вызов или старая вкладка сдавали акт
+    // с любым непустым подмножеством. Каждый шаг пачечной отправки несёт форму
+    // целиком, поэтому проверяем до первой записи в Quick Resto — отказ не
+    // оставляет полупринятых значений и не двигает статус.
+    const missingCount = countMissingSubmitItems({
+      status: document.status,
+      items: localItems.map((item) => ({
+        id: item.id,
+        needsRecount: Boolean(item.needs_recount),
+        recountPreviousAmount: item.recount_previous_amount,
+        submittedAmount: item.submitted_amount,
+      })),
+      requestAmounts: new Map(input.items.map((item) => [item.itemId, item.actualAmount])),
+    });
+    if (missingCount > 0) {
+      return {
+        resultsHasLineAmounts: false,
+        error: `Заполнены не все позиции: осталось ${countRu(missingCount, "позиция", "позиции", "позиций")}`,
+      };
+    }
 
     // Пересчёт касается ТОЛЬКО отмеченных строк. Остальные исполнитель в этом
     // режиме и не редактирует (форма их блокирует), поэтому отправлять их в
@@ -244,6 +286,11 @@ export async function submitInventoryDocumentDraft(input: {
     // и без второго признака здесь открывался бы полный акт: ровно то, что
     // этот фильтр и должен предотвращать.
     const isRecountSubmit = document.status === "recount_pending";
+    // Статусы, из которых этот вызов вправе сдать акт: тот же круг, что и при
+    // чтении (пересчёт остаётся пересчётом, первый счёт — первым счётом).
+    const fillableStatuses = isRecountSubmit
+      ? ["recount_pending"]
+      : ["synced", "assigned", "in_progress"];
     const recountScopeIds = new Set(
       localItems
         .filter((item) => item.needs_recount || item.recount_previous_amount != null)
@@ -372,6 +419,22 @@ export async function submitInventoryDocumentDraft(input: {
       ])
     );
 
+    // Свежая проверка перед локальными записями: пока шла отправка в Quick
+    // Resto, акт могли сдать параллельно (форму заполняют и исполнитель, и
+    // проверяющий) или переназначить. Значения в QR — данные, их перезапишет
+    // следующая отправка; а снимать отметки пересчёта и двигать статус у
+    // чужого перехода нельзя. Финальная запись статуса ниже ещё и условная.
+    const stillFillable = await isDocumentStatusStill({
+      admin,
+      accountId: ctx.accountId,
+      documentId: document.id,
+      from: fillableStatuses,
+      finalized: "open",
+    });
+    if (!stillFillable) {
+      return { resultsHasLineAmounts: false, refreshDocument: true, error: DOCUMENT_CHANGED_ERROR };
+    }
+
     // Recount cleanup: сбрасываем recount-флаги (и авто-, и ручные) на
     // строках, по которым исполнитель только что отправил новое значение.
     // Триггер `inventory_apply_recount_threshold` на следующем upsert
@@ -404,9 +467,18 @@ export async function submitInventoryDocumentDraft(input: {
       submittedAmounts: nextAmounts,
     });
     const nextStatus = syncResult.resultsFound ? "ready_for_review" : "results_blocked";
-    const { error: updateLocalError } = await admin
-      .from("documents")
-      .update({
+    // Переход условный: акт всё ещё в фазе заполнения (тот же набор статусов,
+    // что открывает форму) и не финализирован. Безусловная запись перетирала
+    // параллельные переходы. Набор, а не «ровно прочитанный статус»: собственный
+    // автосейв формы переводит assigned → in_progress во время отправки, и это
+    // не повод отказывать.
+    const applied = await transitionDocumentStatus({
+      admin,
+      accountId: ctx.accountId,
+      documentId: document.id,
+      from: fillableStatuses,
+      finalized: "open",
+      patch: {
         status: nextStatus,
         processed: Boolean(reread.processed),
         base_last_update_date: dateText(reread.lastUpdateDate),
@@ -414,11 +486,11 @@ export async function submitInventoryDocumentDraft(input: {
         ...quickRestoDocumentSums(reread),
         results_has_line_amounts: syncResult.resultsFound,
         synced_at: new Date().toISOString(),
-      })
-      .eq("id", document.id)
-      .eq("account_id", ctx.accountId);
-
-    if (updateLocalError) return { resultsHasLineAmounts: false, error: updateLocalError.message };
+      },
+    });
+    if (!applied) {
+      return { resultsHasLineAmounts: false, refreshDocument: true, error: DOCUMENT_CHANGED_ERROR };
+    }
 
     // Журнал: исполнитель завершил акт. Различаем первое заполнение и
     // завершение пересчёта по пред-статусу.

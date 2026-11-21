@@ -14,10 +14,20 @@ import type {
   WriteoffRules,
 } from "@/lib/stock/writeoffs";
 import type { WriteoffPoolAssignment } from "@/lib/stock/writeoff-pools";
+import type { WriteoffSuggestionRuleVersion } from "@/lib/stock/writeoff-pool-suggestion";
+import type { PostedWriteoffDeduction } from "@/lib/stock/writeoff-deduction-status";
+import type { WriteoffBulkResult } from "@/lib/stock/writeoff-journal";
 import { autoRecalculateInventoryDeduction } from "@/app/(dashboard)/inventory/deduction-service";
+import { isDeductionAutopostEnabled } from "@/lib/stock/deduction-flag";
 export type WriteoffPoolTargets = {
   departments: Array<{ id: string; name: string; archived: boolean }>;
-  employees: Array<{ id: string; name: string; active: boolean }>;
+  employees: Array<{
+    id: string;
+    name: string;
+    active: boolean;
+    /** ID в Quick Resto: по нему акт «Сотрудник» подсказывает, кого выбрать. */
+    quickrestoId?: number | null;
+  }>;
 };
 export type WriteoffJobStatus = {
   id: string;
@@ -39,11 +49,21 @@ export type WriteoffData = {
   /** Имена для подписей; полный список для выбора - только у того, кто разносит. */
   targets: WriteoffPoolTargets;
   rules: WriteoffRules | null;
+  /**
+   * Группы правил удержаний по версиям: по ним акт «Кальянные мастера»
+   * подсказывает подразделение. Только у того, кто разносит.
+   */
+  ruleGroups: WriteoffSuggestionRuleVersion[];
   origin: Record<string, unknown>;
   providerOrigin: string | null;
   connected: boolean;
   currentMonth: string;
   timezone: string;
+  /**
+   * Пересчитывается ли удержание само после разнесения (INVENTORY_DEDUCTION_AUTOPOST).
+   * Нет - после смены плательщика в посчитанном месяце страница просит пересчитать вручную.
+   */
+  autopost: boolean;
 };
 async function scope(expected?: string) {
   const [client, user, permissions, accountId] = await Promise.all([
@@ -109,11 +129,38 @@ const toAssignment = (r: AssignmentRow): WriteoffPoolAssignment => ({
   pool: r.pool,
   key: r.pool === "department" ? r.department_id : r.employee_id,
 });
+/** Только то, что нужно подсказке: ID, название и подразделения групп. */
+function ruleGroupsOf(r: {
+  version: number;
+  valid_from: string;
+  groups: unknown;
+}): WriteoffSuggestionRuleVersion {
+  const groups = Array.isArray(r.groups) ? r.groups : [];
+  return {
+    version: Number(r.version),
+    valid_from: String(r.valid_from),
+    groups: groups.flatMap((g) => {
+      if (!g || typeof g !== "object") return [];
+      const x = g as { id?: unknown; name?: unknown; departmentIds?: unknown };
+      if (typeof x.id !== "string" || typeof x.name !== "string") return [];
+      return [
+        {
+          id: x.id,
+          name: x.name,
+          departmentIds: Array.isArray(x.departmentIds)
+            ? x.departmentIds.filter((d): d is string => typeof d === "string")
+            : undefined,
+        },
+      ];
+    }),
+  };
+}
 export async function loadWriteoffs(expected?: string): Promise<WriteoffData> {
   const s = await scope(expected);
   const rows = <T>(table: string, cols: string, order: string) =>
     pagedRows<T>(s, table, cols, order);
-  const [documents, archives, source, jobs, connection, marks, targets] =
+  const canAssign = s.permissions.includes("inventory.assign_writeoff_pool");
+  const [documents, archives, source, jobs, connection, marks, targets, rules] =
     await Promise.all([
       rows<StoredWriteoff>(
         "stock_writeoff_documents",
@@ -149,6 +196,17 @@ export async function loadWriteoffs(expected?: string): Promise<WriteoffData> {
         "assigned_at",
       ),
       s.db.rpc("writeoff_pool_targets"),
+      canAssign
+        ? s.db
+            .from<Array<{ version: number; valid_from: string; groups: unknown }>>(
+              "stock_deduction_rules",
+            )
+            .select("version,valid_from,groups:config->groups")
+            .eq("account_id", s.accountId)
+            .eq("venue_id", s.venueId)
+            .order("version", { ascending: false })
+            .limit(500)
+        : Promise.resolve({ data: [], error: null }),
     ]);
   if (source.error || jobs.error || connection.error || targets.error)
     throw new Error("Не удалось загрузить состояние списаний");
@@ -168,6 +226,8 @@ export async function loadWriteoffs(expected?: string): Promise<WriteoffData> {
       employees: [],
     },
     rules: source.data?.config ?? null,
+    // Подсказка - не расчёт: правила, которые не прочитались, просто не подсказывают.
+    ruleGroups: rules.error ? [] : (rules.data ?? []).map(ruleGroupsOf),
     origin: source.data?.origin ?? {},
     providerOrigin:
       connection.data && /^[-a-z0-9]+$/.test(connection.data.login)
@@ -182,6 +242,7 @@ export async function loadWriteoffs(expected?: string): Promise<WriteoffData> {
       .format(new Date())
       .slice(0, 7),
     timezone,
+    autopost: isDeductionAutopostEnabled(process.env),
   };
 }
 export async function requestWriteoffs(venueId: string, month: string) {
@@ -248,6 +309,130 @@ export async function assignWriteoffPool(
   if (mark.error) throw new Error("Не удалось загрузить разнесение");
   return { mark: mark.data ? toAssignment(mark.data) : null, notice };
 }
+const poolSchema = z.enum(["shared", "department", "personal", "excluded"]);
+
+/**
+ * Один плательщик для многих актов («Кто платит» в панели массовых действий).
+ * Разносятся только проведённые акты, которые есть в Quick Resto; остальные и
+ * уже разнесённые на этого плательщика пропускаются и возвращаются счётчиками.
+ * В журнал - одна строка на команду (RPC set_writeoff_pool_bulk). Пересчёт
+ * удержания (если включён) - один раз на каждый затронутый месяц, а не на акт.
+ */
+export async function assignWriteoffPoolBulk(
+  venueId: string,
+  externalIds: number[],
+  pool: WriteoffPoolAssignment["pool"],
+  key: string | null,
+): Promise<
+  WriteoffBulkResult & {
+    marks: WriteoffPoolAssignment[];
+    /** Месяцы (`YYYY-MM-01`), где у актов сменился плательщик. */
+    months: string[];
+    notice: string | null;
+  }
+> {
+  const s = await scope(venueId);
+  if (!s.permissions.includes("inventory.assign_writeoff_pool"))
+    throw new Error("Нет права разносить списания");
+  const ids = z
+    .array(z.number().int().positive().safe())
+    .min(1, "Выберите акты списания")
+    .max(1000, "За один раз можно разнести не больше 1000 актов")
+    .safeParse(externalIds);
+  if (!ids.success)
+    throw new Error(ids.error.issues[0]?.message ?? "Проверьте выбранные акты");
+  if (!poolSchema.safeParse(pool).success)
+    throw new Error("Проверьте, кто платит");
+  if (!z.string().uuid().nullable().safeParse(key).success)
+    throw new Error("Проверьте выбранного сотрудника или подразделение");
+  const unique = [...new Set(ids.data)];
+  const r = await s.db.rpc("set_writeoff_pool_bulk", {
+    p_external_ids: unique.map(String),
+    p_pool: pool,
+    p_key: key,
+  });
+  if (r.error) throw new Error(r.error.message);
+  const out = (r.data ?? {}) as Partial<WriteoffBulkResult> & {
+    months?: unknown;
+  };
+  const months = Array.isArray(out.months)
+    ? out.months.filter(
+        (m): m is string => typeof m === "string" && /^\d{4}-\d{2}-01$/.test(m),
+      )
+    : [];
+  // Разнесение уже записано: сбой пересчёта его не отменяет (как у одного акта).
+  const notice = months.length
+    ? await autoRecalculateInventoryDeduction({
+        kind: "months",
+        items: months.map((month) => ({ venueId: s.venueId, month })),
+      })
+    : null;
+  const marks: WriteoffPoolAssignment[] = [];
+  for (let i = 0; i < unique.length; i += 200) {
+    const page = await s.db
+      .from<AssignmentRow[]>("writeoff_pool_assignments")
+      .select("venue_id,external_id,pool,department_id,employee_id")
+      .eq("account_id", s.accountId)
+      .eq("venue_id", s.venueId)
+      .in("external_id", unique.slice(i, i + 200));
+    if (page.error) throw new Error("Не удалось загрузить разнесение");
+    marks.push(...(page.data ?? []).map(toAssignment));
+  }
+  return {
+    applied: Number(out.applied ?? 0),
+    unchanged: Number(out.unchanged ?? 0),
+    notCounted: Number(out.notCounted ?? 0),
+    notFound: Number(out.notFound ?? 0),
+    marks,
+    months,
+    notice,
+  };
+}
+
+/**
+ * Последний расчёт удержания по недостаче за месяц: когда посчитан и какие акты
+ * списания в него вошли (для сравнения с текущим разнесением). Снимки видит
+ * только тот, кто ставит удержания или видит зарплату (RLS 309); остальным
+ * `visible: false` - страница статус не показывает и о расчёте ничего не говорит.
+ */
+export async function loadWriteoffDeduction(
+  venueId: string,
+  month: string,
+): Promise<{ visible: boolean; posted: PostedWriteoffDeduction | null }> {
+  const s = await scope(venueId);
+  if (!/^20\d{2}-(0[1-9]|1[0-2])-01$/.test(month))
+    throw new Error("Проверьте месяц");
+  if (
+    !s.permissions.includes("inventory.post_deductions") &&
+    !s.permissions.includes("payroll.view")
+  )
+    return { visible: false, posted: null };
+  const r = await s.db
+    .from<{
+      captured_at: string;
+      reversed_at: string | null;
+      sources: unknown;
+    }>("inventory_deduction_snapshots")
+    .select("captured_at,reversed_at,sources:snapshot->sources")
+    .eq("account_id", s.accountId)
+    .eq("venue_id", s.venueId)
+    .eq("month", month)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (r.error) throw new Error("Не удалось проверить удержание за месяц");
+  return {
+    visible: true,
+    posted: r.data
+      ? {
+          capturedAt: r.data.captured_at,
+          reversedAt: r.data.reversed_at,
+          sources: r.data.sources,
+        }
+      : null,
+  };
+}
+
 export type WriteoffHistory = {
   id: string;
   action: string;

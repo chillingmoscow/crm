@@ -1,31 +1,24 @@
-import Link from "next/link";
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
 
 import {
   createClient,
   getCachedActiveAccountId,
   getCachedPermissionChecker,
 } from "@/lib/supabase/server";
-import { listLegalEntities, listAccountVenues } from "@/lib/org/legal-entities";
+import { listAccountVenues, listLegalEntities } from "@/lib/org/legal-entities";
 import {
   getBankAccount,
   getBankAccountArchiveImpact,
   listBankAccountGroups,
 } from "@/lib/finance/bank-accounts";
 import { listAuditEvents } from "@/lib/audit/list";
-import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
 import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
 import { BankAccountDetail } from "./_components/bank-account-detail";
-import { BankAccountDetailTabs } from "./_components/bank-account-tabs";
 
-const TYPE_LABEL: Record<string, string> = {
-  cash:       "Касса",
-  checking:   "Расчётный счёт",
-  debit_card: "Дебетовая карта",
-  fund:       "Денежный фонд",
-  safe:       "Сейф",
-};
+export const metadata: Metadata = { title: "Счёт" };
+
+type AuditProfile = { id: string; first_name: string | null; last_name: string | null };
 
 export default async function BankAccountDetailPage({
   params,
@@ -33,87 +26,73 @@ export default async function BankAccountDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
-
-  const [can, activeAccountId] = await Promise.all([
+  const [can, activeAccountId, supabase] = await Promise.all([
     getCachedPermissionChecker(),
     getCachedActiveAccountId(),
+    createClient(),
   ]);
-  const canView = can("finance.view_bank_accounts");
-  const canManage = can("finance.manage_bank_accounts");
-  const canViewAudit = can("org.view_audit");
-  const canHardDelete = can("finance.delete_bank_account");
-  if (!canView) redirect("/dashboard");
-
-  const { data: isOwner } = activeAccountId
-    ? await supabase.rpc("is_account_owner", { p_account_id: activeAccountId })
-    : { data: false };
+  if (!can("finance.view_bank_accounts")) redirect("/dashboard");
+  const canManage = Boolean(can("finance.manage_bank_accounts"));
+  const canViewAudit = Boolean(can("org.view_audit"));
 
   const { row, error } = await getBankAccount(id);
   if (error || !row) redirect("/finance/accounts");
 
-  const [{ rows: legalEntities }, { rows: venues }, { rows: groups }, amountRoundingScale, archiveImpact] =
-    await Promise.all([
-      listLegalEntities(),
-      listAccountVenues(),
-      listBankAccountGroups(),
-      getActiveAccountAmountRoundingScale(),
-      getBankAccountArchiveImpact(id),
-    ]);
+  const [
+    { rows: legalEntities },
+    { rows: venues },
+    { rows: groups },
+    amountRoundingScale,
+    archiveImpact,
+    { data: isOwner },
+    auditResult,
+  ] = await Promise.all([
+    listLegalEntities(),
+    listAccountVenues({ liveOnly: true }),
+    listBankAccountGroups(),
+    getActiveAccountAmountRoundingScale(),
+    getBankAccountArchiveImpact(id),
+    // Архив, возврат и удаление проверяют владельца на сервере
+    // (assertBankAccountOwner) — гейтим ими же, а не canManage.
+    activeAccountId
+      ? supabase.rpc("is_account_owner", { p_account_id: activeAccountId })
+      : Promise.resolve({ data: false }),
+    canViewAudit
+      ? listAuditEvents({ entityType: "bank_account", entityId: id })
+      : Promise.resolve({ events: [], hasMore: false, error: null }),
+  ]);
 
-  const auditResult = canViewAudit
-    ? await listAuditEvents({ entityType: "bank_account", entityId: id })
-    : { events: [], hasMore: false, error: null };
-
-  const legalEntityName =
-    legalEntities.find((le) => le.id === row.legal_entity_id)?.short_name ??
-    legalEntities.find((le) => le.id === row.legal_entity_id)?.name ??
-    "—";
+  // Кто создал и менял — для «О счёте» в верхней панели.
+  const auditIds = [row.created_by, row.updated_by].filter((v): v is string => !!v);
+  const { data: profiles } = auditIds.length
+    ? await supabase.from("profiles").select("id, first_name, last_name").in("id", auditIds)
+    : { data: [] as AuditProfile[] };
+  const profileName = (uid: string | null | undefined) => {
+    const p = (profiles as AuditProfile[] | null)?.find((x) => x.id === uid);
+    if (!p) return null;
+    const first = (p.first_name ?? "").trim();
+    const last = (p.last_name ?? "").trim();
+    if (!first && !last) return null;
+    return last ? `${first} ${last.charAt(0)}.`.trim() : first;
+  };
 
   return (
-    <div className="p-6 md:p-8 w-full max-w-4xl">
-      <Link
-        href="/finance/accounts"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        К списку счетов
-      </Link>
-
-      <h1 className="text-2xl font-semibold mb-1">{row.name}</h1>
-      <p className="text-muted-foreground text-sm mb-6">
-        {TYPE_LABEL[row.type] ?? row.type}
-        {" • "}
-        {legalEntityName}
-        {row.bank_name ? ` • ${row.bank_name}` : ""}
-      </p>
-
-      <BankAccountDetailTabs
-        canViewAudit={Boolean(canViewAudit)}
-        main={
-          <BankAccountDetail
-            row={row}
-            legalEntities={legalEntities}
-            venues={venues}
-            groups={groups}
-            canManage={!!canManage}
-            canArchive={!!isOwner}
-            canHardDelete={!!canHardDelete}
-            archiveImpact={archiveImpact}
-            amountRoundingScale={amountRoundingScale}
-          />
-        }
-        history={
-          <EntityAuditTab
-            mode="entity"
-            entityType="bank_account"
-            entityId={row.id}
-            canView={Boolean(canViewAudit)}
-            initialEvents={auditResult.events}
-            initialHasMore={auditResult.hasMore}
-          />
-        }
-      />
-    </div>
+    <BankAccountDetail
+      row={row}
+      legalEntities={legalEntities.map((le) => ({ id: le.id, name: le.name, short_name: le.short_name }))}
+      venues={venues.map((v) => ({ id: v.id, name: v.name }))}
+      groups={groups}
+      canManage={canManage}
+      canViewTransactions={Boolean(can("finance.view_transactions"))}
+      isOwner={Boolean(isOwner)}
+      canHardDelete={Boolean(can("finance.delete_bank_account"))}
+      canViewAudit={canViewAudit}
+      archiveImpact={archiveImpact}
+      amountRoundingScale={amountRoundingScale}
+      initialAuditEvents={auditResult.events}
+      initialAuditHasMore={auditResult.hasMore}
+      createdByName={profileName(row.created_by)}
+      updatedByName={profileName(row.updated_by)}
+    />
   );
 }

@@ -2,10 +2,22 @@
 
 import { revalidatePath } from "next/cache";
 
-import { createClient } from "@/lib/supabase/server";
+import { writeAuditEvent } from "@/lib/audit/write";
+import {
+  isEmptyGroupPlan,
+  planGroupChanges,
+  validateGroupDrafts,
+  type GroupDraft,
+  type GroupPlan,
+} from "@/lib/finance/bank-account-groups";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+  getCachedUser,
+} from "@/lib/supabase/server";
 import type {
   BankAccountFormInput,
-  BankAccountGroupFormInput,
   BankAccountGroupRow,
   BankAccountRow,
 } from "@/types/finance";
@@ -222,7 +234,7 @@ export async function archiveBankAccount(
   if (row.deleted_at) return { error: null }; // идемпотентно
 
   if (opts.confirmName.trim() !== row.name.trim()) {
-    return { error: "Введите название точно как у счёта" };
+    return { error: "Название не совпадает с названием счёта" };
   }
 
   const { error } = await supabase
@@ -236,7 +248,6 @@ export async function archiveBankAccount(
   if (error) return { error: error.message };
 
   revalidatePath("/finance/accounts");
-  revalidatePath("/finance/accounts/archive");
   revalidatePath(`/finance/accounts/${id}`);
   return { error: null };
 }
@@ -274,7 +285,6 @@ export async function restoreBankAccount(
   if (error) return { error: error.message };
 
   revalidatePath("/finance/accounts");
-  revalidatePath("/finance/accounts/archive");
   revalidatePath(`/finance/accounts/${id}`);
   return { error: null };
 }
@@ -298,13 +308,13 @@ export async function deleteBankAccount(
   if (!ownerCheck.ok) return { error: ownerCheck.error };
 
   if (opts.confirmName.trim() !== ownerCheck.name.trim()) {
-    return { error: "Введите название точно как у счёта" };
+    return { error: "Название не совпадает с названием счёта" };
   }
 
   const impact = await getBankAccountArchiveImpact(id);
   if (impact.transactions > 0) {
     return {
-      error: `Нельзя удалить — есть транзакции по этому счёту (${impact.transactions}). Используйте «Архивировать» или удалите транзакции.`,
+      error: `Нельзя удалить: по счёту есть операции (${impact.transactions}). Оставьте счёт в архиве`,
     };
   }
 
@@ -312,7 +322,6 @@ export async function deleteBankAccount(
   if (error) return { error: error.message };
 
   revalidatePath("/finance/accounts");
-  revalidatePath("/finance/accounts/archive");
   return { error: null };
 }
 
@@ -332,56 +341,100 @@ export async function listBankAccountGroups(): Promise<{
   return { rows: (data ?? []) as BankAccountGroupRow[], error: null };
 }
 
-export async function createBankAccountGroup(
-  input: BankAccountGroupFormInput
-): Promise<{ id: string | null; error: string | null }> {
-  const supabase = await createClient();
-  const { data: accountId, error: accountErr } = await supabase.rpc(
-    "get_active_account_id"
-  );
-  if (accountErr || !accountId) {
-    return { id: null, error: "Не удалось определить активный аккаунт" };
-  }
-  const { data, error } = await supabase
-    .from("bank_account_groups")
-    .insert({
-      account_id:  accountId as unknown as string,
-      name:        input.name,
-      description: input.description ?? null,
-      sort_order:  input.sort_order ?? 0,
-    })
-    .select("id")
-    .single();
-  if (error || !data) {
-    return { id: null, error: error?.message ?? "Не удалось создать группу" };
-  }
-  revalidatePath("/finance/settings/account-groups");
-  return { id: data.id, error: null };
-}
-
-export async function updateBankAccountGroup(
-  id: string,
-  patch: Partial<BankAccountGroupFormInput>
+/**
+ * Сохранить группы счетов из панели «Группы счетов»: список целиком, в
+ * нужном порядке. Сервер сам сравнивает его с базой (`planGroupChanges`):
+ * создаёт новые, переименовывает и переставляет, удаляет пропавшие. У
+ * счетов удалённой группы группа просто снимается (FK `on delete set null`),
+ * сами счета и операции не трогаются.
+ *
+ * Одна запись в журнале на сохранение, а не на каждую группу.
+ */
+export async function saveBankAccountGroups(
+  drafts: GroupDraft[]
 ): Promise<{ error: string | null }> {
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("bank_account_groups")
-    .update(patch)
-    .eq("id", id);
-  if (error) return { error: error.message };
-  revalidatePath("/finance/settings/account-groups");
-  return { error: null };
-}
+  const [supabase, user, accountId, can] = await Promise.all([
+    createClient(),
+    getCachedUser(),
+    getCachedActiveAccountId(),
+    getCachedPermissionChecker(),
+  ]);
+  if (!user) return { error: "Не авторизован" };
+  if (!accountId) return { error: "Не удалось определить активный аккаунт" };
+  // RLS молча пропустила бы update/delete без права — проверяем явно.
+  if (!can("finance.manage_bank_accounts")) {
+    return { error: "Менять группы могут те, кто управляет счетами" };
+  }
 
-export async function deleteBankAccountGroup(
-  id: string
-): Promise<{ error: string | null }> {
-  const supabase = await createClient();
-  const { error } = await supabase
+  const errors = validateGroupDrafts(drafts);
+  const firstError = Object.values(errors)[0];
+  if (firstError) return { error: firstError };
+
+  const { data: savedRows, error: loadError } = await supabase
     .from("bank_account_groups")
-    .delete()
-    .eq("id", id);
-  if (error) return { error: error.message };
-  revalidatePath("/finance/settings/account-groups");
+    .select("id, name, sort_order")
+    .eq("account_id", accountId);
+  if (loadError) return { error: loadError.message };
+
+  let plan: GroupPlan;
+  try {
+    plan = planGroupChanges(savedRows ?? [], drafts);
+  } catch {
+    return { error: "Группы изменились в другой вкладке. Обновите страницу и повторите" };
+  }
+  if (isEmptyGroupPlan(plan)) return { error: null };
+
+  // Сначала удаления, затем правки, затем новые: при сбое посередине
+  // в базе не остаётся двух групп с одним названием.
+  if (plan.remove.length > 0) {
+    const { error } = await supabase
+      .from("bank_account_groups")
+      .delete()
+      .eq("account_id", accountId)
+      .in("id", plan.remove.map((g) => g.id));
+    if (error) return { error: error.message };
+  }
+  for (const { id, ...patch } of plan.update) {
+    const { error } = await supabase
+      .from("bank_account_groups")
+      .update(patch)
+      .eq("account_id", accountId)
+      .eq("id", id);
+    if (error) {
+      revalidatePath("/finance/accounts");
+      return { error: error.message };
+    }
+  }
+  let created: { id: string; name: string }[] = [];
+  if (plan.create.length > 0) {
+    const { data, error } = await supabase
+      .from("bank_account_groups")
+      .insert(plan.create.map((g) => ({ ...g, account_id: accountId })))
+      .select("id, name");
+    if (error) {
+      revalidatePath("/finance/accounts");
+      return { error: error.message };
+    }
+    created = data ?? [];
+  }
+
+  await writeAuditEvent({
+    accountId,
+    userId: user.id,
+    actionCode: "finance.bank_account_group.changed",
+    entityType: "bank_account_group",
+    entityId: null,
+    // id рядом с названием: история счёта показывает по ним название
+    // группы и после её удаления (см. `deletedGroupNames`).
+    details: {
+      created,
+      renamed: plan.renamed,
+      deleted: plan.remove.map((g) => ({ id: g.id, name: g.name })),
+      reordered: plan.reordered,
+    },
+  });
+
+  revalidatePath("/finance/accounts");
+  revalidatePath("/finance/accounts/[id]", "page");
   return { error: null };
 }

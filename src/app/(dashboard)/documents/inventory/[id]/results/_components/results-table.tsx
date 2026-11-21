@@ -12,13 +12,10 @@ import {
 import { arrayMove } from "@dnd-kit/sortable";
 import {
   AlertTriangle,
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
   Ban,
-  Check,
   CheckCircle2,
   ChevronRight,
+  ListChecks,
   Loader2,
   Lock,
   MessageSquare,
@@ -26,7 +23,7 @@ import {
   MoreHorizontal,
   Repeat2,
   RotateCcw,
-  Search as SearchIcon,
+  SearchX,
   Trash2,
   Undo2,
   WandSparkles,
@@ -44,30 +41,27 @@ import {
 } from "@/lib/inventory/results";
 import type { ResortSuggestion } from "@/lib/inventory/resort-suggestions";
 import {
-  COLUMN_TO_RESULT_FIELD,
+  QR_CALCULATED_COLUMNS,
   RESULT_SORT_CODEC,
   RESULT_COLUMNS,
   RESULT_RECOUNT_LABEL,
   RESULT_SORT_FIELD_LABEL,
   RESULT_STATUS_LABEL,
   RESULTS_TABLE_ID,
+  columnToResultFieldFor,
   hasDifference,
   isOpenDifference,
+  resultFactAmount,
+  resultSortFieldsFor,
   resultSortToDirection,
   resultSortToField,
+  resultSortsToSorting,
+  sortingToResultSorts,
   type ResultColumnKey,
   type ResultRecountFilter,
   type ResultSortMode,
   type ResultStatusFilter,
 } from "./results-table-utils";
-import {
-  ResultGroupPicker,
-  ResultPinDivider,
-  ResultRecountPicker,
-  ResultSortFieldPanel,
-  ResultSortPinEditor,
-  ResultStatusPicker,
-} from "./results-table-controls";
 import {
   formatMoney,
   formatSignedMoney,
@@ -75,11 +69,10 @@ import {
   signedAmountClass,
   type AmountRoundingScale,
 } from "@/lib/format/amount";
-import { pluralRu } from "@/lib/format/plural";
-import { Badge } from "@/components/ui/badge";
+import { formatDayMonth } from "@/lib/format/date";
+import { countRu, pluralRu } from "@/lib/format/plural";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -92,21 +85,22 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Field } from "@/components/ui/field";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import {
   TableBulkBar,
   TableColumnManager,
+  TableConditions,
   TableControls,
-  TableControlPin,
+  TableFilterChip,
   TablePagination,
+  TableSortPicker,
   useTableState,
   type ManagedTableColumn,
   type TableStateColumn,
@@ -129,6 +123,9 @@ export type InventoryDocumentResultItem = {
   measure_unit_id: number | null;
   measure_unit_name: string | null;
   actual_amount: number | null;
+  /** Количество, введённое исполнителем в форме акта. Показывается в «Факте»,
+      когда Quick Resto не прислал расчёт по строкам (см. hasLineAmounts). */
+  submitted_amount?: number | null;
   calculated_amount: number | null;
   difference_amount: number | null;
   prime_cost: number | null;
@@ -204,6 +201,8 @@ export type InventoryResortSuggestion = ResortSuggestion;
 
 type Props = {
   documentId: string;
+  /** Номер акта — в заголовках подтверждений («Подвести итоги акта № 12?»). */
+  documentNumber: string;
   items: InventoryDocumentResultItem[];
   resorts: InventoryResultResortRow[];
   resortItems: InventoryResultResortItemRow[];
@@ -245,6 +244,12 @@ type Props = {
       До проведения QR отдаёт нули, поэтому здесь null. */
   qrShortfallSum: number | null;
   qrSurplusSum: number | null;
+  /** Quick Resto прислал расчёт по строкам (documents.results_has_line_amounts).
+      false — акт «Итоги требуют проверки»: таблица в режиме «без сумм». Расчёт,
+      разница и суммы — прочерком, факт — введённый исполнителем; пометки и
+      отправка на пересчёт работают как обычно, а подвести итоги, исключить
+      строку или свести пересорт нельзя — им не на что опереться. */
+  hasLineAmounts: boolean;
 };
 
 // Две суммы в тайлах — РАЗНЫЕ величины, и раньше подписи это скрывали («По QR»
@@ -252,9 +257,12 @@ type Props = {
 // На деле исключения из итогов и пересорты — управленческая надстройка: в
 // Quick Resto проводится полная разница по строкам, независимо от них.
 const QR_TILE_HINT =
-  "Полная разница по строкам — ровно она проводится в Quick Resto. Исключения из итогов и пересорты на неё не влияют.";
+  "Полная разница по строкам: ровно она проводится в Quick Resto. Исключения из итогов и пересорты на неё не влияют.";
 const MANAGEMENT_TILE_HINT =
   "Наша оценка: с учётом исключённых строк и пересортов. Остаётся внутри CRM, в Quick Resto не уходит.";
+
+const RESULT_STATUS_FILTERS: ResultStatusFilter[] = ["all", "included", "excluded", "resort"];
+const RESULT_RECOUNT_FILTERS: ResultRecountFilter[] = ["all", "flagged", "clear", "recounted"];
 
 /**
  * Уверенность предложения пересорта — полукруглой шкалой.
@@ -310,6 +318,31 @@ function ConfidenceGauge({ percent }: { percent: number }) {
   );
 }
 
+/**
+ * Число в плитке «Недостача» / «Излишек». value — сумма со знаком (недостача
+ * отрицательная), выводится по модулю, цвет — signedAmountClass. null — суммы
+ * нет (Quick Resto не прислал расчёт по строкам): прочерк без ₽, никогда не
+ * ноль (DS «Деньги»); причина — в плашке над плитками.
+ */
+function TileAmount({
+  value,
+  amountRoundingScale,
+}: {
+  value: number | null;
+  amountRoundingScale: AmountRoundingScale;
+}) {
+  return (
+    <div
+      className={cn(
+        "mt-1 text-xl font-semibold tabular-nums sm:text-[28px] sm:leading-tight",
+        value == null ? "text-muted-foreground" : signedAmountClass(value),
+      )}
+    >
+      {value == null ? "—" : formatMoney(Math.abs(value), "RUB", amountRoundingScale)}
+    </div>
+  );
+}
+
 // Пересчитанное значение совпало с прежним. Это законный исход («пересчитали,
 // значение подтвердилось»), но он должен читаться именно так: «было 3 → стало
 // 3» само по себе неотличимо от акта, где пересчёт не делали.
@@ -320,6 +353,7 @@ function amountsMatch(left: number | null | undefined, right: number | null | un
 
 export function InventoryResultsTable({
   documentId,
+  documentNumber,
   items,
   resorts,
   resortItems,
@@ -341,6 +375,7 @@ export function InventoryResultsTable({
   qrUnprocessedAt,
   qrShortfallSum,
   qrSurplusSum,
+  hasLineAmounts,
 }: Props) {
   const [showDifferences, setShowDifferences] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -371,6 +406,14 @@ export function InventoryResultsTable({
   const [voidingResort, setVoidingResort] = useState<InventoryResultResortRow | null>(null);
   const [voidReason, setVoidReason] = useState("");
   const [confirmFinalize, setConfirmFinalize] = useState(false);
+  const [confirmReopen, setConfirmReopen] = useState(false);
+  const [reopenReason, setReopenReason] = useState("");
+  const [reopenError, setReopenError] = useState<string | null>(null);
+  // Ошибки подтверждений остаются внутри диалога (DS «Modal»), а не уходят
+  // в тост: тост исчезает, а открытый диалог выглядел бы как «не сработало».
+  const [finalizeError, setFinalizeError] = useState<string | null>(null);
+  const [deleteRuleError, setDeleteRuleError] = useState<string | null>(null);
+  const [voidError, setVoidError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   // ИИ-подсказки грузятся по кнопке (не блокируют открытие акта).
   const [aiSuggestions, setAiSuggestions] = useState<InventoryResortSuggestion[]>([]);
@@ -474,6 +517,12 @@ export function InventoryResultsTable({
   // финализации/разблокировки в футере используют именно isLocked.
   const isRecountPending = documentStatus === "recount_pending";
   const adjustLocked = isLocked || isRecountPending;
+  // Без расчёта Quick Resto по строкам сумм нет: инструменты, которые на них
+  // опираются (исключения, пересорт, подсказки, подведение итогов), закрыты.
+  // Пометки и отправка на пересчёт от сумм не зависят и остаются.
+  const canAdjustSums = canAdjust && hasLineAmounts;
+  const sortFields = useMemo(() => resultSortFieldsFor(hasLineAmounts), [hasLineAmounts]);
+  const columnToResultField = useMemo(() => columnToResultFieldFor(hasLineAmounts), [hasLineAmounts]);
   const groupOptions = useMemo(() => {
     const map = new Map<string, string>();
     for (const item of items) {
@@ -520,8 +569,8 @@ export function InventoryResultsTable({
         } else if (field === "group") {
           cmp = (left.group_name ?? "").localeCompare(right.group_name ?? "", "ru");
         } else if (field === "empty") {
-          const leftEmpty = left.actual_amount === null;
-          const rightEmpty = right.actual_amount === null;
+          const leftEmpty = resultFactAmount(left, hasLineAmounts) == null;
+          const rightEmpty = resultFactAmount(right, hasLineAmounts) == null;
           if (leftEmpty !== rightEmpty) cmp = leftEmpty ? -1 : 1;
         } else {
           // sum: по модулю расхождения.
@@ -534,6 +583,7 @@ export function InventoryResultsTable({
   }, [
     activeResortItemByItemId,
     groupFilter,
+    hasLineAmounts,
     items,
     recountFilter,
     searchQuery,
@@ -545,10 +595,13 @@ export function InventoryResultsTable({
     showDifferences || groupFilter !== "all" || statusFilter !== "all" || recountFilter !== "all";
   const hasSortActive = sorts.length > 0;
   const hasSearch = searchQuery.trim().length > 0;
-  const hasAnyActive = hasActiveFilters || hasSortActive || hasSearch;
-  const showSearchPin = hasSearch && (filtersVisible || hasSortActive || hasActiveFilters);
-  const currentGroupName =
-    groupFilter === "all" ? null : groupOptions.find((g) => g.id === groupFilter)?.name ?? null;
+  // Ряд условий (TableConditions) работает с TanStack SortingState, таблица —
+  // с режимами `name_asc` и т.п. Переходники — в results-table-utils.
+  const sorting = useMemo(() => resultSortsToSorting(sorts), [sorts]);
+  const changeSorting = useCallback(
+    (next: Array<{ id: string; desc: boolean }>) => setSorts(sortingToResultSorts(next)),
+    [],
+  );
   const onClearAll = () => {
     setShowDifferences(false);
     setSearchQuery("");
@@ -560,7 +613,7 @@ export function InventoryResultsTable({
   };
   // Массовые действия в итогах — это пометка на пересчёт и исключение из
   // итогов; без соответствующих прав их панель не рендерится.
-  const canBulkAct = canAdjust || canRecount;
+  const canBulkAct = canAdjustSums || canRecount;
   const selectedItems = useMemo(
     () => items.filter((item) => selectedIds.has(item.id)),
     [items, selectedIds],
@@ -636,6 +689,30 @@ export function InventoryResultsTable({
     [startTransition],
   );
 
+  // То же для действий из подтверждения: ошибка остаётся в диалоге
+  // (DS «Modal»), успех — тостом и закрытием диалога.
+  const runDialogAction = useCallback(
+    (
+      action: () => Promise<{ error: string | null; notice?: string | null }>,
+      success: string,
+      setError: (error: string | null) => void,
+      onSuccess: () => void,
+    ) => {
+      setError(null);
+      startTransition(async () => {
+        const result = await action();
+        if (result.error) {
+          setError(result.error);
+          return;
+        }
+        toast.success(result.notice ?? success);
+        setSelectedIds(new Set());
+        onSuccess();
+      });
+    },
+    [startTransition],
+  );
+
   // Массовое действие: один серверный вызов, честный тост «N применено /
   // M пропущено» (вместо клиентского цикла, падавшего на первой ошибке).
   const runBulkAction = useCallback(
@@ -675,7 +752,7 @@ export function InventoryResultsTable({
   const { cycleSort, headerIndicator, headerAriaSort, sortableColumnIds } = useMultiSort({
     sorts,
     onChange: setSorts,
-    columnToField: COLUMN_TO_RESULT_FIELD,
+    columnToField: columnToResultField,
     codec: RESULT_SORT_CODEC,
   });
 
@@ -724,7 +801,7 @@ export function InventoryResultsTable({
       .slice(0, 8);
   }, [suggestions, aiSuggestions]);
 
-  const canRequestAi = aiSuggestionsEnabled && canAdjust && !adjustLocked && !aiRequested;
+  const canRequestAi = aiSuggestionsEnabled && canAdjustSums && !adjustLocked && !aiRequested;
 
   const requestAiSuggestions = async () => {
     setAiLoading(true);
@@ -753,7 +830,13 @@ export function InventoryResultsTable({
           ? resortItem.remainingDifferenceSum
           : item.difference_sum;
       const isExcluded = item.excluded_from_totals === true;
+      const factAmount = resultFactAmount(item, hasLineAmounts);
 
+      // Без расчёта Quick Resto эти числа неизвестны: прочерк, а не ноль (DS
+      // «Деньги»). Причина написана в плашке над таблицей.
+      if (!hasLineAmounts && QR_CALCULATED_COLUMNS.includes(key)) {
+        return <span className="text-muted-foreground">—</span>;
+      }
       if (key === "calculated") {
         return (
           <span className="text-muted-foreground">
@@ -762,7 +845,7 @@ export function InventoryResultsTable({
         );
       }
       if (key === "fact") {
-        return <span>{formatQuantity(item.actual_amount, item.measure_unit_name)}</span>;
+        return <span>{formatQuantity(factAmount, item.measure_unit_name)}</span>;
       }
       if (key === "difference") {
         return (
@@ -782,18 +865,18 @@ export function InventoryResultsTable({
         return (
           <div className="flex items-center gap-2">
             {resortItem ? (
-              <Repeat2 className="h-4 w-4 text-blue-600" />
+              <Repeat2 className="h-4 w-4 shrink-0 text-brand" />
             ) : isExcluded ? (
-              <XCircle className="h-4 w-4 text-red-600" />
+              <XCircle className="h-4 w-4 shrink-0 text-destructive" />
             ) : (
-              <CheckCircle2 className="h-4 w-4 text-green-700 dark:text-green-400" />
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-400" />
             )}
             <div className="min-w-0">
               <div className="truncate text-xs font-medium">
                 {isExcluded ? "Не учитывать" : resortItem ? "Пересорт" : "Учитывать"}
               </div>
               {item.excluded_by_rule ? (
-                <div className="text-[11px] text-muted-foreground">Авто</div>
+                <div className="text-xs text-muted-foreground">Авто</div>
               ) : null}
             </div>
           </div>
@@ -804,18 +887,27 @@ export function InventoryResultsTable({
         const auto = Boolean(item.recount_auto_flagged);
         const wasRecounted = item.recount_previous_amount != null;
         const recountUnchanged =
-          wasRecounted && amountsMatch(item.recount_previous_amount, item.actual_amount);
+          wasRecounted && amountsMatch(item.recount_previous_amount, factAmount);
         return (
           <div className="flex flex-col gap-1" data-row-interactive>
           <div className="flex items-center gap-2">
-            <Tooltip delayDuration={450}>
-              <TooltipTrigger asChild>
+                {/* Подсказка — общим data-tip, а не нативным title: тот рисуется
+                    средствами ОС и выглядит инородно. «threshold заведения»
+                    ничего не объяснял человеку, который этот порог задаёт в
+                    карточке заведения. */}
                 <button
                   type="button"
                   role="switch"
                   aria-checked={flagged}
                   aria-label={
                     flagged ? "Снять пометку пересчёта" : "Отправить строку на пересчёт"
+                  }
+                  data-tip={
+                    flagged
+                      ? auto
+                        ? "Отмечено автоматически: расхождение больше порога, заданного для заведения. Нажмите, чтобы снять"
+                        : "Отметил проверяющий. Нажмите, чтобы снять"
+                      : "Нажмите, чтобы отправить строку на пересчёт"
                   }
                   disabled={!canRecount || adjustLocked || isPending}
                   onClick={() =>
@@ -827,7 +919,7 @@ export function InventoryResultsTable({
                   className={cn(
                     "inline-flex h-6 w-10 items-center rounded-full border transition-colors",
                     flagged
-                      ? "border-rose-300 bg-rose-500/15 dark:border-rose-500/40 dark:bg-rose-500/20"
+                      ? "border-destructive/30 bg-destructive/15"
                       : "border-border bg-muted/40 hover:bg-muted",
                     !canRecount || adjustLocked ? "cursor-not-allowed opacity-60" : "cursor-pointer",
                   )}
@@ -839,33 +931,20 @@ export function InventoryResultsTable({
                     )}
                   />
                 </button>
-              </TooltipTrigger>
-              {/* Наша подсказка вместо нативного title: тот рисуется средствами
-                  ОС, выглядит инородно и появляется с секундной задержкой. Текст
-                  тоже переписан — «threshold заведения» ничего не объясняло
-                  человеку, который этот порог задаёт в карточке заведения. */}
-              <TooltipContent sideOffset={6} className="max-w-[260px]">
-                {flagged
-                  ? auto
-                    ? "Отмечено автоматически: расхождение больше порога, заданного для заведения. Нажмите, чтобы снять."
-                    : "Отметил проверяющий. Нажмите, чтобы снять."
-                  : "Нажмите, чтобы отправить строку на пересчёт."}
-              </TooltipContent>
-            </Tooltip>
-            {flagged && auto ? <span className="text-[11px] text-muted-foreground">Авто</span> : null}
+            {flagged && auto ? <span className="text-xs text-muted-foreground">Авто</span> : null}
           </div>
           {wasRecounted ? (
             // Постоянный след пересчёта: «было → стало», чтобы проверяющий
             // сравнил исходный факт с пересчитанным (см. recount_previous_amount).
             <span
-              className="text-[11px] text-rose-700 dark:text-rose-300"
+              className="text-xs text-destructive"
               data-tip={
                 recountUnchanged
-                  ? "Строку пересчитали — значение подтвердилось"
+                  ? "Строку пересчитали, значение подтвердилось"
                   : "Строка была отправлена на пересчёт"
               }
             >
-              было {formatQuantity(item.recount_previous_amount, item.measure_unit_name)} → {formatQuantity(item.actual_amount, item.measure_unit_name)}
+              было {formatQuantity(item.recount_previous_amount, item.measure_unit_name)} → {formatQuantity(factAmount, item.measure_unit_name)}
               {recountUnchanged ? (
                 <span className="text-muted-foreground"> · не изменилось</span>
               ) : null}
@@ -890,7 +969,7 @@ export function InventoryResultsTable({
         </div>
       );
     },
-    [activeResortItemByItemId, amountRoundingScale, canRecount, adjustLocked, isPending, documentId, runAction],
+    [activeResortItemByItemId, amountRoundingScale, canRecount, adjustLocked, hasLineAmounts, isPending, documentId, runAction],
   );
 
   const renderSelectCell = useCallback(
@@ -921,9 +1000,17 @@ export function InventoryResultsTable({
         <div className="flex justify-end" data-row-interactive>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button type="button" size="icon" variant="ghost" disabled={adjustLocked || isPending}>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                // Без расчёта по строкам в меню остаётся только комментарий:
+                // без права на него открывать нечего.
+                disabled={adjustLocked || isPending || (!hasLineAmounts && !canComment)}
+                aria-label={`Действия: ${item.product_name}`}
+                data-tip="Действия"
+              >
                 <MoreHorizontal className="h-4 w-4" />
-                <span className="sr-only">Действия</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
@@ -934,11 +1021,11 @@ export function InventoryResultsTable({
                     setCommentDraft(item.result_comment ?? "");
                   }}
                 >
-                  <MessageSquarePlus className="mr-2 h-4 w-4 text-blue-600" />
+                  <MessageSquarePlus className="mr-2 h-4 w-4" />
                   Комментировать
                 </DropdownMenuItem>
               ) : null}
-              {canAdjust ? (
+              {canAdjustSums ? (
                 <>
                   {isExcluded ? (
                     <DropdownMenuItem
@@ -949,7 +1036,7 @@ export function InventoryResultsTable({
                         )
                       }
                     >
-                      <CheckCircle2 className="mr-2 h-4 w-4 text-green-700 dark:text-green-400" />
+                      <CheckCircle2 className="mr-2 h-4 w-4" />
                       Учитывать в этом акте
                     </DropdownMenuItem>
                   ) : (
@@ -962,7 +1049,7 @@ export function InventoryResultsTable({
                         )
                       }
                     >
-                      <Ban className="mr-2 h-4 w-4 text-red-600" />
+                      <Ban className="mr-2 h-4 w-4" />
                       Не учитывать в этом акте
                     </DropdownMenuItem>
                   )}
@@ -976,24 +1063,29 @@ export function InventoryResultsTable({
                         )
                       }
                     >
-                      <Ban className="mr-2 h-4 w-4 text-orange-600" />
+                      <Ban className="mr-2 h-4 w-4" />
                       Исключать всегда
                     </DropdownMenuItem>
                   ) : item.exclusion_rule_kind === "group" ? (
                     <DropdownMenuItem disabled>
-                      <Ban className="mr-2 h-4 w-4 text-orange-600" />
-                      Исключено группой «{item.exclusion_rule_name ?? "—"}» — изменить в настройках заведения
+                      <Ban className="mr-2 h-4 w-4" />
+                      Исключено группой «{item.exclusion_rule_name ?? "—"}», изменить можно в настройках заведения
                     </DropdownMenuItem>
                   ) : (
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setDeleteRuleItem(item);
-                        setDeleteRuleReason("");
-                      }}
-                    >
-                      <Trash2 className="mr-2 h-4 w-4 text-red-600" />
-                      Удалить автоисключение
-                    </DropdownMenuItem>
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onClick={() => {
+                          setDeleteRuleItem(item);
+                          setDeleteRuleReason("");
+                          setDeleteRuleError(null);
+                        }}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Удалить автоисключение
+                      </DropdownMenuItem>
+                    </>
                   )}
                 </>
               ) : null}
@@ -1002,7 +1094,7 @@ export function InventoryResultsTable({
         </div>
       );
     },
-    [activeResortItemByItemId, canAdjust, canComment, documentId, adjustLocked, isPending, runAction],
+    [activeResortItemByItemId, canAdjustSums, canComment, documentId, adjustLocked, hasLineAmounts, isPending, runAction],
   );
 
   const columnsConfig = useMemo(
@@ -1096,7 +1188,9 @@ export function InventoryResultsTable({
         header: column.label,
         size: column.size,
         // min ≈ ширина заголовка; служебные (select/actions) уже.
-        minSize: column.id === "select" ? 44 : column.id === "actions" ? 56 : 90,
+        // «Пересчёт» шире заголовка: переключатель и подпись «Авто» рядом.
+        minSize:
+          column.id === "select" ? 44 : column.id === "actions" ? 56 : column.id === "recount" ? 124 : 90,
         enableHiding: column.canHide,
         cell: ({ row }) => column.cell(row.original),
       })),
@@ -1201,9 +1295,17 @@ export function InventoryResultsTable({
 
   if (items.length === 0) {
     return (
-      <div className="rounded-lg border bg-card p-4 text-sm text-muted-foreground">
-        Построчных данных по акту нет.
-      </div>
+      <EmptyState
+        icon={ListChecks}
+        title="Построчных данных по акту нет"
+        // Без строк тулбара нет, а вместе с ним и «Обновить итоги». Акту без
+        // расчёта Quick Resto это единственный путь вперёд — оставляем кнопку.
+        action={
+          !hasLineAmounts && canViewResults && !isLocked ? (
+            <RefreshResultsButton documentId={documentId} />
+          ) : undefined
+        }
+      />
     );
   }
 
@@ -1216,14 +1318,12 @@ export function InventoryResultsTable({
           но источник правды больше не считает акт проведённым. Молча
           откатывать статус нельзя — показываем это человеку. */}
       {qrUnprocessedAt ? (
-        <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-500/5 px-4 py-3 dark:border-amber-500/40 dark:bg-amber-500/10">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
-          <div className="min-w-0 text-sm">
-            <div className="font-medium text-amber-800 dark:text-amber-200">
-              Акт распровели в Quick Resto
-            </div>
-            <p className="mt-0.5 text-amber-800/90 dark:text-amber-300/90">
-              Итоги у нас остались зафиксированными — здесь по-прежнему снимок,
+        <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
+          <div className="min-w-0">
+            <div className="font-medium">Акт распровели в Quick Resto</div>
+            <p className="mt-0.5 text-muted-foreground">
+              Итоги у нас остались зафиксированными: здесь по-прежнему снимок,
               утверждённый при подведении итогов. Чтобы провести акт заново,
               разблокируйте его и подведите итоги ещё раз.
             </p>
@@ -1231,14 +1331,30 @@ export function InventoryResultsTable({
         </div>
       ) : null}
 
+      {/* Акт «Итоги требуют проверки»: Quick Resto не прислал расчёт по
+          строкам. Здесь — единственное объяснение прочерков в суммах и
+          колонках «Расчёт», «Разница», «Упр. сумма». */}
+      {!hasLineAmounts ? (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
+          <div className="min-w-0">
+            <div className="font-medium">Quick Resto не прислал расчёт по строкам</div>
+            <p className="mt-0.5 text-muted-foreground">
+              Расчёт, разница и суммы показаны прочерком: точно посчитать их без
+              Quick Resto нельзя. Факт исполнителя виден, строки можно отметить и
+              отправить на пересчёт. Нажмите «Обновить итоги», чтобы запросить
+              расчёт ещё раз. Если он так и не появится, проверьте акт в Quick Resto.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       {isRecountPending ? (
-        <div className="flex items-start gap-3 rounded-lg border border-rose-300 bg-rose-500/5 px-4 py-3 dark:border-rose-500/40 dark:bg-rose-500/10">
-          <RotateCcw className="mt-0.5 h-4 w-4 shrink-0 text-rose-700 dark:text-rose-300" />
-          <div className="min-w-0 text-sm">
-            <div className="font-medium text-rose-700 dark:text-rose-200">
-              Акт на пересчёте у исполнителя
-            </div>
-            <p className="mt-0.5 text-rose-700/90 dark:text-rose-300/90">
+        <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+          <RotateCcw className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="min-w-0">
+            <div className="font-medium">Акт на пересчёте у исполнителя</div>
+            <p className="mt-0.5">
               Итоги заморожены, пока исполнитель не завершит пересчёт. Когда
               он завершит, акт вернётся в «Готов к проверке» и итоги снова
               можно будет корректировать.
@@ -1248,35 +1364,38 @@ export function InventoryResultsTable({
       ) : null}
 
       <div className="grid grid-cols-2 gap-3">
+        {/* Цвет суммы — только signedAmountClass (DS «Деньги»): недостача
+            отрицательная → красная, излишек → зелёный, ноль серый. */}
         <div className="rounded-lg border bg-card p-3 sm:p-4">
-          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Недостача</div>
+          <div className="text-xs font-medium text-muted-foreground">Недостача</div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
               <div className="text-xs text-muted-foreground" data-tip={QR_TILE_HINT}>
                 Уйдёт в Quick Resto
               </div>
-              <div className="mt-1 text-xl font-semibold text-red-700 dark:text-red-400 sm:text-2xl">
-                {formatMoney(Math.abs(totals.qrShortfallSum), "RUB", amountRoundingScale)}
-              </div>
+              <TileAmount
+                value={hasLineAmounts ? -Math.abs(totals.qrShortfallSum) : null}
+                amountRoundingScale={amountRoundingScale}
+              />
             </div>
             <div>
               <div className="text-xs text-muted-foreground" data-tip={MANAGEMENT_TILE_HINT}>
                 Управленческая оценка
               </div>
-              <div className="mt-1 text-xl font-semibold text-red-700 dark:text-red-400 sm:text-2xl">
-                {formatMoney(Math.abs(totals.managementShortfallSum), "RUB", amountRoundingScale)}
-              </div>
+              <TileAmount
+                value={hasLineAmounts ? -Math.abs(totals.managementShortfallSum) : null}
+                amountRoundingScale={amountRoundingScale}
+              />
             </div>
           </div>
         </div>
         <div className="rounded-lg border bg-card p-3 sm:p-4">
           <div className="flex items-center justify-between gap-2">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Излишек</div>
+            <div className="text-xs font-medium text-muted-foreground">Излишек</div>
             {isFinalized ? (
-              <Badge variant="outline" className="gap-1">
-                <Lock className="h-3 w-3" />
+              <StatusBadge tone="neutral" icon={<Lock />}>
                 Итоги подведены
-              </Badge>
+              </StatusBadge>
             ) : null}
           </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -1284,17 +1403,19 @@ export function InventoryResultsTable({
               <div className="text-xs text-muted-foreground" data-tip={QR_TILE_HINT}>
                 Уйдёт в Quick Resto
               </div>
-              <div className="mt-1 text-xl font-semibold text-green-700 dark:text-green-400 sm:text-2xl">
-                {formatMoney(Math.abs(totals.qrSurplusSum), "RUB", amountRoundingScale)}
-              </div>
+              <TileAmount
+                value={hasLineAmounts ? Math.abs(totals.qrSurplusSum) : null}
+                amountRoundingScale={amountRoundingScale}
+              />
             </div>
             <div>
               <div className="text-xs text-muted-foreground" data-tip={MANAGEMENT_TILE_HINT}>
                 Управленческая оценка
               </div>
-              <div className="mt-1 text-xl font-semibold text-green-700 dark:text-green-400 sm:text-2xl">
-                {formatMoney(Math.abs(totals.managementSurplusSum), "RUB", amountRoundingScale)}
-              </div>
+              <TileAmount
+                value={hasLineAmounts ? Math.abs(totals.managementSurplusSum) : null}
+                amountRoundingScale={amountRoundingScale}
+              />
             </div>
           </div>
         </div>
@@ -1338,7 +1459,14 @@ export function InventoryResultsTable({
           }}
           sort={{
             active: hasSortActive,
-            content: <ResultSortFieldPanel sorts={sorts} onChange={setSorts} />,
+            content: (
+              <TableSortPicker
+                sorting={sorting}
+                onChange={changeSorting}
+                fields={sortFields}
+                labels={RESULT_SORT_FIELD_LABEL}
+              />
+            ),
           }}
           columns={{
             active: managedColumns.some((column) => !column.visible),
@@ -1356,28 +1484,25 @@ export function InventoryResultsTable({
           secondaryActions={
             <>
               {canRequestAi || aiLoading ? (
-                <Tooltip delayDuration={450}>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        disabled={aiLoading || isPending}
-                        onClick={requestAiSuggestions}
-                        aria-label="Подсказки пересорта (ИИ)"
-                        className="h-8 w-8 border-border text-blue-600 hover:border-blue-400 hover:bg-background hover:text-blue-600 dark:text-blue-400 [&_svg]:h-3.5 [&_svg]:w-3.5 sm:h-9 sm:w-9 sm:[&_svg]:h-4 sm:[&_svg]:w-4"
-                      >
-                        {aiLoading ? (
-                          <Loader2 className="animate-spin" />
-                        ) : (
-                          <WandSparkles />
-                        )}
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent sideOffset={6}>Подсказки пересорта (ИИ)</TooltipContent>
-                </Tooltip>
+                // Подсказка на обёртке: у неактивной кнопки (идёт подбор)
+                // pointer-events выключены, события получает span.
+                <span className="inline-flex" data-tip="Подсказки пересорта (ИИ)">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    disabled={aiLoading || isPending}
+                    onClick={requestAiSuggestions}
+                    aria-label="Подсказки пересорта (ИИ)"
+                    className="h-8 w-8 border-border text-brand hover:border-brand/40 hover:bg-background hover:text-brand [&_svg]:h-3.5 [&_svg]:w-3.5 sm:h-9 sm:w-9 sm:[&_svg]:h-4 sm:[&_svg]:w-4"
+                  >
+                    {aiLoading ? (
+                      <Loader2 className="animate-spin" />
+                    ) : (
+                      <WandSparkles />
+                    )}
+                  </Button>
+                </span>
               ) : null}
               {canViewResults && !isLocked ? (
                 <RefreshResultsButton documentId={documentId} />
@@ -1386,9 +1511,11 @@ export function InventoryResultsTable({
           }
           summary={
             <>
-              Показано {visibleItems.length} из {items.length}; расхождений {mismatchCount}
+              Показано {visibleItems.length} из {items.length}
+              {/* Без расчёта расхождения неизвестны — «расхождений 0» соврал бы. */}
+              {hasLineAmounts ? <>; расхождений {mismatchCount}</> : null}
               {resultsSnapshotAt ? (
-                <> · итоги зафиксированы {new Date(resultsSnapshotAt).toLocaleDateString("ru-RU")}</>
+                <> · итоги зафиксированы {formatDayMonth(resultsSnapshotAt)}</>
               ) : null}
             </>
           }
@@ -1396,147 +1523,94 @@ export function InventoryResultsTable({
       </div>
 
       {recountSplits.length > 0 ? (
-        <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-900 dark:text-blue-200">
+        <div className="space-y-1 rounded-lg border bg-muted/40 p-3 text-sm">
           {recountSplits.map((split) => (
             <div key={split.documentId} className="flex flex-wrap items-center gap-1">
               <span>
                 {split.itemCount} {pluralRu(split.itemCount, "позиция вынесена", "позиции вынесены", "позиций вынесено")} в
               </span>
-              <Link href={`/documents/inventory/${split.documentId}/results`} className="font-medium underline underline-offset-2">
+              <Link
+                href={`/documents/inventory/${split.documentId}/results`}
+                className="font-medium text-brand underline-offset-2 hover:underline"
+              >
                 акт пересчёта № {split.documentNumber}
               </Link>
-              {split.invoiceDate ? (
-                <span>от {new Date(split.invoiceDate).toLocaleDateString("ru-RU")}</span>
+              {split.invoiceDate && formatDayMonth(split.invoiceDate) ? (
+                <span>от {formatDayMonth(split.invoiceDate)}</span>
               ) : null}
-              <span className="text-blue-900/70 dark:text-blue-200/70">
-                — расхождение по ним считается на дату пересчёта
+              <span className="text-muted-foreground">
+                · расхождение по ним считается на дату пересчёта
               </span>
             </div>
           ))}
         </div>
       ) : null}
 
-      {/* Pin-row — порядок 1-в-1 с documents-table: Сортировка → divider →
-          Расхождения · Группа · Статус → divider → Поиск → «Очистить все». */}
-      {/* Pin-row НЕ показываем, если активен только поиск (без фильтров/
-          сортировки) — иначе торчит одинокая «Очистить все». */}
-      {(filtersVisible || hasSortActive || hasActiveFilters) ? (
-        <div className="flex flex-wrap items-center gap-2">
-          {hasSortActive ? (
-            <TableControlPin
-              active
-              icon={
-                sorts.length === 1
-                  ? resultSortToDirection(sorts[0]) === "asc"
-                    ? <ArrowUp className="h-3.5 w-3.5" />
-                    : <ArrowDown className="h-3.5 w-3.5" />
-                  : <ArrowUpDown className="h-3.5 w-3.5" />
-              }
-              label={
-                sorts.length === 1
-                  ? RESULT_SORT_FIELD_LABEL[resultSortToField(sorts[0])]
-                  : `${sorts.length} сортировки`
-              }
-              onClear={() => setSorts([])}
-              clearLabel="Сбросить сортировку"
-              contentClassName="w-auto p-3"
-            >
-              <ResultSortPinEditor sorts={sorts} onChange={setSorts} />
-            </TableControlPin>
-          ) : null}
-
-          {hasSortActive && (filtersVisible || showSearchPin) ? <ResultPinDivider /> : null}
-
-          {filtersVisible ? (
-            <>
-              <TableControlPin
-                active={showDifferences}
-                label={showDifferences ? "Только расхождения" : "Расхождения"}
-                onClear={showDifferences ? () => setShowDifferences(false) : undefined}
-                clearLabel="Показать все строки"
-              >
-                <div className="p-1">
-                  <button
-                    type="button"
-                    onClick={() => setShowDifferences((v) => !v)}
-                    className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
-                  >
-                    <span>Только расхождения</span>
-                    {showDifferences ? <Check className="h-4 w-4 shrink-0" /> : null}
-                  </button>
-                </div>
-              </TableControlPin>
-
-              <TableControlPin
-                active={groupFilter !== "all"}
-                label={currentGroupName ? `Группа: ${currentGroupName}` : "Группа"}
-                onClear={groupFilter !== "all" ? () => setGroupFilter("all") : undefined}
-                clearLabel="Сбросить группу"
-              >
-                <ResultGroupPicker
-                  value={groupFilter}
-                  options={groupOptions}
-                  onChange={setGroupFilter}
-                />
-              </TableControlPin>
-
-              <TableControlPin
-                active={statusFilter !== "all"}
-                label={statusFilter !== "all" ? `Статус: ${RESULT_STATUS_LABEL[statusFilter]}` : "Статус"}
-                onClear={statusFilter !== "all" ? () => setStatusFilter("all") : undefined}
-                clearLabel="Сбросить статус"
-              >
-                <ResultStatusPicker value={statusFilter} onChange={setStatusFilter} />
-              </TableControlPin>
-
-              <TableControlPin
-                active={recountFilter !== "all"}
-                label={recountFilter !== "all" ? `Пересчёт: ${RESULT_RECOUNT_LABEL[recountFilter]}` : "Пересчёт"}
-                onClear={recountFilter !== "all" ? () => setRecountFilter("all") : undefined}
-                clearLabel="Сбросить фильтр пересчёта"
-              >
-                <ResultRecountPicker value={recountFilter} onChange={setRecountFilter} />
-              </TableControlPin>
-            </>
-          ) : null}
-
-          {filtersVisible && showSearchPin ? <ResultPinDivider /> : null}
-
-          {showSearchPin ? (
-            <TableControlPin
-              active
-              icon={<SearchIcon className="h-3.5 w-3.5" />}
-              label={`Поиск: ${searchQuery.trim()}`}
-              onClear={() => { setSearchQuery(""); setSearchOpen(false); }}
-              clearLabel="Очистить поиск"
-            >
-              <div className="space-y-2 p-2">
-                <Input
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="Поиск"
-                  className="h-8"
-                />
-                <p className="text-xs text-muted-foreground">
-                  По названию, артикулу, группе, комментарию.
-                </p>
-              </div>
-            </TableControlPin>
-          ) : null}
-
-          {hasAnyActive ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-8 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
-              onClick={onClearAll}
-            >
-              Очистить все
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
+      {/* Ряд условий — общий TableConditions (DS «List-страница»): правила
+          видимости зашиты в нём, один поиск ряд не открывает. Выбранный
+          фильтр виден и при свёрнутом ряде. */}
+      <TableConditions
+        label="Условия списка итогов"
+        open={filtersVisible}
+        hasFilters={hasActiveFilters}
+        sorting={sorting}
+        onSortingChange={changeSorting}
+        sortFields={sortFields}
+        sortLabels={RESULT_SORT_FIELD_LABEL}
+        search={searchQuery}
+        onSearchClear={() => {
+          setSearchQuery("");
+          setSearchOpen(false);
+        }}
+        onReset={onClearAll}
+      >
+        {/* Без расчёта Quick Resto расхождений не знаем — фильтровать не по чему. */}
+        {hasLineAmounts && (filtersVisible || showDifferences) ? (
+          <TableFilterChip
+            label="Расхождения"
+            value={showDifferences ? "only" : ""}
+            onChange={(value) => setShowDifferences(value === "only")}
+            options={[
+              { value: "", label: "Все строки" },
+              { value: "only", label: "Только расхождения" },
+            ]}
+          />
+        ) : null}
+        {filtersVisible || groupFilter !== "all" ? (
+          <TableFilterChip
+            label="Группа"
+            value={groupFilter === "all" ? "" : groupFilter}
+            onChange={(value) => setGroupFilter(value || "all")}
+            searchPlaceholder="Найти группу"
+            options={[
+              { value: "", label: "Все группы" },
+              ...groupOptions.map((group) => ({ value: group.id, label: group.name })),
+            ]}
+          />
+        ) : null}
+        {filtersVisible || statusFilter !== "all" ? (
+          <TableFilterChip
+            label="Статус"
+            value={statusFilter === "all" ? "" : statusFilter}
+            onChange={(value) => setStatusFilter((value || "all") as ResultStatusFilter)}
+            options={RESULT_STATUS_FILTERS.map((option) => ({
+              value: option === "all" ? "" : option,
+              label: RESULT_STATUS_LABEL[option],
+            }))}
+          />
+        ) : null}
+        {filtersVisible || recountFilter !== "all" ? (
+          <TableFilterChip
+            label="Пересчёт"
+            value={recountFilter === "all" ? "" : recountFilter}
+            onChange={(value) => setRecountFilter((value || "all") as ResultRecountFilter)}
+            options={RESULT_RECOUNT_FILTERS.map((option) => ({
+              value: option === "all" ? "" : option,
+              label: RESULT_RECOUNT_LABEL[option],
+            }))}
+          />
+        ) : null}
+      </TableConditions>
 
       {/* Карточка с предложениями пересорта. Триггер ИИ-подсказок переехал
           в тулбар (синяя иконка-палочка). Карточка показывается только
@@ -1544,9 +1618,13 @@ export function InventoryResultsTable({
       {displayedSuggestions.length > 0 || aiLoading ? (
       <div className="rounded-lg border bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <WandSparkles className="h-4 w-4 text-blue-600" />
+          <WandSparkles className="h-4 w-4 text-brand" />
           <div className="text-sm font-medium">Предложения пересорта</div>
-          {aiSuggestionsEnabled ? <Badge variant="outline">AI</Badge> : <Badge variant="secondary">История</Badge>}
+          {aiSuggestionsEnabled ? (
+            <StatusBadge tone="info">ИИ</StatusBadge>
+          ) : (
+            <StatusBadge tone="neutral">История</StatusBadge>
+          )}
         </div>
         {displayedSuggestions.length > 0 ? (
         <div className="grid gap-1.5">
@@ -1579,7 +1657,7 @@ export function InventoryResultsTable({
                       серой строки, разной длины у каждой карточки. */}
                   <div className="flex w-12 shrink-0 flex-col items-center gap-0.5 pt-0.5">
                     <ConfidenceGauge percent={percent} />
-                    <span className="text-[11px] leading-tight text-muted-foreground">
+                    <span className="text-xs leading-tight text-muted-foreground">
                       {suggestion.source === "ai" ? "ИИ" : "История"}
                     </span>
                   </div>
@@ -1662,12 +1740,35 @@ export function InventoryResultsTable({
       ) : null}
 
       {visibleItems.length === 0 ? (
-        <div className="rounded-lg border bg-card p-4 text-sm">
-          <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
-            <CheckCircle2 className="h-4 w-4" />
-            Расхождений по строкам нет.
-          </div>
-        </div>
+        // Пусто бывает только из-за условий: строки в акте есть (иначе выше
+        // ранний выход). Если включён один фильтр «Только расхождения» — это
+        // хорошая новость, а не «ничего не найдено».
+        showDifferences &&
+        !hasSearch &&
+        groupFilter === "all" &&
+        statusFilter === "all" &&
+        recountFilter === "all" ? (
+          <EmptyState
+            icon={CheckCircle2}
+            title="Расхождений по строкам нет"
+            action={
+              <Button type="button" variant="outline" onClick={() => setShowDifferences(false)}>
+                Показать все строки
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={SearchX}
+            title="Ничего не найдено"
+            description="Измените поиск или условия списка"
+            action={
+              <Button type="button" variant="outline" onClick={onClearAll}>
+                Сбросить поиск и фильтры
+              </Button>
+            }
+          />
+        )
       ) : (
         // На десктопе (md+) overflow видимый: колонки вписаны в ширину
         // (table-fixed + colgroup в %), шапка липнет к верху страницы.
@@ -1695,7 +1796,7 @@ export function InventoryResultsTable({
                 table={table}
                 isControlColumn={(columnId) => columnId === "select" || columnId === "actions"}
                 sortableColumnIds={sortableColumnIds}
-                onSort={(columnId) => cycleSort(COLUMN_TO_RESULT_FIELD[columnId])}
+                onSort={(columnId) => cycleSort(columnToResultField[columnId])}
                 headerIndicator={headerIndicator}
                 headerAriaSort={headerAriaSort}
                 renderControlHeader={(header) =>
@@ -1780,8 +1881,11 @@ export function InventoryResultsTable({
                     // пересорт покрыл дорогое товаром по более низкой
                     // себестоимости — разница идёт в управленческую
                     // недостачу. См. docs/handbook/inventory/resort.md.
-                    <div className="mt-1 text-xs text-rose-700">
-                      Корректировка себестоимости: −{formatMoney(Number(resort.cost_adjustment_sum), "RUB", amountRoundingScale)}
+                    <div className="mt-1 text-xs">
+                      <span className="text-muted-foreground">Корректировка себестоимости:</span>{" "}
+                      <span className={cn("tabular-nums", signedAmountClass(-Number(resort.cost_adjustment_sum)))}>
+                        {formatSignedMoney(-Number(resort.cost_adjustment_sum), "RUB", amountRoundingScale)}
+                      </span>
                     </div>
                   ) : null}
                 </div>
@@ -1794,10 +1898,11 @@ export function InventoryResultsTable({
                     onClick={() => {
                       setVoidingResort(resort);
                       setVoidReason("");
+                      setVoidError(null);
                     }}
                   >
                     <RotateCcw className="mr-2 h-4 w-4" />
-                    Отменить
+                    Отменить пересорт
                   </Button>
                 ) : null}
               </div>
@@ -1811,32 +1916,31 @@ export function InventoryResultsTable({
           итоги»). Поясняющий текст про блокировку — в тултипе кнопки. */}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
         <div className="text-xs text-muted-foreground">
-          Показано {visibleItems.length} из {items.length}; расхождений {mismatchCount}
+          Показано {visibleItems.length} из {items.length}
+          {hasLineAmounts ? <>; расхождений {mismatchCount}</> : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {canSendToRecount ? (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex">
-                    {/* Развилка «сегодня / другим днём»: расчётный остаток в QR
-                        привязан к дате акта, поэтому пересчёт другим днём должен
-                        уходить в отдельный акт (см. recount-split-dialog). */}
-                    <RecountSplitDialog
-                      documentId={documentId}
-                      documentInvoiceDate={documentInvoiceDate}
-                      flaggedCount={flaggedCount}
-                      disabled={adjustLocked || isPending}
-                    />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {flaggedCount === 0
-                    ? "Отметьте флажком «Пересчёт» хотя бы одну строку."
-                    : `На пересчёт ${pluralRu(flaggedCount, "уйдёт", "уйдут", "уйдут")} ${flaggedCount} ${pluralRu(flaggedCount, "отмеченная строка", "отмеченные строки", "отмеченных строк")}.`}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            // Подсказка на обёртке: при 0 отмеченных кнопка неактивна, и
+            // события наведения получает span (DS «Подсказки»).
+            <span
+              className="inline-flex"
+              data-tip={
+                flaggedCount === 0
+                  ? "Отметьте флажком «Пересчёт» хотя бы одну строку"
+                  : `На пересчёт ${pluralRu(flaggedCount, "уйдёт", "уйдут", "уйдут")} ${countRu(flaggedCount, "отмеченная строка", "отмеченные строки", "отмеченных строк")}`
+              }
+            >
+              {/* Развилка «сегодня / другим днём»: расчётный остаток в QR
+                  привязан к дате акта, поэтому пересчёт другим днём должен
+                  уходить в отдельный акт (см. recount-split-dialog). */}
+              <RecountSplitDialog
+                documentId={documentId}
+                documentInvoiceDate={documentInvoiceDate}
+                flaggedCount={flaggedCount}
+                disabled={adjustLocked || isPending}
+              />
+            </span>
           ) : null}
 
           {canFinalize ? (
@@ -1845,20 +1949,11 @@ export function InventoryResultsTable({
                 type="button"
                 variant="outline"
                 disabled={isPending}
-                onClick={() =>
-                  runAction(
-                    () =>
-                      reopenInventoryResults({
-                        documentId,
-                        reason: isFinalized
-                          ? "Режим редактирования итогов"
-                          : "Разблокировка проведённого акта",
-                      }),
-                    isFinalized
-                      ? "Итоги открыты для редактирования"
-                      : "Акт разблокирован для редактирования",
-                  )
-                }
+                onClick={() => {
+                  setReopenReason("");
+                  setReopenError(null);
+                  setConfirmReopen(true);
+                }}
               >
                 <Undo2 className="mr-2 h-4 w-4" />
                 {isFinalized ? "Редактировать итоги" : "Разблокировать акт"}
@@ -1866,29 +1961,38 @@ export function InventoryResultsTable({
             ) : isRecountPending ? (
               // Акт на пересчёте — финализировать нельзя (см. баннер выше).
               <span className="text-xs text-muted-foreground">
-                Финализация недоступна — акт на пересчёте.
+                Подвести итоги можно после пересчёта
               </span>
+            ) : !hasLineAmounts ? (
+              // Без расчёта по строкам проводить нечего: в Quick Resto ушла бы
+              // разница, которую проверяющий не видел. Причина — текстом рядом
+              // (DS «Кнопки»: у неактивной кнопки подсказка не появляется).
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <span className="text-xs text-muted-foreground">
+                  Подвести итоги можно, когда Quick Resto пришлёт расчёт по строкам
+                </span>
+                <Button type="button" disabled>
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  Подвести итоги
+                </Button>
+              </div>
             ) : (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex">
-                      <Button
-                        type="button"
-                        disabled={isPending}
-                        onClick={() => setConfirmFinalize(true)}
-                      >
-                        <CheckCircle2 className="mr-2 h-4 w-4" />
-                        Подвести итоги
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-[280px]">
-                    После подведения итогов пересорты, комментарии и исключения будут
-                    заблокированы до переоткрытия.
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <span
+                className="inline-flex"
+                data-tip="После подведения итогов пересорты, комментарии и исключения будут заблокированы до переоткрытия"
+              >
+                <Button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => {
+                    setFinalizeError(null);
+                    setConfirmFinalize(true);
+                  }}
+                >
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  Подвести итоги
+                </Button>
+              </span>
             )
           ) : null}
         </div>
@@ -1905,73 +2009,114 @@ export function InventoryResultsTable({
       {/* Подтверждение проведения. Показываем сумму, которая реально уйдёт в
           Quick Resto: исключения и пересорты её не уменьшают, а раньше тайл
           «К списанию» читался как решение по деньгам. */}
-      <Dialog open={confirmFinalize} onOpenChange={(open) => !open && setConfirmFinalize(false)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Подвести итоги акта</DialogTitle>
-            <DialogDescription>
-              Акт будет проведён в Quick Resto, а итоги — зафиксированы.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 text-sm">
-            <div className="rounded-lg border p-3">
-              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Уйдёт в Quick Resto
+      <ConfirmDialog
+        open={confirmFinalize}
+        onOpenChange={(open) => {
+          setConfirmFinalize(open);
+          if (!open) setFinalizeError(null);
+        }}
+        title={`Подвести итоги акта № ${documentNumber}?`}
+        description="Акт будет проведён в Quick Resto, а итоги зафиксированы."
+        confirmLabel="Подвести итоги"
+        pendingLabel="Подводим итоги…"
+        busy={isPending}
+        error={finalizeError}
+        onConfirm={() =>
+          runDialogAction(
+            () => finalizeInventoryResults({ documentId }),
+            "Итоги подведены",
+            setFinalizeError,
+            () => setConfirmFinalize(false),
+          )
+        }
+      >
+        <div className="space-y-3 text-sm">
+          <div className="rounded-lg border p-3">
+            <div className="text-xs font-medium text-muted-foreground">Уйдёт в Quick Resto</div>
+            <div className="mt-2 grid gap-1">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Недостача</span>
+                <span className={cn("font-medium tabular-nums", signedAmountClass(-Math.abs(totals.qrShortfallSum)))}>
+                  {formatMoney(Math.abs(totals.qrShortfallSum), "RUB", amountRoundingScale)}
+                </span>
               </div>
-              <div className="mt-2 grid gap-1">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-muted-foreground">Недостача</span>
-                  <span className="font-medium text-red-700 dark:text-red-400">
-                    {formatMoney(Math.abs(totals.qrShortfallSum), "RUB", amountRoundingScale)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-muted-foreground">Излишек</span>
-                  <span className="font-medium text-green-700 dark:text-green-400">
-                    {formatMoney(Math.abs(totals.qrSurplusSum), "RUB", amountRoundingScale)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-3 border-t pt-1">
-                  <span className="text-muted-foreground">Итого</span>
-                  <span className="font-semibold">
-                    {formatSignedMoney(qrNetSum, "RUB", amountRoundingScale)}
-                  </span>
-                </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Излишек</span>
+                <span className={cn("font-medium tabular-nums", signedAmountClass(Math.abs(totals.qrSurplusSum)))}>
+                  {formatMoney(Math.abs(totals.qrSurplusSum), "RUB", amountRoundingScale)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-3 border-t pt-1">
+                <span className="text-muted-foreground">Итого</span>
+                <span className="font-semibold tabular-nums">
+                  {formatSignedMoney(qrNetSum, "RUB", amountRoundingScale)}
+                </span>
               </div>
             </div>
-            {finalizeSumsDiffer ? (
-              <p className="text-muted-foreground">
-                Управленческая оценка — {formatSignedMoney(managementNetSum, "RUB", amountRoundingScale)}.
-                Она учитывает исключённые строки и пересорты и остаётся внутри CRM:
-                в Quick Resto проводится полная разница по строкам.
-              </p>
-            ) : null}
-            <p className="text-muted-foreground">
-              После подведения итогов пересорты, комментарии и исключения будут
-              заблокированы до переоткрытия.
-            </p>
           </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setConfirmFinalize(false)}>
-              Отмена
-            </Button>
-            <Button
-              type="button"
-              disabled={isPending}
-              onClick={() =>
-                runAction(
-                  () => finalizeInventoryResults({ documentId }),
-                  "Итоги подведены",
-                  () => setConfirmFinalize(false),
-                )
-              }
-            >
-              <CheckCircle2 className="mr-2 h-4 w-4" />
-              Подвести итоги
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          {finalizeSumsDiffer ? (
+            <p className="text-muted-foreground">
+              Управленческая оценка: {formatSignedMoney(managementNetSum, "RUB", amountRoundingScale)}.
+              Она учитывает исключённые строки и пересорты и остаётся внутри CRM:
+              в Quick Resto проводится полная разница по строкам.
+            </p>
+          ) : null}
+          <p className="text-muted-foreground">
+            После подведения итогов пересорты, комментарии и исключения будут
+            заблокированы до переоткрытия.
+          </p>
+        </div>
+      </ConfirmDialog>
+
+      {/* Разблокировка / переоткрытие итогов. Последствия серьёзные: удержание
+          за недостачу по акту сторнируется, а у проведённого акта навсегда
+          остаётся отметка «итоги правились после проведения». Поэтому — только
+          через подтверждение с причиной, она уходит в журнал акта. */}
+      <ConfirmDialog
+        open={confirmReopen}
+        onOpenChange={(open) => {
+          setConfirmReopen(open);
+          if (!open) setReopenError(null);
+        }}
+        title={
+          isFinalized && documentStatus !== "processed"
+            ? `Открыть итоги акта № ${documentNumber} для редактирования?`
+            : `Разблокировать акт № ${documentNumber}?`
+        }
+        description={
+          documentStatus === "processed"
+            ? "Итоги снова можно будет менять. Удержание за недостачу по этому акту, если оно было начислено, отменится. В журнале акта навсегда останется отметка, что итоги правились после проведения в Quick Resto."
+            : "Итоги снова можно будет менять. Удержание за недостачу по этому акту, если оно было начислено, отменится до повторного подведения итогов."
+        }
+        confirmLabel={
+          isFinalized && documentStatus !== "processed" ? "Открыть итоги" : "Разблокировать акт"
+        }
+        pendingLabel={
+          isFinalized && documentStatus !== "processed" ? "Открываем…" : "Разблокируем…"
+        }
+        busy={isPending}
+        confirmDisabled={!reopenReason.trim()}
+        error={reopenError}
+        onConfirm={() =>
+          runDialogAction(
+            () => reopenInventoryResults({ documentId, reason: reopenReason }),
+            isFinalized ? "Итоги открыты для редактирования" : "Акт разблокирован для редактирования",
+            setReopenError,
+            () => setConfirmReopen(false),
+          )
+        }
+      >
+        <Field label="Причина" required>
+          {(control) => (
+            <Textarea
+              {...control}
+              value={reopenReason}
+              onChange={(event) => setReopenReason(event.target.value)}
+              placeholder="Например, нашли ошибку в подсчёте"
+            />
+          )}
+        </Field>
+      </ConfirmDialog>
 
       <Dialog open={Boolean(commentItem)} onOpenChange={(open) => !open && setCommentItem(null)}>
         <DialogContent>
@@ -1979,7 +2124,12 @@ export function InventoryResultsTable({
             <DialogTitle>Комментарий к позиции</DialogTitle>
             <DialogDescription>{commentItem?.product_name}</DialogDescription>
           </DialogHeader>
-          <Textarea value={commentDraft} onChange={(event) => setCommentDraft(event.target.value)} placeholder="Комментарий" />
+          <Textarea
+            value={commentDraft}
+            onChange={(event) => setCommentDraft(event.target.value)}
+            placeholder="Комментарий"
+            aria-label="Комментарий"
+          />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setCommentItem(null)}>
               Отмена
@@ -1992,88 +2142,108 @@ export function InventoryResultsTable({
                 const itemId = commentItem.id;
                 runAction(
                   () => updateInventoryResultComment({ documentId, itemId, comment: commentDraft }),
-                  "Комментарий сохранен",
+                  "Комментарий сохранён",
                   () => {
                     setCommentItem(null);
                   },
                 );
               }}
             >
-              Сохранить
+              {isPending ? "Сохраняем…" : "Сохранить"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={Boolean(deleteRuleItem)} onOpenChange={(open) => !open && setDeleteRuleItem(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Удалить автоисключение</DialogTitle>
-            <DialogDescription>{deleteRuleItem?.product_name}</DialogDescription>
-          </DialogHeader>
-          <Textarea value={deleteRuleReason} onChange={(event) => setDeleteRuleReason(event.target.value)} placeholder="Причина удаления" />
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setDeleteRuleItem(null)}>
-              Отмена
-            </Button>
-            <Button
-              type="button"
-              disabled={!deleteRuleItem || isPending || !deleteRuleReason.trim()}
-              onClick={() => {
-                if (!deleteRuleItem) return;
-                runAction(
-                  () => deleteInventoryResultExclusionRule({ documentId, itemId: deleteRuleItem.id, reason: deleteRuleReason }),
-                  "Автоисключение удалено",
-                  () => setDeleteRuleItem(null),
-                );
-              }}
-            >
-              Удалить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={Boolean(deleteRuleItem)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteRuleItem(null);
+            setDeleteRuleError(null);
+          }
+        }}
+        title={`Удалить автоисключение «${deleteRuleItem?.product_name ?? ""}»?`}
+        description="Позиция вернётся в итоги этого акта и прошлых актов незакрытых месяцев, где её исключало это правило. Причина попадёт в журнал акта."
+        confirmLabel="Удалить автоисключение"
+        pendingLabel="Удаляем…"
+        destructive
+        busy={isPending}
+        confirmDisabled={!deleteRuleItem || !deleteRuleReason.trim()}
+        error={deleteRuleError}
+        onConfirm={() => {
+          if (!deleteRuleItem) return;
+          const itemId = deleteRuleItem.id;
+          runDialogAction(
+            () => deleteInventoryResultExclusionRule({ documentId, itemId, reason: deleteRuleReason }),
+            "Автоисключение удалено",
+            setDeleteRuleError,
+            () => setDeleteRuleItem(null),
+          );
+        }}
+      >
+        <Field label="Причина удаления" required>
+          {(control) => (
+            <Textarea
+              {...control}
+              value={deleteRuleReason}
+              onChange={(event) => setDeleteRuleReason(event.target.value)}
+            />
+          )}
+        </Field>
+      </ConfirmDialog>
 
-      <Dialog open={Boolean(voidingResort)} onOpenChange={(open) => !open && setVoidingResort(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Отменить пересорт</DialogTitle>
-            <DialogDescription>Укажите причину отмены. Действие попадет в журнал решений.</DialogDescription>
-          </DialogHeader>
-          <Textarea value={voidReason} onChange={(event) => setVoidReason(event.target.value)} placeholder="Причина отмены" />
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setVoidingResort(null)}>
-              Отмена
-            </Button>
-            <Button
-              type="button"
-              disabled={!voidingResort || isPending || !voidReason.trim()}
-              onClick={() => {
-                if (!voidingResort) return;
-                runAction(
-                  () => voidInventoryResultResort({ documentId, resortId: voidingResort.id, reason: voidReason }),
-                  "Пересорт отменен",
-                  () => setVoidingResort(null),
-                );
-              }}
-            >
-              Отменить пересорт
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={Boolean(voidingResort)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setVoidingResort(null);
+            setVoidError(null);
+          }
+        }}
+        title={`Отменить пересорт «${voidingResort?.group_name ?? "Группа"}»?`}
+        description="Расхождения по его позициям снова попадут в итоги. Решение и причина попадут в журнал акта."
+        confirmLabel="Отменить пересорт"
+        pendingLabel="Отменяем…"
+        destructive
+        busy={isPending}
+        confirmDisabled={!voidingResort || !voidReason.trim()}
+        error={voidError}
+        onConfirm={() => {
+          if (!voidingResort) return;
+          const resortId = voidingResort.id;
+          runDialogAction(
+            () => voidInventoryResultResort({ documentId, resortId, reason: voidReason }),
+            "Пересорт отменён",
+            setVoidError,
+            () => setVoidingResort(null),
+          );
+        }}
+      >
+        <Field label="Причина отмены" required>
+          {(control) => (
+            <Textarea
+              {...control}
+              value={voidReason}
+              onChange={(event) => setVoidReason(event.target.value)}
+            />
+          )}
+        </Field>
+      </ConfirmDialog>
 
       {/* Floating bar групповых действий — появляется при выборе строк.
           Сюда «опущены» все row-bulk операции: Пересорт / Не учитывать /
           Исключать всегда / Пересчёт. */}
-      {canAdjust || canRecount ? (
+      {canAdjustSums || canRecount ? (
         <TableBulkBar
           floating
           selectedCount={selectedItems.length}
           onClear={() => setSelectedIds(new Set())}
           actions={
             <>
-              {canAdjust ? (
+              {/* Пересорт и исключения опираются на суммы — без расчёта
+                  Quick Resto остаётся только пересчёт. */}
+              {canAdjustSums ? (
                 <>
                   <Button
                     type="button"

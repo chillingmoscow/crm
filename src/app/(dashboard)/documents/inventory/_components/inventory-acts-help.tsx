@@ -37,7 +37,7 @@ export function InventoryActsHelp() {
       </Section>
 
       <p className="text-xs text-muted-foreground">
-        Горячие клавиши — по клавише <kbd className="rounded border bg-muted px-1 font-mono text-[11px]">?</kbd>.
+        Горячие клавиши — по клавише <kbd className="rounded border bg-muted px-1 font-mono text-xs">?</kbd>.
       </p>
     </>
   );

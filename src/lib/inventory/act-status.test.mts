@@ -176,13 +176,16 @@ test("исполнитель строже проверяющего: на про�
 });
 
 test("nextStatusAfterAssign: снятие исполнителя → synced", () => {
-  for (const s of ["synced", "assigned", "in_progress", "recount_pending"] as const) {
+  for (const s of ["synced", "assigned", "in_progress"] as const) {
     assert.equal(nextStatusAfterAssign(s, null), "synced");
   }
 });
 
-test("nextStatusAfterAssign: смена на пересчёте сохраняет recount_pending", () => {
+test("nextStatusAfterAssign: на пересчёте статус сохраняется при смене и при снятии", () => {
   assert.equal(nextStatusAfterAssign("recount_pending", "user-1"), "recount_pending");
+  // Снятие не должно выводить акт из пересчёта: иначе следующее назначение
+  // открыло бы весь акт с предзаполненными значениями.
+  assert.equal(nextStatusAfterAssign("recount_pending", null), "recount_pending");
 });
 
 test("nextStatusAfterAssign: обычное назначение → assigned", () => {
@@ -331,5 +334,28 @@ test("resolveQrUnprocessedAt: обычный непроведённый акт �
       now: "2026-08-28T10:00:00Z",
     }),
     "2026-08-27T09:00:00Z",
+  );
+});
+
+test("canFillInventoryAct: управляющий, исполнитель и проверяющий акта", async () => {
+  const { canFillInventoryAct } = await import("./act-status.ts");
+  const base = { userId: "u1", assignedTo: "u2", reviewerId: "u3" };
+  assert.equal(canFillInventoryAct({ ...base, permissions: ["inventory.manage_documents"] }), true);
+  // Чужой акт без права управлять — нельзя.
+  assert.equal(canFillInventoryAct({ ...base, permissions: ["inventory.fill_assigned_documents"] }), false);
+  // Исполнитель.
+  assert.equal(
+    canFillInventoryAct({ ...base, assignedTo: "u1", permissions: ["inventory.fill_assigned_documents"] }),
+    true,
+  );
+  // Проверяющий вносит данные за уехавшего исполнителя.
+  assert.equal(
+    canFillInventoryAct({ ...base, reviewerId: "u1", permissions: ["inventory.recount_documents"] }),
+    true,
+  );
+  // Проверяющий без прав заполнения и пересчёта — нет.
+  assert.equal(
+    canFillInventoryAct({ ...base, reviewerId: "u1", permissions: ["inventory.view_documents"] }),
+    false,
   );
 });

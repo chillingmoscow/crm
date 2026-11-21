@@ -106,6 +106,8 @@ const nextConfig: NextConfig = {
       { source: "/inventory/stores",            destination: "/org/stores",                 permanent: true },
       { source: "/inventory/stores/:path*",     destination: "/org/stores/:path*",          permanent: true },
       { source: "/inventory",                   destination: "/documents/inventory",        permanent: true },
+      // «Поставки» переехали из «Финансов» в «Документы» как «Приходные накладные».
+      { source: "/finance/supplies",            destination: "/documents/supplies",         permanent: true },
     ];
   },
 };

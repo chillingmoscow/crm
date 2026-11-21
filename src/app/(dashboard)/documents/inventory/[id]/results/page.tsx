@@ -1,5 +1,7 @@
 import { notFound, redirect } from "next/navigation";
-import { AlertTriangle } from "lucide-react";
+import { ClipboardList } from "lucide-react";
+
+import { EmptyState } from "@/components/ui/empty-state";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
@@ -147,8 +149,13 @@ export default async function InventoryDocumentResultsPage({
 
   // Подсказки пересорта имеют смысл только пока итоги можно менять. Считаем
   // это ДО запросов: от флага зависит, читать ли журнал акта (см. ниже).
+  // Без расчёта Quick Resto по строкам (results_has_line_amounts = false)
+  // подсказкам не на что опереться: они сводят недостачу с излишком по разнице.
   const suggestionsEnabled =
-    canAdjustResults && !isLocked && document.status !== "recount_pending";
+    canAdjustResults &&
+    !isLocked &&
+    document.status !== "recount_pending" &&
+    document.results_has_line_amounts;
 
   // Одна волна вместо шести последовательных: строки акта, след выноса на
   // пересчёт, пересорты, правила автоисключения и настройки аккаунта друг от
@@ -166,7 +173,7 @@ export default async function InventoryDocumentResultsPage({
   ] = await Promise.all([
     admin
     .from<Array<InventoryDocumentResultItem & InventoryResultSnapshotAmounts>>("document_items")
-    .select("id, ingredient_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum, finalized_at, finalized_actual_amount, finalized_calculated_amount, finalized_difference_amount, finalized_difference_sum, finalized_prime_cost, finalized_excluded_from_totals, excluded_from_totals, exclude_reason, exclusion_rule_id, result_comment, needs_recount, recount_auto_flagged, recount_note, recount_previous_amount")
+    .select("id, ingredient_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, submitted_amount, calculated_amount, difference_amount, prime_cost, difference_sum, finalized_at, finalized_actual_amount, finalized_calculated_amount, finalized_difference_amount, finalized_difference_sum, finalized_prime_cost, finalized_excluded_from_totals, excluded_from_totals, exclude_reason, exclusion_rule_id, result_comment, needs_recount, recount_auto_flagged, recount_note, recount_previous_amount")
     .eq("account_id", accountId)
     .eq("document_id", document.id)
     .order("product_name"),
@@ -379,7 +386,8 @@ export default async function InventoryDocumentResultsPage({
   }
 
   return (
-    <div className="w-full space-y-6 px-4 py-6 md:p-8">
+    // Поля страницы даёт PageFrame в layout акта — своих отступов здесь нет.
+    <div className="space-y-6">
       {/* Шапка (back/табы/номер/статус/склад/позиции) — в shared layout.
           «Обновить итоги из QR» переехала в тулбар таблицы итогов
           (results-table → TableControls.secondaryActions). */}
@@ -387,28 +395,15 @@ export default async function InventoryDocumentResultsPage({
         // До сдачи акта «разница» из Quick Resto — это минус весь складской
         // остаток (факт ещё нулевой). Показывать её как итог нельзя: на проде
         // такой акт рисовал недостачу 478 193,6 ₽ до начала подсчёта.
-        <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm">
-          <div className="mb-2 font-medium">Подсчёт ещё не завершён</div>
-          <p className="text-muted-foreground">
-            Итоги появятся, когда исполнитель заполнит акт и отправит его на проверку. Пока факт не
-            введён, Quick Resto считает разницу как «ноль минус расчётный остаток» — это не
-            расхождение, а просто складской остаток со знаком минус.
-          </p>
-        </div>
-      ) : !document.results_has_line_amounts ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <div className="mb-2 flex items-center gap-2 font-medium">
-            <AlertTriangle className="h-4 w-4" />
-            Построчные итоги не подтверждены
-          </div>
-          <p>
-            Quick Resto API для этого акта не вернул расчетные поля по строкам. По плану v1 мы не считаем недостачу и излишек сами,
-            пока реальный payload QR не подтвердит точные поля расчета.
-          </p>
-        </div>
+        <EmptyState
+          icon={ClipboardList}
+          title="Подсчёт ещё не завершён"
+          description="Итоги появятся, когда исполнитель заполнит акт и отправит его на проверку. До этого разница в Quick Resto равна складскому остатку со знаком минус и расхождением не является."
+        />
       ) : (
         <InventoryResultsTable
           documentId={document.id}
+          documentNumber={document.document_number}
           items={itemsWithRules}
           resorts={resorts}
           resortItems={resortItems}
@@ -431,6 +426,11 @@ export default async function InventoryDocumentResultsPage({
           canViewProducts={Boolean(canViewProducts)}
           aiSuggestionsEnabled={aiSuggestionsEnabled}
           documentStatus={document.status}
+          // Нет расчёта по строкам («Итоги требуют проверки») — таблица в
+          // режиме «без сумм»: прочерки вместо расчёта и сумм, но пометки и
+          // отправка на пересчёт работают. Раньше здесь была только плашка с
+          // «Обновить итоги», и проверяющий не мог вернуть акт на пересчёт.
+          hasLineAmounts={document.results_has_line_amounts}
         />
       )}
     </div>

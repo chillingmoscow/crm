@@ -25,7 +25,7 @@ export function TableSortPicker({
 }) {
   return (
     <div className="space-y-1">
-      <p className="px-3 py-2 text-[11px] uppercase tracking-wide text-muted-foreground">
+      <p className="px-3 py-2 text-xs font-medium text-muted-foreground">
         Сортировка
       </p>
       {fields.map((id) => {
@@ -64,7 +64,7 @@ export function TableSortSettings({
     onChange(sorting.map((s, i) => (i === index ? next : s)));
   return (
     <div className="w-[min(420px,calc(100vw-3rem))] space-y-3">
-      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+      <p className="text-xs font-medium text-muted-foreground">
         Сортировка
       </p>
       <div className="space-y-2">

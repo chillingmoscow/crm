@@ -23,6 +23,7 @@ import { CatalogHelp } from "@/app/(dashboard)/catalog/_components/catalog-help"
 import { WriteoffsHelp } from "@/app/(dashboard)/documents/writeoffs/_components/writeoffs-help";
 import { AuditHelp } from "@/app/(dashboard)/org/audit/_components/audit-help";
 import { StoresHelp } from "@/app/(dashboard)/org/stores/_components/stores-help";
+import { FinanceDashboardHelp } from "@/app/(dashboard)/finance/_components/finance-dashboard-help";
 import { CategoriesHelp } from "@/app/(dashboard)/finance/categories/_components/categories-help";
 import { CounterpartiesHelp } from "@/app/(dashboard)/finance/counterparties/_components/counterparties-help";
 import { AccountsHelp } from "@/app/(dashboard)/finance/accounts/_components/accounts-help";
@@ -103,6 +104,7 @@ export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
   },
   { match: (p) => p === "/documents/writeoffs", title: "Списания", Content: WriteoffsHelp },
   { match: (p) => p === "/org/audit", title: "Журнал событий", Content: AuditHelp },
+  { match: (p) => p === "/finance", title: "Дашборд финансов", Content: FinanceDashboardHelp },
   { match: (p) => p === "/finance/categories", title: "Статьи", Content: CategoriesHelp },
   {
     match: (p) => p === "/finance/counterparties" || p.startsWith("/finance/counterparties/"),

@@ -11,7 +11,6 @@ import {
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
-  ArrowLeftRight,
   ChevronDown,
   Copy,
   Download,
@@ -85,6 +84,7 @@ import type { AccountVenueRow, LegalEntityRow } from "@/lib/org/legal-entities";
 import { AmountRangeFilter } from "./filters/amount-range-filter";
 import { BulkEditDialog } from "./bulk-edit-dialog";
 import { TransactionFormSheet, type FormMode } from "./transaction-form-sheet";
+import { TRANSACTION_CREATE_OPTIONS } from "../../_components/transaction-create-options";
 import {
   AccountCell,
   CategoryCell,
@@ -478,6 +478,33 @@ export function TransactionsPage({
       ? activeAccounts.find((a) => a.legal_entity_id === effectiveLegalEntityId)?.id
       : undefined);
   const openCreate = (type: TransactionRow["type"]) => setFormMode({ kind: "create", type });
+
+  // «Добавить операцию» на дашборде ведёт сюда с `?create=<тип>`. Форма
+  // открывается один раз, параметр сразу убирается из адреса — иначе
+  // обновление страницы или «Назад» открывали бы её снова.
+  const createFromUrl = searchParams.get("create");
+  const handledCreate = useRef<string | null>(null);
+  useEffect(() => {
+    if (!createFromUrl) {
+      handledCreate.current = null;
+      return;
+    }
+    if (handledCreate.current === createFromUrl) return;
+    handledCreate.current = createFromUrl;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("create");
+    const qs = params.toString();
+    // Без запроса к серверу: router.replace перерисовал бы список второй раз.
+    window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
+    if (!permissions.create) return;
+    if (createFromUrl !== "income" && createFromUrl !== "expense" && createFromUrl !== "transfer")
+      return;
+    if (createFromUrl === "transfer" && transferBlocked) {
+      toast.error("Для перевода нужно хотя бы два счёта");
+      return;
+    }
+    setFormMode({ kind: "create", type: createFromUrl });
+  }, [createFromUrl, permissions.create, transferBlocked, searchParams, pathname]);
   const openCopy = (tx: TransactionRow) =>
     setFormMode({ kind: "create", type: tx.type, copyOf: tx });
 
@@ -906,27 +933,28 @@ export function TransactionsPage({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuItem className="gap-2" onSelect={() => openCreate("income")}>
-          <Plus className="size-4 text-green-700 dark:text-green-400" />
-          Приход
-        </DropdownMenuItem>
-        <DropdownMenuItem className="gap-2" onSelect={() => openCreate("expense")}>
-          <Minus className="size-4 text-red-700 dark:text-red-400" />
-          Расход
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          className="gap-2"
-          disabled={transferBlocked}
-          onSelect={() => openCreate("transfer")}
-        >
-          <ArrowLeftRight className="size-4 text-muted-foreground" />
-          <span className="flex flex-col">
-            Перевод
-            {transferBlocked ? (
-              <span className="text-xs text-muted-foreground">Нужно хотя бы два счёта</span>
-            ) : null}
-          </span>
-        </DropdownMenuItem>
+        {/* Те же пункты, что у «Добавить операцию» на дашборде. */}
+        {TRANSACTION_CREATE_OPTIONS.map(({ type, label, icon: Icon, tone }) => {
+          const blocked = type === "transfer" && transferBlocked;
+          return (
+            <DropdownMenuItem
+              key={type}
+              className="gap-2"
+              disabled={blocked}
+              onSelect={() => openCreate(type)}
+            >
+              <span className={cn("grid size-6 shrink-0 place-items-center rounded-md", tone)}>
+                <Icon className="size-3.5" />
+              </span>
+              <span className="flex flex-col">
+                {label}
+                {blocked ? (
+                  <span className="text-xs text-muted-foreground">Нужно хотя бы два счёта</span>
+                ) : null}
+              </span>
+            </DropdownMenuItem>
+          );
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   );

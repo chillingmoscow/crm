@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import s from "./metric-strip.module.css";
@@ -31,6 +32,7 @@ export function Metric({
   icon,
   primary = false,
   onClick,
+  href,
   ariaLabel,
 }: {
   label: ReactNode;
@@ -41,6 +43,8 @@ export function Metric({
   icon?: ReactNode;
   primary?: boolean;
   onClick?: () => void;
+  /** Переход к подробностям другой страницей — вместо `onClick`. */
+  href?: string;
   ariaLabel?: string;
 }) {
   const body = (
@@ -54,6 +58,12 @@ export function Metric({
     </>
   );
   const className = cn(s.metric, primary && s.primary);
+  if (href)
+    return (
+      <Link href={href} className={className} aria-label={ariaLabel}>
+        {body}
+      </Link>
+    );
   return onClick ? (
     <button type="button" className={className} onClick={onClick} aria-label={ariaLabel}>
       {body}

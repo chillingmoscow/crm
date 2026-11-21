@@ -105,8 +105,8 @@ export default async function FinanceDashboardPage({
   // «Сегодня» — по часам заведения, а не сервера (на проде он в UTC):
   // иначе с полуночи до трёх ночи первого числа сервер считал бы текущим
   // прошлый месяц, а шапка в браузере — новый. Шапка получает этот же день.
-  const todayIso = dateInZone(new Date(), timeZone);
-  const today = parseIsoDay(todayIso)!;
+  const todayIso = todayInZone(timeZone);
+  const today = parseIsoDay(todayIso) ?? new Date();
   const { period } = resolvePeriod(sp.date_from, sp.date_to, today);
 
   // Выбор из адреса или cookie, которого нет среди доступных вариантов
@@ -400,6 +400,19 @@ async function activeVenueTimeZone(): Promise<string> {
     .eq("id", venueId)
     .maybeSingle();
   return data?.timezone || "Europe/Moscow";
+}
+
+/**
+ * Сегодняшний день в поясе заведения. Пояс хранится строкой в настройках
+ * заведения: незнакомое Intl значение бросило бы RangeError и уронило
+ * страницу — тогда берём московское время.
+ */
+function todayInZone(timeZone: string): string {
+  try {
+    return dateInZone(new Date(), timeZone);
+  } catch {
+    return dateInZone(new Date(), "Europe/Moscow");
+  }
 }
 
 /** Имена контрагентов только для показанных операций — справочник может быть большим. */

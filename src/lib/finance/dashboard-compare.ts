@@ -154,3 +154,28 @@ export function formatChange(change: number): string {
   if (pct > 0 && pct < 1) return `${sign}<1%`;
   return `${sign}${Math.round(pct).toLocaleString("ru-RU")}%`;
 }
+
+/** С чем сравнивать — выбор на дашборде. */
+export type CompareMode = "previous" | "year";
+
+/** Значение из адреса страницы; всё незнакомое — сравнение с прошлым периодом. */
+export function parseCompareMode(value: string | null | undefined): CompareMode {
+  return value === "year" ? "year" : "previous";
+}
+
+/**
+ * Подпись варианта «прошлый период» в переключателе: «Прошлый месяц»,
+ * «Прошлый квартал», «Прошлая неделя», для произвольных дат — «Прошлый
+ * период».
+ */
+export function previousPeriodLabel(period: DashboardPeriod): string {
+  const months = wholeMonths(period);
+  if (months === 1) return "Прошлый месяц";
+  if (months === 3) return "Прошлый квартал";
+  const a = parseIsoDay(period.from)!;
+  const b = parseIsoDay(period.to)!;
+  // Неделя с понедельника по воскресенье.
+  if (daysBetween(a, b) === 6 && a.getDay() === 1) return "Прошлая неделя";
+  return "Прошлый период";
+}
+

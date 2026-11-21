@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import {
   comparisonWindows,
   formatChange,
+  parseCompareMode,
+  previousPeriodLabel,
   relativeChange,
 } from "./dashboard-compare.ts";
 
@@ -70,4 +72,14 @@ test("изменение и его подпись", () => {
   assert.equal(formatChange(0), "0%");
   assert.equal(formatChange(0.004), "+<1%");
   assert.equal(formatChange(12.5), "+1 250%");
+});
+
+test("переключатель сравнения: подпись прошлого периода и значение из адреса", () => {
+  assert.equal(previousPeriodLabel({ from: "2026-11-01", to: "2026-11-30" }), "Прошлый месяц");
+  assert.equal(previousPeriodLabel({ from: "2026-10-01", to: "2026-12-31" }), "Прошлый квартал");
+  assert.equal(previousPeriodLabel({ from: "2026-11-16", to: "2026-11-22" }), "Прошлая неделя");
+  assert.equal(previousPeriodLabel({ from: "2026-10-23", to: "2026-11-21" }), "Прошлый период");
+  assert.equal(parseCompareMode("year"), "year");
+  assert.equal(parseCompareMode(undefined), "previous");
+  assert.equal(parseCompareMode("junk"), "previous");
 });

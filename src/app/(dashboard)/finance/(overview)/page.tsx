@@ -27,6 +27,9 @@ import { listFinanceCategories } from "@/lib/finance/categories";
 import {
   comparisonWindows,
   formatChange,
+  type CompareMode,
+  parseCompareMode,
+  previousPeriodLabel,
   relativeChange,
 } from "@/lib/finance/dashboard-compare";
 import type { FlowSummary } from "@/lib/finance/dashboard-flow";
@@ -58,6 +61,8 @@ type SearchParams = {
   date_from?: string;
   date_to?: string;
   venue_id?: string;
+  /** `year` — сравнивать с тем же периодом год назад; иначе с прошлым. */
+  compare?: string;
 };
 
 const NO_CATEGORY = "__no-category__";
@@ -113,12 +118,17 @@ export default async function FinanceDashboardPage({
     venue_id: venueId,
   };
 
-  // С чем сравнивать итоги: прошлый период и тот же период год назад, у
-  // идущего периода — по одинаковому числу прошедших дней.
+  // С чем сравнивать итоги — выбор в шапке: прошлый период или тот же
+  // период год назад. Идущий период сравнивается по прошедшим дням. Когда
+  // прошлый период и есть «год назад» (выбран год), выбирать нечего.
   const comparisons = canSeeTransactions ? comparisonWindows(period) : null;
-  const windows = comparisons
-    ? [comparisons.previous, comparisons.lastYear].filter((w) => w !== null)
-    : [];
+  const compareMode = comparisons?.previous ? parseCompareMode(sp.compare) : "year";
+  const compareWindow = comparisons
+    ? compareMode === "previous"
+      ? comparisons.previous
+      : comparisons.lastYear
+    : null;
+  const windows = compareWindow ? [compareWindow] : [];
 
   const [
     balance,
@@ -187,6 +197,11 @@ export default async function FinanceDashboardPage({
       <PageFrame>
         <DashboardShell
           period={period}
+          compare={
+            comparisons?.previous
+              ? { mode: compareMode, previousLabel: previousPeriodLabel(period) }
+              : null
+          }
           canCreate={canCreate}
           venueId={venueId}
           venues={
@@ -224,7 +239,7 @@ export default async function FinanceDashboardPage({
               icon={flow ? <ArrowUpRight size={15} aria-hidden /> : undefined}
               value={<Money value={flow?.summary.income} scale={scale} />}
               hint={
-                (elapsed && changeLines("income", elapsed, baselines, scale)) ??
+                (elapsed && changeLines("income", elapsed, baselines, scale, compareMode)) ??
                 flowHint(flow?.summary.incomeCount)
               }
             />
@@ -234,7 +249,7 @@ export default async function FinanceDashboardPage({
               icon={flow ? <ArrowUpRight size={15} aria-hidden /> : undefined}
               value={<Money value={flow?.summary.expense} scale={scale} />}
               hint={
-                (elapsed && changeLines("expense", elapsed, baselines, scale)) ??
+                (elapsed && changeLines("expense", elapsed, baselines, scale, compareMode)) ??
                 flowHint(flow?.summary.expenseCount)
               }
             />
@@ -242,7 +257,7 @@ export default async function FinanceDashboardPage({
               label="Чистый поток"
               value={<Money value={flow?.summary.net} scale={scale} signed />}
               hint={
-                (elapsed && changeLines("net", elapsed, baselines, scale)) ??
+                (elapsed && changeLines("net", elapsed, baselines, scale, compareMode)) ??
                 (flow ? "Без учёта переводов" : flowHint(undefined))
               }
             />
@@ -386,7 +401,9 @@ function changeLines(
   current: FlowSummary,
   baselines: Baseline[],
   scale: AmountRoundingScale,
+  mode: CompareMode,
 ): ReactNode {
+  if (baselines.length === 0) return null;
   const lines = baselines.flatMap(({ label, summary }) => {
     if (kind === "net") {
       if (summary.incomeCount + summary.expenseCount === 0) return [];
@@ -408,7 +425,10 @@ function changeLines(
       </span>,
     ];
   });
-  return lines.length ? <>{lines}</> : null;
+  // Выбранное окно без операций: говорим об этом, а не молча показываем
+  // число операций — иначе непонятно, куда делось сравнение.
+  if (lines.length) return <>{lines}</>;
+  return mode === "year" ? "Год назад операций не было" : "В прошлом периоде операций не было";
 }
 
 function Section({

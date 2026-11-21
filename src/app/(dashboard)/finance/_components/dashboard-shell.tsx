@@ -24,6 +24,7 @@ import {
   TablePageHeader,
 } from "@/components/shared/table";
 import { setActiveFinanceLegalEntityId } from "@/lib/finance/active-legal-entity";
+import type { CompareMode } from "@/lib/finance/dashboard-compare";
 import {
   PERIOD_PRESETS,
   defaultPeriod,
@@ -54,6 +55,7 @@ export function DashboardShell({
   legalEntityId,
   legalEntities,
   canCreate,
+  compare,
   children,
 }: {
   period: DashboardPeriod;
@@ -65,6 +67,11 @@ export function DashboardShell({
   legalEntities: Option[];
   /** Право заводить операции — показывать «Добавить операцию». */
   canCreate: boolean;
+  /**
+   * Переключатель сравнения итогов; `null` — выбирать нечего (период ещё не
+   * начался, нет доступа к операциям или период — целый год).
+   */
+  compare: { mode: CompareMode; previousLabel: string } | null;
   children: ReactNode;
 }) {
   const router = useRouter();
@@ -73,7 +80,11 @@ export function DashboardShell({
   const [isPending, startTransition] = useTransition();
   const [filtersOpen, setFiltersOpen] = useState(false);
 
-  const navigate = (next: { period?: DashboardPeriod; venueId?: string | null }) => {
+  const navigate = (next: {
+    period?: DashboardPeriod;
+    venueId?: string | null;
+    compare?: CompareMode;
+  }) => {
     const params = new URLSearchParams(searchParams.toString());
     const p = next.period ?? period;
     const fallback = defaultPeriod();
@@ -87,6 +98,9 @@ export function DashboardShell({
     const v = next.venueId !== undefined ? next.venueId : venueId;
     if (v) params.set("venue_id", v);
     else params.delete("venue_id");
+    // Сравнение с прошлым периодом — по умолчанию, в адрес не пишется.
+    if (next.compare === "year") params.set("compare", "year");
+    else if (next.compare === "previous") params.delete("compare");
     const qs = params.toString();
     startTransition(() => router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false }));
   };
@@ -134,8 +148,15 @@ export function DashboardShell({
           </>
         }
         actions={
-          canFilter || canCreate ? (
+          canFilter || canCreate || compare ? (
             <>
+              {compare ? (
+                <CompareSwitch
+                  value={compare.mode}
+                  previousLabel={compare.previousLabel}
+                  onChange={(mode) => navigate({ compare: mode })}
+                />
+              ) : null}
               {canFilter ? (
                 <TableControls
                   filters={{
@@ -192,6 +213,48 @@ export function DashboardShell({
       >
         {children}
       </div>
+    </div>
+  );
+}
+
+/**
+ * С чем сравнивать итоги — чипы-сегменты (DS → «Вкладки»: переключение
+ * представлений без второго ряда вкладок). Один выбор вместо двух строк
+ * сравнения под каждым показателем.
+ */
+function CompareSwitch({
+  value,
+  previousLabel,
+  onChange,
+}: {
+  value: CompareMode;
+  previousLabel: string;
+  onChange: (mode: CompareMode) => void;
+}) {
+  const options: { mode: CompareMode; label: string }[] = [
+    { mode: "previous", label: previousLabel },
+    { mode: "year", label: "Прошлый год" },
+  ];
+  return (
+    <div
+      role="group"
+      aria-label="Сравнивать итоги с"
+      className="inline-flex h-9 items-center gap-1 rounded-md bg-muted/55 p-1"
+    >
+      {options.map((o) => (
+        <button
+          key={o.mode}
+          type="button"
+          aria-pressed={value === o.mode}
+          onClick={() => value !== o.mode && onChange(o.mode)}
+          className={cn(
+            "h-full whitespace-nowrap rounded-[6px] px-3 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm",
+            value === o.mode && "bg-background text-brand-text shadow-sm hover:text-brand-text",
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
     </div>
   );
 }

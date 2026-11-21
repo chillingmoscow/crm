@@ -19,9 +19,14 @@ import { CategoryPicker } from "@/components/finance/category-picker";
 import { CounterpartyCreateDrawer } from "@/components/finance/counterparty-create-drawer";
 import { CounterpartyPicker } from "@/components/finance/counterparty-picker";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
-import { createRecurringTemplate, updateRecurringTemplate } from "@/lib/finance/recurring";
+import {
+  createRecurringTemplate,
+  getRecurringTemplateImpact,
+  updateRecurringTemplate,
+} from "@/lib/finance/recurring";
 import { defaultScheduleFromDate, scheduleFromTemplate } from "@/lib/finance/recurring-schedule";
 import type { AmountRoundingScale } from "@/lib/format/amount";
+import { pluralRu } from "@/lib/format/plural";
 import { calendarDateInZone } from "@/lib/format/zoned-day";
 import type { AccountVenueRow } from "@/lib/org/legal-entities";
 import type {
@@ -131,6 +136,9 @@ export function RecurringFormSheet({
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  /** Сколько платежей шаблона ждут разбора: правка их не меняет. */
+  const [pendingCount, setPendingCount] = useState(0);
+  const [confirmSave, setConfirmSave] = useState(false);
   const [categorySheetOpen, setCategorySheetOpen] = useState(false);
   const [counterpartySheetOpen, setCounterpartySheetOpen] = useState(false);
 
@@ -163,6 +171,18 @@ export function RecurringFormSheet({
     setErrors({});
     setServerError(null);
     setDirty(false);
+    setPendingCount(0);
+    setConfirmSave(false);
+    if (mode.kind !== "edit") return;
+    let stale = false;
+    getRecurringTemplateImpact(mode.template.id)
+      .then(({ pending }) => {
+        if (!stale) setPendingCount(pending);
+      })
+      .catch(() => {});
+    return () => {
+      stale = true;
+    };
     // Форма заполняется при открытии, а не при каждом обновлении списков.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formKey]);
@@ -205,13 +225,19 @@ export function RecurringFormSheet({
     return next;
   };
 
-  const handleSave = async () => {
+  const handleSave = async (confirmed = false) => {
     if (saving || !editable) return;
     const found = validate();
     setErrors(found);
     if (Object.keys(found).length > 0) return;
     if (!account) {
       setErrors({ account: "Счёт не найден. Обновите страницу" });
+      return;
+    }
+    // Уже порождённые платежи — снимки: правка шаблона их не меняет, и об этом
+    // спрашиваем перед сохранением (DS «Боковая панель»).
+    if (template && pendingCount > 0 && !confirmed) {
+      setConfirmSave(true);
       return;
     }
 
@@ -461,10 +487,9 @@ export function RecurringFormSheet({
           errors={{ starts_on: errors.starts_on, ends_on: errors.ends_on }}
         />
 
-        {template && editable ? (
+        {template && editable && pendingCount > 0 ? (
           <p className="text-xs text-muted-foreground">
-            Изменения применятся к следующим платежам. Платежи, которые уже ждут разбора, останутся
-            прежними
+            Изменения применятся к следующим платежам. {pendingText(pendingCount)}
           </p>
         ) : null}
 
@@ -505,6 +530,18 @@ export function RecurringFormSheet({
       />
 
       <ConfirmDialog
+        open={confirmSave}
+        onOpenChange={setConfirmSave}
+        title="Сохранить изменения?"
+        description={`${pendingText(pendingCount)}. Изменения применятся к следующим платежам.`}
+        confirmLabel="Сохранить"
+        onConfirm={() => {
+          setConfirmSave(false);
+          void handleSave(true);
+        }}
+      />
+
+      <ConfirmDialog
         open={confirmDiscard}
         onOpenChange={setConfirmDiscard}
         title="Не сохранять изменения?"
@@ -522,6 +559,16 @@ export function RecurringFormSheet({
 }
 
 // ─── Помощники ──────────────────────────────────────────────────────────────
+
+/** «3 платежа уже ждут разбора и останутся прежними». */
+function pendingText(n: number): string {
+  return `${n.toLocaleString("ru-RU")} ${pluralRu(n, "платёж", "платежа", "платежей")} уже ${pluralRu(
+    n,
+    "ждёт",
+    "ждут",
+    "ждут",
+  )} разбора и ${pluralRu(n, "останется прежним", "останутся прежними", "останутся прежними")}`;
+}
 
 /** Сегодня в поясе аккаунта — как его считает сервер. */
 function today(timeZone: string): string {

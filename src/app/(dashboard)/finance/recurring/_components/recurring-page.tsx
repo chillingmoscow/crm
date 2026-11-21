@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   getCoreRowModel,
@@ -27,7 +27,10 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
-import { HardDeleteConfirmDialog } from "@/components/shared/hard-delete-confirm-dialog";
+import {
+  HardDeleteConfirmDialog,
+  type DeleteImpact,
+} from "@/components/shared/hard-delete-confirm-dialog";
 import { PageFrame } from "@/components/shared/page-frame";
 import {
   DataTable,
@@ -47,6 +50,7 @@ import {
 import {
   archiveRecurringTemplate,
   deleteRecurringTemplate,
+  getRecurringTemplateImpact,
   pauseRecurringTemplate,
   restoreRecurringTemplate,
   resumeRecurringTemplate,
@@ -210,6 +214,22 @@ export function RecurringPage({
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Row | null>(null);
+  const [deleteImpact, setDeleteImpact] = useState<DeleteImpact[]>([]);
+  const deleteRequest = useRef<string | null>(null);
+
+  // Что уйдёт вместе с шаблоном — считаем при открытии диалога (как у контрагентов).
+  const openDelete = async (row: Row) => {
+    setDeleteTarget(row);
+    setDeleteImpact([]);
+    deleteRequest.current = row.id;
+    const impact = await getRecurringTemplateImpact(row.id).catch(() => null);
+    // Пока считали, диалог могли закрыть или открыть для другого платежа.
+    if (!impact || impact.error || deleteRequest.current !== row.id) return;
+    setDeleteImpact([
+      { label: "Ждут разбора", count: impact.pending, tone: "cascade" },
+      { label: "Проведённые операции сохранятся", count: impact.posted, tone: "unbind" },
+    ]);
+  };
 
   const togglePause = async (row: Row) => {
     const paused = Boolean(row.paused_at);
@@ -267,7 +287,7 @@ export function RecurringPage({
                 icon: <Trash2 />,
                 destructive: true,
                 separatorBefore: canManage,
-                onSelect: () => setDeleteTarget(row),
+                onSelect: () => void openDelete(row),
               },
             ]
           : []),
@@ -509,7 +529,7 @@ export function RecurringPage({
           archivedRows.length > 0
             ? "Все повторяющиеся платежи в архиве"
             : canManage
-              ? "Создайте из операции в «Транзакциях» — пункт «Сделать повторяющейся» в меню строки"
+              ? "Создайте из операции в «Транзакциях»: пункт «Сделать повторяющейся» в меню строки"
               : "Повторяющиеся платежи заводит сотрудник с правом создавать операции"
         }
         action={
@@ -719,11 +739,14 @@ export function RecurringPage({
         <HardDeleteConfirmDialog
           open
           onOpenChange={(open) => {
-            if (!open) setDeleteTarget(null);
+            if (!open) {
+              deleteRequest.current = null;
+              setDeleteTarget(null);
+            }
           }}
           entityGenitive="повторяющийся платёж"
           entityName={deleteTarget.name}
-          impact={[]}
+          impact={deleteImpact}
           restrictedBy={[]}
           onConfirm={async () => {
             const result = await deleteRecurringTemplate(deleteTarget.id).catch(() => ({

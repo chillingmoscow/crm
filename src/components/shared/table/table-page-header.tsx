@@ -43,10 +43,12 @@ export function TablePageHeader({
         {count === undefined ? (
           title
         ) : (
-          <span className="inline-flex items-center gap-3">
-            {title}
+          // Длинный заголовок на телефоне обрезается многоточием, а счётчик
+          // остаётся виден: раньше обрезка съедала счётчик целиком.
+          <span className="flex min-w-0 items-center gap-3">
+            <span className="min-w-0 truncate">{title}</span>
             <span
-              className="inline-flex h-7 min-w-7 items-center justify-center rounded-md bg-muted px-2 text-sm font-normal tracking-normal tabular-nums text-muted-foreground"
+              className="inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md bg-muted px-2 text-sm font-normal tracking-normal tabular-nums text-muted-foreground"
               aria-label={`Всего: ${count}`}
             >
               {count}

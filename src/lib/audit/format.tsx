@@ -17,6 +17,7 @@ import {
   IdCard,
   Key,
   Landmark,
+  Layers,
   Lock,
   LockOpen,
   Mail,
@@ -45,6 +46,49 @@ import { catalogAuditSpecs } from "./catalog";
 import { scheduleAuditSpecs } from "./schedule";
 import { writeoffAuditSpecs } from "./writeoffs";
 import { ChangeLines } from "./change-lines";
+
+/** Строки под событием «изменил(а) группы счетов». */
+function BankAccountGroupLines({ details }: { details: Record<string, unknown> }) {
+  // Элементы — `{ id, name }` (строкой — на всякий случай для ручных записей).
+  const names = (v: unknown) =>
+    Array.isArray(v)
+      ? v.flatMap((x) => {
+          if (typeof x === "string") return [x];
+          const name = (x as { name?: unknown } | null)?.name;
+          return typeof name === "string" ? [name] : [];
+        })
+      : [];
+  const quoted = (list: string[]) => list.map((n) => `«${n}»`).join(", ");
+  const created = names(details.created);
+  const deleted = names(details.deleted);
+  const renamed = Array.isArray(details.renamed)
+    ? details.renamed.flatMap((r) => {
+        const o = r as Record<string, unknown>;
+        return typeof o.from === "string" && typeof o.to === "string" ? [{ from: o.from, to: o.to }] : [];
+      })
+    : [];
+  const lines: ReactNode[] = [];
+  if (created.length) lines.push(<>{created.length === 1 ? "Добавлена" : "Добавлены"}: {quoted(created)}</>);
+  for (const r of renamed)
+    lines.push(
+      <>
+        Переименована: <span className="line-through">«{r.from}»</span> →{" "}
+        <span className="font-medium text-foreground">«{r.to}»</span>
+      </>,
+    );
+  if (deleted.length) lines.push(<>{deleted.length === 1 ? "Удалена" : "Удалены"}: {quoted(deleted)}</>);
+  if (details.reordered === true) lines.push(<>Изменён порядок групп</>);
+  if (lines.length === 0) return null;
+  return (
+    <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+      {lines.map((line, i) => (
+        <li key={i} className="leading-snug">
+          {line}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 /** Заголовок KB-страницы в фразе события: кликабельная ссылка, если
  *  страница ещё существует и не в корзине; иначе — просто выделенный
@@ -964,6 +1008,15 @@ const SPECS: Record<string, AuditEventSpec> = {
         <strong className="font-medium">«{bankAccountName(e)}»</strong>
       </>
     ),
+  },
+
+  // ── finance.bank_account_group ─────────────────────────────
+  // Одна запись на сохранение панели «Группы счетов».
+  "finance.bank_account_group.changed": {
+    icon: Layers,
+    iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>изменил(а) группы счетов</>,
+    buildDetails: (e) => <BankAccountGroupLines details={e.details} />,
   },
 
   // ── finance.category ───────────────────────────────────────

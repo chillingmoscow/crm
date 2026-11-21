@@ -16,6 +16,7 @@ import { KbSearchProvider } from "@/app/(dashboard)/knowledge/_components/kb-sea
 import { ImpersonationBanner } from "@/components/shared/impersonation-banner";
 import { readActiveImpersonation } from "@/lib/impersonation/session";
 import { syncPendingInvitationsForUser } from "@/lib/people/invitations/sync-pending";
+import { countInbox } from "@/lib/finance/recurring";
 
 export default async function DashboardLayout({
   children,
@@ -99,11 +100,17 @@ export default async function DashboardLayout({
   const supabaseUntyped = supabase as unknown as {
     rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown }>;
   };
-  const [accountId, userPermissions, attentionRes, candidateCountRes] = await Promise.all([
+  const [accountId, userPermissions, attentionRes, candidateCountRes, inboxCount] = await Promise.all([
     getCachedActiveAccountId(),
     getCachedPermissions(),
     supabaseUntyped.rpc("count_venue_staff_attention", { p_venue_id: activeVenueId }),
     supabaseUntyped.rpc("candidate_new_count", {}),
+    // Бейдж «На разбор» — только тем, кто может разобрать платёж.
+    getCachedPermissions().then((codes) =>
+      codes.includes("finance.view_transactions") && codes.includes("finance.create_transaction")
+        ? countInbox().catch(() => 0)
+        : 0,
+    ),
   ]);
   let accountName: string | null = null;
   // KB-поиск (Cmd+K) поднят на dashboard-layout, чтобы работать из
@@ -186,6 +193,7 @@ export default async function DashboardLayout({
         staffAttentionCount={staffAttentionCount}
         candidateAccountId={accountId}
         newCandidatesCount={typeof candidateCountRes?.data === "number" ? candidateCountRes.data : 0}
+        inboxCount={inboxCount}
         kbSidebarHidden={kbSidebarHidden}
         isImpersonating={Boolean(activeImpersonation)}
       />

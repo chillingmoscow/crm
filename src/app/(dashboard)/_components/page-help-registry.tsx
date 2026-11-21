@@ -29,6 +29,7 @@ import { CounterpartiesHelp } from "@/app/(dashboard)/finance/counterparties/_co
 import { AccountsHelp } from "@/app/(dashboard)/finance/accounts/_components/accounts-help";
 import { SuppliesHelp } from "@/app/(dashboard)/documents/supplies/supplies-help";
 import { TransactionsHelp } from "@/app/(dashboard)/finance/transactions/_components/transactions-help";
+import { InboxHelp, RecurringHelp } from "@/app/(dashboard)/finance/recurring/_components/recurring-help";
 
 /**
  * Реестр контекстной справки для кнопки «?» в топ-баре (page-help-button).
@@ -67,6 +68,8 @@ export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
   { match: p => p === "/finance/accounts" || p.startsWith("/finance/accounts/"), title: "Счета и кассы", Content: AccountsHelp },
   { match: p => p === "/documents/supplies", title: "Приходные накладные", Content: SuppliesHelp },
   { match: p => p === "/finance/transactions", title: "Транзакции", Content: TransactionsHelp },
+  { match: p => p === "/finance/inbox", title: "На разбор", Content: InboxHelp },
+  { match: p => p === "/finance/recurring", title: "Повторяющиеся платежи", Content: RecurringHelp },
   { match: p => p === "/notifications", title: "Уведомления", Content: NotificationsHelp },
   { match: p => p === "/org/legal-entities" || p.startsWith("/org/legal-entities/"), title: "Юридические лица", Content: LegalEntitiesHelp },
   // /org/venues/[id]/payroll — «Условия оплаты», к ним относится справка «Зарплаты» ниже.

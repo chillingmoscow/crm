@@ -89,6 +89,7 @@ import {
   RecurringFormSheet,
   type RecurringFormMode,
 } from "../../recurring/_components/recurring-form-sheet";
+import { InboxPlaque } from "../../_components/inbox-plaque";
 import { TRANSACTION_CREATE_OPTIONS } from "../../_components/transaction-create-options";
 import {
   AccountCell,
@@ -180,6 +181,8 @@ type Props = {
   dadataEnabled: boolean;
   /** Пояс аккаунта: какой это день у операции. */
   timeZone: string;
+  /** Сколько ожидаемых платежей ждут разбора — красная плашка над шапкой. */
+  inboxCount?: number;
 };
 
 /** Строка списка: операция и число её файлов (`finance_transactions_page`). */
@@ -202,6 +205,7 @@ export function TransactionsPage({
   amountRoundingScale,
   dadataEnabled,
   timeZone,
+  inboxCount = 0,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -979,6 +983,7 @@ export function TransactionsPage({
   return (
     <PageFrame className="flex min-w-0 flex-col gap-4">
       <Breadcrumbs items={[{ label: "Финансы" }, { label: "Транзакции" }]} />
+      <InboxPlaque count={inboxCount} />
       <TablePageHeader
         title={deletedMode ? "Удалённые операции" : "Транзакции"}
         count={count}

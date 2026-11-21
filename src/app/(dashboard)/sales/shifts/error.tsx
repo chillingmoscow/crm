@@ -1,20 +1,20 @@
 "use client";
-import { AlertCircle } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/empty-state";
-export default function ErrorSalesShifts({ reset }: { reset: () => void }) {
+
+import { SalesError } from "../_components/sales-error";
+
+export default function SalesPageError({
+  error,
+  reset,
+}: {
+  error: Error & { digest?: string };
+  reset: () => void;
+}) {
   return (
-    <div className="px-4 md:px-6">
-      <EmptyState
-        icon={AlertCircle}
-        title="Не удалось загрузить смены"
-        description="Проверьте соединение и попробуйте ещё раз."
-        action={
-          <Button variant="outline" onClick={reset}>
-            Повторить
-          </Button>
-        }
-      />
-    </div>
+    <SalesError
+      error={error}
+      reset={reset}
+      page="Смены"
+      title="Не удалось открыть смены"
+    />
   );
 }

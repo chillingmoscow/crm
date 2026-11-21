@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
  * Шапка раздела «Финансы» с выбором юрлица. Не показывается там, где юрлицо
  * ни на что не влияет или выбирается на самой странице: на дашборде оно —
  * чип в ряду условий, зарплата живёт в своих рамках, у счетов и транзакций
- * свой фильтр, статьи и контрагенты общие на весь аккаунт.
+ * свой фильтр, статьи, контрагенты и правила общие на весь аккаунт.
  */
 const WITHOUT_HEADER = [
   "/finance/payroll",
@@ -15,6 +15,7 @@ const WITHOUT_HEADER = [
   "/finance/counterparties",
   "/finance/inbox",
   "/finance/recurring",
+  "/finance/rules",
   "/finance/transactions",
 ];
 

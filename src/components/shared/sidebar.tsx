@@ -45,7 +45,9 @@ import {
   ChartNoAxesCombined,
   Wallet,
   Warehouse,
+  Wand2,
   type LucideIcon,
+  HandCoins,
 } from "lucide-react";
 import {
   Sidebar,
@@ -177,19 +179,20 @@ const NAV_SECTIONS: NavSection[] = [
     label: "Продажи",
     icon: ChartNoAxesCombined,
     items: [
-      {
-        title: "Статистика",
-        href: "/sales/statistics",
-        icon: ChartNoAxesCombined,
-        permission: "sales.view_shifts",
-      },
+      // «Смены» — ежедневный экран, поэтому первыми; «Статистика» нужна реже.
       {
         title: "Смены",
         href: "/sales/shifts",
         icon: CalendarDays,
         permission: "sales.view_shifts",
       },
-      { title: "Допродажи", href: "/sales/additional", icon: ChartNoAxesCombined, permission: "sales.view_shifts" },
+      {
+        title: "Статистика",
+        href: "/sales/statistics",
+        icon: ChartNoAxesCombined,
+        permission: "sales.view_shifts",
+      },
+      { title: "Допродажи", href: "/sales/additional", icon: HandCoins, permission: "sales.view_shifts" },
     ],
   },
   {
@@ -280,6 +283,13 @@ const NAV_SECTIONS: NavSection[] = [
         href: "/finance/recurring",
         icon: Repeat,
         permission: "finance.view_transactions",
+      },
+      {
+        title: "Правила",
+        href: "/finance/rules",
+        icon: Wand2,
+        // Видит тот, кто видит операции, или тот, кто правила настраивает.
+        permissions: ["finance.view_transactions", "finance.manage_posting_rules"],
       },
     ],
   },

@@ -1,12 +1,21 @@
 "use client";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import {
+  DrawerSection,
+  DrawerStatus,
+  DrawerSummary,
+  DrawerSummaryTotal,
+} from "@/components/ui/drawer-blocks";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Money } from "@/components/shared/money";
+import tabStyle from "@/components/shared/workspace-tabs.module.css";
 import type { DayArchive } from "@/lib/sales/day-context";
-import { dayLabel, money } from "@/lib/sales/format";
+import { dayLabel, weekdayLabel } from "@/lib/sales/format";
+import { formatDayMonth } from "@/lib/format/date";
 import { DayTeamPanel } from "./day-team";
 import { DayDiscussionPanel } from "./day-discussion";
+
 const labels: Record<string, string> = {
-  turnover: "Оборот заведения",
   hookah: "Кальяны",
   bar: "Бар",
   tips_total: "Чаевые команде",
@@ -14,6 +23,8 @@ const labels: Record<string, string> = {
   taxi: "Такси",
   payroll: "ФОТ за день",
 };
+
+/** День из архива Glide: только просмотр, суммы без пересчёта. */
 export function ArchiveDayDrawer({
   archive,
   tab,
@@ -23,45 +34,46 @@ export function ArchiveDayDrawer({
   tab: string;
   onClose: () => void;
 }) {
+  const weekday = weekdayLabel(archive.business_date);
   return (
     <EditDrawer
       open
-      title={dayLabel(archive.business_date)}
-      description="Общая смена · архив Glide"
+      title={`Смена ${dayLabel(archive.business_date)}`}
+      titleAccessory={<DrawerStatus label="Архив Glide" tone="neutral" />}
+      description={`${weekday.charAt(0).toUpperCase()}${weekday.slice(1)} · снимок ${formatDayMonth(archive.captured_at.slice(0, 10)) ?? ""}`}
       onOpenChange={(v) => !v && onClose()}
     >
-      <Tabs defaultValue={tab}>
-        <TabsList className="w-full justify-start overflow-x-auto">
-          <TabsTrigger className="px-2 text-[13px]" value="values">
-            Показатели
-          </TabsTrigger>
-          <TabsTrigger className="px-2 text-[13px]" value="employees">
-            Команда
-          </TabsTrigger>
-          <TabsTrigger className="px-2 text-[13px]" value="comments">
-            Комментарии
-          </TabsTrigger>
-          <TabsTrigger className="px-2 text-[13px]" value="history">
-            История
-          </TabsTrigger>
+      <Tabs defaultValue={tab} className={tabStyle.tabs}>
+        <TabsList aria-label="Разделы смены">
+          <TabsTrigger value="values">Показатели</TabsTrigger>
+          <TabsTrigger value="employees">Команда</TabsTrigger>
+          <TabsTrigger value="comments">Комментарии</TabsTrigger>
+          <TabsTrigger value="history">История</TabsTrigger>
         </TabsList>
-        <TabsContent value="values" className="mt-4">
+        <TabsContent value="values" className="space-y-6">
+          <DrawerSummary label="Показатели смены">
+            <DrawerSummaryTotal
+              label="Оборот заведения"
+              hint="Сумма из архива, без пересчёта"
+            >
+              <Money value={archive.metrics.turnover ?? null} />
+            </DrawerSummaryTotal>
+          </DrawerSummary>
           <dl className="divide-y">
             {Object.entries(labels).map(([key, label]) => (
               <div
-                className="flex justify-between gap-3 py-3 text-sm"
+                className="flex justify-between gap-3 py-2.5 text-sm"
                 key={key}
               >
                 <dt className="text-muted-foreground">{label}</dt>
-                <dd className="tabular-nums">
-                  {money(archive.metrics[key] ?? null)}
-                  {archive.metrics[key] != null ? " ₽" : ""}
+                <dd>
+                  <Money value={archive.metrics[key] ?? null} />
                 </dd>
               </div>
             ))}
           </dl>
         </TabsContent>
-        <TabsContent value="employees" className="mt-4">
+        <TabsContent value="employees">
           <DayTeamPanel
             venueId={archive.venue_id}
             date={archive.business_date}
@@ -69,30 +81,26 @@ export function ArchiveDayDrawer({
             archiveId={archive.id}
           />
         </TabsContent>
-        <TabsContent value="comments" className="mt-4">
+        <TabsContent value="comments">
           <DayDiscussionPanel
             venueId={archive.venue_id}
             date={archive.business_date}
           />
         </TabsContent>
-        <TabsContent value="history" className="mt-4 space-y-3 text-sm">
-          <p>
-            Перенесён снимок Glide ·{" "}
-            {new Date(archive.captured_at).toLocaleDateString("ru-RU", {
-              timeZone: "UTC",
-            })}
-          </p>
-          <p className="text-muted-foreground">
-            Исходные суммы сохранены без пересчёта.
-          </p>
-          <a
-            target="_blank"
-            rel="noreferrer"
-            className="text-brand hover:underline"
-            href={`https://docs.google.com/spreadsheets/d/${encodeURIComponent(archive.origin.spreadsheet_id)}/edit#range=${encodeURIComponent(archive.origin.range)}`}
+        <TabsContent value="history">
+          <DrawerSection
+            title="Перенесено из Glide"
+            description={`Снимок ${formatDayMonth(archive.captured_at.slice(0, 10)) ?? ""}. Суммы сохранены без пересчёта`}
           >
-            Исходная строка смены ↗
-          </a>
+            <a
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm text-brand hover:underline"
+              href={`https://docs.google.com/spreadsheets/d/${encodeURIComponent(archive.origin.spreadsheet_id)}/edit#range=${encodeURIComponent(archive.origin.range)}`}
+            >
+              Исходная строка смены в архиве
+            </a>
+          </DrawerSection>
         </TabsContent>
       </Tabs>
     </EditDrawer>

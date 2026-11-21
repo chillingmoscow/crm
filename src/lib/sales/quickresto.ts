@@ -153,12 +153,14 @@ export function salesSource(
         timeZone: 0,
       });
     },
+    // Два календарных дня: рабочий день идёт через полночь. Отчёты вне
+    // окна рабочего дня отсекает zReportIdsInWindow (как у контроля кассы).
     zList: () =>
       publicRead("front.zreport", undefined, [
         {
           field: "localOpenedTime",
           operation: "range",
-          value: { since: date, till: addDays(date, 1) },
+          value: { since: date, till: addDays(date, 2) },
         },
       ]) as Promise<Record<string, unknown>[]>,
     cashControlList: () =>
@@ -222,8 +224,11 @@ export function salesSource(
           operation: "range",
           value: {
             // QR interprets these wall-clock hours literally despite the Z suffix.
+            // Окно — весь рабочий день, как у чеков и кассовых отчётов: прежнее
+            // «начало дня → 06:00» теряло расходы с 06:00 до начала следующего
+            // дня, а при раннем начале дня считало их дважды.
             since: `${date}T${String(settings.day_start_hour).padStart(2, "0")}:00:00.000Z`,
-            till: `${addDays(date, 1)}T06:00:00.000Z`,
+            till: `${addDays(date, 1)}T${String(settings.day_start_hour).padStart(2, "0")}:00:00.000Z`,
           },
         },
       ]) as Promise<Record<string, unknown>[]>,

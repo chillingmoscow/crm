@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { findPartyByInn } from "@/lib/dadata/party";
 import { writeAuditEvent } from "@/lib/audit/write";
@@ -36,18 +37,24 @@ export async function listCounterparties(
   opts: ListCounterpartiesOptions = {}
 ): Promise<{ rows: CounterpartyRow[]; error: string | null }> {
   const supabase = await createClient();
-  let query = supabase.from("counterparties").select("*");
-
-  if (!opts.include_deleted) query = query.is("deleted_at", null);
-  if (opts.group_id !== undefined) {
-    query = opts.group_id === null
-      ? query.is("group_id", null)
-      : query.eq("group_id", opts.group_id);
+  // Все страницы, а не первая тысяча: PostgREST молча обрезает ответ, и
+  // контрагенты после тысячного по алфавиту пропадали бы из выбора в
+  // операциях и из условий правил разнесения.
+  const build = () => {
+    let query = asLooseDb(supabase).from<CounterpartyRow[]>("counterparties").select("*");
+    if (!opts.include_deleted) query = query.is("deleted_at", null);
+    if (opts.group_id !== undefined) {
+      query = opts.group_id === null
+        ? query.is("group_id", null)
+        : query.eq("group_id", opts.group_id);
+    }
+    return query.order("name", { ascending: true });
+  };
+  try {
+    return { rows: await fetchAllRows<CounterpartyRow>(build), error: null };
+  } catch (error) {
+    return { rows: [], error: error instanceof Error ? error.message : "Не удалось загрузить контрагентов" };
   }
-
-  const { data, error } = await query.order("name", { ascending: true });
-  if (error) return { rows: [], error: error.message };
-  return { rows: (data ?? []) as CounterpartyRow[], error: null };
 }
 
 export async function getCounterparty(

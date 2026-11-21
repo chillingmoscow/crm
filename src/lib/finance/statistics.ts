@@ -1,21 +1,16 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
-import { fetchAllRows } from "@/lib/supabase/fetch-all";
-import type { LooseQuery } from "@/lib/supabase/loose";
+import { asLooseDb, type LooseQuery } from "@/lib/supabase/loose";
 import type { BankAccountRow, TransactionRow } from "@/types/finance";
 
 import {
-  aggregateFlow,
+  parsePeriodFlow,
   type FlowBreakdown,
-  type FlowRow,
   type FlowSummary,
+  type PeriodFlowPayload,
 } from "./dashboard-flow";
-import {
-  calendarDateInZone,
-  dayEndExclusiveInZone,
-  dayStartInZone,
-} from "@/lib/format/zoned-day";
+import { dayEndExclusiveInZone, dayStartInZone } from "@/lib/format/zoned-day";
 import { getActiveAccountTimezone } from "@/lib/settings/account";
 
 /**
@@ -91,27 +86,30 @@ export async function listBalanceAccounts(
 
 // ─── Поток за период ────────────────────────────────────────────────────────
 
-type DatedFlowRow = FlowRow & { date: string };
-
-/** Операции периода без переводов — все страницы, а не первая тысяча. */
-async function fetchFlowRows<T>(range: ZonedRange, columns: string): Promise<T[]> {
+/**
+ * Итоги периода считает база (`finance_period_flow`, миграция 376): раньше
+ * операции читались строками, а PostgREST отдаёт не больше 1000 строк —
+ * за год «Доходы» и «Расходы» выходили неполными. Условия и граница дня (в
+ * поясе аккаунта) — те же, что у «Транзакций», поэтому цифры совпадают.
+ */
+async function fetchPeriodFlow(
+  range: StatisticsRange,
+  cutoff: string | null,
+): Promise<{ payload: PeriodFlowPayload | null; error: string | null }> {
   const supabase = await createClient();
-  return fetchAllRows<T>(() =>
-    applyRange(
-      supabase
-        .from("transactions")
-        .select(columns)
-        .is("deleted_at", null)
-        .neq("type", "transfer") as unknown as Filterable<T[]>,
-      range,
-    ),
-  );
+  const { data, error } = await asLooseDb(supabase).rpc("finance_period_flow", {
+    p_date_from: range.date_from,
+    p_date_to: range.date_to,
+    p_legal_entity_id: range.legal_entity_id ?? null,
+    p_venue_id: range.venue_id ?? null,
+    p_cutoff: cutoff,
+  });
+  if (error) return { payload: null, error: error.message };
+  return { payload: (data ?? {}) as PeriodFlowPayload, error: null };
 }
 
 /**
- * Доходы, расходы и расходы по статьям за период. Читает все операции
- * периода постранично: PostgREST отдаёт не больше 1000 строк и молча
- * обрезает остальное — за год сумма «Расходов» была бы неполной.
+ * Доходы, расходы и расходы по статьям за период.
  *
  * `cutoff` — последний прошедший день идущего периода: `elapsed` тогда
  * считает итоги только по него, чтобы сравнивать с прошлым периодом по
@@ -123,36 +121,19 @@ export async function getPeriodFlow(
   topN = 5,
   cutoff: string | null = null,
 ): Promise<{ flow: FlowBreakdown | null; elapsed: FlowSummary | null; error: string | null }> {
-  try {
-    const zonedRange = await zoned(range);
-    const rows = await fetchFlowRows<DatedFlowRow>(zonedRange, "type, amount, category_id, date");
-    const flow = aggregateFlow(rows, topN);
-    // Календарный день операции — в поясе аккаунта (у выплат дата с часами).
-    const elapsed = cutoff
-      ? aggregateFlow(
-          rows.filter((r) => calendarDateInZone(r.date, zonedRange.timeZone) <= cutoff),
-          0,
-        ).summary
-      : flow.summary;
-    return { flow, elapsed, error: null };
-  } catch (e) {
-    return { flow: null, elapsed: null, error: e instanceof Error ? e.message : String(e) };
-  }
+  const { payload, error } = await fetchPeriodFlow(range, cutoff);
+  if (!payload) return { flow: null, elapsed: null, error };
+  const { flow, elapsed } = parsePeriodFlow(payload, topN);
+  return { flow, elapsed: cutoff ? elapsed : flow.summary, error: null };
 }
 
 /** Только итоги периода — для сравнения с прошлым периодом и годом назад. */
 export async function getPeriodTotals(
   range: StatisticsRange,
 ): Promise<{ summary: FlowSummary | null; error: string | null }> {
-  try {
-    const rows = await fetchFlowRows<Omit<FlowRow, "category_id">>(await zoned(range), "type, amount");
-    return {
-      summary: aggregateFlow(rows.map((r) => ({ ...r, category_id: null })), 0).summary,
-      error: null,
-    };
-  } catch (e) {
-    return { summary: null, error: e instanceof Error ? e.message : String(e) };
-  }
+  const { payload, error } = await fetchPeriodFlow(range, null);
+  if (!payload) return { summary: null, error };
+  return { summary: parsePeriodFlow(payload, 0).flow.summary, error: null };
 }
 
 // ─── Последние операции ─────────────────────────────────────────────────────

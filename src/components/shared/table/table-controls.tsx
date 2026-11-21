@@ -220,12 +220,15 @@ export function TableControls({
 export function TooltipIconButton({
   label,
   active,
+  pressed,
   disabled,
   onClick,
   children,
 }: {
   label: string;
   active?: boolean;
+  /** Кнопка-переключатель режима страницы (архив): `aria-pressed`. */
+  pressed?: boolean;
   disabled?: boolean;
   onClick: () => void;
   children: ReactNode;
@@ -249,6 +252,7 @@ export function TooltipIconButton({
             disabled={disabled}
             onClick={onClick}
             aria-label={label}
+            aria-pressed={pressed}
           >
             {children}
           </Button>

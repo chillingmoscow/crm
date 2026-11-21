@@ -1,46 +1,67 @@
 "use client";
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
-  flexRender,
   getCoreRowModel,
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
+  type SortingState,
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
-import { ChartNoAxesCombined, RefreshCw } from "lucide-react";
+import {
+  Archive,
+  ChartNoAxesCombined,
+  ChevronDown,
+  RefreshCw,
+  SearchX,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { EditDrawer } from "@/components/ui/edit-drawer";
-import { DrawerSection } from "@/components/ui/drawer-blocks";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DrawerSection,
+  DrawerStatus,
+  DrawerSummary,
+  DrawerSummaryTotal,
+} from "@/components/ui/drawer-blocks";
 import {
-  ResizableTableHead,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { Metric, MetricStrip } from "@/components/shared/metric-strip";
+import { Money } from "@/components/shared/money";
+import { PageFrame } from "@/components/shared/page-frame";
+import {
+  DataTable,
   TableColumnManager,
+  TableConditions,
   TableControls,
+  TableFilterChip,
+  TableIconButton,
   TablePageHeader,
-  useMultiSort,
+  TableSortPicker,
   useTableState,
 } from "@/components/shared/table";
-import { PageFrame } from "@/components/shared/page-frame";
-import { monthBounds } from "@/lib/sales/monthly";
 import { metricLabels } from "@/lib/sales/types";
-import { money } from "@/lib/sales/format";
+import {
+  formatCount,
+  formatShare,
+  monthLabel,
+} from "@/lib/sales/format";
 import { csvCell } from "@/lib/sales/csv";
+import { salesErrorText } from "@/lib/sales/errors";
+import { formatDayMonth } from "@/lib/format/date";
+import { countRu } from "@/lib/format/plural";
 import {
   buildStatisticsRows,
   type StatisticsRow,
   type StatisticsValue,
 } from "@/lib/sales/statistics-view";
-import { cn } from "@/lib/utils";
 import {
   loadStatistics,
   exportStatistics,
@@ -60,7 +81,7 @@ const labels: Record<string, string> = {
   alcoholRevenue: "Алкоголь",
   alcoholShare: "Доля алкоголя",
   regularGuests: "Постоянные гости",
-  regularRevenue: "Постоянные гости, ₽",
+  regularRevenue: "Оборот постоянных гостей",
   regularShare: "Доля постоянных гостей",
   averageCheck: "Средний чек",
   food: "Питание",
@@ -77,7 +98,7 @@ const defaultColumns = [
   "perShift",
   "averageCheck",
 ];
-const stateColumns = [
+const columnConfig = [
   ...defaultColumns,
   "shifts",
   "hookah",
@@ -96,37 +117,34 @@ const stateColumns = [
   "mastersSales",
 ].map((id) => ({
   id,
-  defaultSize: id === "month" ? 190 : 155,
+  defaultSize: id === "month" ? 180 : 150,
   defaultVisible: defaultColumns.includes(id),
 }));
-const unit = (key: string) =>
-  ["shifts", "checks", "regularGuests"].includes(key)
-    ? ""
-    : key.endsWith("Share")
-      ? "%"
-      : "₽";
-const monthLabel = (month: string) =>
-  new Intl.DateTimeFormat("ru-RU", {
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(`${month}-01T12:00:00Z`));
-const dateLabel = (date: string) =>
-  new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow" }).format(
-    new Date(date),
-  );
-const shiftHref = (month: string) => {
-  const b = monthBounds(month);
-  return `/sales/shifts?from=${b.from}&to=${b.to}`;
+const valueColumns = columnConfig.map((c) => c.id).filter((id) => id !== "month");
+const sortFields = columnConfig.map((c) => c.id);
+const countKeys = new Set(["shifts", "checks", "regularGuests"]);
+const reportKinds: Record<string, string> = {
+  alcohol: "Алкоголь",
+  regular_guests: "Постоянные гости",
+  average_check: "Средний чек",
 };
-type SortMode = `${string}:${"asc" | "desc"}`;
-const codec = {
-  toField: (s: SortMode) => s.split(":")[0],
-  toDirection: (s: SortMode) =>
-    s.endsWith(":desc") ? ("desc" as const) : ("asc" as const),
-  combine: (field: string, direction: "asc" | "desc") =>
-    `${field}:${direction}` as SortMode,
-};
+const weekdays = [
+  "Понедельник",
+  "Вторник",
+  "Среда",
+  "Четверг",
+  "Пятница",
+  "Суббота",
+  "Воскресенье",
+];
+const stateText = {
+  ready: "Обновлено",
+  error: "Не обновлено",
+  pending: "Ожидает обновления",
+  running: "Обновляется",
+} as const;
+
+const shiftHref = (month: string) => `/sales/shifts?month=${month.slice(0, 7)}`;
 const sourceRows = (data: StatisticsData, source: "native" | "archive") =>
   buildStatisticsRows(
     data.days,
@@ -137,37 +155,29 @@ const sourceRows = (data: StatisticsData, source: "native" | "archive") =>
     data.settings?.day_start_hour ?? 9,
   );
 
-function Amount({
-  value,
-  column,
-}: {
-  value?: StatisticsValue;
-  column: string;
-}) {
+/** Значение показателя в нужном виде: деньги, количество или доля. */
+function ValueText({ id, value }: { id: string; value: number | null | undefined }) {
+  if (id.endsWith("Share")) return <>{formatShare(value)}</>;
+  if (countKeys.has(id)) return <>{formatCount(value)}</>;
+  return <Money value={value ?? null} />;
+}
+
+/** Ячейка месяца: значение и одна строка состояния под ним, если оно важно. */
+function Amount({ value, id }: { value?: StatisticsValue; id: string }) {
+  const note =
+    value?.state && value.state !== "ready"
+      ? stateText[value.state]
+      : value?.total != null && value.known! < value.total
+        ? `${value.known} из ${countRu(value.total, "смены", "смен", "смен")}`
+        : value?.through
+          ? `по ${formatDayMonth(value.through)}`
+          : null;
   return (
-    <span
-      className="inline-flex flex-col items-end tabular-nums"
-      data-tip={value?.hint}
-    >
-      <span>
-        {money(value?.value ?? null)}
-        {value?.value != null && (
-          <span className="ml-1 text-muted-foreground">{unit(column)}</span>
-        )}
-      </span>
-      {value?.total != null && value.known! < value.total && (
-        <span className="text-xs text-muted-foreground">
-          {value.known} из {value.total} смен
-        </span>
-      )}
-      {value?.through && (
-        <span className="text-xs text-muted-foreground">
-          по {dateLabel(value.through + "T12:00:00Z")}
-        </span>
-      )}
-      {value?.state && value.state !== "ready" && (
-        <span className="text-xs text-muted-foreground">
-          {value.state === "error" ? "Не обновлено" : "Обновляется"}
+    <span className="inline-flex flex-col items-end" data-tip={value?.hint}>
+      <ValueText id={id} value={value?.value} />
+      {note && (
+        <span className="whitespace-nowrap text-xs font-normal text-muted-foreground">
+          {note}
         </span>
       )}
     </span>
@@ -175,101 +185,99 @@ function Amount({
 }
 
 export function StatisticsClient({ initial }: { initial: StatisticsData }) {
+  const router = useRouter();
   const [data, setData] = useState(initial);
   const [source, setSource] = useState<"native" | "archive">("native");
   const months = useMemo(() => sourceRows(data, source), [data, source]);
-  const [year, setYear] = useState("all");
-  const [reportMonth, setReportMonth] = useState(
-    sourceRows(initial, "native")[0]?.month ?? "",
-  );
+  const nativeMonths = useMemo(() => sourceRows(data, "native"), [data]);
+  const [year, setYear] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [busy, setBusy] = useState(false),
     [reportBusy, setReportBusy] = useState(false),
     [exporting, setExporting] = useState(false);
   const [detail, setDetail] = useState<StatisticsRow | null>(null);
   const st = useTableState({
-    tableId: `sales-statistics.v2.${initial.venueId}`,
-    columns: stateColumns,
+    tableId: `sales-statistics.v3.${initial.venueId}`,
+    columns: columnConfig,
   });
+  const can = (p: string) => data.permissions.includes(`sales.${p}_shifts`);
   const years = [...new Set(months.map((m) => m.month.slice(0, 4)))];
+  const query = st.search.toLowerCase().trim();
   const rows = useMemo(
     () =>
       months.filter(
         (m) =>
-          (year === "all" || m.month.startsWith(year)) &&
-          monthLabel(m.month)
-            .toLowerCase()
-            .includes(st.search.toLowerCase().trim()),
+          (!year || m.month.startsWith(year)) &&
+          monthLabel(m.month).toLowerCase().includes(query),
       ),
-    [months, year, st.search],
+    [months, year, query],
   );
+  const hasFilters = !!year;
+  const isFiltered = hasFilters || !!query;
+  const resetConditions = () => {
+    setYear("");
+    st.setSearch("");
+    st.setSorting([]);
+  };
+  const changeSource = (next: "native" | "archive") => {
+    setSource(next);
+    setYear("");
+    setDetail(null);
+  };
+
   const columns = useMemo<ColumnDef<StatisticsRow>[]>(
     () => [
       {
         id: "month",
         accessorKey: "month",
         header: labels.month,
-        minSize: 160,
-        size: 190,
+        minSize: 150,
+        size: 180,
+        enableHiding: false,
         cell: ({ row }) => {
           const r = row.original;
-          const content = (
-            <>
-              <span className="font-medium">{monthLabel(r.month)}</span>
-              {r.archive ? (
-                <span className="text-xs text-muted-foreground">
-                  Снимок {dateLabel(r.archive.captured_at)}
-                </span>
-              ) : (
-                <>
-                  <span className="text-xs text-muted-foreground">
-                    {r.native!.shifts} смен
-                    {r.native!.preliminary
-                      ? ` · предварительных: ${r.native!.preliminary}`
-                      : ""}
-                  </span>
-                  {r.native!.errors > 0 && (
-                    <span className="text-xs text-amber-700 dark:text-amber-400">
-                      Ошибок обновления: {r.native!.errors}
-                    </span>
-                  )}
-                </>
-              )}
-            </>
-          );
-          return r.archive ? (
-            <button
-              type="button"
-              className="flex flex-col items-start gap-1 text-left hover:text-brand"
-              onClick={() => setDetail(r)}
-            >
-              {content}
-            </button>
-          ) : (
-            <Link
-              className="flex flex-col items-start gap-1 hover:text-brand"
-              href={shiftHref(r.month)}
-            >
-              {content}
-            </Link>
+          const sub = r.archive
+            ? `Снимок ${formatDayMonth(r.archive.captured_at.slice(0, 10))}`
+            : `${countRu(r.native!.shifts, "смена", "смены", "смен")}${r.native!.preliminary ? ` · предварительных ${r.native!.preliminary}` : ""}`;
+          return (
+            <div className="min-w-0">
+              <button
+                type="button"
+                className="block max-w-full truncate text-left font-medium first-letter:uppercase hover:underline"
+                onClick={() =>
+                  r.archive ? setDetail(r) : router.push(shiftHref(r.month))
+                }
+              >
+                {monthLabel(r.month)}
+              </button>
+              <span
+                className={
+                  r.native?.errors
+                    ? "block truncate text-xs text-amber-700 dark:text-amber-400"
+                    : "block truncate text-xs text-muted-foreground"
+                }
+              >
+                {r.native?.errors
+                  ? `Ошибок обновления: ${r.native.errors}`
+                  : sub}
+              </span>
+            </div>
           );
         },
       },
-      ...stateColumns
-        .filter((c) => c.id !== "month")
-        .map(
-          (c): ColumnDef<StatisticsRow> => ({
-            id: c.id,
-            header: labels[c.id],
-            size: c.defaultSize,
-            accessorFn: (r) => r.values[c.id]?.value ?? undefined,
-            sortUndefined: "last",
-            cell: ({ row }) => (
-              <Amount value={row.original.values[c.id]} column={c.id} />
-            ),
-          }),
-        ),
+      ...valueColumns.map(
+        (id): ColumnDef<StatisticsRow> => ({
+          id,
+          header: labels[id],
+          size: 150,
+          minSize: Math.max(100, labels[id].length * 8 + 32),
+          accessorFn: (r) => r.values[id]?.value ?? undefined,
+          sortUndefined: "last",
+          cell: ({ row }) => <Amount value={row.original.values[id]} id={id} />,
+        }),
+      ),
     ],
-    [],
+    [router],
   );
   const table = useReactTable({
     data: rows,
@@ -289,35 +297,32 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
     getSortedRowModel: getSortedRowModel(),
     columnResizeMode: "onChange",
   });
-  const multi = useMultiSort({
-    sorts: st.sorting.map(
-      (s) => `${s.id}:${s.desc ? "desc" : "asc"}` as SortMode,
-    ),
-    onChange: (v) =>
-      st.setSorting(
-        v.map((s) => ({
-          id: codec.toField(s),
-          desc: codec.toDirection(s) === "desc",
-        })),
-      ),
-    columnToField: Object.fromEntries(stateColumns.map((c) => [c.id, c.id])),
-    codec,
-  });
-  async function refresh(reports = false) {
-    (reports ? setReportBusy : setBusy)(true);
+  const changeSorting = (next: SortingState) => st.setSorting(next);
+
+  async function refresh() {
+    setBusy(true);
     try {
-      if (reports) await requestStatisticsMonth(reportMonth, initial.venueId);
       const next = await loadStatistics();
       if (next.venueId !== initial.venueId)
         throw new Error("Заведение изменилось. Обновите страницу");
       setData(next);
-      if (reports) toast.success("Месячные отчёты запрошены");
     } catch (e) {
-      toast.error(
-        e instanceof Error ? e.message : "Не удалось обновить статистику",
-      );
+      toast.error(salesErrorText(e instanceof Error ? e.message : null, "Не удалось обновить статистику"));
     } finally {
-      (reports ? setReportBusy : setBusy)(false);
+      setBusy(false);
+    }
+  }
+  async function requestReports(month: string) {
+    setReportBusy(true);
+    try {
+      await requestStatisticsMonth(month, initial.venueId);
+      const next = await loadStatistics();
+      setData(next);
+      toast.success(`Отчёты за ${monthLabel(month)} запрошены`);
+    } catch (e) {
+      toast.error(salesErrorText(e instanceof Error ? e.message : null, "Не удалось запросить отчёты"));
+    } finally {
+      setReportBusy(false);
     }
   }
   async function download() {
@@ -360,14 +365,7 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
               v?.total ?? null,
               v?.through ?? null,
               v?.updatedAt ?? null,
-              v?.state
-                ? {
-                    ready: "Обновлено",
-                    error: "Не обновлено",
-                    pending: "Ожидает обновления",
-                    running: "Обновляется",
-                  }[v.state]
-                : null,
+              v?.state ? stateText[v.state] : null,
             ];
           }),
           row.archive ? "Архив Glide" : "Sheerly",
@@ -377,13 +375,13 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
       }
       const url = URL.createObjectURL(
         new Blob(
-          ["\uFEFF" + lines.map((r) => r.map(csvCell).join(";")).join("\r\n")],
+          ["﻿" + lines.map((r) => r.map(csvCell).join(";")).join("\r\n")],
           { type: "text/csv;charset=utf-8;" },
         ),
       );
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Статистика-${source === "archive" ? "Glide" : "Sheerly"}-${year}.csv`;
+      a.download = `Статистика-${source === "archive" ? "архив-Glide" : "Sheerly"}${year ? `-${year}` : ""}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -394,343 +392,331 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
       setExporting(false);
     }
   }
-  return (
-    <PageFrame className="space-y-6">
-      <TablePageHeader title="Статистика" />
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-wrap gap-2">
-          <Select
-            value={source}
-            onValueChange={(v) => {
-              setSource(v as typeof source);
-              setYear("all");
-              setDetail(null);
-            }}
-          >
-            <SelectTrigger className="h-9 w-44" aria-label="Источник статистики">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="native">Sheerly</SelectItem>
-              <SelectItem value="archive">Архив Glide</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={year} onValueChange={setYear}>
-            <SelectTrigger className="h-9 w-36" aria-label="Год статистики">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Все годы</SelectItem>
-              {years.map((y) => (
-                <SelectItem key={y} value={y}>
-                  {y} год
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <TableControls
-          search={{
-            value: st.search,
-            onChange: st.setSearch,
-            open: st.searchOpen,
-            onOpenChange: st.setSearchOpen,
-            placeholder: "Месяц или год",
-          }}
-          sort={{
-            active: st.sorting.length > 0,
-            content: (
-              <div className="space-y-1 p-2">
-                {stateColumns.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    className="flex w-full items-center justify-between gap-4 rounded-md px-2 py-2 text-sm hover:bg-muted"
-                    onClick={() => multi.cycleSort(c.id)}
-                  >
-                    {labels[c.id]}
-                    {multi.headerIndicator(c.id)}
-                  </button>
-                ))}
-                <Button
-                  className="w-full"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => st.setSorting([])}
-                >
-                  Сбросить сортировку
-                </Button>
-              </div>
-            ),
-          }}
-          columns={{
-            content: (
-              <TableColumnManager
-                columns={table.getAllLeafColumns().map((c) => ({
-                  id: c.id,
-                  label: labels[c.id],
-                  visible: c.getIsVisible(),
-                  canHide: c.id !== "month",
-                  width: c.getSize(),
-                }))}
-                onVisibilityChange={(id, v) =>
-                  table.getColumn(id)?.toggleVisibility(v)
-                }
-                onMoveColumn={(a, b) =>
-                  st.setColumnOrder((order) =>
-                    arrayMove(order, order.indexOf(a), order.indexOf(b)),
-                  )
-                }
-                onReset={st.resetColumns}
-              />
-            ),
-          }}
-          exportAction={
-            data.permissions.includes("sales.export_shifts")
-              ? {
-                  label: "Экспорт CSV",
-                  onClick: () => void download(),
-                  disabled: !rows.length,
-                  loading: exporting,
-                }
-              : undefined
-          }
-          secondaryActions={
-            <Button
-              variant="outline"
-              size="icon"
-              aria-label="Обновить статистику"
-              disabled={busy}
-              onClick={() => void refresh()}
-            >
-              <RefreshCw
-                className={cn(
-                  "size-4",
-                  busy && "animate-spin motion-reduce:animate-none",
-                )}
-              />
-            </Button>
-          }
-        />
-      </div>
-      {source === "archive" ? (
-        <p className="text-sm text-muted-foreground">
-          Архивные итоги Glide без пересчёта.
-        </p>
-      ) : data.reportsConfigured &&
-        data.permissions.includes("sales.sync_shifts") ? (
-        <div className="flex flex-wrap items-center gap-3">
-          <Select value={reportMonth} onValueChange={setReportMonth}>
-            <SelectTrigger
-              className="w-52"
-              aria-label="Месяц отчётов Quick Resto"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {sourceRows(data, "native").map((m) => (
-                <SelectItem key={m.month} value={m.month}>
-                  {monthLabel(m.month)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            variant="outline"
-            disabled={reportBusy || !reportMonth}
-            onClick={() => void refresh(true)}
-          >
-            {reportBusy ? "Загрузка…" : "Обновить отчёты Quick Resto"}
+
+  const totalOf = (key: string) => {
+    const known = rows.filter((r) => r.values[key]?.value != null);
+    const value = known.length
+      ? known.reduce((s, r) => s + r.values[key].value!, 0)
+      : null;
+    const partial =
+      known.length !== rows.length ||
+      known.some(
+        (r) =>
+          r.values[key].known != null &&
+          r.values[key].known !== r.values[key].total,
+      );
+    return { value, partial };
+  };
+  const strip = [
+    "turnover",
+    "tips_total",
+    "parking",
+    source === "archive" ? "alcoholRevenue" : "checks",
+  ];
+  const reportErrors =
+    source === "native" ? data.reports.filter((r) => r.state === "error") : [];
+  const reportsButton =
+    source === "native" && data.reportsConfigured && can("sync") ? (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="sm" className="h-9 gap-2" disabled={reportBusy || !nativeMonths.length}>
+            <RefreshCw
+              className={
+                reportBusy ? "size-4 animate-spin motion-reduce:animate-none" : "size-4"
+              }
+            />
+            {reportBusy ? "Запрашиваем…" : "Обновить отчёты"}
+            <ChevronDown className="size-4" />
           </Button>
-        </div>
-      ) : (
-        !data.reportsConfigured && (
-          <p className="text-sm text-muted-foreground">
-            Дополнительные отчёты Quick Resto ещё не подключены.
-          </p>
-        )
-      )}
-      {source === "native" && data.reports.some((r) => r.state === "error") && (
-        <details className="rounded-lg border p-4 text-sm">
-          <summary className="cursor-pointer font-medium">
-            Не обновились отчёты ·{" "}
-            {data.reports.filter((r) => r.state === "error").length}
-          </summary>
-          <ul className="mt-3 space-y-2 text-muted-foreground">
-            {data.reports
-              .filter((r) => r.state === "error")
-              .map((r) => (
-                <li key={r.id}>
-                  {monthLabel(r.month.slice(0, 7))} ·{" "}
-                  {r.kind === "alcohol"
-                    ? "Алкоголь"
-                    : r.kind === "regular_guests"
-                      ? "Постоянные гости"
-                      : "Средний чек"}
-                  : {r.last_error}
-                </li>
-              ))}
-          </ul>
-        </details>
-      )}
-      {rows.length ? (
-        <>
-          <section
-            aria-label="Итоги статистики"
-            className="grid grid-cols-2 gap-y-5 rounded-lg border py-5 sm:grid-cols-4"
-          >
-            {[
-              "turnover",
-              "tips_total",
-              "parking",
-              source === "archive" ? "alcoholRevenue" : "checks",
-            ].map((key) => {
-              const known = rows.filter((r) => r.values[key]?.value != null),
-                total = known.length
-                  ? known.reduce((s, r) => s + r.values[key].value!, 0)
-                  : null;
-              const partial =
-                known.length !== rows.length ||
-                known.some(
-                  (r) =>
-                    r.values[key].known != null &&
-                    r.values[key].known !== r.values[key].total,
-                );
-              return (
-                <div
-                  key={key}
-                  className="min-w-0 px-4 sm:border-r sm:px-5 sm:last:border-0"
-                >
-                  <p className="text-sm text-muted-foreground">{labels[key]}</p>
-                  <p className="mt-2 text-xl font-semibold tracking-tight tabular-nums sm:text-2xl">
-                    {money(total)}
-                    {total !== null && (
-                      <span className="ml-1 text-base font-normal text-muted-foreground">
-                        {unit(key)}
-                      </span>
-                    )}
-                  </p>
-                  {partial && (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      По имеющимся данным
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-          </section>
-          <StatisticsChart rows={rows} />
-          <div className="overflow-hidden rounded-lg border">
-            <div className="max-h-[65dvh] min-h-64 overflow-auto">
-              <table
-                aria-label="Статистика продаж по месяцам"
-                className="w-full table-fixed text-sm"
-                style={{ minWidth: Math.max(680, table.getTotalSize()) }}
-              >
-                <ResizableTableHead
-                  table={table}
-                  isControlColumn={() => false}
-                  isRightAligned={(id) => id !== "month"}
-                  sortableColumnIds={multi.sortableColumnIds}
-                  onSort={multi.cycleSort}
-                  headerIndicator={multi.headerIndicator}
-                  headerAriaSort={multi.headerAriaSort}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="max-h-80 w-56 overflow-y-auto">
+          {nativeMonths.slice(0, 12).map((m) => (
+            <DropdownMenuItem
+              key={m.month}
+              className="first-letter:uppercase"
+              onSelect={() => void requestReports(m.month)}
+            >
+              {monthLabel(m.month)}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ) : null;
+
+  return (
+    <PageFrame className="flex min-w-0 flex-col gap-4">
+      <Breadcrumbs items={[{ label: "Продажи" }, { label: "Статистика" }]} />
+      <TablePageHeader
+        title="Статистика"
+        count={isFiltered ? `${rows.length} из ${months.length}` : months.length}
+        actions={
+          <TableControls
+            search={{
+              value: st.search,
+              onChange: st.setSearch,
+              open: st.searchOpen,
+              onOpenChange: st.setSearchOpen,
+              placeholder: "Месяц или год",
+            }}
+            filters={{
+              active: hasFilters,
+              onClick: () => setFiltersOpen((v) => !v),
+            }}
+            sort={{
+              active: st.sorting.length > 0,
+              content: (
+                <TableSortPicker
+                  sorting={st.sorting}
+                  onChange={changeSorting}
+                  fields={sortFields}
+                  labels={labels}
                 />
-                <tbody>
-                  {table.getRowModel().rows.map((row) => (
-                    <tr
-                      key={row.id}
-                      className="h-20 border-b last:border-0 hover:bg-muted/40"
-                    >
-                      {row.getVisibleCells().map((cell) => (
-                        <td
-                          key={cell.id}
-                          className={cn(
-                            "px-3 py-3 tabular-nums",
-                            cell.column.id !== "month" && "text-right",
-                          )}
-                        >
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext(),
-                          )}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {source === "archive"
-              ? "Прочерк — значение отсутствовало в источнике. Архив не изменяет смены и финансовые операции."
-              : "Доли алкоголя и постоянных гостей доступны в столбцах таблицы. Они рассчитываются только за совпадающий период; прочерк означает отсутствие полной базы."}
+              ),
+            }}
+            columns={{
+              content: (
+                <TableColumnManager
+                  columns={st.columnOrder.map((id) => {
+                    const c = table.getColumn(id)!;
+                    return {
+                      id,
+                      label: labels[id],
+                      visible: c.getIsVisible(),
+                      canHide: c.getCanHide(),
+                    };
+                  })}
+                  onVisibilityChange={(id, v) =>
+                    table.getColumn(id)?.toggleVisibility(v)
+                  }
+                  onMoveColumn={(a, b) =>
+                    st.setColumnOrder((order) =>
+                      arrayMove(order, order.indexOf(a), order.indexOf(b)),
+                    )
+                  }
+                  onReset={st.resetColumns}
+                />
+              ),
+            }}
+            secondaryActions={
+              <>
+                {data.archives.length > 0 && (
+                  <TableIconButton
+                    label={
+                      source === "archive"
+                        ? "Вернуться к статистике Sheerly"
+                        : "Архив Glide"
+                    }
+                    active={source === "archive"}
+                    pressed={source === "archive"}
+                    onClick={() =>
+                      changeSource(source === "archive" ? "native" : "archive")
+                    }
+                  >
+                    <Archive />
+                  </TableIconButton>
+                )}
+                <TableIconButton
+                  label="Обновить данные на странице"
+                  disabled={busy}
+                  onClick={() => void refresh()}
+                >
+                  <RefreshCw
+                    className={busy ? "animate-spin motion-reduce:animate-none" : undefined}
+                  />
+                </TableIconButton>
+              </>
+            }
+            exportAction={
+              can("export")
+                ? {
+                    label: "Экспорт CSV",
+                    onClick: () => void download(),
+                    disabled: !rows.length,
+                    loading: exporting,
+                  }
+                : undefined
+            }
+            primaryActions={reportsButton}
+          />
+        }
+      />
+      <TableConditions
+        label="Условия статистики"
+        open={filtersOpen}
+        hasFilters={hasFilters}
+        sorting={st.sorting}
+        onSortingChange={changeSorting}
+        sortFields={sortFields}
+        sortLabels={labels}
+        search={st.search}
+        onSearchClear={() => st.setSearch("")}
+        onReset={resetConditions}
+      >
+        {(filtersOpen || hasFilters) && (
+          <TableFilterChip
+            label="Год"
+            value={year}
+            onChange={setYear}
+            options={[
+              { value: "", label: "Все годы" },
+              ...years.map((y) => ({ value: y, label: `${y} год` })),
+            ]}
+          />
+        )}
+      </TableConditions>
+
+      {source === "archive" && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Итоги из архива Glide, без пересчёта. Прочерк: значения не было в
+          источнике
+        </p>
+      )}
+      {source === "native" && !data.reportsConfigured && (
+        <p className="text-sm text-muted-foreground">
+          Отчёты Quick Resto по алкоголю, постоянным гостям и среднему чеку
+          ещё не подключены
+        </p>
+      )}
+      {reportErrors.length > 0 && (
+        <div
+          role="alert"
+          className="space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm"
+        >
+          <p className="font-medium">
+            Не обновились отчёты Quick Resto: {reportErrors.length}
           </p>
-        </>
-      ) : (
+          <ul className="space-y-1 text-muted-foreground">
+            {reportErrors.map((r) => (
+              <li key={r.id}>
+                <span className="first-letter:uppercase">
+                  {monthLabel(r.month.slice(0, 7))}
+                </span>{" "}
+                · {reportKinds[r.kind] ?? "Отчёт"}:{" "}
+                {salesErrorText(r.last_error)}
+              </li>
+            ))}
+          </ul>
+          {can("sync") && (
+            <p className="text-xs text-muted-foreground">
+              Запросите отчёты месяца ещё раз кнопкой «Обновить отчёты»
+            </p>
+          )}
+        </div>
+      )}
+
+      {!months.length ? (
         <EmptyState
           icon={ChartNoAxesCombined}
           title={
-            source === "archive"
-              ? "Архив пока не перенесён"
-              : "Месяцы не найдены"
+            source === "archive" ? "Архив пока не перенесён" : "Статистики пока нет"
           }
-          description="Измените источник, год или поисковый запрос."
+          description={
+            source === "archive"
+              ? "Вернитесь к статистике Sheerly"
+              : "Месяцы появятся, когда в «Сменах» будут рабочие дни"
+          }
         />
+      ) : !rows.length ? (
+        <EmptyState
+          icon={SearchX}
+          title="Месяцы не найдены"
+          description="Измените условия поиска или сбросьте фильтры"
+          action={
+            <Button variant="outline" onClick={resetConditions}>
+              Очистить все
+            </Button>
+          }
+        />
+      ) : (
+        <>
+          <MetricStrip label="Итоги за выбранные месяцы">
+            {strip.map((key, i) => {
+              const t = totalOf(key);
+              return (
+                <Metric
+                  key={key}
+                  primary={i === 0}
+                  label={labels[key]}
+                  value={<ValueText id={key} value={t.value} />}
+                  hint={
+                    t.value === null
+                      ? "Нет данных"
+                      : t.partial
+                        ? "По имеющимся данным"
+                        : i === 0
+                          ? `За ${countRu(rows.length, "месяц", "месяца", "месяцев")}`
+                          : undefined
+                  }
+                />
+              );
+            })}
+          </MetricStrip>
+          <StatisticsChart rows={rows} />
+          <DataTable
+            table={table}
+            label="Статистика продаж по месяцам"
+            labels={labels}
+            onColumnSizingChange={st.setColumnSizing}
+            sorting={st.sorting}
+            onSortingChange={changeSorting}
+            sortable={sortFields}
+            numeric={valueColumns}
+            onRowClick={(row) =>
+              row.original.archive
+                ? setDetail(row.original)
+                : router.push(shiftHref(row.original.month))
+            }
+            empty={null}
+            mobile={{ label: "Карточки месяцев", nameColumn: "month" }}
+          />
+        </>
       )}
       <EditDrawer
         open={!!detail}
         onOpenChange={(open) => !open && setDetail(null)}
-        title={detail ? monthLabel(detail.month) : "Архив статистики"}
+        title={
+          detail
+            ? monthLabel(detail.month).replace(/^./, (c) => c.toUpperCase())
+            : "Месяц из архива"
+        }
+        titleAccessory={<DrawerStatus label="Архив Glide" tone="neutral" />}
         description={
           detail?.archive
-            ? `Архив Glide · снимок ${dateLabel(detail.archive.captured_at)}`
+            ? `Снимок ${formatDayMonth(detail.archive.captured_at.slice(0, 10))} · суммы без пересчёта`
             : undefined
         }
       >
         {detail?.archive && (
           <>
-            <dl className="divide-y">
-              {stateColumns
-                .filter((c) => c.id in detail.values)
-                .map(({ id: key }) => (
-                  <div
-                    key={key}
-                    className="flex items-center justify-between gap-4 py-3 text-sm"
-                  >
-                    <dt className="text-muted-foreground">
-                      {labels[key] ?? key}
-                    </dt>
-                    <dd>
-                      <Amount value={detail.values[key]} column={key} />
-                    </dd>
-                  </div>
-                ))}
-            </dl>
+            <DrawerSummary label="Итоги месяца">
+              <DrawerSummaryTotal label={labels.turnover}>
+                <ValueText id="turnover" value={detail.values.turnover?.value} />
+              </DrawerSummaryTotal>
+            </DrawerSummary>
+            <DrawerSection title="Показатели">
+              <dl className="divide-y">
+                {valueColumns
+                  .filter((key) => key !== "turnover" && key in detail.values)
+                  .map((key) => (
+                    <div
+                      key={key}
+                      className="flex items-center justify-between gap-4 py-2.5 text-sm"
+                    >
+                      <dt className="text-muted-foreground">{labels[key]}</dt>
+                      <dd>
+                        <ValueText id={key} value={detail.values[key]?.value} />
+                      </dd>
+                    </div>
+                  ))}
+              </dl>
+            </DrawerSection>
             <DrawerSection title="Средний оборот по дням недели">
               <dl className="divide-y">
                 {detail.archive.weekday_turnover.map((v, i) => (
-                  <div
-                    key={i}
-                    className="flex justify-between gap-3 py-2 text-sm"
-                  >
-                    <dt className="text-muted-foreground">
-                      {
-                        [
-                          "Понедельник",
-                          "Вторник",
-                          "Среда",
-                          "Четверг",
-                          "Пятница",
-                          "Суббота",
-                          "Воскресенье",
-                        ][i]
-                      }
-                    </dt>
-                    <dd className="tabular-nums">
-                      {money(v)}
-                      {v !== null && " ₽"}
+                  <div key={i} className="flex justify-between gap-3 py-2.5 text-sm">
+                    <dt className="text-muted-foreground">{weekdays[i]}</dt>
+                    <dd>
+                      <Money value={v} />
                     </dd>
                   </div>
                 ))}
@@ -738,14 +724,13 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
             </DrawerSection>
             {detail.archive.note && (
               <DrawerSection title="Комментарий">
-                <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                <p className="whitespace-pre-wrap break-words text-sm">
                   {detail.archive.note}
                 </p>
               </DrawerSection>
             )}
             <p className="text-xs text-muted-foreground">
-              Источник: {detail.archive.origin.range}. Прежняя методика расчёта
-              сохранена.
+              Строка архива: {detail.archive.origin.range}
             </p>
           </>
         )}

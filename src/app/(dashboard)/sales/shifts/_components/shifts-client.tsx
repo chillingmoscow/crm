@@ -1,108 +1,191 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
-  flexRender,
   getCoreRowModel,
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
+  type SortingState,
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
-  AlertCircle,
   CalendarDays,
-  Check,
   CircleDot,
   History,
   Loader2,
   Pencil,
   RefreshCw,
+  SearchX,
+  Settings2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { SalesStatusBadge } from "./sales-status-badge";
+import { ColorDot } from "@/components/ui/color-dot";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { Metric, MetricStrip } from "@/components/shared/metric-strip";
+import { Money, formatRub } from "@/components/shared/money";
+import { MonthPicker } from "@/components/shared/month-picker";
 import { PageFrame } from "@/components/shared/page-frame";
+import { PeriodStepper } from "@/components/shared/period-stepper";
 import {
-  DateRangeFilter,
-  type DateRangeValue,
-} from "@/components/shared/date-range-filter";
-import {
+  DataTable,
   ROW_MENU_COLUMN_SIZE,
-  ResizableTableHead,
   TableColumnManager,
-  TableControlPin,
+  TableConditions,
   TableControls,
+  TableFilterChip,
+  TableIconButton,
   TablePageHeader,
   TablePagination,
   TableRowMenu,
-  useMultiSort,
+  TableSortPicker,
   useTableState,
 } from "@/components/shared/table";
 import {
   effectiveMetrics,
   metricKeys,
-  metricLabels,
   metricHints,
+  metricLabels,
   type MetricKey,
   type SalesData,
   type SalesDay,
 } from "@/lib/sales/types";
 import { businessDate } from "@/lib/sales/time";
 import { csvCell } from "@/lib/sales/csv";
-import { cn } from "@/lib/utils";
-import { money, dayLabel } from "@/lib/sales/format";
+import { salesErrorText } from "@/lib/sales/errors";
+import { formatCount, weekdayLabel } from "@/lib/sales/format";
+import { formatDateCell, formatDayMonthTime } from "@/lib/format/date";
+import { countRu } from "@/lib/format/plural";
 import { exportSalesRows, loadSales, requestSalesSync } from "../actions";
 import { DayDrawer } from "./day-drawer";
+import {
+  SalesStatusBadge,
+  salesDayStatus,
+  salesStatuses,
+} from "./sales-status-badge";
 import { ArchiveDayDrawer } from "../../_components/archive-day-drawer";
 import type { DayArchive } from "@/lib/sales/day-context";
 
-const compactDate = (date: string) => date.split("-").reverse().join(".");
-const dateKey = (date: Date | null) =>
-  date
-    ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
-    : null;
-const hidden = new Set<MetricKey>(["hookah", "bar", "tips_total"]);
-const stateColumns = [
-  { id: "business_date", defaultSize: 158 },
+/** Подписи столбцов: заголовки таблицы, карточки на телефоне, экспорт. */
+const labels: Record<string, string> = {
+  business_date: "Дата",
+  ...metricLabels,
+  checks: "Чеки",
+  avg_check: "Средний чек гостя",
+  status: "Статус",
+};
+/** Счётные показатели — без знака валюты. */
+const counts = new Set<MetricKey>(["checks"]);
+// По умолчанию — столбцы, которые сверяют каждый день; составляющие (кальяны,
+// бар, чаевые без сбора, сбор) и чеки сотрудников включаются в «Столбцах».
+// Иначе таблица не помещается в ширину и уходит в горизонтальную прокрутку.
+const hiddenByDefault = new Set<MetricKey>([
+  "hookah",
+  "bar",
+  "tips",
+  "service",
+  "staff_checks",
+]);
+const columnConfig = [
+  { id: "business_date", defaultSize: 150 },
   ...metricKeys.map((id) => ({
     id,
-    defaultSize: id === "checks" ? 116 : 140,
-    defaultVisible: !hidden.has(id),
+    defaultSize: id === "checks" ? 110 : 140,
+    defaultVisible: !hiddenByDefault.has(id),
   })),
-  { id: "status", defaultSize: 140 },
+  { id: "avg_check", defaultSize: 150, defaultVisible: false },
+  { id: "status", defaultSize: 170 },
   { id: "actions", defaultSize: ROW_MENU_COLUMN_SIZE },
 ];
-type SortMode = `${string}:${"asc" | "desc"}`;
-const sortMap = Object.fromEntries(
-  ["business_date", ...metricKeys, "status"].map((k) => [k, k]),
-);
-const sortCodec = {
-  toField: (s: SortMode) => s.split(":")[0],
-  toDirection: (s: SortMode) =>
-    s.endsWith(":desc") ? ("desc" as const) : ("asc" as const),
-  combine: (field: string, direction: "asc" | "desc") =>
-    `${field}:${direction}` as SortMode,
+/** Ширина столбца не уже заголовка: длинные подписи шире. */
+const minWidth: Partial<Record<MetricKey, number>> = {
+  tips_total: 150,
+  service: 140,
+  staff_checks: 150,
+  deposits: 110,
+  checks: 90,
 };
+const sortFields = ["business_date", ...metricKeys, "avg_check", "status"];
+const statusFilterOptions = [
+  { value: "", label: "Все смены" },
+  ...(["preliminary", "complete", "imported", "adjusted", "error"] as const).map(
+    (value) => ({ value, label: salesStatuses[value].label }),
+  ),
+];
+const MIN_MONTH = "2000-01";
+
+function shiftMonth(month: string, delta: number): string {
+  const [y, m] = month.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1 + delta, 1)).toISOString().slice(0, 7);
+}
+
+function matchesStatus(day: SalesDay, status: string) {
+  if (!status) return true;
+  if (status === "adjusted") return Object.keys(day.overrides).length > 0;
+  if (status === "error") return !!day.sync_error;
+  return day.status === status;
+}
+
+/** Гостевые чеки смены (без Staff) — из сводки расчёта; у старых смен их нет до обновления. */
+function guestChecks(day: SalesDay): number | null {
+  const n = day.source_summary?.guest_checks;
+  return typeof n === "number" && Number.isFinite(n) ? n : null;
+}
+
+/** Средний чек гостя за смену: оборот (он без Staff) на гостевой чек. */
+function averageCheck(day: SalesDay): number | null {
+  const guests = guestChecks(day);
+  const turnover = effectiveMetrics(day).turnover;
+  return guests && turnover !== null ? turnover / guests : null;
+}
+
+/** Средний чек гостя за набор смен: оборот и чеки только смен, где известны оба. */
+function averageCheckOf(days: SalesDay[]) {
+  let turnover = 0,
+    guests = 0,
+    known = 0;
+  for (const d of days) {
+    const g = guestChecks(d);
+    const t = effectiveMetrics(d).turnover;
+    if (!g || t === null) continue;
+    turnover += t;
+    guests += g;
+    known++;
+  }
+  return { value: guests ? turnover / guests : null, guests, known };
+}
+
+/** Сумма показателя по сменам: неизвестные значения не считаются нулём. */
+function sumMetric(days: SalesDay[], key: MetricKey) {
+  const values = days
+    .map((d) => effectiveMetrics(d)[key])
+    .filter((v): v is number => v !== null);
+  return {
+    value: values.length ? values.reduce((a, b) => a + b, 0) : null,
+    known: values.length,
+  };
+}
+
 export function ShiftsClient({
   initial,
-  initialRange,
   selection,
   selectedArchive,
 }: {
+  /** Смены одного месяца (`initial.month`): из ссылки или текущий. */
   initial: SalesData;
-  initialRange?: { from: string; to: string };
   selection?: { date: string; tab: string; source: "native" | "archive" };
   selectedArchive?: DayArchive | null;
 }) {
-  const rangeFrom = initialRange?.from;
-  const rangeTo = initialRange?.to;
+  const router = useRouter();
   const [data, setData] = useState(initial);
+  useEffect(() => setData(initial), [initial]);
   const st = useTableState({
-    tableId: `sales-shifts.${initial.venueId}`,
-    columns: stateColumns,
+    tableId: `sales-shifts.v2.${initial.venueId}`,
+    columns: columnConfig,
   });
   const { setPagination } = st;
   const today = businessDate(
@@ -110,20 +193,18 @@ export function ShiftsClient({
     initial.timezone,
     initial.settings?.day_start_hour ?? 9,
   );
-  const [range, setRange] = useState<DateRangeValue>({
-    start: initialRange ? new Date(`${initialRange.from}T12:00:00`) : null,
-    end: initialRange ? new Date(`${initialRange.to}T12:00:00`) : null,
-  });
+  const currentMonth = today.slice(0, 7);
+  const [month, setMonth] = useState(initial.month ?? currentMonth);
   useEffect(() => {
-    setRange({
-      start: rangeFrom ? new Date(`${rangeFrom}T12:00:00`) : null,
-      end: rangeTo ? new Date(`${rangeTo}T12:00:00`) : null,
-    });
-    setPreset(null);
-  }, [rangeFrom, rangeTo]);
-  const [preset, setPreset] = useState<string | null>(null);
+    if (initial.month) setMonth(initial.month);
+  }, [initial.month]);
+  // Загружается только выбранный месяц: при смене месяца читаем его заново.
+  const monthRef = useRef(month);
+  monthRef.current = month;
+  const sequence = useRef(0);
+  const [loading, setLoading] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [filter, setFilter] = useState("all");
+  const [status, setStatus] = useState("");
   const [drawer, setDrawer] = useState<{ day: SalesDay; tab: string } | null>(
     null,
   );
@@ -131,6 +212,8 @@ export function ShiftsClient({
     archive: DayArchive;
     tab: string;
   } | null>(null);
+
+  // Ссылка на день (`?day=…&tab=…`) открывает его панель один раз.
   const selectionKey = selection
     ? `${initial.venueId}:${selection.date}:${selection.tab}:${selection.source}`
     : "";
@@ -154,27 +237,40 @@ export function ShiftsClient({
         : null,
     );
   }, [selectionKey, selection, initial.days, selectedArchive]);
+
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const can = useCallback(
     (permission: string) =>
       data.permissions.includes(`sales.${permission}_shifts`),
     [data.permissions],
   );
-  useEffect(() => {
-    setData(initial);
-  }, [initial]);
-  // loadSales returns newest dates first. Do not install an implicit unique
-  // primary sort that would make every subsequent column look unresponsive.
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (quiet = false) => {
+    const seq = ++sequence.current;
+    const target = monthRef.current;
+    if (!quiet) setLoading(true);
     try {
-      setData(await loadSales());
+      const next = await loadSales(target);
+      if (seq !== sequence.current) return;
+      setData(next);
+      setRefreshFailed(false);
     } catch (e) {
-      toast.error(
-        e instanceof Error ? e.message : "Не удалось загрузить смены",
-      );
+      if (seq !== sequence.current) return;
+      setRefreshFailed(true);
+      if (!quiet)
+        toast.error(
+          e instanceof Error ? e.message : "Не удалось загрузить смены",
+        );
+    } finally {
+      if (seq === sequence.current) setLoading(false);
     }
   }, []);
+  useEffect(() => {
+    if (data.month !== month) void refresh();
+    // data.month не в зависимостях: загрузку запускает только смена месяца.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [month, refresh]);
   const activeJobs = useMemo(
     () =>
       new Map(
@@ -186,10 +282,11 @@ export function ShiftsClient({
   );
   const running = activeJobs.size > 0;
   const currentRunning = activeJobs.has(today);
+  // Автообновление — только на видимой вкладке (DS «Состояния»).
   useEffect(() => {
     const timer = setInterval(
       () => {
-        if (document.visibilityState === "visible") void refresh();
+        if (document.visibilityState === "visible") void refresh(true);
       },
       running ? 10000 : 60000,
     );
@@ -197,128 +294,179 @@ export function ShiftsClient({
   }, [running, refresh]);
   useEffect(() => {
     setPagination((p) => ({ ...p, pageIndex: 0 }));
-  }, [range, filter, st.search, setPagination]);
-  const filtered = useMemo(() => {
-    const from = dateKey(range.start),
-      to = dateKey(range.end),
-      query = st.search.toLowerCase().trim();
-    return data.days.filter(
-      (d) =>
-        (!from || d.business_date >= from) &&
-        (!to || d.business_date <= to) &&
-        (!query ||
-          `${compactDate(d.business_date)} ${dayLabel(d.business_date)} ${d.note}`
-            .toLowerCase()
-            .includes(query)) &&
-        (filter === "all" ||
-          (filter === "adjusted" && Object.keys(d.overrides).length > 0) ||
-          (filter === "error" && !!d.sync_error) ||
-          d.status === filter),
-    );
-  }, [data.days, range, filter, st.search]);
+  }, [month, status, st.search, setPagination]);
+
+  // Пока новый месяц грузится, прежние строки не показываем под чужим месяцем.
+  const monthDays = useMemo(
+    () => data.days.filter((d) => d.business_date.startsWith(month)),
+    [data.days, month],
+  );
+  const monthLoading = loading || data.month !== month;
+  const hasFilters = !!status;
+  const query = st.search.toLowerCase().trim();
+  const filtered = useMemo(
+    () =>
+      monthDays.filter(
+        (d) =>
+          matchesStatus(d, status) &&
+          (!query ||
+            `${formatDateCell(d.business_date)} ${weekdayLabel(d.business_date)} ${d.note}`
+              .toLowerCase()
+              .includes(query)),
+      ),
+    [monthDays, status, query],
+  );
+  const isFiltered = hasFilters || !!query;
+  const resetConditions = () => {
+    setStatus("");
+    st.setSearch("");
+    st.setSorting([]);
+  };
+
   const sync = useCallback(
     async (dates: string[]) => {
       setBusy(true);
       try {
         const n = await requestSalesSync(dates);
         toast.success(
-          `${n === 1 ? "Смена поставлена" : "Смены поставлены"} на обновление`,
+          n === 1
+            ? "Смена поставлена на обновление"
+            : `${countRu(n, "смена поставлена", "смены поставлены", "смен поставлено")} на обновление`,
         );
         await refresh();
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Ошибка обновления");
+        toast.error(
+          e instanceof Error ? e.message : "Не удалось запустить обновление",
+        );
       } finally {
         setBusy(false);
       }
     },
     [refresh],
   );
-  const cols = useMemo<ColumnDef<SalesDay>[]>(
+
+  const columns = useMemo<ColumnDef<SalesDay>[]>(
     () => [
       {
         id: "business_date",
         accessorKey: "business_date",
-        header: "Дата",
-        size: 158,
-        minSize: 125,
+        header: labels.business_date,
+        size: 150,
+        minSize: 120,
+        enableHiding: false,
         cell: ({ row }) => {
-          const current = row.original.business_date === today;
-          const job = activeJobs.get(row.original.business_date);
-          const status = job === "queued"
-            ? "Ожидает обновления"
-            : job === "running"
-              ? "Обновляется"
-              : "Текущая смена";
-          const syncedAt = row.original.synced_at;
-          const lastUpdate = syncedAt
-            ? `Обновлено ${new Date(syncedAt).toLocaleString("ru-RU", { timeZone: data.timezone })}`
+          const d = row.original;
+          const job = activeJobs.get(d.business_date);
+          const current = d.business_date === today;
+          const state =
+            job === "queued"
+              ? "Ожидает обновления"
+              : job === "running"
+                ? "Обновляется"
+                : "Текущая смена";
+          const synced = d.synced_at
+            ? `Обновлено ${formatDayMonthTime(d.synced_at, new Date(), data.timezone)}`
             : "Ещё не обновлялась";
           return (
-            <button
-              className="flex flex-col text-left hover:text-brand"
-              onClick={() => setDrawer({ day: row.original, tab: "values" })}
-            >
-              <span className="flex items-center gap-2 font-medium">
-                {compactDate(row.original.business_date)}
+            <div className="min-w-0">
+              {/* Настоящая кнопка в первой ячейке: смену можно открыть с клавиатуры. */}
+              <button
+                type="button"
+                className="flex items-center gap-1.5 text-left font-medium tabular-nums hover:underline"
+                onClick={() => setDrawer({ day: d, tab: "values" })}
+              >
+                {formatDateCell(d.business_date)}
                 {(current || job) && (
                   <span
-                    data-tip={`${status} · ${lastUpdate}`}
-                    aria-label={status}
+                    data-tip={state}
+                    data-tip-sub={synced}
                     className="text-brand"
                   >
                     {job ? (
-                      <Loader2 className="size-3.5 animate-spin" />
+                      <Loader2
+                        aria-label={state}
+                        className="size-3.5 animate-spin motion-reduce:animate-none"
+                      />
                     ) : (
-                      <CircleDot className="size-3.5" />
+                      <CircleDot aria-label={state} className="size-3.5" />
                     )}
                   </span>
                 )}
+              </button>
+              <span className="block truncate text-xs text-muted-foreground first-letter:uppercase">
+                {weekdayLabel(d.business_date)}
+                {d.note ? ` · ${d.note}` : ""}
               </span>
-              <span className="text-xs text-muted-foreground">
-                {new Date(
-                  `${row.original.business_date}T12:00:00`,
-                ).toLocaleDateString("ru-RU", { weekday: "long" })}
-              </span>
-            </button>
+            </div>
           );
         },
       },
-      ...metricKeys.map((k) => ({
-        id: k,
-        accessorFn: (d: SalesDay) => effectiveMetrics(d)[k] ?? undefined,
-        header: k === "checks" ? "Чеков" : metricLabels[k],
-        size: 140,
-        minSize: 105,
-        sortUndefined: "last" as const,
-        cell: ({ row }: { row: { original: SalesDay } }) => (
-          <span
-            data-tip={
-              k in row.original.overrides
-                ? `Исправлено вручную. Исходное: ${money(row.original.calculated[k] ?? null)}`
-                : metricHints[k]
-            }
-            className="inline-flex items-center justify-end gap-1.5 tabular-nums"
-          >
-            {k in row.original.overrides && (
+      ...metricKeys.map(
+        (k): ColumnDef<SalesDay> => ({
+          id: k,
+          accessorFn: (d) => effectiveMetrics(d)[k] ?? undefined,
+          header: labels[k],
+          size: k === "checks" ? 110 : 140,
+          minSize: minWidth[k] ?? 100,
+          sortUndefined: "last",
+          cell: ({ row }) => {
+            const d = row.original;
+            const value = effectiveMetrics(d)[k];
+            const adjusted = k in d.overrides;
+            return (
               <span
-                className="size-1.5 rounded-full bg-amber-500"
-                aria-label="Ручная корректировка"
-              />
-            )}
-            {money(effectiveMetrics(row.original)[k])}
-          </span>
-        ),
-      })),
+                className="inline-flex items-center justify-end gap-1.5"
+                data-tip={
+                  adjusted
+                    ? `Исправлено вручную. Исходное: ${counts.has(k) ? formatCount(d.calculated[k] ?? null) : formatRub(d.calculated[k] ?? null)}`
+                    : metricHints[k]
+                }
+              >
+                {adjusted && (
+                  <>
+                    <ColorDot color="purple" size="sm" />
+                    <span className="sr-only">Исправлено вручную:</span>
+                  </>
+                )}
+                {counts.has(k) ? formatCount(value) : <Money value={value} />}
+              </span>
+            );
+          },
+        }),
+      ),
+      {
+        id: "avg_check",
+        accessorFn: (d) => averageCheck(d) ?? undefined,
+        header: labels.avg_check,
+        size: 150,
+        minSize: 150,
+        sortUndefined: "last",
+        cell: ({ row }) => {
+          const guests = guestChecks(row.original);
+          return (
+            <span
+              data-tip={
+                guests === null
+                  ? "Посчитается после обновления смены из Quick Resto"
+                  : `${formatCount(guests)} гостевых чеков, без Staff`
+              }
+            >
+              <Money value={averageCheck(row.original)} />
+            </span>
+          );
+        },
+      },
       {
         id: "status",
-        accessorKey: "status",
-        header: "Статус",
-        size: 140,
-        minSize: 115,
+        accessorFn: (d) => salesStatuses[salesDayStatus(d)].label,
+        header: labels.status,
+        size: 170,
+        // Самая длинная подпись — «Ожидает пересчёта»: бейдж не режем.
+        minSize: 160,
         cell: ({ row }) => (
           <SalesStatusBadge
-            status={row.original.sync_error ? "error" : row.original.status}
-            title={row.original.sync_error ?? undefined}
+            status={salesDayStatus(row.original)}
+            tip={salesErrorText(row.original.sync_error) ?? undefined}
           />
         ),
       },
@@ -328,13 +476,14 @@ export function ShiftsClient({
         minSize: ROW_MENU_COLUMN_SIZE,
         maxSize: ROW_MENU_COLUMN_SIZE,
         enableResizing: false,
+        enableHiding: false,
         cell: ({ row }) => (
           <TableRowMenu
             actions={[
               {
                 label: can("adjust")
-                  ? "Изменить показатели"
-                  : "Посмотреть показатели",
+                  ? "Исправить показатели"
+                  : "Открыть показатели",
                 icon: <Pencil />,
                 onSelect: () => setDrawer({ day: row.original, tab: "values" }),
               },
@@ -359,20 +508,12 @@ export function ShiftsClient({
         ),
       },
     ],
-    [
-      can,
-      sync,
-      busy,
-      running,
-      activeJobs,
-      today,
-      data.connected,
-      data.timezone,
-    ],
+    [can, sync, busy, running, activeJobs, today, data.connected, data.timezone],
   );
+
   const table = useReactTable({
     data: filtered,
-    columns: cols,
+    columns,
     getRowId: (d) => d.id,
     state: {
       sorting: st.sorting,
@@ -392,84 +533,69 @@ export function ShiftsClient({
     columnResizeMode: "onChange",
     autoResetPageIndex: false,
   });
-  const multi = useMultiSort({
-    sorts: st.sorting.map(
-      (s) => `${s.id}:${s.desc ? "desc" : "asc"}` as SortMode,
-    ),
-    onChange: (ss) =>
-      st.setSorting(
-        ss.map((s) => ({
-          id: sortCodec.toField(s),
-          desc: sortCodec.toDirection(s) === "desc",
-        })),
-      ),
-    columnToField: sortMap,
-    codec: sortCodec,
-  });
+  const changeSorting = (next: SortingState) => st.setSorting(next);
+
   const totals = useMemo(
     () =>
-      Object.fromEntries(
-        metricKeys.map((k) => {
-          const values = filtered
-            .map((d) => effectiveMetrics(d)[k])
-            .filter((v): v is number => v !== null);
-          return [
-            k,
-            {
-              value: values.length ? values.reduce((a, b) => a + b, 0) : null,
-              partial: values.length < filtered.length,
-              known: values.length,
-            },
-          ];
-        }),
-      ) as Record<
+      Object.fromEntries(metricKeys.map((k) => [k, sumMetric(filtered, k)])) as Record<
         MetricKey,
-        { value: number | null; partial: boolean; known: number }
+        { value: number | null; known: number }
       >,
     [filtered],
   );
+  const average = useMemo(() => averageCheckOf(filtered), [filtered]);
+  const averageHint =
+    average.value === null
+      ? "Посчитается после обновления смен из Quick Resto"
+      : average.known < filtered.length
+        ? `По ${average.known} из ${countRu(filtered.length, "смены", "смен", "смен")}`
+        : `${countRu(average.guests, "гостевой чек", "гостевых чека", "гостевых чеков")}`;
+  const metricHint = (k: MetricKey) =>
+    totals[k].value === null
+      ? "Нет данных"
+      : totals[k].known < filtered.length
+        ? `По ${totals[k].known} из ${countRu(filtered.length, "смены", "смен", "смен")}`
+        : undefined;
+
   const download = async () => {
     setExporting(true);
     try {
       const sorted = table.getSortedRowModel().rows;
       const records = await exportSalesRows(sorted.map((r) => r.id));
-      const map = new Map(records.map((r) => [r.id, r]));
+      const byId = new Map(records.map((r) => [r.id, r]));
       const visible = table
         .getVisibleLeafColumns()
         .filter((c) => c.id !== "actions");
-      const lines = [
+      const lines: unknown[][] = [
         visible.map((c) =>
-          c.id === "business_date"
-            ? "Дата"
-            : c.id === "status"
-              ? "Статус"
-              : metricLabels[c.id as MetricKey],
+          c.id in metricLabels ? metricLabels[c.id as MetricKey] : labels[c.id],
         ),
         ...sorted.map((r) => {
-          const d = map.get(r.id);
+          const d = byId.get(r.id);
           if (!d) throw new Error("Данные изменились. Обновите таблицу");
           return visible.map((c) =>
             c.id === "business_date"
-              ? compactDate(d.business_date)
+              ? formatDateCell(d.business_date)
               : c.id === "status"
-                ? d.status === "complete"
-                  ? "Завершена"
-                  : d.status === "preliminary"
-                    ? "Предварительно"
-                    : "Ожидает пересчёта"
-                : effectiveMetrics(d)[c.id as MetricKey],
+                ? salesStatuses[salesDayStatus(d)].label
+                : c.id === "avg_check"
+                  ? (() => {
+                      const v = averageCheck(d);
+                      return v === null ? null : Math.round(v * 100) / 100;
+                    })()
+                  : effectiveMetrics(d)[c.id as MetricKey],
           );
         }),
       ];
       const url = URL.createObjectURL(
         new Blob(
-          ["\uFEFF" + lines.map((r) => r.map(csvCell).join(";")).join("\r\n")],
+          ["﻿" + lines.map((r) => r.map(csvCell).join(";")).join("\r\n")],
           { type: "text/csv;charset=utf-8;" },
         ),
       );
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Смены-${dateKey(range.start) ?? "все"}-${dateKey(range.end) ?? today}.csv`;
+      a.download = `Смены-${month}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -478,295 +604,305 @@ export function ShiftsClient({
       setExporting(false);
     }
   };
-  const filterNames: Record<string, string> = {
-    all: "Все смены",
-    preliminary: "Предварительные",
-    complete: "Завершённые",
-    imported: "Ожидают пересчёта",
-    adjusted: "С исправлениями",
-    error: "С ошибками",
-  };
+
+  const lastSync = data.days.find((d) => d.business_date === today)?.synced_at;
+  const refreshButton = can("sync") ? (
+    <span
+      className="inline-flex"
+      data-tip={
+        !data.connected
+          ? "Сначала подключите Quick Resto"
+          : !data.settings
+            ? "Сначала настройте расчёт смен в карточке заведения"
+            : currentRunning
+              ? "Текущая смена обновляется"
+              : lastSync
+                ? `Обновлено ${formatDayMonthTime(lastSync, new Date(), data.timezone)}`
+                : "Загрузить текущую смену из Quick Resto"
+      }
+    >
+      <Button
+        size="sm"
+        className="h-9 gap-2"
+        disabled={busy || currentRunning || !data.connected || !data.settings}
+        onClick={() => void sync([today])}
+      >
+        <RefreshCw
+          className={
+            busy || currentRunning
+              ? "size-4 animate-spin motion-reduce:animate-none"
+              : "size-4"
+          }
+        />
+        {currentRunning ? "Обновляется…" : "Обновить смену"}
+      </Button>
+    </span>
+  ) : null;
+
+  const monthIsEmpty = monthDays.length === 0;
   return (
-    <PageFrame className="space-y-5" key={initial.venueId}>
-      <TablePageHeader title="Смены" />
+    <PageFrame className="flex min-w-0 flex-col gap-4">
+      <Breadcrumbs items={[{ label: "Продажи" }, { label: "Смены" }]} />
+      <TablePageHeader
+        title="Смены"
+        count={
+          isFiltered ? `${filtered.length} из ${monthDays.length}` : monthDays.length
+        }
+        period={
+          <>
+            <PeriodStepper
+              previous="Предыдущий месяц"
+              next="Следующий месяц"
+              previousDisabled={month <= MIN_MONTH}
+              onPrevious={() => setMonth((m) => shiftMonth(m, -1))}
+              onNext={() => setMonth((m) => shiftMonth(m, 1))}
+            >
+              <MonthPicker
+                variant="period"
+                prefix=""
+                ariaLabel="Месяц смен"
+                value={`${month}-01`}
+                min={`${MIN_MONTH}-01`}
+                onChange={(v) => setMonth(v.slice(0, 7))}
+              />
+            </PeriodStepper>
+            {month !== currentMonth ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-9"
+                onClick={() => setMonth(currentMonth)}
+              >
+                Сегодня
+              </Button>
+            ) : null}
+          </>
+        }
+        actions={
+          <TableControls
+            search={{
+              value: st.search,
+              onChange: st.setSearch,
+              open: st.searchOpen,
+              onOpenChange: st.setSearchOpen,
+              placeholder: "Дата или комментарий",
+            }}
+            filters={{
+              active: hasFilters,
+              onClick: () => setFiltersOpen((v) => !v),
+            }}
+            sort={{
+              active: st.sorting.length > 0,
+              content: (
+                <TableSortPicker
+                  sorting={st.sorting}
+                  onChange={changeSorting}
+                  fields={sortFields}
+                  labels={labels}
+                />
+              ),
+            }}
+            columns={{
+              content: (
+                <TableColumnManager
+                  columns={st.columnOrder
+                    .filter((id) => id !== "actions")
+                    .map((id) => {
+                      const c = table.getColumn(id)!;
+                      return {
+                        id,
+                        label: labels[id],
+                        visible: c.getIsVisible(),
+                        canHide: c.getCanHide(),
+                      };
+                    })}
+                  onVisibilityChange={(id, v) =>
+                    table.getColumn(id)?.toggleVisibility(v)
+                  }
+                  onMoveColumn={(a, b) =>
+                    st.setColumnOrder((order) =>
+                      arrayMove(order, order.indexOf(a), order.indexOf(b)),
+                    )
+                  }
+                  onReset={st.resetColumns}
+                />
+              ),
+            }}
+            exportAction={
+              can("export")
+                ? {
+                    label: "Экспорт CSV",
+                    onClick: () => void download(),
+                    disabled: !filtered.length,
+                    loading: exporting,
+                  }
+                : undefined
+            }
+            secondaryActions={
+              can("configure") ? (
+                <TableIconButton
+                  label="Настройки продаж"
+                  onClick={() => router.push("/sales/settings")}
+                >
+                  <Settings2 />
+                </TableIconButton>
+              ) : undefined
+            }
+            primaryActions={refreshButton}
+          />
+        }
+      />
+      <TableConditions
+        label="Условия списка смен"
+        open={filtersOpen}
+        hasFilters={hasFilters}
+        sorting={st.sorting}
+        onSortingChange={changeSorting}
+        sortFields={sortFields}
+        sortLabels={labels}
+        search={st.search}
+        onSearchClear={() => st.setSearch("")}
+        onReset={resetConditions}
+      >
+        {(filtersOpen || hasFilters) && (
+          <TableFilterChip
+            label="Статус"
+            value={status}
+            onChange={setStatus}
+            options={statusFilterOptions}
+          />
+        )}
+      </TableConditions>
+
       {!data.connected && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm">
-          <span className="flex items-center gap-2">
-            <AlertCircle className="size-4 text-muted-foreground" />
-            Подключите Quick Resto, чтобы обновлять показатели смен.
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+          <p className="min-w-0 flex-1">
+            Quick Resto не подключён: показатели смен не обновляются
+          </p>
           {can("configure") && (
-            <Button variant="link" size="sm" asChild>
-              <Link href="/settings/integrations">Подключить</Link>
+            <Button variant="outline" size="sm" className="h-8" asChild>
+              <Link href="/settings/integrations">Подключить Quick Resto</Link>
             </Button>
           )}
         </div>
       )}
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        <TableControls
-          search={{
-            value: st.search,
-            onChange: st.setSearch,
-            open: st.searchOpen,
-            onOpenChange: st.setSearchOpen,
-            placeholder: "Дата или комментарий",
-          }}
-          filters={{
-            active:
-              filtersOpen || filter !== "all" || !!range.start || !!range.end,
-            onClick: () => setFiltersOpen(!filtersOpen),
-          }}
-          sort={{
-            active: st.sorting.length > 0,
-            content: (
-              <div className="space-y-1 p-2">
-                <p className="pb-2 text-xs text-muted-foreground">
-                  Нажмите на поле, чтобы добавить сортировку или изменить
-                  направление.
-                </p>
-                {Object.keys(sortMap).map((k) => (
-                  <button
-                    key={k}
-                    className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm hover:bg-accent"
-                    onClick={() => multi.cycleSort(k)}
-                  >
-                    {k === "business_date"
-                      ? "Дата"
-                      : k === "status"
-                        ? "Статус"
-                        : metricLabels[k as MetricKey]}
-                    {multi.headerIndicator(k)}
-                  </button>
-                ))}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full"
-                  onClick={() => st.setSorting([])}
-                >
-                  Сбросить сортировку
-                </Button>
-              </div>
-            ),
-          }}
-          columns={{
-            content: (
-              <TableColumnManager
-                columns={table
-                  .getAllLeafColumns()
-                  .filter((c) => c.id !== "actions")
-                  .map((c) => ({
-                    id: c.id,
-                    label:
-                      c.id === "business_date"
-                        ? "Дата"
-                        : c.id === "status"
-                          ? "Статус"
-                          : metricLabels[c.id as MetricKey],
-                    visible: c.getIsVisible(),
-                    canHide: c.id !== "business_date",
-                    width: c.getSize(),
-                  }))}
-                onVisibilityChange={(id, v) =>
-                  table.getColumn(id)?.toggleVisibility(v)
-                }
-                onMoveColumn={(a, b) =>
-                  st.setColumnOrder((order) =>
-                    arrayMove(order, order.indexOf(a), order.indexOf(b)),
-                  )
-                }
-                onReset={st.resetColumns}
-              />
-            ),
-          }}
-          exportAction={
-            can("export")
-              ? {
-                  label: "Экспорт CSV",
-                  onClick: () => void download(),
-                  disabled: !filtered.length,
-                  loading: exporting,
-                }
-              : undefined
-          }
-          primaryActions={
-            can("sync") ? (
-              <span data-tip="Обновить текущую смену из Quick Resto" className="inline-flex">
-                <Button
-                  size="sm"
-                  disabled={
-                    busy || currentRunning || !data.connected || !data.settings
-                  }
-                  onClick={() => void sync([today])}
-                >
-                  {busy || currentRunning ? (
-                    <Loader2 className="size-4 mr-2 animate-spin" />
-                  ) : (
-                    <RefreshCw className="size-4 mr-2" />
-                  )}
-                  Обновить
-                </Button>
-              </span>
+      {refreshFailed && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Не удалось обновить список, показаны прежние данные
+        </p>
+      )}
+
+      {monthLoading && !monthDays.length ? (
+        <p role="status" className="py-12 text-center text-sm text-muted-foreground">
+          Загружаем смены…
+        </p>
+      ) : !data.hasDays ? (
+        <EmptyState
+          icon={CalendarDays}
+          title="Смен пока нет"
+          description="Подключите Quick Resto и настройте расчёт смен в карточке заведения"
+          action={
+            can("configure") ? (
+              <Button asChild>
+                <Link href={"/sales/settings"}>
+                  Настроить расчёт смен
+                </Link>
+              </Button>
             ) : undefined
           }
         />
-      </div>
-      {(filtersOpen || filter !== "all" || range.start || range.end) && (
-        <div className="flex flex-wrap items-center gap-2">
-          <DateRangeFilter
-            value={range}
-            presetLabel={preset}
-            onChange={(r, p) => {
-              setRange(r);
-              setPreset(p);
+      ) : monthIsEmpty ? (
+        <EmptyState
+          icon={CalendarDays}
+          title="За этот месяц смен нет"
+          description="Выберите другой месяц"
+        />
+      ) : !filtered.length ? (
+        <EmptyState
+          icon={SearchX}
+          title="Смены не найдены"
+          description="Измените условия поиска или сбросьте фильтры"
+          action={
+            <Button variant="outline" onClick={resetConditions}>
+              Очистить все
+            </Button>
+          }
+        />
+      ) : (
+        <>
+          <MetricStrip label="Итоги за месяц">
+            <Metric
+              primary
+              label={metricLabels.turnover}
+              value={<Money value={totals.turnover.value} />}
+              hint={
+                metricHint("turnover") ??
+                (isFiltered
+                  ? "С учётом поиска и фильтров"
+                  : `За ${countRu(filtered.length, "смену", "смены", "смен")}`)
+              }
+            />
+            <Metric
+              label="Средний чек гостя"
+              value={<Money value={average.value} />}
+              hint={averageHint}
+            />
+            <Metric
+              label={metricLabels.tips_total}
+              value={<Money value={totals.tips_total.value} />}
+              hint={metricHint("tips_total")}
+            />
+            <Metric
+              label={metricLabels.deposits}
+              value={<Money value={totals.deposits.value} />}
+              hint={metricHint("deposits")}
+            />
+          </MetricStrip>
+          <div
+            aria-busy={monthLoading}
+            className={monthLoading ? "opacity-60 transition-opacity" : undefined}
+          >
+          <DataTable
+            table={table}
+            label="Смены за месяц"
+            labels={labels}
+            onColumnSizingChange={st.setColumnSizing}
+            sorting={st.sorting}
+            onSortingChange={changeSorting}
+            sortable={sortFields}
+            numeric={[...metricKeys, "avg_check"]}
+            onRowClick={(row) => setDrawer({ day: row.original, tab: "values" })}
+            empty={null}
+            totals={Object.fromEntries([
+              [
+                "avg_check",
+                <span key="avg_check" data-tip={averageHint}>
+                  <Money value={average.value} />
+                </span>,
+              ],
+              ...metricKeys.map((k) => [
+                k,
+                <span key={k} data-tip={metricHint(k)}>
+                  {counts.has(k) ? (
+                    formatCount(totals[k].value)
+                  ) : (
+                    <Money value={totals[k].value} />
+                  )}
+                </span>,
+              ]),
+            ])}
+            mobile={{
+              label: "Карточки смен",
+              nameColumn: "business_date",
+              statusColumn: "status",
             }}
           />
-          <TableControlPin
-            label={filterNames[filter]}
-            active={filter !== "all"}
-            onClear={filter !== "all" ? () => setFilter("all") : undefined}
-          >
-            {Object.entries(filterNames).map(([id, label]) => (
-              <button
-                className={cn(
-                  "flex w-full items-center justify-between rounded-md px-3 py-2 text-sm hover:bg-accent",
-                  id === filter && "bg-accent",
-                )}
-                key={id}
-                onClick={() => setFilter(id)}
-              >
-                {label}
-                {id === filter && <Check className="size-4" />}
-              </button>
-            ))}
-          </TableControlPin>
-        </div>
-      )}
-      {filtered.length > 0 ? (
-        <>
-          <div className="grid grid-cols-2 gap-y-4 rounded-lg border px-4 py-4 sm:grid-cols-4 sm:px-5">
-            {(
-              ["turnover", "tips_total", "checks", "deposits"] as MetricKey[]
-            ).map((k) => (
-              <div
-                key={k}
-                className="min-w-0 sm:border-r sm:last:border-0 sm:pl-5 sm:first:pl-0"
-              >
-                <p className="text-xs text-muted-foreground">
-                  {metricLabels[k]}
-                </p>
-                <p
-                  data-tip={
-                    totals[k].partial
-                      ? "Сумма только по сменам с известным значением"
-                      : "По всем отфильтрованным сменам"
-                  }
-                  className="mt-1 text-xl font-semibold tabular-nums tracking-tight"
-                >
-                  {money(totals[k].value)}
-                  {totals[k].value !== null && k !== "checks" && (
-                    <span className="ml-1 text-sm font-normal text-muted-foreground">
-                      ₽
-                    </span>
-                  )}
-                </p>
-                {totals[k].partial && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Данные по {totals[k].known} из {filtered.length} смен
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-          <div className="overflow-hidden rounded-lg border">
-            <div className="max-h-[calc(100dvh-380px)] min-h-[240px] overflow-auto">
-              <table
-                className="w-full table-fixed text-sm"
-                style={{
-                  minWidth: Math.max(
-                    680,
-                    table
-                      .getVisibleLeafColumns()
-                      .reduce((s, c) => s + c.getSize(), 0),
-                  ),
-                }}
-              >
-                <ResizableTableHead
-                  table={table}
-                  isControlColumn={(id) => id === "actions"}
-                  isRightAligned={(id) => metricKeys.includes(id as MetricKey)}
-                  sortableColumnIds={multi.sortableColumnIds}
-                  onSort={multi.cycleSort}
-                  headerIndicator={multi.headerIndicator}
-                  headerAriaSort={multi.headerAriaSort}
-                />
-                <tbody>
-                  {table.getRowModel().rows.map((row) => (
-                    <tr
-                      key={row.id}
-                      className="h-16 border-b last:border-0 hover:bg-muted/40"
-                    >
-                      {row.getVisibleCells().map((cell) => (
-                        <td
-                          key={cell.id}
-                          className={cn(
-                            "overflow-hidden px-3 py-2",
-                            metricKeys.includes(cell.column.id as MetricKey) &&
-                              "text-right",
-                            cell.column.id === "actions" && "text-center",
-                          )}
-                        >
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext(),
-                          )}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot className="sticky bottom-0 border-t bg-muted font-medium">
-                  <tr className="h-12">
-                    {table.getVisibleLeafColumns().map((c) => (
-                      <td
-                        key={c.id}
-                        className={cn(
-                          "px-3 py-3",
-                          metricKeys.includes(c.id as MetricKey) &&
-                            "text-right tabular-nums",
-                        )}
-                      >
-                        {c.id === "business_date" ? (
-                          <span>Итого · {filtered.length}</span>
-                        ) : metricKeys.includes(c.id as MetricKey) ? (
-                          <span
-                            data-tip={
-                              totals[c.id as MetricKey].partial
-                                ? "Не во всех сменах есть данные"
-                                : undefined
-                            }
-                          >
-                            {money(totals[c.id as MetricKey].value)}
-                            {totals[c.id as MetricKey].partial && (
-                              <span className="block text-[10px] font-normal text-muted-foreground">
-                                {totals[c.id as MetricKey].known} из{" "}
-                                {filtered.length} смен
-                              </span>
-                            )}
-                          </span>
-                        ) : null}
-                      </td>
-                    ))}
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
           </div>
           <TablePagination
             pageIndex={st.pagination.pageIndex}
             pageSize={st.pagination.pageSize}
             total={filtered.length}
-            hiddenCount={data.days.length - filtered.length}
+            hiddenCount={monthDays.length - filtered.length}
             onPageChange={(p) =>
               st.setPagination((x) => ({ ...x, pageIndex: p }))
             }
@@ -775,49 +911,14 @@ export function ShiftsClient({
             }
           />
         </>
-      ) : (
-        <EmptyState
-          icon={CalendarDays}
-          title={
-            data.days.length
-              ? "Нет смен за выбранный период"
-              : "Начните с истории смен"
-          }
-          description={
-            data.days.length
-              ? "Выберите другой период или сбросьте фильтры."
-              : "Подключите Quick Resto и настройте расчёт смен в карточке заведения."
-          }
-          action={
-            data.days.length ? (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setRange({ start: null, end: null });
-                  setPreset("Все время");
-                  setFilter("all");
-                  st.setSearch("");
-                }}
-              >
-                Показать все смены
-              </Button>
-            ) : can("configure") ? (
-              <Button variant="outline" asChild>
-                <Link href={`/org/venues/${data.venueId}`}>
-                  Настройки заведения
-                </Link>
-              </Button>
-            ) : undefined
-          }
-        />
       )}
       {drawer && (
         <DayDrawer
           key={drawer.day.id}
           day={drawer.day}
           tab={drawer.tab}
+          timezone={data.timezone}
           canAdjust={can("adjust")}
-          open
           onClose={() => setDrawer(null)}
           onSaved={(d) => {
             setData((x) => ({

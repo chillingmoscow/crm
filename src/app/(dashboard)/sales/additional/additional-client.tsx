@@ -1,47 +1,51 @@
 "use client";
 import Link from "next/link";
-import { DayTeamPanel } from "../_components/day-team";
-import { DayDiscussionPanel } from "../_components/day-discussion";
 import { useEffect, useMemo, useState } from "react";
 import {
-  flexRender,
   getCoreRowModel,
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
+  type SortingState,
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
-  RefreshCw,
-  Settings2,
+  Archive,
   ChartNoAxesCombined,
+  RefreshCw,
+  SearchX,
+  Settings2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import {
+  DrawerAvatar,
   DrawerSection,
+  DrawerStatus,
   DrawerSummary,
   DrawerSummaryTotal,
+  DrawerTimeline,
+  DrawerTimelineItem,
 } from "@/components/ui/drawer-blocks";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { PageFrame } from "@/components/shared/page-frame";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { Metric, MetricStrip } from "@/components/shared/metric-strip";
+import { Money, formatRub } from "@/components/shared/money";
 import { MonthPicker } from "@/components/shared/month-picker";
+import { PageFrame } from "@/components/shared/page-frame";
+import { PeriodStepper } from "@/components/shared/period-stepper";
 import { SalesTrend, type TrendSeries } from "@/components/shared/sales-trend";
+import tabStyle from "@/components/shared/workspace-tabs.module.css";
 import {
-  ResizableTableHead,
+  DataTable,
   TableColumnManager,
+  TableConditions,
   TableControls,
+  TableIconButton,
   TablePageHeader,
-  useMultiSort,
+  TableSortPicker,
   useTableState,
 } from "@/components/shared/table";
 import {
@@ -56,10 +60,14 @@ import {
   defaultAdditionalRules,
   type AdditionalKind,
 } from "@/lib/sales/additional";
-import { dayLabel, money } from "@/lib/sales/format";
-import { addDays } from "@/lib/sales/time";
+import { dayLabel, formatQuantity, weekdayLabel } from "@/lib/sales/format";
+import { addDays, businessDate } from "@/lib/sales/time";
 import { csvCell } from "@/lib/sales/csv";
-import { cn } from "@/lib/utils";
+import { salesErrorText } from "@/lib/sales/errors";
+import { formatDateCell, formatDayMonth, formatDayMonthTime } from "@/lib/format/date";
+import { countRu } from "@/lib/format/plural";
+import { DayTeamPanel } from "../_components/day-team";
+import { DayDiscussionPanel } from "../_components/day-discussion";
 import {
   loadAdditional,
   requestAdditional,
@@ -68,7 +76,8 @@ import {
   type AdditionalData,
 } from "./actions";
 import { AdditionalRulesEditor } from "./additional-rules";
-const labels: Record<string, string> = {
+
+const baseLabels: Record<string, string> = {
   date: "Дата",
   turnover: "Оборот заведения",
   revenue: "Выручка",
@@ -76,29 +85,29 @@ const labels: Record<string, string> = {
   bonus: "Общая прибавка",
   points: "Баллы",
 };
+const kindLabels: Record<AdditionalKind, string> = {
+  bar: "Бар",
+  masters: "Кальяны",
+};
 const stateLabels = {
   ready: "Обновлено",
   pending: "Ожидает обновления",
   running: "Обновляется",
   error: "Не обновлено",
 };
-const dateTime = (value: string, timezone: string) =>
-  new Date(value).toLocaleString("ru-RU", {
-    timeZone: timezone,
-    dateStyle: "short",
-    timeStyle: "short",
-  });
-const unit = (key: string) =>
-  ["turnover", "revenue", "primeCost", "bonus"].includes(key) ? "₽" : "";
-const quantityFormat = new Intl.NumberFormat("ru-RU", {
-  maximumFractionDigits: 8,
-});
-const display = (value: number | null, key: string) =>
-  value === null
-    ? "—"
-    : unit(key)
-      ? money(value)
-      : quantityFormat.format(value);
+const moneyKeys = new Set(["turnover", "revenue", "primeCost", "bonus"]);
+const MIN_MONTH = "2000-01";
+
+function shiftMonth(month: string, delta: number): string {
+  const [y, m] = month.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1 + delta, 1)).toISOString().slice(0, 7);
+}
+
+/** Значение столбца: деньги — `Money`, количество и баллы — числом. */
+function Value({ id, value }: { id: string; value: number | null }) {
+  return moneyKeys.has(id) ? <Money value={value} /> : <>{formatQuantity(value)}</>;
+}
+
 function Detail({
   row,
   data,
@@ -122,48 +131,67 @@ function Detail({
       active = false;
     };
   }, [data.venueId, row.id, row.native]);
+  const weekday = weekdayLabel(row.date);
+  const state = row.native?.state;
+  const stateTone =
+    state === "error" ? "danger" : state === "ready" ? "success" : "info";
   return (
     <EditDrawer
       open
       onOpenChange={(v) => !v && onClose()}
-      title={dayLabel(row.date)}
-      description={`${row.kind === "bar" ? "Бар" : "Кальяны"} · ${row.archive ? "Архив Glide" : "Sheerly"}`}
+      title={`${kindLabels[row.kind]} · ${formatDayMonth(row.date) ?? ""}`}
+      titleAccessory={
+        row.archive ? (
+          <DrawerStatus label="Архив Glide" tone="neutral" />
+        ) : state && state !== "ready" ? (
+          <DrawerStatus label={stateLabels[state]} tone={stateTone} />
+        ) : undefined
+      }
+      description={`${weekday.charAt(0).toUpperCase()}${weekday.slice(1)}${
+        row.native?.synced_at
+          ? ` · обновлено ${formatDayMonthTime(row.native.synced_at, new Date(), data.timezone)}`
+          : ""
+      }`}
       footer={
         <Button variant="outline" asChild>
           <Link
-            href={`/sales/shifts?from=${row.date}&to=${row.date}&day=${row.date}&tab=values${row.archive ? "&source=archive" : ""}`}
+            href={`/sales/shifts?day=${row.date}&tab=values${row.archive ? "&source=archive" : ""}`}
           >
-            Общая смена
+            Открыть смену
           </Link>
         </Button>
       }
     >
       <DrawerSummary label="Прибавка за день">
-        <DrawerSummaryTotal label="Общая прибавка за день">
-          {money(row.metrics?.bonus ?? null)} {row.metrics && "₽"}
+        <DrawerSummaryTotal
+          label="Общая прибавка за день"
+          hint={
+            row.archive
+              ? "Сумма из архива, без пересчёта"
+              : "Делится между сотрудниками смены"
+          }
+        >
+          <Money value={row.metrics?.bonus ?? null} />
         </DrawerSummaryTotal>
       </DrawerSummary>
-      <Tabs defaultValue="details">
-        <TabsList className="w-full justify-start overflow-x-auto">
-          <TabsTrigger value="details" className="px-2 text-[13px]">
-            Детали
-          </TabsTrigger>
-          <TabsTrigger value="team" className="px-2 text-[13px]">
-            Команда
-          </TabsTrigger>
-          <TabsTrigger value="comments" className="px-2 text-[13px]">
-            Комментарии
-          </TabsTrigger>
-          <TabsTrigger value="history" className="px-2 text-[13px]">
-            История
-          </TabsTrigger>
+      <Tabs defaultValue="details" className={tabStyle.tabs}>
+        <TabsList aria-label="Разделы дня">
+          <TabsTrigger value="details">Продажи</TabsTrigger>
+          <TabsTrigger value="team">Команда</TabsTrigger>
+          <TabsTrigger value="comments">Комментарии</TabsTrigger>
+          <TabsTrigger value="history">История</TabsTrigger>
         </TabsList>
-        <TabsContent value="details" className="mt-4 space-y-5">
+        <TabsContent value="details" className="space-y-9">
           {row.native && row.native.state !== "ready" && (
-            <p className="rounded-lg bg-muted p-3 text-sm">
+            <p
+              role={row.native.state === "error" ? "alert" : "status"}
+              className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm"
+            >
               {stateLabels[row.native.state]}
-              {row.native.last_error ? `. ${row.native.last_error}` : ""}
-              {row.metrics && " Показаны последние сохранённые данные."}
+              {row.native.last_error
+                ? `. ${salesErrorText(row.native.last_error)}`
+                : ""}
+              {row.metrics ? ". Показаны последние сохранённые данные" : ""}
             </p>
           )}
           <dl className="divide-y">
@@ -173,14 +201,10 @@ function Detail({
               "primeCost",
               ...(row.kind === "masters" ? ["points"] : []),
             ].map((key) => (
-              <div
-                key={key}
-                className="flex justify-between gap-3 py-3 text-sm"
-              >
-                <dt className="text-muted-foreground">{labels[key]}</dt>
-                <dd className="tabular-nums">
-                  {display(additionalValue(row, key), key)}{" "}
-                  {additionalValue(row, key) !== null && unit(key)}
+              <div key={key} className="flex justify-between gap-3 py-2.5 text-sm">
+                <dt className="text-muted-foreground">{baseLabels[key]}</dt>
+                <dd>
+                  <Value id={key} value={additionalValue(row, key)} />
                 </dd>
               </div>
             ))}
@@ -188,35 +212,42 @@ function Detail({
           <DrawerSection title="Продажи по категориям">
             <dl className="divide-y">
               {row.rules[row.kind].map((g) => (
-                <div
-                  key={g.id}
-                  className="flex justify-between gap-4 py-3 text-sm"
-                >
-                  <dt>
-                    <span>{g.label}</span>
+                <div key={g.id} className="flex justify-between gap-4 py-2.5 text-sm">
+                  <dt className="min-w-0">
+                    <span className="break-words">{g.label}</span>
                     {row.native && (
-                      <span className="mt-1 block text-xs text-muted-foreground">
-                        {money(g.rate)}{" "}
-                        {row.kind === "bar" ? "₽ за продажу" : "б. за продажу"}
+                      <span className="block text-xs text-muted-foreground">
+                        {row.kind === "bar"
+                          ? `${formatRub(g.rate, { fraction: "auto" })} за продажу`
+                          : `${formatQuantity(g.rate)} б. за продажу`}
                       </span>
                     )}
                   </dt>
                   <dd className="tabular-nums">
-                    {display(row.metrics?.quantities[g.id] ?? null, g.id)}
+                    {formatQuantity(row.metrics?.quantities[g.id] ?? null)}
                   </dd>
                 </div>
               ))}
             </dl>
           </DrawerSection>
           {row.kind === "masters" && row.native && (
-            <div className="rounded-lg bg-muted/50 p-3 text-sm">
-              {row.rules.tiers
-                .map((t) => `От ${money(t.from)} б. — ${money(t.rate)} ₽/б.`)
-                .join(" · ")}
-            </div>
+            <DrawerSection title="Шкала прибавки">
+              <ul className="space-y-1 text-sm">
+                {row.rules.tiers.map((t, i) => (
+                  <li key={i} className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">
+                      От {formatQuantity(t.from)} б.
+                    </span>
+                    <span className="tabular-nums">
+                      {formatRub(t.rate, { fraction: "auto" })} за балл
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </DrawerSection>
           )}
         </TabsContent>
-        <TabsContent value="team" className="mt-4">
+        <TabsContent value="team">
           <DayTeamPanel
             venueId={data.venueId}
             date={row.date}
@@ -225,16 +256,15 @@ function Detail({
             kind={row.kind}
           />
         </TabsContent>
-        <TabsContent value="comments" className="mt-4">
+        <TabsContent value="comments">
           <DayDiscussionPanel venueId={data.venueId} date={row.date} />
         </TabsContent>
-        <TabsContent value="history" className="mt-4 space-y-4">
+        <TabsContent value="history">
           {row.archive ? (
-            <>
-              <p className="text-sm">
-                Снимок Glide ·{" "}
-                {dateTime(row.archive.captured_at, data.timezone)}
-              </p>
+            <DrawerSection
+              title="Перенесено из Glide"
+              description={`Снимок ${formatDayMonthTime(row.archive.captured_at, new Date(), data.timezone)}. Суммы сохранены без пересчёта`}
+            >
               {row.archive.origin.ranges.map((range) => (
                 <a
                   key={range}
@@ -243,50 +273,45 @@ function Detail({
                   className="block text-sm text-brand hover:underline"
                   href={`https://docs.google.com/spreadsheets/d/${encodeURIComponent(row.archive!.origin.spreadsheet_id)}/edit#range=${encodeURIComponent(range)}`}
                 >
-                  {range}
+                  Строка архива {range}
                 </a>
               ))}
-            </>
+            </DrawerSection>
           ) : error ? (
             <p role="alert" className="text-sm text-destructive">
-              Не удалось загрузить историю. Закройте карточку и откройте ещё
-              раз.
+              Не удалось загрузить историю. Закройте день и откройте ещё раз
             </p>
           ) : history === null ? (
             <p className="text-sm text-muted-foreground" role="status">
               Загружаем историю…
             </p>
           ) : history.length ? (
-            <ol className="divide-y">
-              {history.map((h) => (
-                <li key={h.id} className="py-3 text-sm">
-                  <p className="font-medium">Обновлено автоматически</p>
-                  <p className="mt-1 text-muted-foreground">
-                    {dateTime(h.created_at, data.timezone)}
+            <DrawerTimeline>
+              {history.map((h, i) => (
+                <DrawerTimelineItem
+                  key={h.id}
+                  last={i === history.length - 1}
+                  avatar={<DrawerAvatar name="Quick Resto" />}
+                  title="Отчёт Quick Resto получен"
+                  meta={formatDayMonthTime(h.created_at, new Date(), data.timezone) ?? undefined}
+                >
+                  <p className="text-muted-foreground">
+                    Общая прибавка: {formatRub(h.metrics?.bonus ?? null)}
                   </p>
-                  <p className="mt-1 tabular-nums">
-                    Общая прибавка · {money(h.metrics?.bonus ?? null)} ₽
-                  </p>
-                </li>
+                </DrawerTimelineItem>
               ))}
-            </ol>
+            </DrawerTimeline>
           ) : (
             <p className="text-sm text-muted-foreground">
-              Отчёт запрошен и ожидает получения данных.
+              Отчёт запрошен и ждёт данных из Quick Resto
             </p>
           )}
         </TabsContent>
       </Tabs>
-      <p className="text-xs text-muted-foreground">
-        {row.archive
-          ? "Архивные суммы сохранены без пересчёта."
-          : row.native?.synced_at
-            ? `Обновлено ${dateTime(row.native.synced_at, data.timezone)} · рабочий день с ${data.hour}:00`
-            : "Завершённый рабочий день"}
-      </p>
     </EditDrawer>
   );
 }
+
 export function AdditionalClient({ initial }: { initial: AdditionalData }) {
   const [data, setData] = useState(initial),
     [kind, setKind] = useState<AdditionalKind>("bar"),
@@ -297,20 +322,21 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
           ? "archive"
           : "native",
     );
-  const [month, setMonth] = useState(
-    (
-      [
-        ...initial.reports.map((r) => r.business_date),
-        ...initial.archives.map((r) => r.business_date),
-      ]
-        .sort()
-        .at(-1) ?? initial.nextFrom
-    ).slice(0, 7) + "-01",
-  );
+  const latestMonth = (
+    [
+      ...initial.reports.map((r) => r.business_date),
+      ...initial.archives.map((r) => r.business_date),
+    ]
+      .sort()
+      .at(-1) ?? initial.nextFrom
+  ).slice(0, 7);
+  const currentMonth = businessDate(new Date(), initial.timezone, initial.hour).slice(0, 7);
+  const [month, setMonth] = useState(latestMonth);
   const [busy, setBusy] = useState(false),
     [exporting, setExporting] = useState(false),
     [rulesOpen, setRulesOpen] = useState(false),
     [detail, setDetail] = useState<AdditionalRow | null>(null);
+  const can = (p: string) => data.permissions.includes(`sales.${p}_shifts`);
   const allRows = useMemo(
     () => additionalRows(data.reports, data.archives, source, kind, data),
     [data, source, kind],
@@ -321,9 +347,9 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
       for (const g of r.rules[kind]) map.set(g.id, g);
     return [...map.values()];
   }, [allRows, kind]);
-  const names = useMemo(
+  const labels = useMemo(
     () => ({
-      ...labels,
+      ...baseLabels,
       ...Object.fromEntries(groups.map((g) => [g.id, g.label])),
     }),
     [groups],
@@ -340,72 +366,71 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
         ...groups.map((g) => g.id),
       ].map((id) => ({
         id,
-        defaultSize: id === "date" ? 190 : 165,
-        defaultVisible: [
-          "date",
-          "bonus",
-          "revenue",
-          "primeCost",
-          "points",
-        ].includes(id),
+        defaultSize: id === "date" ? 170 : 160,
+        defaultVisible: ["date", "bonus", "revenue", "primeCost", "points"].includes(id),
       })),
     [groups, kind],
   );
   const st = useTableState({
-    tableId: `sales-additional.v1.${data.venueId}.${kind}`,
+    tableId: `sales-additional.v2.${data.venueId}.${kind}`,
     columns: cols,
   });
+  const query = st.search.toLowerCase().trim();
+  const monthRows = useMemo(
+    () => allRows.filter((r) => r.date.startsWith(month)),
+    [allRows, month],
+  );
   const rows = useMemo(
     () =>
-      allRows.filter(
+      monthRows.filter(
         (r) =>
-          r.date.startsWith(month.slice(0, 7)) &&
-          dayLabel(r.date)
+          !query ||
+          `${formatDateCell(r.date)} ${dayLabel(r.date)} ${weekdayLabel(r.date)}`
             .toLowerCase()
-            .includes(st.search.toLowerCase().trim()),
+            .includes(query),
       ),
-    [allRows, month, st.search],
+    [monthRows, query],
   );
-  const expectedDays = st.search.trim()
+  const expectedDays = query
     ? rows.length
     : additionalCoverage(
-        month,
+        `${month}-01`,
         addDays(data.nextFrom, -2),
         source === "native" ? data.rules.at(-1)?.valid_from : undefined,
       );
+  const valueIds = cols.map((c) => c.id).filter((id) => id !== "date");
   const columns = useMemo<ColumnDef<AdditionalRow>[]>(
     () =>
       cols.map(({ id, defaultSize }) => ({
         id,
-        header: names[id],
+        header: labels[id],
         size: defaultSize,
+        minSize: id === "date" ? 130 : Math.max(100, labels[id].length * 8 + 32),
+        enableHiding: id !== "date",
         accessorFn: (r) =>
           id === "date" ? r.date : (additionalValue(r, id) ?? undefined),
         sortUndefined: "last",
         cell: ({ row }) =>
           id === "date" ? (
-            <button
-              className="flex flex-col gap-1 text-left hover:text-brand"
-              type="button"
-              onClick={() => setDetail(row.original)}
-            >
-              <span className="font-medium">{dayLabel(row.original.date)}</span>
-              {row.original.native && row.original.native.state !== "ready" && (
-                <span className="text-xs text-muted-foreground">
-                  {stateLabels[row.original.native.state]}
-                </span>
-              )}
-            </button>
+            <div className="min-w-0">
+              <button
+                className="block text-left font-medium tabular-nums hover:underline"
+                type="button"
+                onClick={() => setDetail(row.original)}
+              >
+                {formatDateCell(row.original.date)}
+              </button>
+              <span className="block truncate text-xs text-muted-foreground first-letter:uppercase">
+                {row.original.native && row.original.native.state !== "ready"
+                  ? stateLabels[row.original.native.state]
+                  : weekdayLabel(row.original.date)}
+              </span>
+            </div>
           ) : (
-            <span className="tabular-nums">
-              {display(additionalValue(row.original, id), id)}
-              {additionalValue(row.original, id) !== null && (
-                <span className="ml-1 text-muted-foreground">{unit(id)}</span>
-              )}
-            </span>
+            <Value id={id} value={additionalValue(row.original, id)} />
           ),
       })),
-    [cols, names],
+    [cols, labels],
   );
   const table = useReactTable({
     data: rows,
@@ -425,30 +450,22 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
     getSortedRowModel: getSortedRowModel(),
     columnResizeMode: "onChange",
   });
-  type Sort = `${string}:${"asc" | "desc"}`;
-  const multi = useMultiSort({
-    sorts: st.sorting.map((s) => `${s.id}:${s.desc ? "desc" : "asc"}` as Sort),
-    onChange: (v) =>
-      st.setSorting(
-        v.map((s) => ({ id: s.split(":")[0], desc: s.endsWith(":desc") })),
-      ),
-    columnToField: Object.fromEntries(cols.map((c) => [c.id, c.id])),
-    codec: {
-      toField: (s) => s.split(":")[0],
-      toDirection: (s) => (s.endsWith(":desc") ? "desc" : "asc"),
-      combine: (f, d) => `${f}:${d}` as Sort,
-    },
-  });
+  const changeSorting = (next: SortingState) => st.setSorting(next);
+  const resetConditions = () => {
+    st.setSearch("");
+    st.setSorting([]);
+  };
+
   async function refresh() {
     setBusy(true);
     try {
-      await requestAdditional(month.slice(0, 7), data.venueId);
+      await requestAdditional(month, data.venueId);
       setData(await loadAdditional(data.venueId));
       setSource("native");
-      toast.success("Отчёты запрошены. Они появятся автоматически.");
+      toast.success("Отчёты запрошены, они появятся автоматически");
     } catch (e) {
       toast.error(
-        e instanceof Error ? e.message : "Не удалось запросить отчёты",
+        salesErrorText(e instanceof Error ? e.message : null, "Не удалось запросить отчёты"),
       );
     } finally {
       setBusy(false);
@@ -457,7 +474,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
   const pending =
     data.configured &&
     source === "native" &&
-    additionalNeedsRefresh(data.reports, month);
+    additionalNeedsRefresh(data.reports, `${month}-01`);
   useEffect(() => {
     if (!pending) return;
     let active = true;
@@ -486,22 +503,22 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
         snapshot,
       );
       const byDate = new Map(fresh.map((r) => [r.date, r]));
-      const columns = table.getVisibleLeafColumns();
+      const visible = table.getVisibleLeafColumns();
       const lines: unknown[][] = [
         [
-          ...columns.map((c) => names[c.id]),
+          ...visible.map((c) => labels[c.id]),
           "Источник",
           "Обновлено",
           "Состояние",
           "Строки источника",
         ],
       ];
-      for (const old of table.getRowModel().rows) {
+      for (const old of table.getSortedRowModel().rows) {
         const r = byDate.get(old.original.date);
         if (!r) throw new Error("Данные изменились. Обновите страницу");
         lines.push([
-          ...columns.map((c) =>
-            c.id === "date" ? r.date : additionalValue(r, c.id),
+          ...visible.map((c) =>
+            c.id === "date" ? formatDateCell(r.date) : additionalValue(r, c.id),
           ),
           r.archive ? "Архив Glide" : "Sheerly",
           r.archive?.captured_at ?? r.native?.synced_at ?? null,
@@ -511,13 +528,13 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
       }
       const url = URL.createObjectURL(
         new Blob(
-          ["\uFEFF" + lines.map((r) => r.map(csvCell).join(";")).join("\r\n")],
+          ["﻿" + lines.map((r) => r.map(csvCell).join(";")).join("\r\n")],
           { type: "text/csv;charset=utf-8;" },
         ),
       );
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Допродажи-${kind}-${source}-${month.slice(0, 7)}.csv`;
+      a.download = `Допродажи-${kindLabels[kind]}-${source === "archive" ? "архив-Glide-" : ""}${month}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -528,6 +545,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
       setExporting(false);
     }
   }
+
   const months = [...new Set(allRows.map((r) => r.date.slice(0, 7)))].sort();
   const series: Record<string, TrendSeries> = Object.fromEntries(
     groups.map((g) => [
@@ -555,12 +573,14 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
     series.points = {
       label: "Баллы за месяц",
       unit: "б.",
-      title: "Суммарные баллы по месяцам",
-      points: months.map((m) => {
-        const monthRows = allRows.filter((r) => r.date.startsWith(m));
-        const sum = additionalTotal(monthRows, "points");
-        return { month: m, value: sum.value };
-      }),
+      title: "Баллы по месяцам",
+      points: months.map((m) => ({
+        month: m,
+        value: additionalTotal(
+          allRows.filter((r) => r.date.startsWith(m)),
+          "points",
+        ).value,
+      })),
     };
   const chartSeries =
     kind === "masters"
@@ -572,19 +592,269 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
         }
       : series;
   const nativeStart = data.rules.at(-1)?.valid_from;
+  const workedDays = rows.filter((r) => r.metrics).length;
+  const stripKeys = ["bonus", "revenue", "primeCost"];
+  const hintFor = (key: string) => {
+    const sum = additionalTotal(rows, key);
+    return sum.value === null
+      ? "Нет данных"
+      : sum.known < expectedDays
+        ? `По ${sum.known} из ${countRu(expectedDays, "дня", "дней", "дней")}`
+        : undefined;
+  };
+
+  const body = (
+    <div className="flex min-w-0 flex-col gap-4">
+      {source === "archive" ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          Допродажи из архива Glide, без пересчёта
+        </p>
+      ) : (
+        nativeStart &&
+        nativeStart.slice(0, 7) === month &&
+        nativeStart.slice(8) !== "01" && (
+          <p className="text-sm text-muted-foreground">
+            Расчёт Sheerly ведётся с {formatDayMonth(nativeStart)}. Более
+            ранние дни есть в архиве Glide
+          </p>
+        )
+      )}
+      {!monthRows.length ? (
+        <EmptyState
+          icon={ChartNoAxesCombined}
+          title="За этот месяц данных нет"
+          description={
+            source === "archive"
+              ? "Выберите другой месяц или вернитесь к расчёту Sheerly"
+              : data.configured
+                ? "Запросите отчёты завершённых рабочих дней кнопкой «Обновить отчёты»"
+                : "Источники допродаж пока не подключены"
+          }
+        />
+      ) : !rows.length ? (
+        <EmptyState
+          icon={SearchX}
+          title="Дни не найдены"
+          description="Измените условия поиска"
+          action={
+            <Button variant="outline" onClick={resetConditions}>
+              Очистить все
+            </Button>
+          }
+        />
+      ) : (
+        <>
+          <MetricStrip label="Итоги допродаж за месяц">
+            {stripKeys.map((key, i) => (
+              <Metric
+                key={key}
+                primary={i === 0}
+                label={labels[key]}
+                value={<Money value={additionalTotal(rows, key).value} />}
+                hint={hintFor(key)}
+              />
+            ))}
+            {kind === "masters" ? (
+              <Metric
+                label={labels.points}
+                value={formatQuantity(additionalTotal(rows, "points").value)}
+                hint={hintFor("points")}
+              />
+            ) : (
+              <Metric
+                label="Рабочих дней"
+                value={workedDays}
+                hint={
+                  workedDays < expectedDays
+                    ? `Данные по ${workedDays} из ${countRu(expectedDays, "дня", "дней", "дней")}`
+                    : undefined
+                }
+              />
+            )}
+          </MetricStrip>
+          <DataTable
+            table={table}
+            label={`Допродажи: ${kindLabels[kind]}`}
+            labels={labels}
+            onColumnSizingChange={st.setColumnSizing}
+            sorting={st.sorting}
+            onSortingChange={changeSorting}
+            sortable={cols.map((c) => c.id)}
+            numeric={valueIds}
+            onRowClick={(row) => setDetail(row.original)}
+            empty={null}
+            totals={Object.fromEntries(
+              valueIds.map((id) => [
+                id,
+                <span key={id} data-tip={hintFor(id)}>
+                  <Value id={id} value={additionalTotal(rows, id).value} />
+                </span>,
+              ]),
+            )}
+            mobile={{ label: "Карточки дней", nameColumn: "date" }}
+          />
+        </>
+      )}
+      {allRows.length > 0 && (
+        <SalesTrend
+          key={`${source}-${kind}`}
+          series={chartSeries}
+          title="Среднее количество в день с данными"
+        />
+      )}
+    </div>
+  );
+
   return (
-    <PageFrame className="space-y-6">
+    <PageFrame className="flex min-w-0 flex-col gap-4">
+      <Breadcrumbs items={[{ label: "Продажи" }, { label: "Допродажи" }]} />
       <TablePageHeader
         title="Допродажи"
-        actions={
-          data.configured &&
-          data.permissions.includes("sales.configure_shifts") ? (
-            <Button variant="outline" onClick={() => setRulesOpen(true)}>
-              <Settings2 className="mr-2 size-4" />
-              Правила расчёта
-            </Button>
-          ) : undefined
+        count={query ? `${rows.length} из ${monthRows.length}` : monthRows.length}
+        period={
+          <>
+            <PeriodStepper
+              previous="Предыдущий месяц"
+              next="Следующий месяц"
+              previousDisabled={month <= MIN_MONTH}
+              onPrevious={() => setMonth((m) => shiftMonth(m, -1))}
+              onNext={() => setMonth((m) => shiftMonth(m, 1))}
+            >
+              <MonthPicker
+                variant="period"
+                prefix=""
+                ariaLabel="Месяц допродаж"
+                value={`${month}-01`}
+                min={`${MIN_MONTH}-01`}
+                onChange={(v) => setMonth(v.slice(0, 7))}
+              />
+            </PeriodStepper>
+            {month !== currentMonth ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-9"
+                onClick={() => setMonth(currentMonth)}
+              >
+                Сегодня
+              </Button>
+            ) : null}
+          </>
         }
+        actions={
+          <TableControls
+            search={{
+              value: st.search,
+              onChange: st.setSearch,
+              open: st.searchOpen,
+              onOpenChange: st.setSearchOpen,
+              placeholder: "Дата или день недели",
+            }}
+            sort={{
+              active: st.sorting.length > 0,
+              content: (
+                <TableSortPicker
+                  sorting={st.sorting}
+                  onChange={changeSorting}
+                  fields={cols.map((c) => c.id)}
+                  labels={labels}
+                />
+              ),
+            }}
+            columns={{
+              content: (
+                <TableColumnManager
+                  columns={st.columnOrder.map((id) => {
+                    const c = table.getColumn(id)!;
+                    return {
+                      id,
+                      label: labels[id],
+                      visible: c.getIsVisible(),
+                      canHide: c.getCanHide(),
+                    };
+                  })}
+                  onVisibilityChange={(id, v) =>
+                    table.getColumn(id)?.toggleVisibility(v)
+                  }
+                  onMoveColumn={(a, b) =>
+                    st.setColumnOrder((order) =>
+                      arrayMove(order, order.indexOf(a), order.indexOf(b)),
+                    )
+                  }
+                  onReset={st.resetColumns}
+                />
+              ),
+            }}
+            secondaryActions={
+              <>
+                {data.archives.length > 0 && (
+                  <TableIconButton
+                    label={
+                      source === "archive"
+                        ? "Вернуться к расчёту Sheerly"
+                        : "Архив Glide"
+                    }
+                    active={source === "archive"}
+                    pressed={source === "archive"}
+                    onClick={() => {
+                      setSource(source === "archive" ? "native" : "archive");
+                      setDetail(null);
+                    }}
+                  >
+                    <Archive />
+                  </TableIconButton>
+                )}
+                {data.configured && can("configure") && (
+                  <TableIconButton
+                    label="Правила расчёта"
+                    onClick={() => setRulesOpen(true)}
+                  >
+                    <Settings2 />
+                  </TableIconButton>
+                )}
+              </>
+            }
+            exportAction={
+              can("export")
+                ? {
+                    label: "Экспорт CSV",
+                    onClick: () => void download(),
+                    disabled: !rows.length,
+                    loading: exporting,
+                  }
+                : undefined
+            }
+            primaryActions={
+              data.configured && can("sync") && source === "native" ? (
+                <Button
+                  size="sm"
+                  className="h-9 gap-2"
+                  disabled={busy}
+                  onClick={() => void refresh()}
+                >
+                  <RefreshCw
+                    className={
+                      busy ? "size-4 animate-spin motion-reduce:animate-none" : "size-4"
+                    }
+                  />
+                  {busy ? "Запрашиваем…" : "Обновить отчёты"}
+                </Button>
+              ) : undefined
+            }
+          />
+        }
+      />
+      <TableConditions
+        label="Условия списка допродаж"
+        open={false}
+        hasFilters={false}
+        sorting={st.sorting}
+        onSortingChange={changeSorting}
+        sortFields={cols.map((c) => c.id)}
+        sortLabels={labels}
+        search={st.search}
+        onSearchClear={() => st.setSearch("")}
+        onReset={resetConditions}
       />
       <Tabs
         value={kind}
@@ -592,244 +862,13 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
           setKind(v as AdditionalKind);
           setDetail(null);
         }}
+        className={tabStyle.tabs}
       >
-        <TabsList>
-          <TabsTrigger value="bar">Бар</TabsTrigger>
-          <TabsTrigger value="masters">Кальяны</TabsTrigger>
+        <TabsList aria-label="Вид допродаж">
+          <TabsTrigger value="bar">{kindLabels.bar}</TabsTrigger>
+          <TabsTrigger value="masters">{kindLabels.masters}</TabsTrigger>
         </TabsList>
-        <TabsContent value={kind} className="mt-6 space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap gap-2">
-              <div className="w-48">
-                <MonthPicker
-                  value={month}
-                  min="2000-01-01"
-                  onChange={setMonth}
-                  variant="field"
-                  prefix=""
-                  ariaLabel="Месяц допродаж"
-                />
-              </div>
-              <Select
-                value={source}
-                onValueChange={(v) => {
-                  setSource(v as typeof source);
-                  setDetail(null);
-                }}
-              >
-                <SelectTrigger className="w-40" aria-label="Источник допродаж">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="native">Sheerly</SelectItem>
-                  <SelectItem value="archive">Архив Glide</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <TableControls
-              search={{
-                value: st.search,
-                onChange: st.setSearch,
-                open: st.searchOpen,
-                onOpenChange: st.setSearchOpen,
-                placeholder: "Дата",
-              }}
-              sort={{
-                active: st.sorting.length > 0,
-                content: (
-                  <div className="space-y-1 p-2">
-                    {cols.map((c) => (
-                      <button
-                        type="button"
-                        key={c.id}
-                        className="flex w-full items-center justify-between gap-4 rounded-md px-2 py-2 text-sm hover:bg-muted"
-                        onClick={() => multi.cycleSort(c.id)}
-                      >
-                        {names[c.id]}
-                        {multi.headerIndicator(c.id)}
-                      </button>
-                    ))}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full"
-                      onClick={() => st.setSorting([])}
-                    >
-                      Сбросить сортировку
-                    </Button>
-                  </div>
-                ),
-              }}
-              columns={{
-                content: (
-                  <TableColumnManager
-                    columns={table.getAllLeafColumns().map((c) => ({
-                      id: c.id,
-                      label: names[c.id],
-                      visible: c.getIsVisible(),
-                      canHide: c.id !== "date",
-                      width: c.getSize(),
-                    }))}
-                    onVisibilityChange={(id, v) =>
-                      table.getColumn(id)?.toggleVisibility(v)
-                    }
-                    onMoveColumn={(a, b) =>
-                      st.setColumnOrder((order) =>
-                        arrayMove(order, order.indexOf(a), order.indexOf(b)),
-                      )
-                    }
-                    onReset={st.resetColumns}
-                  />
-                ),
-              }}
-              exportAction={
-                data.permissions.includes("sales.export_shifts")
-                  ? {
-                      label: "Экспорт CSV",
-                      onClick: () => void download(),
-                      disabled: !rows.length,
-                      loading: exporting,
-                    }
-                  : undefined
-              }
-              secondaryActions={
-                data.configured &&
-                data.permissions.includes("sales.sync_shifts") ? (
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    disabled={busy}
-                    aria-label="Обновить допродажи Quick Resto"
-                    onClick={() => void refresh()}
-                  >
-                    <RefreshCw
-                      className={cn(
-                        "size-4",
-                        busy && "animate-spin motion-reduce:animate-none",
-                      )}
-                    />
-                  </Button>
-                ) : undefined
-              }
-            />
-          </div>
-          {rows.length ? (
-            <>
-              {source === "native" &&
-                nativeStart &&
-                nativeStart.slice(0, 7) === month.slice(0, 7) &&
-                nativeStart > month && (
-                  <p className="text-xs text-muted-foreground">
-                    Расчёт Sheerly — с {dayLabel(nativeStart)}. Более ранние дни
-                    доступны в архиве Glide.
-                  </p>
-                )}
-              <section
-                className="grid grid-cols-2 gap-y-5 rounded-lg border py-5 sm:grid-cols-4"
-                aria-label="Итоги допродаж"
-              >
-                {[
-                  "revenue",
-                  "primeCost",
-                  "bonus",
-                  kind === "masters" ? "points" : "days",
-                ].map((key) => {
-                  const sum = additionalTotal(rows, key);
-                  return (
-                    <div
-                      key={key}
-                      className="min-w-0 px-4 sm:border-r sm:px-5 sm:last:border-0"
-                    >
-                      <p className="text-sm text-muted-foreground">
-                        {key === "days" ? "Рабочих дней" : names[key]}
-                      </p>
-                      <p className="mt-2 text-xl font-semibold tabular-nums sm:text-2xl">
-                        {key === "days"
-                          ? rows.filter((r) => r.metrics).length
-                          : display(sum.value, key)}
-                        <span className="ml-1 text-base font-normal text-muted-foreground">
-                          {sum.value !== null && unit(key)}
-                        </span>
-                      </p>
-                      {key !== "days" && sum.known < expectedDays && (
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Данные: {sum.known} из {expectedDays} дней
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
-              </section>
-              <div className="overflow-hidden rounded-lg border">
-                <div className="max-h-[65dvh] min-h-64 overflow-auto">
-                  <table
-                    aria-label="Допродажи по рабочим дням"
-                    className="w-full table-fixed text-sm"
-                    style={{ minWidth: Math.max(680, table.getTotalSize()) }}
-                  >
-                    <ResizableTableHead
-                      table={table}
-                      isControlColumn={() => false}
-                      isRightAligned={(id) => id !== "date"}
-                      sortableColumnIds={multi.sortableColumnIds}
-                      onSort={multi.cycleSort}
-                      headerIndicator={multi.headerIndicator}
-                      headerAriaSort={multi.headerAriaSort}
-                    />
-                    <tbody>
-                      {table.getRowModel().rows.map((row) => (
-                        <tr
-                          key={row.id}
-                          className="h-16 border-b last:border-0 hover:bg-muted/40"
-                        >
-                          {row.getVisibleCells().map((cell) => (
-                            <td
-                              key={cell.id}
-                              className={cn(
-                                "px-3 py-3",
-                                cell.column.id !== "date" && "text-right",
-                              )}
-                            >
-                              {flexRender(
-                                cell.column.columnDef.cell,
-                                cell.getContext(),
-                              )}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </>
-          ) : (
-            <EmptyState
-              icon={ChartNoAxesCombined}
-              title="За этот месяц нет данных"
-              description={
-                source === "archive"
-                  ? "Выберите другой месяц или источник."
-                  : data.configured
-                    ? "Запросите отчёты завершённых рабочих дней."
-                    : "Источники допродаж пока не подключены."
-              }
-            />
-          )}
-          {allRows.length > 0 && (
-            <SalesTrend
-              key={`${source}-${kind}`}
-              series={chartSeries}
-              title="Среднее количество по дням с данными"
-            />
-          )}
-          <p className="text-xs text-muted-foreground">
-            Прочерк — нет значения в источнике.{" "}
-            {source === "archive"
-              ? "Архивные итоги Glide без пересчёта."
-              : `Рабочий день начинается в ${data.hour}:00. Общая прибавка делится между сотрудниками смены.`}
-          </p>
-        </TabsContent>
+        <TabsContent value={kind}>{body}</TabsContent>
       </Tabs>
       {detail && (
         <Detail

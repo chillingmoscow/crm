@@ -10,11 +10,327 @@ export type Database = {
   graphql_public: {
     Tables: {
       [_ in never]: never
+      finance_recurring_occurrences: {
+        Row: {
+          account_id: string
+          amount: number
+          amount_varies: boolean
+          bank_account_id: string
+          category_id: string | null
+          counterparty_id: string | null
+          created_at: string
+          currency: string
+          description: string | null
+          due_date: string
+          id: string
+          legal_entity_id: string
+          name: string
+          postponed_to: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          status: string
+          template_id: string
+          transaction_id: string | null
+          type: Database["public"]["Enums"]["transaction_type_enum"]
+          venue_id: string | null
+        }
+        Insert: {
+          account_id: string
+          amount: number
+          amount_varies?: boolean
+          bank_account_id: string
+          category_id?: string | null
+          counterparty_id?: string | null
+          created_at?: string
+          currency?: string
+          description?: string | null
+          due_date: string
+          id?: string
+          legal_entity_id: string
+          name: string
+          postponed_to?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          template_id: string
+          transaction_id?: string | null
+          type: Database["public"]["Enums"]["transaction_type_enum"]
+          venue_id?: string | null
+        }
+        Update: {
+          account_id?: string
+          amount?: number
+          amount_varies?: boolean
+          bank_account_id?: string
+          category_id?: string | null
+          counterparty_id?: string | null
+          created_at?: string
+          currency?: string
+          description?: string | null
+          due_date?: string
+          id?: string
+          legal_entity_id?: string
+          name?: string
+          postponed_to?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          template_id?: string
+          transaction_id?: string | null
+          type?: Database["public"]["Enums"]["transaction_type_enum"]
+          venue_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "finance_recurring_occurrences_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_recurring_occurrences_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_recurring_occurrences_template_fk"
+            columns: ["account_id", "template_id"]
+            isOneToOne: false
+            referencedRelation: "finance_recurring_templates"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "finance_recurring_occurrences_legal_entity_fk"
+            columns: ["account_id", "legal_entity_id"]
+            isOneToOne: false
+            referencedRelation: "legal_entities"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "finance_recurring_occurrences_venue_fk"
+            columns: ["account_id", "venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "finance_recurring_occurrences_bank_account_fk"
+            columns: ["account_id", "bank_account_id"]
+            isOneToOne: false
+            referencedRelation: "bank_accounts"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "finance_recurring_occurrences_category_fk"
+            columns: ["account_id", "category_id"]
+            isOneToOne: false
+            referencedRelation: "finance_categories"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "finance_recurring_occurrences_counterparty_fk"
+            columns: ["account_id", "counterparty_id"]
+            isOneToOne: false
+            referencedRelation: "counterparties"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "finance_recurring_occurrences_transaction_fk"
+            columns: ["account_id", "transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["account_id", "id"]
+          },
+        ]
+      }
+      finance_recurring_templates: {
+        Row: {
+          account_id: string
+          amount: number
+          amount_varies: boolean
+          archived_at: string | null
+          archived_by: string | null
+          bank_account_id: string
+          category_id: string | null
+          counterparty_id: string | null
+          created_at: string
+          created_by: string | null
+          currency: string
+          day_of_month: number | null
+          description: string | null
+          ends_on: string | null
+          frequency: string
+          id: string
+          legal_entity_id: string
+          materialize_from: string
+          name: string
+          paused_at: string | null
+          quarter_month: number | null
+          source_transaction_id: string | null
+          starts_on: string
+          type: Database["public"]["Enums"]["transaction_type_enum"]
+          updated_at: string | null
+          updated_by: string | null
+          venue_id: string | null
+          weekday: number | null
+        }
+        Insert: {
+          account_id: string
+          amount: number
+          amount_varies?: boolean
+          archived_at?: string | null
+          archived_by?: string | null
+          bank_account_id: string
+          category_id?: string | null
+          counterparty_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          day_of_month?: number | null
+          description?: string | null
+          ends_on?: string | null
+          frequency: string
+          id?: string
+          legal_entity_id: string
+          materialize_from: string
+          name: string
+          paused_at?: string | null
+          quarter_month?: number | null
+          source_transaction_id?: string | null
+          starts_on: string
+          type: Database["public"]["Enums"]["transaction_type_enum"]
+          updated_at?: string | null
+          updated_by?: string | null
+          venue_id?: string | null
+          weekday?: number | null
+        }
+        Update: {
+          account_id?: string
+          amount?: number
+          amount_varies?: boolean
+          archived_at?: string | null
+          archived_by?: string | null
+          bank_account_id?: string
+          category_id?: string | null
+          counterparty_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          day_of_month?: number | null
+          description?: string | null
+          ends_on?: string | null
+          frequency?: string
+          id?: string
+          legal_entity_id?: string
+          materialize_from?: string
+          name?: string
+          paused_at?: string | null
+          quarter_month?: number | null
+          source_transaction_id?: string | null
+          starts_on?: string
+          type?: Database["public"]["Enums"]["transaction_type_enum"]
+          updated_at?: string | null
+          updated_by?: string | null
+          venue_id?: string | null
+          weekday?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "finance_recurring_templates_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_recurring_templates_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_recurring_templates_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_recurring_templates_archived_by_fkey"
+            columns: ["archived_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_recurring_templates_legal_entity_fk"
+            columns: ["account_id", "legal_entity_id"]
+            isOneToOne: false
+            referencedRelation: "legal_entities"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "finance_recurring_templates_venue_fk"
+            columns: ["account_id", "venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "finance_recurring_templates_bank_account_fk"
+            columns: ["account_id", "bank_account_id"]
+            isOneToOne: false
+            referencedRelation: "bank_accounts"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "finance_recurring_templates_category_fk"
+            columns: ["account_id", "category_id"]
+            isOneToOne: false
+            referencedRelation: "finance_categories"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "finance_recurring_templates_counterparty_fk"
+            columns: ["account_id", "counterparty_id"]
+            isOneToOne: false
+            referencedRelation: "counterparties"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "finance_recurring_templates_source_tx_fk"
+            columns: ["account_id", "source_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["account_id", "id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      finance_recurring_materialize_all: { Args: never; Returns: number }
+      finance_recurring_materialize_mine: { Args: never; Returns: number }
+      finance_recurring_next_due: { Args: { p_template_id: string }; Returns: string }
+      finance_recurring_post: {
+        Args: {
+          p_occurrence: string
+          p_amount: number
+          p_date: string
+          p_bank_account: string
+          p_category: string | null
+          p_counterparty: string | null
+          p_venue: string | null
+          p_description: string | null
+        }
+        Returns: string
+      }
       graphql: {
         Args: {
           extensions?: Json
@@ -309,6 +625,54 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "bank_account_groups_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bank_account_reconciliations: {
+        Row: {
+          account_id: string
+          balance_date: string
+          bank_balance: number
+          bank_account_id: string
+          calculated_balance: number
+          created_at: string
+          created_by: string | null
+          id: string
+          note: string | null
+          source: "manual" | "bank"
+        }
+        Insert: {
+          account_id: string
+          balance_date: string
+          bank_balance: number
+          bank_account_id: string
+          /** Перезаписывает триггер (миграция 374). */
+          calculated_balance?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          note?: string | null
+          source?: "manual" | "bank"
+        }
+        Update: {
+          account_id?: string
+          balance_date?: string
+          bank_balance?: number
+          bank_account_id?: string
+          calculated_balance?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          note?: string | null
+          source?: "manual" | "bank"
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_account_reconciliations_account_id_fkey"
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "accounts"
@@ -791,302 +1155,93 @@ export type Database = {
           },
         ]
       }
-      finance_recurring_occurrences: {
+      finance_posting_rules: {
         Row: {
           account_id: string
-          amount: number
-          amount_varies: boolean
-          bank_account_id: string
-          category_id: string | null
-          counterparty_id: string | null
+          action_category_id: string | null
+          action_counterparty_id: string | null
+          action_venue_id: string | null
+          conditions: Json
           created_at: string
-          currency: string
-          description: string | null
-          due_date: string
+          created_by: string | null
+          enabled: boolean
           id: string
-          legal_entity_id: string
-          name: string
-          postponed_to: string | null
-          resolved_at: string | null
-          resolved_by: string | null
-          status: string
-          template_id: string
-          transaction_id: string | null
-          type: Database["public"]["Enums"]["transaction_type_enum"]
-          venue_id: string | null
+          name: string | null
+          position: number
+          updated_at: string
+          updated_by: string | null
         }
         Insert: {
           account_id: string
-          amount: number
-          amount_varies?: boolean
-          bank_account_id: string
-          category_id?: string | null
-          counterparty_id?: string | null
+          action_category_id?: string | null
+          action_counterparty_id?: string | null
+          action_venue_id?: string | null
+          conditions: Json
           created_at?: string
-          currency?: string
-          description?: string | null
-          due_date: string
+          created_by?: string | null
+          enabled?: boolean
           id?: string
-          legal_entity_id: string
-          name: string
-          postponed_to?: string | null
-          resolved_at?: string | null
-          resolved_by?: string | null
-          status?: string
-          template_id: string
-          transaction_id?: string | null
-          type: Database["public"]["Enums"]["transaction_type_enum"]
-          venue_id?: string | null
+          name?: string | null
+          position?: number
+          updated_at?: string
+          updated_by?: string | null
         }
         Update: {
           account_id?: string
-          amount?: number
-          amount_varies?: boolean
-          bank_account_id?: string
-          category_id?: string | null
-          counterparty_id?: string | null
+          action_category_id?: string | null
+          action_counterparty_id?: string | null
+          action_venue_id?: string | null
+          conditions?: Json
           created_at?: string
-          currency?: string
-          description?: string | null
-          due_date?: string
+          created_by?: string | null
+          enabled?: boolean
           id?: string
-          legal_entity_id?: string
-          name?: string
-          postponed_to?: string | null
-          resolved_at?: string | null
-          resolved_by?: string | null
-          status?: string
-          template_id?: string
-          transaction_id?: string | null
-          type?: Database["public"]["Enums"]["transaction_type_enum"]
-          venue_id?: string | null
+          name?: string | null
+          position?: number
+          updated_at?: string
+          updated_by?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "finance_recurring_occurrences_account_id_fkey"
+            foreignKeyName: "finance_posting_rules_account_id_fkey"
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "accounts"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "finance_recurring_occurrences_resolved_by_fkey"
-            columns: ["resolved_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "finance_recurring_occurrences_template_fk"
-            columns: ["account_id", "template_id"]
-            isOneToOne: false
-            referencedRelation: "finance_recurring_templates"
-            referencedColumns: ["account_id", "id"]
-          },
-          {
-            foreignKeyName: "finance_recurring_occurrences_legal_entity_fk"
-            columns: ["account_id", "legal_entity_id"]
-            isOneToOne: false
-            referencedRelation: "legal_entities"
-            referencedColumns: ["account_id", "id"]
-          },
-          {
-            foreignKeyName: "finance_recurring_occurrences_venue_fk"
-            columns: ["account_id", "venue_id"]
-            isOneToOne: false
-            referencedRelation: "venues"
-            referencedColumns: ["account_id", "id"]
-          },
-          {
-            foreignKeyName: "finance_recurring_occurrences_bank_account_fk"
-            columns: ["account_id", "bank_account_id"]
-            isOneToOne: false
-            referencedRelation: "bank_accounts"
-            referencedColumns: ["account_id", "id"]
-          },
-          {
-            foreignKeyName: "finance_recurring_occurrences_category_fk"
-            columns: ["account_id", "category_id"]
+            foreignKeyName: "finance_posting_rules_category_fkey"
+            columns: ["account_id", "action_category_id"]
             isOneToOne: false
             referencedRelation: "finance_categories"
             referencedColumns: ["account_id", "id"]
           },
           {
-            foreignKeyName: "finance_recurring_occurrences_counterparty_fk"
-            columns: ["account_id", "counterparty_id"]
+            foreignKeyName: "finance_posting_rules_counterparty_fkey"
+            columns: ["account_id", "action_counterparty_id"]
             isOneToOne: false
             referencedRelation: "counterparties"
             referencedColumns: ["account_id", "id"]
           },
           {
-            foreignKeyName: "finance_recurring_occurrences_transaction_fk"
-            columns: ["account_id", "transaction_id"]
-            isOneToOne: false
-            referencedRelation: "transactions"
-            referencedColumns: ["account_id", "id"]
-          },
-        ]
-      }
-      finance_recurring_templates: {
-        Row: {
-          account_id: string
-          amount: number
-          amount_varies: boolean
-          archived_at: string | null
-          archived_by: string | null
-          bank_account_id: string
-          category_id: string | null
-          counterparty_id: string | null
-          created_at: string
-          created_by: string | null
-          currency: string
-          day_of_month: number | null
-          description: string | null
-          ends_on: string | null
-          frequency: string
-          id: string
-          legal_entity_id: string
-          materialize_from: string
-          name: string
-          paused_at: string | null
-          quarter_month: number | null
-          source_transaction_id: string | null
-          starts_on: string
-          type: Database["public"]["Enums"]["transaction_type_enum"]
-          updated_at: string | null
-          updated_by: string | null
-          venue_id: string | null
-          weekday: number | null
-        }
-        Insert: {
-          account_id: string
-          amount: number
-          amount_varies?: boolean
-          archived_at?: string | null
-          archived_by?: string | null
-          bank_account_id: string
-          category_id?: string | null
-          counterparty_id?: string | null
-          created_at?: string
-          created_by?: string | null
-          currency?: string
-          day_of_month?: number | null
-          description?: string | null
-          ends_on?: string | null
-          frequency: string
-          id?: string
-          legal_entity_id: string
-          materialize_from: string
-          name: string
-          paused_at?: string | null
-          quarter_month?: number | null
-          source_transaction_id?: string | null
-          starts_on: string
-          type: Database["public"]["Enums"]["transaction_type_enum"]
-          updated_at?: string | null
-          updated_by?: string | null
-          venue_id?: string | null
-          weekday?: number | null
-        }
-        Update: {
-          account_id?: string
-          amount?: number
-          amount_varies?: boolean
-          archived_at?: string | null
-          archived_by?: string | null
-          bank_account_id?: string
-          category_id?: string | null
-          counterparty_id?: string | null
-          created_at?: string
-          created_by?: string | null
-          currency?: string
-          day_of_month?: number | null
-          description?: string | null
-          ends_on?: string | null
-          frequency?: string
-          id?: string
-          legal_entity_id?: string
-          materialize_from?: string
-          name?: string
-          paused_at?: string | null
-          quarter_month?: number | null
-          source_transaction_id?: string | null
-          starts_on?: string
-          type?: Database["public"]["Enums"]["transaction_type_enum"]
-          updated_at?: string | null
-          updated_by?: string | null
-          venue_id?: string | null
-          weekday?: number | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "finance_recurring_templates_account_id_fkey"
-            columns: ["account_id"]
-            isOneToOne: false
-            referencedRelation: "accounts"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "finance_recurring_templates_created_by_fkey"
+            foreignKeyName: "finance_posting_rules_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "finance_recurring_templates_updated_by_fkey"
+            foreignKeyName: "finance_posting_rules_updated_by_fkey"
             columns: ["updated_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "finance_recurring_templates_archived_by_fkey"
-            columns: ["archived_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "finance_recurring_templates_legal_entity_fk"
-            columns: ["account_id", "legal_entity_id"]
-            isOneToOne: false
-            referencedRelation: "legal_entities"
-            referencedColumns: ["account_id", "id"]
-          },
-          {
-            foreignKeyName: "finance_recurring_templates_venue_fk"
-            columns: ["account_id", "venue_id"]
+            foreignKeyName: "finance_posting_rules_venue_fkey"
+            columns: ["account_id", "action_venue_id"]
             isOneToOne: false
             referencedRelation: "venues"
-            referencedColumns: ["account_id", "id"]
-          },
-          {
-            foreignKeyName: "finance_recurring_templates_bank_account_fk"
-            columns: ["account_id", "bank_account_id"]
-            isOneToOne: false
-            referencedRelation: "bank_accounts"
-            referencedColumns: ["account_id", "id"]
-          },
-          {
-            foreignKeyName: "finance_recurring_templates_category_fk"
-            columns: ["account_id", "category_id"]
-            isOneToOne: false
-            referencedRelation: "finance_categories"
-            referencedColumns: ["account_id", "id"]
-          },
-          {
-            foreignKeyName: "finance_recurring_templates_counterparty_fk"
-            columns: ["account_id", "counterparty_id"]
-            isOneToOne: false
-            referencedRelation: "counterparties"
-            referencedColumns: ["account_id", "id"]
-          },
-          {
-            foreignKeyName: "finance_recurring_templates_source_tx_fk"
-            columns: ["account_id", "source_transaction_id"]
-            isOneToOne: false
-            referencedRelation: "transactions"
             referencedColumns: ["account_id", "id"]
           },
         ]
@@ -3227,6 +3382,24 @@ export type Database = {
         Args: { p_bank_account_id: string; p_delta: number }
         Returns: undefined
       }
+      bank_account_balance_at: {
+        Args: { p_bank_account_id: string; p_date: string }
+        Returns: number | null
+      }
+      bank_account_reconciliation_history: {
+        Args: { p_bank_account_id: string; p_limit?: number }
+        Returns: {
+          id: string
+          balance_date: string
+          bank_balance: number
+          calculated_balance: number
+          current_calculated_balance: number | null
+          source: "manual" | "bank"
+          note: string | null
+          created_at: string
+          created_by: string | null
+        }[]
+      }
       complete_owner_onboarding:
         | {
             Args: {
@@ -3264,21 +3437,9 @@ export type Database = {
         Args: { p_source_role_id: string; p_target_role_id: string }
         Returns: undefined
       }
-      finance_recurring_materialize_all: { Args: never; Returns: number }
-      finance_recurring_materialize_mine: { Args: never; Returns: number }
-      finance_recurring_next_due: { Args: { p_template_id: string }; Returns: string }
-      finance_recurring_post: {
-        Args: {
-          p_occurrence: string
-          p_amount: number
-          p_date: string
-          p_bank_account: string
-          p_category: string | null
-          p_counterparty: string | null
-          p_venue: string | null
-          p_description: string | null
-        }
-        Returns: string
+      finance_posting_rules_reorder: {
+        Args: { p_ids: string[] }
+        Returns: undefined
       }
       finance_restore_transaction: {
         Args: { p_id: string }

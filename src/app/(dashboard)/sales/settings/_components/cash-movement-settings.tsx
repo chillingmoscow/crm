@@ -25,7 +25,7 @@ import {
   saveMovementConfiguration,
   type MovementConfiguration,
 } from "@/app/(dashboard)/sales/shifts/cash-movement-actions";
-import { RuleHistory } from "./rule-history";
+import { RuleHistory } from "@/app/(dashboard)/org/venues/[venueId]/_components/rule-history";
 
 /** Сообщение загрузчика, когда правила инкассаций пользователю недоступны. */
 const NO_ACCESS = "Правила изменяет владелец в выбранном заведении";

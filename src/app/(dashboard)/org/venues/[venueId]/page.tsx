@@ -10,14 +10,13 @@ import {
 import { asLooseDb } from "@/lib/supabase/loose";
 import { listLegalEntities } from "@/lib/org/legal-entities";
 import { listAuditEvents } from "@/lib/audit/list";
-import { loadSalesConfiguration } from "@/app/(dashboard)/sales/shifts/actions";
 import type { WorkingHours } from "@/types/database";
 import { getVenueArchiveImpact } from "../actions";
 import { VenueDetailPage, type VenueDetail, type VenueTab } from "./_components/venue-detail-page";
 
 export const metadata: Metadata = { title: "Заведение" };
 
-const TABS: VenueTab[] = ["main", "sales", "payroll", "inventory", "audit"];
+const TABS: VenueTab[] = ["main", "payroll", "inventory", "audit"];
 
 export default async function VenueDetailServerPage({
   params,
@@ -27,6 +26,8 @@ export default async function VenueDetailServerPage({
   searchParams: Promise<{ tab?: string }>;
 }) {
   const [{ venueId }, { tab }] = await Promise.all([params, searchParams]);
+  // Настройки продаж переехали в раздел «Продажи»; старые ссылки ведут туда.
+  if (tab === "sales") redirect(`/sales/settings?venue=${encodeURIComponent(venueId)}`);
   const [user, supabase] = await Promise.all([getCachedUser(), createClient()]);
   if (!user) redirect("/login");
 
@@ -52,9 +53,8 @@ export default async function VenueDetailServerPage({
   const canViewAudit = Boolean(can("org.view_audit"));
   const canViewStockRules = Boolean(can("inventory.view_results"));
   const canConfigurePayroll = Boolean(can("payroll.configure"));
-  const canConfigureSales = Boolean(can("sales.configure_shifts") && can("sales.view_shifts"));
 
-  const [{ data: isOwner }, { data: link }, { rows: legalEntities }, archiveImpact, auditResult, salesConfiguration] =
+  const [{ data: isOwner }, { data: link }, { rows: legalEntities }, archiveImpact, auditResult] =
     await Promise.all([
       supabase.rpc("is_account_owner", { p_account_id: accountId }),
       db
@@ -70,10 +70,6 @@ export default async function VenueDetailServerPage({
       canViewAudit
         ? listAuditEvents({ entityType: "venue", entityId: venueId })
         : Promise.resolve({ events: [], hasMore: false, error: null }),
-      // Настройки продаж читаются в контексте заведения; если нельзя
-      // (например, открыто не активное заведение), вкладку просто не
-      // показываем, а не роняем всю карточку.
-      canConfigureSales ? loadSalesConfiguration(venueId).catch(() => null) : Promise.resolve(null),
     ]);
 
   const requested = TABS.find((t) => t === tab);
@@ -91,7 +87,6 @@ export default async function VenueDetailServerPage({
       canViewAudit={canViewAudit}
       canViewStockRules={canViewStockRules}
       canConfigurePayroll={canConfigurePayroll}
-      salesConfiguration={salesConfiguration}
       archiveImpact={archiveImpact}
       initialAuditEvents={auditResult.events}
       initialAuditHasMore={auditResult.hasMore}

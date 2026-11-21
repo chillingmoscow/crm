@@ -13,11 +13,11 @@ import {
   listBankAccountGroups,
 } from "@/lib/finance/bank-accounts";
 import { listAuditEvents } from "@/lib/audit/list";
+import { listBankAccountReconciliations } from "@/lib/finance/bank-reconciliations";
 import {
-  getReconciliationTimezone,
-  listBankAccountReconciliations,
-} from "@/lib/finance/bank-reconciliations";
-import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
+  getActiveAccountAmountRoundingScale,
+  getActiveAccountTimezone,
+} from "@/lib/settings/account";
 import { BankAccountDetail } from "./_components/bank-account-detail";
 
 export const metadata: Metadata = { title: "Счёт" };
@@ -72,7 +72,7 @@ export default async function BankAccountDetailPage({
     canViewTransactions
       ? listBankAccountReconciliations(id)
       : Promise.resolve({ rows: [], error: null }),
-    getReconciliationTimezone(),
+    getActiveAccountTimezone(),
   ]);
 
   // Кто создал и менял — для «О счёте» в верхней панели.

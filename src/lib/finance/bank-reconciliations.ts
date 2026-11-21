@@ -22,7 +22,6 @@ import {
 // перевод ошибок базы в понятные фразы.
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
-const DEFAULT_TIMEZONE = "Europe/Moscow";
 const NOTE_MAX = 500;
 
 /** Ошибки триггера сверки (миграция 374) уже написаны для человека. */
@@ -31,14 +30,6 @@ function friendlyError(error: { message: string; code?: string } | null, fallbac
   if (error.code === "22023" || error.code === "P0002") return error.message;
   if (error.code === "42501") return "Сверять остаток могут те, кто управляет счетами";
   return fallback;
-}
-
-/** Пояс аккаунта (миграция 370): граница дня и «сегодня» по умолчанию. */
-export async function getReconciliationTimezone(): Promise<string> {
-  const supabase = await createClient();
-  // Функция из миграции 370; в сгенерированных типах её пока нет.
-  const { data } = await asLooseDb(supabase).rpc("get_active_account_timezone");
-  return typeof data === "string" && data.trim() ? data.trim() : DEFAULT_TIMEZONE;
 }
 
 /** Остаток счёта по операциям на конец дня. null — дата раньше контрольного остатка. */

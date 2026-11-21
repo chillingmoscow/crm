@@ -18,7 +18,7 @@ import {
   type SettlementConfiguration,
 } from "@/app/(dashboard)/sales/shifts/settlement-actions";
 import type { SettlementSettings } from "@/lib/sales/settlement";
-import { RuleHistory } from "./rule-history";
+import { RuleHistory } from "@/app/(dashboard)/org/venues/[venueId]/_components/rule-history";
 
 /** Сообщение загрузчика, когда сверка пользователю недоступна. */
 const NO_ACCESS = "Сверка доступна владельцу в выбранном заведении";

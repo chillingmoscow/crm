@@ -88,7 +88,8 @@ export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
     Content: PayrollHelp,
   },
   {
-    match: (p) => p === "/sales/shifts",
+    // Настройки продаж открываются из «Смен» и делят их справку.
+    match: (p) => p === "/sales/shifts" || p === "/sales/settings",
     title: "Смены",
     Content: SalesShiftsHelp,
   },

@@ -87,6 +87,10 @@ export const salesSettingsColumns =
   "account_id,venue_id,enabled,timezone,day_start_hour,staff_group_id,tip_products,deposit_products,parking_product_ids,hookah_report_id,quickresto_venue_id";
 export type SalesData = {
   days: SalesDay[];
+  /** В заведении есть хотя бы одна смена (не только в загруженном месяце). */
+  hasDays: boolean;
+  /** Загруженный месяц («2026-11»); без него загружена вся история. */
+  month?: string;
   venueId: string;
   venueName: string;
   timezone: string;

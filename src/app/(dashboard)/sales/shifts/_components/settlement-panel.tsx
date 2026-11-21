@@ -130,7 +130,7 @@ export function SettlementPanel({
           Чтобы сверять поступления, выберите счета, статьи и комиссии в{" "}
           <Link
             className="text-brand hover:underline"
-            href={`/org/venues/${venueId}?tab=sales`}
+            href={`/sales/settings?venue=${venueId}`}
           >
             настройках заведения
           </Link>

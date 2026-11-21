@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { getConnection, salesSource } from "./quickresto";
 import {
-  calculateOrders,
+  calculateOrdersDetailed,
   normalizeOrder,
   normalizeDetail,
   number,
@@ -472,7 +472,7 @@ export async function runOneSlice() {
         throw new Error("Не все чеки загружены");
       const orders = all.map((r) => r.order_data),
         details = all.map((r) => r.detail_data);
-      const metrics = calculateOrders(
+      const { metrics, guestChecks } = calculateOrdersDetailed(
         orders,
         details,
         job.payload.staff_ids as number[],
@@ -503,6 +503,7 @@ export async function runOneSlice() {
         p_metrics: metrics as Metrics,
         p_summary: {
           orders_count: orders.length,
+          guest_checks: guestChecks,
           staff_ids: job.payload.staff_ids,
           staff_snapshot_at: job.payload.staff_snapshot_at,
           z_ids: job.payload.z_ids,

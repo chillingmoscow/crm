@@ -18,7 +18,7 @@ import {
   saveFinanceExecutionRules,
   type FinanceExecutionConfiguration,
 } from "@/app/(dashboard)/sales/shifts/native-finance-actions";
-import { RuleHistory } from "./rule-history";
+import { RuleHistory } from "@/app/(dashboard)/org/venues/[venueId]/_components/rule-history";
 
 function Form({
   data,

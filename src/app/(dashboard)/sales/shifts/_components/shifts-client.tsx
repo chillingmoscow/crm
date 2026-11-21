@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   getCoreRowModel,
   getPaginationRowModel,
@@ -18,6 +19,7 @@ import {
   Pencil,
   RefreshCw,
   SearchX,
+  Settings2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -36,6 +38,7 @@ import {
   TableConditions,
   TableControls,
   TableFilterChip,
+  TableIconButton,
   TablePageHeader,
   TablePagination,
   TableRowMenu,
@@ -72,6 +75,7 @@ const labels: Record<string, string> = {
   business_date: "Дата",
   ...metricLabels,
   checks: "Чеки",
+  avg_check: "Средний чек гостя",
   status: "Статус",
 };
 /** Счётные показатели — без знака валюты. */
@@ -93,6 +97,7 @@ const columnConfig = [
     defaultSize: id === "checks" ? 110 : 140,
     defaultVisible: !hiddenByDefault.has(id),
   })),
+  { id: "avg_check", defaultSize: 150, defaultVisible: false },
   { id: "status", defaultSize: 170 },
   { id: "actions", defaultSize: ROW_MENU_COLUMN_SIZE },
 ];
@@ -104,7 +109,7 @@ const minWidth: Partial<Record<MetricKey, number>> = {
   deposits: 110,
   checks: 90,
 };
-const sortFields = ["business_date", ...metricKeys, "status"];
+const sortFields = ["business_date", ...metricKeys, "avg_check", "status"];
 const statusFilterOptions = [
   { value: "", label: "Все смены" },
   ...(["preliminary", "complete", "imported", "adjusted", "error"] as const).map(
@@ -125,6 +130,35 @@ function matchesStatus(day: SalesDay, status: string) {
   return day.status === status;
 }
 
+/** Гостевые чеки смены (без Staff) — из сводки расчёта; у старых смен их нет до обновления. */
+function guestChecks(day: SalesDay): number | null {
+  const n = day.source_summary?.guest_checks;
+  return typeof n === "number" && Number.isFinite(n) ? n : null;
+}
+
+/** Средний чек гостя за смену: оборот (он без Staff) на гостевой чек. */
+function averageCheck(day: SalesDay): number | null {
+  const guests = guestChecks(day);
+  const turnover = effectiveMetrics(day).turnover;
+  return guests && turnover !== null ? turnover / guests : null;
+}
+
+/** Средний чек гостя за набор смен: оборот и чеки только смен, где известны оба. */
+function averageCheckOf(days: SalesDay[]) {
+  let turnover = 0,
+    guests = 0,
+    known = 0;
+  for (const d of days) {
+    const g = guestChecks(d);
+    const t = effectiveMetrics(d).turnover;
+    if (!g || t === null) continue;
+    turnover += t;
+    guests += g;
+    known++;
+  }
+  return { value: guests ? turnover / guests : null, guests, known };
+}
+
 /** Сумма показателя по сменам: неизвестные значения не считаются нулём. */
 function sumMetric(days: SalesDay[], key: MetricKey) {
   const values = days
@@ -138,16 +172,15 @@ function sumMetric(days: SalesDay[], key: MetricKey) {
 
 export function ShiftsClient({
   initial,
-  initialMonth,
   selection,
   selectedArchive,
 }: {
+  /** Смены одного месяца (`initial.month`): из ссылки или текущий. */
   initial: SalesData;
-  /** Месяц из ссылки (`?month=`, `?day=`, `?from=`); без него — текущий. */
-  initialMonth?: string;
   selection?: { date: string; tab: string; source: "native" | "archive" };
   selectedArchive?: DayArchive | null;
 }) {
+  const router = useRouter();
   const [data, setData] = useState(initial);
   useEffect(() => setData(initial), [initial]);
   const st = useTableState({
@@ -161,10 +194,15 @@ export function ShiftsClient({
     initial.settings?.day_start_hour ?? 9,
   );
   const currentMonth = today.slice(0, 7);
-  const [month, setMonth] = useState(initialMonth ?? currentMonth);
+  const [month, setMonth] = useState(initial.month ?? currentMonth);
   useEffect(() => {
-    if (initialMonth) setMonth(initialMonth);
-  }, [initialMonth]);
+    if (initial.month) setMonth(initial.month);
+  }, [initial.month]);
+  // Загружается только выбранный месяц: при смене месяца читаем его заново.
+  const monthRef = useRef(month);
+  monthRef.current = month;
+  const sequence = useRef(0);
+  const [loading, setLoading] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [status, setStatus] = useState("");
   const [drawer, setDrawer] = useState<{ day: SalesDay; tab: string } | null>(
@@ -209,17 +247,30 @@ export function ShiftsClient({
     [data.permissions],
   );
   const refresh = useCallback(async (quiet = false) => {
+    const seq = ++sequence.current;
+    const target = monthRef.current;
+    if (!quiet) setLoading(true);
     try {
-      setData(await loadSales());
+      const next = await loadSales(target);
+      if (seq !== sequence.current) return;
+      setData(next);
       setRefreshFailed(false);
     } catch (e) {
+      if (seq !== sequence.current) return;
       setRefreshFailed(true);
       if (!quiet)
         toast.error(
           e instanceof Error ? e.message : "Не удалось загрузить смены",
         );
+    } finally {
+      if (seq === sequence.current) setLoading(false);
     }
   }, []);
+  useEffect(() => {
+    if (data.month !== month) void refresh();
+    // data.month не в зависимостях: загрузку запускает только смена месяца.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [month, refresh]);
   const activeJobs = useMemo(
     () =>
       new Map(
@@ -245,10 +296,12 @@ export function ShiftsClient({
     setPagination((p) => ({ ...p, pageIndex: 0 }));
   }, [month, status, st.search, setPagination]);
 
+  // Пока новый месяц грузится, прежние строки не показываем под чужим месяцем.
   const monthDays = useMemo(
     () => data.days.filter((d) => d.business_date.startsWith(month)),
     [data.days, month],
   );
+  const monthLoading = loading || data.month !== month;
   const hasFilters = !!status;
   const query = st.search.toLowerCase().trim();
   const filtered = useMemo(
@@ -382,6 +435,28 @@ export function ShiftsClient({
         }),
       ),
       {
+        id: "avg_check",
+        accessorFn: (d) => averageCheck(d) ?? undefined,
+        header: labels.avg_check,
+        size: 150,
+        minSize: 150,
+        sortUndefined: "last",
+        cell: ({ row }) => {
+          const guests = guestChecks(row.original);
+          return (
+            <span
+              data-tip={
+                guests === null
+                  ? "Посчитается после обновления смены из Quick Resto"
+                  : `${formatCount(guests)} гостевых чеков, без Staff`
+              }
+            >
+              <Money value={averageCheck(row.original)} />
+            </span>
+          );
+        },
+      },
+      {
         id: "status",
         accessorFn: (d) => salesStatuses[salesDayStatus(d)].label,
         header: labels.status,
@@ -468,6 +543,13 @@ export function ShiftsClient({
       >,
     [filtered],
   );
+  const average = useMemo(() => averageCheckOf(filtered), [filtered]);
+  const averageHint =
+    average.value === null
+      ? "Посчитается после обновления смен из Quick Resto"
+      : average.known < filtered.length
+        ? `По ${average.known} из ${countRu(filtered.length, "смены", "смен", "смен")}`
+        : `${countRu(average.guests, "гостевой чек", "гостевых чека", "гостевых чеков")}`;
   const metricHint = (k: MetricKey) =>
     totals[k].value === null
       ? "Нет данных"
@@ -496,7 +578,12 @@ export function ShiftsClient({
               ? formatDateCell(d.business_date)
               : c.id === "status"
                 ? salesStatuses[salesDayStatus(d)].label
-                : effectiveMetrics(d)[c.id as MetricKey],
+                : c.id === "avg_check"
+                  ? (() => {
+                      const v = averageCheck(d);
+                      return v === null ? null : Math.round(v * 100) / 100;
+                    })()
+                  : effectiveMetrics(d)[c.id as MetricKey],
           );
         }),
       ];
@@ -651,6 +738,16 @@ export function ShiftsClient({
                   }
                 : undefined
             }
+            secondaryActions={
+              can("configure") ? (
+                <TableIconButton
+                  label="Настройки продаж"
+                  onClick={() => router.push("/sales/settings")}
+                >
+                  <Settings2 />
+                </TableIconButton>
+              ) : undefined
+            }
             primaryActions={refreshButton}
           />
         }
@@ -695,7 +792,11 @@ export function ShiftsClient({
         </p>
       )}
 
-      {!data.days.length ? (
+      {monthLoading && !monthDays.length ? (
+        <p role="status" className="py-12 text-center text-sm text-muted-foreground">
+          Загружаем смены…
+        </p>
+      ) : !data.hasDays ? (
         <EmptyState
           icon={CalendarDays}
           title="Смен пока нет"
@@ -703,7 +804,7 @@ export function ShiftsClient({
           action={
             can("configure") ? (
               <Button asChild>
-                <Link href={`/org/venues/${data.venueId}?tab=sales`}>
+                <Link href={"/sales/settings"}>
                   Настроить расчёт смен
                 </Link>
               </Button>
@@ -742,14 +843,14 @@ export function ShiftsClient({
               }
             />
             <Metric
+              label="Средний чек гостя"
+              value={<Money value={average.value} />}
+              hint={averageHint}
+            />
+            <Metric
               label={metricLabels.tips_total}
               value={<Money value={totals.tips_total.value} />}
               hint={metricHint("tips_total")}
-            />
-            <Metric
-              label={metricLabels.checks}
-              value={formatCount(totals.checks.value)}
-              hint={metricHint("checks")}
             />
             <Metric
               label={metricLabels.deposits}
@@ -757,6 +858,10 @@ export function ShiftsClient({
               hint={metricHint("deposits")}
             />
           </MetricStrip>
+          <div
+            aria-busy={monthLoading}
+            className={monthLoading ? "opacity-60 transition-opacity" : undefined}
+          >
           <DataTable
             table={table}
             label="Смены за месяц"
@@ -765,11 +870,17 @@ export function ShiftsClient({
             sorting={st.sorting}
             onSortingChange={changeSorting}
             sortable={sortFields}
-            numeric={[...metricKeys]}
+            numeric={[...metricKeys, "avg_check"]}
             onRowClick={(row) => setDrawer({ day: row.original, tab: "values" })}
             empty={null}
-            totals={Object.fromEntries(
-              metricKeys.map((k) => [
+            totals={Object.fromEntries([
+              [
+                "avg_check",
+                <span key="avg_check" data-tip={averageHint}>
+                  <Money value={average.value} />
+                </span>,
+              ],
+              ...metricKeys.map((k) => [
                 k,
                 <span key={k} data-tip={metricHint(k)}>
                   {counts.has(k) ? (
@@ -779,13 +890,14 @@ export function ShiftsClient({
                   )}
                 </span>,
               ]),
-            )}
+            ])}
             mobile={{
               label: "Карточки смен",
               nameColumn: "business_date",
               statusColumn: "status",
             }}
           />
+          </div>
           <TablePagination
             pageIndex={st.pagination.pageIndex}
             pageSize={st.pagination.pageSize}

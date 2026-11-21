@@ -132,7 +132,7 @@ export function CashMovementsPanel({
           Чтобы сверять проводки, выберите счета и статьи в{" "}
           <Link
             className="text-brand hover:underline"
-            href={`/org/venues/${venueId}?tab=sales`}
+            href={`/sales/settings?venue=${venueId}`}
           >
             настройках заведения
           </Link>

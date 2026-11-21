@@ -1,4 +1,4 @@
-import { emptyMetrics, type Metrics, type SalesSettings } from "./types";
+import { emptyMetrics, type Metrics, type SalesSettings } from "./types.ts";
 export type Order = {
   id: number;
   payer_id: number | null;
@@ -80,6 +80,21 @@ export function calculateOrders(
   staffIds: number[],
   settings: SalesSettings,
 ): Metrics {
+  return calculateOrdersDetailed(orders, details, staffIds, settings).metrics;
+}
+
+/**
+ * Показатели смены и число гостевых чеков (действующие чеки без Staff).
+ * Гостевые чеки — знаменатель среднего чека гостя: оборот уже считается без
+ * Staff, а в «Количестве чеков» Staff есть. Число хранится в сводке смены,
+ * а не среди показателей: его не исправляют вручную.
+ */
+export function calculateOrdersDetailed(
+  orders: Order[],
+  details: OrderDetail[],
+  staffIds: number[],
+  settings: SalesSettings,
+): { metrics: Metrics; guestChecks: number } {
   const m = emptyMetrics();
   const staff = new Set(staffIds);
   const byId = new Map(details.map((d) => [d.id, d]));
@@ -93,7 +108,8 @@ export function calculateOrders(
     service = 0,
     parking = 0,
     staffAmount = 0,
-    count = 0;
+    count = 0,
+    staffCount = 0;
   for (const o of orders) {
     const d = byId.get(o.id);
     if (!d) throw new Error(`Нет деталей чека ${o.id}`);
@@ -102,6 +118,7 @@ export function calculateOrders(
     service += d.service;
     if (o.payer_id !== null && staff.has(o.payer_id)) {
       staffAmount += o.gross;
+      staffCount++;
       continue;
     }
     for (const line of d.lines) {
@@ -122,7 +139,7 @@ export function calculateOrders(
   m.parking = Math.round(parking);
   m.staff_checks = Math.round(staffAmount);
   m.checks = count;
-  return m;
+  return { metrics: m, guestChecks: count - staffCount };
 }
 export function zMetrics(
   reports: Record<string, unknown>[],

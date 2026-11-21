@@ -8,7 +8,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { Field } from "@/components/ui/field";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { ProfileSection } from "@/components/shared/profile-section";
-import { SettingsDrawer } from "@/app/(dashboard)/sales/shifts/_components/settings-drawer";
+import { SettingsDrawer } from "./settings-drawer";
 import {
   loadSalesConfiguration,
   recalculateSalesHistory,

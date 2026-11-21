@@ -42,7 +42,7 @@ export default async function SalesShiftsPage({
         : typeof query.from === "string" && validDate(query.from)
           ? query.from.slice(0, 7)
           : undefined;
-  const initial = await loadSales();
+  const initial = await loadSales(initialMonth ?? "current");
   const selection = day
     ? {
         date: day,
@@ -63,7 +63,6 @@ export default async function SalesShiftsPage({
     <ShiftsClient
       key={initial.venueId}
       initial={initial}
-      initialMonth={initialMonth}
       selection={selection}
       selectedArchive={archive}
     />

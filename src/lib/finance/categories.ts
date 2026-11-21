@@ -12,6 +12,8 @@ import type {
   FinanceCategoryRow,
 } from "@/types/finance";
 
+const NO_ROW_CHANGED = "Не удалось сохранить: нет прав или запись уже удалена. Обновите страницу";
+
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
 const TYPE_GENITIVE: Record<FinanceCategoryRow["type"], string> = {
@@ -248,16 +250,19 @@ export async function updateFinanceCategory(
     if (mismatch) return { error: mismatch };
   }
 
-  const { error } = await supabase
+  const { data: changed, error } = await supabase
     .from("finance_categories")
     .update({
       ...next,
       updated_at: new Date().toISOString(),
       updated_by: user.id,
     })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
 
   if (error) return { error: error.message };
+  // RLS не даёт ошибку, а молча не меняет строку: без прав — честный отказ.
+  if (!changed?.length) return { error: NO_ROW_CHANGED };
 
   revalidateCategories();
   return { error: null };
@@ -338,16 +343,19 @@ export async function archiveFinanceCategory(
     return { error: "Введите название точно как у статьи" };
   }
 
-  const { error } = await asLooseDb(supabase)
-    .from("finance_categories")
+  const { data: changed, error } = await asLooseDb(supabase)
+    .from<Array<{ id: string }>>("finance_categories")
     .update({
       archived_at: new Date().toISOString(),
       archived_by: user.id,
       updated_at: new Date().toISOString(),
       updated_by: user.id,
     })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
   if (error) return { error: error.message };
+  // RLS не даёт ошибку, а молча не меняет строку: без прав — честный отказ.
+  if (!changed?.length) return { error: NO_ROW_CHANGED };
 
   revalidateCategories();
   return { error: null };
@@ -375,16 +383,19 @@ export async function restoreFinanceCategory(
     };
   }
 
-  const { error } = await asLooseDb(supabase)
-    .from("finance_categories")
+  const { data: changed, error } = await asLooseDb(supabase)
+    .from<Array<{ id: string }>>("finance_categories")
     .update({
       archived_at: null,
       archived_by: null,
       updated_at: new Date().toISOString(),
       updated_by: user.id,
     })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
   if (error) return { error: error.message };
+  // RLS не даёт ошибку, а молча не меняет строку: без прав — честный отказ.
+  if (!changed?.length) return { error: NO_ROW_CHANGED };
   revalidateCategories();
   return { error: null };
 }
@@ -416,11 +427,14 @@ export async function deleteFinanceCategory(
     return { error: "Введите название точно как у статьи" };
   }
 
-  const { error } = await supabase
+  const { data: changed, error } = await supabase
     .from("finance_categories")
     .delete()
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
   if (error) return { error: error.message };
+  // RLS не даёт ошибку, а молча не меняет строку: без прав — честный отказ.
+  if (!changed?.length) return { error: NO_ROW_CHANGED };
   revalidateCategories();
   return { error: null };
 }
@@ -565,11 +579,14 @@ export async function updateFinanceCategoryGroup(
     }
   }
 
-  const { error } = await supabase
+  const { data: changed, error } = await supabase
     .from("finance_category_groups")
     .update(next)
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
   if (error) return { error: error.message };
+  // RLS не даёт ошибку, а молча не меняет строку: без прав — честный отказ.
+  if (!changed?.length) return { error: NO_ROW_CHANGED };
 
   const changes: Array<{ field: string; old: unknown; new: unknown }> = [];
   if (next.name !== undefined && next.name !== group.name) {
@@ -612,11 +629,14 @@ export async function deleteFinanceCategoryGroup(
     return { error: "Группу «Фонд оплаты труда» нельзя удалить: в неё попадают статьи должностей" };
   }
 
-  const { error } = await supabase
+  const { data: changed, error } = await supabase
     .from("finance_category_groups")
     .delete()
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
   if (error) return { error: error.message };
+  // RLS не даёт ошибку, а молча не меняет строку: без прав — честный отказ.
+  if (!changed?.length) return { error: NO_ROW_CHANGED };
   await writeAuditEvent({
     accountId: group.account_id,
     userId: user.id,

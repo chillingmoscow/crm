@@ -13,6 +13,8 @@ import type {
   CounterpartyRow,
 } from "@/types/finance";
 
+const NO_ROW_CHANGED = "Не удалось сохранить: нет прав или запись уже удалена. Обновите страницу";
+
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
 /** Контрагенты видны в списке, карточке и в форме операции. */
@@ -183,25 +185,27 @@ export async function updateCounterparty(
     .select("inn, kpp, ogrn, email")
     .eq("id", id)
     .maybeSingle();
-  const changed: Partial<CounterpartyFormInput> = { name: clean.name };
+  const toValidate: Partial<CounterpartyFormInput> = { name: clean.name };
   for (const key of ["inn", "kpp", "ogrn", "email"] as const) {
     if (clean[key] !== undefined && (clean[key] ?? null) !== (current?.[key] ?? null)) {
-      changed[key] = clean[key];
+      toValidate[key] = clean[key];
     }
   }
-  const invalid = await validateCounterparty(supabase, changed, id);
+  const invalid = await validateCounterparty(supabase, toValidate, id);
   if (invalid) return { error: invalid };
 
-  const { error } = await supabase
+  const { data: changed, error } = await supabase
     .from("counterparties")
     .update({
       ...clean,
       updated_at: new Date().toISOString(),
       updated_by: user.id,
     })
-    .eq("id", id);
-
+    .eq("id", id)
+    .select("id");
   if (error) return { error: error.message };
+  // RLS не даёт ошибку, а молча не меняет строку: без прав — честный отказ.
+  if (!changed?.length) return { error: NO_ROW_CHANGED };
 
   revalidateCounterparties(id);
   return { error: null };
@@ -308,15 +312,18 @@ export async function archiveCounterparty(
     return { error: "Введите название точно как у контрагента" };
   }
 
-  const { error: updateErr } = await supabase
+  const { data: changed, error: updateErr } = await supabase
     .from("counterparties")
     .update({
       deleted_at: new Date().toISOString(),
       deleted_by: user.id,
       is_active:  false,
     })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
   if (updateErr) return { error: updateErr.message };
+  // RLS не даёт ошибку, а молча не меняет строку: без прав — честный отказ.
+  if (!changed?.length) return { error: NO_ROW_CHANGED };
 
   revalidateCounterparties(id);
   return { error: null };
@@ -355,11 +362,14 @@ export async function restoreCounterparty(
     }
   }
 
-  const { error } = await supabase
+  const { data: changed, error } = await supabase
     .from("counterparties")
     .update({ deleted_at: null, deleted_by: null, is_active: true })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
   if (error) return { error: error.message };
+  // RLS не даёт ошибку, а молча не меняет строку: без прав — честный отказ.
+  if (!changed?.length) return { error: NO_ROW_CHANGED };
 
   revalidateCounterparties(id);
   return { error: null };
@@ -390,8 +400,11 @@ export async function deleteCounterparty(
     return { error: "Введите название точно как у контрагента" };
   }
 
-  const { error } = await supabase.from("counterparties").delete().eq("id", id);
+  const { data: changed, error } = await supabase.from("counterparties").delete().eq("id", id)
+    .select("id");
   if (error) return { error: error.message };
+  // RLS не даёт ошибку, а молча не меняет строку: без прав — честный отказ.
+  if (!changed?.length) return { error: NO_ROW_CHANGED };
 
   revalidateCounterparties();
   return { error: null };
@@ -430,7 +443,7 @@ export async function syncCounterpartyFromDadata(
   }
   if (!party) return { error: "По этому ИНН ничего не найдено в ЕГРЮЛ" };
 
-  const { error: updateErr } = await supabase
+  const { data: changed, error: updateErr } = await supabase
     .from("counterparties")
     .update({
       name:             party.name,
@@ -442,8 +455,11 @@ export async function syncCounterpartyFromDadata(
       updated_at:       new Date().toISOString(),
       updated_by:       user.id,
     })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
   if (updateErr) return { error: updateErr.message };
+  // RLS не даёт ошибку, а молча не меняет строку: без прав — честный отказ.
+  if (!changed?.length) return { error: NO_ROW_CHANGED };
 
   revalidateCounterparties(id);
   return { error: null };
@@ -556,11 +572,14 @@ export async function updateCounterpartyGroup(
     }
   }
 
-  const { error } = await supabase
+  const { data: changed, error } = await supabase
     .from("counterparty_groups")
     .update(next)
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
   if (error) return { error: error.message };
+  // RLS не даёт ошибку, а молча не меняет строку: без прав — честный отказ.
+  if (!changed?.length) return { error: NO_ROW_CHANGED };
   if (next.name !== undefined && next.name !== group.name) {
     await writeAuditEvent({
       accountId: group.account_id,
@@ -592,11 +611,14 @@ export async function deleteCounterpartyGroup(
     .maybeSingle();
   if (!group) return { error: "Группа не найдена" };
 
-  const { error } = await supabase
+  const { data: changed, error } = await supabase
     .from("counterparty_groups")
     .delete()
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
   if (error) return { error: error.message };
+  // RLS не даёт ошибку, а молча не меняет строку: без прав — честный отказ.
+  if (!changed?.length) return { error: NO_ROW_CHANGED };
   await writeAuditEvent({
     accountId: group.account_id,
     userId: user.id,

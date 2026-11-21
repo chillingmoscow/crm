@@ -1,67 +1,27 @@
 "use client";
 
-import { hasCountedResults } from "@/lib/inventory/act-status";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState, useTransition } from "react";
-import {
-  ClipboardCheck,
-  FileX2,
-  Inbox,
-  Loader2,
-  RefreshCw,
-  Search as SearchIcon,
-  ShieldCheck,
-  Trash2,
-  UserPlus,
-  X,
-} from "lucide-react";
+import { useMemo, useState, useTransition } from "react";
+import { ClipboardCheck, FileX2, Inbox, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { TableRowMenu } from "@/components/shared/table";
-import { InventoryStatusBadge } from "@/components/shared/inventory-status-badge";
-import {
-  getAssigneeLockReason,
-  getDeleteLockReason,
-  getReviewerLockReason,
-} from "@/lib/inventory/act-status";
-import {
-  formatSignedMoney,
-  signedAmountClass,
-  type AmountRoundingScale,
-} from "@/lib/format/amount";
-import { cn } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { TableRowMenu, type TableRowMenuAction } from "@/components/shared/table";
+import { getDeleteLockReason } from "@/lib/inventory/act-status";
 import { deleteInventoryDocument } from "@/app/(dashboard)/inventory/_actions/documents";
 import type { DocumentListRow } from "@/lib/inventory/list-documents-shared";
 
-import {
-  AssigneeSelect,
-  PersonChip,
-  inventoryPersonHref,
-  type AssigneeOption,
-} from "./assignee-select";
-import { ReviewerSelect } from "./reviewer-select";
-import { formatDate, getDocHref } from "./documents-table-utils";
+import { PersonChip, inventoryPersonHref, type AssigneeOption } from "./assignee-select";
+import { getDocHref } from "./documents-table-utils";
 
 /**
  * Ячейка исполнителя/проверяющего для пользователя без права назначать.
@@ -83,23 +43,23 @@ export function ReadonlyPersonCell({
   const member = userId ? staff.find((m) => m.id === userId) ?? null : null;
   if (!member) return <span className="text-sm text-muted-foreground">—</span>;
   if (locked && canViewStaff) {
-    return (
-      <div data-row-interactive onClick={(e) => e.stopPropagation()}>
-        <PersonChip person={member} href={inventoryPersonHref(member.id)} />
-      </div>
-    );
+    return <PersonChip person={member} href={inventoryPersonHref(member.id)} />;
   }
   return <PersonChip person={member} />;
 }
 
+/** Меню выбора сотрудника в панели массовых действий. */
 export function BulkAssignMenu({
   label,
+  clearLabel,
   icon,
   staff,
   disabled,
   onPick,
 }: {
   label: string;
+  /** Первый пункт: снять назначение у всех выбранных актов. */
+  clearLabel: string;
   icon?: React.ReactNode;
   staff: AssigneeOption[];
   disabled?: boolean;
@@ -108,15 +68,14 @@ export function BulkAssignMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button type="button" variant="outline" size="sm" className="h-8 text-xs" disabled={disabled}>
+        <Button type="button" variant="outline" size="sm" disabled={disabled}>
           {icon}
           {label}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="max-h-72 w-56 overflow-y-auto">
-        <DropdownMenuLabel>{label}</DropdownMenuLabel>
         <DropdownMenuItem onClick={() => onPick(null)} className="text-muted-foreground">
-          Снять
+          {clearLabel}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         {staff.map((member) => (
@@ -129,7 +88,60 @@ export function BulkAssignMenu({
   );
 }
 
-export function DesktopRowMenu({
+/** Подтверждение удаления одного акта: общий диалог, ошибка остаётся в нём. */
+export function DeleteActDialog({
+  doc,
+  open,
+  onOpenChange,
+  onDeleted,
+}: {
+  doc: Pick<DocumentListRow, "id" | "document_number">;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDeleted: () => void;
+}) {
+  const [isDeleting, startDelete] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  const runDelete = () => {
+    setError(null);
+    startDelete(async () => {
+      try {
+        const result = await deleteInventoryDocument({ documentId: doc.id });
+        if (result.error) {
+          setError(result.error);
+          return;
+        }
+        toast.success(`Акт № ${doc.document_number} удалён`);
+        onOpenChange(false);
+        onDeleted();
+      } catch {
+        setError("Не удалось удалить акт. Попробуйте ещё раз.");
+      }
+    });
+  };
+
+  return (
+    <ConfirmDialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) setError(null);
+        onOpenChange(next);
+      }}
+      title={`Удалить акт № ${doc.document_number}?`}
+      description="Удалятся акт и все его позиции. Если акт пришёл из Quick Resto, он вернётся при следующей синхронизации: чтобы удалить его насовсем, удалите его и в Quick Resto."
+      confirmLabel="Удалить акт"
+      pendingLabel="Удаляем…"
+      destructive
+      busy={isDeleting}
+      error={error}
+      onConfirm={runDelete}
+    />
+  );
+}
+
+/** Меню «⋯» строки: открыть акт; удалить — только когда удаление доступно. */
+export function DocumentRowMenu({
   doc,
   canManage,
   canViewResults,
@@ -140,30 +152,25 @@ export function DesktopRowMenu({
 }) {
   const router = useRouter();
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-  const [isDeleting, startDelete] = useTransition();
   const deleteLockReason = getDeleteLockReason({
     status: doc.status,
     resultsSnapshotAt: doc.results_snapshot_at,
   });
 
   const actions = useMemo(() => {
-    const items: { label: string; icon: React.ReactNode; onSelect: () => void; destructive?: boolean; separatorBefore?: boolean }[] = [];
-    // После объединения экранов акта табами «Заполнение/Итоги» в shared
-    // layout — переключение через UI акта, поэтому в row-menu один
-    // пункт «Открыть» по умолчанию-табу из getDocHref. getDocHref сам
-    // учитывает canViewResults, чтобы fill-only пользователей не уносило
-    // на /results, куда у них нет доступа (Codex P1 #396).
-    items.push({
-      label: "Открыть",
-      icon: <ClipboardCheck className="h-4 w-4" />,
-      onSelect: () => router.push(getDocHref(doc, canViewResults)),
-    });
+    const items: TableRowMenuAction[] = [
+      {
+        label: "Открыть акт",
+        icon: <ClipboardCheck className="h-4 w-4" />,
+        onSelect: () => router.push(getDocHref(doc, canViewResults)),
+      },
+    ];
     // Проведённый акт и акт с зафиксированными итогами удалить нельзя —
     // серверный экшен всё равно откажет. Пункт меню, который заведомо
     // закончится ошибкой, не показываем.
     if (canManage && deleteLockReason === null) {
       items.push({
-        label: "Удалить",
+        label: "Удалить акт",
         icon: <Trash2 className="h-4 w-4" />,
         destructive: true,
         separatorBefore: true,
@@ -173,358 +180,64 @@ export function DesktopRowMenu({
     return items;
   }, [doc, router, canManage, canViewResults, deleteLockReason]);
 
-  const runDelete = () => {
-    startDelete(async () => {
-      try {
-        const result = await deleteInventoryDocument({ documentId: doc.id });
-        if (result.error) {
-          toast.error(result.error);
-          return;
-        }
-        toast.success(`Акт № ${doc.document_number} удалён`);
-        setConfirmDeleteOpen(false);
-        router.refresh();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Не удалось удалить акт");
-      }
-    });
-  };
-
   return (
-    <div data-row-interactive onClick={(e) => e.stopPropagation()}>
+    <>
       <TableRowMenu actions={actions} />
-      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Удалить акт № {doc.document_number}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Это удалит акт и все его позиции. Если акт пришёл из Quick Resto,
-              он может вернуться при следующей синхронизации.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Отмена</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={isDeleting}
-              onClick={(e) => {
-                e.preventDefault();
-                runDelete();
-              }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-              Удалить
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+      <DeleteActDialog
+        doc={doc}
+        open={confirmDeleteOpen}
+        onOpenChange={setConfirmDeleteOpen}
+        onDeleted={() => router.refresh()}
+      />
+    </>
   );
 }
 
-export function EmptyTableBody({
+/** Пустой список: ничего не найдено по условиям или актов ещё нет. */
+export function DocumentsEmptyState({
   canSync,
   hasActive,
+  syncing,
   onClearAll,
   onSync,
 }: {
   canSync: boolean;
   hasActive: boolean;
+  syncing: boolean;
   onClearAll: () => void;
   onSync: () => void;
 }) {
   if (hasActive) {
     return (
-      <div className="p-4">
-        <EmptyState
-          icon={FileX2}
-          title="Ничего не найдено"
-          description="Измените фильтры, расширьте период или очистите запрос"
-          action={
-            <Button variant="outline" onClick={onClearAll}>
-              <X />
-              Очистить фильтры
-            </Button>
-          }
-        />
-      </div>
+      <EmptyState
+        icon={FileX2}
+        title="Актов не найдено"
+        description="Измените условия поиска или сбросьте фильтры"
+        action={
+          <Button variant="outline" onClick={onClearAll}>
+            Сбросить поиск и фильтры
+          </Button>
+        }
+      />
     );
   }
   return (
-    <div className="p-4">
-      <EmptyState
-        icon={Inbox}
-        title="Актов инвентаризации пока нет"
-        description="Создайте акт в Quick Resto и запустите синхронизацию, чтобы увидеть его здесь."
-        action={
-          canSync ? (
-            <Button variant="outline" onClick={onSync}>
-              <RefreshCw />
-              Синхронизировать QR
-            </Button>
-          ) : null
-        }
-      />
-    </div>
-  );
-}
-
-export function MobileCard({
-  doc,
-  staff,
-  canManage,
-  canViewResults,
-  canViewStaff,
-  amountRoundingScale,
-  searchActive,
-}: {
-  doc: DocumentListRow;
-  staff: AssigneeOption[];
-  canManage: boolean;
-  canViewResults: boolean;
-  canViewStaff: boolean;
-  amountRoundingScale: AmountRoundingScale;
-  searchActive: boolean;
-}) {
-  const router = useRouter();
-  const [assignSheetOpen, setAssignSheetOpen] = useState(false);
-  const [reviewerSheetOpen, setReviewerSheetOpen] = useState(false);
-  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-  const [isDeleting, startDelete] = useTransition();
-  const deleteLockReason = getDeleteLockReason({
-    status: doc.status,
-    resultsSnapshotAt: doc.results_snapshot_at,
-  });
-  // Подавляем «click-through» навигацию после закрытия меню действий: на тач-
-  // устройствах тап по пункту меню закрывает его, и «призрачный» click падает
-  // на кликабельную карточку → она уводила в акт вместо открытия панели.
-  const lastMenuCloseRef = useRef(0);
-  const href = getDocHref(doc, canViewResults);
-  const assigneeName = staff.find((m) => m.id === doc.assigned_to)?.name;
-  const reviewerName = staff.find((m) => m.id === doc.reviewer_id)?.name;
-
-  const runDelete = () => {
-    startDelete(async () => {
-      try {
-        const result = await deleteInventoryDocument({ documentId: doc.id });
-        if (result.error) {
-          toast.error(result.error);
-          return;
-        }
-        toast.success(`Акт № ${doc.document_number} удалён`);
-        setConfirmDeleteOpen(false);
-        router.refresh();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Не удалось удалить акт");
+    <EmptyState
+      icon={Inbox}
+      title="Актов инвентаризации пока нет"
+      description={
+        canSync
+          ? "Создайте акт в Quick Resto и синхронизируйте список"
+          : "Акты появятся после синхронизации с Quick Resto"
       }
-    });
-  };
-
-  const rowActions = useMemo(() => {
-    const items: { label: string; icon: React.ReactNode; onSelect: () => void; destructive?: boolean; separatorBefore?: boolean }[] = [];
-    items.push({
-      label: "Открыть",
-      icon: <ClipboardCheck className="h-4 w-4" />,
-      onSelect: () => router.push(getDocHref(doc, canViewResults)),
-    });
-    if (canManage) {
-      const canEditAssignee = getAssigneeLockReason(doc.status) === null;
-      const canEditReviewer = getReviewerLockReason(doc.status) === null;
-      if (canEditAssignee) {
-        items.push({
-          label: "Изменить исполнителя",
-          icon: <UserPlus className="h-4 w-4" />,
-          onSelect: () => setAssignSheetOpen(true),
-          separatorBefore: true,
-        });
+      action={
+        canSync ? (
+          <Button onClick={onSync} disabled={syncing}>
+            <RefreshCw className={syncing ? "animate-spin" : undefined} />
+            {syncing ? "Синхронизируем…" : "Синхронизировать"}
+          </Button>
+        ) : null
       }
-      if (canEditReviewer) {
-        items.push({
-          label: "Изменить проверяющего",
-          icon: <ShieldCheck className="h-4 w-4" />,
-          onSelect: () => setReviewerSheetOpen(true),
-          separatorBefore: !canEditAssignee,
-        });
-      }
-      // См. мобильное меню: удаление недоступно у проведённых актов и у
-      // актов с зафиксированными итогами.
-      if (deleteLockReason === null) {
-        items.push({
-          label: "Удалить",
-          icon: <Trash2 className="h-4 w-4" />,
-          destructive: true,
-          separatorBefore: !canEditAssignee && !canEditReviewer,
-          onSelect: () => setConfirmDeleteOpen(true),
-        });
-      }
-    }
-    return items;
-  }, [doc, router, canManage, canViewResults, deleteLockReason]);
-
-  return (
-    <div
-      className="relative rounded-lg border bg-card p-3"
-      onClick={(e) => {
-        const target = e.target as HTMLElement;
-        if (target.closest("[data-row-interactive]")) return;
-        // Подавляем навигацию-«призрак» сразу после закрытия меню (тач).
-        if (Date.now() - lastMenuCloseRef.current < 500) return;
-        router.push(href);
-      }}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          {/* Строка 1: № + дата + статус */}
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <Link href={href} className="text-sm font-medium hover:underline" data-row-interactive>
-              № {doc.document_number}
-            </Link>
-            <span className="text-xs text-muted-foreground">{formatDate(doc.invoice_date)}</span>
-            <InventoryStatusBadge status={doc.status} className="text-[10px]" />
-          </div>
-
-          {/* Строка 2: комментарий (если есть) */}
-          {doc.comment ? (
-            <div className="mt-1 truncate text-xs text-muted-foreground">{doc.comment}</div>
-          ) : null}
-
-          {searchActive && doc.matched_ingredients && doc.matched_ingredients.length > 0 ? (
-            <div className="mt-2 flex flex-wrap gap-1">
-              {doc.matched_ingredients.map((name) => (
-                <span key={name} className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-800">
-                  <SearchIcon className="h-2.5 w-2.5" />
-                  {name}
-                </span>
-              ))}
-            </div>
-          ) : null}
-
-          {/* Строка 3: склад + результат (нетто, как на десктопе) */}
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-            {doc.store_title ? (
-              <span className="text-muted-foreground">{doc.store_title}</span>
-            ) : null}
-            {(() => {
-              if (
-                !doc.results_has_line_amounts ||
-                !hasCountedResults(doc.status) ||
-                doc.totals_unavailable
-              ) {
-                return <span className="text-muted-foreground">—</span>;
-              }
-              const net = (doc.surplus_sum ?? 0) - (doc.shortfall_sum ?? 0);
-              return (
-                <span
-                  className={cn(
-                    "font-medium tabular-nums",
-              signedAmountClass(net),
-                  )}
-                >
-                  {formatSignedMoney(net, "RUB", amountRoundingScale)}
-                </span>
-              );
-            })()}
-          </div>
-
-          {/* Строка 4: исполнитель */}
-          <div className="mt-1 text-xs text-muted-foreground">
-            {assigneeName ? <>Исполнитель: {assigneeName}</> : "Исполнитель не назначен"}
-          </div>
-
-          {/* Строка 5: проверяющий (если назначен) */}
-          {reviewerName ? (
-            <div className="mt-0.5 text-xs text-muted-foreground">Проверяющий: {reviewerName}</div>
-          ) : null}
-        </div>
-        <div data-row-interactive>
-          <TableRowMenu
-            actions={rowActions}
-            onOpenChange={(open) => {
-              if (!open) lastMenuCloseRef.current = Date.now();
-            }}
-          />
-        </div>
-      </div>
-
-      {assignSheetOpen ? (
-        <div
-          data-row-interactive
-          className="absolute inset-x-0 bottom-0 z-10 rounded-b-lg border-t bg-background p-3 shadow-lg"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-sm font-medium">Назначить</span>
-            <button
-              type="button"
-              onClick={() => setAssignSheetOpen(false)}
-              className="text-muted-foreground hover:text-foreground"
-              aria-label="Закрыть"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-          <AssigneeSelect
-            documentId={doc.id}
-            assignedTo={doc.assigned_to}
-            staff={staff}
-            lockReason={getAssigneeLockReason(doc.status)}
-            linkToPerson={canViewStaff}
-          />
-        </div>
-      ) : null}
-
-      {reviewerSheetOpen ? (
-        <div
-          data-row-interactive
-          className="absolute inset-x-0 bottom-0 z-10 rounded-b-lg border-t bg-background p-3 shadow-lg"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-sm font-medium">Проверяющий</span>
-            <button
-              type="button"
-              onClick={() => setReviewerSheetOpen(false)}
-              className="text-muted-foreground hover:text-foreground"
-              aria-label="Закрыть"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-          <ReviewerSelect
-            documentId={doc.id}
-            reviewerId={doc.reviewer_id}
-            staff={staff}
-            lockReason={getReviewerLockReason(doc.status)}
-            linkToPerson={canViewStaff}
-          />
-        </div>
-      ) : null}
-
-      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Удалить акт № {doc.document_number}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Это удалит акт и все его позиции. Если акт пришёл из Quick Resto,
-              он может вернуться при следующей синхронизации.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Отмена</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={isDeleting}
-              onClick={(e) => {
-                e.preventDefault();
-                runDelete();
-              }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-              Удалить
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+    />
   );
 }

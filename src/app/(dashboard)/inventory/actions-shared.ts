@@ -1449,7 +1449,21 @@ export async function writeInventoryResultEvent(input: {
     payload,
     created_by: input.userId,
   });
-  await writeInventoryAudit(input, payload);
+  await writeInventoryAudit(input, payload, {
+    message: input.message,
+    itemIds: [input.documentItemId ?? null, ...payloadItemIds(payload)],
+  });
+}
+
+/** id строк акта, которых касается событие: одиночный itemId и пачки. */
+function payloadItemIds(payload: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  if (typeof payload.itemId === "string") out.push(payload.itemId);
+  for (const key of ["flaggedItemIds", "itemIds"]) {
+    const value = payload[key];
+    if (Array.isArray(value)) out.push(...value.filter((v): v is string => typeof v === "string"));
+  }
+  return out;
 }
 
 /**
@@ -1490,31 +1504,63 @@ export async function writeInventoryResultEvents(input: {
   await writeInventoryAudit(
     input,
     input.auditPayload ?? { bulk: true, count: input.events.length },
+    {
+      message: input.events[0]?.message,
+      itemIds: input.events.map((event) => event.documentItemId ?? null),
+    },
   );
 }
 
-/** Строка общего журнала про акт. Раньше — rpc('log_audit') клиентом
- *  пользователя; прямой вызов закрыт миграцией 362, поэтому пишем
- *  серверно, с заведением активной сессии, как делала log_audit. */
+/** Строка общего журнала про акт: вкладка «Журнал» карточки акта читает
+ *  именно её (общий журнал событий, EntityAuditTab).
+ *
+ *  - заведение — заведение акта, а не активной сессии: проверяющий из
+ *    другого заведения иначе записывал событие не туда;
+ *  - в details кладём текст события (`message`) и названия позиций
+ *    (`item_names`, до пяти, и `item_count`): по одному коду события не
+ *    понять, какую строку отметили или исключили. */
 async function writeInventoryAudit(
   input: {
-    supabase: Awaited<ReturnType<typeof createClient>>;
+    admin: LooseDb;
     accountId: string;
     userId: string;
     documentId: string;
     eventType: string;
   },
   details: Record<string, unknown>,
+  extra: { message?: string; itemIds?: Array<string | null> } = {},
 ) {
-  const { data: venueId } = await input.supabase.rpc("get_active_venue_id");
+  const itemIds = Array.from(
+    new Set((extra.itemIds ?? []).filter((id): id is string => Boolean(id))),
+  );
+  const [{ data: document }, { data: items }] = await Promise.all([
+    input.admin
+      .from<{ venue_id: string | null }>("documents")
+      .select("venue_id")
+      .eq("account_id", input.accountId)
+      .eq("id", input.documentId)
+      .maybeSingle(),
+    itemIds.length > 0
+      ? input.admin
+          .from<Array<{ product_name: string }>>("document_items")
+          .select("product_name")
+          .eq("account_id", input.accountId)
+          .in("id", itemIds.slice(0, 50))
+      : Promise.resolve({ data: [] as Array<{ product_name: string }> }),
+  ]);
+  const names = (items ?? []).map((item) => item.product_name).filter(Boolean);
   await writeAuditEvent({
     accountId: input.accountId,
-    venueId: (venueId as string | null) ?? null,
+    venueId: document?.venue_id ?? null,
     userId: input.userId,
     actionCode: `inventory.${input.eventType}`,
     entityType: "inventory_document",
     entityId: input.documentId,
-    details,
+    details: {
+      ...details,
+      ...(extra.message ? { message: extra.message } : {}),
+      ...(names.length > 0 ? { item_names: names.slice(0, 5), item_count: itemIds.length } : {}),
+    },
   });
 }
 

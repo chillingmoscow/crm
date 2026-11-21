@@ -239,19 +239,21 @@ export function getAssigneeLockReason(status: string): string | null {
 
 /**
  * Какой статус выставить акту при (пере)назначении исполнителя.
- * - Снятие исполнителя (assignedTo == null) → "synced" (акт без ответственного).
- * - Назначение на акте «На пересчёте» → СОХРАНЯЕМ "recount_pending": смена
- *   исполнителя во время пересчёта не должна сбрасывать рамку пересчёта
- *   (баннер, подсветка строк, кнопка «Завершить пересчёт»). Новый исполнитель
- *   продолжает именно пересчёт.
+ * - Акт «На пересчёте» СОХРАНЯЕТ "recount_pending" при любой смене
+ *   исполнителя, в том числе при снятии: рамка пересчёта (только отмеченные
+ *   строки, подсветка, «Завершить пересчёт») не должна сбрасываться. Раньше
+ *   снятие переводило акт в "synced", а следующее назначение — в "assigned":
+ *   форма открывала весь акт с предзаполненными значениями, и «Завершить»
+ *   проходило одним кликом без пересчёта — обход анти-подгонки.
+ * - Снятие исполнителя на остальных статусах → "synced".
  * - Любое другое назначение → "assigned" (обычный старт заполнения).
  *
  * Вызывать только когда менять исполнителя разрешено (getAssigneeLockReason
  * вернул null) — статусы вроде ready_for_review сюда не доходят.
  */
 export function nextStatusAfterAssign(currentStatus: string, assignedTo: string | null): string {
-  if (!assignedTo) return "synced";
-  return currentStatus === "recount_pending" ? "recount_pending" : "assigned";
+  if (currentStatus === "recount_pending") return "recount_pending";
+  return assignedTo ? "assigned" : "synced";
 }
 
 /**
@@ -285,4 +287,30 @@ export function getDeleteLockReason(input: {
 export function getReviewerLockReason(status: string): string | null {
   if (status === "processed") return "Акт проведён — проверяющего менять нельзя";
   return null;
+}
+
+/**
+ * Кто может ЗАПОЛНЯТЬ форму акта (вводить факт и нажимать «Завершить»).
+ * Одна проверка на форму (`[id]/page.tsx`) и на серверные экшены
+ * (`markInventoryDraftStarted`, `submitInventoryDocumentDraft`), чтобы поле
+ * не было открыто тому, кому сервер потом откажет.
+ *
+ * - управляющий актами (`inventory.manage_documents`);
+ * - назначенный исполнитель с правом «Заполнять назначенные акты»;
+ * - проверяющий этого акта (с правом заполнения или пересчёта): исполнитель
+ *   может уехать, посчитает другой человек, а данные внесёт проверяющий.
+ */
+export function canFillInventoryAct(input: {
+  permissions: readonly string[];
+  userId: string;
+  assignedTo: string | null;
+  reviewerId: string | null;
+}): boolean {
+  const has = (code: string) => input.permissions.includes(code);
+  if (has("inventory.manage_documents")) return true;
+  if (input.assignedTo === input.userId && has("inventory.fill_assigned_documents")) return true;
+  return (
+    input.reviewerId === input.userId &&
+    (has("inventory.fill_assigned_documents") || has("inventory.recount_documents"))
+  );
 }

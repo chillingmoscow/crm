@@ -199,7 +199,7 @@ export async function assignInventoryDocument(input: {
       .maybeSingle();
     if (beforeError) {
       console.error("[assignInventoryDocument] before query failed:", beforeError);
-      return { error: beforeError.message };
+      return { error: "Не удалось прочитать акт. Попробуйте ещё раз" };
     }
     if (!before) return { error: "Акт не найден" };
 
@@ -208,8 +208,11 @@ export async function assignInventoryDocument(input: {
     const assigneeLock = getAssigneeLockReason(before.status);
     if (assigneeLock) return { error: assigneeLock };
 
-    const { error } = await admin
-      .from("documents")
+    // Обновляем, только если статус не сменился с момента чтения: иначе
+    // переназначение во время сдачи акта откатывало «Готов к проверке» в
+    // «Назначен» (статус считается от прочитанного значения).
+    const { data: updatedRows, error } = await admin
+      .from<Array<{ id: string }>>("documents")
       .update({
         assigned_to: input.assignedTo,
         // Сохраняем recount_pending при смене исполнителя на пересчёте, иначе
@@ -217,11 +220,16 @@ export async function assignInventoryDocument(input: {
         status: nextStatusAfterAssign(before.status, input.assignedTo),
       })
       .eq("id", input.documentId)
-      .eq("account_id", ctx.accountId);
+      .eq("account_id", ctx.accountId)
+      .eq("status", before.status)
+      .select("id");
 
     if (error) {
       console.error("[assignInventoryDocument] update failed:", error);
-      return { error: error.message };
+      return { error: "Не удалось назначить исполнителя. Попробуйте ещё раз" };
+    }
+    if ((updatedRows ?? []).length === 0) {
+      return { error: "Акт только что изменили. Обновите страницу и повторите" };
     }
 
     // Notification назначенному, best-effort (не блокируем основной flow).
@@ -354,7 +362,9 @@ export async function bulkAssignInventoryDocuments(input: {
         .from("documents")
         .update({ reviewer_id: input.userId })
         .eq("account_id", ctx.accountId)
-        .in("id", eligibleIds);
+        .in("id", eligibleIds)
+        // Проведённый за это время акт не трогаем (замок проверяющего).
+        .neq("status", "processed");
       if (error) throw new Error(error.message);
     } else {
       // Исполнитель: статус зависит от текущего (на пересчёте — сохраняем
@@ -367,11 +377,17 @@ export async function bulkAssignInventoryDocuments(input: {
         byStatus.set(next, arr);
       }
       for (const [next, idsForStatus] of byStatus) {
+        // Обновляем только акты, чей статус всё ещё допускает смену
+        // исполнителя и даёт тот же целевой статус: акт, который успели сдать
+        // на проверку между чтением и записью, не откатываем.
+        const sourceStatuses =
+          next === "recount_pending" ? ["recount_pending"] : ["synced", "assigned", "in_progress"];
         const { error } = await admin
           .from("documents")
           .update({ assigned_to: input.userId, status: next })
           .eq("account_id", ctx.accountId)
-          .in("id", idsForStatus);
+          .in("id", idsForStatus)
+          .in("status", sourceStatuses);
         if (error) throw new Error(error.message);
       }
     }

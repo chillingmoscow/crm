@@ -7,8 +7,10 @@ import {
   getCachedUser,
 } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { ProfileSection } from "@/components/shared/profile-section";
+import { formatDayMonth, formatDayMonthTime } from "@/lib/format/date";
 
-import { getCachedStoreTitle } from "../layout";
+import { getCachedStoreTitle, getCachedVenueTimezone } from "../layout";
 import { ActCommentEditor } from "../_components/act-comment-editor";
 
 type DocumentOverviewRow = {
@@ -22,21 +24,13 @@ type DocumentOverviewRow = {
   assigned_to: string | null;
   reviewer_id: string | null;
   store_id: string | null;
+  venue_id: string | null;
   archived_at: string | null;
 };
 
-function Field({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-sm">{value ?? "—"}</span>
-    </div>
-  );
-}
-
 /**
- * Таб «Основное» страницы акта. Базовая сводка + общий комментарий к акту
- * (локальное поле documents.note, не из Quick Resto). Доступ к самой странице
+ * Вкладка «Основное» карточки акта: сводка в режиме чтения и комментарий
+ * команды с правкой на месте (сохраняет `SaveBar`). Доступ к самой странице
  * уже отфильтрован layout'ом; здесь только право РЕДАКТИРОВАТЬ комментарий.
  */
 export default async function InventoryDocumentOverviewPage({
@@ -59,46 +53,58 @@ export default async function InventoryDocumentOverviewPage({
   const { data: document } = await admin
     .from<DocumentOverviewRow>("documents")
     .select(
-      "id, document_number, status, note, comment, invoice_date, last_qr_update_date, assigned_to, reviewer_id, store_id, archived_at",
+      "id, document_number, status, note, comment, invoice_date, last_qr_update_date, assigned_to, reviewer_id, store_id, venue_id, archived_at",
     )
     .eq("id", id)
     .eq("account_id", accountId as string)
     .maybeSingle();
   if (!document) notFound();
 
-  const storeTitle = document.store_id ? await getCachedStoreTitle(document.store_id) : null;
+  const [storeTitle, timeZone] = await Promise.all([
+    document.store_id ? getCachedStoreTitle(document.store_id) : Promise.resolve(null),
+    document.venue_id ? getCachedVenueTimezone(document.venue_id) : Promise.resolve(null),
+  ]);
   const canEdit =
     !document.archived_at &&
     (Boolean(canManage) ||
       document.assigned_to === user.id ||
       (document.reviewer_id === user.id && Boolean(canRecount)));
 
-  const formatDate = (value: string | null) =>
-    value ? new Date(value).toLocaleDateString("ru-RU") : "—";
+  const now = new Date();
+  const qrComment = document.comment?.trim() ?? "";
 
   return (
-    <div className="mx-auto w-full max-w-[920px] px-3 pb-10 md:px-6">
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-        <Field label="Склад" value={storeTitle} />
-        <Field label="Дата акта" value={formatDate(document.invoice_date)} />
-        <Field label="Обновлён в Quick Resto" value={formatDate(document.last_qr_update_date)} />
-      </div>
+    <div className="mx-auto flex w-full min-w-0 max-w-[720px] flex-col gap-6">
+      <ProfileSection title="Сведения">
+        <dl className="grid gap-4 sm:grid-cols-2">
+          <Item label="Склад" value={storeTitle} />
+          <Item label="Дата акта" value={formatDayMonth(document.invoice_date, now, timeZone ?? undefined)} />
+          <Item
+            label="Изменён в Quick Resto"
+            value={formatDayMonthTime(document.last_qr_update_date, now, timeZone ?? undefined)}
+          />
+          {qrComment ? (
+            <div className="flex flex-col gap-1 sm:col-span-2">
+              <dt className="text-[13px] text-muted-foreground">Комментарий из Quick Resto</dt>
+              <dd className="whitespace-pre-wrap text-sm">{qrComment}</dd>
+            </div>
+          ) : null}
+        </dl>
+      </ProfileSection>
 
-      {document.comment?.trim() ? (
-        <div className="mt-6">
-          <div className="mb-1 text-sm font-medium">Комментарий из Quick Resto</div>
-          <p className="whitespace-pre-wrap text-sm text-muted-foreground">{document.comment}</p>
-        </div>
-      ) : null}
-
-      <div className="mt-6">
-        <div className="mb-1 text-sm font-medium">Комментарий к акту</div>
-        <p className="mb-2 text-xs text-muted-foreground">
-          Локальная заметка для команды. Не уходит в Quick Resto и не
-          перезатирается синхронизацией.
-        </p>
+      <ProfileSection title="Для команды">
         <ActCommentEditor documentId={document.id} note={document.note} canEdit={canEdit} />
-      </div>
+      </ProfileSection>
+    </div>
+  );
+}
+
+/** Строка сводки в режиме чтения: подпись 13px серая, значение 14px, пустое — «Не указано». */
+function Item({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <dt className="text-[13px] text-muted-foreground">{label}</dt>
+      <dd className="text-sm">{value ?? <span className="text-muted-foreground">Не указано</span>}</dd>
     </div>
   );
 }

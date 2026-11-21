@@ -42,23 +42,33 @@ function dayMonthParts(date: Date, now: Date) {
 export function formatDayMonth(
   value: string | Date | null | undefined,
   now: Date = new Date(),
+  /** Часовой пояс заведения для момента времени (timestamptz): на сервере
+   *  без него день считается в поясе процесса и ночные события съезжают. */
+  timeZone?: string,
 ): string | null {
   const date = parse(value);
   if (!date) return null;
-  return new Intl.DateTimeFormat("ru-RU", dayMonthParts(date, now)).format(date);
+  return new Intl.DateTimeFormat("ru-RU", {
+    ...dayMonthParts(date, now),
+    ...(timeZone ? { timeZone } : {}),
+  }).format(date);
 }
 
 /** «16 ноября, 14:05». */
 export function formatDayMonthTime(
   value: string | Date | null | undefined,
   now: Date = new Date(),
+  /** Часовой пояс заведения — см. `formatDayMonth`. */
+  timeZone?: string,
 ): string | null {
   const date = parse(value);
   if (!date) return null;
-  const day = new Intl.DateTimeFormat("ru-RU", dayMonthParts(date, now)).format(date);
+  const zone = timeZone ? { timeZone } : {};
+  const day = new Intl.DateTimeFormat("ru-RU", { ...dayMonthParts(date, now), ...zone }).format(date);
   const time = new Intl.DateTimeFormat("ru-RU", {
     hour: "2-digit",
     minute: "2-digit",
+    ...zone,
   }).format(date);
   return `${day}, ${time}`;
 }

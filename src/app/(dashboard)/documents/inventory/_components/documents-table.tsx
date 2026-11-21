@@ -5,16 +5,14 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   type ColumnDef,
-  flexRender,
+  type RowSelectionState,
+  type SortingState,
   getCoreRowModel,
   useReactTable,
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
   AlertTriangle,
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
   Loader2,
   RefreshCw,
   Search as SearchIcon,
@@ -24,104 +22,77 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { PageFrame } from "@/components/shared/page-frame";
+import { DateRangeFilter, type DateRangeValue } from "@/components/shared/date-range-filter";
+import {
+  INVENTORY_STATUS_LABEL,
+  InventoryStatusBadge,
+} from "@/components/shared/inventory-status-badge";
+import {
+  DataTable,
+  ROW_MENU_COLUMN_SIZE,
+  TableBulkBar,
+  TableColumnManager,
+  TableConditions,
+  TableControls,
+  TableFilterChip,
+  TablePageHeader,
+  TablePagination,
+  TableSortPicker,
+  TableSplitButton,
+  useTableState,
+  type TableStateColumn,
+} from "@/components/shared/table";
 import { cn } from "@/lib/utils";
+import { formatDateCell } from "@/lib/format/date";
+import { countRu } from "@/lib/format/plural";
 import {
   formatSignedMoney,
   signedAmountClass,
   type AmountRoundingScale,
 } from "@/lib/format/amount";
-import { DateRangeFilter, type DateRangeValue } from "@/components/shared/date-range-filter";
-import { InventoryStatusBadge } from "@/components/shared/inventory-status-badge";
 import {
   getAssigneeLockReason,
   getDeleteLockReason,
   getReviewerLockReason,
   hasCountedResults,
 } from "@/lib/inventory/act-status";
-import {
-  ROW_MENU_COLUMN_SIZE,
-  TableBulkBar,
-  TableColumnManager,
-  TableControlPin,
-  TableControls,
-  TablePageHeader,
-  TablePagination,
-  TableSplitButton,
-  useTableState,
-  type ManagedTableColumn,
-  type TableStateColumn,
-  ResizableTableHead,
-  useMultiSort,
-} from "@/components/shared/table";
 import { bulkAssignInventoryDocuments } from "@/app/(dashboard)/inventory/_actions/assignment";
 import { bulkDeleteInventoryDocuments } from "@/app/(dashboard)/inventory/_actions/documents";
 import { syncQuickRestoInventory } from "@/app/(dashboard)/inventory/_actions/sync";
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
-
 import {
-  AssigneeSelect,
-  type AssigneeOption,
-} from "./assignee-select";
-import { ReviewerSelect } from "./reviewer-select";
-import {
-  DEFAULT_SORT,
+  DOCUMENT_STATUSES,
   type DocumentListRow,
   type DocumentSortMode,
-  type DocumentStatus,
-  isDefaultSort,
   type ListDocumentsFilters,
   type ListDocumentsResult,
   type RecountFilter,
+  RECOUNT_FILTER_LABEL,
 } from "@/lib/inventory/list-documents-shared";
+
+import { AssigneeSelect, type AssigneeOption } from "./assignee-select";
+import { ReviewerSelect } from "./reviewer-select";
 import {
-  COLUMN_TO_FIELD,
-  DOCUMENT_SORT_CODEC,
-  SORT_FIELD_LABEL,
-  formatDate,
+  SORTABLE_COLUMNS,
   getDocHref,
-  sortToDirection,
-  sortToField,
+  sortModesToSorting,
+  sortingToSortModes,
   toIsoDate,
   type StoreOption,
   type VenueOption,
 } from "./documents-table-utils";
 import {
   BulkAssignMenu,
-  DesktopRowMenu,
-  EmptyTableBody,
-  MobileCard,
+  DocumentRowMenu,
+  DocumentsEmptyState,
   ReadonlyPersonCell,
 } from "./documents-table-rows";
-import {
-  AssignedPicker,
-  PinDivider,
-  ReviewerPicker,
-  SortFieldPanel,
-  SortPinEditor,
-  StatusPicker,
-  StorePicker,
-  VenuePicker,
-  assigneePinLabel,
-  reviewerPinLabel,
-  statusPinLabel,
-  RecountPicker,
-  recountPinLabel,
-  storePinLabel,
-  venuePinLabel,
-} from "./documents-table-filters";
 
 export type { StoreOption, VenueOption } from "./documents-table-utils";
 
@@ -130,12 +101,66 @@ export type { StoreOption, VenueOption } from "./documents-table-utils";
 const SEARCH_DEBOUNCE_MS = 250;
 /** Окно склейки realtime-событий: синхронизация меняет акты пачкой. */
 const REALTIME_REFRESH_DELAY_MS = 400;
-const TABLE_ID = "documents.list";
+// v2: служебные столбцы (выбор, «⋯») больше не хранятся в настройках, а
+// ширины по умолчанию пересчитаны под общий каркас — старые сохранённые
+// ширины сжимали «Номер» до многоточия.
+const TABLE_ID = "documents.list.v2";
+
+/** Подписи столбцов: шапка, «Столбцы», сортировка, поля карточек на телефоне. */
+const LABELS: Record<string, string> = {
+  document_number: "Номер",
+  invoice_date: "Дата",
+  status: "Статус",
+  store_title: "Склад",
+  comment: "Комментарий",
+  results: "Итоги",
+  qr_results: "Сумма в Quick Resto",
+  assigned_to: "Исполнитель",
+  reviewer_id: "Проверяющий",
+};
+
+/**
+ * Столбцы данных: ширина по умолчанию и минимум не уже заголовка
+ * (design-system § «Ширина столбца не уже его заголовка»).
+ */
+const DATA_COLUMNS: Array<{ id: string; size: number; min: number; hidden?: boolean; fixed?: boolean }> = [
+  { id: "document_number", size: 150, min: 120, fixed: true },
+  { id: "invoice_date", size: 110, min: 96 },
+  { id: "status", size: 190, min: 120 },
+  { id: "store_title", size: 160, min: 96 },
+  { id: "comment", size: 200, min: 120 },
+  { id: "results", size: 130, min: 96 },
+  // По умолчанию скрыт: это другая метрика, чем «Итоги» (см. ячейку).
+  { id: "qr_results", size: 170, min: 150, hidden: true },
+  { id: "assigned_to", size: 180, min: 116 },
+  { id: "reviewer_id", size: 180, min: 116 },
+];
+
+const STATE_COLUMNS: TableStateColumn[] = DATA_COLUMNS.map((column) => ({
+  id: column.id,
+  defaultSize: column.size,
+  defaultVisible: !column.hidden,
+}));
+
+const NUMERIC_COLUMNS = ["results", "qr_results"];
+const SORTABLE = new Set(SORTABLE_COLUMNS);
+
+const STATUS_OPTIONS = DOCUMENT_STATUSES.map((status) => ({
+  value: status,
+  label: INVENTORY_STATUS_LABEL[status] ?? status,
+}));
+
+const RECOUNT_OPTIONS = (["only", "exclude"] as const).map((value) => ({
+  value,
+  label: RECOUNT_FILTER_LABEL[value],
+}));
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
 type Props = {
   initial: ListDocumentsResult;
+  /** Всего актов без условий — для счётчика «N из M» в шапке. */
+  unfilteredTotal: number;
   filtersFromUrl: ListDocumentsFilters;
   sortFromUrl: DocumentSortMode[];
   pageFromUrl: number;
@@ -158,6 +183,7 @@ type Props = {
 
 export function DocumentsTable({
   initial,
+  unfilteredTotal,
   filtersFromUrl,
   sortFromUrl,
   pageFromUrl,
@@ -179,21 +205,16 @@ export function DocumentsTable({
 
   const [search, setSearch] = useState(filtersFromUrl.q ?? "");
   const [searchOpen, setSearchOpen] = useState(Boolean(filtersFromUrl.q));
-  // По умолчанию пины-фильтры скрыты: кнопка «Показать фильтры» —
-  // нейтральная (не подсвечена). Раскрытие — явное действие.
+  // Ряд условий по умолчанию свёрнут, раскрывается кнопкой фильтров.
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [isSyncing, startSyncTransition] = useTransition();
-  // Клавиатурная навигация (J/K/Enter/// /F). Справка («?») — в топ-баре.
+  // Клавиатурная навигация (J/K/Enter, «/» — поиск, F — фильтры).
   const [focusedIndex, setFocusedIndex] = useState(-1);
-  // Bulk-выделение (только для менеджера): назначить исполнителя/проверяющего.
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  // Актуальное выделение для ячеек-чекбоксов, чтобы не тащить selectedIds в
-  // зависимости columnsConfig. Присваивание во время рендера безопасно:
-  // значение читается ниже по тому же рендеру.
-  const selectedIdsRef = useRef(selectedIds);
-  selectedIdsRef.current = selectedIds;
+  // Выделение (только для менеджера): массово назначить или удалить.
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [bulkPending, startBulk] = useTransition();
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
 
   // ── URL sync ───────────────────────────────────────────────
   const updateUrl = useCallback(
@@ -225,12 +246,9 @@ export function DocumentsTable({
   //
   // Внутри таймаута читаем URL не из closure (через updateUrl ⇄
   // searchParams), а из window.location.search. Иначе при гонке —
-  // пользователь печатает поиск + параллельно кликает пин фильтра —
+  // пользователь печатает поиск + параллельно кликает фильтр —
   // pending-таймаут писал бы старый снимок URL и затирал недавнее
   // изменение фильтра. См. Codex P1 #394.
-  // Включить updateUrl в deps нельзя: каждое изменение searchParams
-  // тогда сбросит debounce-таймер и поиск будет «дёргаться» при
-  // любой параллельной активности в URL.
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (search === (filtersFromUrl.q ?? "")) return;
@@ -278,18 +296,14 @@ export function DocumentsTable({
     };
   }, [accountId, router]);
 
-  // ── Keyboard shortcuts (Linear-style) ──────────────────────
-  // J/K — навигация по строкам, Enter — открыть, / — поиск, F — фильтры,
-  // ? — справка. Игнорируем, когда фокус в поле ввода (чтобы не перехватывать
-  // печать). Зависит от текущего набора строк (initial.rows).
+  // ── Keyboard shortcuts ─────────────────────────────────────
+  // J/K — навигация по строкам, Enter — открыть, / — поиск, F — фильтры.
+  // Не перехватываем клавиши, когда фокус на интерактивном контроле:
+  // нативные поля, contenteditable, кнопки, ссылки, Radix-меню и диалоги —
+  // иначе Enter «открыл бы акт» вместо активации контрола (Codex P1 #406).
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const el = document.activeElement as HTMLElement | null;
-      // Не перехватываем клавиши, когда фокус на интерактивном контроле:
-      // нативные поля ввода, contenteditable, А ТАКЖЕ Radix-триггеры/меню/
-      // диалоги (Select исполнителя, row-menu «⋯» — это <button>/role-узлы,
-      // не нативные select). Иначе Enter «открыл бы акт» вместо активации
-      // сфокусированного контрола (Codex P1 #406).
       const interactive =
         !!el &&
         (el.tagName === "INPUT" ||
@@ -327,33 +341,30 @@ export function DocumentsTable({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [initial.rows, focusedIndex, canViewResults, router]);
 
-  // Подскролл к выделенной строке.
+  // Подскролл к выделенной клавиатурой строке.
   useEffect(() => {
     if (focusedIndex < 0) return;
     document
-      .querySelector(`[data-doc-row-index="${focusedIndex}"]`)
-      ?.scrollIntoView({ block: "nearest" });
+      .querySelectorAll<HTMLTableRowElement>('table[aria-label="Акты инвентаризации"] tbody tr')
+      [focusedIndex]?.scrollIntoView({ block: "nearest" });
   }, [focusedIndex]);
 
   // ── Bulk-выделение ─────────────────────────────────────────
   // Выделять можно ЛЮБУЮ строку страницы — это нужно для подсчёта суммы
   // итогов по выделению (включая проведённые акты). Массовые ДЕЙСТВИЯ
   // показываются по-кнопочно, только когда ВСЕ выделенные акты подходят
-  // для конкретного действия (см. canBulk* ниже) — без частичного применения.
-  const selectableRows = initial.rows;
-  const allSelected =
-    selectableRows.length > 0 && selectableRows.every((row) => selectedIds.has(row.id));
-  const someSelected = selectedIds.size > 0;
-
+  // для конкретного действия — без частичного применения.
+  //
+  // Выделение хранит id; строки, исчезнувшие после realtime/refresh, в
+  // расчёт не попадают — список строится от текущих строк страницы.
   const selectedRowsList = useMemo(
-    () => initial.rows.filter((row) => selectedIds.has(row.id)),
-    [initial.rows, selectedIds],
+    () => initial.rows.filter((row) => rowSelection[row.id]),
+    [initial.rows, rowSelection],
   );
 
   // Сумма итогов (нетто = излишки − недостачи) по выделенным строкам.
   // Если хотя бы по одному выделенному акту итог посчитать не удалось, суммы
-  // нет вовсе: частичная сумма выглядела бы как полная и противоречила бы
-  // прочерку в строке этого же акта.
+  // нет вовсе: частичная сумма выглядела бы как полная.
   const selectedTotals = useMemo(() => {
     let net = 0;
     let unavailable = false;
@@ -367,50 +378,23 @@ export function DocumentsTable({
     }
     return { net, unavailable };
   }, [selectedRowsList]);
-  const selectedNet = selectedTotals.net;
 
-  // Кнопка показывается, только если ДЕЙСТВИЕ применимо ко ВСЕМ выделенным
-  // актам (иначе скрыта — никакого частичного применения):
-  //  - «Исполнитель» — строже: лочится уже на проверке/пересчёте отдан;
-  //  - «Проверяющий» — лишь на проведённых;
-  //  - «Удалить» — на проведённых И на актах с зафиксированными итогами.
   const canBulkAssignee =
     selectedRowsList.length > 0 &&
     selectedRowsList.every((row) => getAssigneeLockReason(row.status) === null);
   const canBulkReviewer =
     selectedRowsList.length > 0 &&
     selectedRowsList.every((row) => getReviewerLockReason(row.status) === null);
-  // Раньше здесь стояло `= canBulkReviewer`: замки совпадали по статусу, но это
-  // совпадение, а не правило. Удаление шире — его блокирует ещё и снимок итогов,
-  // который переживает распроведение, так что у замков разные условия.
-  const canBulkDelete =
-    selectedRowsList.length > 0 &&
-    selectedRowsList.every(
-      (row) =>
-        getDeleteLockReason({
-          status: row.status,
-          resultsSnapshotAt: row.results_snapshot_at,
-        }) === null,
-    );
+  // Удаление шире замков назначения: его блокирует ещё и снимок итогов,
+  // который переживает распроведение.
+  const isDeletable = (row: DocumentListRow) =>
+    getDeleteLockReason({ status: row.status, resultsSnapshotAt: row.results_snapshot_at }) === null;
+  const canBulkDelete = selectedRowsList.length > 0 && selectedRowsList.every(isDeletable);
 
-  const clearSelection = () => setSelectedIds(new Set());
-
-  // Чистим выделение от исчезнувших строк (после realtime/refresh).
-  useEffect(() => {
-    setSelectedIds((prev) => {
-      if (prev.size === 0) return prev;
-      const present = new Set(initial.rows.map((row) => row.id));
-      let changed = false;
-      const next = new Set<string>();
-      prev.forEach((id) => (present.has(id) ? next.add(id) : (changed = true)));
-      return changed ? next : prev;
-    });
-  }, [initial.rows]);
+  const clearSelection = () => setRowSelection({});
 
   const applyBulkAssign = (role: "assignee" | "reviewer", userId: string | null) => {
-    // Шлём только валидированные ID: строки, которые есть в текущем наборе
-    // (initial.rows) И подходят для роли. Так stale-ID (выделенные, но уже
-    // исчезнувшие до прунинга в useEffect) не попадут в мутацию.
+    // Шлём только строки текущей страницы, подходящие для роли.
     const ids = selectedRowsList
       .filter(
         (row) =>
@@ -426,7 +410,8 @@ export function DocumentsTable({
         return;
       }
       toast.success(
-        `Обновлено: ${res.updated}` + (res.skipped > 0 ? `, пропущено: ${res.skipped}` : ""),
+        `Обновлено: ${countRu(res.updated, "акт", "акта", "актов")}` +
+          (res.skipped > 0 ? `, пропущено: ${res.skipped}` : ""),
       );
       clearSelection();
       router.refresh();
@@ -434,394 +419,268 @@ export function DocumentsTable({
   };
 
   const applyBulkDelete = () => {
-    // Только валидированные удаляемые строки (см. applyBulkAssign).
-    const ids = selectedRowsList
-      .filter((row) => getReviewerLockReason(row.status) === null)
-      .map((row) => row.id);
+    // Тот же замок, что решает, показывать ли кнопку.
+    const ids = selectedRowsList.filter(isDeletable).map((row) => row.id);
     if (ids.length === 0) return;
+    setBulkDeleteError(null);
     startBulk(async () => {
       const res = await bulkDeleteInventoryDocuments({ documentIds: ids });
-      if (res.error) {
-        toast.error(res.error);
+      if (res.deleted === 0) {
+        setBulkDeleteError(res.error ?? "Не удалось удалить акты. Попробуйте ещё раз");
         return;
       }
-      toast.success(`Удалено актов: ${res.deleted}`);
+      // Частичный успех: часть актов удалена, часть пропущена сервером.
+      // Диалог закрываем и обновляем список, причину пропуска — в тост.
+      const deletedText = `Удалено: ${countRu(res.deleted, "акт", "акта", "актов")}`;
+      if (res.error) toast.warning(`${deletedText}. ${res.error}`);
+      else toast.success(deletedText);
       setBulkDeleteOpen(false);
       clearSelection();
       router.refresh();
     });
   };
 
-  // ── Columns (TanStack для visibility/order/sizing) ─────────
+  // ── Columns ────────────────────────────────────────────────
   const searchActive = Boolean(filtersFromUrl.q);
 
-  const columnsConfig = useMemo(
-    () => [
-      ...(canManage
-        ? [
-            {
-              id: "select",
-              label: "",
-              size: 44,
-              canHide: false,
-              cell: (row: DocumentListRow) => {
-                return (
-                  <span data-row-interactive onClick={(e) => e.stopPropagation()}>
-                    <Checkbox
-                      checked={selectedIdsRef.current.has(row.id)}
-                      onCheckedChange={() =>
-                        setSelectedIds((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(row.id)) next.delete(row.id);
-                          else next.add(row.id);
-                          return next;
-                        })
-                      }
-                      className="align-middle"
-                      aria-label={`Выбрать акт ${row.document_number}`}
-                    />
-                  </span>
-                );
-              },
-            },
-          ]
-        : []),
-      {
-        id: "document_number",
-        label: "Номер",
-        size: 130,
-        canHide: false,
-        cell: (row: DocumentListRow) => (
+  const columns = useMemo<ColumnDef<DocumentListRow>[]>(() => {
+    const cells: Record<string, ColumnDef<DocumentListRow>["cell"]> = {
+      document_number: ({ row }) => {
+        const doc = row.original;
+        return (
           <div className="min-w-0">
             <Link
-              href={getDocHref(row, canViewResults)}
-              className="block truncate text-sm font-medium hover:underline"
-              data-row-interactive
-              onClick={(e) => e.stopPropagation()}
+              href={getDocHref(doc, canViewResults)}
+              className="block truncate font-medium hover:underline"
+              data-tip={`№ ${doc.document_number}`}
+              data-tip-overflow
             >
-              № {row.document_number}
+              № {doc.document_number}
             </Link>
-            {searchActive && row.matched_ingredients && row.matched_ingredients.length > 0 ? (
+            {searchActive && doc.matched_ingredients && doc.matched_ingredients.length > 0 ? (
+              // Найдено по составу акта: подсвечиваем, какие позиции совпали.
               <div className="mt-1 flex flex-wrap gap-1">
-                {row.matched_ingredients.map((name) => (
-                  <span
-                    key={name}
-                    className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-800"
-                  >
-                    <SearchIcon className="h-2.5 w-2.5" />
+                {doc.matched_ingredients.map((name) => (
+                  <StatusBadge key={name} tone="warning" icon={<SearchIcon />}>
                     {name}
-                  </span>
+                  </StatusBadge>
                 ))}
               </div>
             ) : null}
           </div>
-        ),
+        );
       },
-      {
-        id: "invoice_date",
-        label: "Дата",
-        size: 110,
-        cell: (row: DocumentListRow) => <span className="text-sm">{formatDate(row.invoice_date)}</span>,
-      },
-      {
-        id: "status",
-        label: "Статус",
-        size: 190,
-        cell: (row: DocumentListRow) => (
-          <div className="flex items-center gap-1.5">
-            <InventoryStatusBadge status={row.status} />
-            {row.recount_of_document_id ? (
-              // Акт пересчёта: позиции вынесены из другого акта на дату пересчёта.
-              <span className="inline-flex items-center gap-1 rounded-md border border-blue-500/30 bg-blue-500/15 px-1.5 py-0.5 text-[11px] font-medium text-blue-700 dark:text-blue-300">
+      invoice_date: ({ row }) => (
+        <span className="tabular-nums">{formatDateCell(row.original.invoice_date) ?? "—"}</span>
+      ),
+      status: ({ row }) => {
+        const doc = row.original;
+        return (
+          <div className="flex min-w-0 items-center gap-1.5">
+            <InventoryStatusBadge status={doc.status} />
+            {doc.recount_of_document_id ? (
+              <StatusBadge tone="info" tip="Акт пересчёта: позиции вынесены из другого акта">
                 Пересчёт
-              </span>
+              </StatusBadge>
             ) : null}
-            {row.results_reopened_after_processed ? (
+            {doc.results_reopened_after_processed ? (
               <span
-                className="text-amber-600 dark:text-amber-400"
-                data-tip="Итоги правились после проведения — управленческие суммы могут расходиться с Quick Resto."
+                className="inline-flex shrink-0 text-amber-600 dark:text-amber-400"
+                role="img"
+                aria-label="Итоги правились после проведения"
+                data-tip="Итоги правились после проведения: суммы могут расходиться с Quick Resto"
               >
                 <AlertTriangle className="h-4 w-4" />
               </span>
             ) : null}
           </div>
-        ),
+        );
       },
-      {
-        id: "store_title",
-        label: "Склад",
-        size: 200,
-        cell: (row: DocumentListRow) => <span className="truncate text-sm">{row.store_title ?? "—"}</span>,
-      },
-      {
-        id: "comment",
-        label: "Комментарий",
-        size: 240,
-        cell: (row: DocumentListRow) => (
-          <span className="block truncate text-sm text-muted-foreground" data-tip={row.comment ?? undefined} data-tip-overflow>
-            {row.comment ?? "—"}
+      store_title: ({ row }) => (
+        <span className="block truncate" data-tip={row.original.store_title ?? undefined} data-tip-overflow>
+          {row.original.store_title ?? "—"}
+        </span>
+      ),
+      comment: ({ row }) => (
+        <span
+          className="block truncate text-muted-foreground"
+          data-tip={row.original.comment ?? undefined}
+          data-tip-overflow
+        >
+          {row.original.comment ?? "—"}
+        </span>
+      ),
+      // Одно число — нетто-расхождение (излишки − недостачи).
+      results: ({ row }) => {
+        const doc = row.original;
+        // Прочерк и у актов без построчных расчётов, и у тех, что ещё не
+        // сдали: у вторых Quick Resto отдаёт разницу, равную минус складскому
+        // остатку, и «0 ₽» читалось бы как «посчитано, расхождений нет».
+        if (!doc.results_has_line_amounts || !hasCountedResults(doc.status)) {
+          return <span className="text-muted-foreground">—</span>;
+        }
+        // Итоги не посчитались: прочерк, а не 0 ₽ — иначе акт с
+        // расхождением выглядит сошедшимся.
+        if (doc.totals_unavailable) {
+          return (
+            <span className="text-muted-foreground" data-tip="Не удалось посчитать итоги, обновите страницу">
+              —
+            </span>
+          );
+        }
+        const net = (doc.surplus_sum ?? 0) - (doc.shortfall_sum ?? 0);
+        return (
+          <span className={cn("whitespace-nowrap font-medium", signedAmountClass(net))}>
+            {formatSignedMoney(net, "RUB", amountRoundingScale)}
           </span>
-        ),
+        );
       },
-      {
-        id: "results",
-        label: "Итоги",
-        size: 130,
-        // Одно число — нетто-расхождение (излишки − недостачи). Плюс →
-        // зелёный (излишек), минус → красный (недостача), ноль — нейтрально.
-        cell: (row: DocumentListRow) => {
-          // Прочерк и у актов без построчных расчётов, и у тех, что ещё не
-          // сдали: у вторых Quick Resto отдаёт разницу, равную минус складскому
-          // остатку, и «0 ₽» читалось бы как «посчитано, расхождений нет».
-          if (!row.results_has_line_amounts || !hasCountedResults(row.status)) {
-            return <span className="text-sm text-muted-foreground">—</span>;
-          }
-          // Итоги не посчитались (см. listInventoryDocuments): показываем
-          // прочерк, а не 0 ₽ — иначе акт с расхождением выглядит сошедшимся.
-          if (row.totals_unavailable) {
-            return (
-              <span className="text-sm text-muted-foreground" data-tip="Не удалось посчитать итоги — обновите страницу">
-                —
-              </span>
-            );
-          }
-          const net = (row.surplus_sum ?? 0) - (row.shortfall_sum ?? 0);
-          return (
-            <span
-              className={cn(
-                "text-sm font-medium tabular-nums",
-              signedAmountClass(net),
-              )}
-            >
-              {formatSignedMoney(net, "RUB", amountRoundingScale)}
-            </span>
-          );
-        },
+      // Недостача/излишек так, как их посчитал сам Quick Resto при
+      // проведении (без наших исключений и пересортов). До проведения
+      // Quick Resto по документу отдаёт нули, поэтому там прочерк.
+      qr_results: ({ row }) => {
+        const doc = row.original;
+        if (doc.qr_shortfall_sum == null && doc.qr_surplus_sum == null) {
+          return <span className="text-muted-foreground">—</span>;
+        }
+        const net = Math.abs(doc.qr_surplus_sum ?? 0) - Math.abs(doc.qr_shortfall_sum ?? 0);
+        return (
+          <span
+            className={cn("whitespace-nowrap font-medium", signedAmountClass(net))}
+            data-tip="Сумма, которую записал в акт Quick Resto при проведении. Исключения и пересорты на неё не влияют"
+          >
+            {formatSignedMoney(net, "RUB", amountRoundingScale)}
+          </span>
+        );
       },
-      {
-        id: "qr_results",
-        label: "Сумма в QR",
-        size: 140,
-        // По умолчанию скрыта: это ДРУГАЯ метрика, чем «Итоги». Здесь —
-        // недостача/излишек так, как их посчитал сам Quick Resto при
-        // проведении акта (без наших исключений и пересортов). До проведения
-        // QR по документу отдаёт нули, поэтому там прочерк.
-        defaultVisible: false,
-        cell: (row: DocumentListRow) => {
-          if (row.qr_shortfall_sum == null && row.qr_surplus_sum == null) {
-            return <span className="text-sm text-muted-foreground">—</span>;
-          }
-          const net = Math.abs(row.qr_surplus_sum ?? 0) - Math.abs(row.qr_shortfall_sum ?? 0);
-          return (
-            <span
-              className={cn(
-                "text-sm font-medium tabular-nums",
-              signedAmountClass(net),
-              )}
-              data-tip="Сумма, которую записал в акт сам Quick Resto при проведении. Исключения из итогов и пересорты на неё не влияют."
-            >
-              {formatSignedMoney(net, "RUB", amountRoundingScale)}
-            </span>
-          );
-        },
+      assigned_to: ({ row }) => {
+        const doc = row.original;
+        const lockReason = getAssigneeLockReason(doc.status);
+        return canManage ? (
+          <AssigneeSelect
+            documentId={doc.id}
+            assignedTo={doc.assigned_to}
+            staff={staff}
+            lockReason={lockReason}
+            linkToPerson={canViewStaff}
+          />
+        ) : (
+          <ReadonlyPersonCell
+            userId={doc.assigned_to}
+            staff={staff}
+            locked={lockReason !== null}
+            canViewStaff={canViewStaff}
+          />
+        );
       },
-      {
-        id: "assigned_to",
-        label: "Исполнитель",
-        size: 200,
-        cell: (row: DocumentListRow) => {
-          const lockReason = getAssigneeLockReason(row.status);
-          if (canManage) {
-            return (
-              <div data-row-interactive onClick={(e) => e.stopPropagation()}>
-                <AssigneeSelect
-                  documentId={row.id}
-                  assignedTo={row.assigned_to}
-                  staff={staff}
-                  lockReason={lockReason}
-                  linkToPerson={canViewStaff}
+      reviewer_id: ({ row }) => {
+        const doc = row.original;
+        const lockReason = getReviewerLockReason(doc.status);
+        return canManage ? (
+          <ReviewerSelect
+            documentId={doc.id}
+            reviewerId={doc.reviewer_id}
+            staff={staff}
+            lockReason={lockReason}
+            linkToPerson={canViewStaff}
+          />
+        ) : (
+          <ReadonlyPersonCell
+            userId={doc.reviewer_id}
+            staff={staff}
+            locked={lockReason !== null}
+            canViewStaff={canViewStaff}
+          />
+        );
+      },
+    };
+
+    return [
+      ...(canManage
+        ? [
+            {
+              id: "select",
+              size: 44,
+              minSize: 44,
+              maxSize: 44,
+              enableHiding: false,
+              enableResizing: false,
+              cell: ({ row }) => (
+                <Checkbox
+                  checked={row.getIsSelected()}
+                  onCheckedChange={(checked) => row.toggleSelected(checked === true)}
+                  aria-label={`Выбрать акт № ${row.original.document_number}`}
+                  className="align-middle"
                 />
-              </div>
-            );
-          }
-          return (
-            <ReadonlyPersonCell
-              userId={row.assigned_to}
-              staff={staff}
-              locked={lockReason !== null}
-              canViewStaff={canViewStaff}
-            />
-          );
-        },
-      },
-      {
-        id: "reviewer_id",
-        label: "Проверяющий",
-        size: 200,
-        cell: (row: DocumentListRow) => {
-          const lockReason = getReviewerLockReason(row.status);
-          if (canManage) {
-            return (
-              <div data-row-interactive onClick={(e) => e.stopPropagation()}>
-                <ReviewerSelect
-                  documentId={row.id}
-                  reviewerId={row.reviewer_id}
-                  staff={staff}
-                  lockReason={lockReason}
-                  linkToPerson={canViewStaff}
-                />
-              </div>
-            );
-          }
-          return (
-            <ReadonlyPersonCell
-              userId={row.reviewer_id}
-              staff={staff}
-              locked={lockReason !== null}
-              canViewStaff={canViewStaff}
-            />
-          );
-        },
-      },
+              ),
+            } satisfies ColumnDef<DocumentListRow>,
+          ]
+        : []),
+      ...DATA_COLUMNS.map(
+        (column): ColumnDef<DocumentListRow> => ({
+          id: column.id,
+          header: LABELS[column.id],
+          size: column.size,
+          minSize: column.min,
+          enableHiding: !column.fixed,
+          cell: cells[column.id],
+        }),
+      ),
       {
         id: "actions",
-        label: "",
         size: ROW_MENU_COLUMN_SIZE,
-        canHide: false,
-        cell: (row: DocumentListRow) => (
-          <DesktopRowMenu doc={row} canManage={canManage} canViewResults={canViewResults} />
+        minSize: ROW_MENU_COLUMN_SIZE,
+        maxSize: ROW_MENU_COLUMN_SIZE,
+        enableHiding: false,
+        enableResizing: false,
+        cell: ({ row }) => (
+          <DocumentRowMenu doc={row.original} canManage={canManage} canViewResults={canViewResults} />
         ),
       },
-    ],
-    // selectedIds намеренно НЕ в зависимостях: чекбокс читает актуальное
-    // значение из ref во время рендера. Иначе каждый клик менял identity
-    // columnsConfig → stateColumns → defaults в useTableState, и эффект
-    // гидрации перечитывал localStorage и переставлял видимость, порядок и
-    // ширины колонок на каждый тап. В таблице итогов этот же приём уже
-    // применён (см. docs/mobile-web.md §8).
-    [amountRoundingScale, canManage, canViewResults, canViewStaff, searchActive, staff],
+    ];
+  }, [amountRoundingScale, canManage, canViewResults, canViewStaff, searchActive, staff]);
+
+  const st = useTableState({ tableId: TABLE_ID, columns: STATE_COLUMNS });
+  // Служебные столбцы не участвуют в порядке и видимости: раньше их
+  // сохраняли в общем порядке, поэтому из старых настроек их вычищаем.
+  const dataOrder = useMemo(
+    () => st.columnOrder.filter((id) => id !== "select" && id !== "actions"),
+    [st.columnOrder],
   );
 
-  const stateColumns: TableStateColumn[] = useMemo(
-    () =>
-      columnsConfig.map((column) => ({
-        id: column.id,
-        // Колонка может приходить скрытой по умолчанию (например «Сумма в QR» —
-        // вспомогательная метрика, которая нужна не всем).
-        defaultVisible: ("defaultVisible" in column ? column.defaultVisible : undefined) ?? true,
-        defaultSize: column.size,
-      })),
-    [columnsConfig],
-  );
-
-  const tableState = useTableState({ tableId: TABLE_ID, columns: stateColumns });
-
-  const tableColumns = useMemo<ColumnDef<DocumentListRow>[]>(
-    () =>
-      columnsConfig.map((column) => ({
-        id: column.id,
-        header:
-          column.id === "select"
-            ? () => (
-                <Checkbox
-                  checked={allSelected ? true : someSelected ? "indeterminate" : false}
-                  disabled={selectableRows.length === 0}
-                  onCheckedChange={() =>
-                    setSelectedIds(
-                      allSelected ? new Set() : new Set(selectableRows.map((row) => row.id)),
-                    )
-                  }
-                  className="align-middle"
-                  aria-label="Выбрать все"
-                />
-              )
-            : column.label,
-        size: column.size,
-        // min ≈ ширина заголовка: ресайз не сжимает колонку уже её названия.
-        // «Исполнитель»/«Проверяющий» — длинные заголовки, им нужен больший min.
-        minSize:
-          column.id === "select"
-            ? 44
-            : column.id === "actions"
-              ? 56
-              : column.id === "assigned_to" || column.id === "reviewer_id"
-                ? 116
-                : column.id === "status"
-                  ? 120
-                  : 96,
-        enableHiding: column.canHide !== false,
-        enableResizing: column.id !== "select" && column.id !== "actions",
-        cell: ({ row }) => column.cell(row.original),
-      })),
-    [columnsConfig, allSelected, someSelected, selectableRows],
-  );
+  const sorting = useMemo<SortingState>(() => sortModesToSorting(sortFromUrl), [sortFromUrl]);
+  const setSorting = (next: SortingState) => {
+    const modes = sortingToSortModes(next);
+    updateUrl({ sort: modes.length === 0 ? null : modes }, { resetPage: true });
+  };
 
   const table = useReactTable({
     data: initial.rows,
-    columns: tableColumns,
+    columns,
     state: {
-      columnVisibility: tableState.columnVisibility,
-      columnOrder: tableState.columnOrder,
-      columnSizing: tableState.columnSizing,
+      sorting,
+      columnVisibility: {
+        ...st.columnVisibility,
+        document_number: true,
+        select: true,
+        actions: true,
+      },
+      columnOrder: [...(canManage ? ["select"] : []), ...dataOrder, "actions"],
+      columnSizing: st.columnSizing,
+      rowSelection,
     },
     getRowId: (row) => row.id,
-    columnResizeMode: "onChange",
-    onColumnVisibilityChange: tableState.setColumnVisibility,
-    onColumnOrderChange: tableState.setColumnOrder,
-    onColumnSizingChange: tableState.setColumnSizing,
+    enableRowSelection: canManage,
+    onRowSelectionChange: setRowSelection,
+    onColumnVisibilityChange: st.setColumnVisibility,
+    onColumnSizingChange: st.setColumnSizing,
+    // Сортировка и страницы — на сервере, по адресу.
+    manualSorting: true,
+    manualPagination: true,
     getCoreRowModel: getCoreRowModel(),
   });
 
-  // Из выпадашки «Столбцы» исключаем служебную колонку actions —
-  // её нельзя ни скрыть, ни переупорядочить, в UI она шум.
-  const managedColumns: ManagedTableColumn[] = tableState.columnOrder
-    .filter((id) => id !== "actions" && id !== "select")
-    .map((id) => table.getAllLeafColumns().find((col) => col.id === id))
-    .filter((col): col is NonNullable<typeof col> => Boolean(col))
-    .map((col) => ({
-      id: col.id,
-      label: String(col.columnDef.header ?? col.id),
-      visible: col.getIsVisible(),
-      canHide: col.getCanHide(),
-      width: col.getSize(),
-    }));
-
-  const moveColumn = (activeId: string, overId: string) => {
-    tableState.setColumnOrder((current) => {
-      const oldIndex = current.indexOf(activeId);
-      const newIndex = current.indexOf(overId);
-      if (oldIndex < 0 || newIndex < 0) return current;
-      return arrayMove(current, oldIndex, newIndex);
-    });
-  };
-
   // ── Filter handlers ────────────────────────────────────────
-  const onVenueChange = (next: string) =>
-    updateUrl({ venue: next === "all" ? null : next }, { resetPage: true });
-
-  const onStatusToggle = (status: DocumentStatus) => {
-    const current = new Set(filtersFromUrl.status ?? []);
-    if (current.has(status)) current.delete(status);
-    else current.add(status);
-    updateUrl({ status: Array.from(current) }, { resetPage: true });
-  };
-
-  const onAssignedChange = (next: string) =>
-    updateUrl({ assigned: next === "any" ? null : next }, { resetPage: true });
-
-  const onReviewerChange = (next: string) =>
-    updateUrl({ reviewer: next === "any" ? null : next }, { resetPage: true });
-
-  const onRecountChange = (next: RecountFilter) =>
-    updateUrl({ recount: next === "any" ? null : next }, { resetPage: true });
-
-  const onStoreToggle = (storeId: string) => {
-    const current = new Set(filtersFromUrl.store ?? []);
-    if (current.has(storeId)) current.delete(storeId);
-    else current.add(storeId);
-    updateUrl({ store: Array.from(current) }, { resetPage: true });
-  };
-
   const onDateRangeChange = (next: DateRangeValue, presetLabel: string | null) => {
     updateUrl(
       {
@@ -833,33 +692,35 @@ export function DocumentsTable({
     );
   };
 
-  const setSortKeys = (next: DocumentSortMode[]) => {
-    const cleaned = next.length === 0 ? DEFAULT_SORT : next;
-    updateUrl(
-      { sort: isDefaultSort(cleaned) ? null : cleaned },
-      { resetPage: true },
-    );
-  };
-
   const onClearAll = () => {
     setSearch("");
     router.replace(pathname);
   };
 
+  const status = filtersFromUrl.status ?? [];
+  const store = filtersFromUrl.store ?? [];
+  const assigned = filtersFromUrl.assigned && filtersFromUrl.assigned !== "any" ? filtersFromUrl.assigned : "";
+  const reviewer = filtersFromUrl.reviewer && filtersFromUrl.reviewer !== "any" ? filtersFromUrl.reviewer : "";
+  const recount: RecountFilter | "" =
+    filtersFromUrl.recount && filtersFromUrl.recount !== "any" ? filtersFromUrl.recount : "";
+  const venue = filtersFromUrl.venue && filtersFromUrl.venue !== "all" ? filtersFromUrl.venue : "";
+  const hasDate = Boolean(filtersFromUrl.date_from || filtersFromUrl.date_to);
+
   const hasActiveFilters =
-    (filtersFromUrl.venue && filtersFromUrl.venue !== "all") ||
-    (filtersFromUrl.status && filtersFromUrl.status.length > 0) ||
-    (filtersFromUrl.assigned && filtersFromUrl.assigned !== "any") ||
-    (filtersFromUrl.reviewer && filtersFromUrl.reviewer !== "any") ||
-    (filtersFromUrl.store && filtersFromUrl.store.length > 0) ||
-    (filtersFromUrl.recount && filtersFromUrl.recount !== "any") ||
-    Boolean(filtersFromUrl.date_from || filtersFromUrl.date_to);
-
+    Boolean(venue || assigned || reviewer || recount || hasDate) ||
+    status.length > 0 ||
+    store.length > 0;
   const hasSearch = Boolean(filtersFromUrl.q);
-  const hasSortActive = !isDefaultSort(sortFromUrl);
-  const hasAnyActive = hasActiveFilters || hasSearch || hasSortActive;
+  const hasAnyActive = hasActiveFilters || hasSearch || sorting.length > 0;
+  const showChip = (value: boolean) => filtersVisible || value;
 
-  // ── Sync QR ────────────────────────────────────────────────
+  const personOptions = (me: string, none: string) => [
+    { value: "me", label: me },
+    { value: "none", label: none },
+    ...staff.map((member) => ({ value: member.id, label: member.name })),
+  ];
+
+  // ── Sync Quick Resto ───────────────────────────────────────
   const runSync = (scope: "documents" | "full") => {
     startSyncTransition(async () => {
       try {
@@ -870,34 +731,20 @@ export function DocumentsTable({
         }
         const base =
           scope === "documents"
-            ? `Синхронизировано актов: ${result.summary.documents}`
-            : `Синхронизировано: позиций ${result.summary.products}, актов ${result.summary.documents}`;
+            ? `Синхронизировано: ${countRu(result.summary.documents, "акт", "акта", "актов")}`
+            : `Синхронизировано: ${countRu(result.summary.products, "позиция", "позиции", "позиций")}, ${countRu(result.summary.documents, "акт", "акта", "актов")}`;
         // Сбойные акты не роняют проход, но и молчать о них нельзя.
         if (result.summary.failedDocuments > 0) {
-          toast.warning(`${base}. Не удалось обработать актов: ${result.summary.failedDocuments}`);
+          toast.warning(`${base}. Не удалось обработать: ${countRu(result.summary.failedDocuments, "акт", "акта", "актов")}`);
         } else {
           toast.success(base);
         }
         router.refresh();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Синхронизация не выполнена");
+      } catch {
+        toast.error("Синхронизация не выполнена. Попробуйте ещё раз");
       }
     });
   };
-
-  // ── Header click → multi-sort cycle (table-lab pattern) ──
-  // Колонка не в сортировке → APPEND asc.
-  // Колонка в сортировке (asc) → FLIP desc.
-  // Колонка в сортировке (desc) → REMOVE.
-  // Так у каждой колонки 3 состояния: пусто → ↑ → ↓ → пусто.
-  // Для Date (дефолт сервера = date_desc) пустое состояние = «дефолт»:
-  // URL чист, шапка без индикатора, сервер сам сортирует по дате desc.
-  const { cycleSort, headerIndicator, headerAriaSort, sortableColumnIds } = useMultiSort({
-    sorts: sortFromUrl,
-    onChange: setSortKeys,
-    columnToField: COLUMN_TO_FIELD,
-    codec: DOCUMENT_SORT_CODEC,
-  });
 
   const total = initial.total;
   const showingFrom = total === 0 ? 0 : (pageFromUrl - 1) * pageSizeFromUrl + 1;
@@ -911,339 +758,225 @@ export function DocumentsTable({
     [filtersFromUrl.date_from, filtersFromUrl.date_to],
   );
 
-  // Search pin показываем, как в эталоне: когда поиск активен, а pins-row
-  // уже виден из-за других условий — sort или filters или активные фильтры.
-  const showSearchPin = hasSearch && (filtersVisible || hasSortActive || hasActiveFilters);
+  const selectAllCheckbox = (
+    <Checkbox
+      checked={
+        table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")
+      }
+      onCheckedChange={(checked) => table.toggleAllPageRowsSelected(checked === true)}
+      disabled={initial.rows.length === 0}
+      aria-label="Выбрать все акты на странице"
+      className="align-middle"
+    />
+  );
 
   return (
-    <div className="w-full space-y-6 px-4 py-6 md:p-8">
-      <TablePageHeader
-        title="Акты инвентаризации"
-        subtitle="Заполнение, итоги и пересорт по строкам Quick Resto"
-        actions={
-          <TableControls
-            search={{
-              value: search,
-              onChange: setSearch,
-              open: searchOpen,
-              onOpenChange: setSearchOpen,
-              placeholder: "Поиск",
-            }}
-            filters={{
-              // active подсвечивает кнопку только когда выбран хотя бы один
-              // фильтр. «Открыт ли pin-row» — отдельное состояние:
-              // переключается тем же кликом, но визуально кнопка остаётся
-              // нейтральной до тех пор, пока пользователь не выберет значение.
-              active: hasActiveFilters,
-              label: filtersVisible ? "Скрыть фильтры" : "Показать фильтры",
-              onClick: () => setFiltersVisible((v) => !v),
-            }}
-            sort={{
-              active: hasSortActive,
-              content: <SortFieldPanel sorts={sortFromUrl} onChange={setSortKeys} />,
-            }}
-            columns={{
-              active: managedColumns.some((column) => !column.visible),
-              content: (
-                <TableColumnManager
-                  columns={managedColumns}
-                  onVisibilityChange={(columnId, visible) =>
-                    tableState.setColumnVisibility((current) => ({ ...current, [columnId]: visible }))
-                  }
-                  onMoveColumn={moveColumn}
-                  onReset={tableState.resetColumns}
-                />
-              ),
-            }}
-            primaryActions={
-              canSync ? (
-                <TableSplitButton
-                  label="Синхронизировать"
-                  icon={isSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                  primaryTooltip="Только акты"
-                  menuTooltip="Выбрать объём синхронизации"
-                  disabled={isSyncing}
-                  onPrimaryClick={() => runSync("documents")}
-                  options={[
-                    { label: "Только акты",                onSelect: () => runSync("documents") },
-                    { label: "Акты, ингредиенты и склады", onSelect: () => runSync("full") },
-                  ]}
-                />
-              ) : null
-            }
-            summary={
-              <>
-                Показано {showingFrom}-{showingTo} из {total}
-              </>
-            }
-          />
-        }
-      />
+    <PageFrame className="space-y-6">
+      <Breadcrumbs items={[{ label: "Документы" }, { label: "Акты инвентаризации" }]} />
 
-      {/* Pins row — порядок: Сортировка → Фильтры → Поиск. Эталон:
-          dev/table-lab → ActiveTablePins в FinanceDemo. */}
-      {/* Pin-row НЕ показываем, если активен только поиск (без фильтров/
-          сортировки) — иначе торчит одинокая «Очистить все». */}
-      {(filtersVisible || hasSortActive || hasActiveFilters) ? (
-        <div className="flex flex-wrap items-center gap-2">
-          {/* 1. Сортировка — один пин на все ключи (как в эталоне) */}
-          {hasSortActive ? (
-            <TableControlPin
-              active
-              icon={
-                sortFromUrl.length === 1
-                  ? sortToDirection(sortFromUrl[0]) === "asc"
-                    ? <ArrowUp className="h-3.5 w-3.5" />
-                    : <ArrowDown className="h-3.5 w-3.5" />
-                  : <ArrowUpDown className="h-3.5 w-3.5" />
+      <div className="space-y-3">
+        <TablePageHeader
+          title="Акты инвентаризации"
+          count={hasActiveFilters || hasSearch ? `${total} из ${unfilteredTotal}` : total}
+          actions={
+            <TableControls
+              search={{
+                value: search,
+                onChange: setSearch,
+                open: searchOpen,
+                onOpenChange: setSearchOpen,
+                placeholder: "Номер, комментарий или позиция",
+              }}
+              filters={{
+                active: hasActiveFilters,
+                label: filtersVisible ? "Скрыть фильтры" : "Показать фильтры",
+                onClick: () => setFiltersVisible((v) => !v),
+              }}
+              sort={{
+                active: sorting.length > 0,
+                content: (
+                  <TableSortPicker
+                    sorting={sorting}
+                    onChange={setSorting}
+                    fields={SORTABLE_COLUMNS}
+                    labels={LABELS}
+                  />
+                ),
+              }}
+              columns={{
+                active: dataOrder.some((id) => table.getColumn(id)?.getIsVisible() === false),
+                content: (
+                  <TableColumnManager
+                    columns={dataOrder.flatMap((id) => {
+                      const column = table.getColumn(id);
+                      return column
+                        ? [
+                            {
+                              id,
+                              label: LABELS[id] ?? id,
+                              visible: column.getIsVisible(),
+                              canHide: column.getCanHide(),
+                              width: column.getSize(),
+                            },
+                          ]
+                        : [];
+                    })}
+                    onVisibilityChange={(id, visible) => table.getColumn(id)?.toggleVisibility(visible)}
+                    onMoveColumn={(activeId, overId) =>
+                      st.setColumnOrder((current) => {
+                        const oldIndex = current.indexOf(activeId);
+                        const newIndex = current.indexOf(overId);
+                        if (oldIndex < 0 || newIndex < 0) return current;
+                        return arrayMove(current, oldIndex, newIndex);
+                      })
+                    }
+                    onReset={st.resetColumns}
+                  />
+                ),
+              }}
+              primaryActions={
+                canSync ? (
+                  <TableSplitButton
+                    label={isSyncing ? "Синхронизируем…" : "Синхронизировать"}
+                    icon={isSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                    primaryTooltip="Загрузить акты из Quick Resto"
+                    menuTooltip="Выбрать, что синхронизировать"
+                    disabled={isSyncing}
+                    onPrimaryClick={() => runSync("documents")}
+                    options={[
+                      { label: "Только акты", onSelect: () => runSync("documents") },
+                      { label: "Акты, ингредиенты и склады", onSelect: () => runSync("full") },
+                    ]}
+                  />
+                ) : null
               }
-              label={
-                sortFromUrl.length === 1
-                  ? SORT_FIELD_LABEL[sortToField(sortFromUrl[0])]
-                  : `${sortFromUrl.length} сортировки`
+              summary={
+                <>
+                  Показано {showingFrom}–{showingTo} из {total}
+                </>
               }
-              contentClassName="w-auto p-3"
-            >
-              <SortPinEditor sorts={sortFromUrl} onChange={setSortKeys} />
-            </TableControlPin>
-          ) : null}
-
-          {hasSortActive && (filtersVisible || showSearchPin) ? <PinDivider /> : null}
-
-          {/* 2. Фильтры — порядок: Период, Статус, Исполнитель, Склад, Пересчёты, Заведение */}
-          {filtersVisible ? (
-            <>
-              <DateRangeFilter
-                value={dateRange}
-                presetLabel={datePresetFromUrl}
-                onChange={onDateRangeChange}
-              />
-
-              <TableControlPin
-                active={(filtersFromUrl.status?.length ?? 0) > 0}
-                label={statusPinLabel(filtersFromUrl.status)}
-                onClear={
-                  (filtersFromUrl.status?.length ?? 0) > 0
-                    ? () => updateUrl({ status: null }, { resetPage: true })
-                    : undefined
-                }
-                clearLabel="Сбросить статус"
-              >
-                <StatusPicker value={filtersFromUrl.status ?? []} onToggle={onStatusToggle} />
-              </TableControlPin>
-
-              {canManage ? (
-                <TableControlPin
-                  active={Boolean(filtersFromUrl.assigned) && filtersFromUrl.assigned !== "any"}
-                  label={assigneePinLabel(filtersFromUrl.assigned, staff)}
-                  onClear={
-                    filtersFromUrl.assigned && filtersFromUrl.assigned !== "any"
-                      ? () => onAssignedChange("any")
-                      : undefined
-                  }
-                  clearLabel="Сбросить исполнителя"
-                >
-                  <AssignedPicker value={filtersFromUrl.assigned ?? "any"} staff={staff} onChange={onAssignedChange} />
-                </TableControlPin>
-              ) : null}
-
-              {canManage ? (
-                <TableControlPin
-                  active={Boolean(filtersFromUrl.reviewer) && filtersFromUrl.reviewer !== "any"}
-                  label={reviewerPinLabel(filtersFromUrl.reviewer, staff)}
-                  onClear={
-                    filtersFromUrl.reviewer && filtersFromUrl.reviewer !== "any"
-                      ? () => onReviewerChange("any")
-                      : undefined
-                  }
-                  clearLabel="Сбросить проверяющего"
-                >
-                  <ReviewerPicker value={filtersFromUrl.reviewer ?? "any"} staff={staff} onChange={onReviewerChange} />
-                </TableControlPin>
-              ) : null}
-
-              <TableControlPin
-                active={(filtersFromUrl.store?.length ?? 0) > 0}
-                label={storePinLabel(filtersFromUrl.store, stores)}
-                onClear={
-                  (filtersFromUrl.store?.length ?? 0) > 0
-                    ? () => updateUrl({ store: null }, { resetPage: true })
-                    : undefined
-                }
-                clearLabel="Сбросить склад"
-              >
-                <StorePicker value={filtersFromUrl.store ?? []} stores={stores} onToggle={onStoreToggle} />
-              </TableControlPin>
-
-              <TableControlPin
-                active={Boolean(filtersFromUrl.recount) && filtersFromUrl.recount !== "any"}
-                label={recountPinLabel(filtersFromUrl.recount)}
-                onClear={
-                  filtersFromUrl.recount && filtersFromUrl.recount !== "any"
-                    ? () => onRecountChange("any")
-                    : undefined
-                }
-                clearLabel="Показывать все акты"
-              >
-                <RecountPicker value={filtersFromUrl.recount ?? "any"} onChange={onRecountChange} />
-              </TableControlPin>
-
-              <TableControlPin
-                active={Boolean(filtersFromUrl.venue) && filtersFromUrl.venue !== "all"}
-                label={venuePinLabel(filtersFromUrl.venue, venues)}
-                onClear={
-                  filtersFromUrl.venue && filtersFromUrl.venue !== "all"
-                    ? () => onVenueChange("all")
-                    : undefined
-                }
-                clearLabel="Сбросить заведение"
-              >
-                <VenuePicker value={filtersFromUrl.venue ?? "all"} venues={venues} onChange={onVenueChange} />
-              </TableControlPin>
-            </>
-          ) : null}
-
-          {filtersVisible && showSearchPin ? <PinDivider /> : null}
-
-          {/* 3. Поиск */}
-          {showSearchPin ? (
-            <TableControlPin
-              active
-              label={`Поиск: ${(filtersFromUrl.q ?? "").trim()}`}
-              icon={<SearchIcon className="h-3.5 w-3.5" />}
-              onClear={() => setSearch("")}
-              clearLabel="Очистить поиск"
-            >
-              <div className="space-y-2 p-2">
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Поиск"
-                  className="h-8"
-                />
-                <p className="text-xs text-muted-foreground">
-                  По № акта, комментарию и названиям ингредиентов.
-                </p>
-              </div>
-            </TableControlPin>
-          ) : null}
-
-          {hasAnyActive ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-8 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
-              onClick={onClearAll}
-            >
-              Очистить все
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-
-      {/* Desktop table — TanStack для column-state, resize-handles.
-          Каркас: rounded-lg (8px, "base" из .pen Q4FzoZ → xA95j) + bg-card +
-          header bg-muted/60. Закругление совпадает с реальным Table-компонентом
-          в .pen (`E:bG7YL` cornerRadius:8) и с нашим --radius:0.5rem; такая же
-          пара 8/6 (table/button) читается как одна семья — без визуальных
-          уровней rounded-md/rounded-xl. bg-card важен в dark: card light-er
-          чем background, таблица читается как elevated блок, а не сливается. */}
-      {/* Без overflow на обёртках (иначе sticky-thead «ловится» контейнером).
-          Таблица вписана в ширину (table-fixed + colgroup в %), горизонтального
-          скролла нет, ресайз перетягивает ширину у соседей, шапка липнет к
-          верху страницы при оконном скролле. См. design-system → sticky header. */}
-      <div className="hidden rounded-lg border bg-card md:block">
-          <table
-            // Браузерные расширения вроде TableConvert / Copy-As-Markdown
-            // дописывают на <table> атрибуты `data-tableconvert-*` между
-            // SSR-HTML и hydration. React видит их как mismatch, бэйлит
-            // гидрацию всего поддерева, перерендерит с нуля → каскад
-            // разных useId() в шапке/сайдбаре/селектах. suppress даёт
-            // React принять «лишние» атрибуты и продолжить hydrate.
-            suppressHydrationWarning
-            className="w-full table-fixed"
-          >
-            <ResizableTableHead
-              table={table}
-              isControlColumn={(columnId) => columnId === "actions"}
-              isRightAligned={(columnId) => columnId === "actions"}
-              sortableColumnIds={sortableColumnIds}
-              onSort={(columnId) => cycleSort(COLUMN_TO_FIELD[columnId])}
-              headerIndicator={headerIndicator}
-              headerAriaSort={headerAriaSort}
             />
-            <tbody>
-              {table.getRowModel().rows.length === 0 ? (
-                <tr>
-                  <td colSpan={table.getVisibleLeafColumns().length} className="p-0">
-                    <EmptyTableBody
-                      canSync={canSync}
-                      hasActive={hasAnyActive}
-                      onClearAll={onClearAll}
-                      onSync={() => runSync("documents")}
-                    />
-                  </td>
-                </tr>
-              ) : (
-                table.getRowModel().rows.map((row) => (
-                  <tr
-                    key={row.id}
-                    data-doc-row-index={row.index}
-                    onClick={(e) => {
-                      const target = e.target as HTMLElement;
-                      if (target.closest("[data-row-interactive]")) return;
-                      router.push(getDocHref(row.original, canViewResults));
-                    }}
-                    className={cn(
-                      "cursor-pointer border-b last:border-b-0 hover:bg-muted/30",
-                      row.index === focusedIndex ? "bg-muted/50 ring-1 ring-inset ring-brand/40" : null,
-                    )}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <td
-                        key={cell.id}
-                        className={cn(
-                          // overflow-hidden: контент не вылезает на соседнюю
-                          // колонку при сужении (троеточие у внутренних truncate).
-                          "overflow-hidden px-3 py-3 align-middle text-sm",
-                          cell.column.id === "actions" ? "text-right" : null,
-                        )}
-                      >
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+          }
+        />
+
+        {/* Ряд условий: сортировка → фильтры → поиск → «Очистить все».
+            Правила видимости — внутри TableConditions; выбранный фильтр
+            виден и при свёрнутом ряде. */}
+        <TableConditions
+          label="Условия списка актов"
+          open={filtersVisible}
+          hasFilters={hasActiveFilters}
+          sorting={sorting}
+          onSortingChange={setSorting}
+          sortFields={SORTABLE_COLUMNS}
+          sortLabels={LABELS}
+          search={filtersFromUrl.q}
+          onSearchClear={() => setSearch("")}
+          onReset={onClearAll}
+        >
+          {showChip(hasDate) ? (
+            <DateRangeFilter
+              value={dateRange}
+              presetLabel={datePresetFromUrl}
+              onChange={onDateRangeChange}
+              ariaLabel="Период актов"
+            />
+          ) : null}
+          {showChip(status.length > 0) ? (
+            <TableFilterChip
+              label="Статус"
+              multiple
+              value={status}
+              options={STATUS_OPTIONS}
+              onChange={(next) => updateUrl({ status: next }, { resetPage: true })}
+            />
+          ) : null}
+          {canManage && showChip(Boolean(assigned)) ? (
+            <TableFilterChip
+              label="Исполнитель"
+              value={assigned}
+              options={personOptions("На меня", "Без исполнителя")}
+              searchPlaceholder="Найти сотрудника"
+              onChange={(next) => updateUrl({ assigned: next || null }, { resetPage: true })}
+            />
+          ) : null}
+          {canManage && showChip(Boolean(reviewer)) ? (
+            <TableFilterChip
+              label="Проверяющий"
+              value={reviewer}
+              options={personOptions("Проверяю я", "Без проверяющего")}
+              searchPlaceholder="Найти сотрудника"
+              onChange={(next) => updateUrl({ reviewer: next || null }, { resetPage: true })}
+            />
+          ) : null}
+          {stores.length > 0 && showChip(store.length > 0) ? (
+            <TableFilterChip
+              label="Склад"
+              multiple
+              value={store}
+              options={stores.map((s) => ({ value: s.id, label: s.title }))}
+              searchPlaceholder={stores.length > 8 ? "Найти склад" : undefined}
+              onChange={(next) => updateUrl({ store: next }, { resetPage: true })}
+            />
+          ) : null}
+          {showChip(Boolean(recount)) ? (
+            <TableFilterChip
+              label="Пересчёты"
+              value={recount}
+              options={RECOUNT_OPTIONS}
+              onChange={(next) => updateUrl({ recount: next || null }, { resetPage: true })}
+            />
+          ) : null}
+          {venues.length > 1 && showChip(Boolean(venue)) ? (
+            <TableFilterChip
+              label="Заведение"
+              value={venue}
+              options={venues.map((v) => ({ value: v.id, label: v.name }))}
+              onChange={(next) => updateUrl({ venue: next || null }, { resetPage: true })}
+            />
+          ) : null}
+        </TableConditions>
       </div>
 
-      {/* Mobile cards (без TanStack — отдельный layout) */}
-      <div className="grid gap-2 md:hidden">
-        {initial.rows.length === 0 ? (
-          <EmptyTableBody
-            canSync={canSync}
-            hasActive={hasAnyActive}
-            onClearAll={onClearAll}
-            onSync={() => runSync("documents")}
-          />
-        ) : (
-          initial.rows.map((doc) => (
-            <MobileCard
-              key={doc.id}
-              doc={doc}
-              staff={staff}
-              canManage={canManage}
-              canViewResults={canViewResults}
-              canViewStaff={canViewStaff}
-              amountRoundingScale={amountRoundingScale}
-              searchActive={searchActive}
-            />
-          ))
-        )}
-      </div>
+      {initial.rows.length === 0 ? (
+        <DocumentsEmptyState
+          canSync={canSync}
+          hasActive={hasAnyActive}
+          syncing={isSyncing}
+          onClearAll={onClearAll}
+          onSync={() => runSync("documents")}
+        />
+      ) : (
+        <DataTable
+          table={table}
+          label="Акты инвентаризации"
+          labels={LABELS}
+          onColumnSizingChange={st.setColumnSizing}
+          sorting={sorting}
+          onSortingChange={setSorting}
+          sortable={SORTABLE}
+          numeric={NUMERIC_COLUMNS}
+          controlColumns={["select", "actions"]}
+          renderControlHeader={(header) => (header.column.id === "select" ? selectAllCheckbox : null)}
+          onRowClick={(row) => router.push(getDocHref(row.original, canViewResults))}
+          rowClassName={(row) =>
+            row.index === focusedIndex ? "bg-muted/50 ring-1 ring-inset ring-brand/40" : undefined
+          }
+          empty={null}
+          mobile={{
+            label: "Карточки актов",
+            nameColumn: "document_number",
+            statusColumn: "status",
+            actionsPlacement: canManage ? "footer" : "header",
+            selection: canManage ? (
+              <label className="flex min-h-10 items-center gap-3 text-sm text-muted-foreground">
+                {selectAllCheckbox}
+                Выбрать все на странице
+              </label>
+            ) : null,
+          }}
+        />
+      )}
 
       <TablePagination
         pageIndex={pageFromUrl - 1}
@@ -1253,16 +986,16 @@ export function DocumentsTable({
         onPageSizeChange={(size) => updateUrl({ size: String(size), page: null })}
       />
 
-      {canManage && someSelected ? (
+      {canManage ? (
         <TableBulkBar
-          selectedCount={selectedIds.size}
+          selectedCount={selectedRowsList.length}
           onClear={clearSelection}
           floating
           summary={
             selectedTotals.unavailable ? (
               <span
                 className="whitespace-nowrap text-sm font-medium text-muted-foreground"
-                data-tip="По части выделенных актов итог посчитать не удалось — обновите страницу"
+                data-tip="По части выбранных актов итог посчитать не удалось, обновите страницу"
               >
                 Итог: —
               </span>
@@ -1270,23 +1003,23 @@ export function DocumentsTable({
               <span
                 className={cn(
                   "whitespace-nowrap text-sm font-medium tabular-nums",
-              signedAmountClass(selectedNet),
+                  signedAmountClass(selectedTotals.net),
                 )}
               >
-                Итог: {formatSignedMoney(selectedNet, "RUB", amountRoundingScale)}
+                Итог: {formatSignedMoney(selectedTotals.net, "RUB", amountRoundingScale)}
               </span>
             )
           }
           actions={
-            // Каждая кнопка показывается, только когда действие применимо ко
-            // ВСЕМ выделенным актам (без частичного применения). «Исполнитель»
-            // строже: исчезает уже когда выделен акт на проверке/проведённый.
+            // Кнопка показывается, только когда действие применимо ко ВСЕМ
+            // выбранным актам (без частичного применения).
             canBulkAssignee || canBulkReviewer || canBulkDelete ? (
               <>
                 {canBulkAssignee ? (
                   <BulkAssignMenu
                     label="Исполнитель"
-                    icon={<UserPlus className="mr-2 h-4 w-4" />}
+                    clearLabel="Снять исполнителя"
+                    icon={<UserPlus className="h-4 w-4" />}
                     staff={staff}
                     disabled={bulkPending}
                     onPick={(userId) => applyBulkAssign("assignee", userId)}
@@ -1295,7 +1028,8 @@ export function DocumentsTable({
                 {canBulkReviewer ? (
                   <BulkAssignMenu
                     label="Проверяющий"
-                    icon={<ShieldCheck className="mr-2 h-4 w-4" />}
+                    clearLabel="Снять проверяющего"
+                    icon={<ShieldCheck className="h-4 w-4" />}
                     staff={staff}
                     disabled={bulkPending}
                     onPick={(userId) => applyBulkAssign("reviewer", userId)}
@@ -1306,11 +1040,11 @@ export function DocumentsTable({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-8 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                     disabled={bulkPending}
                     onClick={() => setBulkDeleteOpen(true)}
                   >
-                    <Trash2 className="mr-2 h-4 w-4" />
+                    <Trash2 className="h-4 w-4" />
                     Удалить
                   </Button>
                 ) : null}
@@ -1320,32 +1054,21 @@ export function DocumentsTable({
         />
       ) : null}
 
-      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Удалить акты ({selectedRowsList.length})?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Это удалит выбранные акты и все их позиции. Акты из Quick Resto могут
-              вернуться при следующей синхронизации.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={bulkPending}>Отмена</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={bulkPending}
-              onClick={(e) => {
-                e.preventDefault();
-                applyBulkDelete();
-              }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {bulkPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-              Удалить
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        onOpenChange={(open) => {
+          if (!open) setBulkDeleteError(null);
+          setBulkDeleteOpen(open);
+        }}
+        title={`Удалить ${countRu(selectedRowsList.length, "акт", "акта", "актов")}?`}
+        description="Удалятся выбранные акты и все их позиции. Акты из Quick Resto вернутся при следующей синхронизации, если не удалить их и там."
+        confirmLabel={`Удалить ${countRu(selectedRowsList.length, "акт", "акта", "актов")}`}
+        pendingLabel="Удаляем…"
+        destructive
+        busy={bulkPending}
+        error={bulkDeleteError}
+        onConfirm={applyBulkDelete}
+      />
+    </PageFrame>
   );
 }
-

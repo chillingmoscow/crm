@@ -89,22 +89,42 @@ const validMark = (m: WriteoffPoolAssignment | undefined) =>
     : (m.pool === "department" || m.pool === "personal") && !!m.key);
 
 /**
- * Состояние разнесения акта для журнала.
- * - "unassigned": нужен выбор человека, пока его нет месяц неполный;
+ * Состояние разнесения акта для журнала. Обязано совпадать с тем, как акт
+ * понимает расчёт месяца (`writeoffPoolSources` + `writeoffSourcesForMonth`):
+ * иначе журнал показывает «разнесён», а месяц стоит с «актом без плательщика».
+ * - "unassigned": нужен выбор человека, пока его нет месяц неполный. Сюда же
+ *   пометка на подразделение, которого больше нет среди действующих
+ *   (архивировано или из другого заведения) — расчёт её не принимает;
+ * - "needs_check": пометка есть, но сумма акта неизвестна (у позиции нет суммы
+ *   или она отрицательная) — расчёт не может её разнести, месяц неполный;
  * - "not_needed": акт на ноль рублей, ничего не меняет в пулах и месяц не блокирует;
  * - "not_counted": черновик или пропавший акт без пометки, в расчёт не идёт.
  */
 export function writeoffPoolState(
   doc: WriteoffPoolDoc,
   assignment: WriteoffPoolAssignment | undefined,
-): "assigned" | "unassigned" | "not_needed" | "not_counted" {
+  opts: {
+    /** Действующие подразделения заведения. Без набора подразделение не проверяется. */
+    activeDepartments?: ReadonlySet<string>;
+  } = {},
+): "assigned" | "unassigned" | "needs_check" | "not_needed" | "not_counted" {
   // Чужая пометка (другое заведение или другой акт) — не пометка этого акта.
-  const mark = ownMark(doc, assignment);
+  const own = ownMark(doc, assignment);
+  const mark =
+    own &&
+    own.pool === "department" &&
+    opts.activeDepartments &&
+    !opts.activeDepartments.has(own.key ?? "")
+      ? undefined
+      : own;
   if (!writeoffCounts(doc)) return validMark(mark) ? "assigned" : "not_counted";
-  if (validMark(mark)) return "assigned";
-  return writeoffChargeRubles(doc.payload.kind, doc.payload.lines) === 0
-    ? "not_needed"
-    : "unassigned";
+  const rubles = writeoffChargeRubles(doc.payload.kind, doc.payload.lines);
+  if (validMark(mark)) {
+    // «Не удерживать» и акт на ноль рублей расчёт пропускает и без суммы.
+    if (mark!.pool !== "excluded" && rubles === null) return "needs_check";
+    return "assigned";
+  }
+  return rubles === 0 ? "not_needed" : "unassigned";
 }
 
 /** Подпись плательщика для журнала. Имена приходят отдельно: пометка хранит только ID. */

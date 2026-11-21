@@ -1,60 +1,52 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
-  flexRender,
   getCoreRowModel,
+  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
   type ColumnDef,
+  type SortingState,
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
   ClipboardList,
-  RefreshCw,
   Loader2,
-  ExternalLink,
+  RefreshCw,
+  SearchX,
+  Settings,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageFrame } from "@/components/shared/page-frame";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { MonthPicker } from "@/components/shared/month-picker";
+import { PeriodStepper } from "@/components/shared/period-stepper";
+import { Metric, MetricStrip } from "@/components/shared/metric-strip";
+import { Money } from "@/components/shared/money";
+import tabStyle from "@/components/shared/workspace-tabs.module.css";
 import {
-  TablePageHeader,
-  TableControls,
+  DataTable,
   TableColumnManager,
-  ResizableTableHead,
+  TableConditions,
+  TableControls,
+  TableFilterChip,
+  TableIconButton,
+  TablePageHeader,
+  TablePagination,
+  TableSortPicker,
   useTableState,
-  useMultiSort,
 } from "@/components/shared/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { EditDrawer } from "@/components/ui/edit-drawer";
-import {
-  DrawerAvatar,
-  DrawerSection,
-  DrawerStatus,
-  DrawerSummary,
-  DrawerSummaryTotal,
-  DrawerTimeline,
-  DrawerTimelineItem,
-} from "@/components/ui/drawer-blocks";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
-import { dayLabel } from "@/lib/sales/format";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { csvCell } from "@/lib/sales/csv";
+import { formatDateCell } from "@/lib/format/date";
+import { countRu } from "@/lib/format/plural";
 import { cn } from "@/lib/utils";
-import { WARNING_BADGE_CLASS } from "@/components/shared/inventory-status-badge";
-import { personalConsumptionPlan } from "@/lib/stock/writeoffs";
 import {
   writeoffRows,
-  filterWriteoffs,
   writeoffTotal,
   type WriteoffPoolFilter,
   type WriteoffPoolView,
@@ -66,325 +58,45 @@ import {
   writeoffPoolState,
   type WriteoffPoolAssignment,
 } from "@/lib/stock/writeoff-pools";
-import { PoolSection } from "./pool-section";
+import { WriteoffDrawer } from "./writeoff-drawer";
+import {
+  applyWriteoffConditions,
+  writeoffStatusTone,
+} from "./writeoff-format";
 import {
   loadWriteoffs,
   requestWriteoffs,
   assignWriteoffPool,
-  loadWriteoffHistory,
   type WriteoffData,
-  type WriteoffHistory,
 } from "./actions";
-const names: Record<string, string> = {
-  date: "Дата",
-  name: "Акт / наименование",
-  correspondent: "Кому относится",
-  kind: "Тип",
-  reason: "Основание / категория",
-  pool: "Пул",
-  store: "Склад",
-  status: "Состояние",
-  quantity: "Недостача",
-  total: "Сумма",
-};
-const columnsConfig = Object.keys(names).map((id) => ({
-  id,
-  defaultSize:
-    (
-      {
-        date: 120,
-        name: 160,
-        correspondent: 160,
-        reason: 190,
-        pool: 190,
-        status: 120,
-        total: 140,
-      } as Record<string, number>
-    )[id] ?? 160,
-  defaultVisible: [
-    "date",
-    "name",
-    "correspondent",
-    "reason",
-    "pool",
-    "total",
-    "status",
-  ].includes(id),
+
+type Source = "native" | "archive";
+
+const definitions = [
+  { id: "date", label: "Дата", size: 120, min: 100, visible: true },
+  { id: "name", label: "Акт / наименование", size: 200, min: 160, visible: true },
+  { id: "correspondent", label: "Кому относится", size: 170, min: 140, visible: true },
+  { id: "kind", label: "Тип", size: 160, min: 80, visible: false },
+  { id: "reason", label: "Основание / категория", size: 200, min: 180, visible: true },
+  { id: "pool", label: "Кто платит", size: 180, min: 110, visible: true },
+  { id: "store", label: "Склад", size: 160, min: 90, visible: false },
+  { id: "status", label: "Статус", size: 130, min: 100, visible: true },
+  { id: "quantity", label: "Недостача", size: 130, min: 110, visible: false },
+  { id: "total", label: "Сумма", size: 140, min: 100, visible: true },
+] as const;
+const columnsConfig = definitions.map((c) => ({
+  id: c.id,
+  defaultSize: c.size,
+  defaultVisible: c.visible,
 }));
-const amount = (v: number | null) =>
-  v === null
-    ? "—"
-    : `${v.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ₽`;
-const stamp = (s: string, tz: string) =>
-  new Date(s).toLocaleString("ru-RU", {
-    timeZone: tz,
-    dateStyle: "short",
-    timeStyle: "short",
-  });
-function Status({ row }: { row: WriteoffRow }) {
-  return (
-    <Badge
-      variant="outline"
-      className={cn(
-        "whitespace-nowrap border-transparent font-normal",
-        row.status === "Проведён"
-          ? "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300"
-          : row.status.startsWith("Удал") || row.status === "Нет в источнике"
-            ? "bg-destructive/10 text-destructive"
-            : "bg-muted text-muted-foreground",
-      )}
-    >
-      {row.status}
-    </Badge>
-  );
-}
-function Detail({
-  row,
-  data,
-  canAssign,
-  onAssign,
-  onClose,
-}: {
-  row: WriteoffRow;
-  data: WriteoffData;
-  canAssign: boolean;
-  onAssign: (
-    row: WriteoffRow,
-    pool: WriteoffPoolAssignment["pool"] | null,
-    key: string | null,
-  ) => Promise<void>;
-  onClose: () => void;
-}) {
-  const [history, setHistory] = useState<WriteoffHistory[] | null>(null),
-    [error, setError] = useState(false);
-  useEffect(() => {
-    let active = true;
-    if (row.native)
-      void loadWriteoffHistory(data.venueId, row.id)
-        .then((h) => active && setHistory(h))
-        .catch(() => active && setError(true));
-    return () => {
-      active = false;
-    };
-  }, [row.id, row.native, data.venueId]);
-  const d = row.native?.payload,
-    plan = d ? personalConsumptionPlan(d, data.rules?.personalFinance) : null;
-  const sourceUrl =
-    row.archive?.document_url ??
-    (d && data.providerOrigin
-      ? `${data.providerOrigin}/#/warehouse.documents.discard?id=${d.id}&className=ru.edgex.quickresto.modules.warehouse.documents.discard.DiscardInvoice&tab=general`
-      : null);
-  const events: Record<string, string> = {
-    imported: "Получен из Quick Resto",
-    updated: "Обновлён из Quick Resto",
-    source_removed: "Больше не найден в источнике",
-    source_restored: "Снова найден в источнике",
-  };
-  return (
-    <EditDrawer
-      open
-      title={row.name}
-      description={`${dayLabel(row.date)} · ${row.archive ? "Архив Glide" : row.store}`}
-      titleAccessory={
-        <DrawerStatus
-          label={row.status}
-          tone={
-            row.status === "Проведён"
-              ? "success"
-              : row.status.startsWith("Удал") ||
-                  row.status === "Нет в источнике"
-                ? "danger"
-                : "neutral"
-          }
-        />
-      }
-      footer={
-        sourceUrl ? (
-          <Button variant="outline" asChild>
-            <a href={sourceUrl} target="_blank" rel="noreferrer">
-              <ExternalLink className="mr-2 size-4" />
-              Акт в Quick Resto
-            </a>
-          </Button>
-        ) : undefined
-      }
-      onOpenChange={(v) => !v && onClose()}
-    >
-      <DrawerSummary label={d ? "Сумма акта" : "Сумма записи"}>
-        <DrawerSummaryTotal label={`Сумма ${d ? "акта" : "записи"}`}>
-          {amount(row.total)}
-        </DrawerSummaryTotal>
-      </DrawerSummary>
-      <Tabs defaultValue="details">
-        <TabsList>
-          <TabsTrigger value="details">Детали</TabsTrigger>
-          <TabsTrigger value="history">История</TabsTrigger>
-        </TabsList>
-        <TabsContent value="details" className="space-y-5">
-          {!!row.issues.length && (
-            <div className="space-y-1 rounded-lg bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-300">
-              {row.issues.map((i) => (
-                <p key={i}>{i}</p>
-              ))}
-            </div>
-          )}
-          <dl className="divide-y">
-            {[
-              ["Кому относится", row.correspondent],
-              ["Тип", row.kind],
-              ["Основание / категория", row.reason],
-              ...(row.quantity ? [["Недостача", row.quantity]] : []),
-            ].map(([k, v]) => (
-              <div key={k} className="flex justify-between gap-4 py-3 text-sm">
-                <dt className="text-muted-foreground">{k}</dt>
-                <dd className="min-w-0 break-words text-right">{v}</dd>
-              </div>
-            ))}
-          </dl>
-          <PoolSection
-            row={row}
-            data={data}
-            canAssign={canAssign}
-            onAssign={(pool, key) => onAssign(row, pool, key)}
-          />
-          {d?.kind === "personal" && (
-            <DrawerSection title="Личное потребление">
-              <p className="text-xl font-semibold tabular-nums">
-                {amount(plan?.amount ?? null)}
-              </p>
-              {plan?.eligible ? (
-                <>
-                  <dl className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Приход</dt>
-                      <dd>{amount(plan.amount)}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Расход</dt>
-                      <dd>{amount(plan.amount)}</dd>
-                    </div>
-                  </dl>
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    По прежнему правилу Adesk: сумма каждой позиции округляется
-                    отдельно. Изменение остатка счёта — 0 ₽.
-                  </p>
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  {plan?.issues.join(". ")}
-                </p>
-              )}
-              <p className="text-xs text-muted-foreground">
-                Это расчёт для сверки. Денежные операции из этой карточки пока
-                не создаются.
-              </p>
-            </DrawerSection>
-          )}
-          {d && (
-            <DrawerSection title={`Позиции · ${d.lines.length}`}>
-              <ul className="divide-y">
-                {d.lines.map((l) => (
-                  <li
-                    key={l.id}
-                    className="flex justify-between gap-4 py-3 text-sm"
-                  >
-                    <div className="min-w-0">
-                      <p className="break-words font-medium">{l.name}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {l.quantity === null
-                          ? "Количество не указано"
-                          : `${l.quantity.toLocaleString("ru-RU", { maximumFractionDigits: 6 })} ${l.unit ?? ""}`}
-                      </p>
-                      {!!l.categories.length && (
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {l.categories[0]}
-                        </p>
-                      )}
-                    </div>
-                    <span className="shrink-0 tabular-nums">
-                      {amount(l.amount)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </DrawerSection>
-          )}
-          {row.archive?.deleted && row.archive.delete_reason && (
-            <p className="text-sm">
-              Причина удаления: {row.archive.delete_reason}
-            </p>
-          )}
-        </TabsContent>
-        <TabsContent value="history" className="space-y-4 text-sm">
-          {row.archive ? (
-            <>
-              <p>
-                Перенесено из Glide ·{" "}
-                {stamp(row.archive.captured_at, data.timezone)}
-              </p>
-              <a
-                className="text-brand hover:underline"
-                target="_blank"
-                rel="noreferrer"
-                href={`https://docs.google.com/spreadsheets/d/${encodeURIComponent(row.archive.origin.spreadsheet_id)}/edit#range=${encodeURIComponent(row.archive.origin.range)}`}
-              >
-                Исходная строка ↗
-              </a>
-              {row.archive.period_total_raw != null && (
-                <details className="text-xs text-muted-foreground">
-                  <summary className="cursor-pointer">
-                    Дополнительное поле источника
-                  </summary>
-                  <p className="mt-2">
-                    «Сумма списаний»: {amount(row.archive.period_total_raw)}.
-                    Значение повторяется в строках источника; к сумме этой
-                    записи не прибавляется.
-                  </p>
-                </details>
-              )}
-            </>
-          ) : error ? (
-            <p role="alert" className="text-destructive">
-              Не удалось загрузить историю. Закройте карточку и откройте
-              повторно.
-            </p>
-          ) : history === null ? (
-            <p role="status" className="text-muted-foreground">
-              Загружаем историю…
-            </p>
-          ) : (
-            <DrawerTimeline>
-              {history.map((h, index) => (
-                <DrawerTimelineItem
-                  key={h.id}
-                  last={index === history.length - 1}
-                  avatar={<DrawerAvatar name={h.actor_name ?? ""} />}
-                  title={events[h.action] ?? "Изменение"}
-                  meta={[h.actor_name, stamp(h.created_at, data.timezone)]
-                    .filter(Boolean)
-                    .join(" · ")}
-                >
-                  <p className="tabular-nums">
-                    {h.before_payload
-                      ? `${amount(h.before_payload.total)} → `
-                      : ""}
-                    {amount(h.after_payload?.total ?? null)}
-                  </p>
-                </DrawerTimelineItem>
-              ))}
-            </DrawerTimeline>
-          )}
-        </TabsContent>
-      </Tabs>
-      {row.native && (
-        <p className="text-xs text-muted-foreground">
-          Снимок Quick Resto · {stamp(row.native.captured_at, data.timezone)}
-        </p>
-      )}
-    </EditDrawer>
-  );
-}
-/** Колонка «Пул»: подпись, состояние и пометка акта по данным страницы. */
+const labels: Record<string, string> = Object.fromEntries(
+  definitions.map((c) => [c.id, c.label]),
+);
+const sortable = new Set<string>(definitions.map((c) => c.id));
+const MIN_MONTH = "2000-01-01";
+const MONTH_PARAM = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/** Колонка «Кто платит»: подпись, состояние и пометка акта по данным страницы. */
 function poolView(data: WriteoffData) {
   const marks = new Map(
     data.assignments.map(
@@ -395,16 +107,21 @@ function poolView(data: WriteoffData) {
     departments: new Map(data.targets.departments.map((d) => [d.id, d.name])),
     employees: new Map(data.targets.employees.map((e) => [e.id, e.name])),
   };
+  // Расчёт месяца принимает пометку только на действующее подразделение
+  // заведения: журнал считает так же, иначе акт «разнесён» здесь, а месяц
+  // стоит с «актом без плательщика».
+  const activeDepartments = new Set(
+    data.targets.departments.filter((d) => !d.archived).map((d) => d.id),
+  );
   return (d: WriteoffData["documents"][number]): WriteoffPoolView => {
-    const assignment = marks.get(
-      writeoffPoolKey(d.venue_id, d.external_id),
-    );
-    const state = writeoffPoolState(d, assignment);
+    const assignment = marks.get(writeoffPoolKey(d.venue_id, d.external_id));
+    const state = writeoffPoolState(d, assignment, { activeDepartments });
     return {
       assignment,
       // Всё из одного состояния: подпись, фильтр и плашка не могут разойтись.
+      // «Нужна сверка суммы» блокирует месяц так же, как неразнесённый акт.
       poolState:
-        state === "unassigned"
+        state === "unassigned" || state === "needs_check"
           ? "unassigned"
           : state === "assigned"
             ? "assigned"
@@ -412,163 +129,288 @@ function poolView(data: WriteoffData) {
       pool:
         state === "assigned" && assignment
           ? writeoffPoolLabel(assignment, names)
-          : state === "unassigned"
-            ? "Не разнесён"
-            : state === "not_needed"
-              ? "Не требуется"
-              : "—",
+          : state === "needs_check"
+            ? "Сумма не определена"
+            : state === "unassigned"
+              ? assignment?.pool === "department"
+                ? "Подразделение в архиве"
+                : "Не разнесён"
+              : state === "not_needed"
+                ? "Не требуется"
+                : "—",
     };
   };
 }
+
+const latestArchiveMonth = (data: WriteoffData, fallback: string) =>
+  (
+    data.archives
+      .map((r) => r.business_date)
+      .sort()
+      .at(-1) ?? fallback
+  ).slice(0, 7) + "-01";
+
+function shiftMonth(month: string, delta: number) {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+  return d.toISOString().slice(0, 10);
+}
+
+/** Значение для CSV: даты как в таблице, дроби через запятую (русский Excel). */
+function csvValue(id: string, r: WriteoffRow): unknown {
+  if (id === "date") return formatDateCell(r.date) ?? r.date;
+  const v = r[id as keyof WriteoffRow];
+  if (typeof v === "number") return String(v).replace(".", ",");
+  if (id === "quantity" && typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v.trim()))
+    return v.trim().replace(".", ",");
+  return v;
+}
+
+/** Текст ошибки фоновой загрузки: показываем, только если это фраза для человека. */
+const humanJobError = (text: string | null) =>
+  text && /[а-яё]/i.test(text) && !/[{}<>]|error|exception/i.test(text)
+    ? text
+    : "Не удалось получить списания из Quick Resto. Сохранённые данные не изменены.";
+
 export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
+  const router = useRouter();
+  const params = useSearchParams();
+  const maxMonth = `${initial.currentMonth}-01`;
+  // Начальное состояние из адреса: ?month=YYYY-MM и ?act=<номер акта в Quick Resto>.
+  const [start] = useState(() => {
+    const act = Number(params.get("act"));
+    const doc =
+      Number.isSafeInteger(act) && act > 0
+        ? initial.documents.find((d) => d.external_id === act)
+        : undefined;
+    const monthParam = params.get("month");
+    const fromUrl =
+      monthParam && MONTH_PARAM.test(monthParam) && `${monthParam}-01` <= maxMonth
+        ? `${monthParam}-01`
+        : null;
+    const source: Source =
+      doc || initial.connected ? "native" : "archive";
+    const month = doc
+      ? `${doc.business_date.slice(0, 7)}-01`
+      : (fromUrl ??
+        (source === "native"
+          ? maxMonth
+          : latestArchiveMonth(initial, initial.currentMonth)));
+    const detail = doc
+      ? (writeoffRows([doc], [], "native", poolView(initial))[0] ?? null)
+      : null;
+    return { source, month, detail };
+  });
   const [data, setData] = useState(initial),
-    [source, setSource] = useState<"native" | "archive">(
-      initial.connected ? "native" : "archive",
-    ),
-    [month, setMonth] = useState(
-      (initial.connected
-        ? initial.currentMonth
-        : (
-            initial.archives
-              .map((r) => r.business_date)
-              .sort()
-              .at(-1) ?? initial.currentMonth
-          ).slice(0, 7)) + "-01",
-    ),
-    [kind, setKind] = useState("all"),
-    [pool, setPool] = useState<WriteoffPoolFilter>("all"),
-    [detail, setDetail] = useState<WriteoffRow | null>(null),
+    [source, setSource] = useState<Source>(start.source),
+    [month, setMonth] = useState(start.month),
+    [kind, setKind] = useState(""),
+    [pool, setPool] = useState<WriteoffPoolFilter | "">(""),
+    [detail, setDetail] = useState<WriteoffRow | null>(start.detail),
     [busy, setBusy] = useState(false),
     [exporting, setExporting] = useState(false),
     [filtersOpen, setFiltersOpen] = useState(false);
   const canAssign = data.permissions.includes("inventory.assign_writeoff_pool");
+  const canSync =
+    data.connected && data.permissions.includes("inventory.sync_quickresto");
+  const canSettings = data.permissions.includes("org.manage_venues");
   const poolOf = useMemo(() => poolView(data), [data]);
-  const allRows = useMemo(
-    () => writeoffRows(data.documents, data.archives, source, poolOf),
-    [data, source, poolOf],
+  const nativeRows = useMemo(
+    () => writeoffRows(data.documents, data.archives, "native", poolOf),
+    [data, poolOf],
   );
+  const archiveRows = useMemo(
+    () => writeoffRows(data.documents, data.archives, "archive"),
+    [data],
+  );
+  const allRows = source === "native" ? nativeRows : archiveRows;
   const st = useTableState({
     tableId: `stock-writeoffs.${data.venueId}`,
     columns: columnsConfig,
+    defaultPageSize: 25,
   });
+  const hasFilters = !!kind || !!pool;
+  const searching = !!st.search.trim();
+  const inMonth = (list: WriteoffRow[]) =>
+    applyWriteoffConditions(list, month, "", "", "");
+  const monthRows = useMemo(
+    () => applyWriteoffConditions(allRows, month, "", "", ""),
+    [allRows, month],
+  );
   const rows = useMemo(
-    () => filterWriteoffs(allRows, month, kind, st.search, pool),
-    [allRows, month, kind, st.search, pool],
+    () => applyWriteoffConditions(allRows, month, kind, pool, st.search),
+    [allRows, month, kind, pool, st.search],
   );
   const unassigned = useMemo(
     () =>
       source === "native"
-        ? filterWriteoffs(allRows, month, "all", "", "unassigned").length
+        ? applyWriteoffConditions(allRows, month, "", "unassigned", "").length
         : 0,
     [allRows, month, source],
   );
-  const cols = useMemo<ColumnDef<WriteoffRow>[]>(
+  const columns = useMemo<ColumnDef<WriteoffRow>[]>(
     () =>
-      columnsConfig.map(({ id, defaultSize }) => ({
+      definitions.map(({ id, size, min, label }) => ({
         id,
-        header: names[id],
-        size: defaultSize,
+        header: label,
+        size,
+        minSize: min,
+        enableHiding: id !== "name",
         accessorFn: (r) => r[id as keyof WriteoffRow] ?? undefined,
         sortUndefined: "last",
-        cell: ({ row }) =>
-          id === "name" ? (
-            <button
-              type="button"
-              className="block w-full truncate text-left font-medium hover:text-brand"
-              onClick={() => setDetail(row.original)}
-              data-tip={row.original.name}
-            >
-              {row.original.name}
-              {row.original.issues.length > 0 && (
-                <span className="mt-1 block text-xs font-normal text-amber-800 dark:text-amber-300">
-                  Нужна сверка
+        cell: ({ row }) => {
+          const r = row.original;
+          switch (id) {
+            case "name":
+              // Настоящая кнопка в первой ячейке: акт открывается и с клавиатуры.
+              return (
+                <button
+                  type="button"
+                  className="block max-w-full text-left"
+                  onClick={() => setDetail(r)}
+                >
+                  <span
+                    className="block truncate font-medium hover:underline"
+                    data-tip={r.name}
+                    data-tip-overflow
+                  >
+                    {r.name}
+                  </span>
+                  {r.issues.length > 0 && (
+                    <span className="block truncate text-xs text-amber-700 dark:text-amber-400">
+                      Нужна сверка
+                    </span>
+                  )}
+                </button>
+              );
+            case "status":
+              return (
+                <StatusBadge tone={writeoffStatusTone(r.status)}>
+                  {r.status}
+                </StatusBadge>
+              );
+            case "pool":
+              return r.poolState === "unassigned" ? (
+                <StatusBadge tone="warning">{r.pool}</StatusBadge>
+              ) : (
+                <span
+                  className={cn(
+                    "block truncate",
+                    r.pool === "—" && "text-muted-foreground",
+                  )}
+                  data-tip={r.pool}
+                  data-tip-overflow
+                >
+                  {r.pool}
                 </span>
-              )}
-            </button>
-          ) : id === "status" ? (
-            <Status row={row.original} />
-          ) : id === "pool" ? (
-            row.original.poolState === "unassigned" ? (
-              <Badge
-                variant="outline"
-                className={`whitespace-nowrap font-normal ${WARNING_BADGE_CLASS}`}
-              >
-                Не разнесён
-              </Badge>
-            ) : (
-              <span className="block truncate" data-tip={row.original.pool} data-tip-overflow>
-                {row.original.pool}
-              </span>
-            )
-          ) : id === "date" ? (
-            new Date(`${row.original.date}T12:00:00`).toLocaleDateString(
-              "ru-RU",
-            )
-          ) : id === "total" ? (
-            <span className="tabular-nums">{amount(row.original.total)}</span>
-          ) : (
-            <span
-              className="block truncate"
-              data-tip={String(row.original[id as keyof WriteoffRow] ?? "")} data-tip-overflow
-            >
-              {String(row.original[id as keyof WriteoffRow] ?? "—")}
-            </span>
-          ),
+              );
+            case "date":
+              return formatDateCell(r.date) ?? "—";
+            case "total":
+              return <Money value={r.total} />;
+            default: {
+              const value = r[id as keyof WriteoffRow];
+              const text = value == null || value === "" ? "—" : String(value);
+              return (
+                <span
+                  className={cn(
+                    "block truncate",
+                    text === "—" && "text-muted-foreground",
+                  )}
+                  data-tip={text}
+                  data-tip-overflow
+                >
+                  {text}
+                </span>
+              );
+            }
+          }
+        },
       })),
     [],
   );
   const table = useReactTable({
     data: rows,
-    columns: cols,
+    columns,
     getRowId: (r) => r.id,
     state: {
       sorting: st.sorting,
       columnOrder: st.columnOrder,
-      columnVisibility: st.columnVisibility,
+      columnVisibility: { ...st.columnVisibility, name: true },
       columnSizing: st.columnSizing,
+      pagination: st.pagination,
     },
     onSortingChange: st.setSorting,
     onColumnOrderChange: st.setColumnOrder,
     onColumnVisibilityChange: st.setColumnVisibility,
     onColumnSizingChange: st.setColumnSizing,
+    onPaginationChange: st.setPagination,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    autoResetPageIndex: false,
     columnResizeMode: "onChange",
   });
-  type Sort = `${string}:${"asc" | "desc"}`;
-  const multi = useMultiSort({
-    sorts: st.sorting.map((s) => `${s.id}:${s.desc ? "desc" : "asc"}` as Sort),
-    onChange: (v) =>
-      st.setSorting(
-        v.map((s) => ({ id: s.split(":")[0], desc: s.endsWith(":desc") })),
-      ),
-    columnToField: Object.fromEntries(columnsConfig.map((c) => [c.id, c.id])),
-    codec: {
-      toField: (s) => s.split(":")[0],
-      toDirection: (s) => (s.endsWith(":desc") ? "desc" : "asc"),
-      combine: (f, d) => `${f}:${d}` as Sort,
-    },
-  });
-  const pending =
-    source === "native" &&
-    data.jobs.some(
-      (j) => j.month.startsWith(month.slice(0, 7)) && j.state !== "ready",
-    );
+  const firstPage = () => st.setPagination((p) => ({ ...p, pageIndex: 0 }));
+  const pageCount = Math.max(1, Math.ceil(rows.length / st.pagination.pageSize));
+  const { pagination, setPagination } = st;
   useEffect(() => {
-    if (!pending) return;
+    if (pagination.pageIndex >= pageCount)
+      setPagination((p) => ({ ...p, pageIndex: pageCount - 1 }));
+  }, [pageCount, pagination.pageIndex, setPagination]);
+  const changeSorting = (next: SortingState) => {
+    st.setSorting(next);
+    firstPage();
+  };
+  const resetConditions = () => {
+    setKind("");
+    setPool("");
+    st.setSearch("");
+    st.setSorting([]);
+    firstPage();
+  };
+
+  const job =
+    source === "native"
+      ? data.jobs.find((j) => j.month.startsWith(month.slice(0, 7)))
+      : undefined;
+  // Ошибка — не ожидание: без спиннера.
+  const pending = !!job && (job.state === "pending" || job.state === "running");
+  // Опрос: при загрузке — раз в 10 с; после ошибки сервер повторяет сам,
+  // поэтому опрашиваем реже — раз в 60 с, чтобы увидеть результат повтора.
+  const pollMs = pending ? 10000 : job?.state === "error" ? 60000 : null;
+  useEffect(() => {
+    if (!pollMs) return;
     let active = true;
     const timer = setInterval(() => {
       if (document.visibilityState === "visible")
         void loadWriteoffs(initial.venueId)
           .then((d) => active && setData(d))
           .catch(() => {});
-    }, 10000);
+    }, pollMs);
     return () => {
       active = false;
       clearInterval(timer);
     };
-  }, [pending, initial.venueId]);
-  const job = data.jobs.find((j) => j.month.startsWith(month.slice(0, 7)));
+  }, [pollMs, initial.venueId]);
+
+  function changeMonth(next: string) {
+    setMonth(next);
+    setDetail(null);
+    firstPage();
+  }
+  function changeSource(next: Source) {
+    setSource(next);
+    setDetail(null);
+    setKind("");
+    setPool("");
+    firstPage();
+    if (
+      next === "archive" &&
+      !data.archives.some((r) => r.business_date.startsWith(month.slice(0, 7)))
+    )
+      setMonth(latestArchiveMonth(data, month.slice(0, 7)));
+  }
   async function refresh() {
     setBusy(true);
     try {
@@ -614,16 +456,19 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     try {
       const fresh = await loadWriteoffs(data.venueId),
         byId = new Map(
-          writeoffRows(fresh.documents, fresh.archives, source, poolView(fresh)).map(
-            (r) => [r.id, r],
-          ),
+          writeoffRows(
+            fresh.documents,
+            fresh.archives,
+            source,
+            poolView(fresh),
+          ).map((r) => [r.id, r]),
         );
-      const freshRows = filterWriteoffs(
+      const freshRows = applyWriteoffConditions(
         [...byId.values()],
         month,
         kind,
-        st.search,
         pool,
+        st.search,
       );
       const unchanged =
         freshRows.length === rows.length &&
@@ -644,22 +489,23 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
           "Данные обновились. Проверьте таблицу и повторите экспорт",
         );
       }
-      const columns = table.getVisibleLeafColumns();
-      const lines: unknown[][] = [columns.map((c) => names[c.id])];
-      for (const old of table.getRowModel().rows) {
+      const visible = table.getVisibleLeafColumns();
+      const lines: unknown[][] = [visible.map((c) => labels[c.id])];
+      // Все строки с условиями и сортировкой, а не только текущая страница.
+      for (const old of table.getPrePaginationRowModel().rows) {
         const r = byId.get(old.id);
         if (!r) throw new Error("Данные изменились. Обновите таблицу");
-        lines.push(columns.map((c) => r[c.id as keyof WriteoffRow]));
+        lines.push(visible.map((c) => csvValue(c.id, r)));
       }
       const url = URL.createObjectURL(
         new Blob(
-          ["\uFEFF" + lines.map((r) => r.map(csvCell).join(";")).join("\r\n")],
+          ["﻿" + lines.map((r) => r.map(csvCell).join(";")).join("\r\n")],
           { type: "text/csv;charset=utf-8;" },
         ),
       );
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Списания-${source}-${month.slice(0, 7)}.csv`;
+      a.download = `Списания-${source === "native" ? "QuickResto" : "Архив"}-${month.slice(0, 7)}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -670,117 +516,83 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       setExporting(false);
     }
   }
+
   const sum = writeoffTotal(rows),
     types = [...new Set(allRows.map((r) => r.kind))].sort();
-  return (
-    <PageFrame className="space-y-6">
-      <TablePageHeader
-        title="Списания"
-        actions={
-          data.permissions.includes("org.manage_venues") ? (
-            <Button variant="outline" size="sm" asChild>
-              <Link href={`/org/venues/${data.venueId}?tab=inventory`}>
-                Настройки
-              </Link>
-            </Button>
-          ) : undefined
-        }
-      />
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2">
-          <div className="w-44">
-            <MonthPicker
-              value={month}
-              min="2000-01-01"
-              onChange={(v) => {
-                setMonth(v);
-                setDetail(null);
-              }}
-              variant="field"
-              prefix=""
-              ariaLabel="Месяц списаний"
-            />
-          </div>
-          <Select
-            value={source}
-            onValueChange={(v) => {
-              setSource(v as typeof source);
-              setDetail(null);
-              setKind("all");
-              setPool("all");
-              if (
-                v === "archive" &&
-                !data.archives.some((r) =>
-                  r.business_date.startsWith(month.slice(0, 7)),
-                )
-              )
-                setMonth(
-                  (
-                    data.archives
-                      .map((r) => r.business_date)
-                      .sort()
-                      .at(-1) ?? month
-                  ).slice(0, 7) + "-01",
-                );
-            }}
-          >
-            <SelectTrigger className="w-40" aria-label="Источник списаний">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="native">Quick Resto</SelectItem>
-              <SelectItem value="archive">Архив Glide</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+  const showTabs = data.archives.length > 0 || !data.connected;
+  const native = source === "native";
+
+  const header = (
+    <TablePageHeader
+      title="Списания"
+      count={
+        hasFilters || searching
+          ? `${rows.length} из ${monthRows.length}`
+          : monthRows.length
+      }
+      period={
+        <PeriodStepper
+          previous="Предыдущий месяц"
+          next="Следующий месяц"
+          previousDisabled={month <= MIN_MONTH}
+          nextDisabled={month >= maxMonth}
+          onPrevious={() => changeMonth(shiftMonth(month, -1))}
+          onNext={() => changeMonth(shiftMonth(month, 1))}
+        >
+          <MonthPicker
+            variant="period"
+            prefix=""
+            ariaLabel="Месяц списаний"
+            value={month}
+            min={MIN_MONTH}
+            max={maxMonth}
+            onChange={changeMonth}
+          />
+        </PeriodStepper>
+      }
+      actions={
         <TableControls
           search={{
             value: st.search,
-            onChange: st.setSearch,
+            onChange: (v) => {
+              st.setSearch(v);
+              firstPage();
+            },
             open: st.searchOpen,
             onOpenChange: st.setSearchOpen,
             placeholder: "Акт, товар или сотрудник",
           }}
           filters={{
-            active: filtersOpen || kind !== "all" || pool !== "all",
-            onClick: () => setFiltersOpen(!filtersOpen),
+            active: hasFilters,
+            onClick: () => setFiltersOpen((v) => !v),
           }}
           sort={{
             active: st.sorting.length > 0,
             content: (
-              <div className="space-y-1 p-2">
-                {columnsConfig.map((c) => (
-                  <button
-                    type="button"
-                    key={c.id}
-                    className="flex w-full items-center justify-between gap-4 rounded-md px-2 py-2 text-sm hover:bg-muted"
-                    onClick={() => multi.cycleSort(c.id)}
-                  >
-                    {names[c.id]}
-                    {multi.headerIndicator(c.id)}
-                  </button>
-                ))}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full"
-                  onClick={() => st.setSorting([])}
-                >
-                  Сбросить сортировку
-                </Button>
-              </div>
+              <TableSortPicker
+                sorting={st.sorting}
+                onChange={changeSorting}
+                fields={[...sortable]}
+                labels={labels}
+              />
             ),
           }}
           columns={{
             content: (
               <TableColumnManager
-                columns={table.getAllLeafColumns().map((c) => ({
-                  id: c.id,
-                  label: names[c.id],
-                  visible: c.getIsVisible(),
-                  canHide: c.id !== "name",
-                  width: c.getSize(),
-                }))}
+                columns={st.columnOrder.flatMap((id) => {
+                  const c = table.getColumn(id);
+                  return c
+                    ? [
+                        {
+                          id,
+                          label: labels[id],
+                          visible: c.getIsVisible(),
+                          canHide: c.getCanHide(),
+                        },
+                      ]
+                    : [];
+                })}
                 onVisibilityChange={(id, v) =>
                   table.getColumn(id)?.toggleVisibility(v)
                 }
@@ -800,69 +612,98 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
             loading: exporting,
           }}
           secondaryActions={
-            source === "native" &&
-            data.connected &&
-            data.permissions.includes("inventory.sync_quickresto") ? (
-              <Button
-                variant="outline"
-                size="icon"
-                aria-label="Обновить списания Quick Resto"
-                disabled={
-                  busy ||
-                  (source === "native" &&
-                    !!job &&
-                    ["pending", "running"].includes(job.state))
-                }
-                onClick={() => void refresh()}
-              >
-                <RefreshCw className={cn("size-4", busy && "animate-spin")} />
-              </Button>
-            ) : undefined
+            <>
+              {native && canSync && (
+                <TableIconButton
+                  label="Обновить из Quick Resto"
+                  disabled={busy || pending}
+                  onClick={() => void refresh()}
+                >
+                  <RefreshCw className={cn(busy && "animate-spin")} />
+                </TableIconButton>
+              )}
+              {canSettings && (
+                <TableIconButton
+                  label="Настройки списаний"
+                  onClick={() =>
+                    router.push(`/org/venues/${data.venueId}?tab=inventory`)
+                  }
+                >
+                  <Settings />
+                </TableIconButton>
+              )}
+            </>
           }
         />
-      </div>
-      {(filtersOpen || kind !== "all" || pool !== "all") && (
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <Select value={kind} onValueChange={setKind}>
-            <SelectTrigger className="w-full sm:w-64" aria-label="Тип списания">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Все типы</SelectItem>
-              {types.map((t) => (
-                <SelectItem key={t} value={t}>
-                  {t}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {source === "native" && (
-            <Select
-              value={pool}
-              onValueChange={(v) => setPool(v as WriteoffPoolFilter)}
-            >
-              <SelectTrigger
-                className="w-full sm:w-64"
-                aria-label="Разнесение по пулам"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Любое разнесение</SelectItem>
-                <SelectItem value="unassigned">Не разнесены</SelectItem>
-                <SelectItem value="shared">Вся команда</SelectItem>
-                <SelectItem value="department">Подразделение</SelectItem>
-                <SelectItem value="personal">Один сотрудник</SelectItem>
-                <SelectItem value="excluded">Не удерживать</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
-        </div>
+      }
+    />
+  );
+
+  const conditions = (
+    <TableConditions
+      label="Условия списка списаний"
+      open={filtersOpen}
+      hasFilters={hasFilters}
+      sorting={st.sorting}
+      onSortingChange={changeSorting}
+      sortFields={[...sortable]}
+      sortLabels={labels}
+      search={st.search}
+      onSearchClear={() => {
+        st.setSearch("");
+        firstPage();
+      }}
+      onReset={resetConditions}
+    >
+      {(filtersOpen || kind) && (
+        <TableFilterChip
+          label="Тип"
+          value={kind}
+          onChange={(v) => {
+            setKind(v);
+            firstPage();
+          }}
+          options={[
+            { value: "", label: "Все типы" },
+            ...types.map((t) => ({ value: t, label: t })),
+          ]}
+        />
       )}
+      {native && (filtersOpen || pool) && (
+        <TableFilterChip
+          label="Разнесение"
+          value={pool}
+          onChange={(v) => {
+            setPool(v as WriteoffPoolFilter | "");
+            firstPage();
+          }}
+          options={[
+            { value: "", label: "Любое разнесение" },
+            { value: "unassigned", label: "Не разнесены" },
+            { value: "shared", label: "Вся команда" },
+            { value: "department", label: "Подразделение" },
+            { value: "personal", label: "Один сотрудник" },
+            { value: "excluded", label: "Не удерживать" },
+          ]}
+        />
+      )}
+    </TableConditions>
+  );
+
+  const refreshButton = (label: string) => (
+    <Button className="min-w-32" disabled={busy}
+      onClick={() => void refresh()}
+    >
+      {busy ? "Запрашиваем…" : label}
+    </Button>
+  );
+
+  const notices = native && (
+    <>
       {unassigned > 0 && (
         <div
           role="status"
-          className={`flex flex-col gap-3 rounded-lg border p-4 text-sm sm:flex-row sm:items-center sm:justify-between ${WARNING_BADGE_CLASS}`}
+          className="flex flex-col gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
         >
           <p>
             Не разнесено актов: {unassigned}. Пока они не разнесены, месяц не
@@ -875,7 +716,8 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
               className="shrink-0"
               onClick={() => {
                 setPool("unassigned");
-                setKind("all");
+                setKind("");
+                firstPage();
               }}
             >
               Показать
@@ -883,143 +725,203 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
           )}
         </div>
       )}
-      {source === "native" && job && job.state !== "ready" && (
+      {pending && job && (
         <p
           role="status"
           className="flex items-center gap-2 text-sm text-muted-foreground"
         >
           <Loader2 className="size-4 shrink-0 animate-spin" />
-          {job.state === "error"
-            ? job.last_error
-            : `Получаем акты: ${job.cursor}${job.total === null ? "" : ` из ${job.total}`}`}
+          {job.total === null
+            ? "Получаем список актов из Quick Resto…"
+            : `Получаем акты: ${job.cursor} из ${job.total}`}
         </p>
       )}
+      {job?.state === "error" && (
+        <div
+          role="alert"
+          className="flex flex-col gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+        >
+          <p>{humanJobError(job.last_error)}</p>
+          {canSync && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              disabled={busy}
+              onClick={() => void refresh()}
+            >
+              Повторить
+            </Button>
+          )}
+        </div>
+      )}
+    </>
+  );
+
+  const metrics = native ? (
+    <MetricStrip label="Итоги за месяц">
+      <Metric
+        primary
+        label="Проведённые акты"
+        value={<Money value={sum.total === 0 ? 0 : sum.value} />}
+        hint={
+          sum.total === 0
+            ? "Проведённых актов нет"
+            : sum.value === null
+              ? "Quick Resto не передал суммы актов"
+              : sum.known < sum.total
+                ? `Сумма есть у ${sum.known} из ${countRu(sum.total, "акта", "актов", "актов")}`
+                : "Без черновиков и отсутствующих актов"
+        }
+      />
+      <Metric label="Актов" value={rows.length} />
+      <Metric
+        label="Проведено"
+        value={rows.filter((r) => r.status === "Проведён").length}
+      />
+      <Metric
+        label="Не разнесено"
+        value={unassigned}
+        hint={unassigned > 0 ? "Месяц не посчитан" : undefined}
+      />
+    </MetricStrip>
+  ) : (
+    <MetricStrip label="Итоги за месяц">
+      <Metric
+        primary
+        label="Сумма архивных записей"
+        value={<Money value={sum.total === 0 ? 0 : sum.value} />}
+        hint={
+          sum.total === 0
+            ? "Записей с суммой нет"
+            : sum.value === null
+              ? "В архиве нет сумм этих записей"
+              : sum.known < sum.total
+                ? `Сумма есть у ${sum.known} из ${countRu(sum.total, "записи", "записей", "записей")}`
+                : "Без удалённых записей"
+        }
+      />
+      <Metric label="Записей" value={rows.length} />
+      <Metric
+        label="Нужна сверка"
+        value={rows.filter((r) => r.issues.length > 0).length}
+      />
+    </MetricStrip>
+  );
+
+  const empty =
+    monthRows.length > 0 ? (
+      <EmptyState
+        icon={SearchX}
+        title="Ничего не найдено"
+        description="Измените условия поиска или сбросьте фильтры"
+        action={
+          <Button variant="outline" onClick={resetConditions}>
+            Сбросить поиск и фильтры
+          </Button>
+        }
+      />
+    ) : pending ? (
+      <EmptyState
+        icon={RefreshCw}
+        title="Получаем списания из Quick Resto"
+        description="Можно продолжить работу: журнал обновится автоматически"
+      />
+    ) : !native ? (
+      <EmptyState
+        icon={ClipboardList}
+        title="За этот месяц записей нет"
+        description="Выберите другой месяц"
+      />
+    ) : !data.connected ? (
+      <EmptyState
+        icon={ClipboardList}
+        title="За этот месяц актов нет"
+        description="Quick Resto не подключён к заведению. Обратитесь к владельцу аккаунта"
+      />
+    ) : !canSync ? (
+      <EmptyState
+        icon={ClipboardList}
+        title="За этот месяц актов нет"
+        description="Обновить список может сотрудник с правом синхронизации"
+      />
+    ) : (
+      <EmptyState
+        icon={ClipboardList}
+        title="За этот месяц актов нет"
+        description="Запросите акты за месяц из Quick Resto"
+        action={refreshButton("Обновить из Quick Resto")}
+      />
+    );
+
+  const body = (
+    <div className="space-y-4">
+      {notices}
       {rows.length ? (
         <>
-          <section
-            className="grid grid-cols-2 gap-y-4 rounded-lg border py-5 sm:grid-cols-3"
-            aria-label="Итоги списаний"
-          >
-            <div className="px-4 sm:border-r sm:px-5">
-              <p className="text-sm text-muted-foreground">
-                {source === "native" ? "Актов" : "Записей"}
-              </p>
-              <p className="mt-2 text-2xl font-semibold tabular-nums">
-                {rows.length}
-              </p>
-            </div>
-            <div className="col-span-2 order-first px-4 sm:order-none sm:col-span-1 sm:border-r sm:px-5">
-              <p className="text-sm text-muted-foreground">
-                {source === "native"
-                  ? "Проведённые акты"
-                  : "Сумма архивных записей"}
-              </p>
-              <p className="mt-2 text-2xl font-semibold tabular-nums">
-                {amount(sum.value)}
-              </p>
-              {source === "native" && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Без черновиков и отсутствующих актов
-                </p>
-              )}
-              {sum.known < sum.total && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Сумма есть у {sum.known} из {sum.total} записей
-                </p>
-              )}
-            </div>
-            <div className="px-4 sm:px-5">
-              <p className="text-sm text-muted-foreground">
-                {source === "native" ? "Проведено" : "Нужна сверка"}
-              </p>
-              <p className="mt-2 text-2xl font-semibold tabular-nums">
-                {
-                  rows.filter((r) =>
-                    source === "native"
-                      ? r.status === "Проведён"
-                      : r.issues.length > 0,
-                  ).length
-                }
-              </p>
-            </div>
-          </section>
-          <div className="overflow-hidden rounded-lg border">
-            <div className="max-h-[65dvh] min-h-64 overflow-auto">
-              <table
-                className="w-full table-fixed text-sm"
-                aria-label="Журнал списаний"
-                style={{
-                  minWidth: Math.max(
-                    680,
-                    table
-                      .getVisibleLeafColumns()
-                      .reduce((s, c) => s + c.getSize(), 0),
-                  ),
-                }}
-              >
-                <ResizableTableHead
-                  table={table}
-                  isControlColumn={() => false}
-                  isRightAligned={(id) => id === "total" || id === "quantity"}
-                  sortableColumnIds={multi.sortableColumnIds}
-                  onSort={multi.cycleSort}
-                  headerIndicator={multi.headerIndicator}
-                  headerAriaSort={multi.headerAriaSort}
-                />
-                <tbody>
-                  {table.getRowModel().rows.map((row) => (
-                    <tr
-                      key={row.id}
-                      className="h-16 border-b last:border-0 hover:bg-muted/40"
-                    >
-                      {row.getVisibleCells().map((cell) => (
-                        <td
-                          key={cell.id}
-                          className={cn(
-                            "px-3 py-3",
-                            (cell.column.id === "total" ||
-                              cell.column.id === "quantity") &&
-                              "text-right",
-                          )}
-                        >
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext(),
-                          )}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          {metrics}
+          <DataTable
+            table={table}
+            label="Журнал списаний"
+            labels={labels}
+            onColumnSizingChange={st.setColumnSizing}
+            sorting={st.sorting}
+            onSortingChange={changeSorting}
+            sortable={sortable}
+            numeric={["total", "quantity"]}
+            onRowClick={(row) => setDetail(row.original)}
+            empty={null}
+            totals={{ total: <Money value={sum.total === 0 ? 0 : sum.value} /> }}
+            mobile={{
+              label: "Карточки списаний",
+              nameColumn: "name",
+              statusColumn: "status",
+            }}
+          />
+          <TablePagination
+            pageIndex={Math.min(st.pagination.pageIndex, pageCount - 1)}
+            pageSize={st.pagination.pageSize}
+            total={rows.length}
+            onPageChange={(pageIndex) =>
+              st.setPagination((p) => ({ ...p, pageIndex }))
+            }
+            onPageSizeChange={(pageSize) =>
+              st.setPagination({ pageSize, pageIndex: 0 })
+            }
+          />
         </>
       ) : (
-        <EmptyState
-          icon={ClipboardList}
-          title={
-            pending
-              ? "Получаем списания из Quick Resto"
-              : "За этот месяц нет записей"
-          }
-          description={
-            pending
-              ? "Можно продолжить работу: журнал обновится автоматически."
-              : source === "archive"
-                ? "Выберите другой месяц."
-                : "Запросите акты из Quick Resto или выберите архив Glide."
-          }
-        />
+        empty
       )}
-      {source === "native" && (
-        <p className="text-xs text-muted-foreground">
-          Показаны складские акты. Финансовые операции и удержания из зарплаты
-          пока не создаются.
-        </p>
+    </div>
+  );
+
+  return (
+    <PageFrame className="space-y-4">
+      <Breadcrumbs items={[{ label: "Документы" }, { label: "Списания" }]} />
+      {header}
+      {conditions}
+      {showTabs ? (
+        <Tabs
+          value={source}
+          onValueChange={(v) => changeSource(v as Source)}
+          className={tabStyle.tabs}
+        >
+          <TabsList aria-label="Источник списаний">
+            <TabsTrigger value="native">
+              Quick Resto · {inMonth(nativeRows).length}
+            </TabsTrigger>
+            <TabsTrigger value="archive">
+              Архив Glide · {inMonth(archiveRows).length}
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value={source}>{body}</TabsContent>
+        </Tabs>
+      ) : (
+        body
       )}
       {detail && (
-        <Detail
+        <WriteoffDrawer
           key={detail.id}
           row={allRows.find((r) => r.id === detail.id) ?? detail}
           data={data}

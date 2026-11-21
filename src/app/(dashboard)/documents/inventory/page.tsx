@@ -162,12 +162,22 @@ export default async function InventoryDocumentsPage({
 
   // Список актов — через RLS-клиент (security-fix: текущий код фетчил через
   // admin, обходя venue-скоп из миграции 195). См. PR description.
-  const result = await listInventoryDocuments({
-    filters: parsed.filters,
-    sort: parsed.sort,
-    page: parsed.page,
-    pageSize: parsed.pageSize,
-  });
+  // При активных условиях шапка показывает «N из M»: M — все акты без
+  // условий. Второй запрос делаем только тогда, страницей из одной строки.
+  const hasConditions = Object.values(parsed.filters).some((value) =>
+    Array.isArray(value) ? value.length > 0 : Boolean(value),
+  );
+  const [result, unfiltered] = await Promise.all([
+    listInventoryDocuments({
+      filters: parsed.filters,
+      sort: parsed.sort,
+      page: parsed.page,
+      pageSize: parsed.pageSize,
+    }),
+    hasConditions
+      ? listInventoryDocuments({ filters: {}, sort: [], page: 1, pageSize: 1 })
+      : null,
+  ]);
 
   // venues + stores для фильтров через RLS-клиент. staff — справочник имён
   // (id → ФИО): нужен ВСЕМ зрителям, иначе read-only пользователь видит «—»
@@ -190,6 +200,7 @@ export default async function InventoryDocumentsPage({
   return (
     <DocumentsTable
       initial={result}
+      unfilteredTotal={unfiltered?.total ?? result.total}
       filtersFromUrl={parsed.filters}
       sortFromUrl={parsed.sort}
       pageFromUrl={parsed.page}

@@ -5,8 +5,8 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
-import { getCachedPermissionChecker } from "@/lib/supabase/server";
-import { isInventoryFormLocked } from "@/lib/inventory/act-status";
+import { getCachedPermissions } from "@/lib/supabase/server";
+import { canFillInventoryAct, isInventoryFormLocked } from "@/lib/inventory/act-status";
 import { pluralRu } from "@/lib/format/plural";
 import { runWithConcurrency } from "@/lib/run-with-concurrency";
 import type { InventorySubmissionResult } from "@/lib/inventory/submit-batches";
@@ -63,19 +63,22 @@ export async function markInventoryDraftStarted(input: {
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
   // Permission-гейт зеркалит submitInventoryDocumentDraft: двигать статус
-  // может тот, кто реально заполняет акт — менеджер или назначенный
-  // исполнитель с правом «Заполнять назначенные акты». Иначе любой
+  // может тот, кто реально заполняет акт (canFillInventoryAct). Иначе любой
   // авторизованный пользователь мог бы дёрнуть action напрямую.
-  const can = await getCachedPermissionChecker();
-  const canManage = can("inventory.manage_documents");
-  const canFill = can("inventory.fill_assigned_documents");
+  const permissions = await getCachedPermissions();
 
   const admin = asLooseDb(createAdminClient());
   try {
     await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
     const { data: document } = await admin
-      .from<{ id: string; status: string; assigned_to: string | null; archived_at: string | null }>("documents")
-      .select("id, status, assigned_to, archived_at")
+      .from<{
+        id: string;
+        status: string;
+        assigned_to: string | null;
+        reviewer_id: string | null;
+        archived_at: string | null;
+      }>("documents")
+      .select("id, status, assigned_to, reviewer_id, archived_at")
       .eq("id", input.documentId)
       .eq("account_id", ctx.accountId)
       .maybeSingle();
@@ -84,8 +87,12 @@ export async function markInventoryDraftStarted(input: {
     // в QR (архивный).
     if (!document?.id) return { error: null };
     if (document.archived_at) return { error: null };
-    if (document.assigned_to !== ctx.user.id) return { error: null };
-    const allowed = canManage || canFill;
+    const allowed = canFillInventoryAct({
+      permissions,
+      userId: ctx.user.id,
+      assignedTo: document.assigned_to,
+      reviewerId: document.reviewer_id,
+    });
     if (!allowed) return { error: null };
     if (document.status !== "assigned" && document.status !== "synced") return { error: null };
 
@@ -127,9 +134,7 @@ export async function submitInventoryDocumentDraft(input: {
     return { resultsHasLineAmounts: false, error: ctx.error };
   }
 
-  const can = await getCachedPermissionChecker();
-  const canManage = can("inventory.manage_documents");
-  const canFill = can("inventory.fill_assigned_documents");
+  const permissions = await getCachedPermissions();
 
   const admin = asLooseDb(createAdminClient());
   try {
@@ -167,8 +172,15 @@ export async function submitInventoryDocumentDraft(input: {
   if (document.archived_at) {
     return { resultsHasLineAmounts: false, error: "Этот акт удалён в Quick Resto и недоступен." };
   }
-  const allowed = canManage || (canFill && document.assigned_to === ctx.user.id);
-  if (!allowed) return { resultsHasLineAmounts: false, error: "Недостаточно прав" };
+  // Заполнять может управляющий актами, исполнитель или проверяющий акта
+  // (canFillInventoryAct) — та же проверка, что открывает форму.
+  const allowed = canFillInventoryAct({
+    permissions,
+    userId: ctx.user.id,
+    assignedTo: document.assigned_to,
+    reviewerId: document.reviewer_id,
+  });
+  if (!allowed) return { resultsHasLineAmounts: false, error: "Заполнять этот акт может исполнитель, проверяющий или управляющий актами" };
   if (document.processed) return { resultsHasLineAmounts: false, error: "Акт уже проведен в Quick Resto" };
   // Заполнение закрыто, когда акт уже ушёл на проверку / финализирован /
   // не синкнулся (статусная машина). recount_pending — НЕ заблокирован

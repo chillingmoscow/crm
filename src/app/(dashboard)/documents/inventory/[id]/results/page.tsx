@@ -1,5 +1,7 @@
 import { notFound, redirect } from "next/navigation";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, ClipboardList } from "lucide-react";
+
+import { EmptyState } from "@/components/ui/empty-state";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
@@ -29,6 +31,7 @@ import {
   type InventoryResultResortRow,
   type InventoryResortSuggestion,
 } from "./_components/results-table";
+import { RefreshResultsButton } from "./_components/refresh-results-button";
 
 type InventoryDocumentResultRow = {
   id: string;
@@ -379,7 +382,8 @@ export default async function InventoryDocumentResultsPage({
   }
 
   return (
-    <div className="w-full space-y-6 px-4 py-6 md:p-8">
+    // Поля страницы даёт PageFrame в layout акта — своих отступов здесь нет.
+    <div className="space-y-6">
       {/* Шапка (back/табы/номер/статус/склад/позиции) — в shared layout.
           «Обновить итоги из QR» переехала в тулбар таблицы итогов
           (results-table → TableControls.secondaryActions). */}
@@ -387,28 +391,38 @@ export default async function InventoryDocumentResultsPage({
         // До сдачи акта «разница» из Quick Resto — это минус весь складской
         // остаток (факт ещё нулевой). Показывать её как итог нельзя: на проде
         // такой акт рисовал недостачу 478 193,6 ₽ до начала подсчёта.
-        <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm">
-          <div className="mb-2 font-medium">Подсчёт ещё не завершён</div>
-          <p className="text-muted-foreground">
-            Итоги появятся, когда исполнитель заполнит акт и отправит его на проверку. Пока факт не
-            введён, Quick Resto считает разницу как «ноль минус расчётный остаток» — это не
-            расхождение, а просто складской остаток со знаком минус.
-          </p>
-        </div>
+        <EmptyState
+          icon={ClipboardList}
+          title="Подсчёт ещё не завершён"
+          description="Итоги появятся, когда исполнитель заполнит акт и отправит его на проверку. До этого разница в Quick Resto равна складскому остатку со знаком минус и расхождением не является."
+        />
       ) : !document.results_has_line_amounts ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <div className="mb-2 flex items-center gap-2 font-medium">
-            <AlertTriangle className="h-4 w-4" />
-            Построчные итоги не подтверждены
+        <div className="space-y-3">
+          <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
+            <div className="min-w-0">
+              <div className="font-medium">Quick Resto не прислал расчёт по строкам</div>
+              <p className="mt-0.5 text-muted-foreground">
+                Без него недостачу и излишек по позициям не показываем: посчитать их сами
+                точно мы не можем. Обновите итоги из Quick Resto. Если расчёт так и не
+                появится, проверьте акт в Quick Resto.
+              </p>
+            </div>
           </div>
-          <p>
-            Quick Resto API для этого акта не вернул расчетные поля по строкам. По плану v1 мы не считаем недостачу и излишек сами,
-            пока реальный payload QR не подтвердит точные поля расчета.
-          </p>
+          {/* Все действия по итогам живут в таблице, которая здесь не
+              рендерится. Без этой кнопки проверяющий оставался в тупике:
+              перечитать итоги было неоткуда. Право — то же, что у кнопки в
+              тулбаре таблицы (view_results и акт не залочен). */}
+          {canViewResults && !isLocked ? (
+            <div className="flex justify-end">
+              <RefreshResultsButton documentId={document.id} />
+            </div>
+          ) : null}
         </div>
       ) : (
         <InventoryResultsTable
           documentId={document.id}
+          documentNumber={document.document_number}
           items={itemsWithRules}
           resorts={resorts}
           resortItems={resortItems}

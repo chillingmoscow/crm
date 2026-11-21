@@ -14,7 +14,7 @@ export type ResultStatusFilter = "all" | "included" | "excluded" | "resort";
 export type ResultRecountFilter = "all" | "flagged" | "clear" | "recounted";
 
 export const RESULT_RECOUNT_LABEL: Record<ResultRecountFilter, string> = {
-  all:       "Все",
+  all:       "Все строки",
   flagged:   "На пересчёт",
   clear:     "Без пересчёта",
   recounted: "Был на пересчёте",
@@ -39,7 +39,7 @@ export const RESULT_SORT_FIELD_LABEL: Record<ResultSortField, string> = {
 };
 
 export const RESULT_STATUS_LABEL: Record<ResultStatusFilter, string> = {
-  all:      "Все",
+  all:      "Все статусы",
   included: "Учитывать",
   excluded: "Не учитывать",
   resort:   "Пересорт",
@@ -74,6 +74,32 @@ export const RESULT_SORT_CODEC = {
   combine: combineResultSort,
 };
 
+// Ряд условий (TableConditions / TableSortPicker) говорит на языке TanStack
+// `SortingState` — `{ id, desc }[]`, а таблица итогов хранит режимы
+// (`name_asc`, `empty_first`, …). Переходники ниже держат обе формы в
+// соответствии: порядок элементов = приоритет, «empty_first» = asc. Тип
+// описан структурно, без импорта из @tanstack: файл гоняется node:test.
+export type ResultSortingEntry = { id: string; desc: boolean };
+
+export function resultSortsToSorting(sorts: readonly ResultSortMode[]): ResultSortingEntry[] {
+  return sorts.map((mode) => ({
+    id: resultSortToField(mode),
+    desc: resultSortToDirection(mode) === "desc",
+  }));
+}
+
+export function sortingToResultSorts(sorting: readonly ResultSortingEntry[]): ResultSortMode[] {
+  const seen = new Set<ResultSortField>();
+  const next: ResultSortMode[] = [];
+  for (const entry of sorting) {
+    const field = entry.id as ResultSortField;
+    if (!RESULT_SORT_FIELDS.includes(field) || seen.has(field)) continue;
+    seen.add(field);
+    next.push(combineResultSort(field, entry.desc ? "desc" : "asc"));
+  }
+  return next;
+}
+
 // size — числовой default-размер для TanStack columnSizing (px). Не строки:
 // раньше был `width: "minmax(180px,.7fr)"` → parseInt давал NaN → 120px и
 // «Комментарий» схлопывался (Codex P2 #401).
@@ -85,7 +111,7 @@ export const RESULT_COLUMNS: Array<{ key: ResultColumnKey; label: string; size: 
   { key: "difference", label: "Разница", size: 120 },
   { key: "management", label: "Упр. сумма", size: 130 },
   { key: "status", label: "Статус", size: 140 },
-  { key: "recount", label: "Пересчёт", size: 100 },
+  { key: "recount", label: "Пересчёт", size: 130 },
   { key: "comment", label: "Комментарий", size: 240 },
 ];
 

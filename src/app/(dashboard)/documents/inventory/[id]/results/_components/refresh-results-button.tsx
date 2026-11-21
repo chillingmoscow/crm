@@ -21,11 +21,11 @@ export function RefreshResultsButton({ documentId }: { documentId: string }) {
       }
 
       if (!result.processed) {
-        toast.info("Акт обновлен, но в Quick Resto он еще не проведен");
+        toast.info("Акт обновлён, но в Quick Resto он ещё не проведён");
       } else if (result.resultsHasLineAmounts) {
         toast.success("Итоги из Quick Resto обновлены");
       } else {
-        toast.info("Итоги обновлены, но QR не вернул построчные расчеты");
+        toast.info("Итоги обновлены, но Quick Resto не вернул расчёт по строкам");
       }
       router.refresh();
     });

@@ -51,12 +51,6 @@ export type BankAccountFormInput = {
   card_number_last4?: string | null;
 };
 
-export type BankAccountGroupFormInput = {
-  name: string;
-  description?: string | null;
-  sort_order?: number;
-};
-
 export type FinanceCategoryFormInput = {
   name: string;
   type: FinanceCategoryRow["type"];

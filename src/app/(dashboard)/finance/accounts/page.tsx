@@ -1,56 +1,68 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
-import { getCachedPermissionChecker } from "@/lib/supabase/server";
-import { listLegalEntities } from "@/lib/org/legal-entities";
 import {
-  listBankAccountGroups,
-  listBankAccounts,
-} from "@/lib/finance/bank-accounts";
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
+import { listAccountVenues, listLegalEntities } from "@/lib/org/legal-entities";
+import { listBankAccountGroups, listBankAccounts } from "@/lib/finance/bank-accounts";
 import { getActiveFinanceLegalEntityId } from "@/lib/finance/active-legal-entity";
 import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
 import { AccountsList } from "./_components/accounts-list";
 
-export default async function BankAccountsPage() {
+export const metadata: Metadata = { title: "Счета и кассы" };
+
+export default async function BankAccountsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ create?: string; archive?: string }>;
+}) {
   const can = await getCachedPermissionChecker();
-  const canView = can("finance.view_bank_accounts");
-  const canManage = can("finance.manage_bank_accounts");
-  if (!canView) redirect("/dashboard");
+  if (!can("finance.view_bank_accounts")) redirect("/dashboard");
+  const canManage = Boolean(can("finance.manage_bank_accounts"));
 
-  // Honour the LegalEntitySwitcher cookie so users who have
-  // view_all_legal_entities can scope the list to one LE; for
-  // ordinary users RLS already scopes to active venue's default LE,
-  // the filter is just a sub-set there.
-  // Soft-deleted rows gated server-side on canManage so the RSC payload
-  // doesn't leak removed accounts to view-only users (PR #15 lesson).
-  // The relaxed SELECT policy from migration 046 is what makes the
-  // include_deleted flag actually return rows — before that the SELECT
-  // policy filtered them unconditionally.
-  const activeLegalEntityId = await getActiveFinanceLegalEntityId();
-  const [{ rows: accounts }, { rows: groups }, { rows: legalEntities }, amountRoundingScale] =
-    await Promise.all([
-      listBankAccounts({
-        include_deleted: !!canManage,
-        legal_entity_id: activeLegalEntityId ?? undefined,
-      }),
-      listBankAccountGroups(),
-      listLegalEntities(),
-      getActiveAccountAmountRoundingScale(),
-    ]);
+  const [supabase, activeAccountId] = await Promise.all([createClient(), getCachedActiveAccountId()]);
+  // Архив, возврат и удаление проверяют владельца на сервере
+  // (assertBankAccountOwner) — архив в списке показываем только ему.
+  const { data: isOwner } = activeAccountId
+    ? await supabase.rpc("is_account_owner", { p_account_id: activeAccountId })
+    : { data: false };
 
-  const legalEntityNames: Record<string, string> = {};
-  for (const le of legalEntities) {
-    legalEntityNames[le.id] = le.short_name ?? le.name;
-  }
-
-  const archivedCount = accounts.filter((a) => a.deleted_at).length;
+  // Юрлицо из переключателя раздела «Финансы» включает фильтр «Юрлицо» сразу;
+  // сам список грузится целиком, чтобы фильтр можно было снять на месте.
+  const [
+    { rows: accounts },
+    { rows: groups },
+    { rows: legalEntities },
+    { rows: venues },
+    activeLegalEntityId,
+    amountRoundingScale,
+    params,
+  ] = await Promise.all([
+    listBankAccounts({ include_deleted: Boolean(isOwner) }),
+    listBankAccountGroups(),
+    listLegalEntities(),
+    listAccountVenues({ liveOnly: true }),
+    getActiveFinanceLegalEntityId(),
+    getActiveAccountAmountRoundingScale(),
+    searchParams,
+  ]);
 
   return (
     <AccountsList
       accounts={accounts}
       groups={groups}
-      legalEntityNames={legalEntityNames}
-      canManage={!!canManage}
-      archivedCount={archivedCount}
+      legalEntities={legalEntities.map((le) => ({ id: le.id, name: le.name, short_name: le.short_name }))}
+      venues={venues.map((v) => ({ id: v.id, name: v.name }))}
+      canManage={canManage}
+      canViewTransactions={Boolean(can("finance.view_transactions"))}
+      isOwner={Boolean(isOwner)}
+      canHardDelete={Boolean(can("finance.delete_bank_account"))}
+      initialLegalEntityId={activeLegalEntityId}
+      openCreate={params.create === "1"}
+      openArchive={params.archive === "1"}
       amountRoundingScale={amountRoundingScale}
     />
   );

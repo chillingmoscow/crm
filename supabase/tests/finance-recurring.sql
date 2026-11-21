@@ -750,6 +750,48 @@ begin
   perform public.test_assert(failed, 'unique index backs one transaction per occurrence');
 end $$;
 
+-- ── 10. Валюта операции — валюта счёта проведения ──────────
+do $$
+declare
+  v_acc uuid := (select account_id from rf);
+  v_le uuid := (select le_id from rf);
+  v_ba uuid := (select ba_id from rf);
+  v_uid uuid := 'cccccccc-1111-1111-1111-cccccccccccc';
+  v_today date := private.finance_account_today((select account_id from rf));
+  v_ba_usd uuid; v_t uuid; v_o uuid; v_tx uuid;
+begin
+  insert into public.bank_accounts (account_id, legal_entity_id, name, type, currency)
+  values (v_acc, v_le, 'Счёт USD', 'checking'::public.bank_account_type_enum, 'USD') returning id into v_ba_usd;
+
+  insert into public.finance_recurring_templates (
+    account_id, legal_entity_id, bank_account_id, type, amount, name,
+    frequency, day_of_month, starts_on, materialize_from)
+  values (v_acc, v_le, v_ba, 'expense', 100, 'Подписка', 'monthly', 3, '2026-01-01', v_today + 1)
+  returning id into v_t;
+  -- Снимок платежа — в рублях (счёт шаблона), проводим на долларовый счёт.
+  insert into public.finance_recurring_occurrences (account_id, template_id, due_date, legal_entity_id,
+    bank_account_id, type, amount, currency, name)
+  values (v_acc, v_t, v_today - 2, v_le, v_ba, 'expense', 100, 'RUB', 'Подписка')
+  returning id into v_o;
+
+  perform set_config('app.account_id', v_acc::text, true);
+  perform set_config('app.venue_id', '', true);
+  perform set_config('app.perms',
+    ',finance.view_transactions,finance.create_transaction,finance.view_all_legal_entities,finance.view_all_venues,', true);
+  perform set_config('app.ctx_ready', '1', true);
+  perform set_config('request.jwt.claims', json_build_object('sub', v_uid)::text, true);
+  set local role authenticated;
+
+  v_tx := public.finance_recurring_post(v_o, 12.5, v_today, v_ba_usd, null, null, null, null);
+  reset role;
+  perform public.test_assert(
+    (select currency from public.transactions where id = v_tx) = 'USD',
+    'posting to a USD account creates a USD transaction');
+  perform public.test_assert(
+    (select bank_account_id from public.transactions where id = v_tx) = v_ba_usd,
+    'posted transaction uses the chosen account');
+end $$;
+
 select 'finance-recurring: all tests passed' as result;
 
 rollback;

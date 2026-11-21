@@ -673,22 +673,22 @@ create trigger finance_recurring_release_on_delete
 -- ────────────────────────────────────────────────────────────
 -- Счёт операции — того же юрлица, что платёж, и не удалён. Читать bank_accounts
 -- под RLS нельзя (нужен finance.view_bank_accounts, у проводящего его может не быть),
--- поэтому проверка — через узкий definer-помощник.
-create or replace function private.finance_recurring_bank_account_ok(
+-- поэтому проверка — через узкий definer-помощник. Он же отдаёт валюту счёта:
+-- операция записывается в валюте счёта, на который её проводят, а не в валюте
+-- снимка платежа (счёт при проведении можно поменять). null — счёт не подходит.
+create or replace function private.finance_recurring_bank_account_currency(
   p_account uuid, p_legal_entity uuid, p_bank_account uuid)
-returns boolean
+returns text
 language sql
 stable
 security definer
 set search_path = public, pg_catalog
 as $$
-  select exists (
-    select 1 from public.bank_accounts b
-     where b.id = p_bank_account
-       and b.account_id = p_account
-       and b.legal_entity_id = p_legal_entity
-       and b.deleted_at is null
-  )
+  select b.currency from public.bank_accounts b
+   where b.id = p_bank_account
+     and b.account_id = p_account
+     and b.legal_entity_id = p_legal_entity
+     and b.deleted_at is null
 $$;
 
 -- SECURITY INVOKER: вставка идёт через политику transactions_insert, перевод
@@ -712,6 +712,7 @@ declare
   v_occ public.finance_recurring_occurrences%rowtype;
   v_uid uuid := auth.uid();
   v_tx  uuid;
+  v_currency text;
 begin
   if v_uid is null then
     raise exception 'Не авторизован';
@@ -738,7 +739,9 @@ begin
     raise exception 'Можно выбрать только своё заведение';
   end if;
 
-  if not private.finance_recurring_bank_account_ok(v_occ.account_id, v_occ.legal_entity_id, p_bank_account) then
+  v_currency := private.finance_recurring_bank_account_currency(
+    v_occ.account_id, v_occ.legal_entity_id, p_bank_account);
+  if v_currency is null then
     raise exception 'Счёт не найден или относится к другому юрлицу';
   end if;
 
@@ -747,7 +750,7 @@ begin
     amount, currency, date, description, source, category_id, counterparty_id)
   values (
     v_occ.account_id, v_uid, v_occ.legal_entity_id, p_venue, p_bank_account, v_occ.type,
-    p_amount, v_occ.currency, p_date::timestamptz, nullif(btrim(p_description), ''), 'manual',
+    p_amount, v_currency, p_date::timestamptz, nullif(btrim(p_description), ''), 'manual',
     p_category, p_counterparty)
   returning id into v_tx;
 
@@ -774,8 +777,8 @@ grant execute on function public.finance_recurring_next_due(uuid) to authenticat
 revoke all on function public.finance_recurring_post(uuid, numeric, date, uuid, uuid, uuid, uuid, text) from public, anon;
 grant execute on function public.finance_recurring_post(uuid, numeric, date, uuid, uuid, uuid, uuid, text) to authenticated;
 
-revoke all on function private.finance_recurring_bank_account_ok(uuid, uuid, uuid) from public, anon;
-grant execute on function private.finance_recurring_bank_account_ok(uuid, uuid, uuid) to authenticated, service_role;
+revoke all on function private.finance_recurring_bank_account_currency(uuid, uuid, uuid) from public, anon;
+grant execute on function private.finance_recurring_bank_account_currency(uuid, uuid, uuid) to authenticated, service_role;
 
 revoke all on function public.finance_recurring_release_transaction() from public, anon, authenticated;
 revoke all on function public.finance_recurring_templates_guard() from public, anon, authenticated;
@@ -800,7 +803,7 @@ begin
     or has_function_privilege('anon', 'public.finance_recurring_materialize_mine()', 'EXECUTE')
     or has_function_privilege('anon', 'public.finance_recurring_next_due(uuid)', 'EXECUTE')
     or has_function_privilege('anon', 'public.finance_recurring_post(uuid, numeric, date, uuid, uuid, uuid, uuid, text)', 'EXECUTE')
-    or has_function_privilege('anon', 'private.finance_recurring_bank_account_ok(uuid, uuid, uuid)', 'EXECUTE')
+    or has_function_privilege('anon', 'private.finance_recurring_bank_account_currency(uuid, uuid, uuid)', 'EXECUTE')
     or has_function_privilege('anon', 'private.finance_recurring_materialize_account(uuid)', 'EXECUTE')
     or has_function_privilege('authenticated', 'private.finance_recurring_materialize_account(uuid)', 'EXECUTE')
     or has_function_privilege('anon', 'private.finance_account_today(uuid)', 'EXECUTE')
@@ -824,7 +827,7 @@ begin
     or not has_function_privilege('authenticated', 'public.finance_recurring_materialize_mine()', 'EXECUTE')
     or not has_function_privilege('authenticated', 'public.finance_recurring_next_due(uuid)', 'EXECUTE')
     or not has_function_privilege('authenticated', 'public.finance_recurring_post(uuid, numeric, date, uuid, uuid, uuid, uuid, text)', 'EXECUTE')
-    or not has_function_privilege('authenticated', 'private.finance_recurring_bank_account_ok(uuid, uuid, uuid)', 'EXECUTE')
+    or not has_function_privilege('authenticated', 'private.finance_recurring_bank_account_currency(uuid, uuid, uuid)', 'EXECUTE')
   then
     raise exception 'finance_recurring_*: не выданы нужные права';
   end if;

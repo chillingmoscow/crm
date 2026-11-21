@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { writeAuditEvent } from "@/lib/audit/write";
 import { calendarDateInZone } from "@/lib/format/zoned-day";
 import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { createClient, getCachedPermissionChecker } from "@/lib/supabase/server";
 import type {
@@ -97,7 +98,30 @@ function validateInput(input: RecurringTemplateInput): string | null {
   return null;
 }
 
-function templateFields(input: RecurringTemplateInput) {
+/**
+ * Валюта шаблона — валюта выбранного счёта, прочитанная на сервере (клиенту не
+ * доверяем). Счёт читаем service-role клиентом в пределах аккаунта: у
+ * создающего может не быть finance.view_bank_accounts.
+ */
+async function bankAccountCurrency(
+  ctx: Ctx,
+  input: RecurringTemplateInput,
+): Promise<{ currency: string } | { error: string }> {
+  const { data, error } = await createAdminClient()
+    .from("bank_accounts")
+    .select("currency, legal_entity_id")
+    .eq("id", input.bank_account_id)
+    .eq("account_id", ctx.accountId)
+    .maybeSingle();
+  if (error) return { error: error.message };
+  if (!data) return { error: "Счёт не найден. Обновите страницу" };
+  if (data.legal_entity_id !== input.legal_entity_id) {
+    return { error: "Счёт относится к другому юрлицу. Обновите страницу" };
+  }
+  return { currency: data.currency };
+}
+
+function templateFields(input: RecurringTemplateInput, currency: string) {
   return {
     name: input.name.trim(),
     type: input.type,
@@ -108,6 +132,7 @@ function templateFields(input: RecurringTemplateInput) {
     counterparty_id: input.counterparty_id,
     amount: input.amount,
     amount_varies: input.amount_varies,
+    currency,
     description: input.description?.trim() || null,
     starts_on: input.starts_on,
     ends_on: input.ends_on,
@@ -126,6 +151,8 @@ export async function createRecurringTemplate(
   if (invalid) return { id: null, error: invalid };
   const ctx = await getCtx();
   if ("error" in ctx) return { id: null, error: ctx.error };
+  const account = await bankAccountCurrency(ctx, input);
+  if ("error" in account) return { id: null, error: account.error };
 
   // Прошлое задним числом не догоняем: порождение — с завтрашнего дня, а у шаблона
   // «из операции» — после дня этой операции.
@@ -144,7 +171,7 @@ export async function createRecurringTemplate(
   const { data, error } = await ctx.supabase
     .from("finance_recurring_templates")
     .insert({
-      ...templateFields(input),
+      ...templateFields(input, account.currency),
       account_id: ctx.accountId,
       source_transaction_id: input.source_transaction_id ?? null,
       materialize_from: materializeFrom,
@@ -202,8 +229,10 @@ export async function updateRecurringTemplate(
     .is("archived_at", null)
     .maybeSingle();
   if (!before) return { error: TEMPLATE_GONE };
+  const account = await bankAccountCurrency(ctx, input);
+  if ("error" in account) return { error: account.error };
 
-  const fields = templateFields(input);
+  const fields = templateFields(input, account.currency);
   const scheduleChanged =
     before.starts_on !== fields.starts_on ||
     before.frequency !== fields.frequency ||
@@ -350,6 +379,26 @@ export async function deleteRecurringTemplate(id: string): Promise<{ error: stri
   });
   revalidateRecurring();
   return { error: null };
+}
+
+/**
+ * Ожидаемые платежи шаблона: сколько ждут разбора (`pending`, удалятся вместе
+ * с шаблоном и не меняются при его правке) и сколько проведено (операции
+ * останутся в «Транзакциях»). Видимость — по RLS ожидаемых платежей.
+ */
+export async function getRecurringTemplateImpact(
+  id: string,
+): Promise<{ pending: number; posted: number; error: string | null }> {
+  const supabase = await createClient();
+  const count = (status: "pending" | "posted") =>
+    supabase
+      .from("finance_recurring_occurrences")
+      .select("id", { count: "exact", head: true })
+      .eq("template_id", id)
+      .eq("status", status);
+  const [pending, posted] = await Promise.all([count("pending"), count("posted")]);
+  const error = pending.error?.message ?? posted.error?.message ?? null;
+  return { pending: pending.count ?? 0, posted: posted.count ?? 0, error };
 }
 
 export async function listRecurringTemplates(opts: {

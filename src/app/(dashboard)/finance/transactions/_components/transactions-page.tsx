@@ -1,5 +1,6 @@
 "use client";
 
+import { CategoryColorDot } from "@/components/finance/category-color";
 import {
   useCallback,
   useEffect,
@@ -127,6 +128,8 @@ type Props = {
   canDelete: boolean;
   canExport: boolean;
   amountRoundingScale: AmountRoundingScale;
+  /** DaData настроена: при создании контрагента из операции реквизиты подтянутся по ИНН. */
+  dadataEnabled: boolean;
 };
 
 type FormMode =
@@ -153,6 +156,7 @@ export function TransactionsPage({
   canDelete,
   canExport,
   amountRoundingScale,
+  dadataEnabled,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -1037,6 +1041,7 @@ export function TransactionsPage({
         categories={categories}
         counterparties={counterparties}
         canDelete={canDelete}
+        dadataEnabled={dadataEnabled}
         amountRoundingScale={amountRoundingScale}
       />
     </div>
@@ -1390,10 +1395,10 @@ function Row({
         ) : (
           <div className="flex flex-col">
             <div className="flex items-center gap-2">
-              <span
-                className="inline-block h-2 w-2 rounded-full shrink-0"
-                style={{ backgroundColor: category?.color ?? "#cccccc" }}
-              />
+              {/* Место под точку держим и без цвета: названия статей стоят ровно. */}
+              <span className="flex size-2 shrink-0 items-center justify-center">
+                <CategoryColorDot color={category?.color} size="sm" />
+              </span>
               <span className="text-sm truncate">
                 {category?.name ?? "Без статьи"}
               </span>

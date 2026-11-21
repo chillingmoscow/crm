@@ -16,6 +16,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { CategoryColorDot, CategoryShareBar } from "@/components/finance/category-color";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { Metric, MetricStrip } from "@/components/shared/metric-strip";
 import { Money, formatRub } from "@/components/shared/money";
@@ -168,6 +169,7 @@ export default async function FinanceDashboardPage({
 
   const leName = new Map(legalEntities.map((le) => [le.id, le.short_name ?? le.name]));
   const categoryName = new Map(categories.map((c) => [c.id, c.name]));
+  const categoryColor = new Map(categories.map((c) => [c.id, c.color]));
   const accountName = new Map(bankAccounts.map((a) => [a.id, a.name]));
 
   const flow = flowResult?.flow ?? null;
@@ -301,6 +303,7 @@ export default async function FinanceDashboardPage({
                               ? (categoryName.get(c.category_id) ?? "Статья удалена")
                               : "Без статьи"
                           }
+                          color={c.category_id ? (categoryColor.get(c.category_id) ?? null) : null}
                           amount={c.amount}
                           count={c.count}
                           share={c.share}
@@ -369,6 +372,7 @@ export default async function FinanceDashboardPage({
                       tx={tx}
                       accountName={(id) => (id ? (accountName.get(id) ?? "Счёт удалён") : null)}
                       categoryName={(id) => (id ? (categoryName.get(id) ?? null) : null)}
+                      categoryColor={(id) => (id ? (categoryColor.get(id) ?? null) : null)}
                       counterpartyName={(id) => (id ? (counterpartyNames.get(id) ?? null) : null)}
                       scale={scale}
                     />
@@ -522,6 +526,7 @@ function LoadError({ what }: { what: string }) {
 function CategoryBar({
   label,
   href,
+  color = null,
   amount,
   count,
   share,
@@ -530,6 +535,8 @@ function CategoryBar({
 }: {
   label: string;
   href?: string;
+  /** Цвет статьи; без него и у «Остальных» полоска нейтральная. */
+  color?: string | null;
   amount: number;
   count: number;
   share: number;
@@ -539,23 +546,21 @@ function CategoryBar({
   const pct = Math.round(share * 100);
   return (
     <li className="space-y-1.5">
-      <div className="flex items-baseline justify-between gap-3 text-sm">
-        {href ? (
-          <Link href={href} className="min-w-0 truncate hover:underline" data-tip={label} data-tip-overflow>
-            {label}
-          </Link>
-        ) : (
-          <span className={cn("min-w-0 truncate", muted && "text-muted-foreground")}>{label}</span>
-        )}
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <span className="flex min-w-0 items-center gap-2">
+          <CategoryColorDot color={color} size="md" />
+          {href ? (
+            <Link href={href} className="min-w-0 truncate hover:underline" data-tip={label} data-tip-overflow>
+              {label}
+            </Link>
+          ) : (
+            <span className={cn("min-w-0 truncate", muted && "text-muted-foreground")}>{label}</span>
+          )}
+        </span>
         <Money value={amount} scale={scale} className="shrink-0 font-medium" />
       </div>
-      <div className="h-1.5 overflow-hidden rounded-sm bg-muted" aria-hidden>
-        <div
-          className={cn("h-full rounded-sm", muted ? "bg-muted-foreground/40" : "bg-brand")}
-          // Доля меньше процента всё равно видна тонкой полоской.
-          style={{ width: `${Math.max(share * 100, share > 0 ? 1 : 0)}%` }}
-        />
-      </div>
+      {/* Доля меньше процента всё равно видна тонкой полоской. */}
+      <CategoryShareBar color={color} percent={Math.max(share * 100, share > 0 ? 1 : 0)} />
       <p className="text-xs text-muted-foreground tabular-nums">
         {pct < 1 && share > 0 ? "меньше 1%" : `${pct}%`} расходов ·{" "}
         {countRu(count, "операция", "операции", "операций")}
@@ -633,12 +638,14 @@ function RecentRow({
   tx,
   accountName,
   categoryName,
+  categoryColor,
   counterpartyName,
   scale,
 }: {
   tx: RecentTransaction;
   accountName: (id: string | null) => string | null;
   categoryName: (id: string | null) => string | null;
+  categoryColor: (id: string | null) => string | null;
   counterpartyName: (id: string | null) => string | null;
   scale: AmountRoundingScale;
 }) {
@@ -655,9 +662,10 @@ function RecentRow({
   const title = tx.description?.trim() || counterparty || category || kind.label;
   // `date` — timestamptz полночью UTC; календарный день — первые 10 символов.
   const day = formatDayMonth(tx.date.slice(0, 10));
-  const meta = [day, account, category !== title ? category : null, counterparty !== title ? counterparty : null]
-    .filter(Boolean)
-    .join(" · ");
+  // Статья в строке подробностей — с точкой своего цвета, как в журнале.
+  const showCategory = !!category && category !== title;
+  const before = [day, account].filter(Boolean).join(" · ");
+  const after = counterparty && counterparty !== title ? counterparty : null;
   const amount = Number(tx.amount);
   return (
     <li>
@@ -676,7 +684,21 @@ function RecentRow({
           <span className="block truncate text-sm" data-tip={title} data-tip-overflow>
             {title}
           </span>
-          <span className="block truncate text-xs text-muted-foreground">{meta}</span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {before}
+            {showCategory ? (
+              <>
+                {" · "}
+                <CategoryColorDot
+                  color={categoryColor(tx.category_id)}
+                  size="sm"
+                  className="mr-1 align-middle"
+                />
+                {category}
+              </>
+            ) : null}
+            {after ? ` · ${after}` : null}
+          </span>
         </span>
         <Money
           value={tx.type === "expense" ? -amount : amount}

@@ -34,7 +34,9 @@ export type OccurrenceDraft = {
 export type OccurrenceResolution =
   | { kind: "posted"; transactionId: string }
   | { kind: "skipped" }
-  | { kind: "postponed"; to: string };
+  | { kind: "postponed"; to: string }
+  /** Платёж уже разобрал кто-то другой: карточку убираем без ошибки. */
+  | { kind: "gone" };
 
 const NETWORK_ERROR = "Нет связи с сервером. Проверьте соединение и повторите";
 
@@ -145,7 +147,7 @@ export function OccurrenceCard({
     setBusy("post");
     setError(null);
     try {
-      const { transactionId, error: postError } = await postOccurrence(occurrence.id, {
+      const { transactionId, error: postError, gone } = await postOccurrence(occurrence.id, {
         amount: draft.amount as number,
         date: draft.date,
         bank_account_id: occurrence.bank_account_id,
@@ -154,6 +156,10 @@ export function OccurrenceCard({
         venue_id: draft.venue_id,
         description: draft.description.trim() || null,
       });
+      if (gone) {
+        onResolved({ kind: "gone" });
+        return;
+      }
       if (postError || !transactionId) {
         setError(postError ?? "Не удалось провести платёж");
         return;
@@ -170,7 +176,12 @@ export function OccurrenceCard({
     setBusy("skip");
     setError(null);
     try {
-      const { error: skipError } = await skipOccurrence(occurrence.id);
+      const { error: skipError, gone } = await skipOccurrence(occurrence.id);
+      if (gone) {
+        setConfirmSkip(false);
+        onResolved({ kind: "gone" });
+        return;
+      }
       if (skipError) {
         setError(skipError);
         return;
@@ -189,7 +200,11 @@ export function OccurrenceCard({
     setBusy("postpone");
     setError(null);
     try {
-      const { error: postponeError } = await postponeOccurrence(occurrence.id, to);
+      const { error: postponeError, gone } = await postponeOccurrence(occurrence.id, to);
+      if (gone) {
+        onResolved({ kind: "gone" });
+        return;
+      }
       if (postponeError) {
         setError(postponeError);
         return;

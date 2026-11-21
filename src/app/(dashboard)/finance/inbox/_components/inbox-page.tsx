@@ -106,6 +106,10 @@ export function InboxPage({
           onClick: () => router.push(`/finance/transactions?id=${result.transactionId}`),
         },
       });
+    } else if (result.kind === "gone") {
+      // Карточку уже разобрали в другом окне или другой сотрудник: сверяем очередь.
+      toast("Платёж уже разобран");
+      router.refresh();
     } else if (result.kind === "skipped") {
       toast(`Платёж «${occurrence.name}» пропущен`);
     } else {

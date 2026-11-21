@@ -24,6 +24,14 @@ type Supabase = Awaited<ReturnType<typeof createClient>>;
 
 const NO_PERMISSION = "Нет прав на повторяющиеся платежи";
 const ALREADY_RESOLVED = "Платёж уже разобран";
+
+/**
+ * Итог действия с ожидаемым платежом. `gone` — платёж уже разобрал кто-то
+ * другой (или он больше не виден): очередь убирает карточку, а не держит её
+ * с ошибкой. Константу из "use server"-файла экспортировать нельзя, поэтому
+ * признак — отдельным полем.
+ */
+type OccurrenceActionResult = { error: string | null; gone?: boolean };
 const TEMPLATE_GONE = "Не удалось сохранить: нет прав или шаблон уже удалён. Обновите страницу";
 
 type Ctx = {
@@ -492,7 +500,7 @@ export async function postOccurrence(
     venue_id: string | null;
     description: string | null;
   },
-): Promise<{ transactionId: string | null; error: string | null }> {
+): Promise<OccurrenceActionResult & { transactionId: string | null }> {
   const denied = await requireManage();
   if (denied) return { transactionId: null, error: denied };
   const ctx = await getCtx();
@@ -509,6 +517,10 @@ export async function postOccurrence(
     p_description: patch.description,
   });
   if (error || !data) {
+    // finance_recurring_post поднимает ровно этот текст, если платёж не pending.
+    if (error?.message === ALREADY_RESOLVED) {
+      return { transactionId: null, error: ALREADY_RESOLVED, gone: true };
+    }
     return { transactionId: null, error: error?.message ?? "Не удалось провести платёж" };
   }
 
@@ -534,7 +546,7 @@ export async function postOccurrence(
   return { transactionId: data as string, error: null };
 }
 
-export async function skipOccurrence(id: string): Promise<{ error: string | null }> {
+export async function skipOccurrence(id: string): Promise<OccurrenceActionResult> {
   const denied = await requireManage();
   if (denied) return { error: denied };
   const ctx = await getCtx();
@@ -547,14 +559,14 @@ export async function skipOccurrence(id: string): Promise<{ error: string | null
     .eq("status", "pending")
     .select("id, name, venue_id, due_date, amount");
   if (error) return { error: error.message };
-  if (!data || data.length === 0) return { error: ALREADY_RESOLVED };
+  if (!data || data.length === 0) return { error: ALREADY_RESOLVED, gone: true };
 
   await auditOccurrence(ctx, data[0], "finance.recurring_occurrence.skipped");
   revalidateRecurring();
   return { error: null };
 }
 
-export async function postponeOccurrence(id: string, to: string): Promise<{ error: string | null }> {
+export async function postponeOccurrence(id: string, to: string): Promise<OccurrenceActionResult> {
   const denied = await requireManage();
   if (denied) return { error: denied };
   const ctx = await getCtx();
@@ -570,7 +582,7 @@ export async function postponeOccurrence(id: string, to: string): Promise<{ erro
     .eq("status", "pending")
     .select("id, name, venue_id, due_date, amount");
   if (error) return { error: error.message };
-  if (!data || data.length === 0) return { error: ALREADY_RESOLVED };
+  if (!data || data.length === 0) return { error: ALREADY_RESOLVED, gone: true };
 
   await auditOccurrence(ctx, data[0], "finance.recurring_occurrence.postponed", { postponed_to: to });
   revalidateRecurring();

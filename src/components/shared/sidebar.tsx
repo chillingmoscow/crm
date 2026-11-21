@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useNewCandidateCount } from "@/lib/candidates/use-new-candidate-count";
+import { useInboxCount } from "@/lib/finance/use-inbox-count";
 import { useTheme } from "next-themes";
 import { applyTheme } from "@/lib/theme";
 import {
@@ -20,6 +21,7 @@ import {
   ClipboardList,
   Eye,
   FileBadge2,
+  Inbox,
   Keyboard,
   Laptop,
   LayoutDashboard,
@@ -28,6 +30,7 @@ import {
   Moon,
   FlaskConical,
   PackageSearch,
+  Repeat,
   UtensilsCrossed,
   ScrollText,
   Settings,
@@ -234,6 +237,13 @@ const NAV_SECTIONS: NavSection[] = [
     label: "Финансы",
     icon: Wallet,
     items: [
+      // Очередь ожидаемых платежей; бейдж — сколько ждут разбора.
+      {
+        title: "На разбор",
+        href: "/finance/inbox",
+        icon: Inbox,
+        permission: "finance.view_transactions",
+      },
       // exact: чтобы Дашборд не выделялся, когда мы на /finance/categories
       // или другой дочерней странице.
       {
@@ -267,6 +277,12 @@ const NAV_SECTIONS: NavSection[] = [
         href: "/finance/counterparties",
         icon: Users,
         permission: "finance.view_counterparties",
+      },
+      {
+        title: "Повторяющиеся",
+        href: "/finance/recurring",
+        icon: Repeat,
+        permission: "finance.view_transactions",
       },
       {
         title: "Правила",
@@ -400,6 +416,8 @@ interface AppSidebarProps {
   staffAttentionCount?: number;
   candidateAccountId?: string | null;
   newCandidatesCount?: number;
+  /** Ожидаемые платежи на разбор (с сервера); дальше — `useInboxCount`. */
+  inboxCount?: number;
   /** SSR-полученное состояние KB-сайдбара из cookie `kb_sidebar_hidden`.
    *  Прокидывается дальше в `KbNavLink` как `initialHidden`, чтобы первый
    *  рендер иконки «База знаний» использовал правильный цвет (muted vs
@@ -464,6 +482,7 @@ function SidebarBody({
   staffAttentionCount = 0,
   candidateAccountId = null,
   newCandidatesCount = 0,
+  inboxCount: initialInboxCount = 0,
   kbSidebarHidden = false,
   isImpersonating = false,
 }: AppSidebarProps) {
@@ -591,6 +610,12 @@ function SidebarBody({
   };
 
   const candidateCount = useNewCandidateCount(candidateAccountId,userPermissionsSet.has("people.manage_candidates"),newCandidatesCount);
+  // Бейдж — тем, кто может разобрать: видеть очередь можно и без права проводить.
+  const inboxCount = useInboxCount(
+    userPermissionsSet.has("finance.view_transactions") &&
+      userPermissionsSet.has("finance.create_transaction"),
+    initialInboxCount,
+  );
   const visibleSections = useMemo(
     () =>
       NAV_SECTIONS.map((s) => ({
@@ -602,7 +627,8 @@ function SidebarBody({
           // «сколько строк подсвечены».
           item.href === "/people/staff" && staffAttentionCount > 0
             ? { ...item, badge: staffAttentionCount }
-            : item.href === "/people/candidates" && candidateCount > 0 ? {...item,badge:candidateCount} : item,
+            : item.href === "/people/candidates" && candidateCount > 0 ? {...item,badge:candidateCount}
+            : item.href === "/finance/inbox" && inboxCount > 0 ? { ...item, badge: inboxCount } : item,
         ),
       }))
         .filter(isSectionVisible)
@@ -612,7 +638,7 @@ function SidebarBody({
     // же массив, идентичность стабильна между рендерами с одним
     // userPermissions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [userPermissionsSet, activeRoleCode, staffAttentionCount, candidateCount],
+    [userPermissionsSet, activeRoleCode, staffAttentionCount, candidateCount, inboxCount],
   );
 
   const [openSections, setOpenSections] = useState<Set<string>>(() => {

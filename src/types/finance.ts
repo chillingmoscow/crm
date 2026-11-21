@@ -130,3 +130,33 @@ export type TransactionFormInput =
   | ExpenseTransactionInput
   | TransferTransactionInput;
 
+
+// ─── Повторяющиеся платежи ──────────────────────────────────────────────────
+
+export type RecurringTemplateRow   = Tables<"finance_recurring_templates">;
+export type RecurringOccurrenceRow = Tables<"finance_recurring_occurrences">;
+
+/** Расписание шаблона: день месяца, день квартала или день недели (1 = пн … 7 = вс). */
+export type RecurringSchedule =
+  | { frequency: "monthly"; dayOfMonth: number }
+  | { frequency: "quarterly"; dayOfMonth: number; quarterMonth: 1 | 2 | 3 }
+  | { frequency: "weekly"; weekday: number };
+
+export type RecurringTemplateInput = {
+  name: string;
+  type: "income" | "expense";
+  legal_entity_id: string;
+  venue_id: string | null;
+  bank_account_id: string;
+  category_id: string | null;
+  counterparty_id: string | null;
+  amount: number;
+  amount_varies: boolean;
+  description: string | null;
+  schedule: RecurringSchedule;
+  starts_on: string;
+  ends_on: string | null;
+  source_transaction_id?: string | null;
+};
+
+export type RecurringTemplateListItem = RecurringTemplateRow & { next_due: string | null };

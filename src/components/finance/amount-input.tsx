@@ -20,6 +20,8 @@ type Props = {
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  /** Классы самого поля (кегль крупной суммы); высота поля остаётся общей. */
+  inputClassName?: string;
   id?: string;
   name?: string;
   /** Accessibility label for the field. */
@@ -50,6 +52,7 @@ export function AmountInput({
   placeholder = "0",
   disabled,
   className,
+  inputClassName,
   id,
   name,
   ...rest
@@ -93,7 +96,7 @@ export function AmountInput({
         }}
         placeholder={placeholder}
         disabled={disabled}
-        className="pr-8 text-right tabular-nums"
+        className={cn("pr-8 text-right tabular-nums", inputClassName)}
         aria-label={rest["aria-label"]}
         aria-describedby={rest["aria-describedby"]}
         aria-invalid={rest["aria-invalid"]}

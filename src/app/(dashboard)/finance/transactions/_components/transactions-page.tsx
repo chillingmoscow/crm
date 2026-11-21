@@ -19,6 +19,7 @@ import {
   Paperclip,
   PencilLine,
   Plus,
+  Repeat,
   RotateCcw,
   SearchX,
   Trash2,
@@ -85,6 +86,11 @@ import type { AccountVenueRow, LegalEntityRow } from "@/lib/org/legal-entities";
 import { AmountRangeFilter } from "./filters/amount-range-filter";
 import { BulkEditDialog } from "./bulk-edit-dialog";
 import { TransactionFormSheet, type FormMode } from "./transaction-form-sheet";
+import {
+  RecurringFormSheet,
+  type RecurringFormMode,
+} from "../../recurring/_components/recurring-form-sheet";
+import { InboxPlaque } from "../../_components/inbox-plaque";
 import { TRANSACTION_CREATE_OPTIONS } from "../../_components/transaction-create-options";
 import {
   AccountCell,
@@ -180,6 +186,8 @@ type Props = {
   dadataEnabled: boolean;
   /** Пояс аккаунта: какой это день у операции. */
   timeZone: string;
+  /** Сколько ожидаемых платежей ждут разбора — красная плашка над шапкой. */
+  inboxCount?: number;
 };
 
 /** Строка списка: операция и число её файлов (`finance_transactions_page`). */
@@ -204,6 +212,7 @@ export function TransactionsPage({
   amountRoundingScale,
   dadataEnabled,
   timeZone,
+  inboxCount = 0,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -515,6 +524,9 @@ export function TransactionsPage({
   const openCopy = (tx: TransactionRow) =>
     setFormMode({ kind: "create", type: tx.type, copyOf: tx });
 
+  // «Сделать повторяющейся»: панель шаблона, заполненная по операции.
+  const [recurringMode, setRecurringMode] = useState<RecurringFormMode>({ kind: "closed" });
+
   // ─── Массовая правка ──────────────────────────────────────────────────────
 
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
@@ -638,6 +650,15 @@ export function TransactionsPage({
     return [
       ...(permissions.create && !(tx.type === "transfer" && transferBlocked)
         ? [{ label: "Копировать", icon: <Copy />, onSelect: () => openCopy(tx) }]
+        : []),
+      ...(permissions.create && tx.type !== "transfer"
+        ? [
+            {
+              label: "Сделать повторяющейся",
+              icon: <Repeat />,
+              onSelect: () => setRecurringMode({ kind: "create", from: tx }),
+            },
+          ]
         : []),
       ...(permissions.delete && !transactionLock(tx)
         ? [
@@ -969,6 +990,7 @@ export function TransactionsPage({
   return (
     <PageFrame className="flex min-w-0 flex-col gap-4">
       <Breadcrumbs items={[{ label: "Финансы" }, { label: "Транзакции" }]} />
+      <InboxPlaque count={inboxCount} />
       <TablePageHeader
         title={deletedMode ? "Удалённые операции" : "Транзакции"}
         count={count}
@@ -1394,6 +1416,27 @@ export function TransactionsPage({
           setRowSelection({});
           router.refresh();
         }}
+      />
+
+      <RecurringFormSheet
+        mode={recurringMode}
+        onClose={() => setRecurringMode({ kind: "closed" })}
+        onSaved={() => {
+          setRecurringMode({ kind: "closed" });
+          toast.success("Повторяющийся платёж создан", {
+            action: { label: "Открыть", onClick: () => router.push("/finance/recurring") },
+          });
+        }}
+        bankAccounts={activeAccounts}
+        allBankAccounts={bankAccounts}
+        venues={formVenues}
+        allVenues={venues}
+        categories={categories}
+        counterparties={counterparties}
+        permissions={permissions}
+        amountRoundingScale={amountRoundingScale}
+        dadataEnabled={dadataEnabled}
+        timeZone={timeZone}
       />
 
       <TransactionFormSheet

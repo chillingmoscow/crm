@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { getActiveFinanceLegalEntityId } from "@/lib/finance/active-legal-entity";
 import { listBankAccounts } from "@/lib/finance/bank-accounts";
 import { listFinanceCategories } from "@/lib/finance/categories";
+import { countInbox } from "@/lib/finance/recurring";
 import {
   comparisonWindows,
   formatChange,
@@ -59,6 +60,7 @@ import { cn } from "@/lib/utils";
 import type { BankAccountType } from "@/types/database";
 
 import { DashboardShell } from "../_components/dashboard-shell";
+import { InboxPlaque } from "../_components/inbox-plaque";
 import { RetryButton } from "../_components/retry-button";
 
 export const metadata: Metadata = { title: "Дашборд финансов" };
@@ -98,13 +100,15 @@ export default async function FinanceDashboardPage({
 
   const sp = await searchParams;
 
-  const [{ rows: legalEntities }, { rows: venues }, cookieLegalEntityId, scale, timeZone] =
+  const [{ rows: legalEntities }, { rows: venues }, cookieLegalEntityId, scale, timeZone, inboxCount] =
     await Promise.all([
       listLegalEntities(),
       listAccountVenues({ liveOnly: true }),
       getActiveFinanceLegalEntityId(),
       getActiveAccountAmountRoundingScale(),
       getActiveAccountTimezone(),
+      // Плашка «N платежей ждут разбора» — тем, кто может разобрать.
+      canCreate ? countInbox().catch(() => 0) : Promise.resolve(0),
     ]);
 
   // «Сегодня» — в поясе аккаунта, а не сервера (на проде он в UTC): иначе с
@@ -210,6 +214,7 @@ export default async function FinanceDashboardPage({
     <>
       <Breadcrumbs items={[{ label: "Финансы" }, { label: "Дашборд" }]} />
       <PageFrame>
+        <InboxPlaque count={inboxCount} className="mb-4" />
         <DashboardShell
           today={todayIso}
           period={period}

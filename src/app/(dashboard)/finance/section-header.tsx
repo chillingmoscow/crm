@@ -13,6 +13,8 @@ const WITHOUT_HEADER = [
   "/finance/accounts",
   "/finance/categories",
   "/finance/counterparties",
+  "/finance/inbox",
+  "/finance/recurring",
   "/finance/rules",
   "/finance/transactions",
 ];

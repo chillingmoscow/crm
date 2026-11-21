@@ -71,6 +71,12 @@ const CATEGORY_SUFFIXES: Record<AuditActionCategory, string[]> = {
     ".returned",
     ".rejected",
     ".answered",
+    // Повторяющиеся платежи: пауза шаблона и разбор ожидаемого платежа.
+    ".paused",
+    ".resumed",
+    ".posted",
+    ".skipped",
+    ".postponed",
   ],
   deleted: [".deleted", ".archived", ".cancelled"],
   restored: [".restored"],

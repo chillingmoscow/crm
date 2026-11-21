@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowLeftRight, Minus, Plus, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 
 import { TransactionHistory } from "@/components/audit/transaction-history";
 import { Button } from "@/components/ui/button";
@@ -47,6 +47,9 @@ import {
   type CreatedBankAccount,
 } from "../../accounts/_components/bank-account-create-drawer";
 import { todayIso } from "../_lib/utils";
+import { FieldAction } from "./fields/field-action";
+import { TypeSwitch } from "./fields/type-switch";
+import { withSelected } from "./fields/with-selected";
 import { calendarDateInZone } from "@/lib/format/zoned-day";
 import {
   CREATE_TYPE_LABEL,
@@ -118,8 +121,6 @@ type FieldErrors = Partial<Record<"amount" | "account" | "toAccount" | "date", s
 
 const NO_RULES: PostingRule[] = [];
 const NO_IDS: string[] = [];
-
-const TYPE_ICON = { income: Plus, expense: Minus, transfer: ArrowLeftRight } as const;
 
 /**
  * Панель операции (design-system «Боковая панель», тип А — форма):
@@ -831,98 +832,6 @@ export function TransactionFormSheet({
   );
 }
 
-// ─── Части формы ─────────────────────────────────────────────────────────────
-
-/** Тип операции — чипы-сегменты; только при создании. */
-function TypeSwitch({
-  value,
-  onChange,
-  transferBlocked,
-}: {
-  value: TransactionRow["type"];
-  onChange: (next: TransactionRow["type"]) => void;
-  transferBlocked: boolean;
-}) {
-  const items: TransactionRow["type"][] = ["income", "expense", "transfer"];
-  return (
-    <div className="space-y-2">
-      <div
-        role="radiogroup"
-        aria-label="Тип операции"
-        className="inline-flex h-10 w-full items-center gap-1 rounded-md bg-muted p-1"
-      >
-        {items.map((type) => {
-          const Icon = TYPE_ICON[type];
-          const selected = value === type;
-          const disabled = type === "transfer" && transferBlocked;
-          return (
-            <button
-              key={type}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              disabled={disabled}
-              onClick={() => onChange(type)}
-              className={cn(
-                "inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md text-sm font-medium transition-colors",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30",
-                selected
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-                disabled && "cursor-not-allowed opacity-50 hover:text-muted-foreground",
-              )}
-            >
-              <Icon
-                className={cn(
-                  "size-4",
-                  selected && type === "income" && "text-green-700 dark:text-green-400",
-                  selected && type === "expense" && "text-red-700 dark:text-red-400",
-                )}
-              />
-              {TYPE_LABEL[type]}
-            </button>
-          );
-        })}
-      </div>
-      {transferBlocked ? (
-        <p className="text-xs text-muted-foreground">Для перевода нужно хотя бы два счёта</p>
-      ) : null}
-    </div>
-  );
-}
-
-/**
- * Действие над значением поля — текстовая ссылка справа в строке подписи
- * (design-system «Боковая панель → Форма»). Вне `<label>`, чтобы нажатие не
- * уходило в поле.
- */
-function FieldAction({
-  label,
-  show,
-  onClick,
-  children,
-}: {
-  label: string;
-  show: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <div className="relative">
-      {children}
-      {show ? (
-        <button
-          type="button"
-          onClick={onClick}
-          className="absolute right-0 top-0 text-[13px] leading-5 text-brand hover:underline"
-        >
-          {label}
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
 // ─── Помощники ──────────────────────────────────────────────────────────────
 
 function emptyForm(
@@ -962,15 +871,4 @@ function formFromTransaction(tx: TransactionRow, timeZone: string): FormState {
     description: tx.description ?? "",
     venue_id: tx.venue_id ?? null,
   };
-}
-
-/**
- * В выборе — действующие записи и та, что уже стоит в операции, даже если
- * её отправили в архив: иначе старая операция показала бы «Без статьи».
- */
-function withSelected<T extends { id: string; archived_at?: string | null; deleted_at?: string | null }>(
-  list: T[],
-  selectedId: string | null,
-): T[] {
-  return list.filter((item) => (!item.archived_at && !item.deleted_at) || item.id === selectedId);
 }

@@ -14,6 +14,7 @@ import { listBankAccounts } from "@/lib/finance/bank-accounts";
 import { listFinanceCategories } from "@/lib/finance/categories";
 import { listCounterparties } from "@/lib/finance/counterparties";
 import { getTransaction, queryTransactions } from "@/lib/finance/transactions";
+import { countInbox } from "@/lib/finance/recurring";
 import { getActiveFinanceLegalEntityId } from "@/lib/finance/active-legal-entity";
 import { parseTransactionQuery } from "@/lib/finance/transaction-query";
 import {
@@ -110,6 +111,7 @@ export default async function TransactionsServerPage({
     { rows: venues },
     activeVenueId,
     timeZone,
+    inboxCount,
     postingRules,
   ] = await Promise.all([
     queryTransactions({
@@ -127,6 +129,8 @@ export default async function TransactionsServerPage({
     listAccountVenues({ liveOnly: true }),
     getActiveVenueId(),
     getActiveAccountTimezone(),
+    // Плашка «N платежей ждут разбора» — тем, кто может разобрать.
+    permissions.create ? countInbox().catch(() => 0) : Promise.resolve(0),
     // Правила — подсказка для ввода: их сбой (например, миграция ещё не
     // докатилась) не должен ломать список операций.
     listPostingRules().catch(() => []),
@@ -178,6 +182,7 @@ export default async function TransactionsServerPage({
       amountRoundingScale={amountRoundingScale}
       dadataEnabled={isDadataConfigured()}
       timeZone={timeZone}
+      inboxCount={inboxCount}
       postingRules={postingRules}
       postingRuleArchivedIds={postingRuleArchivedIds}
     />

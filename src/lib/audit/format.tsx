@@ -45,6 +45,7 @@ import { candidateAuditSpecs } from "./candidates";
 import { catalogAuditSpecs } from "./catalog";
 import { scheduleAuditSpecs } from "./schedule";
 import { financeDirectoryAuditSpecs } from "./finance-directory";
+import { financeRecurringAuditSpecs } from "./finance-recurring";
 import { bankReconciliationAuditSpecs } from "./bank-reconciliation";
 import { writeoffAuditSpecs } from "./writeoffs";
 import { ChangeLines } from "./change-lines";
@@ -311,6 +312,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   ...catalogAuditSpecs,
   ...scheduleAuditSpecs,
   ...financeDirectoryAuditSpecs,
+  ...financeRecurringAuditSpecs,
   ...bankReconciliationAuditSpecs,
   ...writeoffAuditSpecs,
   "integration.updated": {

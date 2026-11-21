@@ -79,6 +79,7 @@ import type {
   FinanceCategoryRow,
   TransactionRow,
 } from "@/types/finance";
+import type { PostingRule } from "@/lib/finance/posting-rules/types";
 import type { AccountVenueRow, LegalEntityRow } from "@/lib/org/legal-entities";
 
 import { AmountRangeFilter } from "./filters/amount-range-filter";
@@ -168,6 +169,8 @@ type Props = {
   /** Действующие заведения аккаунта. */
   venues: AccountVenueRow[];
   activeVenueId: string | null;
+  /** Правила разнесения — для подстановки в форме операции. */
+  postingRules: PostingRule[];
   permissions: TransactionPermissions;
   currentUserId: string | null;
   amountRoundingScale: AmountRoundingScale;
@@ -192,6 +195,7 @@ export function TransactionsPage({
   counterparties,
   venues,
   activeVenueId,
+  postingRules,
   permissions,
   currentUserId,
   amountRoundingScale,
@@ -1419,6 +1423,7 @@ export function TransactionsPage({
         permissions={permissions}
         currentUserId={currentUserId}
         amountRoundingScale={amountRoundingScale}
+        postingRules={postingRules}
         dadataEnabled={dadataEnabled}
         timeZone={timeZone}
       />

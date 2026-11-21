@@ -39,7 +39,9 @@ import { uploadTransactionFile } from "@/lib/finance/transaction-files";
 
 import { CategoryDrawer } from "@/components/finance/category-drawer";
 import { CounterpartyCreateDrawer } from "@/components/finance/counterparty-create-drawer";
+import type { PostingRule } from "@/lib/finance/posting-rules/types";
 import { TransactionFiles } from "./transaction-files";
+import { usePostingRuleAutofill } from "./use-posting-rule-autofill";
 import {
   BankAccountCreateDrawer,
   type CreatedBankAccount,
@@ -94,6 +96,8 @@ type Props = {
   dadataEnabled: boolean;
   /** Пояс аккаунта: какой это день у операции. */
   timeZone: string;
+  /** Правила разнесения: подставляют пустые статью, контрагента и заведение. */
+  postingRules?: PostingRule[];
 };
 
 type FormState = {
@@ -109,6 +113,8 @@ type FormState = {
 };
 
 type FieldErrors = Partial<Record<"amount" | "account" | "toAccount" | "date", string>>;
+
+const NO_RULES: PostingRule[] = [];
 
 const TYPE_ICON = { income: Plus, expense: Minus, transfer: ArrowLeftRight } as const;
 
@@ -140,6 +146,7 @@ export function TransactionFormSheet({
   amountRoundingScale,
   dadataEnabled,
   timeZone,
+  postingRules = NO_RULES,
 }: Props) {
   const router = useRouter();
   const open = mode.kind !== "closed";
@@ -194,6 +201,36 @@ export function TransactionFormSheet({
     return current && !venues.some((v) => v.id === current.id) ? [...venues, current] : venues;
   }, [allVenues, form.venue_id, venues]);
 
+  // Правила разнесения. Справочники — те же, что у формы; заведения — только
+  // те, что человек может выбрать: чужое заведение правило не подставит.
+  const ruleDirectories = useMemo(
+    () => ({
+      counterparties: counterparties.map((c) => ({
+        id: c.id,
+        name: c.name,
+        inn: c.inn,
+        group_id: c.group_id,
+        deleted_at: c.deleted_at,
+      })),
+      counterpartyGroups: [],
+      bankAccounts: allBankAccounts.map((a) => ({ id: a.id, name: a.name, deleted_at: a.deleted_at })),
+      categories: categories.map((c) => ({ id: c.id, name: c.name, type: c.type, archived_at: c.archived_at })),
+      venues: allVenues.map((v) => ({ id: v.id, name: v.name })),
+    }),
+    [allBankAccounts, allVenues, categories, counterparties],
+  );
+  const ruleVenueIds = useMemo(() => venues.map((v) => v.id), [venues]);
+  // При правке правила включаются после первой правки человека: открыть и
+  // закрыть старую операцию не должно менять её молча.
+  const autofill = usePostingRuleAutofill({
+    rules: postingRules,
+    directories: ruleDirectories,
+    allowedVenueIds: ruleVenueIds,
+    form,
+    active: open && editable && !isDeleted && !lock && (mode.kind === "create" || dirty),
+    onApply: (values) => setForm((f) => ({ ...f, ...values })),
+  });
+
   const formKey =
     mode.kind === "edit"
       ? `edit:${mode.transaction.id}`
@@ -205,9 +242,17 @@ export function TransactionFormSheet({
       setLocalAccounts([]);
       return;
     }
-    if (mode.kind === "edit") setForm(formFromTransaction(mode.transaction, timeZone));
-    else if (mode.copyOf) setForm({ ...formFromTransaction(mode.copyOf, timeZone), date: todayIso() });
-    else setForm(emptyForm(mode.type, bankAccountsProp, preferredAccountId, preferredVenueId));
+    const initial =
+      mode.kind === "edit"
+        ? formFromTransaction(mode.transaction, timeZone)
+        : mode.copyOf
+          ? { ...formFromTransaction(mode.copyOf, timeZone), date: todayIso() }
+          : emptyForm(mode.type, bankAccountsProp, preferredAccountId, preferredVenueId);
+    setForm(initial);
+    autofill.reset(
+      initial,
+      mode.kind === "create" && !mode.copyOf ? (preferredVenueId ?? null) : null,
+    );
     setPendingFiles([]);
     setErrors({});
     setServerError(null);
@@ -232,6 +277,7 @@ export function TransactionFormSheet({
 
   const selectType = (next: TransactionRow["type"]) => {
     if (mode.kind !== "create" || next === form.type) return;
+    if (next === "transfer") autofill.clear(["category_id", "counterparty_id"]);
     patch({
       type: next,
       category_id: next === "transfer" ? null : form.category_id,
@@ -587,12 +633,15 @@ export function TransactionFormSheet({
                 show={!locked && permissions.manageCategories}
                 onClick={() => setCategorySheetOpen(true)}
               >
-                <Field label="Статья">
+                <Field label="Статья" hint={autofill.hint("category_id")}>
                   {() => (
                     <CategoryPicker
                       categories={withSelected(categories, form.category_id)}
                       value={form.category_id}
-                      onChange={(category_id) => patch({ category_id })}
+                      onChange={(category_id) => {
+                        autofill.userPick("category_id", category_id);
+                        patch({ category_id });
+                      }}
                       type={form.type === "income" ? "income" : "expense"}
                       placeholder="Без статьи"
                       allowClear
@@ -607,12 +656,15 @@ export function TransactionFormSheet({
                 show={!locked && permissions.manageCounterparties}
                 onClick={() => setCounterpartySheetOpen(true)}
               >
-                <Field label="Контрагент">
+                <Field label="Контрагент" hint={autofill.hint("counterparty_id")}>
                   {() => (
                     <CounterpartyPicker
                       counterparties={withSelected(counterparties, form.counterparty_id)}
                       value={form.counterparty_id}
-                      onChange={(counterparty_id) => patch({ counterparty_id })}
+                      onChange={(counterparty_id) => {
+                        autofill.userPick("counterparty_id", counterparty_id);
+                        patch({ counterparty_id });
+                      }}
                       placeholder="Без контрагента"
                       allowClear
                       ariaLabel="Контрагент"
@@ -625,12 +677,15 @@ export function TransactionFormSheet({
           )}
 
           {allVenues.length > 0 ? (
-            <Field label="Заведение">
+            <Field label="Заведение" hint={autofill.hint("venue_id")}>
               {(control) => (
                 <OptionSelect
                   {...control}
                   value={form.venue_id ?? ""}
-                  onValueChange={(v) => patch({ venue_id: v || null })}
+                  onValueChange={(v) => {
+                    autofill.userPick("venue_id", v || null);
+                    patch({ venue_id: v || null });
+                  }}
                   options={[
                     { value: "", label: "Без заведения" },
                     ...venueChoices.map((v) => ({ value: v.id, label: v.name })),
@@ -701,6 +756,7 @@ export function TransactionFormSheet({
         lockType
         canManage={permissions.manageCategories}
         onSaved={(id) => {
+          autofill.userPick("category_id", id);
           patch({ category_id: id });
           setCategorySheetOpen(false);
           router.refresh();
@@ -711,6 +767,7 @@ export function TransactionFormSheet({
         onOpenChange={setCounterpartySheetOpen}
         dadataEnabled={dadataEnabled}
         onCreated={(id) => {
+          autofill.userPick("counterparty_id", id);
           patch({ counterparty_id: id });
           setCounterpartySheetOpen(false);
           router.refresh();

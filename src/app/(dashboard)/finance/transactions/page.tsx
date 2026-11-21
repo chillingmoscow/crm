@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { isDadataConfigured } from "@/lib/dadata/client";
+import { listPostingRules } from "@/lib/finance/posting-rules/server";
 
 import {
   getCachedPermissionChecker,
@@ -109,6 +110,7 @@ export default async function TransactionsServerPage({
     { rows: venues },
     activeVenueId,
     timeZone,
+    postingRules,
   ] = await Promise.all([
     queryTransactions({
       filters: effectiveFilters,
@@ -125,6 +127,9 @@ export default async function TransactionsServerPage({
     listAccountVenues({ liveOnly: true }),
     getActiveVenueId(),
     getActiveAccountTimezone(),
+    // Правила — подсказка для ввода: их сбой (например, миграция ещё не
+    // докатилась) не должен ломать список операций.
+    listPostingRules().catch(() => []),
   ]);
 
   // ?page=999 или страница, опустевшая после удаления, — показываем
@@ -169,6 +174,7 @@ export default async function TransactionsServerPage({
       amountRoundingScale={amountRoundingScale}
       dadataEnabled={isDadataConfigured()}
       timeZone={timeZone}
+      postingRules={postingRules}
     />
   );
 }

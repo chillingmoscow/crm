@@ -1,5 +1,9 @@
 import { cn } from "@/lib/utils";
-import { formatAmount, signedAmountClass } from "@/lib/format/amount";
+import {
+  formatAmount,
+  signedAmountClass,
+  type AmountRoundingScale,
+} from "@/lib/format/amount";
 
 /**
  * Сумма в рублях по правилам design-system § «Деньги, числа, даты»:
@@ -13,10 +17,16 @@ export function Money({
   value,
   signed = false,
   fraction = false,
+  scale,
   className,
 }: {
   value: number | null | undefined;
   signed?: boolean;
+  /**
+   * Знаков после запятой по настройке аккаунта «Округление сумм»
+   * (`AmountRoundingScale`). Где экран её учитывает, она главнее `fraction`.
+   */
+  scale?: AmountRoundingScale;
   /**
    * Копейки: `true` — всегда (карточка одной операции); `"auto"` — только
    * если они есть (ставки, рассрочки, остаток к выплате: округление до
@@ -41,7 +51,7 @@ export function Money({
       )}
     >
       {sign}
-      {formatAmount(Math.abs(value), digits(value, fraction))}
+      {formatAmount(Math.abs(value), scale ?? digits(value, fraction))}
       <span className="ml-0.5 text-[0.85em] font-normal text-muted-foreground">
         ₽
       </span>
@@ -55,11 +65,17 @@ export function formatRub(
   {
     signed = false,
     fraction = false,
-  }: { signed?: boolean; fraction?: boolean | "auto" } = {},
+    scale,
+  }: {
+    signed?: boolean;
+    fraction?: boolean | "auto";
+    /** Как у `Money`: настройка аккаунта «Округление сумм», главнее `fraction`. */
+    scale?: AmountRoundingScale;
+  } = {},
 ): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "—";
   const sign = signed ? (value > 0 ? "+" : value < 0 ? "−" : "") : value < 0 ? "−" : "";
-  return `${sign}${formatAmount(Math.abs(value), digits(value, fraction))} ₽`;
+  return `${sign}${formatAmount(Math.abs(value), scale ?? digits(value, fraction))} ₽`;
 }
 
 function digits(value: number, fraction: boolean | "auto"): 0 | 2 {

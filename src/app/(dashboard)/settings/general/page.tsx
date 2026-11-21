@@ -12,12 +12,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { updateGeneralSettings } from "./actions";
 import { AmountRoundingSelect } from "./_components/amount-rounding-select";
+import { TimezoneSelect } from "./_components/timezone-select";
 
 export const metadata: Metadata = { title: "Общие настройки" };
 
 type AccountSettingsRow = {
   amount_rounding_scale: number | null;
   inventory_ai_suggestions_enabled: boolean | null;
+  timezone: string | null;
 };
 
 export default async function GeneralSettingsPage() {
@@ -34,12 +36,13 @@ export default async function GeneralSettingsPage() {
   const admin = createAdminClient();
   const { data: account } = await admin
     .from("accounts")
-    .select("amount_rounding_scale, inventory_ai_suggestions_enabled")
+    .select("amount_rounding_scale, inventory_ai_suggestions_enabled, timezone")
     .eq("id", accountId)
     .maybeSingle<AccountSettingsRow>();
 
   const amountRoundingScale = normalizeAmountRoundingScale(account?.amount_rounding_scale);
   const inventoryAiSuggestionsEnabled = Boolean(account?.inventory_ai_suggestions_enabled);
+  const timezone = account?.timezone?.trim() || "Europe/Moscow";
 
   return (
     <div className="w-full px-4 py-4 md:px-8 md:py-6">
@@ -49,7 +52,7 @@ export default async function GeneralSettingsPage() {
         </div>
         <h1 className="text-2xl font-semibold">Общие настройки</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Базовые параметры отображения для финансов и инвентаризации.
+          Базовые параметры для финансов и инвентаризации.
         </p>
       </div>
 
@@ -62,6 +65,17 @@ export default async function GeneralSettingsPage() {
             Применяется к финансовым суммам, себестоимости и итогам инвентаризации.
           </p>
           <AmountRoundingSelect defaultValue={String(amountRoundingScale)} />
+        </div>
+
+        <div className="mt-5">
+          <label className="text-sm font-medium" htmlFor="timezone">
+            Часовой пояс
+          </label>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Где кончается день в финансах: «Сегодня», месяц и любой период считаются по этому
+            поясу во всех заведениях.
+          </p>
+          <TimezoneSelect defaultValue={timezone} />
         </div>
 
         <div className="mt-5 rounded-md border bg-muted/30 p-4">

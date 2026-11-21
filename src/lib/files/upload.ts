@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { removeFreshUpload } from "@/lib/files/upload-cleanup";
 import type { AccountFileRow } from "@/types/finance";
 
 // ─── Storage path helper ─────────────────────────────────────────────────────
@@ -91,7 +92,7 @@ export async function uploadAttachment(args: {
     // Roll back the storage object if the row insert failed; otherwise
     // we'd leave an orphan that no one can see (storage SELECT policy
     // depends on EXISTS in account_files — see migration 045).
-    await supabase.storage.from("account-attachments").remove([storagePath]);
+    await removeFreshUpload({ fileId: null, storagePath });
     return {
       row: null,
       error: insertErr?.message ?? "Не удалось создать запись о файле",
@@ -121,15 +122,18 @@ export async function deleteAccountFile(
   if (fetchErr) return { error: fetchErr.message };
   if (!row) return { error: "Файл не найден" };
 
-  const { error: storageErr } = await supabase.storage
-    .from("account-attachments")
-    .remove([row.storage_path]);
-  if (storageErr) return { error: storageErr.message };
-
-  const { error: dbErr } = await supabase
+  // Сначала строка: без права finance.delete_attachments RLS молча не
+  // удалит ничего — тогда и хранилище не трогаем, а говорим об этом.
+  const { data: deleted, error: dbErr } = await supabase
     .from("account_files")
     .delete()
-    .eq("id", fileId);
+    .eq("id", fileId)
+    .select("id");
   if (dbErr) return { error: dbErr.message };
+  if (!deleted || deleted.length === 0) return { error: "Нет прав на удаление файлов" };
+
+  // Строки уже нет, а политика хранилища ищет её — объект убираем
+  // service-role по пути только что удалённой строки.
+  await removeFreshUpload({ fileId: null, storagePath: row.storage_path });
   return { error: null };
 }

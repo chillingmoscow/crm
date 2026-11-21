@@ -66,7 +66,7 @@ export function TransactionHistory({
   if (!result.events.length)
     return (
       <p className="py-3 text-sm text-muted-foreground">
-        Событий по этой транзакции пока нет.
+        Изменений пока нет
       </p>
     );
   return (

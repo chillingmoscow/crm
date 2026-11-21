@@ -156,6 +156,7 @@ const FIELD_LABELS: Record<string, string> = {
   to_legal_entity_id: "юрлицо получатель",
   category_id: "статья",
   counterparty_id: "контрагент",
+  venue_id: "заведение",
   // bank_account
   bank_name: "банк",
   bik: "БИК",

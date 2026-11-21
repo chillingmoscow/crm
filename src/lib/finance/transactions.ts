@@ -2,142 +2,29 @@
 
 import { revalidatePath } from "next/cache";
 
-import { createClient } from "@/lib/supabase/server";
-import type {
-  TransactionFormInput,
-  TransactionListFilters,
-  TransactionRow,
-} from "@/types/finance";
+import { createClient, getCachedPermissionChecker } from "@/lib/supabase/server";
+import { asLooseDb } from "@/lib/supabase/loose";
+import type { TransactionFormInput, TransactionRow } from "@/types/finance";
+import {
+  fetchTransactionsPage,
+  type QueryTransactionsOptions,
+  type QueryTransactionsResult,
+} from "./transactions-page-query";
 
 // ─── List + filters ─────────────────────────────────────────────────────────
 
-export type ListTransactionsOptions = {
-  filters?: TransactionListFilters;
-  /** 1-based page number. */
-  page?: number;
-  /** Page size (clamped 1..200). Default 50. */
-  pageSize?: number;
-};
-
-export type ListTransactionsResult = {
-  rows: TransactionRow[];
-  /** Total count of rows matching the filter (via supabase `{ count: "exact" }`). */
-  total: number;
-  page: number;
-  pageSize: number;
-  error: string | null;
-};
-
 /**
- * List transactions of the active account, ordered by date desc.
- * RLS gates by account_id = get_active_account_id() AND
- * finance.view_transactions (migration 042 §4).
+ * Страница списка для клиента. Размер страницы ограничен 100 строками:
+ * действие вызывается из браузера, а крупная выборка — только у выгрузки
+ * (она идёт через `fetchTransactionsPage` с проверкой finance.export).
  */
-export async function listTransactions(
-  opts: ListTransactionsOptions = {}
-): Promise<ListTransactionsResult> {
-  const supabase = await createClient();
-  const filters = opts.filters ?? {};
-  const page = Math.max(1, opts.page ?? 1);
-  const pageSize = Math.min(200, Math.max(1, opts.pageSize ?? 50));
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
-
-  let query = supabase
-    .from("transactions")
-    .select("*", { count: "exact" });
-
-  if (!filters.include_deleted) query = query.is("deleted_at", null);
-
-  if (filters.legal_entity_id)  query = query.eq("legal_entity_id", filters.legal_entity_id);
-  if (filters.venue_id)         query = query.eq("venue_id", filters.venue_id);
-
-  // Single-or-list filter: scalar → eq, array → in. Used by the multi-select
-  // chips on /finance/transactions to pass [id1, id2, …] without us having
-  // to widen the API to per-id round trips.
-  query = applyEqOrIn(query, "bank_account_id", filters.bank_account_id);
-
-  // Category & counterparty additionally support an "include null" flag — the
-  // multi-select chips have a special "Без статьи" / "Без контрагента" entry.
-  // OR-clause syntax follows postgrest: `field.is.null,field.in.(a,b)`.
-  query = applyEqOrInWithNull(
-    query,
-    "category_id",
-    filters.category_id,
-    filters.category_include_none,
-  );
-  query = applyEqOrInWithNull(
-    query,
-    "counterparty_id",
-    filters.counterparty_id,
-    filters.counterparty_include_none,
-  );
-
-  if (filters.type)             query = query.eq("type", filters.type);
-  if (filters.source)           query = query.eq("source", filters.source);
-
-  if (filters.date_from)        query = query.gte("date", filters.date_from);
-  if (filters.date_to)          query = query.lte("date", filters.date_to);
-  if (filters.amount_min !== undefined) query = query.gte("amount", filters.amount_min);
-  if (filters.amount_max !== undefined) query = query.lte("amount", filters.amount_max);
-
-  if (filters.q && filters.q.trim()) {
-    query = query.ilike("description", `%${filters.q.trim()}%`);
-  }
-
-  const { data, error, count } = await query
-    .order("date", { ascending: false })
-    .order("public_id", { ascending: false })
-    .range(from, to);
-
-  if (error) {
-    return { rows: [], total: 0, page, pageSize, error: error.message };
-  }
-  return {
-    rows: (data ?? []) as TransactionRow[],
-    total: count ?? 0,
-    page,
-    pageSize,
-    error: null,
-  };
-}
-
-// Local query builder helpers for list-filter polymorphism. Kept here (not
-// extracted into a shared util) because they're tightly coupled to the
-// supabase-js fluent API and only used by listTransactions.
-
-type Q = ReturnType<ReturnType<Awaited<ReturnType<typeof createClient>>["from"]>["select"]>;
-
-function applyEqOrIn(query: Q, field: string, value: string | string[] | undefined): Q {
-  if (value === undefined) return query;
-  if (Array.isArray(value)) {
-    if (value.length === 0) return query;
-    return query.in(field, value);
-  }
-  if (value === "") return query;
-  return query.eq(field, value);
-}
-
-function applyEqOrInWithNull(
-  query: Q,
-  field: string,
-  value: string | string[] | undefined,
-  includeNone: boolean | undefined,
-): Q {
-  const list = Array.isArray(value)
-    ? value.filter((v) => v !== "")
-    : value
-      ? [value]
-      : [];
-  const wantsNone = !!includeNone;
-
-  if (list.length === 0 && !wantsNone) return query;
-  if (list.length === 0 && wantsNone) return query.is(field, null);
-  if (list.length > 0 && !wantsNone) return query.in(field, list);
-
-  // Both: rows with field IS NULL OR field IN (list).
-  // Postgrest .or() takes a CSV of `<col>.<op>.<value>` clauses.
-  return query.or(`${field}.is.null,${field}.in.(${list.join(",")})`);
+export async function queryTransactions(
+  opts: QueryTransactionsOptions = {},
+): Promise<QueryTransactionsResult> {
+  return fetchTransactionsPage({
+    ...opts,
+    pageSize: Math.min(100, Math.max(1, opts.pageSize ?? 25)),
+  });
 }
 
 export async function getTransaction(
@@ -150,10 +37,33 @@ export async function getTransaction(
     .eq("id", id)
     .maybeSingle();
   if (error) return { row: null, error: error.message };
-  return { row: (data as TransactionRow | null) ?? null, error: null };
+  if (!data) return { row: null, error: null };
+  // Связь с зарплатой — как в строках списка (`locked_by`), чтобы панель
+  // по ссылке сразу открылась только на просмотр.
+  const { data: lock } = await asLooseDb(supabase).rpc("finance_transaction_lock", { p_id: id });
+  return {
+    row: { ...(data as TransactionRow), locked_by: (lock as string | null) ?? null } as TransactionRow,
+    error: null,
+  };
 }
 
 // ─── Mutations ───────────────────────────────────────────────────────────────
+
+/**
+ * Без finance.view_all_venues операции чужого заведения пользователь не
+ * видит (политика transactions_select), поэтому и ставить такое заведение
+ * не даём: иначе вставка проходит, а ответ падает с ошибкой RLS.
+ */
+async function venueNotAllowed(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  venueId: string | null | undefined,
+): Promise<string | null> {
+  if (!venueId) return null;
+  const can = await getCachedPermissionChecker();
+  if (can("finance.view_all_venues")) return null;
+  const { data: active } = await supabase.rpc("get_active_venue_id");
+  return active === venueId ? null : "Можно выбрать только своё заведение";
+}
 
 /**
  * Create a transaction. The DB trigger pereschityvaet bank_accounts.balance
@@ -180,6 +90,8 @@ export async function createTransaction(
   if (accountErr || !accountId) {
     return { id: null, error: "Не удалось определить активный аккаунт" };
   }
+  const venueError = await venueNotAllowed(supabase, input.venue_id);
+  if (venueError) return { id: null, error: venueError };
 
   const base = {
     account_id:         accountId as unknown as string,
@@ -250,6 +162,10 @@ export async function updateTransaction(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
+  if ("venue_id" in patch) {
+    const venueError = await venueNotAllowed(supabase, patch.venue_id);
+    if (venueError) return { error: venueError };
+  }
 
   const normalised: Record<string, unknown> = { ...patch };
   if (patch.type === "transfer") {
@@ -260,22 +176,74 @@ export async function updateTransaction(
     normalised.to_legal_entity_id = null;
   }
 
-  const { error } = await supabase
+  // `.select` — чтобы отличить «сохранено» от «ничего не изменилось»: если
+  // политика transactions_update не пропустила строку (чужая операция без
+  // finance.update_any_transaction), PostgREST отвечает без ошибки и без строк.
+  const { data, error } = await supabase
     .from("transactions")
     .update({
       ...normalised,
       updated_at: new Date().toISOString(),
       updated_by: user.id,
     })
-    .eq("id", id);
+    .eq("id", id)
+    .is("deleted_at", null)
+    .select("id");
 
   if (error) return { error: error.message };
+  if (!data || data.length === 0)
+    return { error: "Операцию не удалось сохранить: нет прав на её изменение или она удалена" };
 
   revalidatePath("/finance/transactions");
-  revalidatePath(`/finance/transactions/${id}`);
   revalidatePath("/finance/accounts");
   revalidatePath("/finance");
   return { error: null };
+}
+
+/** Что можно поменять сразу у нескольких операций. */
+export type BulkTransactionPatch =
+  | { field: "category_id"; value: string | null }
+  | { field: "counterparty_id"; value: string | null }
+  | { field: "venue_id"; value: string | null };
+
+/**
+ * Массовая правка: статья, контрагент или заведение у выбранных операций —
+ * SQL-функцией `finance_bulk_update_transactions` (миграция 372). Права —
+ * та же политика transactions_update; переводы, операции другого типа и
+ * связанные с зарплатой пропускаются; в журнал — одна запись на команду.
+ */
+export async function bulkUpdateTransactions(
+  ids: string[],
+  patch: BulkTransactionPatch,
+): Promise<{ updated: number; skipped: number; error: string | null }> {
+  const unique = [...new Set(ids)];
+  const supabase = await createClient();
+  const { data, error } = await asLooseDb(supabase).rpc("finance_bulk_update_transactions", {
+    p_ids: unique,
+    p_field: patch.field,
+    p_value: patch.value,
+  });
+  if (error) return { updated: 0, skipped: unique.length, error: humanizeBulkError(error.message) };
+  const result = (data ?? {}) as { updated?: number; skipped?: number };
+  const updated = Number(result.updated ?? 0);
+  if (updated > 0) {
+    revalidatePath("/finance/transactions");
+    revalidatePath("/finance");
+  }
+  return {
+    updated,
+    skipped: Number(result.skipped ?? unique.length - updated),
+    error:
+      updated === 0
+        ? "Ни одну операцию изменить не удалось: нет прав, операции другого типа или связаны с зарплатой"
+        : null,
+  };
+}
+
+function humanizeBulkError(message: string): string {
+  // Тексты функции уже для человека; технические — общим сообщением.
+  if (/[а-яё]/i.test(message) && !/violates|permission denied/i.test(message)) return message;
+  return "Не удалось изменить операции. Повторите позже";
 }
 
 /**
@@ -289,7 +257,7 @@ export async function softDeleteTransaction(
   const { error } = await supabase.rpc("finance_soft_delete_transaction", {
     p_id: id,
   });
-  if (error) return { error: error.message };
+  if (error) return { error: humanizeDeleteError(error.message, "delete") };
   revalidatePath("/finance/transactions");
   revalidatePath("/finance/accounts");
   revalidatePath("/finance");
@@ -303,9 +271,29 @@ export async function restoreTransaction(
   const { error } = await supabase.rpc("finance_restore_transaction", {
     p_id: id,
   });
-  if (error) return { error: error.message };
+  if (error) return { error: humanizeDeleteError(error.message, "restore") };
   revalidatePath("/finance/transactions");
   revalidatePath("/finance/accounts");
   revalidatePath("/finance");
   return { error: null };
+}
+
+/**
+ * Тексты ошибок функций удаления и восстановления (миграция 105) начинаются
+ * с имени функции и id — для экрана они технические. Ошибки связанных
+ * операций (выплаты зарплаты, покупки формы) уже написаны для человека и
+ * проходят как есть.
+ */
+function humanizeDeleteError(message: string, action: "delete" | "restore"): string {
+  if (/нет права/.test(message))
+    return action === "delete"
+      ? "Нет прав на удаление операций"
+      : "Нет прав на восстановление операций";
+  if (/не найдена/.test(message))
+    return action === "delete"
+      ? "Операция уже удалена или недоступна"
+      : "Операция уже восстановлена или недоступна";
+  if (/не авторизован|нет активного account/.test(message))
+    return "Сессия устарела. Обновите страницу";
+  return message.replace(/^finance_[a-z_]+:\s*/, "");
 }

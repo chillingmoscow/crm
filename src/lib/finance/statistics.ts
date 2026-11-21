@@ -1,176 +1,195 @@
-"use server";
+import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
-import type { TransactionRow } from "@/types/finance";
+import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import type { LooseQuery } from "@/lib/supabase/loose";
+import type { BankAccountRow, TransactionRow } from "@/types/finance";
 
-// ─── Inputs ─────────────────────────────────────────────────────────────────
+import {
+  aggregateFlow,
+  type FlowBreakdown,
+  type FlowRow,
+  type FlowSummary,
+} from "./dashboard-flow";
+import {
+  calendarDateInZone,
+  dayEndExclusiveInZone,
+  dayStartInZone,
+} from "@/lib/format/zoned-day";
+import { getActiveAccountTimezone } from "@/lib/settings/account";
+
+/**
+ * Чтение для финансового дашборда. Только сервер: это не server actions
+ * (раньше файл был `"use server"`, и каждая функция открывалась наружу как
+ * action), а запросы для RSC. RLS по-прежнему решает, какие строки видны.
+ */
 
 export type StatisticsRange = {
-  /** ISO date (inclusive) — applied to transactions.date. */
-  date_from?: string;
-  /** ISO date (inclusive). */
-  date_to?: string;
-  /** Restrict to a single legal entity. */
-  legal_entity_id?: string;
-  /** Restrict to a single venue. */
-  venue_id?: string;
+  /** Первый день периода `YYYY-MM-DD`, включительно. */
+  date_from: string;
+  /** Последний день периода `YYYY-MM-DD`, включительно. */
+  date_to: string;
+  /** Одно юрлицо (выбор юрлица в финансах). */
+  legal_entity_id?: string | null;
+  /** Одно заведение. */
+  venue_id?: string | null;
 };
 
-// ─── 1. Balance per legal entity ─────────────────────────────────────────────
-
-export type BalanceByLegalEntityRow = {
-  legal_entity_id: string;
-  /** Sum of bank_accounts.balance scoped to one legal entity. */
-  balance: number;
-};
+type Filterable<T> = LooseQuery<T>;
 
 /**
- * Aggregate sum(bank_accounts.balance) grouped by legal_entity_id, for
- * non-deleted accounts in the active account. Used on the finance
- * dashboard left rail.
+ * Границы периода — дни в поясе аккаунта (`accounts.timezone`), как в
+ * «Транзакциях» (`finance_transactions_page`): иначе итоги дашборда и списка
+ * за тот же период расходились бы на ночных выплатах.
  */
-export async function getBalanceByLegalEntity(): Promise<{
-  rows: BalanceByLegalEntityRow[];
-  error: string | null;
-}> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("bank_accounts")
-    .select("legal_entity_id, balance")
-    .eq("excluded_from_balance", false)
-    .is("deleted_at", null);
-  if (error) return { rows: [], error: error.message };
+type ZonedRange = StatisticsRange & { timeZone: string };
 
-  const sums = new Map<string, number>();
-  for (const row of (data ?? []) as { legal_entity_id: string; balance: number }[]) {
-    sums.set(row.legal_entity_id, (sums.get(row.legal_entity_id) ?? 0) + Number(row.balance));
-  }
-  const rows: BalanceByLegalEntityRow[] = [];
-  for (const [legal_entity_id, balance] of sums) {
-    rows.push({ legal_entity_id, balance });
-  }
-  return { rows, error: null };
+async function zoned(range: StatisticsRange): Promise<ZonedRange> {
+  return { ...range, timeZone: await getActiveAccountTimezone() };
 }
 
-// ─── 2. Income / expense / net for a period ──────────────────────────────────
+function applyRange<T>(query: Filterable<T>, range: ZonedRange): Filterable<T> {
+  // `transactions.date` — timestamptz. Граница «по» включительно — это
+  // «раньше начала следующего дня»: `lte('2026-11-30')` сравнивал бы с
+  // полуночью 30-го и терял операции этого дня с временем.
+  let q = query
+    .gte("date", dayStartInZone(range.date_from, range.timeZone))
+    .lt("date", dayEndExclusiveInZone(range.date_to, range.timeZone));
+  if (range.legal_entity_id) q = q.eq("legal_entity_id", range.legal_entity_id);
+  if (range.venue_id) q = q.eq("venue_id", range.venue_id);
+  return q;
+}
 
-export type IncomeExpenseSummary = {
-  income:  number;
-  expense: number;
-  /** income - expense */
-  net:     number;
-  /** Number of non-deleted transactions in the period. */
-  count:   number;
-};
+// ─── Остатки на счетах ──────────────────────────────────────────────────────
+
+export type BalanceAccount = Pick<
+  BankAccountRow,
+  "id" | "name" | "type" | "legal_entity_id" | "balance" | "currency"
+>;
 
 /**
- * Sum income vs expense over the requested range. Transfers don't count
- * — they don't affect P&L. Soft-deleted rows are excluded.
+ * Счета, которые входят в общий остаток: не удалены и не исключены из
+ * баланса. Сумма их `balance` — показатель «На счетах».
  */
-export async function getIncomeExpenseSummary(
-  range: StatisticsRange = {}
-): Promise<{ summary: IncomeExpenseSummary; error: string | null }> {
+export async function listBalanceAccounts(
+  opts: { legal_entity_id?: string | null } = {},
+): Promise<{ rows: BalanceAccount[]; error: string | null }> {
   const supabase = await createClient();
   let query = supabase
-    .from("transactions")
-    .select("type, amount")
-    .is("deleted_at", null)
-    .neq("type", "transfer");
-
-  if (range.date_from)       query = query.gte("date", range.date_from);
-  if (range.date_to)         query = query.lte("date", range.date_to);
-  if (range.legal_entity_id) query = query.eq("legal_entity_id", range.legal_entity_id);
-  if (range.venue_id)        query = query.eq("venue_id", range.venue_id);
-
-  const { data, error } = await query;
-  if (error) {
-    return {
-      summary: { income: 0, expense: 0, net: 0, count: 0 },
-      error: error.message,
-    };
-  }
-  let income = 0;
-  let expense = 0;
-  for (const row of (data ?? []) as { type: TransactionRow["type"]; amount: number }[]) {
-    if (row.type === "income")  income  += Number(row.amount);
-    if (row.type === "expense") expense += Number(row.amount);
-  }
+    .from("bank_accounts")
+    .select("id, name, type, legal_entity_id, balance, currency")
+    .eq("excluded_from_balance", false)
+    .is("deleted_at", null);
+  if (opts.legal_entity_id) query = query.eq("legal_entity_id", opts.legal_entity_id);
+  const { data, error } = await query.order("balance", { ascending: false });
+  if (error) return { rows: [], error: error.message };
   return {
-    summary: {
-      income,
-      expense,
-      net: income - expense,
-      count: (data ?? []).length,
-    },
+    rows: ((data ?? []) as BalanceAccount[]).map((r) => ({ ...r, balance: Number(r.balance) })),
     error: null,
   };
 }
 
-// ─── 3. Top N expense categories ─────────────────────────────────────────────
+// ─── Поток за период ────────────────────────────────────────────────────────
 
-export type TopExpenseCategoryRow = {
-  category_id: string | null;
-  amount: number;
-  count: number;
-};
+type DatedFlowRow = FlowRow & { date: string };
 
-/**
- * Sum expense transactions per category over the range. NULL category
- * (uncategorised) is reported as a single bucket with category_id=null.
- * Sorted by amount desc, top `limit` returned.
- */
-export async function getTopExpenseCategories(
-  range: StatisticsRange = {},
-  limit = 5
-): Promise<{ rows: TopExpenseCategoryRow[]; error: string | null }> {
+/** Операции периода без переводов — все страницы, а не первая тысяча. */
+async function fetchFlowRows<T>(range: ZonedRange, columns: string): Promise<T[]> {
   const supabase = await createClient();
-  let query = supabase
-    .from("transactions")
-    .select("category_id, amount")
-    .is("deleted_at", null)
-    .eq("type", "expense");
-
-  if (range.date_from)       query = query.gte("date", range.date_from);
-  if (range.date_to)         query = query.lte("date", range.date_to);
-  if (range.legal_entity_id) query = query.eq("legal_entity_id", range.legal_entity_id);
-  if (range.venue_id)        query = query.eq("venue_id", range.venue_id);
-
-  const { data, error } = await query;
-  if (error) return { rows: [], error: error.message };
-
-  const buckets = new Map<string | null, { amount: number; count: number }>();
-  for (const row of (data ?? []) as { category_id: string | null; amount: number }[]) {
-    const key = row.category_id;
-    const cur = buckets.get(key) ?? { amount: 0, count: 0 };
-    cur.amount += Number(row.amount);
-    cur.count  += 1;
-    buckets.set(key, cur);
-  }
-  const all: TopExpenseCategoryRow[] = [];
-  for (const [category_id, agg] of buckets) {
-    all.push({ category_id, amount: agg.amount, count: agg.count });
-  }
-  all.sort((a, b) => b.amount - a.amount);
-  return { rows: all.slice(0, Math.max(1, limit)), error: null };
+  return fetchAllRows<T>(() =>
+    applyRange(
+      supabase
+        .from("transactions")
+        .select(columns)
+        .is("deleted_at", null)
+        .neq("type", "transfer") as unknown as Filterable<T[]>,
+      range,
+    ),
+  );
 }
 
-// ─── 4. Recent transactions ──────────────────────────────────────────────────
-
 /**
- * Last N non-deleted transactions in the active account, ordered by
- * date desc. Used for the dashboard activity widget.
+ * Доходы, расходы и расходы по статьям за период. Читает все операции
+ * периода постранично: PostgREST отдаёт не больше 1000 строк и молча
+ * обрезает остальное — за год сумма «Расходов» была бы неполной.
+ *
+ * `cutoff` — последний прошедший день идущего периода: `elapsed` тогда
+ * считает итоги только по него, чтобы сравнивать с прошлым периодом по
+ * одинаковому числу дней. Операции, заведённые вперёд датой после
+ * сегодняшней, в сравнение не попадают.
  */
+export async function getPeriodFlow(
+  range: StatisticsRange,
+  topN = 5,
+  cutoff: string | null = null,
+): Promise<{ flow: FlowBreakdown | null; elapsed: FlowSummary | null; error: string | null }> {
+  try {
+    const zonedRange = await zoned(range);
+    const rows = await fetchFlowRows<DatedFlowRow>(zonedRange, "type, amount, category_id, date");
+    const flow = aggregateFlow(rows, topN);
+    // Календарный день операции — в поясе аккаунта (у выплат дата с часами).
+    const elapsed = cutoff
+      ? aggregateFlow(
+          rows.filter((r) => calendarDateInZone(r.date, zonedRange.timeZone) <= cutoff),
+          0,
+        ).summary
+      : flow.summary;
+    return { flow, elapsed, error: null };
+  } catch (e) {
+    return { flow: null, elapsed: null, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Только итоги периода — для сравнения с прошлым периодом и годом назад. */
+export async function getPeriodTotals(
+  range: StatisticsRange,
+): Promise<{ summary: FlowSummary | null; error: string | null }> {
+  try {
+    const rows = await fetchFlowRows<Omit<FlowRow, "category_id">>(await zoned(range), "type, amount");
+    return {
+      summary: aggregateFlow(rows.map((r) => ({ ...r, category_id: null })), 0).summary,
+      error: null,
+    };
+  } catch (e) {
+    return { summary: null, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// ─── Последние операции ─────────────────────────────────────────────────────
+
+export type RecentTransaction = Pick<
+  TransactionRow,
+  | "id"
+  | "type"
+  | "amount"
+  | "date"
+  | "description"
+  | "bank_account_id"
+  | "to_bank_account_id"
+  | "category_id"
+  | "counterparty_id"
+>;
+
+/** Последние операции периода — сначала новые. */
 export async function getRecentTransactions(
-  limit = 10
-): Promise<{ rows: TransactionRow[]; error: string | null }> {
+  range: StatisticsRange,
+  limit = 8,
+): Promise<{ rows: RecentTransaction[]; error: string | null }> {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("transactions")
-    .select("*")
-    .is("deleted_at", null)
+  const zonedRange = await zoned(range);
+  const query = applyRange(
+    supabase
+      .from("transactions")
+      .select(
+        "id, type, amount, date, description, bank_account_id, to_bank_account_id, category_id, counterparty_id",
+      )
+      .is("deleted_at", null) as unknown as Filterable<RecentTransaction[]>,
+    zonedRange,
+  );
+  const { data, error } = await query
     .order("date", { ascending: false })
     .order("public_id", { ascending: false })
-    .limit(Math.max(1, Math.min(100, limit)));
+    .limit(Math.max(1, Math.min(50, limit)));
   if (error) return { rows: [], error: error.message };
-  return { rows: (data ?? []) as TransactionRow[], error: null };
+  return { rows: (data ?? []) as RecentTransaction[], error: null };
 }

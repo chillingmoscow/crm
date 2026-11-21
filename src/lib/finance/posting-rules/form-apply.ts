@@ -68,3 +68,27 @@ export function markUserChoice(
     ruleIds,
   };
 }
+
+/** Форма открылась заново (новая операция, копия, правка): непустые поля —
+ *  выбор человека, заведение из фильтра страницы — подсказка. Описание —
+ *  исходное, иначе условия на описание не видели бы текст копии до правки. */
+export function resetFormRuleState(
+  values: FormRuleState["values"],
+  filterVenueId: string | null,
+  description: string,
+): { state: FormRuleState; description: string } {
+  const source = (value: string | null): FieldSource => (value ? "user" : "empty");
+  return {
+    state: {
+      values,
+      sources: {
+        category_id: source(values.category_id),
+        counterparty_id: source(values.counterparty_id),
+        venue_id: filterVenueId && values.venue_id === filterVenueId ? "filter" : source(values.venue_id),
+      },
+      ruleIds: {},
+      filterVenueId,
+    },
+    description,
+  };
+}

@@ -9,7 +9,7 @@ import {
   applyRulesToForm,
   fillableFrom,
   markUserChoice,
-  type FieldSource,
+  resetFormRuleState,
   type FormRuleState,
 } from "@/lib/finance/posting-rules/form-apply";
 import type { PostingRule, PostingRuleActionField } from "@/lib/finance/posting-rules/types";
@@ -114,19 +114,14 @@ export function usePostingRuleAutofill({
   ]);
 
   /** Форма открылась заново: непустые поля — выбор человека, заведение из фильтра — подсказка. */
-  const reset = useCallback((values: Values, filterVenueId: string | null) => {
-    const source = (value: string | null): FieldSource => (value ? "user" : "empty");
-    setDescription("");
-    setMeta({
-      sources: {
-        category_id: source(values.category_id),
-        counterparty_id: source(values.counterparty_id),
-        venue_id: filterVenueId && values.venue_id === filterVenueId ? "filter" : source(values.venue_id),
-      },
-      ruleIds: {},
-      filterVenueId,
-    });
-  }, []);
+  const reset = useCallback(
+    (values: Values, filterVenueId: string | null, initialDescription: string) => {
+      const next = resetFormRuleState(values, filterVenueId, initialDescription);
+      setDescription(next.description);
+      setMeta({ sources: next.state.sources, ruleIds: {}, filterVenueId });
+    },
+    [],
+  );
 
   /** Человек сам выбрал значение (в том числе «Без …») — правила его больше не трогают. */
   const userPick = useCallback((field: PostingRuleActionField, value: string | null) => {

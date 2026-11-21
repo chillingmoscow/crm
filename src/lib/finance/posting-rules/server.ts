@@ -6,6 +6,7 @@ import { writeAuditEvent } from "@/lib/audit/write";
 import { listBankAccounts } from "@/lib/finance/bank-accounts";
 import { listFinanceCategories } from "@/lib/finance/categories";
 import { listCounterparties, listCounterpartyGroups } from "@/lib/finance/counterparties";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { chunk } from "@/lib/supabase/fetch-all";
 import { asLooseDb } from "@/lib/supabase/loose";
 import {
@@ -69,6 +70,29 @@ export async function listPostingRules(): Promise<PostingRule[]> {
     .order("position", { ascending: true });
   if (error) throw new Error(error.message);
   return (data ?? []).map(toRule);
+}
+
+/** Заведения из действий правил, которые уже в архиве. Не владельцу RLS
+ *  архивные заведения не отдаёт, и правило с таким заведением выглядело бы
+ *  рабочим; поэтому статус читаем служебным клиентом — только флаг архива и
+ *  только заведений активного аккаунта. */
+export async function listArchivedRuleVenueIds(rules: PostingRule[]): Promise<string[]> {
+  const accountId = await getCachedActiveAccountId();
+  const ids = [...new Set(rules.map((r) => r.actions.venue_id).filter((id): id is string => Boolean(id)))];
+  if (!accountId || ids.length === 0) return [];
+  const admin = createAdminClient();
+  const archived: string[] = [];
+  for (const part of chunk(ids, 200)) {
+    const { data, error } = await asLooseDb(admin)
+      .from<Array<{ id: string }>>("venues")
+      .select("id")
+      .eq("account_id", accountId)
+      .in("id", part)
+      .not("archived_at", "is", null);
+    if (error) throw new Error(error.message);
+    archived.push(...(data ?? []).map((v) => v.id));
+  }
+  return archived;
 }
 
 /** Справочники для фразы и пометки «Требует внимания» на странице правил.

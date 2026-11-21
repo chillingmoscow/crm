@@ -98,6 +98,8 @@ type Props = {
   timeZone: string;
   /** Правила разнесения: подставляют пустые статью, контрагента и заведение. */
   postingRules?: PostingRule[];
+  /** Архивные заведения из действий правил: такие правила не срабатывают. */
+  postingRuleArchivedIds?: string[];
 };
 
 type FormState = {
@@ -115,6 +117,7 @@ type FormState = {
 type FieldErrors = Partial<Record<"amount" | "account" | "toAccount" | "date", string>>;
 
 const NO_RULES: PostingRule[] = [];
+const NO_IDS: string[] = [];
 
 const TYPE_ICON = { income: Plus, expense: Minus, transfer: ArrowLeftRight } as const;
 
@@ -147,6 +150,7 @@ export function TransactionFormSheet({
   dadataEnabled,
   timeZone,
   postingRules = NO_RULES,
+  postingRuleArchivedIds = NO_IDS,
 }: Props) {
   const router = useRouter();
   const open = mode.kind !== "closed";
@@ -216,8 +220,9 @@ export function TransactionFormSheet({
       bankAccounts: allBankAccounts.map((a) => ({ id: a.id, name: a.name, deleted_at: a.deleted_at })),
       categories: categories.map((c) => ({ id: c.id, name: c.name, type: c.type, archived_at: c.archived_at })),
       venues: allVenues.map((v) => ({ id: v.id, name: v.name })),
+      archivedIds: postingRuleArchivedIds,
     }),
-    [allBankAccounts, allVenues, categories, counterparties],
+    [allBankAccounts, allVenues, categories, counterparties, postingRuleArchivedIds],
   );
   const ruleVenueIds = useMemo(() => venues.map((v) => v.id), [venues]);
   // При правке правила включаются после первой правки человека: открыть и
@@ -252,6 +257,7 @@ export function TransactionFormSheet({
     autofill.reset(
       initial,
       mode.kind === "create" && !mode.copyOf ? (preferredVenueId ?? null) : null,
+      initial.description,
     );
     setPendingFiles([]);
     setErrors({});

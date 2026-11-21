@@ -49,3 +49,9 @@ test("названия: недоступное заведение и неизв�
   assert.equal(names.lookup("counterparty_group", "g-1"), "Поставщики");
   assert.equal(buildRuleNames(dirs, null).lookup("venue", "v-2"), "Второе");
 });
+
+test("архивные id, которых нет в справочниках пользователя, тоже неактивные", () => {
+  const ctx = buildRuleContext({ ...dirs, archivedIds: ["v-hidden-archived"] }, ["v-1"]);
+  assert.equal(ctx.inactiveIds.has("v-hidden-archived"), true);
+  assert.equal(buildRuleNames({ ...dirs, archivedIds: ["v-hidden-archived"] }, null).lookup("venue", "v-hidden-archived"), null);
+});

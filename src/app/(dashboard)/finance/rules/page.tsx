@@ -2,7 +2,11 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { createClient, getCachedPermissionChecker } from "@/lib/supabase/server";
-import { listPostingRules, loadPostingRuleDirectories } from "@/lib/finance/posting-rules/server";
+import {
+  listArchivedRuleVenueIds,
+  listPostingRules,
+  loadPostingRuleDirectories,
+} from "@/lib/finance/posting-rules/server";
 import { RulesPage } from "./_components/rules-page";
 
 export const metadata: Metadata = { title: "Правила" };
@@ -25,6 +29,7 @@ export default async function FinanceRulesPage({
     loadPostingRuleDirectories(),
     viewAllVenues ? Promise.resolve({ data: null }) : supabase.rpc("get_active_venue_id"),
   ]);
+  const archivedIds = await listArchivedRuleVenueIds(rules);
   const activeVenueId = (activeVenue.data as string | null) ?? null;
   const allowedVenueIds = viewAllVenues ? null : activeVenueId ? [activeVenueId] : [];
 
@@ -33,7 +38,7 @@ export default async function FinanceRulesPage({
   return (
     <RulesPage
       rules={rules}
-      directories={directories}
+      directories={{ ...directories, archivedIds }}
       allowedVenueIds={allowedVenueIds}
       canManage={canManage}
       initialRuleId={ruleParam}

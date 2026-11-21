@@ -171,6 +171,8 @@ type Props = {
   activeVenueId: string | null;
   /** Правила разнесения — для подстановки в форме операции. */
   postingRules: PostingRule[];
+  /** Архивные заведения из действий правил: такие правила не срабатывают. */
+  postingRuleArchivedIds: string[];
   permissions: TransactionPermissions;
   currentUserId: string | null;
   amountRoundingScale: AmountRoundingScale;
@@ -196,6 +198,7 @@ export function TransactionsPage({
   venues,
   activeVenueId,
   postingRules,
+  postingRuleArchivedIds,
   permissions,
   currentUserId,
   amountRoundingScale,
@@ -1424,6 +1427,7 @@ export function TransactionsPage({
         currentUserId={currentUserId}
         amountRoundingScale={amountRoundingScale}
         postingRules={postingRules}
+        postingRuleArchivedIds={postingRuleArchivedIds}
         dadataEnabled={dadataEnabled}
         timeZone={timeZone}
       />

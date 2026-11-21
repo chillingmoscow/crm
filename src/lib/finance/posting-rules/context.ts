@@ -16,6 +16,9 @@ export type RuleDirectories = {
   bankAccounts: Named[];
   categories: Array<Named & { type: "income" | "expense" | "mixed" }>;
   venues: Named[];
+  /** Архивные записи, на которые ссылаются правила, но которых нет в списках
+   *  выше (например, архивное заведение, скрытое от пользователя RLS). */
+  archivedIds?: string[];
 };
 
 const isArchived = (item: Named) => Boolean(item.archived_at || item.deleted_at);
@@ -31,6 +34,7 @@ export function buildRuleContext(
   for (const list of [dirs.counterparties, dirs.bankAccounts, dirs.categories, dirs.venues]) {
     for (const item of list) if (isArchived(item)) inactiveIds.add(item.id);
   }
+  for (const id of dirs.archivedIds ?? []) inactiveIds.add(id);
   return {
     counterparties: new Map(
       dirs.counterparties.map((c) => [c.id, { inn: c.inn, group_id: c.group_id }]),

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { isDadataConfigured } from "@/lib/dadata/client";
-import { listPostingRules } from "@/lib/finance/posting-rules/server";
+import { listArchivedRuleVenueIds, listPostingRules } from "@/lib/finance/posting-rules/server";
 
 import {
   getCachedPermissionChecker,
@@ -132,6 +132,10 @@ export default async function TransactionsServerPage({
     listPostingRules().catch(() => []),
   ]);
 
+  // Правило с архивным заведением не срабатывает целиком, как и на
+  // странице «Правила»; без этого форма подставила бы его статью.
+  const postingRuleArchivedIds = await listArchivedRuleVenueIds(postingRules).catch(() => []);
+
   // ?page=999 или страница, опустевшая после удаления, — показываем
   // последнюю существующую, а не пустую таблицу с «Операций пока нет».
   const totalPages = Math.max(1, Math.ceil(firstResult.total / query.pageSize));
@@ -175,6 +179,7 @@ export default async function TransactionsServerPage({
       dadataEnabled={isDadataConfigured()}
       timeZone={timeZone}
       postingRules={postingRules}
+      postingRuleArchivedIds={postingRuleArchivedIds}
     />
   );
 }

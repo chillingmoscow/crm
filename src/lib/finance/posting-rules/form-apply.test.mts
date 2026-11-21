@@ -108,3 +108,17 @@ test("пустое поле без подходящего правила ост�
   const before = state();
   assert.deepEqual(applyRulesToForm(before, {}), before);
 });
+
+test("форма открылась заново: описание — исходное, заполненное — выбор человека, фильтр — подсказка", async () => {
+  const { resetFormRuleState } = await import("./form-apply.ts");
+  const copy = resetFormRuleState(
+    { category_id: "cat-a", counterparty_id: null, venue_id: "v-filter" },
+    "v-filter",
+    "Комиссия СБП",
+  );
+  assert.equal(copy.description, "Комиссия СБП");
+  assert.deepEqual(copy.state.sources, { category_id: "user", counterparty_id: "empty", venue_id: "filter" });
+  assert.equal(copy.state.filterVenueId, "v-filter");
+  const edit = resetFormRuleState({ category_id: null, counterparty_id: null, venue_id: "v-1" }, null, "");
+  assert.equal(edit.state.sources.venue_id, "user");
+});

@@ -18,12 +18,10 @@ import { ProfileHeader } from "@/components/shared/profile-header";
 import { SaveBarScope } from "@/components/shared/save-bar";
 import type { AuditEvent } from "@/lib/audit/list";
 import { venueTypeLabel } from "@/lib/org/venue-labels";
-import type { SalesConfiguration } from "@/lib/sales/types";
 import type { WorkingHours } from "@/types/database";
 import { PayrollSettings } from "@/app/(dashboard)/people/payroll/_components/payroll-settings";
 import { restoreVenue, type VenueArchiveImpact } from "../../actions";
 import { RecountThresholdsSection } from "./recount-thresholds-section";
-import { SalesSettingsTab } from "./sales-settings-tab";
 import { StockSettingsTab } from "./stock-settings-tab";
 import { VenueDangerZone } from "./venue-danger-zone";
 import { VenueMainSections } from "./venue-main-sections";
@@ -46,7 +44,7 @@ export type VenueDetail = {
 };
 
 /** Вкладки, на которые можно сослаться через `?tab=`. */
-export type VenueTab = "main" | "sales" | "payroll" | "inventory" | "audit";
+export type VenueTab = "main" | "payroll" | "inventory" | "audit";
 type TabKey = VenueTab | "danger";
 
 export function VenueDetailPage({
@@ -60,7 +58,6 @@ export function VenueDetailPage({
   canViewAudit,
   canViewStockRules,
   canConfigurePayroll,
-  salesConfiguration,
   archiveImpact,
   initialAuditEvents,
   initialAuditHasMore,
@@ -78,7 +75,6 @@ export function VenueDetailPage({
   canViewStockRules: boolean;
   /** «Оплата труда» — по праву настройки зарплаты, а не продаж. */
   canConfigurePayroll: boolean;
-  salesConfiguration: SalesConfiguration | null;
   archiveImpact: VenueArchiveImpact;
   initialAuditEvents: AuditEvent[];
   initialAuditHasMore: boolean;
@@ -87,7 +83,6 @@ export function VenueDetailPage({
   const isArchived = !!venue.archived_at;
   const available: Record<TabKey, boolean> = {
     main: true,
-    sales: !!salesConfiguration && !isArchived,
     payroll: canConfigurePayroll && !isArchived,
     inventory: canViewStockRules && !isArchived,
     audit: canViewAudit,
@@ -189,7 +184,6 @@ export function VenueDetailPage({
           <Tabs value={tab} onValueChange={(v) => openTab(v as TabKey)}>
             <ProfileTabsList>
               <TabsTrigger value="main">Основное</TabsTrigger>
-              {available.sales && <TabsTrigger value="sales">Продажи</TabsTrigger>}
               {available.payroll && <TabsTrigger value="payroll">Оплата труда</TabsTrigger>}
               {available.inventory && <TabsTrigger value="inventory">Инвентаризация</TabsTrigger>}
               {available.audit && <TabsTrigger value="audit">Журнал</TabsTrigger>}
@@ -225,12 +219,6 @@ export function VenueDetailPage({
                 lockMessage={lockMessage}
               />
             </TabsContent>
-
-            {available.sales && salesConfiguration && (
-              <TabsContent value="sales">
-                <SalesSettingsTab initial={salesConfiguration} />
-              </TabsContent>
-            )}
 
             {available.payroll && kept("payroll") && (
               <TabsContent

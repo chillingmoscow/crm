@@ -11,7 +11,7 @@ import { getConnection } from "@/lib/sales/quickresto";
 import { enqueueDay } from "@/lib/sales/sync";
 import { businessDate, validDate, addDays } from "@/lib/sales/time";
 import { z } from "zod";
-import { salesSettingsColumns } from "@/lib/sales/types";
+import { metricKeys, salesSettingsColumns } from "@/lib/sales/types";
 import type {
   SalesData,
   SalesDay,
@@ -137,7 +137,19 @@ export async function recalculateSalesHistory(input: {
     await enqueueDay(s.accountId, s.venueId, addDays(input.from, i), s.user.id);
   return length;
 }
-export async function loadSales(): Promise<SalesData> {
+/**
+ * Смены активного заведения. С `month` («2026-11») — только дни этого месяца:
+ * экран «Смен» показывает один месяц и обновляет его каждую минуту, читать
+ * всю историю на каждом обновлении незачем. Без `month` — вся история
+ * (статистика по месяцам).
+ */
+export async function loadSales(
+  requested?: string | "current",
+): Promise<SalesData> {
+  if (requested !== undefined && requested !== "current")
+    z.string()
+      .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
+      .parse(requested);
   const s = await scope();
   const [venue, settings, connection] = await Promise.all([
     s.db
@@ -154,12 +166,36 @@ export async function loadSales(): Promise<SalesData> {
   ]);
   if (venue.error || settings.error)
     throw new Error(venue.error?.message ?? settings.error?.message);
+  const timezone =
+    settings.data?.timezone ?? venue.data?.timezone ?? "Europe/Moscow";
+  // «current» — месяц текущего рабочего дня в поясе заведения.
+  const month =
+    requested === "current"
+      ? businessDate(
+          new Date(),
+          timezone,
+          settings.data?.day_start_hour ?? 9,
+        ).slice(0, 7)
+      : requested;
   const days: SalesDay[] = [];
+  const bounds = month
+    ? {
+        from: `${month}-01`,
+        to: new Date(
+          Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0),
+        )
+          .toISOString()
+          .slice(0, 10),
+      }
+    : null;
   for (let start = 0; ; start += 1000) {
-    const r = await s.db
+    let q = s.db
       .from<SalesDay[]>("sales_days")
       .select("*")
-      .eq("venue_id", s.venueId)
+      .eq("venue_id", s.venueId);
+    if (bounds)
+      q = q.gte("business_date", bounds.from).lte("business_date", bounds.to);
+    const r = await q
       .order("business_date", { ascending: false })
       .range(start, start + 999);
     if (r.error) throw new Error(r.error.message);
@@ -182,8 +218,21 @@ export async function loadSales(): Promise<SalesData> {
     .order("created_at", { ascending: false })
     .limit(100);
   if (jobs.error) throw new Error(jobs.error.message);
+  // Есть ли смены вообще — чтобы пустой месяц не выглядел как «смен пока нет».
+  let hasDays = days.length > 0;
+  if (!hasDays && bounds) {
+    const any = await s.db
+      .from<{ id: string }[]>("sales_days")
+      .select("id")
+      .eq("venue_id", s.venueId)
+      .limit(1);
+    if (any.error) throw new Error(any.error.message);
+    hasDays = (any.data?.length ?? 0) > 0;
+  }
   return {
     days,
+    hasDays,
+    month,
     venueId: s.venueId,
     venueName: venue.data?.name ?? "",
     timezone:
@@ -208,7 +257,18 @@ export async function adjustSales(input: {
     version: z.number().int().positive(),
     reason: z.string().trim().min(3).max(1000),
     note: z.string().max(5000),
+    // null — вернуть исходное значение. NaN и Infinity при передаче
+    // превращаются в null и молча сбросили бы исправление: отклоняем их.
+    changes: z.record(
+      z.enum(metricKeys),
+      z.number().finite().gt(-1e12).lt(1e12).nullable(),
+    ),
   }).parse(input);
+  if (
+    typeof input.changes.checks === "number" &&
+    (!Number.isInteger(input.changes.checks) || input.changes.checks < 0)
+  )
+    throw new Error("Количество чеков: целое неотрицательное число");
   const r = await s.db.rpc("sales_adjust", {
     p_day_id: input.id,
     p_version: input.version,
@@ -327,6 +387,8 @@ export async function saveSalesSettings(
     .select(Object.keys(values).join(","))
     .eq("venue_id", s.venueId)
     .maybeSingle();
+  // Без прежних значений журнал записал бы правку как новую настройку.
+  if (before.error) throw new Error("Не удалось прочитать текущие настройки. Повторите попытку");
   const r = await admin.from("sales_settings").upsert({
     ...values,
     account_id: s.accountId,

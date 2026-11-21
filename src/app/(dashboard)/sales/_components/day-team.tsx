@@ -1,8 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { ChevronDown, HandCoins, Wallet } from "lucide-react";
 import { EmployeeIdentity } from "@/components/shared/employee-identity";
+import { Money } from "@/components/shared/money";
 import { Button } from "@/components/ui/button";
+import { DrawerSummary, DrawerSummaryItem } from "@/components/ui/drawer-blocks";
 import {
   departmentMember,
   memberTotal,
@@ -10,10 +13,8 @@ import {
   type DayMember,
 } from "@/lib/sales/day-context";
 import type { AdditionalKind } from "@/lib/sales/additional";
-import { money } from "@/lib/sales/format";
 import { loadDayTeam } from "../day-actions";
 
-const amount = (v: number | null) => (v === null ? "—" : `${money(v)} ₽`);
 export function DayTeamList({
   members,
   source,
@@ -25,118 +26,148 @@ export function DayTeamList({
   showExtras?: boolean;
   date?: string;
 }) {
+  const [open, setOpen] = useState<string | null>(null);
   return (
     <div className="space-y-4">
       {!!members.length && (
-        <dl className="grid grid-cols-2 gap-4 rounded-xl bg-muted/40 p-4">
-          {(
-            [
-              ["salary", "Начислено"],
-              [
-                showExtras ? "extras" : "tips",
-                showExtras ? "Доля допродаж" : "Чаевые",
-              ],
-            ] as const
-          ).map(([key, label]) => (
-            <div key={key}>
-              <dt className="text-xs text-muted-foreground">{label}</dt>
-              <dd className="mt-2 text-lg font-semibold tabular-nums">
-                {amount(memberTotal(members, key))}
-              </dd>
-            </div>
-          ))}
-        </dl>
+        <DrawerSummary label="Итоги команды за день">
+          <DrawerSummaryItem icon={<Wallet />} label="Начислено">
+            <Money value={memberTotal(members, "salary")} />
+          </DrawerSummaryItem>
+          <DrawerSummaryItem
+            icon={<HandCoins />}
+            label={showExtras ? "Доля допродаж" : "Чаевые"}
+          >
+            <Money value={memberTotal(members, showExtras ? "extras" : "tips")} />
+          </DrawerSummaryItem>
+        </DrawerSummary>
       )}
-      <div className="divide-y">
-        {members.map((m) => (
-          <details key={m.id} className="group">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-4 outline-none focus-visible:ring-2 focus-visible:ring-brand/40 rounded-md">
-              <EmployeeIdentity
-                name={m.name}
-                role={m.position ?? m.role}
-                avatarUrl={m.avatarUrl}
-              />
-              <span className="shrink-0 text-right">
-                <span className="block text-sm font-medium tabular-nums">
-                  {amount(showExtras ? m.extras : m.salary)}
-                </span>
-                <span className="mt-1 block text-xs text-muted-foreground">
-                  {showExtras
-                    ? "Допродажи"
-                    : m.issues.length
-                      ? "Нужна проверка"
-                      : "Начислено"}
-                </span>
-              </span>
-            </summary>
-            <div className="space-y-3 pb-4 text-sm">
-              {m.issues.map((issue) => (
-                <p key={issue} className="text-amber-700 dark:text-amber-400">
-                  {issue}
-                </p>
-              ))}
-              <dl className="space-y-2">
-                <div className="flex justify-between gap-3">
-                  <dt className="text-muted-foreground">Зарплата за смену</dt>
-                  <dd className="tabular-nums">{amount(m.salary)}</dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt className="text-muted-foreground">Чаевые</dt>
-                  <dd className="tabular-nums">{amount(m.tips)}</dd>
-                </div>
-                {!showExtras && (
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-muted-foreground">
-                      В том числе допродажи
-                    </dt>
-                    <dd className="tabular-nums">{amount(m.extras)}</dd>
-                  </div>
-                )}
-              </dl>
-              {!showExtras &&
-                m.components.map((c, i) => (
-                  <div
-                    key={i}
-                    className="flex justify-between gap-3 border-t pt-2"
-                  >
-                    <div>
-                      {c.label}
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {c.basis}
-                      </p>
-                    </div>
-                    <span className="shrink-0 tabular-nums">
-                      {amount(c.amount)}
+      <ul className="divide-y">
+        {members.map((m) => {
+          const expanded = open === m.id;
+          const panelId = `day-member-${m.id}`;
+          return (
+            <li key={m.id}>
+              <button
+                type="button"
+                aria-expanded={expanded}
+                aria-controls={panelId}
+                className="flex w-full items-center justify-between gap-3 rounded-md py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+                onClick={() => setOpen(expanded ? null : m.id)}
+              >
+                <EmployeeIdentity
+                  name={m.name}
+                  role={m.position ?? m.role}
+                  avatarUrl={m.avatarUrl}
+                />
+                <span className="flex shrink-0 items-center gap-2 text-right">
+                  <span>
+                    <Money
+                      className="block text-sm font-medium"
+                      value={showExtras ? m.extras : m.salary}
+                    />
+                    <span
+                      className={
+                        !showExtras && m.issues.length
+                          ? "block text-xs text-amber-700 dark:text-amber-400"
+                          : "block text-xs text-muted-foreground"
+                      }
+                    >
+                      {showExtras
+                        ? "Допродажи"
+                        : m.issues.length
+                          ? "Нужна проверка"
+                          : "Начислено"}
                     </span>
+                  </span>
+                  <ChevronDown
+                    aria-hidden
+                    className={`size-4 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
+                  />
+                </span>
+              </button>
+              {expanded && (
+                <div id={panelId} className="space-y-3 pb-4 text-sm">
+                  {m.issues.map((issue) => (
+                    <p
+                      key={issue}
+                      className="text-amber-700 dark:text-amber-400"
+                    >
+                      {issue}
+                    </p>
+                  ))}
+                  <dl className="space-y-2">
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">
+                        Зарплата за смену
+                      </dt>
+                      <dd>
+                        <Money value={m.salary} />
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Чаевые</dt>
+                      <dd>
+                        <Money value={m.tips} />
+                      </dd>
+                    </div>
+                    {!showExtras && (
+                      <div className="flex justify-between gap-3">
+                        <dt className="text-muted-foreground">
+                          В том числе допродажи
+                        </dt>
+                        <dd>
+                          <Money value={m.extras} />
+                        </dd>
+                      </div>
+                    )}
+                  </dl>
+                  {!showExtras &&
+                    m.components.map((c, i) => (
+                      <div
+                        key={i}
+                        className="flex justify-between gap-3 border-t pt-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="break-words">{c.label}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {c.basis}
+                          </p>
+                        </div>
+                        <Money className="shrink-0" value={c.amount} />
+                      </div>
+                    ))}
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    {m.employeeId && (
+                      <Link
+                        className="text-[13px] text-brand hover:underline"
+                        href={`/people/payroll/${m.employeeId}${date ? `?month=${date.slice(0, 7)}` : ""}`}
+                      >
+                        Расчёт сотрудника
+                      </Link>
+                    )}
+                    {source === "archive" && m.origin && (
+                      <a
+                        className="text-[13px] text-brand hover:underline"
+                        target="_blank"
+                        rel="noreferrer"
+                        href={`https://docs.google.com/spreadsheets/d/${encodeURIComponent(m.origin.spreadsheet_id)}/edit#range=${encodeURIComponent(m.origin.range)}`}
+                      >
+                        Исходная запись в архиве Glide
+                      </a>
+                    )}
                   </div>
-                ))}
-              {m.employeeId && (
-                <Link
-                  className="inline-block text-brand hover:underline"
-                  href={`/people/payroll/${m.employeeId}${date?`?month=${date.slice(0,7)}`:""}`}
-                >
-                  Расчёт сотрудника →
-                </Link>
+                </div>
               )}
-              {source === "archive" && m.origin && (
-                <a
-                  className="inline-block text-xs text-muted-foreground hover:text-brand"
-                  target="_blank"
-                  rel="noreferrer"
-                  href={`https://docs.google.com/spreadsheets/d/${encodeURIComponent(m.origin.spreadsheet_id)}/edit#range=${encodeURIComponent(m.origin.range)}`}
-                >
-                  Исходная запись Glide ↗
-                </a>
-              )}
-            </div>
-          </details>
-        ))}
-      </div>
+            </li>
+          );
+        })}
+      </ul>
       {!members.length && (
         <p className="py-4 text-sm text-muted-foreground">
           {source === "archive"
-            ? "В источнике нет сотрудников за этот день."
-            : "Начисления за этот день ещё не загружены."}
+            ? "В архиве нет сотрудников за этот день"
+            : "Начисления за этот день ещё не загружены"}
         </p>
       )}
     </div>
@@ -168,7 +199,9 @@ export function DayTeamPanel({
         (e) =>
           live &&
           setError(
-            e instanceof Error ? e.message : "Не удалось загрузить команду",
+            e instanceof Error && /[А-Яа-яЁё]/.test(e.message)
+              ? e.message
+              : "Не удалось загрузить команду",
           ),
       );
     return () => {
@@ -191,13 +224,13 @@ export function DayTeamPanel({
   if (!data)
     return (
       <p role="status" className="py-4 text-sm text-muted-foreground">
-        Загружаем состав смены…
+        Загружаем команду…
       </p>
     );
   if (!data.allowed)
     return (
       <p className="py-4 text-sm text-muted-foreground">
-        Начисления команды доступны с правом просмотра зарплаты.
+        Начисления команды видны с правом просмотра зарплаты
       </p>
     );
   const members = kind

@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,8 +11,17 @@ import {
   type MovementDayData,
   type MovementHistoryEntry,
 } from "../cash-movement-actions";
-import { money } from "@/lib/sales/format";
-const stamp = (s: string) => new Date(s).toLocaleString("ru-RU");
+import {
+  DrawerAvatar,
+  DrawerSection,
+  DrawerTimeline,
+  DrawerTimelineItem,
+} from "@/components/ui/drawer-blocks";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { Money, formatRub } from "@/components/shared/money";
+import { formatDateCell, formatDayMonthTime } from "@/lib/format/date";
+import { countRu } from "@/lib/format/plural";
+import { salesErrorText } from "@/lib/sales/errors";
 export function CashMovementsPanel({
   venueId,
   date,
@@ -40,9 +49,10 @@ export function CashMovementsPanel({
       } catch (e) {
         if (live)
           setError(
-            e instanceof Error
-              ? e.message
-              : "Не удалось загрузить кассовые операции",
+            salesErrorText(
+              e instanceof Error ? e.message : null,
+              "Не удалось загрузить кассовые операции",
+            ),
           );
       } finally {
         fetching = false;
@@ -68,147 +78,169 @@ export function CashMovementsPanel({
       toast.success("Сверка инкассаций запущена");
     } catch (e) {
       toast.error(
-        e instanceof Error ? e.message : "Не удалось запустить сверку",
+        salesErrorText(
+          e instanceof Error ? e.message : null,
+          "Не удалось запустить сверку",
+        ),
       );
     } finally {
       setBusy(false);
     }
   };
   if (!data && !error) return null;
+  const problem =
+    error ?? salesErrorText(data?.job?.error) ?? data?.problem ?? null;
   return (
-    <section className="space-y-4 border-t pt-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold">Инкассации и внесения</h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Инкассации, такси и выдача чаевых по кассовой смене.
-          </p>
-        </div>
-        {data?.canManage && (
+    <DrawerSection
+      title="Инкассации и внесения"
+      description="Инкассации, такси и выдача чаевых по кассовой смене"
+      actions={
+        data?.canManage ? (
           <Button
             variant="outline"
             size="sm"
+            className="gap-2"
             disabled={busy || pending}
             onClick={() => void request()}
           >
-            {busy || pending ? (
-              <Loader2 className="mr-2 size-4 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-2 size-4" />
-            )}
-            {pending ? "Сверяем" : "Сверить"}
+            <RefreshCw
+              className={
+                busy || pending
+                  ? "size-4 animate-spin motion-reduce:animate-none"
+                  : "size-4"
+              }
+            />
+            {pending ? "Сверяем…" : "Сверить"}
           </Button>
-        )}
-      </div>
-      {(error || data?.job?.error || data?.problem) && (
+        ) : undefined
+      }
+    >
+      {problem && (
         <p role="alert" className="text-sm text-destructive">
-          {error || data?.job?.error || data?.problem}
+          {problem}
         </p>
       )}
       {pending && (
         <p role="status" className="text-xs text-muted-foreground">
           {data?.job?.phase === "verify"
-            ? "Повторно проверяем полный список операций."
-            : "Загружаем операции с учётом поздних выгрузок."}
+            ? "Повторно проверяем полный список операций"
+            : "Загружаем операции с учётом поздних выгрузок"}
         </p>
       )}
       {data && !data.configured && (
-        <p className="text-xs text-muted-foreground">
-          Для сверки проводок выберите счета и статьи в{" "}
+        <p className="text-sm text-muted-foreground">
+          Чтобы сверять проводки, выберите счета и статьи в{" "}
           <Link
-            className="text-primary hover:underline"
-            href={`/org/venues/${venueId}?tab=sales`}
+            className="text-brand hover:underline"
+            href={`/sales/settings?venue=${venueId}`}
           >
             настройках заведения
           </Link>
-          .
-        </p>
-      )}
-      {data?.checkedAt && (
-        <p className="text-xs text-muted-foreground">
-          Проверено {stamp(data.checkedAt)} · {data.items.length} операций
         </p>
       )}
       {!!data?.job?.outside?.length && (
-        <details className="rounded-xl border border-amber-200 p-3 text-xs">
-          <summary className="cursor-pointer text-amber-800">
-            Поздние операции вне периода · {data.job.outside.length}
-          </summary>
-          <p className="mt-2 text-muted-foreground">
-            Для полной сверки этих дней откройте исходную дату.
+        <div className="space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+          <p>
+            Поздние операции других дней:{" "}
+            {data.job.outside.length}. Для полной сверки откройте их день
           </p>
-          <div className="mt-2 space-y-1">
+          <ul className="flex flex-wrap gap-x-3 gap-y-1">
             {data.job.outside.map((o) => (
-              <p key={o.id}>
+              <li key={o.id}>
                 <Link
-                  className="text-primary hover:underline"
+                  className="text-brand hover:underline"
                   href={`/sales/shifts?day=${o.date}`}
                 >
-                  #{o.id} · {o.date}
+                  {formatDateCell(o.date)} · №{o.id}
                 </Link>
-              </p>
+              </li>
             ))}
-          </div>
-        </details>
+          </ul>
+        </div>
       )}
       {!!data?.items.length && (
-        <div className="divide-y rounded-xl border">
+        <ul className="divide-y">
           {data.items.map((row) => {
             const checks = data.rows.filter((r) =>
                 r.plan.sourceIds.includes(row.id),
               ),
               review = data.review.find((r) => r.sourceId === row.id);
             return (
-              <div key={row.id} className="space-y-2 px-4 py-3">
+              <li key={row.id} className="space-y-1.5 py-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="break-words text-sm font-medium">
                       {row.comment ||
                         (row.type === "cashIn" ? "Внесение" : "Изъятие")}
                     </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Quick Resto #{row.id}
+                    <p className="text-xs text-muted-foreground">
+                      Quick Resto №{row.id}
                     </p>
                   </div>
-                  <span className="shrink-0 text-sm font-medium tabular-nums">
-                    {row.type === "cashIn" ? "+" : "−"}
-                    {money(row.amountCents / 100)} ₽
-                  </span>
+                  <Money
+                    signed
+                    className="shrink-0 text-sm font-medium"
+                    value={(row.type === "cashIn" ? 1 : -1) * (row.amountCents / 100)}
+                    fraction="auto"
+                  />
                 </div>
                 {review && (
-                  <p className="text-xs text-amber-700">{review.message}</p>
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    {review.message}
+                  </p>
                 )}
                 {checks.map((check) => (
-                  <p
+                  <div
                     key={check.plan.key}
-                    className={`text-xs ${check.state === "matched" ? "text-emerald-700" : check.state === "conflict" ? "text-destructive" : "text-muted-foreground"}`}
+                    className="flex flex-wrap items-center gap-2 text-xs"
                   >
-                    {check.plan.label} ·{" "}
-                    {check.state === "matched"
-                      ? "совпадает"
-                      : check.state === "conflict"
-                        ? "требует сверки"
-                        : "нет в Sheerly"}
-                    {check.state === "conflict" &&
-                      ` · ${check.problems.join("; ")}`}
-                  </p>
+                    <span className="text-muted-foreground">
+                      {check.plan.label}
+                    </span>
+                    <StatusBadge
+                      tone={
+                        check.state === "matched"
+                          ? "success"
+                          : check.state === "conflict"
+                            ? "danger"
+                            : "warning"
+                      }
+                      tip={
+                        check.state === "conflict"
+                          ? check.problems.join("; ")
+                          : undefined
+                      }
+                    >
+                      {check.state === "matched"
+                        ? "Совпадает"
+                        : check.state === "conflict"
+                          ? "Требует сверки"
+                          : "Нет в Sheerly"}
+                    </StatusBadge>
+                  </div>
                 ))}
-              </div>
+              </li>
             );
           })}
-        </div>
+        </ul>
       )}
       {data?.checkedAt && !data.items.length && (
         <p className="text-sm text-muted-foreground">
-          Кассовых операций за этот день нет.
+          Кассовых операций за этот день нет
         </p>
       )}
       {data && !data.checkedAt && !pending && !error && (
         <p className="text-sm text-muted-foreground">
-          Кассовые операции ещё не загружены.
+          Кассовые операции ещё не загружены
         </p>
       )}
-    </section>
+      {data?.checkedAt && (
+        <p className="text-xs text-muted-foreground">
+          Проверено {formatDayMonthTime(data.checkedAt)} ·{" "}
+          {countRu(data.items.length, "операция", "операции", "операций")}
+        </p>
+      )}
+    </DrawerSection>
   );
 }
 export function CashMovementHistory({
@@ -233,8 +265,8 @@ export function CashMovementHistory({
           setMore(d?.more ?? false);
         }
       })
-      .catch((e) => {
-        if (live) setError(e.message);
+      .catch(() => {
+        if (live) setError("Не удалось загрузить историю");
       });
     return () => {
       live = false;
@@ -252,57 +284,53 @@ export function CashMovementHistory({
       setRows((old) => [...(old ?? []), ...(d?.rows ?? [])]);
       setMore(d?.more ?? false);
       setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось загрузить историю");
+    } catch {
+      setError("Не удалось загрузить историю");
     } finally {
       setBusy(false);
     }
   };
   if (!allowed && !error) return null;
   return (
-    <section className="space-y-4 border-t pt-5">
-      <h3 className="text-sm font-semibold">История инкассаций и внесений</h3>
+    <DrawerSection title="Инкассации и внесения">
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       )}
-      {rows?.map((entry) => (
-        <details key={entry.id} className="rounded-xl border p-4 text-sm">
-          <summary className="cursor-pointer">
-            Версия {entry.version} · {entry.actor_name}
-            <span className="mt-1 block text-xs text-muted-foreground">
-              {stamp(entry.created_at)}
-            </span>
-          </summary>
-          <div className="mt-3 divide-y">
-            {entry.items.map((row) => (
-              <div
-                key={row.id}
-                className="flex items-start justify-between gap-3 py-2 text-xs"
-              >
-                <span className="min-w-0 break-words">
-                  #{row.id} ·{" "}
-                  {row.comment ||
-                    (row.type === "cashIn" ? "Внесение" : "Изъятие")}
-                </span>
-                <span className="shrink-0 tabular-nums">
-                  {money(row.amountCents / 100)} ₽
-                </span>
-              </div>
-            ))}
-            {!entry.items.length && (
-              <p className="text-muted-foreground">
-                Кассовых операций не было.
-              </p>
-            )}
-          </div>
-        </details>
-      ))}
       {rows?.length === 0 && (
         <p className="text-sm text-muted-foreground">
-          Кассовые операции ещё не загружены.
+          Кассовые операции ещё не загружены
         </p>
+      )}
+      {!!rows?.length && (
+        <DrawerTimeline>
+          {rows.map((entry, index) => (
+            <DrawerTimelineItem
+              key={entry.id}
+              last={index === rows.length - 1}
+              avatar={<DrawerAvatar name={entry.actor_name} />}
+              title={`Версия ${entry.version}`}
+              meta={`${entry.actor_name} · ${formatDayMonthTime(entry.created_at)}`}
+            >
+              {entry.items.map((row) => (
+                <p key={row.id} className="flex justify-between gap-3">
+                  <span className="min-w-0 break-words">
+                    №{row.id} ·{" "}
+                    {row.comment ||
+                      (row.type === "cashIn" ? "Внесение" : "Изъятие")}
+                  </span>
+                  <span className="shrink-0 tabular-nums">
+                    {formatRub(row.amountCents / 100, { fraction: "auto" })}
+                  </span>
+                </p>
+              ))}
+              {!entry.items.length && (
+                <p className="text-muted-foreground">Кассовых операций не было</p>
+              )}
+            </DrawerTimelineItem>
+          ))}
+        </DrawerTimeline>
       )}
       {more && (
         <Button
@@ -314,6 +342,6 @@ export function CashMovementHistory({
           {busy ? "Загружаем…" : "Показать ещё"}
         </Button>
       )}
-    </section>
+    </DrawerSection>
   );
 }

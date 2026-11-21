@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import type { SalesConfiguration } from "@/lib/sales/types";
-import { saveSalesSettings } from "../actions";
+import { saveSalesSettings } from "@/app/(dashboard)/sales/shifts/actions";
 import { toast } from "sonner";
 import {
   AlertDialog,

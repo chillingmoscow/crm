@@ -44,6 +44,7 @@ import {
   Warehouse,
   Wand2,
   type LucideIcon,
+  HandCoins,
 } from "lucide-react";
 import {
   Sidebar,
@@ -175,19 +176,20 @@ const NAV_SECTIONS: NavSection[] = [
     label: "Продажи",
     icon: ChartNoAxesCombined,
     items: [
-      {
-        title: "Статистика",
-        href: "/sales/statistics",
-        icon: ChartNoAxesCombined,
-        permission: "sales.view_shifts",
-      },
+      // «Смены» — ежедневный экран, поэтому первыми; «Статистика» нужна реже.
       {
         title: "Смены",
         href: "/sales/shifts",
         icon: CalendarDays,
         permission: "sales.view_shifts",
       },
-      { title: "Допродажи", href: "/sales/additional", icon: ChartNoAxesCombined, permission: "sales.view_shifts" },
+      {
+        title: "Статистика",
+        href: "/sales/statistics",
+        icon: ChartNoAxesCombined,
+        permission: "sales.view_shifts",
+      },
+      { title: "Допродажи", href: "/sales/additional", icon: HandCoins, permission: "sales.view_shifts" },
     ],
   },
   {

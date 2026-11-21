@@ -15,6 +15,8 @@ import {
 } from "@/app/(dashboard)/schedule/_components/schedule-help";
 
 import { SalesShiftsHelp } from "@/app/(dashboard)/sales/shifts/_components/sales-shifts-help";
+import { SalesStatisticsHelp } from "@/app/(dashboard)/sales/statistics/statistics-help";
+import { SalesAdditionalHelp } from "@/app/(dashboard)/sales/additional/additional-help";
 
 import { IntegrationsHelp, OfficeCodesHelp, QuickRestoHelp, TelegramHelp, TildaHelp } from "@/app/(dashboard)/settings/integrations/_components/integrations-help";
 
@@ -87,9 +89,20 @@ export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
     Content: PayrollHelp,
   },
   {
-    match: (p) => p === "/sales/shifts",
+    // Настройки продаж открываются из «Смен» и делят их справку.
+    match: (p) => p === "/sales/shifts" || p === "/sales/settings",
     title: "Смены",
     Content: SalesShiftsHelp,
+  },
+  {
+    match: (p) => p === "/sales/statistics",
+    title: "Статистика",
+    Content: SalesStatisticsHelp,
+  },
+  {
+    match: (p) => p === "/sales/additional",
+    title: "Допродажи",
+    Content: SalesAdditionalHelp,
   },
   {
     match: (p) =>

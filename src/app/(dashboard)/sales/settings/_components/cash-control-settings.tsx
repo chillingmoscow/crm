@@ -24,7 +24,7 @@ import {
   saveCashConfiguration,
   type CashConfiguration,
 } from "@/app/(dashboard)/sales/shifts/cash-control-actions";
-import { RuleHistory } from "./rule-history";
+import { RuleHistory } from "@/app/(dashboard)/org/venues/[venueId]/_components/rule-history";
 
 /** Сообщение загрузчика, когда у пользователя нет права на контроль кассы. */
 const NO_ACCESS = "Нет доступа к контролю кассы";

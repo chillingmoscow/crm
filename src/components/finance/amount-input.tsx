@@ -24,6 +24,10 @@ type Props = {
   name?: string;
   /** Accessibility label for the field. */
   "aria-label"?: string;
+  /** Связь с подсказкой и ошибкой, которые рисует `Field`. */
+  "aria-describedby"?: string;
+  /** Ошибка значения: красная рамка поля (DS «Form States»). */
+  "aria-invalid"?: boolean;
 };
 
 const CURRENCY_SUFFIX: Record<string, string> = {
@@ -91,6 +95,8 @@ export function AmountInput({
         disabled={disabled}
         className="pr-8 text-right tabular-nums"
         aria-label={rest["aria-label"]}
+        aria-describedby={rest["aria-describedby"]}
+        aria-invalid={rest["aria-invalid"]}
       />
       <span className="absolute inset-y-0 right-3 flex items-center text-sm text-muted-foreground pointer-events-none">
         {CURRENCY_SUFFIX[currency] ?? currency}

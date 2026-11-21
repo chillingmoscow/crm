@@ -11,6 +11,7 @@ import {
   listCounterpartyGroups,
 } from "@/lib/finance/counterparties";
 import { loadCounterpartyActivity } from "@/lib/finance/activity";
+import { parsePeriod, periodParam } from "@/lib/finance/period";
 import { isDadataConfigured } from "@/lib/dadata/client";
 import {
   CounterpartiesClient,
@@ -22,7 +23,7 @@ export const metadata: Metadata = { title: "Контрагенты" };
 export default async function CounterpartiesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ archive?: string; create?: string }>;
+  searchParams: Promise<{ archive?: string; create?: string; period?: string }>;
 }) {
   const [can, activeAccountId, supabase, params] = await Promise.all([
     getCachedPermissionChecker(),
@@ -33,6 +34,8 @@ export default async function CounterpartiesPage({
   if (!can("finance.view_counterparties")) redirect("/dashboard");
   const canManage = Boolean(can("finance.manage_counterparties"));
   const canViewTransactions = Boolean(can("finance.view_transactions"));
+  // Период столбцов активности: ?period=2026-11 | 2026-Q4 | 2026, без него — всё время.
+  const period = parsePeriod(params.period);
 
   // Архив, возврат и удаление проверяют владельца на сервере — им же гейтим.
   const { data: isOwner } = activeAccountId
@@ -44,7 +47,7 @@ export default async function CounterpartiesPage({
   const [{ rows }, { rows: groups }, activity] = await Promise.all([
     listCounterparties({ include_deleted: Boolean(isOwner) }),
     listCounterpartyGroups(),
-    canViewTransactions ? loadCounterpartyActivity() : Promise.resolve(null),
+    canViewTransactions ? loadCounterpartyActivity(period) : Promise.resolve(null),
   ]);
 
   const list: CounterpartyListRow[] = rows.map((row) => {
@@ -77,6 +80,8 @@ export default async function CounterpartiesPage({
       canHardDelete={Boolean(isOwner) && Boolean(can("finance.delete_counterparty"))}
       canViewTransactions={canViewTransactions}
       hasActivity={activity !== null}
+      period={periodParam(period)}
+      today={new Date().toISOString().slice(0, 10)}
       dadataEnabled={isDadataConfigured()}
       initialArchive={params.archive === "1" && Boolean(isOwner)}
       openCreate={params.create === "1" && canManage}

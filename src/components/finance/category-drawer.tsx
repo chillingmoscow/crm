@@ -103,6 +103,7 @@ export function CategoryDrawer({
   canManage,
   menu = [],
   operationsHref,
+  periodPhrase = "за всё время",
   onRestore,
   restoring = false,
   onSaved,
@@ -121,6 +122,8 @@ export function CategoryDrawer({
   menu?: TableRowMenuAction[];
   /** Ссылка на операции по статье; `null` — нет доступа к операциям. */
   operationsHref?: string | null;
+  /** За какой период цифры сводки: «за ноябрь 2026», по умолчанию «за всё время». */
+  periodPhrase?: string;
   /** Вернуть статью из архива — главная кнопка у архивной статьи. */
   onRestore?: () => void;
   restoring?: boolean;
@@ -252,7 +255,7 @@ export function CategoryDrawer({
           {category.total !== null && (category.operations ?? 0) > 0 ? (
             <DrawerSummaryTotal
               label={category.type === "income" ? "Получено по статье" : "Потрачено по статье"}
-              hint="За всё время, без удалённых операций"
+              hint={`${periodPhrase.charAt(0).toUpperCase()}${periodPhrase.slice(1)}, без удалённых операций`}
             >
               <Money value={category.total} />
             </DrawerSummaryTotal>
@@ -272,7 +275,9 @@ export function CategoryDrawer({
             <DrawerSummaryItem icon={<Hash />} label="Операций">
               {category.operations > 0
                 ? countRu(category.operations, "операция", "операции", "операций")
-                : "Операций пока нет"}
+                : periodPhrase === "за всё время"
+                  ? "Операций пока нет"
+                  : `Нет операций ${periodPhrase}`}
             </DrawerSummaryItem>
           ) : null}
           {category.lastDate ? (

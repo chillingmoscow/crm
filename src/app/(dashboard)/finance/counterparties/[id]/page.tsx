@@ -12,6 +12,7 @@ import {
   listCounterpartyGroups,
 } from "@/lib/finance/counterparties";
 import { loadCounterpartyActivity, operationDay } from "@/lib/finance/activity";
+import { parsePeriod, periodParam, periodRange } from "@/lib/finance/period";
 import { listCounterpartyAttachments } from "@/lib/files/attachments";
 import { isDadataConfigured } from "@/lib/dadata/client";
 import { listAuditEvents } from "@/lib/audit/list";
@@ -37,10 +38,15 @@ type AuditProfile = { id: string; first_name: string | null; last_name: string |
 
 export default async function CounterpartyDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ period?: string }>;
 }) {
-  const { id } = await params;
+  const [{ id }, query] = await Promise.all([params, searchParams]);
+  // Период вкладки «Операции»: тот же `?period=`, что в списке; без него — всё время.
+  const period = parsePeriod(query.period);
+  const range = periodRange(period);
   const supabase = await createClient();
 
   // Права считаем заранее, чтобы кнопки совпадали с RLS, которая сработает
@@ -74,16 +80,20 @@ export default async function CounterpartyDetailPage({
     listCounterpartyGroups(),
     listCounterpartyAttachments(id),
     getCounterpartyArchiveImpact(id),
-    canViewTransactions ? loadCounterpartyActivity() : Promise.resolve(null),
+    canViewTransactions ? loadCounterpartyActivity(period) : Promise.resolve(null),
     canViewTransactions
-      ? supabase
-          .from("transactions")
-          .select("id, date, type, amount, description, category_id, bank_account_id")
-          .eq("counterparty_id", id)
-          .is("deleted_at", null)
-          .in("type", ["income", "expense"])
-          .order("date", { ascending: false })
-          .limit(RECENT_OPERATIONS)
+      ? (() => {
+          // Границы — как у фильтра «Транзакций»: дата операции — полночь UTC.
+          let recentQuery = supabase
+            .from("transactions")
+            .select("id, date, type, amount, description, category_id, bank_account_id")
+            .eq("counterparty_id", id)
+            .is("deleted_at", null)
+            .in("type", ["income", "expense"]);
+          if (range.from) recentQuery = recentQuery.gte("date", range.from);
+          if (range.to) recentQuery = recentQuery.lte("date", range.to);
+          return recentQuery.order("date", { ascending: false }).limit(RECENT_OPERATIONS);
+        })()
       : Promise.resolve({ data: [] as never[] }),
     canViewAudit
       ? listAuditEvents({ entityType: "counterparty", entityId: id })
@@ -167,6 +177,8 @@ export default async function CounterpartyDetailPage({
       canHardDelete={Boolean(isOwner) && Boolean(can("finance.delete_counterparty"))}
       archiveImpact={archiveImpact}
       dadataEnabled={isDadataConfigured()}
+      period={periodParam(period)}
+      today={new Date().toISOString().slice(0, 10)}
       initialAuditEvents={auditResult.events}
       initialAuditHasMore={auditResult.hasMore}
       createdByName={profileName(row.created_by)}

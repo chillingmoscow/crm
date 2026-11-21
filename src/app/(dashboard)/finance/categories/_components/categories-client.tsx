@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, useTransition, type CSSProperties } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -26,6 +26,14 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { DirectoryPeriodPicker } from "@/components/finance/period-picker";
+import {
+  parsePeriod,
+  periodParam,
+  periodPhrase,
+  transactionsHref as transactionsHrefFor,
+  type DirectoryPeriod,
+} from "@/lib/finance/period";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { HardDeleteConfirmDialog } from "@/components/shared/hard-delete-confirm-dialog";
 import { Money } from "@/components/shared/money";
@@ -112,7 +120,6 @@ function treePad(px: number): CSSProperties {
   return { "--tree-pad": `${px}px` } as CSSProperties;
 }
 
-const transactionsHref = (categoryId: string) => `/finance/transactions?category_id=${categoryId}`;
 
 /** Итоги группы: число операций, последняя дата и сумма, если статьи одного типа. */
 function groupTotals(items: TreeCategory[]) {
@@ -137,6 +144,8 @@ export function CategoriesClient({
   hasActivity,
   initialArchive,
   openCreate,
+  period: periodValue,
+  today,
 }: {
   groups: TreeGroup[];
   categories: TreeCategory[];
@@ -149,8 +158,22 @@ export function CategoriesClient({
   hasActivity: boolean;
   initialArchive: boolean;
   openCreate: boolean;
+  /** Период столбцов активности из адреса (`?period=`); null — всё время. */
+  period: string | null;
+  /** Сегодня (`ГГГГ-ММ-ДД`) с сервера: край листания периода. */
+  today: string;
 }) {
   const router = useRouter();
+  const period = useMemo(() => parsePeriod(periodValue), [periodValue]);
+  const [periodPending, startPeriod] = useTransition();
+  const periodUrl = (next: DirectoryPeriod) => {
+    const param = periodParam(next);
+    return param ? `/finance/categories?period=${param}` : "/finance/categories";
+  };
+  const changePeriod = (next: DirectoryPeriod) =>
+    startPeriod(() => router.push(periodUrl(next), { scroll: false }));
+  const transactionsHref = (categoryId: string) => transactionsHrefFor({ category_id: categoryId }, period);
+  const phrase = periodPhrase(period);
   const st = useTableState({ tableId: "finance.categories", columns: columnConfig });
 
   const [showArchive, setShowArchive] = useState(initialArchive);
@@ -198,7 +221,7 @@ export function CategoriesClient({
   // ?create=1 открывает панель один раз: после этого убираем его из адреса,
   // чтобы обновление страницы не открывало её снова.
   useEffect(() => {
-    if (openCreate) router.replace("/finance/categories", { scroll: false });
+    if (openCreate) router.replace(periodUrl(period), { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [drawer, setDrawer] = useState<{ id: string | null; createType: CategoryType } | null>(
@@ -481,7 +504,7 @@ export function CategoriesClient({
                 <Link
                   href={transactionsHref(category.id)}
                   className="hover:underline"
-                  data-tip={category.type === "income" ? "Получено за всё время" : "Потрачено за всё время"}
+                  data-tip={`${category.type === "income" ? "Получено" : "Потрачено"} ${phrase}`}
                   data-tip-sub="Открыть операции по статье"
                   onClick={(event) => event.stopPropagation()}
                 >
@@ -635,6 +658,16 @@ export function CategoriesClient({
         // Заголовок в архиве тот же: режим виден по нажатой кнопке архива.
         title="Статьи"
         count={narrowed ? `${visible} из ${total}` : total}
+        period={
+          showActivity ? (
+            <DirectoryPeriodPicker
+              value={period}
+              today={today}
+              onChange={changePeriod}
+              ariaLabel="Период операций по статьям"
+            />
+          ) : undefined
+        }
         actions={
           <TableControls
             search={{
@@ -737,7 +770,10 @@ export function CategoriesClient({
         </div>
       ) : null}
 
-      {body}
+      {/* Пока считается новый период, старые цифры приглушены. */}
+      <div aria-busy={periodPending} className={cn("min-w-0 transition-opacity", periodPending && "opacity-60")}>
+        {body}
+      </div>
 
       <CategoryDrawer
         open={drawer !== null}
@@ -750,6 +786,7 @@ export function CategoriesClient({
         canManage={canManage}
         menu={openCategory ? menuActions(openCategory, true) : []}
         operationsHref={openCategory && canViewTransactions ? transactionsHref(openCategory.id) : null}
+        periodPhrase={phrase}
         onRestore={openCategory?.archived && isOwner ? () => void restore(openCategory) : undefined}
         restoring={Boolean(openCategory && restoringId === openCategory.id)}
         onSaved={() => router.refresh()}

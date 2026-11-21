@@ -11,6 +11,7 @@ import {
   listFinanceCategoryGroups,
 } from "@/lib/finance/categories";
 import { loadCategoryActivity } from "@/lib/finance/activity";
+import { parsePeriod, periodParam } from "@/lib/finance/period";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { CategoriesClient } from "./_components/categories-client";
 import type { TreeCategory, TreeGroup } from "./_components/category-tree";
@@ -20,7 +21,7 @@ export const metadata: Metadata = { title: "Статьи" };
 export default async function FinanceCategoriesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ archive?: string; create?: string }>;
+  searchParams: Promise<{ archive?: string; create?: string; period?: string }>;
 }) {
   const [can, activeAccountId, supabase, params] = await Promise.all([
     getCachedPermissionChecker(),
@@ -31,6 +32,8 @@ export default async function FinanceCategoriesPage({
   if (!can("finance.view_categories")) redirect("/dashboard");
   const canManage = Boolean(can("finance.manage_categories"));
   const canViewTransactions = Boolean(can("finance.view_transactions"));
+  // Период столбцов активности: ?period=2026-11 | 2026-Q4 | 2026, без него — всё время.
+  const period = parsePeriod(params.period);
 
   // Архив, возврат и удаление проверяют владельца на сервере — им же и
   // гейтим. Архивные строки RLS отдаёт только владельцу
@@ -43,7 +46,7 @@ export default async function FinanceCategoriesPage({
     listFinanceCategories({ include_archived: Boolean(isOwner) }),
     listFinanceCategoryGroups(),
     // Активность — по видимым пользователю операциям; без права на них не считаем.
-    canViewTransactions ? loadCategoryActivity() : Promise.resolve(null),
+    canViewTransactions ? loadCategoryActivity(period) : Promise.resolve(null),
   ]);
 
   // Статья ФОТ работающей должности нужна выплатам зарплаты: её не убираем
@@ -100,6 +103,8 @@ export default async function FinanceCategoriesPage({
       canDelete={Boolean(isOwner) && Boolean(can("finance.delete_category"))}
       canViewTransactions={canViewTransactions}
       hasActivity={activity !== null}
+      period={periodParam(period)}
+      today={new Date().toISOString().slice(0, 10)}
       initialArchive={params.archive === "1" && Boolean(isOwner)}
       openCreate={params.create === "1" && canManage}
     />

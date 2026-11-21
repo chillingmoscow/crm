@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -49,6 +49,14 @@ import {
   type TableRowMenuAction,
 } from "@/components/shared/table";
 import { CounterpartyCreateDrawer } from "@/components/finance/counterparty-create-drawer";
+import { DirectoryPeriodPicker } from "@/components/finance/period-picker";
+import {
+  parsePeriod,
+  periodParam,
+  periodPhrase,
+  transactionsHref as transactionsHrefFor,
+  type DirectoryPeriod,
+} from "@/lib/finance/period";
 import {
   archiveCounterparty,
   createCounterpartyGroup,
@@ -60,6 +68,7 @@ import {
   type CounterpartyArchiveImpact,
 } from "@/lib/finance/counterparties";
 import { formatDateCell } from "@/lib/format/date";
+import { cn } from "@/lib/utils";
 import { formatPhoneDisplay } from "@/lib/format/phone";
 import { countRu } from "@/lib/format/plural";
 import { LEGAL_FORM_LABELS } from "@/lib/org/legal-entity-labels";
@@ -113,8 +122,6 @@ const columnConfig = [
 const collator = new Intl.Collator("ru", { sensitivity: "base", numeric: true });
 const UNDO_WINDOW_MS = 15_000;
 
-const cardHref = (id: string) => `/finance/counterparties/${id}`;
-const transactionsHref = (id: string) => `/finance/transactions?counterparty_id=${id}`;
 
 type Row = CounterpartyListRow & { groupName: string | null };
 
@@ -129,6 +136,8 @@ export function CounterpartiesClient({
   dadataEnabled,
   initialArchive,
   openCreate,
+  period: periodValue,
+  today,
 }: {
   rows: CounterpartyListRow[];
   groups: { id: string; name: string }[];
@@ -141,8 +150,23 @@ export function CounterpartiesClient({
   dadataEnabled: boolean;
   initialArchive: boolean;
   openCreate: boolean;
+  /** Период столбцов активности из адреса (`?period=`); null — всё время. */
+  period: string | null;
+  /** Сегодня (`ГГГГ-ММ-ДД`) с сервера: край листания периода. */
+  today: string;
 }) {
   const router = useRouter();
+  const period = useMemo(() => parsePeriod(periodValue), [periodValue]);
+  const [periodPending, startPeriod] = useTransition();
+  const periodQuery = periodParam(period) ? `?period=${periodParam(period)}` : "";
+  const changePeriod = (next: DirectoryPeriod) => {
+    const param = periodParam(next);
+    startPeriod(() => router.push(`/finance/counterparties${param ? `?period=${param}` : ""}`, { scroll: false }));
+  };
+  // Карточка открывается с тем же периодом на вкладке «Операции».
+  const cardHref = (id: string) => `/finance/counterparties/${id}${periodQuery}`;
+  const transactionsHref = (id: string) => transactionsHrefFor({ counterparty_id: id }, period);
+  const phrase = periodPhrase(period);
   const st = useTableState({ tableId: "finance.counterparties", columns: columnConfig });
   const firstPage = () => st.setPagination((p) => ({ ...p, pageIndex: 0 }));
 
@@ -199,7 +223,7 @@ export function CounterpartiesClient({
   const [createOpen, setCreateOpen] = useState(openCreate);
   // ?create=1 открывает панель один раз: убираем его из адреса.
   useEffect(() => {
-    if (openCreate) router.replace("/finance/counterparties", { scroll: false });
+    if (openCreate) router.replace(`/finance/counterparties${periodQuery}`, { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -451,7 +475,7 @@ export function CounterpartiesClient({
                 <Link
                   href={transactionsHref(row.original.id)}
                   className="hover:underline"
-                  data-tip="Выплачено контрагенту за всё время"
+                  data-tip={`Выплачено контрагенту ${phrase}`}
                   data-tip-sub="Открыть операции"
                   onClick={(event) => event.stopPropagation()}
                 >
@@ -470,7 +494,7 @@ export function CounterpartiesClient({
             sortUndefined: "last",
             cell: ({ row }) =>
               row.original.incomeTotal ? (
-                <span data-tip="Получено от контрагента за всё время">
+                <span data-tip={`Получено от контрагента ${phrase}`}>
                   <Money value={row.original.incomeTotal} />
                 </span>
               ) : (
@@ -620,6 +644,16 @@ export function CounterpartiesClient({
       <TablePageHeader
         title="Контрагенты"
         count={isFiltered ? `${filtered.length} из ${modeRows.length}` : modeRows.length}
+        period={
+          showActivity ? (
+            <DirectoryPeriodPicker
+              value={period}
+              today={today}
+              onChange={changePeriod}
+              ariaLabel="Период операций с контрагентами"
+            />
+          ) : undefined
+        }
         actions={
           <TableControls
             search={{
@@ -734,7 +768,10 @@ export function CounterpartiesClient({
         </div>
       ) : null}
 
-      {body}
+      {/* Пока считается новый период, старые цифры приглушены. */}
+      <div aria-busy={periodPending} className={cn("min-w-0 transition-opacity", periodPending && "opacity-60")}>
+        {body}
+      </div>
 
       <CounterpartyCreateDrawer
         open={createOpen}

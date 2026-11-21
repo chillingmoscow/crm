@@ -64,6 +64,8 @@ export function CounterpartyCard({
   initialAuditHasMore,
   createdByName,
   updatedByName,
+  period,
+  today,
 }: {
   row: CounterpartyRow;
   groups: { id: string; name: string }[];
@@ -85,6 +87,10 @@ export function CounterpartyCard({
   initialAuditHasMore: boolean;
   createdByName: string | null;
   updatedByName: string | null;
+  /** Период вкладки «Операции» из адреса (`?period=`); null — всё время. */
+  period: string | null;
+  /** Сегодня (`ГГГГ-ММ-ДД`) с сервера: край листания периода. */
+  today: string;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<TabKey>("main");
@@ -227,7 +233,13 @@ export function CounterpartyCard({
 
             {canViewTransactions && (
               <TabsContent value="operations">
-                <CounterpartyOperations counterpartyId={row.id} activity={activity} operations={operations} />
+                <CounterpartyOperations
+                  counterpartyId={row.id}
+                  activity={activity}
+                  operations={operations}
+                  period={period}
+                  today={today}
+                />
               </TabsContent>
             )}
 

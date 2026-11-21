@@ -26,7 +26,7 @@ type SearchParams = Record<string, string | string[] | undefined>;
  *
  * Адрес — источник условий списка: фильтры, поиск, сортировка, страница,
  * режим «Удалённые» (разбор — `parseTransactionQuery`). Строки, итоги и
- * счётчики приходят одним вызовом `finance_transactions_page` (миграция 366).
+ * счётчики приходят одним вызовом `finance_transactions_page` (миграция 369).
  *
  * Права:
  * - finance.view_transactions — вход на страницу;
@@ -62,6 +62,7 @@ export default async function TransactionsServerPage({
     uploadAttachments: !!can("finance.upload_attachments"),
     deleteAttachments: !!can("finance.delete_attachments"),
     viewAllVenues: !!can("finance.view_all_venues"),
+    viewAllLegalEntities: !!can("finance.view_all_legal_entities"),
   };
 
   const query = parseTransactionQuery(
@@ -80,13 +81,18 @@ export default async function TransactionsServerPage({
   ]);
   // Устаревшее значение (юрлицо удалили, сменился аккаунт) не применяем:
   // иначе список был бы пуст без видимой причины и без кнопки сброса.
-  const cookieLegalEntityId = legalEntities.some((le) => le.id === storedLegalEntityId)
-    ? storedLegalEntityId
-    : null;
+  // Без права на все юрлица список ограничен юрлицом заведения на уровне
+  // базы: выбор другого (здесь или в шапке раздела) дал бы пустой список.
+  const cookieLegalEntityId =
+    permissions.viewAllLegalEntities &&
+    legalEntities.some((le) => le.id === storedLegalEntityId)
+      ? storedLegalEntityId
+      : null;
   const effectiveFilters = {
     ...query.filters,
-    legal_entity_id:
-      query.filters.legal_entity_id ?? cookieLegalEntityId ?? undefined,
+    legal_entity_id: permissions.viewAllLegalEntities
+      ? (query.filters.legal_entity_id ?? cookieLegalEntityId ?? undefined)
+      : undefined,
   };
 
   const [

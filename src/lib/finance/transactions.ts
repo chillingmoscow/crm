@@ -37,7 +37,14 @@ export async function getTransaction(
     .eq("id", id)
     .maybeSingle();
   if (error) return { row: null, error: error.message };
-  return { row: (data as TransactionRow | null) ?? null, error: null };
+  if (!data) return { row: null, error: null };
+  // Связь с зарплатой — как в строках списка (`locked_by`), чтобы панель
+  // по ссылке сразу открылась только на просмотр.
+  const { data: lock } = await asLooseDb(supabase).rpc("finance_transaction_lock", { p_id: id });
+  return {
+    row: { ...(data as TransactionRow), locked_by: (lock as string | null) ?? null } as TransactionRow,
+    error: null,
+  };
 }
 
 // ─── Mutations ───────────────────────────────────────────────────────────────
@@ -201,7 +208,7 @@ export type BulkTransactionPatch =
 
 /**
  * Массовая правка: статья, контрагент или заведение у выбранных операций —
- * SQL-функцией `finance_bulk_update_transactions` (миграция 367). Права —
+ * SQL-функцией `finance_bulk_update_transactions` (миграция 370). Права —
  * та же политика transactions_update; переводы, операции другого типа и
  * связанные с зарплатой пропускаются; в журнал — одна запись на команду.
  */

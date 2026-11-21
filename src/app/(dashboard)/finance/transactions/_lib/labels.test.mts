@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { canEditTransaction, type TransactionPermissions } from "./labels.ts";
+import { canEditTransaction, transactionLock, type TransactionPermissions } from "./labels.ts";
 
 const none: TransactionPermissions = {
   create: false,
@@ -16,6 +16,7 @@ const none: TransactionPermissions = {
   uploadAttachments: false,
   deleteAttachments: false,
   viewAllVenues: false,
+  viewAllLegalEntities: false,
 };
 const me = "user-1";
 const mine = { created_by: me, deleted_at: null };
@@ -41,4 +42,17 @@ test("удалённую не правят даже с полными права
     canEditTransaction({ ...mine, deleted_at: "2026-11-20T10:00:00Z" }, { ...none, updateAny: true }, me),
     false,
   );
+});
+
+test("связанную с зарплатой не правят даже с полными правами", () => {
+  const all = { ...none, updateAny: true, updateOwn: true };
+  assert.equal(canEditTransaction({ ...mine, locked_by: "payroll" }, all, me), false);
+  assert.equal(canEditTransaction({ ...mine, locked_by: "uniform" }, all, me), false);
+  assert.equal(canEditTransaction({ ...mine, locked_by: null }, all, me), true);
+});
+
+test("неизвестный признак связи не блокирует", () => {
+  assert.equal(transactionLock({ locked_by: null }), null);
+  assert.equal(transactionLock({}), null);
+  assert.equal(transactionLock({ locked_by: "supply" as never }), null);
 });

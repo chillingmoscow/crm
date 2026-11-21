@@ -37,7 +37,7 @@ export type QueryTransactionsResult = {
 
 /**
  * List page, totals and counters in one call to `finance_transactions_page`
- * (migration 366). Filters, search and sorting live in SQL so the table, the
+ * (migration 369). Filters, search and sorting live in SQL so the table, the
  * totals row and the CSV export can't disagree. SECURITY INVOKER — RLS
  * `transactions_select` scopes rows (account, legal entity, venue, deleted).
  */

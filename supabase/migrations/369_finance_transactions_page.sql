@@ -1,5 +1,5 @@
 -- ============================================================
--- 366_finance_transactions_page.sql
+-- 369_finance_transactions_page.sql
 --
 -- Список «Финансы → Транзакции» одной функцией: страница строк, итоги
 -- (приход / расход) и счётчики по одним и тем же условиям.
@@ -38,9 +38,43 @@
 --                                     finance.view_attachments
 -- p_sort: до трёх ключей <поле>_<asc|desc>, поле — date | amount |
 --   category | counterparty | account. Пусто — дата по убыванию.
+--
+-- finance_transaction_lock(id) — к чему операция привязана так, что менять
+-- её в финансах нельзя: 'payroll' (выплата зарплаты) или 'uniform' (покупка
+-- формы). Такие строки отклоняют триггеры 244 и 265, а интерфейс заранее
+-- показывает их только на просмотр. SECURITY DEFINER: бухгалтер без прав
+-- на зарплату связей не видит (RLS payroll_*), но знать о блокировке должен.
+-- Отдаёт только признак и только по операциям активного аккаунта.
 -- ============================================================
 
 begin;
+
+create or replace function public.finance_transaction_lock(p_id uuid)
+returns text
+language sql
+stable
+security definer
+set search_path = public, pg_catalog
+as $$
+  select case
+    when exists (
+      select 1 from public.payroll_payments p
+       where p.transaction_id = p_id
+         and p.account_id = public.get_active_account_id()
+    ) then 'payroll'
+    when exists (
+      select 1 from public.payroll_uniform_issues u
+       where u.expense_transaction_id = p_id
+         and u.account_id = public.get_active_account_id()
+    ) then 'uniform'
+  end
+$$;
+
+comment on function public.finance_transaction_lock(uuid) is
+  'Признак блокировки операции связью с зарплатой: payroll | uniform | null. Миграция 369.';
+
+revoke all on function public.finance_transaction_lock(uuid) from public, anon;
+grant execute on function public.finance_transaction_lock(uuid) to authenticated;
 
 create or replace function public.finance_transactions_page(
   p_filters jsonb   default '{}'::jsonb,
@@ -116,7 +150,9 @@ begin
             or (v_counterparty_none and t.counterparty_id is null and t.type <> 'transfer'))
        and (v_type is null or t.type::text = v_type)
        and (v_from is null or t.date >= v_from)
-       and (v_to   is null or t.date <= v_to)
+       -- Дата операции — момент времени (выплаты зарплаты пишутся с часами),
+       -- поэтому «по 21.11» — это всё, что раньше начала 22.11.
+       and (v_to   is null or t.date < v_to + 1)
        and (v_min  is null or t.amount >= v_min)
        and (v_max  is null or t.amount <= v_max)
        and (v_files is null
@@ -195,7 +231,9 @@ begin
                 to_jsonb(x.tx) || jsonb_build_object(
                   'attachments_count',
                   (select count(*) from public.transaction_attachments a
-                    where a.transaction_id = (x.tx).id))
+                    where a.transaction_id = (x.tx).id),
+                  -- locked_by — связь с зарплатой (см. finance_transaction_lock).
+                  'locked_by', public.finance_transaction_lock((x.tx).id))
                 order by x.rn)
          from ranked x
         where x.rn > v_offset and x.rn <= v_offset + v_limit),
@@ -207,13 +245,19 @@ end;
 $$;
 
 comment on function public.finance_transactions_page(jsonb, text[], integer, integer) is
-  'Список «Финансы → Транзакции»: страница строк, итоги и счётчики по одним условиям. SECURITY INVOKER — строки режет RLS transactions_select. Миграция 366.';
+  'Список «Финансы → Транзакции»: страница строк, итоги и счётчики по одним условиям. SECURITY INVOKER — строки режет RLS transactions_select. Миграция 369.';
 
 revoke all on function public.finance_transactions_page(jsonb, text[], integer, integer) from public, anon;
 grant execute on function public.finance_transactions_page(jsonb, text[], integer, integer) to authenticated;
 
 do $$
 begin
+  if has_function_privilege('anon', 'public.finance_transaction_lock(uuid)', 'EXECUTE') then
+    raise exception 'finance_transaction_lock доступна anon: применяйте от владельца функции';
+  end if;
+  if not has_function_privilege('authenticated', 'public.finance_transaction_lock(uuid)', 'EXECUTE') then
+    raise exception 'finance_transaction_lock недоступна authenticated';
+  end if;
   if has_function_privilege('anon', 'public.finance_transactions_page(jsonb, text[], integer, integer)', 'EXECUTE') then
     raise exception 'finance_transactions_page доступна anon: применяйте от владельца функции';
   end if;

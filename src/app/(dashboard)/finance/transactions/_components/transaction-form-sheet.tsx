@@ -40,14 +40,19 @@ import { uploadTransactionFile } from "@/lib/finance/transaction-files";
 import { CategoryFormSheet } from "./category-form-sheet";
 import { CounterpartyFormSheet } from "./counterparty-form-sheet";
 import { TransactionFiles } from "./transaction-files";
-import { BankAccountFormSheet, type CreatedBankAccount } from "./bank-account-form-sheet";
+import {
+  BankAccountCreateDrawer,
+  type CreatedBankAccount,
+} from "../../accounts/_components/bank-account-create-drawer";
 import { todayIso } from "../_lib/utils";
 import {
   CREATE_TYPE_LABEL,
   NEW_TYPE_TITLE,
   SOURCE_LABEL,
   TYPE_LABEL,
+  LOCK_REASON,
   canEditTransaction,
+  transactionLock,
   type TransactionPermissions,
 } from "../_lib/labels";
 
@@ -133,6 +138,8 @@ export function TransactionFormSheet({
   const open = mode.kind !== "closed";
   const tx = mode.kind === "edit" ? mode.transaction : null;
   const isDeleted = !!tx?.deleted_at;
+  // Выплату зарплаты и покупку формы правят и отменяют в «Зарплате».
+  const lock = tx ? transactionLock(tx) : null;
   const editable = mode.kind === "create" || (!!tx && canEditTransaction(tx, permissions, currentUserId));
 
   const [form, setForm] = useState<FormState>(() => emptyForm("expense", []));
@@ -408,11 +415,13 @@ export function TransactionFormSheet({
     ? null
     : isDeleted
       ? `Операция удалена ${formatDayMonth(tx.deleted_at) ?? ""}. Она не входит в список операций и не влияет на остатки счетов`.trim()
-      : !editable
-        ? permissions.updateOwn && !permissions.updateAny
-          ? "Изменять можно только операции, которые вы создали сами"
-          : "Нет прав на изменение операций"
-        : null;
+      : lock
+        ? LOCK_REASON[lock]
+        : !editable
+          ? permissions.updateOwn && !permissions.updateAny
+            ? "Изменять можно только операции, которые вы создали сами"
+            : "Нет прав на изменение операций"
+          : null;
 
   // ─── Подвал ───────────────────────────────────────────────────────────────
 
@@ -429,7 +438,7 @@ export function TransactionFormSheet({
     </>
   ) : (
     <>
-      {tx && permissions.delete ? (
+      {tx && permissions.delete && !lock ? (
         <Button
           variant="ghost"
           size="icon"
@@ -695,11 +704,14 @@ export function TransactionFormSheet({
           router.refresh();
         }}
       />
-      <BankAccountFormSheet
+      {/* Та же панель, что на «Счетах и кассах»; группы счёта задают там. */}
+      <BankAccountCreateDrawer
         open={bankAccountSheetOpen}
+        onOpenChange={setBankAccountSheetOpen}
         legalEntities={legalEntities}
+        venues={venues}
+        groups={[]}
         defaultLegalEntityId={sourceAccount?.legal_entity_id ?? null}
-        onClose={() => setBankAccountSheetOpen(false)}
         onCreated={(account) => {
           setLocalAccounts((prev) => [...prev, account]);
           if (form.type === "transfer" && form.bank_account_id && !form.to_bank_account_id)

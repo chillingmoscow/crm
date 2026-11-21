@@ -76,12 +76,17 @@ export async function GET(request: Request) {
     getActiveFinanceLegalEntityId(),
     listLegalEntities(),
   ]);
-  const cookieLegalEntityId = knownLegalEntities.some((le) => le.id === storedLegalEntityId)
-    ? storedLegalEntityId
-    : null;
+  // Без права на все юрлица строки и так ограничены юрлицом заведения.
+  const canPickLegalEntity = !!can("finance.view_all_legal_entities");
+  const cookieLegalEntityId =
+    canPickLegalEntity && knownLegalEntities.some((le) => le.id === storedLegalEntityId)
+      ? storedLegalEntityId
+      : null;
   const effectiveFilters = {
     ...filters,
-    legal_entity_id: filters.legal_entity_id ?? cookieLegalEntityId ?? undefined,
+    legal_entity_id: canPickLegalEntity
+      ? (filters.legal_entity_id ?? cookieLegalEntityId ?? undefined)
+      : undefined,
   };
 
   const [

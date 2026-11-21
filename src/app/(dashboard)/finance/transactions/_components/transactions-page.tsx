@@ -97,6 +97,8 @@ import {
   SOURCE_LABEL,
   TYPE_LABEL,
   canEditTransaction,
+  transactionLock,
+  type LockableTransaction,
   type TransactionPermissions,
 } from "../_lib/labels";
 
@@ -172,7 +174,7 @@ type Props = {
 };
 
 /** Строка списка: операция и число её файлов (`finance_transactions_page`). */
-type ListRow = TransactionRow & { attachments_count?: number };
+type ListRow = TransactionRow & LockableTransaction & { attachments_count?: number };
 
 export function TransactionsPage({
   result,
@@ -311,8 +313,10 @@ export function TransactionsPage({
   // ─── Условия ──────────────────────────────────────────────────────────────
 
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const effectiveLegalEntityId = filters.legal_entity_id ?? cookieLegalEntityId ?? "";
-  const showLegalEntityFilter = legalEntities.length >= 2;
+  const effectiveLegalEntityId = permissions.viewAllLegalEntities
+    ? (filters.legal_entity_id ?? cookieLegalEntityId ?? "")
+    : "";
+  const showLegalEntityFilter = permissions.viewAllLegalEntities && legalEntities.length >= 2;
   const hasFilters =
     hasTransactionFilters(filters) || (showLegalEntityFilter && !!effectiveLegalEntityId);
   const isFiltered = hasFilters || !!urlQ;
@@ -479,6 +483,8 @@ export function TransactionsPage({
   // ─── Удаление и восстановление ────────────────────────────────────────────
 
   const [deleteTarget, setDeleteTarget] = useState<TransactionRow[] | null>(null);
+  // Выбранные, связанные с зарплатой: их удаляет (отменяет) только «Зарплата».
+  const [deleteSkippedLocked, setDeleteSkippedLocked] = useState(0);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -593,7 +599,7 @@ export function TransactionsPage({
       ...(permissions.create && !(tx.type === "transfer" && transferBlocked)
         ? [{ label: "Копировать", icon: <Copy />, onSelect: () => openCopy(tx) }]
         : []),
-      ...(permissions.delete
+      ...(permissions.delete && !transactionLock(tx)
         ? [
             {
               label: "Удалить",
@@ -602,6 +608,7 @@ export function TransactionsPage({
               separatorBefore: permissions.create,
               onSelect: () => {
                 setDeleteError(null);
+                setDeleteSkippedLocked(0);
                 setDeleteTarget([tx]);
               },
             },
@@ -1272,8 +1279,16 @@ export function TransactionsPage({
                 size="sm"
                 className="h-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
                 onClick={() => {
+                  const deletable = selected.filter((tx) => !transactionLock(tx));
+                  if (deletable.length === 0) {
+                    toast.error(
+                      "Выбранные операции связаны с зарплатой. Отменить их можно в разделе «Зарплата»",
+                    );
+                    return;
+                  }
                   setDeleteError(null);
-                  setDeleteTarget(selected);
+                  setDeleteSkippedLocked(selected.length - deletable.length);
+                  setDeleteTarget(deletable);
                 }}
               >
                 <Trash2 />
@@ -1308,6 +1323,9 @@ export function TransactionsPage({
               ? "Операции пропадут из списка, а остатки счетов пересчитаются. "
               : "Операция пропадёт из списка, а остаток счёта пересчитается. "}
             Вернуть можно сразу кнопкой «Отменить» или позже из «Удалённых операций».
+            {deleteSkippedLocked > 0
+              ? ` Связанные с зарплатой (${deleteSkippedLocked}) не удалятся: их отменяют в разделе «Зарплата».`
+              : null}
           </>
         }
         confirmLabel={

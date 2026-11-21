@@ -10,6 +10,7 @@ import { CounterpartyPicker } from "@/components/finance/counterparty-picker";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { bulkUpdateTransactions } from "@/lib/finance/transactions";
 import { countRu } from "@/lib/format/plural";
+import { transactionLock } from "../_lib/labels";
 import type { AccountVenueRow } from "@/lib/org/legal-entities";
 import type {
   CounterpartyRow,
@@ -76,7 +77,9 @@ export function BulkEditDialog({
 
   const skippedTransfers =
     field === "venue_id" ? 0 : editable.filter((tx) => tx.type === "transfer").length;
-  const skippedForeign = selected.length - editable.length;
+  // Связанные с зарплатой не входят в editable ни при каких правах.
+  const skippedLocked = selected.filter((tx) => transactionLock(tx)).length;
+  const skippedForeign = selected.length - editable.length - skippedLocked;
 
   const restriction =
     targets.length === 0
@@ -93,6 +96,9 @@ export function BulkEditDialog({
       : null,
     skippedForeign
       ? `${countRu(skippedForeign, "чужая операция", "чужие операции", "чужих операций")} не изменятся: нет прав на правку`
+      : null,
+    skippedLocked
+      ? `Связанные с зарплатой (${skippedLocked}) не изменятся: их правят в разделе «Зарплата»`
       : null,
   ].filter(Boolean);
 
@@ -134,7 +140,7 @@ export function BulkEditDialog({
       description={
         restriction
           ? undefined
-          : `Новое значение получат ${countRu(targets.length, "операция", "операции", "операций")}.${notes.length ? ` ${notes.join(". ")}.` : ""}`
+          : `Значение сменится у ${countRu(targets.length, "операции", "операций", "операций")}.${notes.length ? ` ${notes.join(". ")}.` : ""}`
       }
       restriction={restriction}
       confirmLabel={`Изменить · ${targets.length}`}

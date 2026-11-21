@@ -12,7 +12,9 @@
 
 ## Предусловие
 
-**Начинать только после мержа PR #691** («Транзакции»). План опирается на его код: `accounts.timezone` (миграция 370 в #691), политика `transactions_select` с `finance.view_all_legal_entities` / `finance.view_all_venues` (373 в #691), меню строки `rowMenu` и `openCopy` в `transactions-page.tsx`, панель `transaction-form-sheet.tsx`. Перед стартом: `git fetch origin && git rebase origin/main`, номер миграции `NNN` = следующий после `git ls-tree --name-only origin/main supabase/migrations/ | tail -1`.
+PR #691 смержен 21.11.2026 (f33309ff), ветка перебазирована на него. **Номер миграции — 377** (374 занят #696, 375 — #697, 376 — дашбордом). В main есть `public.get_active_account_timezone()` и `src/lib/format/zoned-day.ts` — использовать их для «сегодня» и дня операции. Открытый PR #697 (правила разнесения) тоже правит `sidebar.tsx`, `transactions-page.tsx`, `transaction-form-sheet.tsx` — кто мержится вторым, тот разрешает конфликт.
+
+Исходное условие было: начинать только после мержа PR #691 («Транзакции»). План опирается на его код: `accounts.timezone` (миграция 370 в #691), политика `transactions_select` с `finance.view_all_legal_entities` / `finance.view_all_venues` (373 в #691), меню строки `rowMenu` и `openCopy` в `transactions-page.tsx`, панель `transaction-form-sheet.tsx`. Перед стартом: `git fetch origin && git rebase origin/main`, номер миграции `NNN` = следующий после `git ls-tree --name-only origin/main supabase/migrations/ | tail -1`.
 
 ## Global Constraints
 

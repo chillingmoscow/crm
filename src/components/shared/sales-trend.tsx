@@ -1,13 +1,15 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { Check, ChevronDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { money } from "@/lib/sales/format";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Money } from "@/components/shared/money";
+import { cn } from "@/lib/utils";
+import { formatQuantity, formatShare, monthLabel } from "@/lib/sales/format";
 
 const shortMonths = [
   "янв.",
@@ -23,15 +25,47 @@ const shortMonths = [
   "нояб.",
   "дек.",
 ];
-const label = (month: string) =>
+const axisLabel = (month: string) =>
   `${shortMonths[Number(month.slice(5, 7)) - 1]} ${month.slice(2, 4)}`;
+const compact = new Intl.NumberFormat("ru-RU", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
 
 export type TrendSeries = {
   label: string;
+  /** «₽», «%» или единица количества («шт. / день», «б.»). */
   unit: string;
   title?: string;
   points: { month: string; value: number | null }[];
 };
+
+/** Значение в единицах ряда: деньги — `Money`, доля — «12,5 %», прочее — число с единицей. */
+function TrendValue({ value, unit }: { value: number | null; unit: string }) {
+  if (unit === "₽") return <Money value={value} />;
+  if (unit === "%") return <>{formatShare(value)}</>;
+  if (value === null) return <span className="text-muted-foreground">—</span>;
+  return (
+    <>
+      {formatQuantity(value)}
+      <span className="ml-1 text-[0.85em] font-normal text-muted-foreground">
+        {unit}
+      </span>
+    </>
+  );
+}
+const valueText = (value: number | null, unit: string) =>
+  value === null
+    ? "нет данных"
+    : unit === "%"
+      ? formatShare(value)
+      : `${formatQuantity(unit === "₽" ? Math.round(value) : value)} ${unit}`;
+
+/**
+ * Динамика показателя по месяцам. Выбор месяца — как у дневного графика
+ * зарплаты (DS «График по дням»): одна остановка фокуса `role="slider"`,
+ * стрелки, Home/End; мышь и палец выбирают ближайший месяц.
+ */
 export function SalesTrend({
   series,
   title = "Динамика по месяцам",
@@ -40,6 +74,7 @@ export function SalesTrend({
   title?: string;
 }) {
   const [metric, setMetric] = useState(Object.keys(series)[0]);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const currentSeries = series[metric] ?? Object.values(series)[0];
   const [selected, setSelected] = useState<string | null>(null);
   const svg = useRef<SVGSVGElement>(null);
@@ -65,6 +100,9 @@ export function SalesTrend({
   const current =
     points.find((p) => p.month === selected) ??
     [...points].reverse().find((p) => p.value !== null);
+  const currentIndex = current
+    ? points.findIndex((p) => p.month === current.month)
+    : -1;
   const labelCount = Math.min(points.length, width < 640 ? 3 : 5);
   const labelIndices = new Set(
     Array.from({ length: labelCount }, (_, i) =>
@@ -81,13 +119,21 @@ export function SalesTrend({
     path += `${gap ? "M" : "L"}${x(i)},${y(p.value)} `;
     gap = false;
   });
+  const pick = (e: PointerEvent<SVGSVGElement>) => {
+    const box = e.currentTarget.getBoundingClientRect();
+    const px = ((e.clientX - box.left) / box.width) * width;
+    const ratio = points.length < 2 ? 0 : (px - 64) / plotWidth;
+    const index = Math.round(ratio * (points.length - 1));
+    const p = points[Math.max(0, Math.min(points.length - 1, index))];
+    if (p) setSelected(p.month);
+  };
   return (
     <section
-      className="min-w-0 rounded-lg border p-4 sm:p-6"
+      className="min-w-0 rounded-lg border bg-card p-4 sm:p-5"
       aria-label="Динамика продаж"
     >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
           <p className="text-sm text-muted-foreground">
             {currentSeries.title ?? title}
           </p>
@@ -95,69 +141,93 @@ export function SalesTrend({
             className="mt-1 text-xl font-semibold tabular-nums"
             aria-live="polite"
           >
-            {money(current?.value ?? null)}
-            {current?.value != null && ` ${currentSeries.unit}`}
+            <TrendValue value={current?.value ?? null} unit={currentSeries.unit} />
             {current && (
               <span className="ml-3 text-sm font-normal text-muted-foreground">
-                {label(current.month)}
+                {monthLabel(current.month)}
               </span>
             )}
           </p>
         </div>
-        <Select
-          value={metric}
-          onValueChange={(v) => {
-            setMetric(v);
-            setSelected(null);
-          }}
-        >
-          <SelectTrigger
-            className="w-full sm:w-64"
-            aria-label="Показатель графика"
+        <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 max-w-full gap-2 font-normal"
+              aria-label={`Показатель графика: ${currentSeries.label}`}
+            >
+              <span className="truncate">{currentSeries.label}</span>
+              <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            className="w-64 max-w-[calc(100vw-24px)] p-1"
           >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(series).map(([key, { label: text }]) => (
-              <SelectItem key={key} value={key}>
-                {text}
-              </SelectItem>
+            {Object.entries(series).map(([key, { label }]) => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={key === metric}
+                className={cn(
+                  "flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none",
+                  key === metric && "bg-accent",
+                )}
+                onClick={() => {
+                  setMetric(key);
+                  setSelected(null);
+                  setPickerOpen(false);
+                }}
+              >
+                {label}
+                {key === metric && <Check className="size-3.5 shrink-0" />}
+              </button>
             ))}
-          </SelectContent>
-        </Select>
+          </PopoverContent>
+        </Popover>
       </div>
       {values.length ? (
         <div
-          className="mt-5 outline-none focus-visible:ring-2 focus-visible:ring-brand/40 rounded-md"
+          className="mt-5 rounded-md outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
           tabIndex={0}
-          role="group"
-          aria-label={`${currentSeries.label}. Стрелки влево и вправо выбирают месяц.`}
+          role="slider"
+          aria-label={`${currentSeries.label} по месяцам`}
+          aria-valuemin={0}
+          aria-valuemax={Math.max(0, points.length - 1)}
+          aria-valuenow={Math.max(0, currentIndex)}
+          aria-valuetext={
+            current
+              ? `${monthLabel(current.month)}: ${valueText(current.value, currentSeries.unit)}`
+              : undefined
+          }
           onKeyDown={(e) => {
-            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key))
+            if (
+              !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "Escape"].includes(e.key)
+            )
               return;
             e.preventDefault();
-            const index = points.findIndex((p) => p.month === current?.month);
+            if (e.key === "Escape") {
+              setSelected(null);
+              return;
+            }
+            const step = e.key === "ArrowLeft" || e.key === "ArrowDown" ? -1 : 1;
             const next =
               e.key === "Home"
                 ? 0
                 : e.key === "End"
                   ? points.length - 1
-                  : Math.max(
-                      0,
-                      Math.min(
-                        points.length - 1,
-                        index + (e.key === "ArrowLeft" ? -1 : 1),
-                      ),
-                    );
+                  : Math.max(0, Math.min(points.length - 1, currentIndex + step));
             setSelected(points[next].month);
           }}
         >
           <svg
-            className="h-52 w-full overflow-visible"
+            className="h-52 w-full touch-pan-y overflow-visible"
             ref={svg}
             viewBox={`0 0 ${width} 225`}
-            role="img"
-            aria-label={`${currentSeries.label} по месяцам. Значения также доступны в таблице.`}
+            aria-hidden
+            onPointerMove={pick}
+            onPointerDown={pick}
           >
             {[0, 0.5, 1].map((f) => (
               <g key={f}>
@@ -175,13 +245,19 @@ export function SalesTrend({
                   textAnchor="end"
                   className="fill-muted-foreground text-xs"
                 >
-                  {new Intl.NumberFormat("ru-RU", {
-                    notation: "compact",
-                    maximumFractionDigits: 1,
-                  }).format(max - f * (max - min))}
+                  {compact.format(max - f * (max - min))}
                 </text>
               </g>
             ))}
+            {current && currentIndex >= 0 && (
+              <line
+                x1={x(currentIndex)}
+                x2={x(currentIndex)}
+                y1="22"
+                y2="198"
+                className="stroke-border"
+              />
+            )}
             <path
               d={path}
               fill="none"
@@ -199,24 +275,8 @@ export function SalesTrend({
                     r={current?.month === p.month ? 5 : 3}
                     className="fill-brand stroke-background"
                     strokeWidth="2"
-                  >
-                    <title>
-                      {`${label(p.month)}: ${money(p.value)} ${currentSeries.unit}`}
-                    </title>
-                  </circle>
+                  />
                 )}
-                <rect
-                  x={x(i) - plotWidth / 2 / Math.max(1, points.length - 1)}
-                  y="15"
-                  width={plotWidth / Math.max(1, points.length - 1)}
-                  height="180"
-                  fill="transparent"
-                  onPointerEnter={() => setSelected(p.month)}
-                >
-                  <title>
-                    {`${label(p.month)}: ${money(p.value)} ${p.value !== null ? currentSeries.unit : ""}`}
-                  </title>
-                </rect>
                 {labelIndices.has(i) && (
                   <text
                     x={x(i)}
@@ -224,7 +284,7 @@ export function SalesTrend({
                     textAnchor="middle"
                     className="fill-muted-foreground text-xs"
                   >
-                    {label(p.month)}
+                    {axisLabel(p.month)}
                   </text>
                 )}
               </g>

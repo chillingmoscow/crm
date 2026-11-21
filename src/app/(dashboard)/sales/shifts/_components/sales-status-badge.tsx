@@ -1,70 +1,66 @@
-import { AlertCircle, Check, Clock3, History, Pencil } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import type { SalesDay } from "@/lib/sales/types";
 
+/**
+ * Статусы смены — одни и те же слова в таблице, фильтре, панели, экспорте и
+ * справке. «С исправлениями» — не статус, а признак: он есть только в
+ * фильтре и в шапке панели рядом с основным статусом.
+ */
 export const salesStatuses = {
   preliminary: {
     label: "Предварительно",
-    icon: Clock3,
+    tone: "info",
     description:
-      "Текущий рабочий день. Показатели ещё меняются и обновляются автоматически, если автообновление включено.",
-    color:
-      "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-500/30",
+      "Текущий рабочий день. Показатели ещё меняются и обновляются автоматически, если автообновление включено",
   },
   complete: {
     label: "Завершена",
-    icon: Check,
+    tone: "success",
     description:
-      "Прошедший рабочий день пересчитан из Quick Resto. Кассовые отчёты проверены; смену можно обновить повторно.",
-    color:
-      "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/30",
+      "Прошедший рабочий день пересчитан из Quick Resto. Смену можно обновить повторно",
   },
   imported: {
     label: "Ожидает пересчёта",
-    icon: History,
+    tone: "warning",
     description:
-      "Историческая смена ещё не пересчитана напрямую из Quick Resto. До пересчёта часть показателей может отсутствовать.",
-    color:
-      "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30",
+      "Смена перенесена из прежнего учёта и ещё не пересчитана из Quick Resto. До пересчёта части показателей может не быть",
   },
   adjusted: {
     label: "С исправлениями",
-    icon: Pencil,
+    tone: "accent",
     description:
-      "Фильтр смен с ручными исправлениями. Это дополнительный признак: смена сохраняет свой основной статус, а исправленные значения отмечены янтарной точкой.",
-    color:
-      "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-500/15 dark:text-violet-300 dark:border-violet-500/30",
+      "Есть ручные исправления. Основной статус смены сохраняется, исправленные значения отмечены точкой",
   },
   error: {
     label: "Ошибка обновления",
-    icon: AlertCircle,
+    tone: "danger",
     description:
-      "Последнее обновление не удалось. В таблице остаются последние успешно рассчитанные значения. Причину можно увидеть в подсказке к статусу и в истории смены.",
-    color:
-      "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/15 dark:text-rose-300 dark:border-rose-500/30",
+      "Последнее обновление не удалось. Показаны последние сохранённые значения, причина в подсказке к статусу",
   },
-};
+} satisfies Record<
+  string,
+  { label: string; tone: StatusTone; description: string }
+>;
+
+export type SalesStatusKey = keyof typeof salesStatuses;
+
+/** Статус строки смены: ошибка обновления важнее основного статуса. */
+export function salesDayStatus(day: Pick<SalesDay, "status" | "sync_error">): SalesStatusKey {
+  return day.sync_error ? "error" : day.status;
+}
 
 export function SalesStatusBadge({
   status,
-  title,
+  tip,
 }: {
-  status: keyof typeof salesStatuses;
-  title?: string;
+  status: SalesStatusKey;
+  /** Подсказка вместо общего описания статуса — например, текст ошибки. */
+  tip?: string;
 }) {
   const entry = salesStatuses[status];
-  const Icon = entry.icon;
   return (
-    <Badge
-      variant="outline"
-      data-tip={title ?? entry.description}
-      className={cn(
-        "max-w-full gap-1 overflow-hidden whitespace-nowrap font-normal",
-        entry.color,
-      )}
-    >
-      <Icon className="size-3 shrink-0" />
-      <span className="truncate">{entry.label}</span>
-    </Badge>
+    <StatusBadge tone={entry.tone} tip={tip ?? entry.description}>
+      {entry.label}
+    </StatusBadge>
   );
 }

@@ -1,57 +1,71 @@
+import { ColorDot } from "@/components/ui/color-dot";
 import { CircleDot } from "lucide-react";
-import { SalesStatusBadge, salesStatuses } from "./sales-status-badge";
+import { SalesStatusBadge, salesStatuses, type SalesStatusKey } from "./sales-status-badge";
 
+// Справка раздела «Смены» (/sales/shifts) для кнопки «?» в верхней панели.
 export function SalesShiftsHelp() {
   return (
     <>
-      <section>
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Статусы и фильтры
-        </h3>
-        <ul className="space-y-4">
-          {Object.entries(salesStatuses).map(([status, entry]) => (
-            <li key={status} className="space-y-1.5">
-              <SalesStatusBadge status={status as keyof typeof salesStatuses} />
-              <p className="text-muted-foreground">{entry.description}</p>
+      <section className="space-y-2">
+        <h3 className="font-semibold">Что здесь</h3>
+        <p>
+          Показатели каждого рабочего дня за выбранный месяц: оборот, чаевые,
+          парковка, такси, чеки, депозиты. Данные приходят из Quick Resto,
+          рабочий день начинается в час, указанный в карточке заведения.
+          Стрелки у месяца листают период, «Сегодня» возвращает к текущему.
+        </p>
+        <p>
+          Итоги над таблицей и строка «Итого» считаются по всем найденным
+          сменам месяца, независимо от страницы. Если у части смен значения
+          нет, под итогом написано, по скольким сменам он посчитан.
+        </p>
+      </section>
+      <section className="space-y-3">
+        <h3 className="font-semibold">Статусы</h3>
+        <ul className="space-y-3">
+          {(Object.keys(salesStatuses) as SalesStatusKey[]).map((status) => (
+            <li key={status} className="space-y-1">
+              <SalesStatusBadge status={status} />
+              <p className="text-muted-foreground">
+                {salesStatuses[status].description}
+              </p>
             </li>
           ))}
         </ul>
       </section>
-      <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Обозначения
-        </h3>
+      <section className="space-y-2">
+        <h3 className="font-semibold">Обозначения</h3>
         <p className="flex items-start gap-2">
           <CircleDot className="mt-0.5 size-4 shrink-0 text-brand" />
           <span>
-            Текущая смена. Во время загрузки индикатор вращается. Подсказка
-            рядом с датой показывает время последнего обновления.
+            Текущая смена. Пока она обновляется, значок вращается; подсказка
+            показывает время последнего обновления.
           </span>
         </p>
-        <p className="mt-2">
-          Суммы указаны в рублях. Прочерк — нет данных; ноль — известный нулевой
-          результат. Янтарная точка у значения — ручное исправление. Если данные
-          есть не для всех смен, под итогом указано, сколько смен учтено.
+        <p className="flex items-center gap-2">
+          <ColorDot color="purple" size="sm" />
+          <span>Значение исправлено вручную. Исходное значение в подсказке.</span>
         </p>
+        <p>Прочерк: данных нет. Ноль: известный нулевой результат.</p>
       </section>
-      <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Работа со сменами
-        </h3>
+      <section className="space-y-2">
+        <h3 className="font-semibold">Смена</h3>
         <p>
-          По умолчанию показаны все смены. Кнопка фильтров открывает выбор
-          периода и статуса. Итоги считаются по всем найденным сменам,
-          независимо от страницы.
+          Нажмите строку, чтобы открыть смену: показатели, команду с
+          начислениями, комментарии и историю. Там же сверка поступлений по
+          счетам, контроль кассы и инкассации.
         </p>
-        <p className="mt-2">
-          «Обновить» загружает текущую смену из Quick Resto. Для другого дня
-          используйте меню строки. Нажмите дату, чтобы посмотреть показатели и
-          историю изменений.
+        <p>
+          Показатель можно исправить вручную с указанием причины. Исправление
+          не теряется при обновлении из Quick Resto, его можно снять кнопкой
+          «Вернуть исходное». Бар и чаевые со сбором пересчитываются из
+          составляющих, если их не исправляли отдельно.
         </p>
-        <p className="mt-2">
-          Рабочий день, автообновление и правила расчёта настраиваются в
-          карточке заведения: Организация → Заведения → Продажи. Ручные
-          исправления сохраняются при пересчёте.
+        <p>
+          «Обновить смену» загружает текущий рабочий день из Quick Resto.
+          Другой день обновляется из меню строки. Рабочий день, автообновление
+          и правила расчёта настраиваются в карточке заведения: Организация →
+          Заведения → Продажи.
         </p>
       </section>
     </>

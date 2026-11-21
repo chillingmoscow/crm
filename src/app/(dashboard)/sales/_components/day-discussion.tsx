@@ -1,18 +1,11 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
-import { Loader2, Pencil, Trash2, Undo2 } from "lucide-react";
+import { ChevronDown, Pencil, Trash2, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogCancel,
-  AlertDialogAction,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { formatDayMonthTime } from "@/lib/format/date";
 import { dayCommentCommand, loadDayDiscussion } from "../day-actions";
 import type { DayComment, DayDiscussion } from "@/lib/sales/day-context";
 
@@ -34,6 +27,7 @@ function Discussion({ venueId, date }: { venueId: string; date: string }) {
     [editing, setEditing] = useState<DayComment | null>(null),
     [busy, setBusy] = useState(false),
     [deleting, setDeleting] = useState<DayComment | null>(null),
+    [historyOpen, setHistoryOpen] = useState<string | null>(null),
     [attempt, setAttempt] = useState(0);
   const request = useRef<{ body: string; key: string } | null>(null),
     live = useRef(true);
@@ -57,9 +51,9 @@ function Discussion({ venueId, date }: { venueId: string; date: string }) {
           (e) =>
             active &&
             setError(
-              e instanceof Error
+              e instanceof Error && /[А-Яа-яЁё]/.test(e.message)
                 ? e.message
-                : "Не удалось загрузить обсуждение",
+                : "Не удалось загрузить комментарии",
             ),
         );
     void refresh();
@@ -73,11 +67,7 @@ function Discussion({ venueId, date }: { venueId: string; date: string }) {
     };
   }, [venueId, date, attempt]);
   const stamp = (value: string) =>
-    new Date(value).toLocaleString("ru-RU", {
-      timeZone: data?.timezone ?? "Europe/Moscow",
-      dateStyle: "short",
-      timeStyle: "short",
-    });
+    formatDayMonthTime(value, new Date(), data?.timezone) ?? "";
   async function change(
     action: "create" | "edit" | "delete" | "restore",
     comment?: DayComment,
@@ -150,8 +140,8 @@ function Discussion({ venueId, date }: { venueId: string; date: string }) {
                     <p className="text-sm font-medium">{c.author_name}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       <time dateTime={c.created_at}>{stamp(c.created_at)}</time>
-                      {c.origin === "glide" ? " · Glide" : ""}
-                      {c.version > 1 && !c.deleted_at ? " · Изменён" : ""}
+                      {c.origin === "glide" ? " · из архива Glide" : ""}
+                      {c.version > 1 && !c.deleted_at ? " · изменён" : ""}
                     </p>
                   </div>
                   <div className="flex shrink-0 gap-1">
@@ -161,23 +151,25 @@ function Discussion({ venueId, date }: { venueId: string; date: string }) {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="size-7 text-muted-foreground"
+                          className="touch-target size-8 text-muted-foreground"
                           disabled={busy}
                           aria-label="Изменить комментарий"
+                          data-tip="Изменить"
                           onClick={() => {
                             setEditing(c);
                             setBody(c.body);
                           }}
                         >
-                          <Pencil className="size-3.5" />
+                          <Pencil className="size-4" />
                         </Button>
                       )}
                     {(c.author_id === data.currentUserId || data.moderator) && (
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="size-7 text-muted-foreground"
+                        className="touch-target size-8 text-muted-foreground"
                         disabled={busy}
+                        data-tip={c.deleted_at ? "Восстановить" : "Удалить"}
                         aria-label={
                           c.deleted_at
                             ? "Восстановить комментарий"
@@ -190,9 +182,9 @@ function Discussion({ venueId, date }: { venueId: string; date: string }) {
                         }
                       >
                         {c.deleted_at ? (
-                          <Undo2 className="size-3.5" />
+                          <Undo2 className="size-4" />
                         ) : (
-                          <Trash2 className="size-3.5" />
+                          <Trash2 className="size-4" />
                         )}
                       </Button>
                     )}
@@ -203,45 +195,59 @@ function Discussion({ venueId, date }: { venueId: string; date: string }) {
                 >
                   {c.deleted_at ? "Комментарий удалён" : c.body}
                 </p>
-                <details className="mt-3 text-xs text-muted-foreground">
-                  <summary className="w-fit cursor-pointer hover:text-foreground">
+                <div className="mt-2 text-xs text-muted-foreground">
+                  <button
+                    type="button"
+                    aria-expanded={historyOpen === c.id}
+                    aria-controls={`comment-history-${c.id}`}
+                    className="inline-flex items-center gap-1 hover:text-foreground"
+                    onClick={() =>
+                      setHistoryOpen(historyOpen === c.id ? null : c.id)
+                    }
+                  >
                     История
-                  </summary>
-                  <ol className="mt-3 space-y-3 border-l pl-3">
-                    <li><p>Создан · {c.author_name}</p><p className="mt-1">{stamp(c.created_at)}</p></li>
-                    {data.history
-                      .filter((h) => h.comment_id === c.id&&h.action!=="created")
-                      .sort(
-                        (a, b) =>
-                          a.created_at.localeCompare(b.created_at) ||
-                          a.id.localeCompare(b.id),
-                      )
-                      .map((h) => (
-                        <li key={h.id}>
-                          <p>
-                            {eventLabels[h.action] ?? "Изменение"} ·{" "}
-                            {h.actor_name}
-                          </p>
-                          <p className="mt-1">{stamp(h.created_at)}</p>
-                          {h.action === "updated" &&
-                            typeof (h.details.before as { body?: unknown })
-                              ?.body === "string" && (
-                              <p className="mt-1 whitespace-pre-wrap break-words line-through">
-                                {String(
-                                  (h.details.before as { body: string }).body,
-                                )}
-                              </p>
-                            )}
-                        </li>
-                      ))}
-                  </ol>
-                </details>
+                    <ChevronDown
+                      aria-hidden
+                      className={`size-3.5 transition-transform ${historyOpen === c.id ? "rotate-180" : ""}`}
+                    />
+                  </button>
+                  {historyOpen === c.id && (
+                    <ol id={`comment-history-${c.id}`} className="mt-3 space-y-3 border-l pl-3">
+                      <li><p>Создан · {c.author_name}</p><p className="mt-1">{stamp(c.created_at)}</p></li>
+                      {data.history
+                        .filter((h) => h.comment_id === c.id&&h.action!=="created")
+                        .sort(
+                          (a, b) =>
+                            a.created_at.localeCompare(b.created_at) ||
+                            a.id.localeCompare(b.id),
+                        )
+                        .map((h) => (
+                          <li key={h.id}>
+                            <p>
+                              {eventLabels[h.action] ?? "Изменение"} ·{" "}
+                              {h.actor_name}
+                            </p>
+                            <p className="mt-1">{stamp(h.created_at)}</p>
+                            {h.action === "updated" &&
+                              typeof (h.details.before as { body?: unknown })
+                                ?.body === "string" && (
+                                <p className="mt-1 whitespace-pre-wrap break-words line-through">
+                                  {String(
+                                    (h.details.before as { body: string }).body,
+                                  )}
+                                </p>
+                              )}
+                          </li>
+                        ))}
+                    </ol>
+                  )}
+                </div>
               </li>
             ))}
           </ol>
           {!data.comments.length && (
             <p className="py-4 text-sm text-muted-foreground">
-              Обсуждение смены ещё не началось.
+              Комментариев пока нет
             </p>
           )}
           <form
@@ -251,21 +257,22 @@ function Discussion({ venueId, date }: { venueId: string; date: string }) {
               void change(editing ? "edit" : "create", editing ?? undefined);
             }}
           >
-            <label
-              className="text-sm font-medium"
-              htmlFor={`day-comment-${date}`}
-            >
-              {editing ? "Изменить комментарий" : "Комментарий к смене"}
-            </label>
-            <Textarea
+            <Field
               id={`day-comment-${date}`}
-              value={body}
-              disabled={busy}
-              maxLength={4000}
-              className="min-h-24"
-              placeholder="Написать комментарий…"
-              onChange={(e) => setBody(e.target.value)}
-            />
+              label={editing ? "Изменить комментарий" : "Новый комментарий"}
+            >
+              {(control) => (
+                <Textarea
+                  {...control}
+                  value={body}
+                  disabled={busy}
+                  maxLength={4000}
+                  className="min-h-24"
+                  placeholder="Что важно знать о смене"
+                  onChange={(e) => setBody(e.target.value)}
+                />
+              )}
+            </Field>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <span className="text-xs text-muted-foreground">
                 Виден пользователям с доступом к продажам
@@ -274,7 +281,7 @@ function Discussion({ venueId, date }: { venueId: string; date: string }) {
                 {editing && (
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="outline"
                     disabled={busy}
                     onClick={() => {
                       setEditing(null);
@@ -284,41 +291,36 @@ function Discussion({ venueId, date }: { venueId: string; date: string }) {
                     Отмена
                   </Button>
                 )}
-                <Button disabled={busy || !body.trim()} type="submit" size="sm">
-                  {busy && <Loader2 className="mr-2 size-4 animate-spin" />}
-                  {editing ? "Сохранить" : "Отправить"}
+                <Button
+                  disabled={busy || !body.trim()}
+                  type="submit"
+                  className="min-w-28"
+                >
+                  {busy
+                    ? "Сохраняем…"
+                    : editing
+                      ? "Сохранить"
+                      : "Добавить комментарий"}
                 </Button>
               </div>
             </div>
           </form>
         </>
       )}
-      <AlertDialog
+      <ConfirmDialog
         open={!!deleting}
         onOpenChange={(v) => !v && !busy && setDeleting(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Удалить комментарий?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Действие сохранится в истории. Комментарий можно будет
-              восстановить.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Отмена</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={busy}
-              onClick={(e) => {
-                e.preventDefault();
-                if (deleting) void change("delete", deleting);
-              }}
-            >
-              Удалить
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title="Удалить комментарий?"
+        description="Удаление останется в истории, комментарий можно будет восстановить"
+        confirmLabel="Удалить комментарий"
+        pendingLabel="Удаляем…"
+        destructive
+        busy={busy}
+        error={deleting ? error || undefined : undefined}
+        onConfirm={() => {
+          if (deleting) void change("delete", deleting);
+        }}
+      />
     </div>
   );
 }

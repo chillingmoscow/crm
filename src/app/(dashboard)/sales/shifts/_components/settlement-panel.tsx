@@ -1,22 +1,30 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Loader2, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { DrawerSection } from "@/components/ui/drawer-blocks";
+import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { Money } from "@/components/shared/money";
+import { formatDayMonthTime } from "@/lib/format/date";
+import { countRu } from "@/lib/format/plural";
+import { salesErrorText } from "@/lib/sales/errors";
 import {
   loadSettlementPanel,
   requestSettlement,
   type SettlementPanelData,
 } from "../settlement-actions";
-import { money } from "@/lib/sales/format";
-const labels: Record<string, string> = {
-  matched: "Совпадает",
-  changed: "Сумма или реквизиты отличаются",
-  review: "Нужна проверка",
-  missing: "Нет операции в Sheerly",
-  cancelled: "Отменено вручную",
+
+const states: Record<string, { label: string; tone: StatusTone }> = {
+  matched: { label: "Совпадает", tone: "success" },
+  changed: { label: "Сумма или реквизиты отличаются", tone: "warning" },
+  review: { label: "Нужна проверка", tone: "warning" },
+  missing: { label: "Нет операции в Sheerly", tone: "warning" },
+  cancelled: { label: "Отменено вручную", tone: "neutral" },
 };
+
+/** Поступления по счетам за день: сверка с финансовыми операциями. */
 export function SettlementPanel({
   venueId,
   date,
@@ -40,7 +48,13 @@ export function SettlementPanel({
           }
         })
         .catch((e) => {
-          if (live) setError(e.message);
+          if (live)
+            setError(
+              salesErrorText(
+                e instanceof Error ? e.message : null,
+                "Не удалось загрузить поступления",
+              ),
+            );
         });
     void load();
     const timer = setInterval(
@@ -59,42 +73,46 @@ export function SettlementPanel({
     try {
       await requestSettlement(venueId, date);
       setData(await loadSettlementPanel(venueId, date));
-      toast.success("Проверка поступлений поставлена в очередь");
+      toast.success("Сверка поступлений запущена");
     } catch (e) {
       toast.error(
-        e instanceof Error ? e.message : "Не удалось запустить сверку",
+        salesErrorText(
+          e instanceof Error ? e.message : null,
+          "Не удалось запустить сверку",
+        ),
       );
     } finally {
       setBusy(false);
     }
   };
   if (!data && !error) return null;
+  const jobError = salesErrorText(data?.job?.error);
   return (
-    <section className="space-y-4 border-t pt-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold">Поступления по счетам</h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Сверка поступлений с финансовыми операциями.
-          </p>
-        </div>
+    <DrawerSection
+      title="Поступления по счетам"
+      description="Сверка поступлений с финансовыми операциями"
+      actions={
         <Button
           variant="outline"
           size="sm"
+          className="gap-2"
           disabled={busy || running || !data}
           onClick={() => void request()}
         >
-          {busy || running ? (
-            <Loader2 className="mr-2 size-4 animate-spin" />
-          ) : (
-            <RefreshCw className="mr-2 size-4" />
-          )}
-          {running ? "Читаем чеки" : "Сверить"}
+          <RefreshCw
+            className={
+              busy || running
+                ? "size-4 animate-spin motion-reduce:animate-none"
+                : "size-4"
+            }
+          />
+          {running ? "Сверяем…" : "Сверить"}
         </Button>
-      </div>
-      {error && (
+      }
+    >
+      {(error || jobError || data?.problem) && (
         <p role="alert" className="text-sm text-destructive">
-          {error}
+          {error ?? jobError ?? data?.problem}
         </p>
       )}
       {running && (
@@ -104,71 +122,62 @@ export function SettlementPanel({
             : data?.job?.phase === "orders"
               ? "Загружаем список чеков"
               : `${data?.job?.pass === 2 ? "Повторная проверка" : "Проверяем чеки"}: ${Math.min(data?.job?.cursor ?? 0, data?.job?.total ?? 0)} из ${data?.job?.total ?? 0}`}
-          . Сохранённый результат останется до завершения.
-        </p>
-      )}
-      {data?.job?.error && (
-        <p role="alert" className="text-sm text-destructive">
-          {data.job.error}
-        </p>
-      )}
-      {data?.checkedAt && (
-        <p className="text-xs text-muted-foreground">
-          Чеков: {data.receipts} · проверено{" "}
-          {new Date(data.checkedAt).toLocaleString("ru-RU")}
+          . Сохранённый результат останется до завершения
         </p>
       )}
       {data && !data.configured && (
         <p className="text-sm text-muted-foreground">
-          Для расчёта выберите счета, статьи и комиссии в{" "}
+          Чтобы сверять поступления, выберите счета, статьи и комиссии в{" "}
           <Link
             className="text-brand hover:underline"
             href={`/org/venues/${venueId}?tab=sales`}
           >
             настройках заведения
           </Link>
-          .
         </p>
       )}
-      {data?.problem && (
-        <p role="alert" className="text-sm text-destructive">
-          {data.problem}
-        </p>
+      {!!data?.rows.length && (
+        <ul className="divide-y">
+          {data.rows.map((r) => {
+            const s = states[r.state] ?? states.review;
+            return (
+              <li
+                key={r.key}
+                className="flex items-start justify-between gap-3 py-3 text-sm"
+              >
+                <div className="min-w-0 space-y-1">
+                  <p className="break-words">{r.bank}</p>
+                  <p className="break-words text-xs text-muted-foreground">
+                    {r.label}
+                  </p>
+                  <StatusBadge tone={s.tone}>{s.label}</StatusBadge>
+                </div>
+                <Money className="shrink-0 font-medium" value={r.amount} />
+              </li>
+            );
+          })}
+        </ul>
       )}
-      {data?.rows.map((r) => (
-        <div
-          key={r.key}
-          className="flex items-start justify-between gap-3 border-b pb-3 text-sm"
-        >
-          <div className="min-w-0">
-            <p>{r.bank}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{r.label}</p>
-            <p
-              className={`mt-1 text-xs ${r.state === "matched" ? "text-emerald-600" : r.state === "cancelled" ? "text-muted-foreground" : "text-amber-600"}`}
-            >
-              {labels[r.state] ?? "Нужна проверка"}
-            </p>
-          </div>
-          <span className="shrink-0 font-medium tabular-nums">
-            {money(r.amount)}
-          </span>
-        </div>
-      ))}
       {!!data?.extraCount && (
-        <p className="text-sm text-amber-600">
+        <p className="text-sm text-amber-700 dark:text-amber-400">
           Лишних операций для проверки: {data.extraCount}
         </p>
       )}
       {!!data?.excludedAmount && (
         <p className="text-xs text-muted-foreground">
-          Бонусы и оплата без поступления: {money(data.excludedAmount)}
+          Бонусы и оплата без поступления:{" "}
+          <Money value={data.excludedAmount} />
         </p>
       )}
-      {data?.version && !data.problem && data.configured && data.ready && (
-        <p className="text-xs text-emerald-600">
-          Расхождений с сохранёнными операциями нет.
+      {data?.checkedAt && (
+        <p className="text-xs text-muted-foreground">
+          {countRu(data.receipts, "чек", "чека", "чеков")} · проверено{" "}
+          {formatDayMonthTime(data.checkedAt)}
+          {data.version && !data.problem && data.configured && data.ready
+            ? " · расхождений нет"
+            : ""}
         </p>
       )}
-    </section>
+    </DrawerSection>
   );
 }

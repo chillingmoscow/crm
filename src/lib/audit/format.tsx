@@ -947,7 +947,7 @@ const SPECS: Record<string, AuditEventSpec> = {
     ),
     buildDetails: (e) => <ChangeLines details={e.details} />,
   },
-  // Массовая правка: одна строка на команду (миграция 371).
+  // Массовая правка: одна строка на команду (миграция 372).
   "finance.transaction.bulk_updated": {
     icon: Pencil,
     iconClass: "text-brand bg-brand/10",

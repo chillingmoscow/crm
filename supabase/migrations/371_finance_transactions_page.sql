@@ -1,5 +1,5 @@
 -- ============================================================
--- 370_finance_transactions_page.sql
+-- 371_finance_transactions_page.sql
 --
 -- Список «Финансы → Транзакции» одной функцией: страница строк, итоги
 -- (приход / расход) и счётчики по одним и тем же условиям.
@@ -28,7 +28,8 @@
 --                                               (переводы сюда не входят:
 --                                               у них статьи не бывает)
 --   type                              income | expense | transfer
---   date_from, date_to                date
+--   date_from, date_to                date — календарные дни включительно,
+--                                     в поясе аккаунта (миграция 370)
 --   amount_min, amount_max            numeric
 --   q                                 text — описание, контрагент, статья,
 --                                            счёт, номер или сумма
@@ -71,7 +72,7 @@ as $$
 $$;
 
 comment on function public.finance_transaction_lock(uuid) is
-  'Признак блокировки операции связью с зарплатой: payroll | uniform | null. Миграция 370.';
+  'Признак блокировки операции связью с зарплатой: payroll | uniform | null. Миграция 371.';
 
 revoke all on function public.finance_transaction_lock(uuid) from public, anon;
 grant execute on function public.finance_transaction_lock(uuid) to authenticated;
@@ -113,6 +114,7 @@ declare
   v_s3                text    := p_sort[3];
   v_limit             integer := least(greatest(coalesce(p_limit, 25), 1), 10000);
   v_offset            integer := greatest(coalesce(p_offset, 0), 0);
+  v_tz                text    := public.get_active_account_timezone();
   v_result            jsonb;
 begin
   select array_agg(x::uuid) into v_accounts
@@ -149,10 +151,11 @@ begin
             or t.counterparty_id = any(v_counterparties)
             or (v_counterparty_none and t.counterparty_id is null and t.type <> 'transfer'))
        and (v_type is null or t.type::text = v_type)
-       and (v_from is null or t.date >= v_from)
+       -- День — в поясе аккаунта: выплата в 01:30 по Москве 22-го — это 22-е.
+       and (v_from is null or t.date >= (v_from::timestamp at time zone v_tz))
        -- Дата операции — момент времени (выплаты зарплаты пишутся с часами),
        -- поэтому «по 21.11» — это всё, что раньше начала 22.11.
-       and (v_to   is null or t.date < v_to + 1)
+       and (v_to   is null or t.date < ((v_to + 1)::timestamp at time zone v_tz))
        and (v_min  is null or t.amount >= v_min)
        and (v_max  is null or t.amount <= v_max)
        and (v_files is null
@@ -245,7 +248,7 @@ end;
 $$;
 
 comment on function public.finance_transactions_page(jsonb, text[], integer, integer) is
-  'Список «Финансы → Транзакции»: страница строк, итоги и счётчики по одним условиям. SECURITY INVOKER — строки режет RLS transactions_select. Миграция 370.';
+  'Список «Финансы → Транзакции»: страница строк, итоги и счётчики по одним условиям. SECURITY INVOKER — строки режет RLS transactions_select. Миграция 371.';
 
 revoke all on function public.finance_transactions_page(jsonb, text[], integer, integer) from public, anon;
 grant execute on function public.finance_transactions_page(jsonb, text[], integer, integer) to authenticated;

@@ -173,6 +173,8 @@ type Props = {
   amountRoundingScale: AmountRoundingScale;
   /** DaData настроена: при создании контрагента реквизиты подтянутся по ИНН. */
   dadataEnabled: boolean;
+  /** Пояс аккаунта: какой это день у операции. */
+  timeZone: string;
 };
 
 /** Строка списка: операция и число её файлов (`finance_transactions_page`). */
@@ -194,6 +196,7 @@ export function TransactionsPage({
   currentUserId,
   amountRoundingScale,
   dadataEnabled,
+  timeZone,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -634,7 +637,7 @@ export function TransactionsPage({
         <Checkbox
           checked={row.getIsSelected()}
           onCheckedChange={(v) => row.toggleSelected(v === true)}
-          aria-label={`Выбрать операцию от ${formatDateCell(row.original.date)}`}
+          aria-label={`Выбрать операцию от ${formatDateCell(row.original.date, timeZone)}`}
           className="align-middle"
         />
       ),
@@ -652,7 +655,7 @@ export function TransactionsPage({
           className="tabular-nums hover:underline"
           onClick={() => setFormMode({ kind: "edit", transaction: row.original })}
         >
-          {formatDateCell(row.original.date) ?? "—"}
+          {formatDateCell(row.original.date, timeZone) ?? "—"}
         </button>
       ),
     },
@@ -1389,6 +1392,7 @@ export function TransactionsPage({
         currentUserId={currentUserId}
         amountRoundingScale={amountRoundingScale}
         dadataEnabled={dadataEnabled}
+        timeZone={timeZone}
       />
     </PageFrame>
   );

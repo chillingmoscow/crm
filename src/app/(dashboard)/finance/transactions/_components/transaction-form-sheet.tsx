@@ -45,6 +45,7 @@ import {
   type CreatedBankAccount,
 } from "../../accounts/_components/bank-account-create-drawer";
 import { todayIso } from "../_lib/utils";
+import { calendarDateInZone } from "@/lib/format/zoned-day";
 import {
   CREATE_TYPE_LABEL,
   NEW_TYPE_TITLE,
@@ -91,6 +92,8 @@ type Props = {
   amountRoundingScale: AmountRoundingScale;
   /** DaData настроена: при создании контрагента реквизиты подтянутся по ИНН. */
   dadataEnabled: boolean;
+  /** Пояс аккаунта: какой это день у операции. */
+  timeZone: string;
 };
 
 type FormState = {
@@ -136,6 +139,7 @@ export function TransactionFormSheet({
   currentUserId,
   amountRoundingScale,
   dadataEnabled,
+  timeZone,
 }: Props) {
   const router = useRouter();
   const open = mode.kind !== "closed";
@@ -201,8 +205,8 @@ export function TransactionFormSheet({
       setLocalAccounts([]);
       return;
     }
-    if (mode.kind === "edit") setForm(formFromTransaction(mode.transaction));
-    else if (mode.copyOf) setForm({ ...formFromTransaction(mode.copyOf), date: todayIso() });
+    if (mode.kind === "edit") setForm(formFromTransaction(mode.transaction, timeZone));
+    else if (mode.copyOf) setForm({ ...formFromTransaction(mode.copyOf, timeZone), date: todayIso() });
     else setForm(emptyForm(mode.type, bankAccountsProp, preferredAccountId, preferredVenueId));
     setPendingFiles([]);
     setErrors({});
@@ -876,7 +880,12 @@ function emptyForm(
   };
 }
 
-function formFromTransaction(tx: TransactionRow): FormState {
+/**
+ * Дата — календарный день в поясе аккаунта: у выплаты в 01:30 по Москве
+ * 22-го это 22-е, а не 21-е по UTC. Сохранение такого дня возвращает
+ * операцию в тот же день.
+ */
+function formFromTransaction(tx: TransactionRow, timeZone: string): FormState {
   return {
     type: tx.type,
     amount: Number(tx.amount),
@@ -884,7 +893,7 @@ function formFromTransaction(tx: TransactionRow): FormState {
     to_bank_account_id: tx.to_bank_account_id ?? "",
     category_id: tx.category_id ?? null,
     counterparty_id: tx.counterparty_id ?? null,
-    date: tx.date.slice(0, 10),
+    date: calendarDateInZone(tx.date, timeZone),
     description: tx.description ?? "",
     venue_id: tx.venue_id ?? null,
   };

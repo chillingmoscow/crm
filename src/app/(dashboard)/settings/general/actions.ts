@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { normalizeAmountRoundingScale } from "@/lib/format/amount";
+import { TIMEZONES } from "@/lib/constants";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import {
@@ -28,12 +29,17 @@ export async function updateGeneralSettings(formData: FormData) {
 
   const amountRoundingScale = normalizeAmountRoundingScale(formData.get("amountRoundingScale"));
   const inventoryAiSuggestionsEnabled = formData.get("inventoryAiSuggestionsEnabled") === "1";
+  // Пояс — только из списка интерфейса: все они от UTC+0 до UTC+12, и ручные
+  // операции (полночь UTC) остаются в своём дне.
+  const timezoneValue = String(formData.get("timezone") ?? "");
+  const timezone = TIMEZONES.some((t) => t.value === timezoneValue) ? timezoneValue : null;
   const admin = asLooseDb(createAdminClient());
   const { error } = await admin
     .from("accounts")
     .update({
       amount_rounding_scale: amountRoundingScale,
       inventory_ai_suggestions_enabled: inventoryAiSuggestionsEnabled,
+      ...(timezone ? { timezone } : {}),
     })
     .eq("id", accountId);
 
@@ -41,6 +47,8 @@ export async function updateGeneralSettings(formData: FormData) {
   revalidatePath("/settings/general");
   revalidatePath("/finance");
   revalidatePath("/finance/transactions");
+  revalidatePath("/finance/categories");
+  revalidatePath("/finance/counterparties");
   revalidatePath("/finance/accounts");
   revalidatePath("/catalog/ingredients");
   revalidatePath("/documents/inventory");

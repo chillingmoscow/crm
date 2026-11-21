@@ -15,7 +15,10 @@ import { listCounterparties } from "@/lib/finance/counterparties";
 import { getTransaction, queryTransactions } from "@/lib/finance/transactions";
 import { getActiveFinanceLegalEntityId } from "@/lib/finance/active-legal-entity";
 import { parseTransactionQuery } from "@/lib/finance/transaction-query";
-import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
+import {
+  getActiveAccountAmountRoundingScale,
+  getActiveAccountTimezone,
+} from "@/lib/settings/account";
 
 import { TransactionsPage } from "./_components/transactions-page";
 
@@ -28,7 +31,7 @@ type SearchParams = Record<string, string | string[] | undefined>;
  *
  * Адрес — источник условий списка: фильтры, поиск, сортировка, страница,
  * режим «Удалённые» (разбор — `parseTransactionQuery`). Строки, итоги и
- * счётчики приходят одним вызовом `finance_transactions_page` (миграция 370).
+ * счётчики приходят одним вызовом `finance_transactions_page` (миграция 371).
  *
  * Права:
  * - finance.view_transactions — вход на страницу;
@@ -105,6 +108,7 @@ export default async function TransactionsServerPage({
     amountRoundingScale,
     { rows: venues },
     activeVenueId,
+    timeZone,
   ] = await Promise.all([
     queryTransactions({
       filters: effectiveFilters,
@@ -120,6 +124,7 @@ export default async function TransactionsServerPage({
     getActiveAccountAmountRoundingScale(),
     listAccountVenues({ liveOnly: true }),
     getActiveVenueId(),
+    getActiveAccountTimezone(),
   ]);
 
   // ?page=999 или страница, опустевшая после удаления, — показываем
@@ -163,6 +168,7 @@ export default async function TransactionsServerPage({
       currentUserId={user?.id ?? null}
       amountRoundingScale={amountRoundingScale}
       dadataEnabled={isDadataConfigured()}
+      timeZone={timeZone}
     />
   );
 }

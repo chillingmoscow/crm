@@ -12,6 +12,8 @@ import { fetchTransactionsPage } from "@/lib/finance/transactions-page-query";
 import { getActiveFinanceLegalEntityId } from "@/lib/finance/active-legal-entity";
 import { parseTransactionQuery } from "@/lib/finance/transaction-query";
 import type { TransactionRow } from "@/types/finance";
+import { getActiveAccountTimezone } from "@/lib/settings/account";
+import { calendarDateInZone } from "@/lib/format/zoned-day";
 
 /**
  * Hard cap on rows per export — protects the server / browser from
@@ -96,6 +98,7 @@ export async function GET(request: Request) {
     { rows: bankAccounts },
     { rows: categories },
     { rows: counterparties },
+    timeZone,
   ] = await Promise.all([
     // One extra row tells «too many» without counting twice.
     fetchTransactionsPage({
@@ -109,6 +112,7 @@ export async function GET(request: Request) {
     listBankAccounts({ include_deleted: true }),
     listFinanceCategories({ include_inactive: true }),
     listCounterparties({ include_deleted: true }),
+    getActiveAccountTimezone(),
   ]);
 
   if (result.error) {
@@ -161,7 +165,7 @@ export async function GET(request: Request) {
 
   for (const tx of allRows) {
     const row = [
-      formatIsoDate(tx.date),
+      calendarDateInZone(tx.date, timeZone),
       String(tx.public_id),
       TYPE_LABEL[tx.type],
       // Numeric: dot decimal, no thousand separator — keeps cells
@@ -184,7 +188,7 @@ export async function GET(request: Request) {
       SOURCE_LABEL[tx.source] ?? tx.source,
       tx.description ?? "",
       tx.deleted_at ? "да" : "",
-      formatIsoDateTime(tx.created_at),
+      formatDateTimeInZone(tx.created_at, timeZone),
     ];
     lines.push(row.map(csvCell).join(";"));
   }
@@ -237,12 +241,15 @@ function sanitiseIsoDate(value: string | undefined | null): string | null {
   return /^[\d-]{1,10}$/.test(value) ? value : null;
 }
 
-function formatIsoDate(iso: string): string {
-  return iso.slice(0, 10);
-}
-
-function formatIsoDateTime(iso: string): string {
-  // YYYY-MM-DD HH:mm — dropping the seconds + timezone so cells fit
-  // a default Excel column. UTC by default.
-  return iso.slice(0, 16).replace("T", " ");
+/** `ГГГГ-ММ-ДД ЧЧ:мм` в поясе аккаунта — короткая ячейка для Excel. */
+function formatDateTimeInZone(iso: string, timeZone: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso.slice(0, 16).replace("T", " ");
+  const time = new Intl.DateTimeFormat("ru-RU", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+  return `${calendarDateInZone(iso, timeZone)} ${time}`;
 }

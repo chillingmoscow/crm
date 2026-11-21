@@ -183,6 +183,7 @@ export type Database = {
           logo_url: string | null
           name: string
           owner_id: string
+          timezone: string
         }
         Insert: {
           ai_enabled?: boolean
@@ -192,6 +193,7 @@ export type Database = {
           logo_url?: string | null
           name: string
           owner_id: string
+          timezone?: string
         }
         Update: {
           ai_enabled?: boolean
@@ -201,6 +203,7 @@ export type Database = {
           logo_url?: string | null
           name?: string
           owner_id?: string
+          timezone?: string
         }
         Relationships: []
       }
@@ -2970,6 +2973,7 @@ export type Database = {
         Returns: number
       }
       get_active_account_id: { Args: never; Returns: string }
+      get_active_account_timezone: { Args: never; Returns: string }
       get_active_legal_entity_id: { Args: never; Returns: string }
       get_active_venue_id: { Args: never; Returns: string }
       get_effective_role_permissions: {

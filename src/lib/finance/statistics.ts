@@ -1,14 +1,30 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { dayEndExclusiveInZone, dayStartInZone } from "@/lib/format/zoned-day";
+import { getActiveAccountTimezone } from "@/lib/settings/account";
 import type { TransactionRow } from "@/types/finance";
+
+/**
+ * Границы периода — дни в поясе аккаунта, конец включительно: как в
+ * «Транзакциях» (`finance_transactions_page`). Раньше `lte(date_to)`
+ * сравнивал с полуночью UTC, и выплаты, проведённые днём, выпадали.
+ */
+async function dayBounds(range: StatisticsRange): Promise<{ from: string | null; toExclusive: string | null }> {
+  if (!range.date_from && !range.date_to) return { from: null, toExclusive: null };
+  const timeZone = await getActiveAccountTimezone();
+  return {
+    from: range.date_from ? dayStartInZone(range.date_from.slice(0, 10), timeZone) : null,
+    toExclusive: range.date_to ? dayEndExclusiveInZone(range.date_to.slice(0, 10), timeZone) : null,
+  };
+}
 
 // ─── Inputs ─────────────────────────────────────────────────────────────────
 
 export type StatisticsRange = {
-  /** ISO date (inclusive) — applied to transactions.date. */
+  /** `YYYY-MM-DD`, включительно, день в поясе аккаунта. */
   date_from?: string;
-  /** ISO date (inclusive). */
+  /** `YYYY-MM-DD`, включительно, день в поясе аккаунта. */
   date_to?: string;
   /** Restrict to a single legal entity. */
   legal_entity_id?: string;
@@ -77,8 +93,9 @@ export async function getIncomeExpenseSummary(
     .is("deleted_at", null)
     .neq("type", "transfer");
 
-  if (range.date_from)       query = query.gte("date", range.date_from);
-  if (range.date_to)         query = query.lte("date", range.date_to);
+  const bounds = await dayBounds(range);
+  if (bounds.from)           query = query.gte("date", bounds.from);
+  if (bounds.toExclusive)    query = query.lt("date", bounds.toExclusive);
   if (range.legal_entity_id) query = query.eq("legal_entity_id", range.legal_entity_id);
   if (range.venue_id)        query = query.eq("venue_id", range.venue_id);
 
@@ -130,8 +147,9 @@ export async function getTopExpenseCategories(
     .is("deleted_at", null)
     .eq("type", "expense");
 
-  if (range.date_from)       query = query.gte("date", range.date_from);
-  if (range.date_to)         query = query.lte("date", range.date_to);
+  const bounds = await dayBounds(range);
+  if (bounds.from)           query = query.gte("date", bounds.from);
+  if (bounds.toExclusive)    query = query.lt("date", bounds.toExclusive);
   if (range.legal_entity_id) query = query.eq("legal_entity_id", range.legal_entity_id);
   if (range.venue_id)        query = query.eq("venue_id", range.venue_id);
 

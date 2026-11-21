@@ -42,6 +42,7 @@ import {
   ChartNoAxesCombined,
   Wallet,
   Warehouse,
+  Wand2,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -264,6 +265,13 @@ const NAV_SECTIONS: NavSection[] = [
         href: "/finance/counterparties",
         icon: Users,
         permission: "finance.view_counterparties",
+      },
+      {
+        title: "Правила",
+        href: "/finance/rules",
+        icon: Wand2,
+        // Видит тот, кто видит операции, или тот, кто правила настраивает.
+        permissions: ["finance.view_transactions", "finance.manage_posting_rules"],
       },
     ],
   },

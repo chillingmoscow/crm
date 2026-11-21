@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { isDadataConfigured } from "@/lib/dadata/client";
+import { listArchivedRuleVenueIds, listPostingRules } from "@/lib/finance/posting-rules/server";
 
 import {
   getCachedPermissionChecker,
@@ -109,6 +110,7 @@ export default async function TransactionsServerPage({
     { rows: venues },
     activeVenueId,
     timeZone,
+    postingRules,
   ] = await Promise.all([
     queryTransactions({
       filters: effectiveFilters,
@@ -125,7 +127,14 @@ export default async function TransactionsServerPage({
     listAccountVenues({ liveOnly: true }),
     getActiveVenueId(),
     getActiveAccountTimezone(),
+    // Правила — подсказка для ввода: их сбой (например, миграция ещё не
+    // докатилась) не должен ломать список операций.
+    listPostingRules().catch(() => []),
   ]);
+
+  // Правило с архивным заведением не срабатывает целиком, как и на
+  // странице «Правила»; без этого форма подставила бы его статью.
+  const postingRuleArchivedIds = await listArchivedRuleVenueIds(postingRules).catch(() => []);
 
   // ?page=999 или страница, опустевшая после удаления, — показываем
   // последнюю существующую, а не пустую таблицу с «Операций пока нет».
@@ -169,6 +178,8 @@ export default async function TransactionsServerPage({
       amountRoundingScale={amountRoundingScale}
       dadataEnabled={isDadataConfigured()}
       timeZone={timeZone}
+      postingRules={postingRules}
+      postingRuleArchivedIds={postingRuleArchivedIds}
     />
   );
 }

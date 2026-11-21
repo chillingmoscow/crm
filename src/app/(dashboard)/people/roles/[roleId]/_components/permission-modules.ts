@@ -392,7 +392,7 @@ const FINANCE: PermissionSectionDef = {
       id: "manage",
       label: "Управление",
       description:
-        "правит и удаляет любые транзакции и файлы, ведёт счета, статьи и контрагентов",
+        "правит и удаляет любые транзакции и файлы, ведёт счета, статьи, контрагентов и правила разнесения",
       add: [
         "finance.update_any_transaction",
         "finance.delete_transaction",
@@ -400,6 +400,7 @@ const FINANCE: PermissionSectionDef = {
         "finance.manage_bank_accounts",
         "finance.manage_categories",
         "finance.manage_counterparties",
+        "finance.manage_posting_rules",
       ],
     },
     {

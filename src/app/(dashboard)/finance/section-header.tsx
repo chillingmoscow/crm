@@ -2,18 +2,16 @@
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
-/**
- * Плашка «Финансы» с переключателем юрлица. Страницы, приведённые к эталону
- * списка (хлебные крошки в верхней панели, свой заголовок), её не
- * показывают: второй заголовок над h1 страницы лишний. На «Транзакциях»
- * юрлицо выбирается чипом в ряду условий.
- */
 export function FinanceSectionHeader({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  // Страницы, приведённые к эталону (DS «Page header»), рисуют свою шапку и
+  // хлебные крошки; второй заголовок «Финансы» над ними лишний. Юрлицо
+  // «Счета и кассы» и «Транзакции» выбирают фильтром в строке условий.
   if (
     pathname === "/finance/payroll" ||
     pathname?.startsWith("/finance/payroll/") ||
-    pathname === "/finance/supplies" ||
+    pathname === "/finance/accounts" ||
+    pathname?.startsWith("/finance/accounts/") ||
     pathname === "/finance/transactions"
   )
     return null;

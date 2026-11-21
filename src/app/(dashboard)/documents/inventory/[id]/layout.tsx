@@ -10,6 +10,10 @@ import {
 } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 
+import { PageFrame } from "@/components/shared/page-frame";
+import { canFillInventoryAct, getDeleteLockReason } from "@/lib/inventory/act-status";
+import { formatDayMonth } from "@/lib/format/date";
+
 import { DocumentActHeader } from "./_components/document-act-header";
 
 type DocumentBasicsRow = {
@@ -34,6 +38,7 @@ type DocumentBasicsRow = {
   last_returned_at: string | null;
   recount_count: number | null;
   archived_at: string | null;
+  invoice_date: string | null;
 };
 
 type StoreTitleRow = { title: string };
@@ -48,7 +53,7 @@ export const getCachedInventoryDocumentBasics = cache(async (id: string, account
   const { data, error } = await admin
     .from<DocumentBasicsRow>("documents")
     .select(
-      "id, account_id, document_number, status, processed, results_has_line_amounts, assigned_to, reviewer_id, store_id, venue_id, results_reopened_after_processed, recount_of_document_id, results_snapshot_at, base_last_update_date, synced_at, last_returned_at, recount_count, archived_at",
+      "id, account_id, document_number, status, processed, results_has_line_amounts, assigned_to, reviewer_id, store_id, venue_id, results_reopened_after_processed, recount_of_document_id, results_snapshot_at, base_last_update_date, synced_at, last_returned_at, recount_count, archived_at, invoice_date",
     )
     .eq("id", id)
     .eq("account_id", accountId)
@@ -65,6 +70,17 @@ export const getCachedStoreTitle = cache(async (storeId: string) => {
     .eq("id", storeId)
     .maybeSingle();
   return data?.title ?? null;
+});
+
+/** Часовой пояс заведения акта: дата акта — момент времени, день считаем в нём. */
+export const getCachedVenueTimezone = cache(async (venueId: string) => {
+  const admin = asLooseDb(createAdminClient());
+  const { data } = await admin
+    .from<{ timezone: string | null }>("venues")
+    .select("timezone")
+    .eq("id", venueId)
+    .maybeSingle();
+  return data?.timezone ?? null;
 });
 
 /**
@@ -132,9 +148,21 @@ export default async function InventoryDocumentLayout({
     (isReviewerMe && Boolean(canRecountDocuments));
   if (!canSeeAct || !venueOk) redirect("/documents/inventory");
 
-  const storeTitle = document.store_id ? await getCachedStoreTitle(document.store_id) : null;
+  const [storeTitle, venueTimezone] = await Promise.all([
+    document.store_id ? getCachedStoreTitle(document.store_id) : Promise.resolve(null),
+    document.venue_id ? getCachedVenueTimezone(document.venue_id) : Promise.resolve(null),
+  ]);
 
-  const showFillingTab = Boolean(canView) || (Boolean(canFill) && isAssignedToMe);
+  // Вкладка «Форма»: зритель актов или тот, кто может заполнять этот акт
+  // (исполнитель, проверяющий, управляющий — canFillInventoryAct).
+  const showFillingTab =
+    Boolean(canView) ||
+    canFillInventoryAct({
+      permissions,
+      userId: user.id,
+      assignedTo: document.assigned_to,
+      reviewerId: document.reviewer_id,
+    });
   // Итоги: право view_results ИЛИ назначенный исполнитель — но таб показываем
   // только после ПРОВЕДЕНИЯ акта (в процессе заполнения линейный сотрудник
   // итоги не видит; страница результатов зеркалит это ограничение).
@@ -163,25 +191,35 @@ export default async function InventoryDocumentLayout({
     ? { id: parentDoc.id, documentNumber: parentDoc.document_number }
     : null;
 
+  // «Опасная зона» — только когда удаление сейчас доступно: вкладку, где
+  // ничего нельзя сделать, не показываем (design-system § «Опасная зона»).
+  const canDelete =
+    Boolean(canManage) &&
+    getDeleteLockReason({
+      status: document.status,
+      resultsSnapshotAt: document.results_snapshot_at,
+    }) === null;
+
   return (
-    <div className="flex w-full flex-1 flex-col">
+    <PageFrame className="flex flex-col gap-6">
       <DocumentActHeader
         documentId={document.id}
         documentNumber={document.document_number}
         status={document.status}
         storeTitle={storeTitle}
+        invoiceDate={formatDayMonth(document.invoice_date, new Date(), venueTimezone ?? undefined)}
         canFill={showFillingTab}
         canViewResults={showResultsTab}
         // Журнал гейтим настоящим view_results: history/page.tsx редиректит без
         // него, а read-only исполнителю (showResultsTab по assigned+processed)
         // журнал не положен — иначе таб «Журнал» отбрасывал бы обратно (Codex P2).
         canViewJournal={Boolean(canViewResults)}
-        canManage={Boolean(canManage)}
+        canDelete={canDelete}
         resultsAvailable={resultsAvailable}
         reopenedAfterProcessed={document.results_reopened_after_processed}
         recountParent={recountParent}
       />
       {children}
-    </div>
+    </PageFrame>
   );
 }

@@ -20,8 +20,11 @@ import { IntegrationsHelp, OfficeCodesHelp, QuickRestoHelp, TelegramHelp, TildaH
 
 import { InventoryActsHelp } from "@/app/(dashboard)/documents/inventory/_components/inventory-acts-help";
 import { CatalogHelp } from "@/app/(dashboard)/catalog/_components/catalog-help";
+import { WriteoffsHelp } from "@/app/(dashboard)/documents/writeoffs/_components/writeoffs-help";
 import { AuditHelp } from "@/app/(dashboard)/org/audit/_components/audit-help";
 import { StoresHelp } from "@/app/(dashboard)/org/stores/_components/stores-help";
+import { AccountsHelp } from "@/app/(dashboard)/finance/accounts/_components/accounts-help";
+import { SuppliesHelp } from "@/app/(dashboard)/documents/supplies/supplies-help";
 import { TransactionsHelp } from "@/app/(dashboard)/finance/transactions/_components/transactions-help";
 
 /**
@@ -58,6 +61,8 @@ export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
   { match: p => p === "/people/roles" || p.startsWith("/people/roles/"), title: "Должности", Content: RolesHelp },
   { match: p => p === "/people/departments" || p.startsWith("/people/departments/"), title: "Подразделения", Content: DepartmentsHelp },
   { match: p => p === "/org/stores", title: "Склады", Content: StoresHelp },
+  { match: p => p === "/finance/accounts" || p.startsWith("/finance/accounts/"), title: "Счета и кассы", Content: AccountsHelp },
+  { match: p => p === "/documents/supplies", title: "Приходные накладные", Content: SuppliesHelp },
   { match: p => p === "/finance/transactions", title: "Транзакции", Content: TransactionsHelp },
   { match: p => p === "/notifications", title: "Уведомления", Content: NotificationsHelp },
   { match: p => p === "/org/legal-entities" || p.startsWith("/org/legal-entities/"), title: "Юридические лица", Content: LegalEntitiesHelp },
@@ -94,6 +99,7 @@ export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
     title: "Номенклатура",
     Content: CatalogHelp,
   },
+  { match: (p) => p === "/documents/writeoffs", title: "Списания", Content: WriteoffsHelp },
   { match: (p) => p === "/org/audit", title: "Журнал событий", Content: AuditHelp },
 ];
 

@@ -1,12 +1,15 @@
 /**
- * Бейдж статуса акта инвентаризации. Один источник правды для
- * цветов в light/dark — раньше STATUS_BADGE_CLASS дублировался
- * в documents-table.tsx и document-act-header.tsx со светлыми
- * значениями (на тёмной теме читалось плохо).
+ * Бейдж статуса акта инвентаризации. Один источник правды для подписи и тона
+ * статуса — список актов, шапка акта, справка, сличение удержания.
+ *
+ * Палитра — общая (`StatusBadge`, design-system § «Статусные бейджи»): один
+ * рецепт на обе темы, без рамки. Соседние этапы процесса не делят цвет:
+ * «Назначен» синий, «В работе» янтарный, «Готов к проверке» фиолетовый,
+ * «Проведен» зелёный; «На пересчёте» и «Итоги требуют проверки» — красные,
+ * они требуют действия менеджера.
  */
 
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { StatusBadge, statusTones, type StatusTone } from "@/components/ui/status-badge";
 
 export const INVENTORY_STATUS_LABEL: Record<string, string> = {
   synced: "Новый",
@@ -18,52 +21,22 @@ export const INVENTORY_STATUS_LABEL: Record<string, string> = {
   results_blocked: "Итоги требуют проверки",
 };
 
-// Янтарная палитра «требует внимания». Вынесена, чтобы маркеры вне актов
-// (например, «Подразделение не задано» в справочнике складов) брали те же
-// токены, а не копировали строку.
-export const WARNING_BADGE_CLASS =
-  "bg-amber-50 dark:bg-amber-500/15 " +
-  "text-amber-700 dark:text-amber-300 " +
-  "border-amber-200 dark:border-amber-500/30";
-
-// Dark-варианты по образцу staff-detail-page (см. memory
-// feedback_design_system_first и docs/design-system.md):
-// — light: bg-{color}-100, text-{color}-700, border-{color}-200
-// — dark:  bg-{color}-500/15, text-{color}-300/400, border-{color}-500/30
-const STATUS_BADGE_CLASS: Record<string, string> = {
-  synced:
-    "bg-slate-100 dark:bg-slate-500/15 " +
-    "text-slate-700 dark:text-slate-300 " +
-    "border-slate-200 dark:border-slate-500/30",
-  assigned:
-    "bg-blue-50 dark:bg-blue-500/15 " +
-    "text-blue-700 dark:text-blue-300 " +
-    "border-blue-200 dark:border-blue-500/30",
-  in_progress: WARNING_BADGE_CLASS,
-  ready_for_review:
-    "bg-violet-50 dark:bg-violet-500/15 " +
-    "text-violet-700 dark:text-violet-300 " +
-    "border-violet-200 dark:border-violet-500/30",
-  // recount_pending — rose-токен, как destructive, но мягче: акт «отозван
-  // менеджером» — состояние требует внимания, не ошибка.
-  recount_pending:
-    "bg-rose-50 dark:bg-rose-500/15 " +
-    "text-rose-700 dark:text-rose-300 " +
-    "border-rose-200 dark:border-rose-500/30",
-  processed:
-    "bg-emerald-50 dark:bg-emerald-500/15 " +
-    "text-emerald-700 dark:text-emerald-400 " +
-    "border-emerald-200 dark:border-emerald-500/30",
-  results_blocked:
-    "bg-rose-50 dark:bg-rose-500/15 " +
-    "text-rose-700 dark:text-rose-300 " +
-    "border-rose-200 dark:border-rose-500/30",
+export const INVENTORY_STATUS_TONE: Record<string, StatusTone> = {
+  synced: "neutral",
+  assigned: "info",
+  in_progress: "warning",
+  ready_for_review: "accent",
+  recount_pending: "danger",
+  processed: "success",
+  results_blocked: "danger",
 };
 
-const STATUS_FALLBACK_CLASS =
-  "bg-slate-50 dark:bg-slate-500/15 " +
-  "text-slate-700 dark:text-slate-300 " +
-  "border-slate-200 dark:border-slate-500/30";
+/**
+ * Янтарный тон «требует внимания» для маркеров вне актов (например,
+ * «Подразделение не задано» в справочнике складов). Тот же рецепт, что у
+ * `StatusBadge tone="warning"`; новые места берут сам `StatusBadge`.
+ */
+export const WARNING_BADGE_CLASS = statusTones.warning;
 
 export function InventoryStatusBadge({
   status,
@@ -77,19 +50,13 @@ export function InventoryStatusBadge({
 }) {
   const label = labelOverride ?? INVENTORY_STATUS_LABEL[status] ?? status;
   return (
-    <Badge
-      variant="outline"
-      data-tip={label}
-      className={cn(
-        // max-w-full + overflow-hidden + внутренний truncate: в узком столбце
-        // чип усекается многоточием, сохраняя скруглённую рамку и паддинги,
-        // а не режется жёстко краем ячейки (td overflow-hidden).
-        "max-w-full overflow-hidden text-xs font-normal",
-        STATUS_BADGE_CLASS[status] ?? STATUS_FALLBACK_CLASS,
-        className,
-      )}
+    <StatusBadge
+      tone={INVENTORY_STATUS_TONE[status] ?? "neutral"}
+      // Подсказка с полной подписью: в узком столбце чип усекается многоточием.
+      tip={label}
+      className={className}
     >
-      <span className="min-w-0 truncate">{label}</span>
-    </Badge>
+      {label}
+    </StatusBadge>
   );
 }

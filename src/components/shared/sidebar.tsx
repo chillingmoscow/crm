@@ -248,16 +248,10 @@ const NAV_SECTIONS: NavSection[] = [
         permission: "finance.view_transactions",
       },
       {
-        title: "Счета",
+        title: "Счета и кассы",
         href: "/finance/accounts",
         icon: Wallet,
         permission: "finance.view_bank_accounts",
-      },
-      {
-        title: "Поставки",
-        href: "/finance/supplies",
-        icon: PackageSearch,
-        permission: "finance.view_transactions",
       },
       {
         title: "Статьи",
@@ -303,7 +297,7 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    // Учётные документы и журнал складских списаний.
+    // Учётные документы: акты инвентаризации, приходные накладные, списания.
     label: "Документы",
     icon: ClipboardList,
     items: [
@@ -317,6 +311,14 @@ const NAV_SECTIONS: NavSection[] = [
           "inventory.fill_assigned_documents",
         ],
         roles: ["owner", "admin", "manager", "hostess", "waiter"],
+      },
+      {
+        // Приходные накладные Quick Resto и их оплата. Жили в «Финансах» как
+        // «Поставки»; это учётный документ, как акты и списания.
+        title: "Приходные накладные",
+        href: "/documents/supplies",
+        icon: PackageSearch,
+        permission: "finance.view_transactions",
       },
       {
         title: "Списания",

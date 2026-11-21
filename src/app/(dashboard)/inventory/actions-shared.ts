@@ -1220,6 +1220,10 @@ export async function refreshLocalInventoryDocumentFromPayload(input: {
   documentId: string;
   document: QuickRestoInventoryDocument2;
   status?: string;
+  /** Не трогать статус акта вовсе: обновление данных, а не переход (сверка
+   *  перед проведением). Иначе статус, прочитанный вызывающим заранее, мог бы
+   *  затереть переход, случившийся за это время. */
+  keepStatus?: boolean;
   submittedAmounts?: Map<string, number | null>;
 }) {
   const itemsPreview = inventoryDocumentItems(input.document);
@@ -1265,22 +1269,111 @@ export async function refreshLocalInventoryDocumentFromPayload(input: {
     return syncResult;
   }
 
-  const { error } = await input.admin
-    .from("documents")
-    .update({
-      status,
-      processed: Boolean(input.document.processed),
-      base_last_update_date: dateText(input.document.lastUpdateDate),
-      last_qr_update_date: dateText(input.document.lastUpdateDate),
-      ...quickRestoDocumentSums(input.document),
-      results_has_line_amounts: syncResult.resultsFound,
-      synced_at: new Date().toISOString(),
-    })
-    .eq("id", input.documentId)
-    .eq("account_id", input.accountId);
-  if (error) throw new Error(error.message);
+  const metadata = {
+    processed: Boolean(input.document.processed),
+    base_last_update_date: dateText(input.document.lastUpdateDate),
+    last_qr_update_date: dateText(input.document.lastUpdateDate),
+    ...quickRestoDocumentSums(input.document),
+    results_has_line_amounts: syncResult.resultsFound,
+    synced_at: new Date().toISOString(),
+  };
+  const writeMetadata = async () => {
+    const { error } = await input.admin
+      .from("documents")
+      .update(metadata)
+      .eq("id", input.documentId)
+      .eq("account_id", input.accountId);
+    if (error) throw new Error(error.message);
+  };
+
+  // Статус пишем, только если он реально меняется, и только поверх того
+  // значения, от которого его считали. Раньше статус записывался безусловно:
+  // «Вернуть на пересчёт», случившийся между чтением и записью, откатывался
+  // обратно в «Готов к проверке». Проиграли гонку — переход другого действия
+  // важнее, данные акта всё равно обновляем.
+  const currentStatus = currentDoc?.status ?? null;
+  if (input.keepStatus || !currentStatus || status === currentStatus) {
+    await writeMetadata();
+    return syncResult;
+  }
+  const applied = await transitionDocumentStatus({
+    admin: input.admin,
+    accountId: input.accountId,
+    documentId: input.documentId,
+    from: [currentStatus],
+    patch: { status, ...metadata },
+  });
+  if (!applied) await writeMetadata();
 
   return syncResult;
+}
+
+/**
+ * Свежая проверка «акт всё ещё в статусе из `from`» — прямо перед внешним
+ * необратимым шагом (Quick Resto). Сам по себе гонку не закрывает (между
+ * чтением и вызовом QR остаётся окно), но сжимает его с «всё время экшена»
+ * до одного запроса; финальную запись всё равно делать через
+ * transitionDocumentStatus.
+ */
+export async function isDocumentStatusStill(input: {
+  admin: LooseDb;
+  accountId: string;
+  documentId: string;
+  from: readonly string[];
+  finalized?: "open" | "finalized";
+}): Promise<boolean> {
+  if (input.from.length === 0) return false;
+  let query = input.admin
+    .from<{ id: string }>("documents")
+    .select("id")
+    .eq("id", input.documentId)
+    .eq("account_id", input.accountId)
+    .in("status", [...input.from]);
+  if (input.finalized === "open") query = query.is("results_finalized_at", null);
+  if (input.finalized === "finalized") query = query.not("results_finalized_at", "is", null);
+  const { data, error } = await query.maybeSingle();
+  if (error) throw new Error(error.message);
+  return Boolean(data?.id);
+}
+
+/** Ответ экшена, проигравшего гонку за статус акта. */
+export const DOCUMENT_CHANGED_ERROR = "Акт только что изменили. Обновите страницу и повторите";
+
+/**
+ * Атомарный переход акта по статусной машине: UPDATE применяется, только если
+ * статус всё ещё один из `from` (и, по желанию, итоги не финализированы /
+ * финализированы). Возвращает true, если строка обновилась.
+ *
+ * Зачем: экшены читают статус, долго работают (Quick Resto), а потом писали
+ * новый статус безусловно — параллельные действия перетирали друг друга
+ * («Вернуть на пересчёт» против «Подвести итоги» оставляла акт на пересчёте с
+ * финализированными итогами). Условие в самом UPDATE — это compare-and-set на
+ * стороне Postgres: из двух гонщиков применится ровно один.
+ *
+ * false — не ошибка БД, а «акт уже изменили»: вызывающий отвечает
+ * DOCUMENT_CHANGED_ERROR. Ошибку БД бросаем.
+ */
+export async function transitionDocumentStatus(input: {
+  admin: LooseDb;
+  accountId: string;
+  documentId: string;
+  from: readonly string[];
+  patch: Record<string, unknown>;
+  /** "open" — results_finalized_at is null; "finalized" — not null. */
+  finalized?: "open" | "finalized";
+}): Promise<boolean> {
+  if (input.from.length === 0) return false;
+  let query = input.admin
+    .from<Array<{ id: string }>>("documents")
+    .update(input.patch)
+    .eq("id", input.documentId)
+    .eq("account_id", input.accountId)
+    .in("status", [...input.from]);
+  if (input.finalized === "open") query = query.is("results_finalized_at", null);
+  if (input.finalized === "finalized") query = query.not("results_finalized_at", "is", null);
+  const { data, error } = await query.select("id");
+  if (error) throw new Error(error.message);
+  return (data ?? []).length > 0;
 }
 
 export function amountsEqual(left: number | null | undefined, right: number | null | undefined) {
@@ -1449,7 +1542,21 @@ export async function writeInventoryResultEvent(input: {
     payload,
     created_by: input.userId,
   });
-  await writeInventoryAudit(input, payload);
+  await writeInventoryAudit(input, payload, {
+    message: input.message,
+    itemIds: [input.documentItemId ?? null, ...payloadItemIds(payload)],
+  });
+}
+
+/** id строк акта, которых касается событие: одиночный itemId и пачки. */
+function payloadItemIds(payload: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  if (typeof payload.itemId === "string") out.push(payload.itemId);
+  for (const key of ["flaggedItemIds", "itemIds"]) {
+    const value = payload[key];
+    if (Array.isArray(value)) out.push(...value.filter((v): v is string => typeof v === "string"));
+  }
+  return out;
 }
 
 /**
@@ -1490,31 +1597,63 @@ export async function writeInventoryResultEvents(input: {
   await writeInventoryAudit(
     input,
     input.auditPayload ?? { bulk: true, count: input.events.length },
+    {
+      message: input.events[0]?.message,
+      itemIds: input.events.map((event) => event.documentItemId ?? null),
+    },
   );
 }
 
-/** Строка общего журнала про акт. Раньше — rpc('log_audit') клиентом
- *  пользователя; прямой вызов закрыт миграцией 362, поэтому пишем
- *  серверно, с заведением активной сессии, как делала log_audit. */
+/** Строка общего журнала про акт: вкладка «Журнал» карточки акта читает
+ *  именно её (общий журнал событий, EntityAuditTab).
+ *
+ *  - заведение — заведение акта, а не активной сессии: проверяющий из
+ *    другого заведения иначе записывал событие не туда;
+ *  - в details кладём текст события (`message`) и названия позиций
+ *    (`item_names`, до пяти, и `item_count`): по одному коду события не
+ *    понять, какую строку отметили или исключили. */
 async function writeInventoryAudit(
   input: {
-    supabase: Awaited<ReturnType<typeof createClient>>;
+    admin: LooseDb;
     accountId: string;
     userId: string;
     documentId: string;
     eventType: string;
   },
   details: Record<string, unknown>,
+  extra: { message?: string; itemIds?: Array<string | null> } = {},
 ) {
-  const { data: venueId } = await input.supabase.rpc("get_active_venue_id");
+  const itemIds = Array.from(
+    new Set((extra.itemIds ?? []).filter((id): id is string => Boolean(id))),
+  );
+  const [{ data: document }, { data: items }] = await Promise.all([
+    input.admin
+      .from<{ venue_id: string | null }>("documents")
+      .select("venue_id")
+      .eq("account_id", input.accountId)
+      .eq("id", input.documentId)
+      .maybeSingle(),
+    itemIds.length > 0
+      ? input.admin
+          .from<Array<{ product_name: string }>>("document_items")
+          .select("product_name")
+          .eq("account_id", input.accountId)
+          .in("id", itemIds.slice(0, 50))
+      : Promise.resolve({ data: [] as Array<{ product_name: string }> }),
+  ]);
+  const names = (items ?? []).map((item) => item.product_name).filter(Boolean);
   await writeAuditEvent({
     accountId: input.accountId,
-    venueId: (venueId as string | null) ?? null,
+    venueId: document?.venue_id ?? null,
     userId: input.userId,
     actionCode: `inventory.${input.eventType}`,
     entityType: "inventory_document",
     entityId: input.documentId,
-    details,
+    details: {
+      ...details,
+      ...(extra.message ? { message: extra.message } : {}),
+      ...(names.length > 0 ? { item_names: names.slice(0, 5), item_count: itemIds.length } : {}),
+    },
   });
 }
 

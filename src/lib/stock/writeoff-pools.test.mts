@@ -288,6 +288,32 @@ test("журнал и расчёт одинаково понимают, что �
   assert.equal(writeoffCounts(doc(9, [1])), true);
 });
 
+test("журнал и расчёт: архивное подразделение и неизвестная сумма блокируют месяц", () => {
+  const dept = (id: number, key: string): WriteoffPoolAssignment => ({
+    venue_id: V,
+    external_id: id,
+    pool: "department",
+    key,
+  });
+  const active = new Set([DEPT]);
+  // Пометка на подразделение, которого нет среди действующих (архив).
+  assert.equal(
+    writeoffPoolState(doc(1, [10]), dept(1, "archived-dept"), { activeDepartments: active }),
+    "unassigned",
+  );
+  assert.equal(
+    writeoffPoolState(doc(2, [10]), dept(2, DEPT), { activeDepartments: active }),
+    "assigned",
+  );
+  // Сумма позиции неизвестна: разнесено, но расчёт его не примет.
+  const unknown = doc(3, [10]);
+  unknown.payload.lines.push({ ...unknown.payload.lines[0], id: 99, amount: null });
+  assert.equal(writeoffPoolState(unknown, shared(3)), "needs_check");
+  assert.equal(writeoffPoolState(unknown, excluded(3)), "assigned");
+  const r = writeoffPoolSources([unknown], [shared(3)]);
+  assert.deepEqual(r.unresolved, [ref(3)]);
+});
+
 test("сумма к разнесению: по позициям, неизвестная сумма даёт null", () => {
   assert.equal(writeoffChargeRubles("team", [{ amount: 10.01 }, { amount: 10.01 }]), 22);
   assert.equal(writeoffChargeRubles("personal", [{ amount: 10.4 }]), 10);

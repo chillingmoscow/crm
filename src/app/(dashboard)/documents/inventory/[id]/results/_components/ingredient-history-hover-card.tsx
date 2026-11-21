@@ -15,7 +15,8 @@ import {
   signedAmountClass,
   type AmountRoundingScale,
 } from "@/lib/format/amount";
-import { pluralRu } from "@/lib/format/plural";
+import { formatDateCell } from "@/lib/format/date";
+import { countRu } from "@/lib/format/plural";
 import { summarizeIngredientHistory } from "@/lib/inventory/ingredient-history-shared";
 import type { IngredientHistoryEntry } from "@/lib/inventory/ingredients";
 import { getInventoryIngredientHistory } from "@/app/(dashboard)/inventory/_actions/catalog";
@@ -126,7 +127,7 @@ function HistoryBody({
     return (
       <div className="flex items-start gap-2 py-1 text-sm text-muted-foreground">
         <History className="mt-0.5 h-4 w-4 shrink-0" />
-        Позиция впервые встречается в этом акте — сравнивать не с чем.
+        Позиция впервые встречается в этом акте, сравнивать не с чем
       </div>
     );
   }
@@ -149,7 +150,7 @@ function HistoryBody({
 
       {summary.countedActs > 0 ? (
         <p className="text-xs text-muted-foreground">
-          {summary.countedActs} {pluralRu(summary.countedActs, "акт", "акта", "актов")}
+          {countRu(summary.countedActs, "акт", "акта", "актов")}
           {breakdown.length > 0 ? `: ${breakdown.join(", ")}` : ""} · итого{" "}
           <span className={cn("font-medium tabular-nums", signedAmountClass(summary.netSum))}>
             {formatSignedMoney(summary.netSum, "RUB", amountRoundingScale)}
@@ -161,9 +162,7 @@ function HistoryBody({
         {entries.map((entry) => (
           <li key={entry.documentId} className="flex items-baseline gap-2 text-xs">
             <span className="w-16 shrink-0 tabular-nums text-muted-foreground">
-              {entry.invoiceDate
-                ? new Date(entry.invoiceDate).toLocaleDateString("ru-RU")
-                : "—"}
+              {formatDateCell(entry.invoiceDate) ?? "—"}
             </span>
             <span className="min-w-0 flex-1 truncate text-muted-foreground">
               {entry.documentNumber}
@@ -179,12 +178,12 @@ function HistoryBody({
             <span className="w-4 shrink-0">
               {entry.excluded ? (
                 <XCircle
-                  className="h-3.5 w-3.5 text-red-700 dark:text-red-400"
+                  className="h-3.5 w-3.5 text-destructive"
                   aria-label="Строка не учитывалась в итогах"
                 />
               ) : entry.resort ? (
                 <Repeat2
-                  className="h-3.5 w-3.5 text-blue-700 dark:text-blue-300"
+                  className="h-3.5 w-3.5 text-brand"
                   aria-label="Закрыто пересортом"
                 />
               ) : null}
@@ -196,17 +195,17 @@ function HistoryBody({
       {/* Легенда по строкам, а не сплошным абзацем: значок и его расшифровка
           должны читаться парой. Показываем только те значки, что реально есть в
           списке — объяснять отсутствующий смысла нет. */}
-      <div className="space-y-1 border-t pt-2 text-[11px] leading-snug text-muted-foreground">
+      <div className="space-y-1 border-t pt-2 text-xs leading-snug text-muted-foreground">
         <p>Разница фактическая.</p>
         {hasExcluded ? (
           <p className="flex items-start gap-1.5">
-            <XCircle className="mt-px h-3 w-3 shrink-0 text-red-700 dark:text-red-400" />
+            <XCircle className="mt-px h-3 w-3 shrink-0 text-destructive" />
             строка не учитывалась в итогах
           </p>
         ) : null}
         {hasResort ? (
           <p className="flex items-start gap-1.5">
-            <Repeat2 className="mt-px h-3 w-3 shrink-0 text-blue-700 dark:text-blue-300" />
+            <Repeat2 className="mt-px h-3 w-3 shrink-0 text-brand" />
             закрыта пересортом
           </p>
         ) : null}

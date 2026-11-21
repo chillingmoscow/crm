@@ -1,5 +1,7 @@
 "use server";
 
+import { collectChangeIds, resolveChangeIds } from "@/lib/audit/change-ids";
+import { deletedGroupNames } from "@/lib/finance/bank-account-groups";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { createClient } from "@/lib/supabase/server";
 
@@ -519,6 +521,34 @@ export async function listAuditEvents(input?: {
     }
   }
 
+  // Смена группы у счёта: триггер пишет id группы, в журнал — название.
+  const groupNames = new Map<string, string>();
+  const groupIds = [
+    ...new Set(
+      sliced.flatMap((r) => (r.entity_type === "bank_account" ? collectChangeIds(r.details, "group_id") : [])),
+    ),
+  ];
+  if (groupIds.length > 0) {
+    const { data: groupRows } = await supabase
+      .from("bank_account_groups")
+      .select("id, name")
+      .in("id", groupIds);
+    for (const g of groupRows ?? []) groupNames.set(g.id, g.name);
+    // Удалённые группы — по записям «изменил(а) группы счетов»: там рядом
+    // с id сохранено название. Такие правки редки, хватает последних 200.
+    if (groupIds.some((id) => !groupNames.has(id))) {
+      const { data: groupEvents } = await supabase
+        .from("audit_logs")
+        .select("details")
+        .eq("action_code", "finance.bank_account_group.changed")
+        .order("created_at", { ascending: false })
+        .limit(200);
+      for (const [id, name] of deletedGroupNames((groupEvents ?? []).map((e) => e.details))) {
+        if (!groupNames.has(id)) groupNames.set(id, name);
+      }
+    }
+  }
+
   const categoryIds = idsByType.get("finance_category");
   if (categoryIds && categoryIds.size > 0) {
     // archived_at — миграция 202, ещё не в Database-типах
@@ -719,7 +749,10 @@ export async function listAuditEvents(input?: {
       action_code: r.action_code,
       entity_type: r.entity_type,
       entity_id: r.entity_id,
-      details: r.details ?? {},
+      details:
+        r.entity_type === "bank_account" && r.details
+          ? resolveChangeIds(r.details, "group_id", groupNames, "удалённая группа")
+          : (r.details ?? {}),
       created_at: r.created_at,
       actor: actorRaw
         ? {

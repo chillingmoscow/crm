@@ -66,3 +66,27 @@ test("toIsoDate: локальная дата → yyyy-mm-dd", () => {
   assert.equal(toIsoDate(new Date(2026, 4, 22)), "2026-05-22");
   assert.equal(toIsoDate(new Date(2026, 0, 3)), "2026-01-03");
 });
+
+test("sortModesToSorting / sortingToSortModes — round-trip с порядком приоритета", async () => {
+  const { sortModesToSorting, sortingToSortModes } = await import("./documents-table-utils.ts");
+  const modes = ["status_asc", "date_desc", "number_asc"] as const;
+  const sorting = sortModesToSorting([...modes]);
+  assert.deepEqual(sorting, [
+    { id: "status", desc: false },
+    { id: "invoice_date", desc: true },
+    { id: "document_number", desc: false },
+  ]);
+  assert.deepEqual(sortingToSortModes(sorting), [...modes]);
+});
+
+test("sortingToSortModes пропускает чужие столбцы и повторы поля", async () => {
+  const { sortingToSortModes } = await import("./documents-table-utils.ts");
+  assert.deepEqual(
+    sortingToSortModes([
+      { id: "comment", desc: false },
+      { id: "invoice_date", desc: false },
+      { id: "invoice_date", desc: true },
+    ]),
+    ["date_asc"],
+  );
+});

@@ -10,11 +10,14 @@ import {
   CircleArrowUp,
   CreditCard,
   Crown,
+  ArrowDownToLine,
+  Split,
   FileEdit,
   FilePlus2,
   IdCard,
   Key,
   Landmark,
+  Layers,
   Lock,
   LockOpen,
   Mail,
@@ -41,8 +44,52 @@ import {guestAuditSpecs} from "./guests";
 import { candidateAuditSpecs } from "./candidates";
 import { catalogAuditSpecs } from "./catalog";
 import { scheduleAuditSpecs } from "./schedule";
+import { writeoffAuditSpecs } from "./writeoffs";
 import { ChangeLines } from "./change-lines";
 import { countRu } from "@/lib/format/plural";
+
+/** Строки под событием «изменил(а) группы счетов». */
+function BankAccountGroupLines({ details }: { details: Record<string, unknown> }) {
+  // Элементы — `{ id, name }` (строкой — на всякий случай для ручных записей).
+  const names = (v: unknown) =>
+    Array.isArray(v)
+      ? v.flatMap((x) => {
+          if (typeof x === "string") return [x];
+          const name = (x as { name?: unknown } | null)?.name;
+          return typeof name === "string" ? [name] : [];
+        })
+      : [];
+  const quoted = (list: string[]) => list.map((n) => `«${n}»`).join(", ");
+  const created = names(details.created);
+  const deleted = names(details.deleted);
+  const renamed = Array.isArray(details.renamed)
+    ? details.renamed.flatMap((r) => {
+        const o = r as Record<string, unknown>;
+        return typeof o.from === "string" && typeof o.to === "string" ? [{ from: o.from, to: o.to }] : [];
+      })
+    : [];
+  const lines: ReactNode[] = [];
+  if (created.length) lines.push(<>{created.length === 1 ? "Добавлена" : "Добавлены"}: {quoted(created)}</>);
+  for (const r of renamed)
+    lines.push(
+      <>
+        Переименована: <span className="line-through">«{r.from}»</span> →{" "}
+        <span className="font-medium text-foreground">«{r.to}»</span>
+      </>,
+    );
+  if (deleted.length) lines.push(<>{deleted.length === 1 ? "Удалена" : "Удалены"}: {quoted(deleted)}</>);
+  if (details.reordered === true) lines.push(<>Изменён порядок групп</>);
+  if (lines.length === 0) return null;
+  return (
+    <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+      {lines.map((line, i) => (
+        <li key={i} className="leading-snug">
+          {line}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 /** Заголовок KB-страницы в фразе события: кликабельная ссылка, если
  *  страница ещё существует и не в корзине; иначе — просто выделенный
@@ -242,6 +289,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   ...guestAuditSpecs,
   ...catalogAuditSpecs,
   ...scheduleAuditSpecs,
+  ...writeoffAuditSpecs,
   "integration.updated": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => <>изменил(а) настройки интеграции{e.details.provider === "quickresto" ? " Quick Resto" : e.details.provider === "adesk" ? " Adesk" : e.details.provider === "telegram" ? " Telegram" : e.details.provider === "office_codes" ? " «Коды замка»" : ""}</>,
@@ -994,6 +1042,15 @@ const SPECS: Record<string, AuditEventSpec> = {
     ),
   },
 
+  // ── finance.bank_account_group ─────────────────────────────
+  // Одна запись на сохранение панели «Группы счетов».
+  "finance.bank_account_group.changed": {
+    icon: Layers,
+    iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>изменил(а) группы счетов</>,
+    buildDetails: (e) => <BankAccountGroupLines details={e.details} />,
+  },
+
   // ── finance.category ───────────────────────────────────────
   "finance.category.created": {
     icon: Tag,
@@ -1308,7 +1365,7 @@ const SPECS: Record<string, AuditEventSpec> = {
 // Audit-коды событий акта инвентаризации = `inventory.<eventType>` (см.
 // writeInventoryResultEvent в inventory/actions-shared.ts). Раньше их не было
 // в SPECS → в общем журнале /org/audit показывался сырой код. Метки
-// согласованы с журналом акта (inventory-result-journal.tsx). Сущность
+// согласованы с вкладкой «Журнал» карточки акта. Сущность
 // inventory_document в AuditEntitySnapshot не резолвится, поэтому фраза без
 // ссылки — просто человекочитаемое действие.
 const INVENTORY_EVENT_SPECS: Array<[string, string, LucideIcon, string]> = [
@@ -1331,6 +1388,10 @@ const INVENTORY_EVENT_SPECS: Array<[string, string, LucideIcon, string]> = [
   ["exclude_disabled", "вернул(а) позицию в итог акта", RotateCcw, "text-muted-foreground bg-muted"],
   ["persistent_exclusion_enabled", "добавил(а) автоисключение позиции", ShieldX, "bg-amber-500/10 text-amber-700 dark:text-amber-400"],
   ["persistent_exclusion_disabled", "убрал(а) автоисключение позиции", ShieldPlus, "text-muted-foreground bg-muted"],
+  ["resort_recalculated", "пересчитал(а) пересорт в акте инвентаризации", ArrowLeftRight, "bg-violet-500/10 text-violet-700 dark:text-violet-400"],
+  ["results_recheck_drift", "заметил(а) изменения в Quick Resto по акту инвентаризации", Activity, "bg-amber-500/10 text-amber-700 dark:text-amber-400"],
+  ["recount_split", "вынес(ла) позиции на пересчёт в отдельный акт из акта", Split, "bg-amber-500/10 text-amber-700 dark:text-amber-400"],
+  ["qr_unprocessed", "обнаружил(а) при синхронизации, что в Quick Resto распровели акт", ArrowDownToLine, "bg-amber-500/10 text-amber-700 dark:text-amber-400"],
   ["description_updated", "изменил(а) описание ингредиента", Pencil, "text-brand bg-brand/10"],
   ["supplier_added", "добавил(а) поставщика ингредиента", FilePlus2, "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"],
   ["supplier_updated", "изменил(а) поставщика ингредиента", Pencil, "text-brand bg-brand/10"],
@@ -1349,9 +1410,59 @@ const INVENTORY_SPECS: Record<string, AuditEventSpec> = Object.fromEntries(
           <InventoryDocumentRef event={e} />
         </>
       ),
+      buildDetails: (e) => <InventoryEventDetails event={e} />,
     } satisfies AuditEventSpec,
   ]),
 );
+
+/**
+ * Подробности события акта: позиции, кого назначили, причина, комментарий.
+ * Названия позиций и текст события пишет writeInventoryAudit (с 20.11.2026;
+ * более ранние записи дозаполнены миграцией 366). Пусто — ничего не рисуем.
+ */
+function InventoryEventDetails({ event }: { event: AuditEvent }) {
+  const d = event.details;
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  const names = Array.isArray(d.item_names)
+    ? d.item_names.filter((v): v is string => typeof v === "string")
+    : [];
+  const total = typeof d.item_count === "number" ? d.item_count : names.length;
+  const rest = total - names.length;
+  const message = str(d.message);
+  // «Назначил исполнителя: Имя» — имя после двоеточия; «Снял …» без имени.
+  const person =
+    event.action_code === "inventory.assignee_changed" ||
+    event.action_code === "inventory.reviewer_changed"
+      ? message?.includes(":")
+        ? message.slice(message.indexOf(":") + 1).trim()
+        : message
+          ? "снят"
+          : null
+      : null;
+  const lines: Array<[string, string]> = [];
+  if (person)
+    lines.push([
+      event.action_code === "inventory.assignee_changed" ? "Исполнитель" : "Проверяющий",
+      person,
+    ]);
+  if (names.length > 0)
+    lines.push([total > 1 ? "Позиции" : "Позиция", names.join(", ") + (rest > 0 ? ` и ещё ${rest}` : "")]);
+  else if (typeof d.count === "number" && d.count > 1) lines.push(["Позиций", String(d.count)]);
+  const reason = str(d.reason) ?? str(d.note);
+  if (reason) lines.push(["Причина", reason]);
+  const comment = str(d.comment);
+  if (comment) lines.push(["Комментарий", comment]);
+  if (lines.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-0.5 text-[13px] text-muted-foreground">
+      {lines.map(([label, value]) => (
+        <p key={label}>
+          {label}: <span className="text-foreground">{value}</span>
+        </p>
+      ))}
+    </div>
+  );
+}
 
 /** «№ 12 от 05.11.2026» — ссылка на акт, если он ещё доступен. */
 function InventoryDocumentRef({ event }: { event: AuditEvent }) {

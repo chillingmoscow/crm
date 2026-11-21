@@ -43,6 +43,37 @@ export function combineSort(field: SortField, direction: "asc" | "desc"): Docume
   return direction === "asc" ? "number_asc" : "number_desc";
 }
 
+// Сортировка в адресе — массив режимов (`date_desc,number_asc`), а общий
+// каркас таблицы (`DataTable`, `TableConditions`, `TableSortPicker`) работает
+// с TanStack `SortingState` по id столбцов. Два адаптера ниже переводят одно
+// в другое без потерь; порядок элементов = приоритет ключей.
+const FIELD_TO_COLUMN: Record<SortField, string> = {
+  date: "invoice_date",
+  number: "document_number",
+  status: "status",
+};
+
+/** Столбцы, по которым список сортируется на сервере. */
+export const SORTABLE_COLUMNS = SORT_FIELDS.map((field) => FIELD_TO_COLUMN[field]);
+
+export function sortModesToSorting(modes: DocumentSortMode[]): { id: string; desc: boolean }[] {
+  return modes.map((mode) => ({
+    id: FIELD_TO_COLUMN[sortToField(mode)],
+    desc: sortToDirection(mode) === "desc",
+  }));
+}
+
+export function sortingToSortModes(sorting: { id: string; desc: boolean }[]): DocumentSortMode[] {
+  const out: DocumentSortMode[] = [];
+  for (const item of sorting) {
+    const field = COLUMN_TO_FIELD[item.id];
+    if (!field) continue;
+    const mode = combineSort(field, item.desc ? "desc" : "asc");
+    if (!out.some((existing) => sortToField(existing) === field)) out.push(mode);
+  }
+  return out;
+}
+
 // Три функции выше как один кодек для useMultiSort. Тип не аннотируем
 // намеренно: файл покрыт node:test, а раннер не резолвит alias из
 // tsconfig — импорт типа тут лишний, совместимость проверит вызов.

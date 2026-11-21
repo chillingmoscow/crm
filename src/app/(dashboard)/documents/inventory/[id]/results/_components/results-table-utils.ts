@@ -158,3 +158,48 @@ export function isOpenDifference(
   }
   return hasDifference(item);
 }
+
+// ── Режим «без сумм» ───────────────────────────────────────────────────────
+// Акт «Итоги требуют проверки»: Quick Resto не прислал построчный расчёт
+// (results_has_line_amounts = false). Расчёт, разница и суммы в таком акте
+// неизвестны, а факт — это то, что ввёл исполнитель.
+
+/** Колонки, значения которых считает Quick Resto. Без расчёта в них прочерк. */
+export const QR_CALCULATED_COLUMNS: readonly ResultColumnKey[] = [
+  "calculated",
+  "difference",
+  "management",
+];
+
+/** Поля сортировки без расчёта Quick Resto: по сумме расхождения сортировать не по чему. */
+export function resultSortFieldsFor(hasLineAmounts: boolean): ResultSortField[] {
+  return hasLineAmounts ? RESULT_SORT_FIELDS : RESULT_SORT_FIELDS.filter((field) => field !== "sum");
+}
+
+/** Сортировка по клику на шапку: без расчёта «Упр. сумма» не сортируется. */
+export function columnToResultFieldFor(hasLineAmounts: boolean): Record<string, ResultSortField> {
+  if (hasLineAmounts) return COLUMN_TO_RESULT_FIELD;
+  const next: Record<string, ResultSortField> = {};
+  for (const [column, field] of Object.entries(COLUMN_TO_RESULT_FIELD)) {
+    if (field !== "sum") next[column] = field;
+  }
+  return next;
+}
+
+type ResultFactItem = {
+  actual_amount: number | null;
+  submitted_amount?: number | null;
+};
+
+/**
+ * Факт строки для колонки «Факт».
+ *
+ * Обычно это actual_amount — факт в том виде, в каком его вернул Quick Resto
+ * вместе с расчётом. Когда расчёта нет, Quick Resto мог не вернуть и факт,
+ * поэтому показываем введённое исполнителем (submitted_amount) — так же, как
+ * форма акта, — и только при его отсутствии значение Quick Resto.
+ */
+export function resultFactAmount(item: ResultFactItem, hasLineAmounts: boolean): number | null {
+  if (hasLineAmounts) return item.actual_amount;
+  return item.submitted_amount ?? item.actual_amount;
+}

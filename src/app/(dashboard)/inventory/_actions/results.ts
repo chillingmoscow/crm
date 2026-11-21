@@ -21,7 +21,9 @@ import {
   autoRecalculateInventoryDeduction,
   reverseInventoryDeductionForDocument,
 } from "../deduction-service";
+import { resolveReviewerFallback } from "@/lib/inventory/act-assignment";
 import {
+  DOCUMENT_CHANGED_ERROR,
   actionErrorMessage,
   assertDocumentVisible,
   connectionPassword,
@@ -29,6 +31,7 @@ import {
   getConnection,
   getResultDocumentForAction,
   isDeletedQuickRestoRow,
+  isDocumentStatusStill,
   listBackOfficeInventoryItemsWithSession,
   normalizeReason,
   notifyInventoryDocumentEvent,
@@ -37,6 +40,7 @@ import {
   refreshLocalInventoryDocumentFromPayload,
   revalidateInventoryResultPages,
   text,
+  transitionDocumentStatus,
   writeInventoryResultEvent
 } from "../actions-shared";
 
@@ -271,6 +275,14 @@ export async function finalizeInventoryResults(input: {
           "Подсчёт ещё не завершён — подвести итоги можно после того, как исполнитель сдаст акт.",
       };
     }
+    // Без построчного расчёта Quick Resto (results_blocked) проверяющему не на
+    // что опереться: кнопка в UI неактивна, закрываем и прямой вызов.
+    if (document.status === "results_blocked") {
+      return {
+        error:
+          "Quick Resto ещё не вернул расчёт по строкам. Нажмите «Обновить итоги» — подвести итоги можно после того, как расчёт придёт.",
+      };
+    }
     // Акт на пересчёте закрыть нельзя — сначала исполнитель должен завершить
     // пересчёт (статус вернётся в ready_for_review).
     if (document.status === "recount_pending") {
@@ -385,9 +397,11 @@ export async function finalizeInventoryResults(input: {
             accountId: ctx.accountId,
             documentId: document.id,
             document: { ...qrDocBefore, effectedItems: freshItems },
-            // Статус не двигаем: сверка — это обновление данных, а не переход
-            // по статусной машине.
-            status: document.status,
+            // Статус не двигаем и не пишем вовсе: сверка — это обновление
+            // данных, а не переход. Раньше сюда передавался прочитанный в
+            // начале статус, и «Вернуть на пересчёт», случившийся за время
+            // сверки, молча откатывался обратно.
+            keepStatus: true,
           });
           const diff = compareResultLines(linesBefore, await readResultLines());
           if (hasResultDrift(diff)) {
@@ -426,6 +440,22 @@ export async function finalizeInventoryResults(input: {
         });
         recheckSkippedReason = "Quick Resto недоступен для сверки";
       }
+    }
+
+    // Свежая проверка перед необратимыми шагами (снимок итогов и проведение в
+    // Quick Resto): пока шла сверка, акт могли вернуть на пересчёт или
+    // финализировать параллельно. Проведение в QR не откатить, поэтому гард —
+    // ДО него; финальная запись ниже ещё и условная (transitionDocumentStatus).
+    const stillFinalizable = await isDocumentStatusStill({
+      admin,
+      accountId: ctx.accountId,
+      documentId: document.id,
+      from: [document.status],
+      finalized: "open",
+    });
+    if (!stillFinalizable) {
+      revalidateInventoryResultPages(document.id);
+      return { error: DOCUMENT_CHANGED_ERROR };
     }
 
     // Снимок построчных итогов — ДО обращения к QR. «Расчёт» и «Разница» в
@@ -524,33 +554,91 @@ export async function finalizeInventoryResults(input: {
     // прежние значения, а не затираем нулями.
     const qrShortfallSum = num(qrDocAfter?.shortfallSum);
     const qrSurplusSum = num(qrDocAfter?.surplusSum);
-    const { error } = await admin
-      .from("documents")
-      .update({
-        status: "processed",
-        processed: true,
-        ...(qrShortfallSum !== null ? { qr_shortfall_sum: qrShortfallSum } : {}),
-        ...(qrSurplusSum !== null ? { qr_surplus_sum: qrSurplusSum } : {}),
-        results_finalized_at: finalizedAt,
-        results_finalized_by: ctx.user.id,
-        // Акт снова проведён — метка «распровели в Quick Resto» (миграция 224)
-        // больше не актуальна. Синхронизация её не снимет: она ходит только по
-        // НЕпроведённым актам.
-        qr_unprocessed_at: null,
-        // Включает снимок строк (finalized_* выше) — с этого момента страница
-        // итогов показывает зафиксированные числа, а не живые из Quick Resto.
-        results_snapshot_at: finalizedAt,
-        // Сбрасываем reopened-метки: если это была повторная финализация после
-        // reopen, акт должен снова залочиться (isLocked на странице итогов
-        // считает реопен-флаг → editable). Без сброса UI остался бы editable.
-        results_reopened_at: null,
-        results_reopened_by: null,
-        // Авто-фоллбэк: финализирующий становится проверяющим, если поле пусто.
-        ...(document.reviewer_id ? {} : { reviewer_id: ctx.user.id }),
-      })
-      .eq("id", document.id)
-      .eq("account_id", ctx.accountId);
-    if (error) throw new Error(error.message);
+    const reviewerFallback = resolveReviewerFallback({
+      reviewerId: document.reviewer_id,
+      assignedTo: document.assigned_to,
+      actorId: ctx.user.id,
+    });
+    const finalizePatch = {
+      status: "processed",
+      processed: true,
+      ...(qrShortfallSum !== null ? { qr_shortfall_sum: qrShortfallSum } : {}),
+      ...(qrSurplusSum !== null ? { qr_surplus_sum: qrSurplusSum } : {}),
+      results_finalized_at: finalizedAt,
+      results_finalized_by: ctx.user.id,
+      // Акт снова проведён — метка «распровели в Quick Resto» (миграция 224)
+      // больше не актуальна. Синхронизация её не снимет: она ходит только по
+      // НЕпроведённым актам.
+      qr_unprocessed_at: null,
+      // Включает снимок строк (finalized_* выше) — с этого момента страница
+      // итогов показывает зафиксированные числа, а не живые из Quick Resto.
+      results_snapshot_at: finalizedAt,
+      // Сбрасываем reopened-метки: если это была повторная финализация после
+      // reopen, акт должен снова залочиться (isLocked на странице итогов
+      // считает реопен-флаг → editable). Без сброса UI остался бы editable.
+      results_reopened_at: null,
+      results_reopened_by: null,
+      // Авто-фоллбэк: финализирующий становится проверяющим, если поле пусто
+      // и он не исполнитель акта (исполнитель и проверяющий — разные люди).
+      ...(reviewerFallback ? { reviewer_id: reviewerFallback } : {}),
+    };
+    // Запись условная: только если статус тот же, что в начале, и итоги ещё
+    // не финализированы. Иначе параллельное действие (второй клик «Подвести
+    // итоги», «Вернуть на пересчёт» в окне проведения) перетиралось бы.
+    let overriddenStatus: string | null = null;
+    const applied = await transitionDocumentStatus({
+      admin,
+      accountId: ctx.accountId,
+      documentId: document.id,
+      from: [document.status],
+      finalized: "open",
+      patch: finalizePatch,
+    });
+    if (!applied) {
+      // Мы проиграли гонку, но Quick Resto УЖЕ провёл акт (постусловие выше) —
+      // это необратимо, и источник правды там. Варианты:
+      //  - итоги уже финализировал параллельный запрос → ничего не делаем,
+      //    это успех (двойной клик);
+      //  - акт за эти секунды вернули на пересчёт / изменили иначе → всё равно
+      //    фиксируем проведение: оставить «На пересчёте» поверх проведённого в
+      //    QR акта — рассинхрон, который синхронизация потом «починит» уже без
+      //    снимка итогов. Перекрытый статус пишем в журнал.
+      const { data: current } = await admin
+        .from<{ status: string; results_finalized_at: string | null }>("documents")
+        .select("status, results_finalized_at")
+        .eq("id", document.id)
+        .eq("account_id", ctx.accountId)
+        .maybeSingle();
+      if (current?.results_finalized_at) {
+        revalidateInventoryResultPages(document.id);
+        return { error: null };
+      }
+      const forced = current
+        ? await transitionDocumentStatus({
+            admin,
+            accountId: ctx.accountId,
+            documentId: document.id,
+            from: [current.status],
+            finalized: "open",
+            patch: finalizePatch,
+          })
+        : false;
+      if (!forced) {
+        console.error("[finalize] акт проведён в QR, но локальная фиксация не применилась", {
+          documentId: document.id,
+        });
+        logOrphanSnapshot("акт изменили параллельно во время проведения");
+        return {
+          error:
+            "Акт проведён в Quick Resto, но его только что изменили здесь. Обновите страницу и повторите «Подвести итоги» — повторного проведения не будет.",
+        };
+      }
+      overriddenStatus = current?.status ?? null;
+      console.warn("[finalize] проведение перекрыло параллельную смену статуса", {
+        documentId: document.id,
+        overriddenStatus,
+      });
+    }
 
     await writeInventoryResultEvent({
       supabase: ctx.supabase,
@@ -568,6 +656,7 @@ export async function finalizeInventoryResults(input: {
         documentId: document.id,
         recheckSkipped: recheckSkippedReason,
         alreadyProcessedInQr,
+        ...(overriddenStatus ? { overriddenStatus } : {}),
       },
     });
 
@@ -626,9 +715,17 @@ export async function reopenInventoryResults(input: {
     const isProcessed = document.status === "processed";
     if (!document.results_finalized_at && !isProcessed) return { error: null };
 
-    const { error } = await admin
-      .from("documents")
-      .update({
+    // Условно: статус тот же, что прочитали, и финализация в том же
+    // состоянии. Иначе переоткрытие, начатое до параллельной финализации,
+    // снимало бы только что поставленный замок, а двойной клик писал бы два
+    // события и дважды сторнировал удержание.
+    const applied = await transitionDocumentStatus({
+      admin,
+      accountId: ctx.accountId,
+      documentId: document.id,
+      from: [document.status],
+      finalized: document.results_finalized_at ? "finalized" : "open",
+      patch: {
         results_finalized_at: null,
         results_finalized_by: null,
         results_reopened_at: new Date().toISOString(),
@@ -637,10 +734,9 @@ export async function reopenInventoryResults(input: {
         // разблокируем УЖЕ проведённый акт (F6). Для обычного reopen на этапе
         // проверки (не processed) не ставим.
         ...(isProcessed ? { results_reopened_after_processed: true } : {}),
-      })
-      .eq("id", document.id)
-      .eq("account_id", ctx.accountId);
-    if (error) throw new Error(error.message);
+      },
+    });
+    if (!applied) return { error: DOCUMENT_CHANGED_ERROR };
 
     await writeInventoryResultEvent({
       supabase: ctx.supabase,

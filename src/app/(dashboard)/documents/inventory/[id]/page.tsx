@@ -227,6 +227,7 @@ export default async function InventoryDocumentPage({
   return (
     <InventoryDocumentEditor
       canFill={canFillDocument}
+      currentUserId={user.id}
       document={{
         id: document.id,
         documentNumber: document.document_number,
@@ -250,6 +251,7 @@ export default async function InventoryDocumentPage({
         syncedAt: document.synced_at ?? null,
         lastReturnedAt: document.last_returned_at ?? null,
         recountCount: document.recount_count ?? 0,
+        assignedTo: document.assigned_to,
       }}
       groups={groupsUsedByDocument(orderedGroups, groupById, productById, items).map(({ group, depth, path }) => ({
         id: group.id,

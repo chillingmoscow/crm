@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  QR_CALCULATED_COLUMNS,
+  columnToResultFieldFor,
   combineResultSort,
   hasDifference,
   isOpenDifference,
+  resultFactAmount,
+  resultSortFieldsFor,
   resultSortToDirection,
   resultSortToField,
   resultSortsToSorting,
@@ -99,4 +103,24 @@ test("isOpenDifference: исключённые и полностью покры�
   assert.equal(isOpenDifference({ difference_amount: -5, difference_sum: -500 }, undefined), true);
   // без разницы → не открытое
   assert.equal(isOpenDifference({ difference_amount: 0, difference_sum: 0 }, undefined), false);
+});
+
+test("resultFactAmount: с расчётом — факт Quick Resto, без расчёта — введённое исполнителем", () => {
+  assert.equal(resultFactAmount({ actual_amount: 3, submitted_amount: 5 }, true), 3);
+  assert.equal(resultFactAmount({ actual_amount: null, submitted_amount: 5 }, true), null);
+  assert.equal(resultFactAmount({ actual_amount: 3, submitted_amount: 5 }, false), 5);
+  assert.equal(resultFactAmount({ actual_amount: 3, submitted_amount: null }, false), 3);
+  assert.equal(resultFactAmount({ actual_amount: null }, false), null);
+});
+
+test("без расчёта по строкам сортировки по сумме нет", () => {
+  assert.deepEqual(resultSortFieldsFor(true), ["name", "group", "empty", "sum"]);
+  assert.deepEqual(resultSortFieldsFor(false), ["name", "group", "empty"]);
+  assert.equal(columnToResultFieldFor(true).management, "sum");
+  assert.equal(columnToResultFieldFor(false).management, undefined);
+  assert.equal(columnToResultFieldFor(false).fact, "empty");
+});
+
+test("QR_CALCULATED_COLUMNS — ровно колонки расчёта Quick Resto", () => {
+  assert.deepEqual([...QR_CALCULATED_COLUMNS].sort(), ["calculated", "difference", "management"]);
 });

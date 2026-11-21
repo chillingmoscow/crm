@@ -37,6 +37,11 @@ import { countRu } from "@/lib/format/plural";
 import { cn } from "@/lib/utils";
 import { markInventoryDraftStarted, submitInventoryDocumentDraft } from "@/app/(dashboard)/inventory/_actions/draft";
 import { isInventoryFormLocked } from "@/lib/inventory/act-status";
+import {
+  canAdoptLegacyDraft,
+  inventoryDraftKey,
+  legacyInventoryDraftKey,
+} from "@/lib/inventory/draft-key";
 
 type EditorDocument = {
   id: string;
@@ -62,6 +67,8 @@ type EditorDocument = {
       должен перезатирать значения, которые менеджер уже видел. */
   lastReturnedAt: string | null;
   recountCount: number;
+  /** Исполнитель акта: только ему достаётся черновик со старого общего ключа. */
+  assignedTo: string | null;
 };
 
 type EditorItem = {
@@ -400,10 +407,13 @@ export function InventoryDocumentEditor({
   groups,
   items,
   canFill,
+  currentUserId,
 }: {
   document: EditorDocument;
   groups: EditorGroup[];
   items: EditorItem[];
+  /** Чей черновик на этом устройстве читать и писать (см. draftKey). */
+  currentUserId: string;
   /** Может ли текущий пользователь заполнять акт: управляющий актами или
       назначенный исполнитель (та же проверка, что у отправки). Иначе форма
       только для чтения, а черновик на устройстве не читается и не пишется. */
@@ -586,9 +596,11 @@ export function InventoryDocumentEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sorts, fillState]);
 
+  // Черновик — свой у каждого человека: на общем планшете новый исполнитель
+  // раньше открывал акт с числами предыдущего (ключ был один на акт).
   const draftKey = useMemo(
-    () => `inventory:${document.id}`,
-    [document.id]
+    () => inventoryDraftKey(document.id, currentUserId),
+    [document.id, currentUserId]
   );
 
   useEffect(() => {
@@ -612,7 +624,23 @@ export function InventoryDocumentEditor({
     }
     let alive = true;
     void (async () => {
-      const draft = await readDraft(draftKey);
+      let draft = await readDraft(draftKey);
+      // Переезд со старого ключа (один черновик на акт). Забираем его только
+      // исполнителю акта — почти наверняка это он и вводил числа; любой
+      // другой (проверяющий, управляющий, новый исполнитель) старый черновик
+      // не видит. Переносим под свой ключ и удаляем старый, дальше черновик
+      // проходит ту же проверку на устаревание, что и обычный.
+      if (canAdoptLegacyDraft({ assignedTo: document.assignedTo, userId: currentUserId })) {
+        const legacyKey = legacyInventoryDraftKey(document.id);
+        const legacy = await readDraft(legacyKey);
+        if (legacy) {
+          if (!draft) {
+            await writeDraft(draftKey, legacy);
+            draft = legacy;
+          }
+          await deleteDraft(legacyKey);
+        }
+      }
       if (!alive) return;
       if (draft?.values) {
         // Игнорируем draft если он СТАРШЕ последнего QR-sync — но ТОЛЬКО для

@@ -5,6 +5,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { resolveReviewerFallback } from "@/lib/inventory/act-assignment";
 import {
   createInventoryDocumentBackOffice,
   createInventoryItemBackOffice,
@@ -14,6 +15,7 @@ import {
   type QuickRestoInventoryItem2
 } from "@/lib/integrations/quickresto/client";
 import {
+  DOCUMENT_CHANGED_ERROR,
   actionErrorMessage,
   assertDocumentVisible,
   connectionPassword,
@@ -24,6 +26,7 @@ import {
   getConnection,
   getResultDocumentForAction,
   inventoryDocumentNumber,
+  isDocumentStatusStill,
   listBackOfficeInventoryItemsWithSession,
   notifyInventoryDocumentEvent,
   refreshLocalInventoryDocumentFromPayload,
@@ -244,44 +247,37 @@ export async function returnDocumentForRecount(input: {
       };
     }
 
-    const { data: flaggedItems } = await admin
-      .from<Array<{ id: string; actual_amount: number | null }>>("document_items")
-      .select("id, actual_amount")
-      .eq("document_id", document.id)
-      .eq("account_id", ctx.accountId)
-      .eq("needs_recount", true);
-    const flaggedIds = (flaggedItems ?? []).map((row) => row.id);
-    if (flaggedIds.length === 0) {
+    // Снимок «было» по отмеченным строкам и перевод акта на пересчёт —
+    // одной транзакцией (миграция 367). Раньше было N построчных UPDATE и
+    // безусловный status = 'recount_pending' в конце: параллельное «Подвести
+    // итоги» оставляло акт на пересчёте с финализированными итогами, а сбой
+    // посреди цикла — снимок у половины строк. Функция блокирует строку акта,
+    // заново проверяет статус и финализацию и только потом пишет.
+    //
+    // «Было» = actual_amount, а при его отсутствии — submitted_amount (акт без
+    // расчёта Quick Resto), см. комментарий в миграции. Проверяющим по
+    // умолчанию становится вернувший акт, если поле пустое и он не исполнитель.
+    const { data: rpcData, error: rpcError } = await admin.rpc(
+      "inventory_return_document_for_recount",
+      {
+        p_account_id: ctx.accountId,
+        p_document_id: document.id,
+        p_actor_id: ctx.user.id,
+      },
+    );
+    if (rpcError) throw new Error(rpcError.message);
+    const outcome = (rpcData ?? {}) as {
+      outcome?: "applied" | "changed" | "no_flagged" | "not_found";
+      recount_count?: number;
+      flagged_item_ids?: string[];
+    };
+    if (outcome.outcome === "not_found") return { error: "Акт не найден" };
+    if (outcome.outcome === "no_flagged") {
       return { error: "Отметьте хотя бы одну строку на пересчёт перед отправкой." };
     }
-
-    // Снимок «было»: фиксируем текущий факт каждой отмеченной строки в
-    // recount_previous_amount, чтобы после пересчёта сравнить с новым значением
-    // и видеть в Итогах, какие строки уходили на пересчёт. Не очищается при
-    // повторном проведении (см. миграцию 218); на повторных кругах
-    // перезаписываем значением перед текущим кругом.
-    for (const item of flaggedItems ?? []) {
-      await admin
-        .from("document_items")
-        .update({ recount_previous_amount: item.actual_amount })
-        .eq("id", item.id)
-        .eq("account_id", ctx.accountId);
-    }
-
-    const { error: updateError } = await admin
-      .from("documents")
-      .update({
-        status: "recount_pending",
-        recount_count: (document.recount_count ?? 0) + 1,
-        last_returned_at: new Date().toISOString(),
-        // Авто-фоллбэк: вернувший на пересчёт становится проверяющим, если
-        // поле пусто (детерминирует адресата будущих уведомлений «готов
-        // к проверке»).
-        ...(document.reviewer_id ? {} : { reviewer_id: ctx.user.id }),
-      })
-      .eq("id", document.id)
-      .eq("account_id", ctx.accountId);
-    if (updateError) throw new Error(updateError.message);
+    if (outcome.outcome !== "applied") return { error: DOCUMENT_CHANGED_ERROR };
+    const flaggedIds = outcome.flagged_item_ids ?? [];
+    const recountCount = outcome.recount_count ?? (document.recount_count ?? 0) + 1;
 
     await writeInventoryResultEvent({
       supabase: ctx.supabase,
@@ -293,7 +289,7 @@ export async function returnDocumentForRecount(input: {
       message: "Отправил акт на пересчёт",
       payload: {
         flaggedItemIds: flaggedIds,
-        recountCount: (document.recount_count ?? 0) + 1,
+        recountCount,
         note: input.note?.trim() || null,
       },
     });
@@ -459,6 +455,19 @@ export async function splitDocumentForRecount(input: {
       (row) => (row.invoice_date ?? "").slice(0, 10) === input.recountDate,
     );
 
+    // Свежая проверка перед первым обращением к Quick Resto: пока мы читали
+    // строки и подключение, акт могли провести («Подвести итоги») или вернуть
+    // на пересчёт. Создание акта и удаление позиций в QR не откатить, поэтому
+    // проверяем здесь, а не после.
+    const stillReviewable = await isDocumentStatusStill({
+      admin,
+      accountId: ctx.accountId,
+      documentId: document.id,
+      from: ["ready_for_review", "results_blocked"],
+      finalized: "open",
+    });
+    if (!stillReviewable) return fail(DOCUMENT_CHANGED_ERROR);
+
     let recountExternalId = existingChild ? Number(existingChild.external_id) : null;
     let recountLocalId = existingChild?.id ?? null;
 
@@ -501,7 +510,15 @@ export async function splitDocumentForRecount(input: {
             synced_at: new Date().toISOString(),
             recount_of_document_id: document.id,
             assigned_to: document.assigned_to,
-            reviewer_id: document.reviewer_id ?? ctx.user.id,
+            // Проверяющий наследуется от исходного акта; если его нет —
+            // вынесший позиции, но не исполнитель (роли — разные люди).
+            reviewer_id:
+              document.reviewer_id ??
+              resolveReviewerFallback({
+                reviewerId: null,
+                assignedTo: document.assigned_to,
+                actorId: ctx.user.id,
+              }),
           },
           { onConflict: "account_id,external_id" },
         )

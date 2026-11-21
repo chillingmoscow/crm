@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { AlertTriangle, ClipboardList } from "lucide-react";
+import { ClipboardList } from "lucide-react";
 
 import { EmptyState } from "@/components/ui/empty-state";
 
@@ -31,7 +31,6 @@ import {
   type InventoryResultResortRow,
   type InventoryResortSuggestion,
 } from "./_components/results-table";
-import { RefreshResultsButton } from "./_components/refresh-results-button";
 
 type InventoryDocumentResultRow = {
   id: string;
@@ -150,8 +149,13 @@ export default async function InventoryDocumentResultsPage({
 
   // Подсказки пересорта имеют смысл только пока итоги можно менять. Считаем
   // это ДО запросов: от флага зависит, читать ли журнал акта (см. ниже).
+  // Без расчёта Quick Resto по строкам (results_has_line_amounts = false)
+  // подсказкам не на что опереться: они сводят недостачу с излишком по разнице.
   const suggestionsEnabled =
-    canAdjustResults && !isLocked && document.status !== "recount_pending";
+    canAdjustResults &&
+    !isLocked &&
+    document.status !== "recount_pending" &&
+    document.results_has_line_amounts;
 
   // Одна волна вместо шести последовательных: строки акта, след выноса на
   // пересчёт, пересорты, правила автоисключения и настройки аккаунта друг от
@@ -169,7 +173,7 @@ export default async function InventoryDocumentResultsPage({
   ] = await Promise.all([
     admin
     .from<Array<InventoryDocumentResultItem & InventoryResultSnapshotAmounts>>("document_items")
-    .select("id, ingredient_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum, finalized_at, finalized_actual_amount, finalized_calculated_amount, finalized_difference_amount, finalized_difference_sum, finalized_prime_cost, finalized_excluded_from_totals, excluded_from_totals, exclude_reason, exclusion_rule_id, result_comment, needs_recount, recount_auto_flagged, recount_note, recount_previous_amount")
+    .select("id, ingredient_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, submitted_amount, calculated_amount, difference_amount, prime_cost, difference_sum, finalized_at, finalized_actual_amount, finalized_calculated_amount, finalized_difference_amount, finalized_difference_sum, finalized_prime_cost, finalized_excluded_from_totals, excluded_from_totals, exclude_reason, exclusion_rule_id, result_comment, needs_recount, recount_auto_flagged, recount_note, recount_previous_amount")
     .eq("account_id", accountId)
     .eq("document_id", document.id)
     .order("product_name"),
@@ -396,29 +400,6 @@ export default async function InventoryDocumentResultsPage({
           title="Подсчёт ещё не завершён"
           description="Итоги появятся, когда исполнитель заполнит акт и отправит его на проверку. До этого разница в Quick Resto равна складскому остатку со знаком минус и расхождением не является."
         />
-      ) : !document.results_has_line_amounts ? (
-        <div className="space-y-3">
-          <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
-            <div className="min-w-0">
-              <div className="font-medium">Quick Resto не прислал расчёт по строкам</div>
-              <p className="mt-0.5 text-muted-foreground">
-                Без него недостачу и излишек по позициям не показываем: посчитать их сами
-                точно мы не можем. Обновите итоги из Quick Resto. Если расчёт так и не
-                появится, проверьте акт в Quick Resto.
-              </p>
-            </div>
-          </div>
-          {/* Все действия по итогам живут в таблице, которая здесь не
-              рендерится. Без этой кнопки проверяющий оставался в тупике:
-              перечитать итоги было неоткуда. Право — то же, что у кнопки в
-              тулбаре таблицы (view_results и акт не залочен). */}
-          {canViewResults && !isLocked ? (
-            <div className="flex justify-end">
-              <RefreshResultsButton documentId={document.id} />
-            </div>
-          ) : null}
-        </div>
       ) : (
         <InventoryResultsTable
           documentId={document.id}
@@ -445,6 +426,11 @@ export default async function InventoryDocumentResultsPage({
           canViewProducts={Boolean(canViewProducts)}
           aiSuggestionsEnabled={aiSuggestionsEnabled}
           documentStatus={document.status}
+          // Нет расчёта по строкам («Итоги требуют проверки») — таблица в
+          // режиме «без сумм»: прочерки вместо расчёта и сумм, но пометки и
+          // отправка на пересчёт работают. Раньше здесь была только плашка с
+          // «Обновить итоги», и проверяющий не мог вернуть акт на пересчёт.
+          hasLineAmounts={document.results_has_line_amounts}
         />
       )}
     </div>

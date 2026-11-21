@@ -20,6 +20,12 @@ import {
   type ListDocumentsFilters,
 } from "@/lib/inventory/list-documents";
 
+import {
+  EMPTY_ASSIGNMENT_ELIGIBILITY,
+  type InventoryAssignmentEligibility,
+} from "@/lib/inventory/act-assignment";
+import { loadAssignmentEligibility } from "@/lib/inventory/assignment-eligibility-server";
+
 import { DocumentsTable, type StoreOption, type VenueOption } from "./_components/documents-table";
 import type { AssigneeOption } from "./_components/assignee-select";
 
@@ -191,10 +197,11 @@ export default async function InventoryDocumentsPage({
         .filter((id): id is string => Boolean(id)),
     ),
   );
-  const [{ data: venuesForFilter }, { data: storesForFilter }, staff] = await Promise.all([
+  const [{ data: venuesForFilter }, { data: storesForFilter }, staff, eligibility] = await Promise.all([
     asLooseDb(supabase).from<VenueOption[]>("venues").select("id, name").order("name"),
     asLooseDb(supabase).from<StoreOption[]>("stores").select("id, title").eq("account_id", accountId).order("title"),
     loadStaff(accountId as string, canManage ? undefined : referencedStaffIds),
+    canManage ? loadEligibilityForPickers(accountId as string) : Promise.resolve(null),
   ]);
 
   return (
@@ -209,6 +216,7 @@ export default async function InventoryDocumentsPage({
       venues={(venuesForFilter ?? []) as VenueOption[]}
       stores={(storesForFilter ?? []) as StoreOption[]}
       staff={staff}
+      eligibility={eligibility}
       accountId={accountId as string}
       canManage={Boolean(canManage)}
       canSync={Boolean(canSync)}
@@ -220,6 +228,25 @@ export default async function InventoryDocumentsPage({
 }
 
 // ─── Staff loader ────────────────────────────────────────────────────────────
+
+/**
+ * Кого пикеры предлагают исполнителем и проверяющим (право на роль в
+ * заведении акта). Сбой чтения не валит страницу: пикеры останутся только с
+ * владельцем аккаунта, а сервер всё равно проверит назначение сам.
+ */
+async function loadEligibilityForPickers(accountId: string): Promise<InventoryAssignmentEligibility> {
+  try {
+    return await loadAssignmentEligibility({ admin: asLooseDb(createAdminClient()), accountId });
+  } catch (error) {
+    console.error("[inventory/loadEligibilityForPickers] failed", error);
+    const { data } = await asLooseDb(createAdminClient())
+      .from<AccountOwnerRow>("accounts")
+      .select("owner_id")
+      .eq("id", accountId)
+      .maybeSingle();
+    return { ...EMPTY_ASSIGNMENT_ELIGIBILITY, ownerId: data?.owner_id ?? null };
+  }
+}
 
 /**
  * Справочник «id → ФИО» для колонок «Исполнитель» и «Проверяющий».

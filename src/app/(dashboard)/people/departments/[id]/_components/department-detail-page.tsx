@@ -31,6 +31,7 @@ import { DepartmentIconPicker } from "../../_components/department-icon-picker";
 import { DepartmentShortageBlock } from "./department-shortage-block";
 import {
   deleteDepartment,
+  getDepartmentDeleteRestriction,
   setRoleDepartment,
   updateDepartment,
   type Department,
@@ -115,6 +116,10 @@ export function DepartmentDetailPage({
   const [activeTab, setActiveTab] = useState<TabKey>("main");
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // Почему удалить нельзя (например, на подразделение разнесены акты списания):
+  // проверяется при открытии диалога, кнопка удаления при этом выключена.
+  const [deleteRestriction, setDeleteRestriction] = useState<string | null>(null);
+  const [checkingDelete, setCheckingDelete] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Editable «Основное» state
@@ -593,11 +598,22 @@ export function DepartmentDetailPage({
               <ProfileDangerAction
                 icon={Trash2}
                 title="Удалить подразделение"
-                description="Должности и сотрудники останутся, но должности потеряют привязку к подразделению. Архива подразделений нет."
+                description="Должности и сотрудники останутся, но должности потеряют привязку к подразделению. Архива подразделений нет. Если на подразделение разнесены акты списания, сначала перенесите их на другого плательщика."
                 actionLabel="Удалить"
                 onAction={() => {
                   setDeleteError(null);
+                  setDeleteRestriction(null);
+                  setCheckingDelete(true);
                   setConfirmDeleteOpen(true);
+                  void getDepartmentDeleteRestriction(department.id)
+                    .then((r) => {
+                      setDeleteRestriction(r.restriction);
+                      if (r.error) setDeleteError(r.error);
+                    })
+                    .catch(() =>
+                      setDeleteError("Не удалось проверить подразделение. Попробуйте ещё раз"),
+                    )
+                    .finally(() => setCheckingDelete(false));
                 }}
                 disabled={isPending}
               />
@@ -619,6 +635,8 @@ export function DepartmentDetailPage({
         pendingLabel="Удаляем…"
         destructive
         busy={isPending}
+        confirmDisabled={checkingDelete}
+        restriction={deleteRestriction}
         error={deleteError}
         onConfirm={handleDelete}
       />

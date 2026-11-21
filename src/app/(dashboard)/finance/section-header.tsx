@@ -5,14 +5,15 @@ import type { ReactNode } from "react";
 /**
  * Шапка раздела «Финансы» с выбором юрлица. Не показывается там, где юрлицо
  * ни на что не влияет или выбирается на самой странице: на дашборде оно —
- * чип в ряду условий, зарплата живёт в своих рамках, у счетов свой фильтр,
- * статьи и контрагенты общие на весь аккаунт.
+ * чип в ряду условий, зарплата живёт в своих рамках, у счетов и транзакций
+ * свой фильтр, статьи и контрагенты общие на весь аккаунт.
  */
 const WITHOUT_HEADER = [
   "/finance/payroll",
   "/finance/accounts",
   "/finance/categories",
   "/finance/counterparties",
+  "/finance/transactions",
 ];
 
 export function FinanceSectionHeader({ children }: { children: ReactNode }) {

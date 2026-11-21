@@ -11,7 +11,12 @@ import {
   type FlowRow,
   type FlowSummary,
 } from "./dashboard-flow";
-import { nextIsoDay } from "./dashboard-period";
+import {
+  calendarDateInZone,
+  dayEndExclusiveInZone,
+  dayStartInZone,
+} from "@/lib/format/zoned-day";
+import { getActiveAccountTimezone } from "@/lib/settings/account";
 
 /**
  * Чтение для финансового дашборда. Только сервер: это не server actions
@@ -32,11 +37,24 @@ export type StatisticsRange = {
 
 type Filterable<T> = LooseQuery<T>;
 
-function applyRange<T>(query: Filterable<T>, range: StatisticsRange): Filterable<T> {
+/**
+ * Границы периода — дни в поясе аккаунта (`accounts.timezone`), как в
+ * «Транзакциях» (`finance_transactions_page`): иначе итоги дашборда и списка
+ * за тот же период расходились бы на ночных выплатах.
+ */
+type ZonedRange = StatisticsRange & { timeZone: string };
+
+async function zoned(range: StatisticsRange): Promise<ZonedRange> {
+  return { ...range, timeZone: await getActiveAccountTimezone() };
+}
+
+function applyRange<T>(query: Filterable<T>, range: ZonedRange): Filterable<T> {
   // `transactions.date` — timestamptz. Граница «по» включительно — это
-  // «раньше следующего дня»: `lte('2026-11-30')` сравнивал бы с полуночью
-  // 30-го и терял операции этого дня с временем.
-  let q = query.gte("date", range.date_from).lt("date", nextIsoDay(range.date_to));
+  // «раньше начала следующего дня»: `lte('2026-11-30')` сравнивал бы с
+  // полуночью 30-го и терял операции этого дня с временем.
+  let q = query
+    .gte("date", dayStartInZone(range.date_from, range.timeZone))
+    .lt("date", dayEndExclusiveInZone(range.date_to, range.timeZone));
   if (range.legal_entity_id) q = q.eq("legal_entity_id", range.legal_entity_id);
   if (range.venue_id) q = q.eq("venue_id", range.venue_id);
   return q;
@@ -76,7 +94,7 @@ export async function listBalanceAccounts(
 type DatedFlowRow = FlowRow & { date: string };
 
 /** Операции периода без переводов — все страницы, а не первая тысяча. */
-async function fetchFlowRows<T>(range: StatisticsRange, columns: string): Promise<T[]> {
+async function fetchFlowRows<T>(range: ZonedRange, columns: string): Promise<T[]> {
   const supabase = await createClient();
   return fetchAllRows<T>(() =>
     applyRange(
@@ -106,11 +124,15 @@ export async function getPeriodFlow(
   cutoff: string | null = null,
 ): Promise<{ flow: FlowBreakdown | null; elapsed: FlowSummary | null; error: string | null }> {
   try {
-    const rows = await fetchFlowRows<DatedFlowRow>(range, "type, amount, category_id, date");
+    const zonedRange = await zoned(range);
+    const rows = await fetchFlowRows<DatedFlowRow>(zonedRange, "type, amount, category_id, date");
     const flow = aggregateFlow(rows, topN);
-    // `date` — timestamptz полночью UTC; календарный день — первые 10 символов.
+    // Календарный день операции — в поясе аккаунта (у выплат дата с часами).
     const elapsed = cutoff
-      ? aggregateFlow(rows.filter((r) => r.date.slice(0, 10) <= cutoff), 0).summary
+      ? aggregateFlow(
+          rows.filter((r) => calendarDateInZone(r.date, zonedRange.timeZone) <= cutoff),
+          0,
+        ).summary
       : flow.summary;
     return { flow, elapsed, error: null };
   } catch (e) {
@@ -123,7 +145,7 @@ export async function getPeriodTotals(
   range: StatisticsRange,
 ): Promise<{ summary: FlowSummary | null; error: string | null }> {
   try {
-    const rows = await fetchFlowRows<Omit<FlowRow, "category_id">>(range, "type, amount");
+    const rows = await fetchFlowRows<Omit<FlowRow, "category_id">>(await zoned(range), "type, amount");
     return {
       summary: aggregateFlow(rows.map((r) => ({ ...r, category_id: null })), 0).summary,
       error: null,
@@ -154,6 +176,7 @@ export async function getRecentTransactions(
   limit = 8,
 ): Promise<{ rows: RecentTransaction[]; error: string | null }> {
   const supabase = await createClient();
+  const zonedRange = await zoned(range);
   const query = applyRange(
     supabase
       .from("transactions")
@@ -161,7 +184,7 @@ export async function getRecentTransactions(
         "id, type, amount, date, description, bank_account_id, to_bank_account_id, category_id, counterparty_id",
       )
       .is("deleted_at", null) as unknown as Filterable<RecentTransaction[]>,
-    range,
+    zonedRange,
   );
   const { data, error } = await query
     .order("date", { ascending: false })

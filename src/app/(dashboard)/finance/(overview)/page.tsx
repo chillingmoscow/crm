@@ -49,7 +49,11 @@ import { dateInZone } from "@/lib/schedule/utils";
 import { countRu } from "@/lib/format/plural";
 import { signedAmountClass, type AmountRoundingScale } from "@/lib/format/amount";
 import { listAccountVenues, listLegalEntities } from "@/lib/org/legal-entities";
-import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
+import {
+  getActiveAccountAmountRoundingScale,
+  getActiveAccountTimezone,
+} from "@/lib/settings/account";
+import { calendarDateInZone } from "@/lib/format/zoned-day";
 import { createClient, getCachedPermissionChecker } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 import type { BankAccountType } from "@/types/database";
@@ -100,12 +104,13 @@ export default async function FinanceDashboardPage({
       listAccountVenues({ liveOnly: true }),
       getActiveFinanceLegalEntityId(),
       getActiveAccountAmountRoundingScale(),
-      activeVenueTimeZone(),
+      getActiveAccountTimezone(),
     ]);
 
-  // «Сегодня» — по часам заведения, а не сервера (на проде он в UTC):
-  // иначе с полуночи до трёх ночи первого числа сервер считал бы текущим
-  // прошлый месяц, а шапка в браузере — новый. Шапка получает этот же день.
+  // «Сегодня» — в поясе аккаунта, а не сервера (на проде он в UTC): иначе с
+  // полуночи до трёх ночи первого числа сервер считал бы текущим прошлый
+  // месяц, а шапка в браузере — новый. По этому же поясу режут периоды
+  // `statistics.ts` и «Транзакции». Шапка получает этот же день.
   const todayIso = todayInZone(timeZone);
   const today = parseIsoDay(todayIso) ?? new Date();
   const { period } = resolvePeriod(sp.date_from, sp.date_to, today);
@@ -375,6 +380,7 @@ export default async function FinanceDashboardPage({
                       categoryColor={(id) => (id ? (categoryColor.get(id) ?? null) : null)}
                       counterpartyName={(id) => (id ? (counterpartyNames.get(id) ?? null) : null)}
                       scale={scale}
+                      timeZone={timeZone}
                     />
                   ))}
                 </ul>
@@ -390,26 +396,8 @@ export default async function FinanceDashboardPage({
 // ─── Данные ────────────────────────────────────────────────────────────────
 
 /**
- * Часовой пояс активного заведения — в нём считается «сегодня» для периода
- * по умолчанию и сравнения. Без заведения — московское время, как в журнале
- * событий.
- */
-async function activeVenueTimeZone(): Promise<string> {
-  const supabase = await createClient();
-  const { data: venueId } = await supabase.rpc("get_active_venue_id");
-  if (!venueId) return "Europe/Moscow";
-  const { data } = await supabase
-    .from("venues")
-    .select("timezone")
-    .eq("id", venueId)
-    .maybeSingle();
-  return data?.timezone || "Europe/Moscow";
-}
-
-/**
- * Сегодняшний день в поясе заведения. Пояс хранится строкой в настройках
- * заведения: незнакомое Intl значение бросило бы RangeError и уронило
- * страницу — тогда берём московское время.
+ * Сегодняшний день в поясе аккаунта. Незнакомое Intl значение бросило бы
+ * RangeError и уронило страницу — тогда берём московское время.
  */
 function todayInZone(timeZone: string): string {
   try {
@@ -641,6 +629,7 @@ function RecentRow({
   categoryColor,
   counterpartyName,
   scale,
+  timeZone,
 }: {
   tx: RecentTransaction;
   accountName: (id: string | null) => string | null;
@@ -648,6 +637,7 @@ function RecentRow({
   categoryColor: (id: string | null) => string | null;
   counterpartyName: (id: string | null) => string | null;
   scale: AmountRoundingScale;
+  timeZone: string;
 }) {
   const kind = TX_ICON[tx.type];
   const Icon = kind.icon;
@@ -660,8 +650,8 @@ function RecentRow({
           .join(" → ")
       : accountName(tx.bank_account_id);
   const title = tx.description?.trim() || counterparty || category || kind.label;
-  // `date` — timestamptz полночью UTC; календарный день — первые 10 символов.
-  const day = formatDayMonth(tx.date.slice(0, 10));
+  // Календарный день — в поясе аккаунта: у выплат зарплаты дата с часами.
+  const day = formatDayMonth(calendarDateInZone(tx.date, timeZone));
   // Статья в строке подробностей — с точкой своего цвета, как в журнале.
   const showCategory = !!category && category !== title;
   const before = [day, account].filter(Boolean).join(" · ");
@@ -670,7 +660,8 @@ function RecentRow({
   return (
     <li>
       <Link
-        href={`/finance/transactions/${tx.id}`}
+        // Панель операции открывается в журнале по ?id=.
+        href={`/finance/transactions?id=${tx.id}`}
         className="flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-muted/60"
       >
         <span

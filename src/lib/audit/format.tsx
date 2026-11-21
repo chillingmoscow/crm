@@ -47,6 +47,7 @@ import { scheduleAuditSpecs } from "./schedule";
 import { financeDirectoryAuditSpecs } from "./finance-directory";
 import { writeoffAuditSpecs } from "./writeoffs";
 import { ChangeLines } from "./change-lines";
+import { countRu } from "@/lib/format/plural";
 
 /** Строки под событием «изменил(а) группы счетов». */
 function BankAccountGroupLines({ details }: { details: Record<string, unknown> }) {
@@ -945,6 +946,37 @@ const SPECS: Record<string, AuditEventSpec> = {
       </>
     ),
     buildDetails: (e) => <ChangeLines details={e.details} />,
+  },
+  // Массовая правка: одна строка на команду (миграция 372).
+  "finance.transaction.bulk_updated": {
+    icon: Pencil,
+    iconClass: "text-brand bg-brand/10",
+    buildHeadline: (e) => {
+      const count = Number(e.details.count ?? 0);
+      const field = e.details.field as string | undefined;
+      const fieldLabel =
+        field === "category_id" ? "статью" : field === "counterparty_id" ? "контрагента" : "заведение";
+      const value = (e.details.value_name as string | null | undefined) ?? null;
+      return (
+        <>
+          сменил(а) {fieldLabel} у {countRu(count, "операции", "операций", "операций")}:{" "}
+          <strong className="font-medium">
+            {value ?? (field === "category_id" ? "без статьи" : field === "counterparty_id" ? "без контрагента" : "без заведения")}
+          </strong>
+        </>
+      );
+    },
+    buildDetails: (e) => {
+      const ids = Array.isArray(e.details.public_ids) ? (e.details.public_ids as number[]) : [];
+      if (ids.length === 0) return null;
+      const shown = ids.slice(0, 20).map((n) => `#${n}`).join(", ");
+      return (
+        <p className="text-xs text-muted-foreground">
+          {shown}
+          {ids.length > 20 ? ` и ещё ${ids.length - 20}` : ""}
+        </p>
+      );
+    },
   },
   "finance.transaction.deleted": {
     icon: Trash2,

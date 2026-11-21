@@ -1,137 +1,96 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { CircleDollarSign, X } from "lucide-react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
+import { Label } from "@/components/ui/label";
+import { AmountInput } from "@/components/finance/amount-input";
+import { TableControlPin } from "@/components/shared/table";
+import { formatAmount } from "@/lib/format/amount";
 
 export type AmountRangeValue = { min: number | null; max: number | null };
 
-type Props = {
+/**
+ * Чип «Сумма» в ряду условий: от и до. Собран на `TableControlPin` (своих
+ * чипов фильтра нет), суммы — через `AmountInput`.
+ */
+export function AmountRangeFilter({
+  value,
+  onChange,
+}: {
   value: AmountRangeValue;
   onChange: (next: AmountRangeValue) => void;
-};
-
-export function AmountRangeFilter({ value, onChange }: Props) {
+}) {
   const [open, setOpen] = useState(false);
-  const [tempMin, setTempMin] = useState<string>(value.min?.toString() ?? "");
-  const [tempMax, setTempMax] = useState<string>(value.max?.toString() ?? "");
-
-  useEffect(() => {
-    if (open) {
-      setTempMin(value.min?.toString() ?? "");
-      setTempMax(value.max?.toString() ?? "");
-    }
-  }, [open, value.min, value.max]);
-
-  const hasValue = value.min !== null || value.max !== null;
-
-  const buttonText = (() => {
-    if (!hasValue) return "Сумма";
-    const fmt = (n: number) =>
-      new Intl.NumberFormat("ru-RU", {
-        style: "currency",
-        currency: "RUB",
-        maximumFractionDigits: 0,
-      }).format(n);
-    if (value.min !== null && value.max !== null) return `${fmt(value.min)} – ${fmt(value.max)}`;
-    if (value.min !== null) return `От ${fmt(value.min)}`;
-    return `До ${fmt(value.max!)}`;
-  })();
-
-  const apply = () => {
-    const parsedMin = tempMin === "" ? null : Number(tempMin);
-    const parsedMax = tempMax === "" ? null : Number(tempMax);
-    onChange({
-      min: Number.isFinite(parsedMin) ? (parsedMin as number) : null,
-      max: Number.isFinite(parsedMax) ? (parsedMax as number) : null,
-    });
-    setOpen(false);
-  };
-
-  const clear = (e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    onChange({ min: null, max: null });
-  };
+  const active = value.min !== null || value.max !== null;
+  const fmt = (n: number) => `${formatAmount(n, 0)} ₽`;
+  const label = !active
+    ? "Сумма"
+    : value.min !== null && value.max !== null
+      ? `${fmt(value.min)}–${fmt(value.max)}`
+      : value.min !== null
+        ? `От ${fmt(value.min)}`
+        : `До ${fmt(value.max!)}`;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <div className="relative inline-flex">
-        <PopoverTrigger asChild>
-          <Button
-            variant="outline"
-            size="sm"
-            className={cn(
-              "rounded-full h-8 pl-3 pr-8 font-normal text-sm",
-              hasValue
-                ? "bg-brand/10 border-brand/20 text-brand hover:bg-brand/15 hover:text-brand"
-                : "bg-muted/60 border-transparent text-muted-foreground hover:bg-muted"
-            )}
-          >
-            <CircleDollarSign className="mr-1.5 h-3.5 w-3.5" />
-            <span className="truncate max-w-[160px]">{buttonText}</span>
-          </Button>
-        </PopoverTrigger>
-        {hasValue && (
-          <button
-            type="button"
-            onClick={clear}
-            aria-label="Сбросить сумму"
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand-hover"
-          >
-            <X className="h-3 w-3" />
-          </button>
-        )}
-      </div>
+    <TableControlPin
+      label={label}
+      active={active}
+      clearLabel="Сбросить сумму"
+      onClear={() => onChange({ min: null, max: null })}
+      contentClassName="w-72 p-3"
+      open={open}
+      onOpenChange={setOpen}
+    >
+      {/* Окно монтирует редактор при открытии: черновик — из текущего значения. */}
+      <AmountRangeEditor
+        value={value}
+        onChange={(next) => {
+          onChange(next);
+          setOpen(false);
+        }}
+      />
+    </TableControlPin>
+  );
+}
 
-      <PopoverContent align="start" className="w-72 p-3 space-y-3">
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="text-xs text-muted-foreground">От</label>
-            <Input
-              type="number"
-              inputMode="decimal"
-              min={0}
-              step={0.01}
-              value={tempMin}
-              onChange={(e) => setTempMin(e.target.value)}
-              className="h-8"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-muted-foreground">До</label>
-            <Input
-              type="number"
-              inputMode="decimal"
-              min={0}
-              step={0.01}
-              value={tempMax}
-              onChange={(e) => setTempMax(e.target.value)}
-              className="h-8"
-            />
-          </div>
+function AmountRangeEditor({
+  value,
+  onChange,
+}: {
+  value: AmountRangeValue;
+  onChange: (next: AmountRangeValue) => void;
+}) {
+  const [min, setMin] = useState<number | null>(value.min);
+  const [max, setMax] = useState<number | null>(value.max);
+  const swapped = min !== null && max !== null && min > max;
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (swapped) return;
+        onChange({ min, max });
+      }}
+    >
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="tx-amount-min">От</Label>
+          <AmountInput id="tx-amount-min" value={min} onChange={setMin} />
         </div>
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setTempMin("");
-              setTempMax("");
-              onChange({ min: null, max: null });
-              setOpen(false);
-            }}
-          >
-            Очистить
-          </Button>
-          <Button size="sm" className="bg-brand hover:bg-brand-hover" onClick={apply}>
-            Применить
-          </Button>
+        <div className="space-y-1.5">
+          <Label htmlFor="tx-amount-max">До</Label>
+          <AmountInput id="tx-amount-max" value={max} onChange={setMax} />
         </div>
-      </PopoverContent>
-    </Popover>
+      </div>
+      {swapped ? (
+        <p className="text-xs text-destructive">«От» больше, чем «До»</p>
+      ) : null}
+      <div className="flex justify-end">
+        <Button type="submit" size="sm" className="h-8" disabled={swapped}>
+          Применить
+        </Button>
+      </div>
+    </form>
   );
 }

@@ -1,12 +1,11 @@
 import { redirect } from "next/navigation";
 
-// Edit form moved into the inline drawer on the list page. Permalink
-// redirect for historical bookmarks.
+// Правка — в панели на странице списка. Старые ссылки открывают операцию там.
 export default async function EditTransactionRedirect({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await params;
-  redirect("/finance/transactions");
+  const { id } = await params;
+  redirect(`/finance/transactions?id=${encodeURIComponent(id)}`);
 }

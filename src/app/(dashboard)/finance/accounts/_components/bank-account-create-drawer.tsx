@@ -17,7 +17,7 @@ import {
   type BankAccountFormErrors,
   type BankAccountFormState,
 } from "@/lib/finance/bank-account-form";
-import type { BankAccountGroupRow } from "@/types/finance";
+import type { BankAccountGroupRow, BankAccountRow } from "@/types/finance";
 import {
   BankAccountFields,
   type BankAccountLegalEntityOption,
@@ -25,8 +25,21 @@ import {
 } from "./bank-account-form";
 
 /**
+ * Только что созданный счёт — для формы, которая сразу его подставляет
+ * (например, операция в «Транзакциях»), не дожидаясь обновления списка.
+ */
+export type CreatedBankAccount = {
+  id: string;
+  legal_entity_id: string;
+  name: string;
+  type: BankAccountRow["type"];
+  currency: string;
+};
+
+/**
  * Панель «Новый счёт». Баланс здесь не задаётся: он складывается из операций.
- * После создания открывается карточка счёта.
+ * После создания открывается карточка счёта, а если передан `onCreated` —
+ * панель просто закрывается и отдаёт счёт вызвавшей форме.
  */
 export function BankAccountCreateDrawer({
   open,
@@ -35,6 +48,7 @@ export function BankAccountCreateDrawer({
   venues,
   groups,
   defaultLegalEntityId,
+  onCreated,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -43,6 +57,7 @@ export function BankAccountCreateDrawer({
   groups: BankAccountGroupRow[];
   /** Юрлицо, выбранное в фильтре списка, или единственное в аккаунте. */
   defaultLegalEntityId: string | null;
+  onCreated?: (account: CreatedBankAccount) => void;
 }) {
   const router = useRouter();
   const initial = emptyBankAccountForm({
@@ -81,14 +96,23 @@ export function BankAccountCreateDrawer({
     setServerError(null);
     startTransition(async () => {
       try {
-        const { id, error } = await createBankAccount(bankAccountPayload(form));
+        const payload = bankAccountPayload(form);
+        const { id, error } = await createBankAccount(payload);
         if (error || !id) {
           setServerError(error ?? "Не удалось создать счёт. Повторите попытку");
           return;
         }
-        toast.success(`Счёт «${form.name.trim()}» создан`);
+        toast.success(`Счёт «${payload.name}» создан`);
         close();
-        router.push(`/finance/accounts/${id}`);
+        if (onCreated)
+          onCreated({
+            id,
+            legal_entity_id: payload.legal_entity_id,
+            name: payload.name,
+            type: payload.type,
+            currency: payload.currency ?? "RUB",
+          });
+        else router.push(`/finance/accounts/${id}`);
       } catch {
         setServerError("Не удалось создать счёт. Проверьте соединение и повторите");
       }

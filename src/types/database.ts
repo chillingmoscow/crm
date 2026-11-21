@@ -791,6 +791,97 @@ export type Database = {
           },
         ]
       }
+      finance_posting_rules: {
+        Row: {
+          account_id: string
+          action_category_id: string | null
+          action_counterparty_id: string | null
+          action_venue_id: string | null
+          conditions: Json
+          created_at: string
+          created_by: string | null
+          enabled: boolean
+          id: string
+          name: string | null
+          position: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          account_id: string
+          action_category_id?: string | null
+          action_counterparty_id?: string | null
+          action_venue_id?: string | null
+          conditions: Json
+          created_at?: string
+          created_by?: string | null
+          enabled?: boolean
+          id?: string
+          name?: string | null
+          position: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          account_id?: string
+          action_category_id?: string | null
+          action_counterparty_id?: string | null
+          action_venue_id?: string | null
+          conditions?: Json
+          created_at?: string
+          created_by?: string | null
+          enabled?: boolean
+          id?: string
+          name?: string | null
+          position?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "finance_posting_rules_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_posting_rules_category_fkey"
+            columns: ["account_id", "action_category_id"]
+            isOneToOne: false
+            referencedRelation: "finance_categories"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "finance_posting_rules_counterparty_fkey"
+            columns: ["account_id", "action_counterparty_id"]
+            isOneToOne: false
+            referencedRelation: "counterparties"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "finance_posting_rules_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_posting_rules_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_posting_rules_venue_fkey"
+            columns: ["account_id", "action_venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["account_id", "id"]
+          },
+        ]
+      }
       hall_layouts: {
         Row: {
           canvas_height: number
@@ -2962,6 +3053,10 @@ export type Database = {
           }
       copy_role_permissions: {
         Args: { p_source_role_id: string; p_target_role_id: string }
+        Returns: undefined
+      }
+      finance_posting_rules_reorder: {
+        Args: { p_ids: string[] }
         Returns: undefined
       }
       finance_restore_transaction: {

@@ -174,6 +174,10 @@ create index finance_recurring_occurrences_counterparty_idx
   on public.finance_recurring_occurrences (account_id, counterparty_id);
 create index finance_recurring_occurrences_transaction_idx
   on public.finance_recurring_occurrences (account_id, transaction_id);
+-- Одна операция — один платёж (триггер даёт понятную ошибку, индекс — гарантию).
+create unique index finance_recurring_occurrences_transaction_uidx
+  on public.finance_recurring_occurrences (account_id, transaction_id)
+  where transaction_id is not null;
 
 -- ────────────────────────────────────────────────────────────
 -- 3. RLS: видимость как у операции (transactions_select, 373, без
@@ -585,7 +589,13 @@ begin
       from public.transactions t
      where t.id = new.transaction_id
        and t.account_id = new.account_id
-       and t.deleted_at is null;
+       and t.deleted_at is null
+       -- Заведение операции должно быть видно вызывающему (не обязательно равно
+       -- заведению снимка: при проведении его можно сменить).
+       and (v_uid is null
+            or t.venue_id is null
+            or t.venue_id = public.get_active_venue_id()
+            or public.has_permission('finance.view_all_venues'));
     if not found
        or v_tx.legal_entity_id <> new.legal_entity_id
        or v_tx.type <> new.type then
@@ -659,6 +669,97 @@ create trigger finance_recurring_release_on_delete
   execute function public.finance_recurring_release_transaction();
 
 -- ────────────────────────────────────────────────────────────
+-- 6a. Провести ожидаемый платёж: операция + закрытие платежа одной командой
+-- ────────────────────────────────────────────────────────────
+-- Счёт операции — того же юрлица, что платёж, и не удалён. Читать bank_accounts
+-- под RLS нельзя (нужен finance.view_bank_accounts, у проводящего его может не быть),
+-- поэтому проверка — через узкий definer-помощник.
+create or replace function private.finance_recurring_bank_account_ok(
+  p_account uuid, p_legal_entity uuid, p_bank_account uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_catalog
+as $$
+  select exists (
+    select 1 from public.bank_accounts b
+     where b.id = p_bank_account
+       and b.account_id = p_account
+       and b.legal_entity_id = p_legal_entity
+       and b.deleted_at is null
+  )
+$$;
+
+-- SECURITY INVOKER: вставка идёт через политику transactions_insert, перевод
+-- платежа в posted — через finance_recurring_occurrences_update и охранный триггер.
+-- Дата операции — как у createTransaction: голая дата, приведённая к timestamptz
+-- в часовом поясе сессии (PostgREST/UTC → полночь UTC).
+create or replace function public.finance_recurring_post(
+  p_occurrence   uuid,
+  p_amount       numeric,
+  p_date         date,
+  p_bank_account uuid,
+  p_category     uuid,
+  p_counterparty uuid,
+  p_venue        uuid,
+  p_description  text)
+returns uuid
+language plpgsql
+set search_path = public, pg_catalog
+as $$
+declare
+  v_occ public.finance_recurring_occurrences%rowtype;
+  v_uid uuid := auth.uid();
+  v_tx  uuid;
+begin
+  if v_uid is null then
+    raise exception 'Не авторизован';
+  end if;
+
+  select * into v_occ
+    from public.finance_recurring_occurrences
+   where id = p_occurrence and status = 'pending'
+   for update;
+  if not found then
+    raise exception 'Платёж уже разобран';
+  end if;
+
+  if p_amount is null or p_amount <= 0 then
+    raise exception 'Сумма должна быть больше нуля';
+  end if;
+  if p_date is null then
+    raise exception 'Укажите дату';
+  end if;
+
+  if p_venue is not null
+     and not public.has_permission('finance.view_all_venues')
+     and p_venue is distinct from public.get_active_venue_id() then
+    raise exception 'Можно выбрать только своё заведение';
+  end if;
+
+  if not private.finance_recurring_bank_account_ok(v_occ.account_id, v_occ.legal_entity_id, p_bank_account) then
+    raise exception 'Счёт не найден или относится к другому юрлицу';
+  end if;
+
+  insert into public.transactions (
+    account_id, created_by, legal_entity_id, venue_id, bank_account_id, type,
+    amount, currency, date, description, source, category_id, counterparty_id)
+  values (
+    v_occ.account_id, v_uid, v_occ.legal_entity_id, p_venue, p_bank_account, v_occ.type,
+    p_amount, v_occ.currency, p_date::timestamptz, nullif(btrim(p_description), ''), 'manual',
+    p_category, p_counterparty)
+  returning id into v_tx;
+
+  update public.finance_recurring_occurrences
+     set status = 'posted', transaction_id = v_tx, resolved_by = v_uid, resolved_at = now()
+   where id = v_occ.id;
+
+  return v_tx;
+end;
+$$;
+
+-- ────────────────────────────────────────────────────────────
 -- 7. Права на функции
 -- ────────────────────────────────────────────────────────────
 revoke all on function public.finance_recurring_materialize_all() from public, anon, authenticated;
@@ -669,6 +770,12 @@ grant execute on function public.finance_recurring_materialize_mine() to authent
 
 revoke all on function public.finance_recurring_next_due(uuid) from public, anon;
 grant execute on function public.finance_recurring_next_due(uuid) to authenticated;
+
+revoke all on function public.finance_recurring_post(uuid, numeric, date, uuid, uuid, uuid, uuid, text) from public, anon;
+grant execute on function public.finance_recurring_post(uuid, numeric, date, uuid, uuid, uuid, uuid, text) to authenticated;
+
+revoke all on function private.finance_recurring_bank_account_ok(uuid, uuid, uuid) from public, anon;
+grant execute on function private.finance_recurring_bank_account_ok(uuid, uuid, uuid) to authenticated, service_role;
 
 revoke all on function public.finance_recurring_release_transaction() from public, anon, authenticated;
 revoke all on function public.finance_recurring_templates_guard() from public, anon, authenticated;
@@ -692,6 +799,8 @@ begin
     or has_function_privilege('authenticated', 'public.finance_recurring_materialize_all()', 'EXECUTE')
     or has_function_privilege('anon', 'public.finance_recurring_materialize_mine()', 'EXECUTE')
     or has_function_privilege('anon', 'public.finance_recurring_next_due(uuid)', 'EXECUTE')
+    or has_function_privilege('anon', 'public.finance_recurring_post(uuid, numeric, date, uuid, uuid, uuid, uuid, text)', 'EXECUTE')
+    or has_function_privilege('anon', 'private.finance_recurring_bank_account_ok(uuid, uuid, uuid)', 'EXECUTE')
     or has_function_privilege('anon', 'private.finance_recurring_materialize_account(uuid)', 'EXECUTE')
     or has_function_privilege('authenticated', 'private.finance_recurring_materialize_account(uuid)', 'EXECUTE')
     or has_function_privilege('anon', 'private.finance_account_today(uuid)', 'EXECUTE')
@@ -714,6 +823,8 @@ begin
   if not has_function_privilege('service_role', 'public.finance_recurring_materialize_all()', 'EXECUTE')
     or not has_function_privilege('authenticated', 'public.finance_recurring_materialize_mine()', 'EXECUTE')
     or not has_function_privilege('authenticated', 'public.finance_recurring_next_due(uuid)', 'EXECUTE')
+    or not has_function_privilege('authenticated', 'public.finance_recurring_post(uuid, numeric, date, uuid, uuid, uuid, uuid, text)', 'EXECUTE')
+    or not has_function_privilege('authenticated', 'private.finance_recurring_bank_account_ok(uuid, uuid, uuid)', 'EXECUTE')
   then
     raise exception 'finance_recurring_*: не выданы нужные права';
   end if;

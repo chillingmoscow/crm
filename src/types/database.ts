@@ -3267,6 +3267,19 @@ export type Database = {
       finance_recurring_materialize_all: { Args: never; Returns: number }
       finance_recurring_materialize_mine: { Args: never; Returns: number }
       finance_recurring_next_due: { Args: { p_template_id: string }; Returns: string }
+      finance_recurring_post: {
+        Args: {
+          p_occurrence: string
+          p_amount: number
+          p_date: string
+          p_bank_account: string
+          p_category: string | null
+          p_counterparty: string | null
+          p_venue: string | null
+          p_description: string | null
+        }
+        Returns: string
+      }
       finance_restore_transaction: {
         Args: { p_id: string }
         Returns: number

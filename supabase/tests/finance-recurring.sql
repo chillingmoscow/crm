@@ -531,6 +531,225 @@ begin
     'release flag is reset');
 end $$;
 
+-- ── 8. finance_recurring_post ──────────────────────────────
+do $$
+declare
+  v_acc uuid := (select account_id from rf);
+  v_le uuid := (select le_id from rf);
+  v_ba uuid := (select ba_id from rf);
+  v_venue uuid := (select venue_id from rf);
+  v_uid uuid := 'cccccccc-1111-1111-1111-cccccccccccc';
+  v_today date := private.finance_account_today((select account_id from rf));
+  v_le2 uuid; v_ba2 uuid; v_ba_del uuid; v_venue_b uuid;
+  v_t uuid; v_o1 uuid; v_o2 uuid; v_o3 uuid; v_o4 uuid; v_o5 uuid;
+  v_tx uuid; v_tx2 uuid;
+  n int;
+  failed boolean;
+  msg text;
+begin
+  insert into public.legal_entities (account_id, name, legal_form)
+  values (v_acc, 'LE P2', 'IP'::public.legal_form_enum) returning id into v_le2;
+  insert into public.bank_accounts (account_id, legal_entity_id, name, type)
+  values (v_acc, v_le2, 'Касса P2', 'cash'::public.bank_account_type_enum) returning id into v_ba2;
+  insert into public.venues (account_id, name, type, default_legal_entity_id)
+  values (v_acc, 'Spot R B', 'cafe'::public.venue_type, v_le) returning id into v_venue_b;
+  insert into public.bank_accounts (account_id, legal_entity_id, name, type, deleted_at)
+  values (v_acc, v_le, 'Касса удалена', 'cash'::public.bank_account_type_enum, now()) returning id into v_ba_del;
+
+  insert into public.finance_recurring_templates (
+    account_id, legal_entity_id, venue_id, bank_account_id, type, amount, name,
+    frequency, day_of_month, starts_on, materialize_from)
+  values (v_acc, v_le, v_venue, v_ba, 'expense', 150000, 'Аренда', 'monthly', 5, '2026-01-01', v_today + 1)
+  returning id into v_t;
+
+  insert into public.finance_recurring_occurrences (account_id, template_id, due_date, legal_entity_id,
+    venue_id, bank_account_id, type, amount, name)
+  select v_acc, v_t, d, v_le, v_venue, v_ba, 'expense', 150000, 'Аренда'
+    from unnest(array[v_today - 5, v_today - 6, v_today - 7, v_today - 8, v_today - 9]) d;
+  select id into v_o1 from public.finance_recurring_occurrences where template_id = v_t and due_date = v_today - 5;
+  select id into v_o2 from public.finance_recurring_occurrences where template_id = v_t and due_date = v_today - 6;
+  select id into v_o3 from public.finance_recurring_occurrences where template_id = v_t and due_date = v_today - 7;
+  select id into v_o4 from public.finance_recurring_occurrences where template_id = v_t and due_date = v_today - 8;
+  select id into v_o5 from public.finance_recurring_occurrences where template_id = v_t and due_date = v_today - 9;
+
+  perform set_config('app.account_id', v_acc::text, true);
+  perform set_config('app.venue_id', '', true);
+  perform set_config('app.perms',
+    ',finance.view_transactions,finance.create_transaction,finance.view_all_legal_entities,finance.view_all_venues,', true);
+  perform set_config('app.ctx_ready', '1', true);
+  perform set_config('request.jwt.claims', json_build_object('sub', v_uid)::text, true);
+  set local role authenticated;
+
+  -- проведение с поправленной суммой
+  v_tx := public.finance_recurring_post(v_o1, 149500.50, v_today, v_ba, null, null, v_venue, 'за месяц');
+  perform public.test_assert(v_tx is not null, 'post returns transaction id');
+  select count(*) into n from public.transactions where id = v_tx
+    and amount = 149500.50 and type = 'expense' and source = 'manual'
+    and created_by = v_uid and legal_entity_id = v_le and bank_account_id = v_ba
+    and description = 'за месяц' and date = v_today::timestamptz;
+  perform public.test_assert(n = 1, 'post creates the transaction with patched fields');
+  perform public.test_assert(
+    (select status from public.finance_recurring_occurrences where id = v_o1) = 'posted'
+    and (select transaction_id from public.finance_recurring_occurrences where id = v_o1) = v_tx
+    and (select resolved_by from public.finance_recurring_occurrences where id = v_o1) = v_uid
+    and (select resolved_at from public.finance_recurring_occurrences where id = v_o1) is not null,
+    'occurrence is posted and linked');
+
+  -- второй вызов: исключение, операция по-прежнему одна
+  failed := false;
+  begin
+    perform public.finance_recurring_post(v_o1, 1, v_today, v_ba, null, null, v_venue, null);
+  exception when others then
+    failed := true; msg := sqlerrm;
+  end;
+  perform public.test_assert(failed and msg = 'Платёж уже разобран', 'second post raises "Платёж уже разобран"');
+  select count(*) into n from public.transactions t
+   where t.account_id = v_acc and exists (
+     select 1 from public.finance_recurring_occurrences o where o.id = v_o1 and o.transaction_id = t.id);
+  perform public.test_assert(n = 1, 'still one transaction for the occurrence');
+
+  -- пропущенный и перенесённый-на-будущее платежи через post не проводятся только если не pending;
+  update public.finance_recurring_occurrences set status = 'skipped', resolved_by = v_uid, resolved_at = now() where id = v_o2;
+  failed := false;
+  begin
+    perform public.finance_recurring_post(v_o2, 1, v_today, v_ba, null, null, v_venue, null);
+  exception when others then failed := true; msg := sqlerrm; end;
+  perform public.test_assert(failed and msg = 'Платёж уже разобран', 'skipped occurrence cannot be posted');
+
+  -- счёт другого юрлица и удалённый счёт
+  failed := false;
+  begin
+    perform public.finance_recurring_post(v_o3, 1, v_today, v_ba2, null, null, v_venue, null);
+  exception when others then failed := true; end;
+  perform public.test_assert(failed, 'bank account of another legal entity is rejected');
+  failed := false;
+  begin
+    perform public.finance_recurring_post(v_o3, 1, v_today, v_ba_del, null, null, v_venue, null);
+  exception when others then failed := true; end;
+  perform public.test_assert(failed, 'deleted bank account is rejected');
+  failed := false;
+  begin
+    perform public.finance_recurring_post(v_o3, 0, v_today, v_ba, null, null, v_venue, null);
+  exception when others then failed := true; end;
+  perform public.test_assert(failed, 'non-positive amount is rejected');
+  perform public.test_assert(
+    (select status from public.finance_recurring_occurrences where id = v_o3) = 'pending',
+    'failed posts leave the occurrence pending');
+
+  -- без права создавать операции
+  perform set_config('app.perms',
+    ',finance.view_transactions,finance.view_all_legal_entities,finance.view_all_venues,', true);
+  failed := false;
+  begin
+    perform public.finance_recurring_post(v_o3, 1, v_today, v_ba, null, null, v_venue, null);
+  exception when others then failed := true; end;
+  perform public.test_assert(failed, 'post without finance.create_transaction fails');
+
+  -- пользователь только своего заведения: чужой платёж не виден и не проводится
+  perform set_config('app.venue_id', v_venue_b::text, true);
+  perform set_config('app.perms',
+    ',finance.view_transactions,finance.create_transaction,finance.view_all_legal_entities,', true);
+  select count(*) into n from public.finance_recurring_occurrences where id = v_o4;
+  perform public.test_assert(n = 0, 'occurrence of another venue is invisible');
+  failed := false;
+  begin
+    perform public.finance_recurring_post(v_o4, 1, v_today, v_ba, null, null, v_venue, null);
+  exception when others then failed := true; end;
+  perform public.test_assert(failed, 'post of invisible occurrence raises');
+  select count(*) into n from public.finance_recurring_occurrences
+   where id = v_o4 and status = 'pending';
+  reset role;
+  perform public.test_assert(
+    (select status from public.finance_recurring_occurrences where id = v_o4) = 'pending',
+    'invisible occurrence stays pending');
+
+  -- платёж без заведения виден, но подставить чужое заведение нельзя
+  update public.finance_recurring_occurrences set venue_id = null where id = v_o5;
+  perform set_config('app.venue_id', v_venue_b::text, true);
+  set local role authenticated;
+  failed := false;
+  begin
+    perform public.finance_recurring_post(v_o5, 1, v_today, v_ba, null, null, v_venue, null);
+  exception when others then failed := true; msg := sqlerrm; end;
+  perform public.test_assert(failed, 'foreign venue cannot be set by a single-venue user');
+  v_tx2 := public.finance_recurring_post(v_o5, 1, v_today, v_ba, null, null, null, null);
+  perform public.test_assert(v_tx2 is not null, 'venue-less occurrence can be posted by a single-venue user');
+  reset role;
+end $$;
+
+-- ── 9. Охрана проведения: видимость заведения и уникальность связи ──
+do $$
+declare
+  v_acc uuid := (select account_id from rf);
+  v_le uuid := (select le_id from rf);
+  v_ba uuid := (select ba_id from rf);
+  v_venue uuid := (select venue_id from rf);
+  v_uid uuid := 'cccccccc-1111-1111-1111-cccccccccccc';
+  v_today date := private.finance_account_today((select account_id from rf));
+  v_venue_b uuid; v_t uuid; v_oa uuid; v_ob uuid; v_oc uuid;
+  v_tx_b uuid; v_tx_a uuid;
+  failed boolean;
+begin
+  insert into public.venues (account_id, name, type, default_legal_entity_id)
+  values (v_acc, 'Spot R B2', 'cafe'::public.venue_type, v_le) returning id into v_venue_b;
+  insert into public.finance_recurring_templates (
+    account_id, legal_entity_id, bank_account_id, type, amount, name,
+    frequency, day_of_month, starts_on, materialize_from)
+  values (v_acc, v_le, v_ba, 'expense', 10, 'G', 'monthly', 5, '2026-01-01', v_today + 1)
+  returning id into v_t;
+  insert into public.finance_recurring_occurrences (account_id, template_id, due_date, legal_entity_id,
+    bank_account_id, type, amount, name)
+  select v_acc, v_t, d, v_le, v_ba, 'expense', 10, 'G'
+    from unnest(array[v_today - 11, v_today - 12, v_today - 13]) d;
+  select id into v_oa from public.finance_recurring_occurrences where template_id = v_t and due_date = v_today - 11;
+  select id into v_ob from public.finance_recurring_occurrences where template_id = v_t and due_date = v_today - 12;
+  select id into v_oc from public.finance_recurring_occurrences where template_id = v_t and due_date = v_today - 13;
+  insert into public.transactions (account_id, legal_entity_id, venue_id, bank_account_id, type, amount, date)
+  values (v_acc, v_le, v_venue_b, v_ba, 'expense', 10, now()) returning id into v_tx_b;
+  insert into public.transactions (account_id, legal_entity_id, venue_id, bank_account_id, type, amount, date)
+  values (v_acc, v_le, v_venue, v_ba, 'expense', 10, now()) returning id into v_tx_a;
+
+  perform set_config('app.account_id', v_acc::text, true);
+  perform set_config('app.venue_id', v_venue::text, true);
+  perform set_config('app.perms',
+    ',finance.view_transactions,finance.create_transaction,finance.view_all_legal_entities,', true);
+  perform set_config('app.ctx_ready', '1', true);
+  perform set_config('request.jwt.claims', json_build_object('sub', v_uid)::text, true);
+  set local role authenticated;
+
+  -- пользователь заведения A связывает операцию заведения B
+  failed := false;
+  begin
+    update public.finance_recurring_occurrences
+       set status = 'posted', transaction_id = v_tx_b, resolved_by = v_uid, resolved_at = now()
+     where id = v_oa;
+  exception when others then failed := true; end;
+  perform public.test_assert(failed, 'linking a transaction of an invisible venue raises');
+
+  -- своя операция проходит; повторная связь той же операции — нет
+  update public.finance_recurring_occurrences
+     set status = 'posted', transaction_id = v_tx_a, resolved_by = v_uid, resolved_at = now()
+   where id = v_oa;
+  failed := false;
+  begin
+    update public.finance_recurring_occurrences
+       set status = 'posted', transaction_id = v_tx_a, resolved_by = v_uid, resolved_at = now()
+     where id = v_ob;
+  exception when others then failed := true; end;
+  perform public.test_assert(failed, 'linking an already linked transaction raises');
+  reset role;
+
+  -- сама БД не даёт связать одну операцию дважды, даже мимо триггера
+  alter table public.finance_recurring_occurrences disable trigger finance_recurring_occurrences_guard;
+  failed := false;
+  begin
+    update public.finance_recurring_occurrences
+       set status = 'posted', transaction_id = v_tx_a where id = v_oc;
+  exception when unique_violation then failed := true; end;
+  alter table public.finance_recurring_occurrences enable trigger finance_recurring_occurrences_guard;
+  perform public.test_assert(failed, 'unique index backs one transaction per occurrence');
+end $$;
+
 select 'finance-recurring: all tests passed' as result;
 
 rollback;

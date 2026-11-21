@@ -5,7 +5,7 @@
 --
 -- Прогон внутри одной откатываемой транзакции (reset базы не нужен):
 --   cat <(echo 'begin;') \
---       <(sed -E '/^[[:space:]]*(begin|commit);[[:space:]]*$/d' supabase/migrations/377_finance_recurring_payments.sql) \
+--       <(sed -E '/^[[:space:]]*(begin|commit);[[:space:]]*$/d' supabase/migrations/378_finance_recurring_payments.sql) \
 --       <(sed -E '/^[[:space:]]*begin;[[:space:]]*$/d' supabase/tests/finance-recurring.sql) \
 --     | docker exec -i supabase_db_crm psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f -
 -- ============================================================

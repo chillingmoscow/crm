@@ -1,5 +1,5 @@
 -- ============================================================
--- 377_finance_recurring_payments.sql
+-- 378_finance_recurring_payments.sql
 --
 -- Повторяющиеся платежи, этап 1 (docs/superpowers/specs/
 -- 2026-11-21-recurring-payments-design.md):

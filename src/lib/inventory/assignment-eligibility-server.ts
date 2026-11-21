@@ -1,11 +1,15 @@
 import "server-only";
 
 import type { LooseDb } from "@/lib/supabase/loose";
+import { chunk, fetchAllRows } from "@/lib/supabase/fetch-all";
 import {
   INVENTORY_ASSIGNMENT_PERMISSIONS,
   buildAssignmentEligibility,
   type InventoryAssignmentEligibility,
 } from "@/lib/inventory/act-assignment";
+
+/** Сколько id ролей за один запрос к role_permissions. */
+const ROLE_ID_CHUNK = 200;
 
 /**
  * Загрузить, кого в аккаунте можно назначать исполнителем и проверяющим актов,
@@ -49,34 +53,44 @@ export async function loadAssignmentEligibility(input: {
     return buildAssignmentEligibility({ ownerId, grants: [] });
   }
 
-  const { data: rolePermissions, error: rolePermissionsError } = await input.admin
-    .from<Array<{ role_id: string; permission_id: string }>>("role_permissions")
-    .select("role_id, permission_id")
-    .in("permission_id", Array.from(codeByPermissionId.keys()))
-    .eq("granted", true);
-  if (rolePermissionsError) throw new Error(rolePermissionsError.message);
+  // Сначала участники заведений этого аккаунта, потом права только их ролей.
+  // Читать role_permissions целиком нельзя: это строки всех аккаунтов, а
+  // PostgREST молча обрезает ответ на 1000 строк (CLAUDE.md, fetchAllRows).
+  const memberships = await fetchAllRows<{ user_id: string; venue_id: string; role_id: string }>(() =>
+    input.admin
+      .from<Array<{ user_id: string; venue_id: string; role_id: string }>>("user_venue_roles")
+      .select("user_id, venue_id, role_id")
+      .in("venue_id", venueIds)
+      .eq("status", "active")
+      .is("fired_at", null),
+  );
+  const roleIds = Array.from(new Set(memberships.map((row) => row.role_id)));
+  if (roleIds.length === 0) return buildAssignmentEligibility({ ownerId, grants: [] });
+
+  // Порция ролей × три кода прав заведомо меньше 1000 строк, а список id не
+  // раздувает URL запроса.
   const codesByRoleId = new Map<string, string[]>();
-  for (const row of rolePermissions ?? []) {
-    const code = codeByPermissionId.get(row.permission_id);
-    if (!code) continue;
-    const codes = codesByRoleId.get(row.role_id) ?? [];
-    codes.push(code);
-    codesByRoleId.set(row.role_id, codes);
+  for (const part of chunk(roleIds, ROLE_ID_CHUNK)) {
+    const { data: rolePermissions, error: rolePermissionsError } = await input.admin
+      .from<Array<{ role_id: string; permission_id: string }>>("role_permissions")
+      .select("role_id, permission_id")
+      .in("role_id", part)
+      .in("permission_id", Array.from(codeByPermissionId.keys()))
+      .eq("granted", true);
+    if (rolePermissionsError) throw new Error(rolePermissionsError.message);
+    for (const row of rolePermissions ?? []) {
+      const code = codeByPermissionId.get(row.permission_id);
+      if (!code) continue;
+      const codes = codesByRoleId.get(row.role_id) ?? [];
+      codes.push(code);
+      codesByRoleId.set(row.role_id, codes);
+    }
   }
   if (codesByRoleId.size === 0) return buildAssignmentEligibility({ ownerId, grants: [] });
 
-  const { data: memberships, error: membershipsError } = await input.admin
-    .from<Array<{ user_id: string; venue_id: string; role_id: string }>>("user_venue_roles")
-    .select("user_id, venue_id, role_id")
-    .in("venue_id", venueIds)
-    .in("role_id", Array.from(codesByRoleId.keys()))
-    .eq("status", "active")
-    .is("fired_at", null);
-  if (membershipsError) throw new Error(membershipsError.message);
-
   return buildAssignmentEligibility({
     ownerId,
-    grants: (memberships ?? []).map((row) => ({
+    grants: memberships.filter((row) => codesByRoleId.has(row.role_id)).map((row) => ({
       userId: row.user_id,
       venueId: row.venue_id,
       permissionCodes: codesByRoleId.get(row.role_id) ?? [],

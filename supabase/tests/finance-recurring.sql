@@ -792,6 +792,24 @@ begin
     'posted transaction uses the chosen account');
 end $$;
 
+-- ── Удаление аккаунта с проведённым платежом не упирается в FK ──
+-- Каскад сносит операции раньше строк очереди; триггер возврата в очередь
+-- при исчезнувшем аккаунте ничего не трогает. Проверяем в той же транзакции,
+-- где вставлены строки (отложенные FK перепроверяются при удалении аккаунта).
+do $$
+declare
+  v_acc uuid := (select account_id from rf);
+begin
+  if (select count(*) from public.finance_recurring_occurrences
+       where account_id = v_acc and transaction_id is not null) = 0 then
+    raise exception 'TEST FAILED: fixture needs a posted occurrence';
+  end if;
+  delete from public.accounts where id = v_acc;
+  perform public.test_assert(
+    not exists (select 1 from public.finance_recurring_occurrences where account_id = v_acc),
+    'deleting an account with posted recurring payments succeeds and clears the queue');
+end $$;
+
 select 'finance-recurring: all tests passed' as result;
 
 rollback;

@@ -172,9 +172,8 @@ create index finance_recurring_occurrences_category_idx
   on public.finance_recurring_occurrences (account_id, category_id);
 create index finance_recurring_occurrences_counterparty_idx
   on public.finance_recurring_occurrences (account_id, counterparty_id);
-create index finance_recurring_occurrences_transaction_idx
-  on public.finance_recurring_occurrences (account_id, transaction_id);
--- Одна операция — один платёж (триггер даёт понятную ошибку, индекс — гарантию).
+-- Одна операция — один платёж (триггер даёт понятную ошибку, индекс — гарантию;
+-- он же покрывает поиск по FK (account_id, transaction_id) при удалении операции).
 create unique index finance_recurring_occurrences_transaction_uidx
   on public.finance_recurring_occurrences (account_id, transaction_id)
   where transaction_id is not null;
@@ -641,6 +640,14 @@ security definer
 set search_path = public, pg_catalog
 as $$
 begin
+  -- Аккаунт удаляется каскадом: родителя уже нет, возвращать платёж в очередь
+  -- некуда, а запись в occurrences спровоцировала бы повторную проверку FK.
+  if not exists (select 1 from public.accounts where id = old.account_id) then
+    if tg_op = 'DELETE' then
+      return old;
+    end if;
+    return new;
+  end if;
   if tg_op = 'DELETE' or (old.deleted_at is null and new.deleted_at is not null) then
     perform set_config('app.finance_recurring_release', '1', true);
     update public.finance_recurring_occurrences

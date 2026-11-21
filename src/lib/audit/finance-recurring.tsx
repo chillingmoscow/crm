@@ -34,11 +34,22 @@ function name(e: AuditEvent): ReactNode {
   );
 }
 
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  RUB: "₽",
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+  KZT: "₸",
+  BYN: "Br",
+};
+
 function money(e: AuditEvent): string | null {
   const raw = e.details.amount;
   const n = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : NaN;
   if (!Number.isFinite(n)) return null;
-  return `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(n)} ₽`;
+  const code = typeof e.details.currency === "string" ? e.details.currency : "RUB";
+  const symbol = CURRENCY_SYMBOLS[code] ?? code;
+  return `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(n)} ${symbol}`;
 }
 
 function dateRu(value: unknown): string | null {

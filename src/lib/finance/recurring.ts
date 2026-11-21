@@ -8,6 +8,7 @@ import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { createClient, getCachedPermissionChecker } from "@/lib/supabase/server";
+import { LAST_DAY_OF_MONTH, WEEKDAY_LABELS } from "@/lib/finance/recurring-schedule";
 import type {
   RecurringOccurrenceRow,
   RecurringSchedule,
@@ -117,16 +118,66 @@ async function bankAccountCurrency(
 ): Promise<{ currency: string } | { error: string }> {
   const { data, error } = await createAdminClient()
     .from("bank_accounts")
-    .select("currency, legal_entity_id")
+    .select("currency")
     .eq("id", input.bank_account_id)
     .eq("account_id", ctx.accountId)
+    .eq("legal_entity_id", input.legal_entity_id)
+    .is("deleted_at", null)
     .maybeSingle();
-  if (error) return { error: error.message };
-  if (!data) return { error: "Счёт не найден. Обновите страницу" };
-  if (data.legal_entity_id !== input.legal_entity_id) {
-    return { error: "Счёт относится к другому юрлицу. Обновите страницу" };
-  }
+  if (error) console.error(`[recurring] bankAccountCurrency: ${error.message}`);
+  // Не найден, чужое юрлицо, архив и ошибка запроса — для пользователя одно
+  // сообщение: настоящую причину не раскрываем, она в серверном логе.
+  if (error || !data) return { error: "Счёт не найден. Обновите страницу" };
   return { currency: data.currency };
+}
+
+/** Валюта счёта для журнала (service-role, в пределах аккаунта); при сбое — null. */
+async function accountCurrencyForAudit(ctx: Ctx, bankAccountId: string): Promise<string | null> {
+  const { data } = await createAdminClient()
+    .from("bank_accounts")
+    .select("currency")
+    .eq("id", bankAccountId)
+    .eq("account_id", ctx.accountId)
+    .maybeSingle();
+  return data?.currency ?? null;
+}
+
+const REF_TABLES = {
+  bank_account_id: "bank_accounts",
+  category_id: "finance_categories",
+  counterparty_id: "counterparties",
+  venue_id: "venues",
+} as const;
+
+/** Названия по id для журнала правки (service-role, в пределах аккаунта). */
+async function refNames(ctx: Ctx, ids: Record<keyof typeof REF_TABLES, string[]>) {
+  const names = new Map<string, string>();
+  const admin = createAdminClient();
+  await Promise.all(
+    (Object.keys(REF_TABLES) as (keyof typeof REF_TABLES)[]).map(async (field) => {
+      if (ids[field].length === 0) return;
+      const { data } = await admin
+        .from(REF_TABLES[field])
+        .select("id, name")
+        .eq("account_id", ctx.accountId)
+        .in("id", ids[field]);
+      for (const row of data ?? []) names.set(row.id, row.name);
+    }),
+  );
+  return names;
+}
+
+const QUARTER_MONTH_LABELS = ["1-й месяц квартала", "2-й месяц квартала", "3-й месяц квартала"];
+
+/** Значение поля шаблона в виде, читаемом в ленте журнала. */
+function humanValue(field: string, value: unknown): unknown {
+  if (value === null || value === undefined) return null;
+  if (field === "weekday") return WEEKDAY_LABELS[Number(value) - 1] ?? String(value);
+  if (field === "day_of_month") {
+    return Number(value) >= LAST_DAY_OF_MONTH ? "последний день" : `${value}-е число`;
+  }
+  if (field === "quarter_month") return QUARTER_MONTH_LABELS[Number(value) - 1] ?? String(value);
+  return value;
 }
 
 function templateFields(input: RecurringTemplateInput, currency: string) {
@@ -262,12 +313,31 @@ export async function updateRecurringTemplate(
   if (error) return { error: error.message };
   if (!data || data.length === 0) return { error: TEMPLATE_GONE };
 
-  const changes = TRACKED_FIELDS.filter(
-    (f) => (before as Record<string, unknown>)[f] !== (fields as Record<string, unknown>)[f],
-  ).map((f) => ({
+  const beforeRec = before as Record<string, unknown>;
+  const afterRec = fields as Record<string, unknown>;
+  const changed = TRACKED_FIELDS.filter((f) => beforeRec[f] !== afterRec[f]);
+  const refIds: Record<keyof typeof REF_TABLES, string[]> = {
+    bank_account_id: [],
+    category_id: [],
+    counterparty_id: [],
+    venue_id: [],
+  };
+  for (const f of changed) {
+    if (f in REF_TABLES) {
+      for (const v of [beforeRec[f], afterRec[f]]) {
+        if (typeof v === "string") refIds[f as keyof typeof REF_TABLES].push(v);
+      }
+    }
+  }
+  const names = await refNames(ctx, refIds);
+  const display = (f: string, v: unknown): unknown => {
+    if (f in REF_TABLES) return typeof v === "string" ? (names.get(v) ?? null) : null;
+    return humanValue(f, v);
+  };
+  const changes = changed.map((f) => ({
     field: f,
-    old: (before as Record<string, unknown>)[f] ?? null,
-    new: (fields as Record<string, unknown>)[f] ?? null,
+    old: display(f, beforeRec[f]),
+    new: display(f, afterRec[f]),
   }));
   await writeAuditEvent({
     accountId: ctx.accountId,
@@ -539,7 +609,10 @@ export async function postOccurrence(
       amount: patch.amount,
     },
     "finance.recurring_occurrence.posted",
-    { transaction_id: data },
+    {
+      transaction_id: data,
+      currency: await accountCurrencyForAudit(ctx, patch.bank_account_id),
+    },
   );
   revalidateRecurring();
   revalidatePath("/finance/accounts");

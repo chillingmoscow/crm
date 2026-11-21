@@ -378,6 +378,7 @@ export function OccurrenceCard({
         }}
         title={`Пропустить платёж «${occurrence.name}»?`}
         description={`Платёж за ${formatDue(occurrence.due_date, today)} уйдёт из очереди, операция не появится. Следующий платёж придёт в свой срок.`}
+        destructive
         confirmLabel="Пропустить платёж"
         pendingLabel="Пропускаем…"
         busy={busy === "skip"}

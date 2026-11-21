@@ -24,6 +24,7 @@ const FIELD_VALUES: Record<string, Record<string, string>> = {
     income: "Доход", expense: "Расход", transfer: "Перевод",
     checking: "Расчётный счёт", debit_card: "Карта", cash: "Касса", fund: "Фонд", safe: "Сейф",
   },
+  frequency: { weekly: "Каждую неделю", monthly: "Каждый месяц", quarterly: "Каждый квартал" },
   review_mode: { auto: "Без проверки", manager: "Проверяет управляющий" },
   legal_form: { IP: "ИП", OOO: "ООО", AO: "АО", PAO: "ПАО", NKO: "НКО", OTHER: "Иное" },
   tax_system: {
@@ -150,6 +151,13 @@ const FIELD_LABELS: Record<string, string> = {
   date: "дата",
   group_id: "группа",
   is_active: "активность",
+  // finance.recurring (шаблон повторяющегося платежа)
+  amount_varies: "сумма меняется",
+  frequency: "периодичность",
+  day_of_month: "число месяца",
+  weekday: "день недели",
+  quarter_month: "месяц квартала",
+  ends_on: "действует по",
   // finance.transaction
   bank_account_id: "счёт",
   to_bank_account_id: "счёт получатель",

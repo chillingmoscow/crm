@@ -86,6 +86,7 @@ import {
   type MultiSelectItem,
 } from "./filters/multi-select-filter";
 import { TransactionFormSheet } from "./transaction-form-sheet";
+import { TRANSACTION_CREATE_OPTIONS } from "../../_components/transaction-create-options";
 import {
   formatCurrency,
   formatShortAmount,
@@ -500,6 +501,34 @@ export function TransactionsPage({
     // bouncing them to /finance/accounts.
     setFormMode({ kind: "create", type });
   };
+
+  // Кнопка «Добавить операцию» на дашборде ведёт сюда с `?create=<тип>`.
+  // Форма открывается один раз, параметр сразу убирается из адреса — иначе
+  // обновление страницы или «Назад» открывали бы её снова.
+  const createFromUrl = searchParams.get("create");
+  const handledCreate = useRef<string | null>(null);
+  useEffect(() => {
+    if (!createFromUrl) {
+      handledCreate.current = null;
+      return;
+    }
+    if (handledCreate.current === createFromUrl) return;
+    handledCreate.current = createFromUrl;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("create");
+    const qs = params.toString();
+    // Без запроса к серверу: router.replace перерисовал бы весь журнал
+    // второй раз. Next синхронизирует useSearchParams с history сам.
+    window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
+    if (!canCreate) return;
+    if (createFromUrl !== "income" && createFromUrl !== "expense" && createFromUrl !== "transfer")
+      return;
+    if (createFromUrl === "transfer" && bankAccounts.length < 2) {
+      toast.error("Для создания перевода необходимо иметь как минимум два счёта");
+      return;
+    }
+    setFormMode({ kind: "create", type: createFromUrl });
+  }, [createFromUrl, canCreate, bankAccounts.length, searchParams, pathname]);
 
   const openEdit = (tx: TransactionRow) => {
     setFormMode({ kind: "edit", transaction: tx });
@@ -1105,37 +1134,20 @@ function CreateButton({
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-56 p-1">
-        <button
-          type="button"
-          onClick={() => onPick("income")}
-          className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent"
-        >
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">
-            <Plus className="h-3.5 w-3.5" />
-          </span>
-          Приход
-        </button>
-        <button
-          type="button"
-          onClick={() => onPick("expense")}
-          className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent"
-        >
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400">
-            <Minus className="h-3.5 w-3.5" />
-          </span>
-          Расход
-        </button>
-        <button
-          type="button"
-          onClick={() => onPick("transfer")}
-          disabled={transferDisabled}
-          className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent disabled:opacity-50 disabled:hover:bg-transparent"
-        >
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-brand/10 text-brand">
-            <ArrowLeftRight className="h-3.5 w-3.5" />
-          </span>
-          Перевод
-        </button>
+        {TRANSACTION_CREATE_OPTIONS.map(({ type, label, icon: Icon, tone }) => (
+          <button
+            key={type}
+            type="button"
+            onClick={() => onPick(type)}
+            disabled={type === "transfer" && transferDisabled}
+            className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent disabled:opacity-50 disabled:hover:bg-transparent"
+          >
+            <span className={cn("grid size-6 place-items-center rounded-md", tone)}>
+              <Icon className="size-3.5" />
+            </span>
+            {label}
+          </button>
+        ))}
       </PopoverContent>
     </Popover>
   );

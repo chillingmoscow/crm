@@ -123,8 +123,10 @@ grant execute on function private.bank_account_turnover_since(uuid, uuid, timest
 -- ─── Остаток на дату ────────────────────────────────────────────────────────
 
 -- Остаток счёта по операциям на конец p_date. NULL — счёт не виден
--- пользователю или дата раньше контрольного остатка переноса.
--- SECURITY INVOKER: видимость счёта решает политика bank_accounts_select.
+-- пользователю, нет права видеть операции или дата раньше контрольного
+-- остатка переноса. SECURITY INVOKER: видимость счёта решает политика
+-- bank_accounts_select. Право на операции обязательно: остаток на любую
+-- дату раскрывает дневной оборот счёта, а не только текущий баланс.
 create or replace function public.bank_account_balance_at(p_bank_account_id uuid, p_date date)
 returns numeric
 language sql
@@ -136,6 +138,7 @@ as $$
     from public.bank_accounts b
    cross join lateral (select private.bank_account_day_end(b.account_id, p_date) as day_end) e
    where b.id = p_bank_account_id
+     and (select public.has_permission('finance.view_transactions'))
      and (b.balance_anchor_at is null or e.day_end >= b.balance_anchor_at)
 $$;
 
@@ -191,6 +194,70 @@ comment on function public.bank_account_reconciliation_history(uuid, integer) is
 
 revoke all on function public.bank_account_reconciliation_history(uuid, integer) from public, anon;
 grant execute on function public.bank_account_reconciliation_history(uuid, integer) to authenticated;
+
+-- Где искать расхождение: операции счёта с p_from по p_to включительно
+-- (дни в поясе аккаунта; p_from null — с начала) и те из них, чья сумма
+-- объясняет разницу p_diff = банк − расчёт:
+--   duplicate — сумма равна |разнице|, направление «лишнее» (банк больше →
+--               лишний расход, банк меньше → лишний приход): дубль или
+--               операция, которой в банке нет;
+--   sign      — двойная сумма равна |разнице|: проведена не в ту сторону.
+-- SECURITY INVOKER: показываем только операции, которые пользователь видит
+-- в «Транзакциях», — по ссылке он откроет те же самые.
+create or replace function public.bank_account_reconciliation_search(
+  p_bank_account_id uuid,
+  p_from date,
+  p_to date,
+  p_diff numeric
+)
+returns jsonb
+language sql
+stable
+security invoker
+set search_path = public, pg_catalog
+as $$
+  with b as (
+    select ba.id, ba.account_id
+      from public.bank_accounts ba
+     where ba.id = p_bank_account_id
+  ),
+  ops as (
+    select t.id, t.public_id, t.date, t.amount, t.type,
+           case when t.bank_account_id = b.id and t.type <> 'income' then 'out' else 'in' end as direction
+      from public.transactions t, b
+     where t.account_id = b.account_id
+       and (t.bank_account_id = b.id or (t.type = 'transfer' and t.to_bank_account_id = b.id))
+       and t.deleted_at is null
+       and t.date < private.bank_account_day_end(b.account_id, p_to)
+       and (p_from is null or t.date >= private.bank_account_day_end(b.account_id, p_from - 1))
+  ),
+  suspects as (
+    select o.*,
+           case when o.amount = abs(p_diff) then 'duplicate' else 'sign' end as reason
+      from ops o
+     where coalesce(p_diff, 0) <> 0
+       and (o.amount = abs(p_diff) or o.amount * 2 = abs(p_diff))
+       and o.direction = case when p_diff > 0 then 'out' else 'in' end
+     order by o.date desc
+     limit 5
+  )
+  select jsonb_build_object(
+    'operations', (select count(*) from ops),
+    'suspects', coalesce((
+      select jsonb_agg(jsonb_build_object(
+               'id', s.id, 'public_id', s.public_id, 'date', s.date,
+               'amount', s.amount, 'type', s.type, 'reason', s.reason)
+             order by s.date desc)
+        from suspects s), '[]'::jsonb)
+  )
+  from b
+$$;
+
+comment on function public.bank_account_reconciliation_search(uuid, date, date, numeric) is
+  'Операции счёта за период сверки и те, что объясняют разницу (дубль / не тот знак). Миграция 374.';
+
+revoke all on function public.bank_account_reconciliation_search(uuid, date, date, numeric) from public, anon;
+grant execute on function public.bank_account_reconciliation_search(uuid, date, date, numeric) to authenticated;
 
 -- ─── Триггер: считает остаток и фиксирует автора ───────────────────────────
 
@@ -250,11 +317,13 @@ create trigger bank_account_reconciliation_prepare
 
 alter table public.bank_account_reconciliations enable row level security;
 
--- Видно тем, кому виден сам счёт (bank_accounts_select внутри exists).
+-- Видно тем, кому виден сам счёт (bank_accounts_select внутри exists) и
+-- кто видит операции: расчётный остаток на дату — сведения об обороте.
 create policy bank_account_reconciliations_select
   on public.bank_account_reconciliations for select to authenticated
   using (
     account_id = (select public.get_active_account_id())
+    and (select public.has_permission('finance.view_transactions'))
     and exists (
       select 1 from public.bank_accounts b
        where b.account_id = bank_account_reconciliations.account_id
@@ -267,6 +336,7 @@ create policy bank_account_reconciliations_insert
   with check (
     account_id = (select public.get_active_account_id())
     and (select public.has_permission('finance.manage_bank_accounts'))
+    and (select public.has_permission('finance.view_transactions'))
     and exists (
       select 1 from public.bank_accounts b
        where b.account_id = bank_account_reconciliations.account_id
@@ -280,6 +350,7 @@ create policy bank_account_reconciliations_delete
   using (
     account_id = (select public.get_active_account_id())
     and (select public.has_permission('finance.manage_bank_accounts'))
+    and (select public.has_permission('finance.view_transactions'))
     and exists (
       select 1 from public.bank_accounts b
        where b.account_id = bank_account_reconciliations.account_id
@@ -304,6 +375,9 @@ begin
   end if;
   if has_function_privilege('anon', 'public.bank_account_balance_at(uuid, date)', 'execute') then
     raise exception 'anon не должен вызывать bank_account_balance_at';
+  end if;
+  if has_function_privilege('anon', 'public.bank_account_reconciliation_search(uuid, date, date, numeric)', 'execute') then
+    raise exception 'anon не должен вызывать bank_account_reconciliation_search';
   end if;
   if has_function_privilege('anon', 'private.bank_account_turnover_since(uuid, uuid, timestamptz)', 'execute') then
     raise exception 'anon не должен вызывать bank_account_turnover_since';

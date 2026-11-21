@@ -313,6 +313,54 @@ export type Database = {
           },
         ]
       }
+      bank_account_reconciliations: {
+        Row: {
+          account_id: string
+          balance_date: string
+          bank_balance: number
+          bank_account_id: string
+          calculated_balance: number
+          created_at: string
+          created_by: string | null
+          id: string
+          note: string | null
+          source: "manual" | "bank"
+        }
+        Insert: {
+          account_id: string
+          balance_date: string
+          bank_balance: number
+          bank_account_id: string
+          /** Перезаписывает триггер (миграция 374). */
+          calculated_balance?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          note?: string | null
+          source?: "manual" | "bank"
+        }
+        Update: {
+          account_id?: string
+          balance_date?: string
+          bank_balance?: number
+          bank_account_id?: string
+          calculated_balance?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          note?: string | null
+          source?: "manual" | "bank"
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_account_reconciliations_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bank_accounts: {
         Row: {
           account_id: string
@@ -2923,6 +2971,24 @@ export type Database = {
       apply_transaction_balance_delta: {
         Args: { p_bank_account_id: string; p_delta: number }
         Returns: undefined
+      }
+      bank_account_balance_at: {
+        Args: { p_bank_account_id: string; p_date: string }
+        Returns: number | null
+      }
+      bank_account_reconciliation_history: {
+        Args: { p_bank_account_id: string; p_limit?: number }
+        Returns: {
+          id: string
+          balance_date: string
+          bank_balance: number
+          calculated_balance: number
+          current_calculated_balance: number | null
+          source: "manual" | "bank"
+          note: string | null
+          created_at: string
+          created_by: string | null
+        }[]
       }
       complete_owner_onboarding:
         | {

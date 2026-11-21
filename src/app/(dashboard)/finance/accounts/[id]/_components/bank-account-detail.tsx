@@ -45,6 +45,8 @@ import {
 } from "../../_components/bank-account-form";
 import { BankAccountIcon } from "../../_components/bank-account-icon";
 import { BankAccountDangerZone } from "./bank-account-danger-zone";
+import { BankAccountReconciliation } from "./bank-account-reconciliation";
+import type { ReconciliationRecord } from "@/lib/finance/bank-reconciliation";
 
 type TabKey = "main" | "history" | "danger";
 
@@ -64,6 +66,9 @@ export function BankAccountDetail({
   initialAuditHasMore,
   createdByName,
   updatedByName,
+  reconciliations,
+  reconciliationsError,
+  timezone,
 }: {
   row: BankAccountRow;
   legalEntities: BankAccountLegalEntityOption[];
@@ -81,6 +86,10 @@ export function BankAccountDetail({
   initialAuditHasMore: boolean;
   createdByName: string | null;
   updatedByName: string | null;
+  reconciliations: ReconciliationRecord[];
+  reconciliationsError: string | null;
+  /** Пояс аккаунта: граница дня в сверке и «сегодня» по умолчанию. */
+  timezone: string;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<TabKey>("main");
@@ -207,6 +216,30 @@ export function BankAccountDetail({
                   </span>
                 </div>
               </ProfileSection>
+              {canViewTransactions ? (
+                <>
+                  {reconciliationsError ? (
+                    <p role="alert" className="text-sm text-destructive">
+                      {reconciliationsError}
+                    </p>
+                  ) : null}
+                  <BankAccountReconciliation
+                    bankAccountId={row.id}
+                    currency={row.currency}
+                    anchorAt={row.balance_anchor_at ?? null}
+                    timezone={timezone}
+                    canReconcile={canManage && !isArchived}
+                    lockMessage={
+                      isArchived
+                        ? "Счёт в архиве. Верните его, чтобы сверять остаток"
+                        : !canManage
+                          ? "Сверять остаток могут те, кто управляет счетами"
+                          : null
+                    }
+                    rows={reconciliations}
+                  />
+                </>
+              ) : null}
               <BankAccountEditor
                 key={row.updated_at ?? row.id}
                 row={row}

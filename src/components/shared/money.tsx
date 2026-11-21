@@ -1,5 +1,9 @@
 import { cn } from "@/lib/utils";
-import { formatAmount, signedAmountClass } from "@/lib/format/amount";
+import {
+  formatAmount,
+  signedAmountClass,
+  type AmountRoundingScale,
+} from "@/lib/format/amount";
 
 /**
  * Сумма в рублях по правилам design-system § «Деньги, числа, даты»:
@@ -13,10 +17,16 @@ export function Money({
   value,
   signed = false,
   fraction = false,
+  scale,
   className,
 }: {
   value: number | null | undefined;
   signed?: boolean;
+  /**
+   * Знаков после запятой по настройке аккаунта «Округление сумм»
+   * (`AmountRoundingScale`). Где экран её учитывает, она главнее `fraction`.
+   */
+  scale?: AmountRoundingScale;
   /**
    * Копейки: `true` — всегда (карточка одной операции); `"auto"` — только
    * если они есть (ставки, рассрочки, остаток к выплате: округление до
@@ -41,7 +51,7 @@ export function Money({
       )}
     >
       {sign}
-      {formatAmount(Math.abs(value), digits(value, fraction))}
+      {formatAmount(Math.abs(value), scale ?? digits(value, fraction))}
       <span className="ml-0.5 text-[0.85em] font-normal text-muted-foreground">
         ₽
       </span>

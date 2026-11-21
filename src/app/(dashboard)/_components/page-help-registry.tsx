@@ -22,6 +22,7 @@ import { InventoryActsHelp } from "@/app/(dashboard)/documents/inventory/_compon
 import { CatalogHelp } from "@/app/(dashboard)/catalog/_components/catalog-help";
 import { AuditHelp } from "@/app/(dashboard)/org/audit/_components/audit-help";
 import { StoresHelp } from "@/app/(dashboard)/org/stores/_components/stores-help";
+import { FinanceDashboardHelp } from "@/app/(dashboard)/finance/_components/finance-dashboard-help";
 
 /**
  * Реестр контекстной справки для кнопки «?» в топ-баре (page-help-button).
@@ -93,6 +94,7 @@ export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
     Content: CatalogHelp,
   },
   { match: (p) => p === "/org/audit", title: "Журнал событий", Content: AuditHelp },
+  { match: (p) => p === "/finance", title: "Дашборд финансов", Content: FinanceDashboardHelp },
 ];
 
 /** Справка для текущего пути или null, если её нет. */

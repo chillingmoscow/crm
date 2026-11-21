@@ -11,6 +11,15 @@ import {
   nextStatusAfterAssign
 } from "@/lib/inventory/act-status";
 import {
+  getAssignmentConflictReason,
+  ineligibleAssigneeMessage,
+  isEligibleForRole,
+  type InventoryAssignRole,
+  type InventoryAssignmentEligibility,
+} from "@/lib/inventory/act-assignment";
+import { loadAssignmentEligibility } from "@/lib/inventory/assignment-eligibility-server";
+import {
+  DOCUMENT_CHANGED_ERROR,
   actionErrorMessage,
   assertDocumentVisible,
   filterVisibleDocumentIds,
@@ -32,46 +41,43 @@ async function loadProfileFullName(admin: LooseDb, userId: string | null): Promi
   return name || null;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
- * Назначать акт можно только сотруднику этого аккаунта.
+ * Назначать акт можно только сотруднику этого аккаунта, у которого есть право
+ * на роль в заведении акта (см. @/lib/inventory/act-assignment).
  *
- * Без проверки любой uuid из платформы принимался как исполнитель или
- * проверяющий: человек из чужого аккаунта получал уведомление со ссылкой на
- * акт, а его имя вставало в карточку.
+ * Раньше проверялось одно членство: в пикерах был любой сотрудник любого
+ * заведения, и акт уходил человеку, который потом не мог открыть форму
+ * (нет «Заполнять назначенные акты») или итоги. А до членства — любой uuid
+ * платформы: человек из чужого аккаунта получал уведомление со ссылкой на акт.
  */
-async function assertAssignableUser(input: {
-  admin: LooseDb;
-  accountId: string;
+function assertEligible(input: {
+  eligibility: InventoryAssignmentEligibility;
+  role: InventoryAssignRole;
+  venueId: string | null;
   userId: string | null;
 }) {
   if (!input.userId) return; // снятие назначения
-  const { data: account } = await input.admin
-    .from<{ owner_id: string | null }>("accounts")
-    .select("owner_id")
-    .eq("id", input.accountId)
-    .maybeSingle();
-  if (account?.owner_id === input.userId) return;
-
-  const { data: venues } = await input.admin
-    .from<Array<{ id: string }>>("venues")
-    .select("id")
-    .eq("account_id", input.accountId);
-  const venueIds = (venues ?? []).map((venue) => venue.id);
-  if (venueIds.length > 0) {
-    const { data: membership } = await input.admin
-      .from<Array<{ user_id: string }>>("user_venue_roles")
-      .select("user_id")
-      .eq("user_id", input.userId)
-      .eq("status", "active")
-      .in("venue_id", venueIds);
-    if ((membership ?? []).length > 0) return;
+  if (!UUID_RE.test(input.userId) || !isEligibleForRole({ ...input, userId: input.userId })) {
+    throw new Error(ineligibleAssigneeMessage(input.role));
   }
-  throw new Error("Пользователь не найден в этом аккаунте");
+}
+
+/**
+ * Фильтр «вторая роль акта — не этот человек» для UPDATE: страхует инвариант
+ * «исполнитель ≠ проверяющий» от гонки двух параллельных назначений (оба
+ * прошли проверку по прочитанной строке, а в итоге один человек на обеих
+ * ролях). userId к этому моменту проверен как uuid (assertEligible).
+ */
+function otherRoleIsNot(column: "assigned_to" | "reviewer_id", userId: string) {
+  return `${column}.is.null,${column}.neq.${userId}`;
 }
 
 /**
  * Назначить (или снять) проверяющего акт. Зеркало assignInventoryDocument:
- * право inventory.manage_documents, гард на существование акта, best-effort
+ * право inventory.manage_documents, гард на существование акта, право
+ * проверять акты у назначаемого, исполнитель ≠ проверяющий, best-effort
  * уведомление назначенному проверяющему.
  */
 export async function assignInventoryReviewer(input: {
@@ -85,16 +91,16 @@ export async function assignInventoryReviewer(input: {
     const admin = asLooseDb(createAdminClient());
     // Акт чужого заведения недоступен, даже если знать его uuid.
     await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
-    await assertAssignableUser({ admin, accountId: ctx.accountId, userId: input.reviewerId });
 
     const { data: before, error: beforeError } = await admin
       .from<{
         reviewer_id: string | null;
+        assigned_to: string | null;
         document_number: string;
         venue_id: string | null;
         status: string;
       }>("documents")
-      .select("reviewer_id, document_number, venue_id, status")
+      .select("reviewer_id, assigned_to, document_number, venue_id, status")
       .eq("id", input.documentId)
       .eq("account_id", ctx.accountId)
       .maybeSingle();
@@ -107,19 +113,38 @@ export async function assignInventoryReviewer(input: {
     // Инвариант: проверяющего нельзя менять у проведённого акта.
     const reviewerLock = getReviewerLockReason(before.status);
     if (reviewerLock) return { error: reviewerLock };
+    if (before.reviewer_id === input.reviewerId) return { error: null };
 
-    const { error } = await admin
-      .from("documents")
+    // Право проверять — в заведении именно этого акта.
+    if (input.reviewerId) {
+      const eligibility = await loadAssignmentEligibility({ admin, accountId: ctx.accountId });
+      assertEligible({ eligibility, role: "reviewer", venueId: before.venue_id, userId: input.reviewerId });
+    }
+    const conflict = getAssignmentConflictReason({
+      role: "reviewer",
+      userId: input.reviewerId,
+      assignedTo: before.assigned_to,
+      reviewerId: before.reviewer_id,
+    });
+    if (conflict) return { error: conflict };
+
+    // Проведённый за это время акт не трогаем, и исполнитель не должен был
+    // за это время стать этим же человеком.
+    let update = admin
+      .from<Array<{ id: string }>>("documents")
       .update({ reviewer_id: input.reviewerId })
       .eq("id", input.documentId)
-      .eq("account_id", ctx.accountId);
+      .eq("account_id", ctx.accountId)
+      .neq("status", "processed");
+    if (input.reviewerId) update = update.or(otherRoleIsNot("assigned_to", input.reviewerId));
+    const { data: updatedRows, error } = await update.select("id");
     if (error) {
       console.error("[assignInventoryReviewer] update failed:", error);
       return { error: error.message };
     }
+    if ((updatedRows ?? []).length === 0) return { error: DOCUMENT_CHANGED_ERROR };
 
-    const reviewerChanged = before.reviewer_id !== input.reviewerId;
-    if (reviewerChanged && ctx.user) {
+    if (ctx.user) {
       const reviewerName = await loadProfileFullName(admin, input.reviewerId);
       await writeInventoryResultEvent({
         supabase: ctx.supabase,
@@ -135,7 +160,7 @@ export async function assignInventoryReviewer(input: {
       });
     }
 
-    if (input.reviewerId && reviewerChanged) {
+    if (input.reviewerId) {
       await notifyInventoryDocumentEvent({
         admin,
         recipientId: input.reviewerId,
@@ -176,7 +201,6 @@ export async function assignInventoryDocument(input: {
     const admin = asLooseDb(createAdminClient());
     // Акт чужого заведения недоступен, даже если знать его uuid.
     await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
-    await assertAssignableUser({ admin, accountId: ctx.accountId, userId: input.assignedTo });
 
     // Читаем предыдущее значение assigned_to + метаданные акта.
     // Codex P1 #383: если документа нет (id не существует или принадлежит
@@ -189,11 +213,12 @@ export async function assignInventoryDocument(input: {
     const { data: before, error: beforeError } = await admin
       .from<{
         assigned_to: string | null;
+        reviewer_id: string | null;
         document_number: string;
         venue_id: string | null;
         status: string;
       }>("documents")
-      .select("assigned_to, document_number, venue_id, status")
+      .select("assigned_to, reviewer_id, document_number, venue_id, status")
       .eq("id", input.documentId)
       .eq("account_id", ctx.accountId)
       .maybeSingle();
@@ -208,10 +233,25 @@ export async function assignInventoryDocument(input: {
     const assigneeLock = getAssigneeLockReason(before.status);
     if (assigneeLock) return { error: assigneeLock };
 
+    // Право заполнять — в заведении именно этого акта. Того же человека
+    // повторно не проверяем: повторное назначение — no-op по исполнителю, а
+    // право могли отозвать уже после назначения.
+    if (input.assignedTo && input.assignedTo !== before.assigned_to) {
+      const eligibility = await loadAssignmentEligibility({ admin, accountId: ctx.accountId });
+      assertEligible({ eligibility, role: "assignee", venueId: before.venue_id, userId: input.assignedTo });
+    }
+    const conflict = getAssignmentConflictReason({
+      role: "assignee",
+      userId: input.assignedTo,
+      assignedTo: before.assigned_to,
+      reviewerId: before.reviewer_id,
+    });
+    if (conflict) return { error: conflict };
+
     // Обновляем, только если статус не сменился с момента чтения: иначе
     // переназначение во время сдачи акта откатывало «Готов к проверке» в
     // «Назначен» (статус считается от прочитанного значения).
-    const { data: updatedRows, error } = await admin
+    let update = admin
       .from<Array<{ id: string }>>("documents")
       .update({
         assigned_to: input.assignedTo,
@@ -221,15 +261,16 @@ export async function assignInventoryDocument(input: {
       })
       .eq("id", input.documentId)
       .eq("account_id", ctx.accountId)
-      .eq("status", before.status)
-      .select("id");
+      .eq("status", before.status);
+    if (input.assignedTo) update = update.or(otherRoleIsNot("reviewer_id", input.assignedTo));
+    const { data: updatedRows, error } = await update.select("id");
 
     if (error) {
       console.error("[assignInventoryDocument] update failed:", error);
       return { error: "Не удалось назначить исполнителя. Попробуйте ещё раз" };
     }
     if ((updatedRows ?? []).length === 0) {
-      return { error: "Акт только что изменили. Обновите страницу и повторите" };
+      return { error: DOCUMENT_CHANGED_ERROR };
     }
 
     // Notification назначенному, best-effort (не блокируем основной flow).
@@ -297,13 +338,15 @@ export async function assignInventoryDocument(input: {
 /**
  * Массовое назначение исполнителя или проверяющего на несколько актов сразу
  * (из плавающего bulk-бара в списке). Право inventory.manage_documents.
- * Заблокированные для назначения акты (проведён / ошибка синка) пропускаются.
- * Журнал пишется по каждому акту; уведомление назначенному — одно суммарное
- * (не N штук).
+ * Пропускаются (считаются в `skipped`): акты, где роль менять нельзя по
+ * статусу; где назначаемому не хватает права в заведении акта (выбранные акты
+ * бывают из разных заведений); где он уже стоит на второй роли; и акты,
+ * которые изменились между чтением и записью. Журнал пишется по каждому
+ * обновлённому акту; уведомление назначенному — одно суммарное (не N штук).
  */
 export async function bulkAssignInventoryDocuments(input: {
   documentIds: string[];
-  role: "assignee" | "reviewer";
+  role: InventoryAssignRole;
   userId: string | null;
 }): Promise<{ updated: number; skipped: number; error: string | null }> {
   try {
@@ -313,29 +356,35 @@ export async function bulkAssignInventoryDocuments(input: {
     }
     const ids = Array.from(new Set(input.documentIds)).filter(Boolean);
     if (ids.length === 0) return { updated: 0, skipped: 0, error: "Не выбрано ни одного акта" };
+    const userId = input.userId;
+    if (userId && !UUID_RE.test(userId)) {
+      return { updated: 0, skipped: ids.length, error: ineligibleAssigneeMessage(input.role) };
+    }
 
     const admin = asLooseDb(createAdminClient());
-    await assertAssignableUser({ admin, accountId: ctx.accountId, userId: input.userId });
     // Массиву id с клиента не доверяем: работаем только с актами, которые
     // пользователь реально видит (RLS documents_select).
     const visible = await filterVisibleDocumentIds({ supabase: ctx.supabase, documentIds: ids });
     const visibleIds = ids.filter((id) => visible.has(id));
     if (visibleIds.length === 0) return { updated: 0, skipped: ids.length, error: "Акты не найдены" };
 
-    const { data: docsRaw, error: readError } = await admin
-      .from<
-        Array<{
-          id: string;
-          status: string;
-          assigned_to: string | null;
-          reviewer_id: string | null;
-          document_number: string;
-          venue_id: string | null;
-        }>
-      >("documents")
-      .select("id, status, assigned_to, reviewer_id, document_number, venue_id")
-      .eq("account_id", ctx.accountId)
-      .in("id", visibleIds);
+    const [{ data: docsRaw, error: readError }, eligibility] = await Promise.all([
+      admin
+        .from<
+          Array<{
+            id: string;
+            status: string;
+            assigned_to: string | null;
+            reviewer_id: string | null;
+            document_number: string;
+            venue_id: string | null;
+          }>
+        >("documents")
+        .select("id, status, assigned_to, reviewer_id, document_number, venue_id")
+        .eq("account_id", ctx.accountId)
+        .in("id", visibleIds),
+      userId ? loadAssignmentEligibility({ admin, accountId: ctx.accountId }) : Promise.resolve(null),
+    ]);
     // Codex P1 #407: read-ошибку нельзя глотать — иначе ложный успех.
     if (readError) throw new Error(readError.message);
     const docs = docsRaw ?? [];
@@ -343,35 +392,70 @@ export async function bulkAssignInventoryDocuments(input: {
     // строже: лок уже на ready_for_review/results_blocked; проверяющий — лишь
     // на processed) и no-op'ы, где значение уже стоит — чтобы не
     // плодить лог/уведомления на пустом месте (как single-action).
+    let noPermission = 0;
+    let conflicts = 0;
     const eligible = docs.filter((d) => {
       const lock =
         input.role === "assignee"
           ? getAssigneeLockReason(d.status)
           : getReviewerLockReason(d.status);
       if (lock !== null) return false;
-      return input.role === "assignee"
-        ? d.assigned_to !== input.userId
-        : d.reviewer_id !== input.userId;
+      const current = input.role === "assignee" ? d.assigned_to : d.reviewer_id;
+      if (current === userId) return false;
+      if (userId && eligibility && !isEligibleForRole({ eligibility, role: input.role, venueId: d.venue_id, userId })) {
+        noPermission += 1;
+        return false;
+      }
+      if (
+        getAssignmentConflictReason({
+          role: input.role,
+          userId,
+          assignedTo: d.assigned_to,
+          reviewerId: d.reviewer_id,
+        })
+      ) {
+        conflicts += 1;
+        return false;
+      }
+      return true;
     });
-    const skipped = ids.length - eligible.length;
-    if (eligible.length === 0) return { updated: 0, skipped, error: null };
+    if (eligible.length === 0) {
+      // Всё отсеялось по людям, а не по статусам — скажем почему, иначе
+      // «Обновлено: 0» выглядит как сбой.
+      const reason =
+        noPermission > 0
+          ? ineligibleAssigneeMessage(input.role)
+          : conflicts > 0
+            ? getAssignmentConflictReason({
+                role: input.role,
+                userId,
+                assignedTo: input.role === "reviewer" ? userId : null,
+                reviewerId: input.role === "assignee" ? userId : null,
+              })
+            : null;
+      return { updated: 0, skipped: ids.length, error: reason };
+    }
 
+    const appliedIds = new Set<string>();
     const eligibleIds = eligible.map((d) => d.id);
     if (input.role === "reviewer") {
-      const { error } = await admin
-        .from("documents")
-        .update({ reviewer_id: input.userId })
+      let update = admin
+        .from<Array<{ id: string }>>("documents")
+        .update({ reviewer_id: userId })
         .eq("account_id", ctx.accountId)
         .in("id", eligibleIds)
         // Проведённый за это время акт не трогаем (замок проверяющего).
         .neq("status", "processed");
+      if (userId) update = update.or(otherRoleIsNot("assigned_to", userId));
+      const { data, error } = await update.select("id");
       if (error) throw new Error(error.message);
+      for (const row of data ?? []) appliedIds.add(row.id);
     } else {
       // Исполнитель: статус зависит от текущего (на пересчёте — сохраняем
       // recount_pending). Группируем по целевому статусу и обновляем пачками.
       const byStatus = new Map<string, string[]>();
       for (const d of eligible) {
-        const next = nextStatusAfterAssign(d.status, input.userId);
+        const next = nextStatusAfterAssign(d.status, userId);
         const arr = byStatus.get(next) ?? [];
         arr.push(d.id);
         byStatus.set(next, arr);
@@ -382,24 +466,30 @@ export async function bulkAssignInventoryDocuments(input: {
         // на проверку между чтением и записью, не откатываем.
         const sourceStatuses =
           next === "recount_pending" ? ["recount_pending"] : ["synced", "assigned", "in_progress"];
-        const { error } = await admin
-          .from("documents")
-          .update({ assigned_to: input.userId, status: next })
+        let update = admin
+          .from<Array<{ id: string }>>("documents")
+          .update({ assigned_to: userId, status: next })
           .eq("account_id", ctx.accountId)
           .in("id", idsForStatus)
           .in("status", sourceStatuses);
+        if (userId) update = update.or(otherRoleIsNot("reviewer_id", userId));
+        const { data, error } = await update.select("id");
         if (error) throw new Error(error.message);
+        for (const row of data ?? []) appliedIds.add(row.id);
       }
     }
+    const applied = eligible.filter((d) => appliedIds.has(d.id));
+    const skipped = ids.length - applied.length;
+    if (applied.length === 0) return { updated: 0, skipped, error: DOCUMENT_CHANGED_ERROR };
 
-    const name = await loadProfileFullName(admin, input.userId);
+    const name = await loadProfileFullName(admin, userId);
     const eventType = input.role === "assignee" ? "assignee_changed" : "reviewer_changed";
     const setMsg =
       input.role === "assignee"
         ? `Назначил исполнителя: ${name ?? "сотрудник"}`
         : `Назначил проверяющего: ${name ?? "сотрудник"}`;
     const clearMsg = input.role === "assignee" ? "Снял исполнителя" : "Снял проверяющего";
-    for (const d of eligible) {
+    for (const d of applied) {
       await writeInventoryResultEvent({
         supabase: ctx.supabase,
         admin,
@@ -407,20 +497,20 @@ export async function bulkAssignInventoryDocuments(input: {
         userId: ctx.user.id,
         documentId: d.id,
         eventType,
-        message: input.userId ? setMsg : clearMsg,
+        message: userId ? setMsg : clearMsg,
         payload: {
           bulk: true,
-          ...(input.role === "assignee" ? { assignedTo: input.userId } : { reviewerId: input.userId }),
+          ...(input.role === "assignee" ? { assignedTo: userId } : { reviewerId: userId }),
         },
       });
     }
 
     // Одно суммарное уведомление назначенному (ссылка на список, не на акт).
-    if (input.userId && input.userId !== ctx.user.id) {
+    if (userId && userId !== ctx.user.id) {
       try {
         await admin.from("notifications").insert({
-          user_id: input.userId,
-          venue_id: eligible[0]?.venue_id ?? null,
+          user_id: userId,
+          venue_id: applied[0]?.venue_id ?? null,
           type:
             input.role === "assignee"
               ? "inventory.document.assigned"
@@ -428,8 +518,8 @@ export async function bulkAssignInventoryDocuments(input: {
           category: "inventory",
           title:
             input.role === "assignee"
-              ? `Вам назначено актов: ${eligible.length}`
-              : `Вы назначены проверяющим по актам: ${eligible.length}`,
+              ? `Вам назначено актов: ${applied.length}`
+              : `Вы назначены проверяющим по актам: ${applied.length}`,
           body: "Откройте раздел «Акты инвентаризации».",
           link: "/documents/inventory",
           actor_user_id: ctx.user.id,
@@ -442,7 +532,7 @@ export async function bulkAssignInventoryDocuments(input: {
     }
 
     revalidatePath("/documents/inventory");
-    return { updated: eligible.length, skipped, error: null };
+    return { updated: applied.length, skipped, error: null };
   } catch (e) {
     return { updated: 0, skipped: 0, error: actionErrorMessage(e, "Не удалось применить массовое действие") };
   }

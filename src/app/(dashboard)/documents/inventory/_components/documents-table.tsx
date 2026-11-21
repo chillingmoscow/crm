@@ -76,6 +76,11 @@ import {
   RECOUNT_FILTER_LABEL,
 } from "@/lib/inventory/list-documents-shared";
 
+import {
+  filterEligibleOptions,
+  type InventoryAssignRole,
+  type InventoryAssignmentEligibility,
+} from "@/lib/inventory/act-assignment";
 import { AssigneeSelect, type AssigneeOption } from "./assignee-select";
 import { ReviewerSelect } from "./reviewer-select";
 import {
@@ -168,7 +173,11 @@ type Props = {
   datePresetFromUrl: string | null;
   venues: VenueOption[];
   stores: StoreOption[];
+  /** Справочник имён (id → ФИО) для всех ячеек и фильтров. */
   staff: AssigneeOption[];
+  /** Кого можно назначать исполнителем/проверяющим, по заведениям. null —
+   *  пользователь не назначает (пикеров нет). */
+  eligibility: InventoryAssignmentEligibility | null;
   accountId: string;
   canManage: boolean;
   canSync: boolean;
@@ -192,6 +201,7 @@ export function DocumentsTable({
   venues,
   stores,
   staff,
+  eligibility,
   accountId,
   canManage,
   canSync,
@@ -360,6 +370,21 @@ export function DocumentsTable({
   const selectedRowsList = useMemo(
     () => initial.rows.filter((row) => rowSelection[row.id]),
     [initial.rows, rowSelection],
+  );
+
+  // Пикеры предлагают только тех, у кого есть право на роль в заведении акта.
+  // Массовое меню — объединение по заведениям выбранных актов: акты, где у
+  // человека права нет, сервер пропустит и посчитает в «пропущено».
+  const eligibleFor = useCallback(
+    (role: InventoryAssignRole, venueIds: ReadonlyArray<string | null>) =>
+      eligibility
+        ? filterEligibleOptions({ options: staff, eligibility, role, venueIds })
+        : staff,
+    [eligibility, staff],
+  );
+  const selectedVenueIds = useMemo(
+    () => Array.from(new Set(selectedRowsList.map((row) => row.venue_id))),
+    [selectedRowsList],
   );
 
   // Сумма итогов (нетто = излишки − недостачи) по выделенным строкам.
@@ -561,6 +586,8 @@ export function DocumentsTable({
             documentId={doc.id}
             assignedTo={doc.assigned_to}
             staff={staff}
+            options={eligibleFor("assignee", [doc.venue_id])}
+            blockedUserId={doc.reviewer_id}
             lockReason={lockReason}
             linkToPerson={canViewStaff}
           />
@@ -581,6 +608,8 @@ export function DocumentsTable({
             documentId={doc.id}
             reviewerId={doc.reviewer_id}
             staff={staff}
+            options={eligibleFor("reviewer", [doc.venue_id])}
+            blockedUserId={doc.assigned_to}
             lockReason={lockReason}
             linkToPerson={canViewStaff}
           />
@@ -638,7 +667,7 @@ export function DocumentsTable({
         ),
       },
     ];
-  }, [amountRoundingScale, canManage, canViewResults, canViewStaff, searchActive, staff]);
+  }, [amountRoundingScale, canManage, canViewResults, canViewStaff, eligibleFor, searchActive, staff]);
 
   const st = useTableState({ tableId: TABLE_ID, columns: STATE_COLUMNS });
   // Служебные столбцы не участвуют в порядке и видимости: раньше их
@@ -1020,7 +1049,7 @@ export function DocumentsTable({
                     label="Исполнитель"
                     clearLabel="Снять исполнителя"
                     icon={<UserPlus className="h-4 w-4" />}
-                    staff={staff}
+                    staff={eligibleFor("assignee", selectedVenueIds)}
                     disabled={bulkPending}
                     onPick={(userId) => applyBulkAssign("assignee", userId)}
                   />
@@ -1030,7 +1059,7 @@ export function DocumentsTable({
                     label="Проверяющий"
                     clearLabel="Снять проверяющего"
                     icon={<ShieldCheck className="h-4 w-4" />}
-                    staff={staff}
+                    staff={eligibleFor("reviewer", selectedVenueIds)}
                     disabled={bulkPending}
                     onPick={(userId) => applyBulkAssign("reviewer", userId)}
                   />

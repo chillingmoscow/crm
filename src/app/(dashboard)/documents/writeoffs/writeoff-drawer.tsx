@@ -26,6 +26,10 @@ import { formatDayMonth } from "@/lib/format/date";
 import { personalConsumptionPlan } from "@/lib/stock/writeoffs";
 import type { WriteoffRow } from "@/lib/stock/writeoff-view";
 import type { WriteoffPoolAssignment } from "@/lib/stock/writeoff-pools";
+import {
+  masterDepartmentIds,
+  suggestWriteoffPool,
+} from "@/lib/stock/writeoff-pool-suggestion";
 import { PoolSection, useWriteoffPoolForm } from "./pool-section";
 import {
   loadWriteoffHistory,
@@ -79,8 +83,20 @@ export function WriteoffDrawer({
       active = false;
     };
   }, [row.id, row.native, data.venueId, attempt]);
-  const form = useWriteoffPoolForm(row, (pool, key) =>
-    onAssign(row, pool, key),
+  // Подсказка только тому, кто разносит, и только для акта без пометки.
+  const suggestion =
+    canAssign && row.native && !row.assignment
+      ? suggestWriteoffPool(row.native.payload, data.targets, {
+          masterDepartmentIds: masterDepartmentIds(
+            data.ruleGroups,
+            row.native.business_date,
+          ),
+        })
+      : null;
+  const form = useWriteoffPoolForm(
+    row,
+    (pool, key) => onAssign(row, pool, key),
+    suggestion,
   );
   const d = row.native?.payload,
     plan = d ? personalConsumptionPlan(d, data.rules?.personalFinance) : null;

@@ -1,6 +1,9 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { asLooseDb } from "@/lib/supabase/loose";
+import { countRu } from "@/lib/format/plural";
 import { revalidatePath } from "next/cache";
 
 export type DepartmentSummary = {
@@ -311,6 +314,45 @@ export async function restoreDepartment(
   return { error: null };
 }
 
+/**
+ * Сколько актов списания разнесено на подразделение. Удаление стёрло бы решения
+ * «кто платит» (с миграции 368 база такое удаление не пропускает). Считается
+ * серверным клиентом и только после проверки владельца: пометки видны лишь в
+ * активном заведении с правом на списания, а владелец удаляет подразделение
+ * любого своего заведения.
+ */
+async function departmentWriteoffActs(departmentId: string): Promise<number> {
+  const { count, error } = await asLooseDb(createAdminClient())
+    .from("writeoff_pool_assignments")
+    .select("id", { count: "exact", head: true })
+    .eq("department_id", departmentId);
+  if (error) throw new Error("Не удалось проверить разнесение актов списания");
+  return count ?? 0;
+}
+
+function writeoffActsBlock(count: number): string {
+  return `На подразделение разнесено ${countRu(count, "акт", "акта", "актов")} списания. Перенесите их на другого плательщика в «Документы» → «Списания», затем удалите подразделение.`;
+}
+
+/** Почему подразделение сейчас нельзя удалить; `null` - можно. Для диалога удаления. */
+export async function getDepartmentDeleteRestriction(
+  id: string,
+): Promise<{ restriction: string | null; error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { restriction: null, error: "Не авторизован" };
+  const ownerCheck = await assertDepartmentOwner(supabase, id, user.id);
+  if (!ownerCheck.ok) return { restriction: null, error: ownerCheck.error };
+  try {
+    const acts = await departmentWriteoffActs(id);
+    return { restriction: acts > 0 ? writeoffActsBlock(acts) : null, error: null };
+  } catch (e) {
+    return { restriction: null, error: e instanceof Error ? e.message : "Не удалось проверить подразделение" };
+  }
+}
+
 export async function deleteDepartment(
   id: string,
   opts?: { confirmName?: string },
@@ -328,9 +370,26 @@ export async function deleteDepartment(
     return { error: "Введите название точно как у отдела" };
   }
 
+  // Разнесённые на подразделение акты списания не стираем молча (раньше их
+  // снимал каскад): сначала их переносят на другого плательщика.
+  try {
+    const acts = await departmentWriteoffActs(id);
+    if (acts > 0) return { error: writeoffActsBlock(acts) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Не удалось проверить подразделение" };
+  }
+
   // `on delete set null` на roles.department_id обнулит привязки автоматически.
   const { error } = await supabase.from("departments").delete().eq("id", id);
-  if (error) return { error: error.message };
+  if (error) {
+    // Акт разнесли на подразделение между проверкой и удалением: база (FK, 368)
+    // удаление не пропустила - объясняем тем же текстом.
+    if ((error as { code?: string }).code === "23503") {
+      const acts = await departmentWriteoffActs(id).catch(() => 0);
+      if (acts > 0) return { error: writeoffActsBlock(acts) };
+    }
+    return { error: error.message };
+  }
 
   revalidatePath("/people/departments");
   revalidatePath("/people/departments/archive");

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   getCoreRowModel,
@@ -16,6 +16,7 @@ import {
   RefreshCw,
   SearchX,
   Settings,
+  Users,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageFrame } from "@/components/shared/page-frame";
@@ -27,6 +28,7 @@ import { Money } from "@/components/shared/money";
 import tabStyle from "@/components/shared/workspace-tabs.module.css";
 import {
   DataTable,
+  TableBulkBar,
   TableColumnManager,
   TableConditions,
   TableControls,
@@ -38,6 +40,7 @@ import {
   useTableState,
 } from "@/components/shared/table";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -53,20 +56,36 @@ import {
   type WriteoffRow,
 } from "@/lib/stock/writeoff-view";
 import {
+  writeoffCounts,
   writeoffPoolKey,
   writeoffPoolLabel,
   writeoffPoolState,
   type WriteoffPoolAssignment,
 } from "@/lib/stock/writeoff-pools";
+import {
+  currentWriteoffSources,
+  writeoffDeductionStatus,
+  type PostedWriteoffDeduction,
+  type WriteoffDeductionStatus,
+} from "@/lib/stock/writeoff-deduction-status";
+import { writeoffBulkSummary } from "@/lib/stock/writeoff-journal";
 import { WriteoffDrawer } from "./writeoff-drawer";
+import { BulkPoolDialog } from "./bulk-pool-dialog";
+import {
+  WriteoffDeductionLine,
+  payrollMonthHref,
+  writeoffMonthName,
+} from "./deduction-status";
 import {
   applyWriteoffConditions,
   writeoffStatusTone,
 } from "./writeoff-format";
 import {
   loadWriteoffs,
+  loadWriteoffDeduction,
   requestWriteoffs,
   assignWriteoffPool,
+  assignWriteoffPoolBulk,
   type WriteoffData,
 } from "./actions";
 
@@ -156,6 +175,24 @@ function shiftMonth(month: string, delta: number) {
   return d.toISOString().slice(0, 10);
 }
 
+/** Статус удержания месяца по данным страницы и последнему расчёту. */
+function deductionStatusOf(
+  data: WriteoffData,
+  month: string,
+  posted: PostedWriteoffDeduction | null,
+): WriteoffDeductionStatus {
+  return writeoffDeductionStatus(
+    posted,
+    currentWriteoffSources({
+      venueId: data.venueId,
+      month,
+      documents: data.documents,
+      assignments: data.assignments,
+      departments: data.targets.departments,
+    }),
+  );
+}
+
 /** Значение для CSV: даты как в таблице, дроби через запятую (русский Excel). */
 function csvValue(id: string, r: WriteoffRow): unknown {
   if (id === "date") return formatDateCell(r.date) ?? r.date;
@@ -209,8 +246,22 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     [detail, setDetail] = useState<WriteoffRow | null>(start.detail),
     [busy, setBusy] = useState(false),
     [exporting, setExporting] = useState(false),
-    [filtersOpen, setFiltersOpen] = useState(false);
+    [filtersOpen, setFiltersOpen] = useState(false),
+    [bulkOpen, setBulkOpen] = useState(false),
+    // Последний расчёт удержания за выбранный месяц (загружается при смене месяца).
+    [deduction, setDeduction] = useState<{
+      month: string;
+      visible: boolean;
+      posted: PostedWriteoffDeduction | null;
+      failed: boolean;
+    } | null>(null),
+    [deductionAttempt, setDeductionAttempt] = useState(0);
   const canAssign = data.permissions.includes("inventory.assign_writeoff_pool");
+  // Снимки удержаний видит тот, кто их ставит или видит зарплату (RLS 309).
+  const canSeeDeduction =
+    data.permissions.includes("inventory.post_deductions") ||
+    data.permissions.includes("payroll.view");
+  const canOpenPayroll = data.permissions.includes("payroll.view");
   const canSync =
     data.connected && data.permissions.includes("inventory.sync_quickresto");
   const canSettings = data.permissions.includes("org.manage_venues");
@@ -241,6 +292,45 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     () => applyWriteoffConditions(allRows, month, kind, pool, st.search),
     [allRows, month, kind, pool, st.search],
   );
+  // Массовое разнесение: только у того, кто разносит, и только на вкладке Quick Resto.
+  const selectable = canAssign && source === "native";
+  const { setRowSelection } = st;
+  useEffect(() => {
+    setRowSelection({});
+  }, [month, source, kind, pool, st.search, setRowSelection]);
+  useEffect(() => {
+    if (source !== "native" || !canSeeDeduction) return;
+    let active = true;
+    loadWriteoffDeduction(initial.venueId, month)
+      .then(
+        (r) =>
+          active &&
+          setDeduction({ month, visible: r.visible, posted: r.posted, failed: false }),
+      )
+      .catch(
+        () =>
+          active &&
+          setDeduction({ month, visible: true, posted: null, failed: true }),
+      );
+    return () => {
+      active = false;
+    };
+  }, [source, month, canSeeDeduction, initial.venueId, deductionAttempt]);
+  const reloadDeduction = useCallback(
+    () => setDeductionAttempt((n) => n + 1),
+    [],
+  );
+  const deductionLoaded =
+    deduction && deduction.month === month && deduction.visible
+      ? deduction
+      : null;
+  const deductionStatus = useMemo(
+    () =>
+      deductionLoaded && !deductionLoaded.failed
+        ? deductionStatusOf(data, month, deductionLoaded.posted)
+        : null,
+    [deductionLoaded, data, month],
+  );
   const unassigned = useMemo(
     () =>
       source === "native"
@@ -248,9 +338,9 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
         : 0,
     [allRows, month, source],
   );
-  const columns = useMemo<ColumnDef<WriteoffRow>[]>(
-    () =>
-      definitions.map(({ id, size, min, label }) => ({
+  const columns = useMemo<ColumnDef<WriteoffRow>[]>(() => {
+    const fields: ColumnDef<WriteoffRow>[] = definitions.map(
+      ({ id, size, min, label }) => ({
         id,
         header: label,
         size,
@@ -326,20 +416,48 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
             }
           }
         },
-      })),
-    [],
-  );
+      }),
+    );
+    if (!selectable) return fields;
+    return [
+      {
+        id: "select",
+        size: 44,
+        minSize: 44,
+        maxSize: 44,
+        enableHiding: false,
+        enableResizing: false,
+        enableSorting: false,
+        cell: ({ row }) => (
+          <Checkbox
+            checked={row.getIsSelected()}
+            disabled={!row.getCanSelect()}
+            onCheckedChange={(checked) => row.toggleSelected(checked === true)}
+            aria-label={`Выбрать акт ${row.original.name}`}
+            className="align-middle"
+          />
+        ),
+      },
+      ...fields,
+    ];
+  }, [selectable]);
   const table = useReactTable({
     data: rows,
     columns,
     getRowId: (r) => r.id,
     state: {
       sorting: st.sorting,
-      columnOrder: st.columnOrder,
-      columnVisibility: { ...st.columnVisibility, name: true },
+      columnOrder: selectable ? ["select", ...st.columnOrder] : st.columnOrder,
+      columnVisibility: { ...st.columnVisibility, name: true, select: true },
       columnSizing: st.columnSizing,
       pagination: st.pagination,
+      rowSelection: st.rowSelection,
     },
+    // Разносятся массово только акты, которые идут в расчёт; черновик и
+    // пропавший акт разносятся в карточке.
+    enableRowSelection: (row) =>
+      selectable && !!row.original.native && writeoffCounts(row.original.native),
+    onRowSelectionChange: setRowSelection,
     onSortingChange: st.setSorting,
     onColumnOrderChange: st.setColumnOrder,
     onColumnVisibilityChange: st.setColumnVisibility,
@@ -437,19 +555,75 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       to,
       key,
     );
-    setData((d) => ({
-      ...d,
-      assignments: [
-        ...d.assignments.filter(
-          (m) =>
-            writeoffPoolKey(m.venue_id, m.external_id) !==
-            writeoffPoolKey(row.native!.venue_id, row.native!.external_id),
-        ),
-        ...(mark ? [mark] : []),
-      ],
-    }));
-    // Результат пересчёта удержания за месяц акта (если автопересчёт включён): не теряем его.
+    const own = writeoffPoolKey(row.native.venue_id, row.native.external_id);
+    const replace = (list: WriteoffPoolAssignment[]) => [
+      ...list.filter((m) => writeoffPoolKey(m.venue_id, m.external_id) !== own),
+      ...(mark ? [mark] : []),
+    ];
+    setData((d) => ({ ...d, assignments: replace(d.assignments) }));
+    afterAssign(
+      replace(data.assignments),
+      [`${row.native.business_date.slice(0, 7)}-01`],
+      notice,
+    );
+  }
+  /**
+   * После смены плательщика: результат автопересчёта (если включён) не теряем,
+   * а если пересчёт ручной и месяц уже посчитан - сразу говорим, что его нужно
+   * пересчитать. Встроенное предупреждение над таблицей появится само.
+   */
+  function afterAssign(
+    next: WriteoffPoolAssignment[],
+    months: string[],
+    notice: string | null,
+  ) {
     if (notice) toast.message(notice);
+    if (notice || data.autopost) {
+      reloadDeduction();
+      return;
+    }
+    const posted = deductionLoaded?.posted;
+    if (!posted || posted.reversedAt || !months.includes(month)) return;
+    const after = deductionStatusOf({ ...data, assignments: next }, month, posted);
+    if (after.state !== "stale") return;
+    toast.warning(
+      `Удержание за ${writeoffMonthName(month)} уже посчитано. Пересчитайте месяц в «Зарплате»`,
+      canOpenPayroll
+        ? {
+            action: {
+              label: "Открыть",
+              onClick: () => router.push(payrollMonthHref(month)),
+            },
+          }
+        : undefined,
+    );
+  }
+  async function assignBulk(to: WriteoffPoolAssignment["pool"], key: string | null) {
+    const docs = selectedRows.flatMap((r) => (r.native ? [r.native] : []));
+    const r = await assignWriteoffPoolBulk(
+      data.venueId,
+      docs.map((d) => d.external_id),
+      to,
+      key,
+    );
+    // Пометки выбранных актов - как их вернул сервер после записи.
+    const touched = new Set(
+      docs.map((d) => writeoffPoolKey(d.venue_id, d.external_id)),
+    );
+    const replace = (list: WriteoffPoolAssignment[]) => [
+      ...list.filter(
+        (m) => !touched.has(writeoffPoolKey(m.venue_id, m.external_id)),
+      ),
+      ...r.marks,
+    ];
+    setData((d) => ({ ...d, assignments: replace(d.assignments) }));
+    setRowSelection({});
+    setBulkOpen(false);
+    const summary = writeoffBulkSummary(r);
+    (r.applied > 0 ? toast.success : toast.message)(summary.title, {
+      description: summary.description ?? undefined,
+    });
+    afterAssign(replace(data.assignments), r.months, r.notice);
   }
   async function download() {
     setExporting(true);
@@ -517,6 +691,18 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     }
   }
 
+  const selectedRows = table
+    .getSelectedRowModel()
+    .rows.map((row) => row.original);
+  const firstDataColumn = table
+    .getVisibleLeafColumns()
+    .find((c) => c.id !== "select")?.id;
+  const deductionWarning =
+    deductionStatus && deductionStatus.state !== "not_posted"
+      ? data.autopost
+        ? `Удержание за ${writeoffMonthName(month)} уже посчитано: после разнесения оно пересчитается само.`
+        : `Удержание за ${writeoffMonthName(month)} уже посчитано: после разнесения пересчитайте месяц в «Зарплате».`
+      : null;
   const sum = writeoffTotal(rows),
     types = [...new Set(allRows.map((r) => r.kind))].sort();
   const showTabs = data.archives.length > 0 || !data.connected;
@@ -698,8 +884,19 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     </Button>
   );
 
+  const deductionLine = native && deductionLoaded && (
+    <WriteoffDeductionLine
+      month={month}
+      status={deductionStatus}
+      failed={deductionLoaded.failed}
+      timezone={data.timezone}
+      canOpenPayroll={canOpenPayroll}
+      onRetry={reloadDeduction}
+    />
+  );
   const notices = native && (
     <>
+      {deductionStatus?.state === "stale" && deductionLine}
       {unassigned > 0 && (
         <div
           role="status"
@@ -860,6 +1057,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       {rows.length ? (
         <>
           {metrics}
+          {deductionStatus?.state !== "stale" && deductionLine}
           <DataTable
             table={table}
             label="Журнал списаний"
@@ -871,11 +1069,51 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
             numeric={["total", "quantity"]}
             onRowClick={(row) => setDetail(row.original)}
             empty={null}
-            totals={{ total: <Money value={sum.total === 0 ? 0 : sum.value} /> }}
+            controlColumns={["select"]}
+            renderControlHeader={() => (
+              <Checkbox
+                checked={
+                  table.getIsAllPageRowsSelected() ||
+                  (table.getIsSomePageRowsSelected() && "indeterminate")
+                }
+                onCheckedChange={(checked) =>
+                  table.toggleAllPageRowsSelected(checked === true)
+                }
+                disabled={!table.getRowModel().rows.some((r) => r.getCanSelect())}
+                aria-label="Выбрать все акты на странице"
+                className="align-middle"
+              />
+            )}
+            totals={{
+              // «Итого» - в первом столбце данных, а не в столбце выбора.
+              ...(selectable ? { select: "" } : {}),
+              ...(firstDataColumn && firstDataColumn !== "total"
+                ? { [firstDataColumn]: "Итого" }
+                : {}),
+              total: <Money value={sum.total === 0 ? 0 : sum.value} />,
+            }}
             mobile={{
               label: "Карточки списаний",
               nameColumn: "name",
               statusColumn: "status",
+              selection: selectable ? (
+                <label className="flex min-h-10 items-center gap-3 text-sm text-muted-foreground">
+                  <Checkbox
+                    checked={
+                      table.getIsAllPageRowsSelected() ||
+                      (table.getIsSomePageRowsSelected() && "indeterminate")
+                    }
+                    onCheckedChange={(checked) =>
+                      table.toggleAllPageRowsSelected(checked === true)
+                    }
+                    disabled={
+                      !table.getRowModel().rows.some((r) => r.getCanSelect())
+                    }
+                    aria-label="Выбрать все акты на странице"
+                  />
+                  Выбрать все на странице
+                </label>
+              ) : null,
             }}
           />
           <TablePagination
@@ -897,7 +1135,9 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
   );
 
   return (
-    <PageFrame className="space-y-4">
+    <PageFrame
+      className={cn("space-y-4", selectedRows.length > 0 && "pb-28 md:pb-24")}
+    >
       <Breadcrumbs items={[{ label: "Документы" }, { label: "Списания" }]} />
       {header}
       {conditions}
@@ -929,6 +1169,31 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
           onAssign={assign}
           onClose={() => setDetail(null)}
         />
+      )}
+      {selectable && (
+        <>
+          <TableBulkBar
+            floating
+            selectedCount={selectedRows.length}
+            onClear={() => setRowSelection({})}
+            actions={
+              <Button variant="ghost" size="sm" onClick={() => setBulkOpen(true)}>
+                <Users className="mr-2 size-4" />
+                Кто платит
+              </Button>
+            }
+          />
+          <BulkPoolDialog
+            open={bulkOpen && selectedRows.length > 0}
+            count={selectedRows.length}
+            reassigned={selectedRows.filter((r) => r.assignment).length}
+            monthName={writeoffMonthName(month)}
+            deductionWarning={deductionWarning}
+            targets={data.targets}
+            onOpenChange={setBulkOpen}
+            onConfirm={assignBulk}
+          />
+        </>
       )}
     </PageFrame>
   );

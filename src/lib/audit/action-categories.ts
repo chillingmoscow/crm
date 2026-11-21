@@ -30,7 +30,9 @@ export const AUDIT_ACTION_CATEGORIES: {
  *  видишь только *.created). «Прочее»-категории намеренно нет:
  *  чистый фильтр по понятным типам действий. */
 const CATEGORY_SUFFIXES: Record<AuditActionCategory, string[]> = {
-  created: [".created", ".sent", ".imported", ".requested"],
+  // `_imported`, `_requested`: `stock.writeoffs.archive_imported`,
+  // `stock.writeoffs.refresh_requested` (в LIKE `_` ловит и точку).
+  created: [".created", ".sent", "_imported", "_requested"],
   // Приём в команду (сотрудник, кандидат) и увольнение с закрытием доступов.
   staffing: [".hired", ".fired", ".access_removed"],
   changed: [
@@ -52,7 +54,10 @@ const CATEGORY_SUFFIXES: Record<AuditActionCategory, string[]> = {
     // В LIKE `_` — любой один символ, поэтому шаблон ловит и `.changed`.
     "_changed",
     "_updated",
-    ".assigned",
+    // `stock.writeoffs.pool_assigned`, `…pool_bulk_assigned` и `.assigned`.
+    "_assigned",
+    // Обновление из внешней системы: `stock.writeoffs.synced`, `cash.*.synced`.
+    ".synced",
     ".reviewed",
     ".resolved",
     ".unresolved",

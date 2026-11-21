@@ -41,16 +41,18 @@ import {
 } from "@/lib/inventory/results";
 import type { ResortSuggestion } from "@/lib/inventory/resort-suggestions";
 import {
-  COLUMN_TO_RESULT_FIELD,
+  QR_CALCULATED_COLUMNS,
   RESULT_SORT_CODEC,
   RESULT_COLUMNS,
   RESULT_RECOUNT_LABEL,
-  RESULT_SORT_FIELDS,
   RESULT_SORT_FIELD_LABEL,
   RESULT_STATUS_LABEL,
   RESULTS_TABLE_ID,
+  columnToResultFieldFor,
   hasDifference,
   isOpenDifference,
+  resultFactAmount,
+  resultSortFieldsFor,
   resultSortToDirection,
   resultSortToField,
   resultSortsToSorting,
@@ -121,6 +123,9 @@ export type InventoryDocumentResultItem = {
   measure_unit_id: number | null;
   measure_unit_name: string | null;
   actual_amount: number | null;
+  /** Количество, введённое исполнителем в форме акта. Показывается в «Факте»,
+      когда Quick Resto не прислал расчёт по строкам (см. hasLineAmounts). */
+  submitted_amount?: number | null;
   calculated_amount: number | null;
   difference_amount: number | null;
   prime_cost: number | null;
@@ -239,6 +244,12 @@ type Props = {
       До проведения QR отдаёт нули, поэтому здесь null. */
   qrShortfallSum: number | null;
   qrSurplusSum: number | null;
+  /** Quick Resto прислал расчёт по строкам (documents.results_has_line_amounts).
+      false — акт «Итоги требуют проверки»: таблица в режиме «без сумм». Расчёт,
+      разница и суммы — прочерком, факт — введённый исполнителем; пометки и
+      отправка на пересчёт работают как обычно, а подвести итоги, исключить
+      строку или свести пересорт нельзя — им не на что опереться. */
+  hasLineAmounts: boolean;
 };
 
 // Две суммы в тайлах — РАЗНЫЕ величины, и раньше подписи это скрывали («По QR»
@@ -307,6 +318,31 @@ function ConfidenceGauge({ percent }: { percent: number }) {
   );
 }
 
+/**
+ * Число в плитке «Недостача» / «Излишек». value — сумма со знаком (недостача
+ * отрицательная), выводится по модулю, цвет — signedAmountClass. null — суммы
+ * нет (Quick Resto не прислал расчёт по строкам): прочерк без ₽, никогда не
+ * ноль (DS «Деньги»); причина — в плашке над плитками.
+ */
+function TileAmount({
+  value,
+  amountRoundingScale,
+}: {
+  value: number | null;
+  amountRoundingScale: AmountRoundingScale;
+}) {
+  return (
+    <div
+      className={cn(
+        "mt-1 text-xl font-semibold tabular-nums sm:text-[28px] sm:leading-tight",
+        value == null ? "text-muted-foreground" : signedAmountClass(value),
+      )}
+    >
+      {value == null ? "—" : formatMoney(Math.abs(value), "RUB", amountRoundingScale)}
+    </div>
+  );
+}
+
 // Пересчитанное значение совпало с прежним. Это законный исход («пересчитали,
 // значение подтвердилось»), но он должен читаться именно так: «было 3 → стало
 // 3» само по себе неотличимо от акта, где пересчёт не делали.
@@ -339,6 +375,7 @@ export function InventoryResultsTable({
   qrUnprocessedAt,
   qrShortfallSum,
   qrSurplusSum,
+  hasLineAmounts,
 }: Props) {
   const [showDifferences, setShowDifferences] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -480,6 +517,12 @@ export function InventoryResultsTable({
   // финализации/разблокировки в футере используют именно isLocked.
   const isRecountPending = documentStatus === "recount_pending";
   const adjustLocked = isLocked || isRecountPending;
+  // Без расчёта Quick Resto по строкам сумм нет: инструменты, которые на них
+  // опираются (исключения, пересорт, подсказки, подведение итогов), закрыты.
+  // Пометки и отправка на пересчёт от сумм не зависят и остаются.
+  const canAdjustSums = canAdjust && hasLineAmounts;
+  const sortFields = useMemo(() => resultSortFieldsFor(hasLineAmounts), [hasLineAmounts]);
+  const columnToResultField = useMemo(() => columnToResultFieldFor(hasLineAmounts), [hasLineAmounts]);
   const groupOptions = useMemo(() => {
     const map = new Map<string, string>();
     for (const item of items) {
@@ -526,8 +569,8 @@ export function InventoryResultsTable({
         } else if (field === "group") {
           cmp = (left.group_name ?? "").localeCompare(right.group_name ?? "", "ru");
         } else if (field === "empty") {
-          const leftEmpty = left.actual_amount === null;
-          const rightEmpty = right.actual_amount === null;
+          const leftEmpty = resultFactAmount(left, hasLineAmounts) == null;
+          const rightEmpty = resultFactAmount(right, hasLineAmounts) == null;
           if (leftEmpty !== rightEmpty) cmp = leftEmpty ? -1 : 1;
         } else {
           // sum: по модулю расхождения.
@@ -540,6 +583,7 @@ export function InventoryResultsTable({
   }, [
     activeResortItemByItemId,
     groupFilter,
+    hasLineAmounts,
     items,
     recountFilter,
     searchQuery,
@@ -569,7 +613,7 @@ export function InventoryResultsTable({
   };
   // Массовые действия в итогах — это пометка на пересчёт и исключение из
   // итогов; без соответствующих прав их панель не рендерится.
-  const canBulkAct = canAdjust || canRecount;
+  const canBulkAct = canAdjustSums || canRecount;
   const selectedItems = useMemo(
     () => items.filter((item) => selectedIds.has(item.id)),
     [items, selectedIds],
@@ -708,7 +752,7 @@ export function InventoryResultsTable({
   const { cycleSort, headerIndicator, headerAriaSort, sortableColumnIds } = useMultiSort({
     sorts,
     onChange: setSorts,
-    columnToField: COLUMN_TO_RESULT_FIELD,
+    columnToField: columnToResultField,
     codec: RESULT_SORT_CODEC,
   });
 
@@ -757,7 +801,7 @@ export function InventoryResultsTable({
       .slice(0, 8);
   }, [suggestions, aiSuggestions]);
 
-  const canRequestAi = aiSuggestionsEnabled && canAdjust && !adjustLocked && !aiRequested;
+  const canRequestAi = aiSuggestionsEnabled && canAdjustSums && !adjustLocked && !aiRequested;
 
   const requestAiSuggestions = async () => {
     setAiLoading(true);
@@ -786,7 +830,13 @@ export function InventoryResultsTable({
           ? resortItem.remainingDifferenceSum
           : item.difference_sum;
       const isExcluded = item.excluded_from_totals === true;
+      const factAmount = resultFactAmount(item, hasLineAmounts);
 
+      // Без расчёта Quick Resto эти числа неизвестны: прочерк, а не ноль (DS
+      // «Деньги»). Причина написана в плашке над таблицей.
+      if (!hasLineAmounts && QR_CALCULATED_COLUMNS.includes(key)) {
+        return <span className="text-muted-foreground">—</span>;
+      }
       if (key === "calculated") {
         return (
           <span className="text-muted-foreground">
@@ -795,7 +845,7 @@ export function InventoryResultsTable({
         );
       }
       if (key === "fact") {
-        return <span>{formatQuantity(item.actual_amount, item.measure_unit_name)}</span>;
+        return <span>{formatQuantity(factAmount, item.measure_unit_name)}</span>;
       }
       if (key === "difference") {
         return (
@@ -837,7 +887,7 @@ export function InventoryResultsTable({
         const auto = Boolean(item.recount_auto_flagged);
         const wasRecounted = item.recount_previous_amount != null;
         const recountUnchanged =
-          wasRecounted && amountsMatch(item.recount_previous_amount, item.actual_amount);
+          wasRecounted && amountsMatch(item.recount_previous_amount, factAmount);
         return (
           <div className="flex flex-col gap-1" data-row-interactive>
           <div className="flex items-center gap-2">
@@ -894,7 +944,7 @@ export function InventoryResultsTable({
                   : "Строка была отправлена на пересчёт"
               }
             >
-              было {formatQuantity(item.recount_previous_amount, item.measure_unit_name)} → {formatQuantity(item.actual_amount, item.measure_unit_name)}
+              было {formatQuantity(item.recount_previous_amount, item.measure_unit_name)} → {formatQuantity(factAmount, item.measure_unit_name)}
               {recountUnchanged ? (
                 <span className="text-muted-foreground"> · не изменилось</span>
               ) : null}
@@ -919,7 +969,7 @@ export function InventoryResultsTable({
         </div>
       );
     },
-    [activeResortItemByItemId, amountRoundingScale, canRecount, adjustLocked, isPending, documentId, runAction],
+    [activeResortItemByItemId, amountRoundingScale, canRecount, adjustLocked, hasLineAmounts, isPending, documentId, runAction],
   );
 
   const renderSelectCell = useCallback(
@@ -954,7 +1004,9 @@ export function InventoryResultsTable({
                 type="button"
                 size="icon"
                 variant="ghost"
-                disabled={adjustLocked || isPending}
+                // Без расчёта по строкам в меню остаётся только комментарий:
+                // без права на него открывать нечего.
+                disabled={adjustLocked || isPending || (!hasLineAmounts && !canComment)}
                 aria-label={`Действия: ${item.product_name}`}
                 data-tip="Действия"
               >
@@ -973,7 +1025,7 @@ export function InventoryResultsTable({
                   Комментировать
                 </DropdownMenuItem>
               ) : null}
-              {canAdjust ? (
+              {canAdjustSums ? (
                 <>
                   {isExcluded ? (
                     <DropdownMenuItem
@@ -1042,7 +1094,7 @@ export function InventoryResultsTable({
         </div>
       );
     },
-    [activeResortItemByItemId, canAdjust, canComment, documentId, adjustLocked, isPending, runAction],
+    [activeResortItemByItemId, canAdjustSums, canComment, documentId, adjustLocked, hasLineAmounts, isPending, runAction],
   );
 
   const columnsConfig = useMemo(
@@ -1242,7 +1294,19 @@ export function InventoryResultsTable({
   };
 
   if (items.length === 0) {
-    return <EmptyState icon={ListChecks} title="Построчных данных по акту нет" />;
+    return (
+      <EmptyState
+        icon={ListChecks}
+        title="Построчных данных по акту нет"
+        // Без строк тулбара нет, а вместе с ним и «Обновить итоги». Акту без
+        // расчёта Quick Resto это единственный путь вперёд — оставляем кнопку.
+        action={
+          !hasLineAmounts && canViewResults && !isLocked ? (
+            <RefreshResultsButton documentId={documentId} />
+          ) : undefined
+        }
+      />
+    );
   }
 
   return (
@@ -1262,6 +1326,24 @@ export function InventoryResultsTable({
               Итоги у нас остались зафиксированными: здесь по-прежнему снимок,
               утверждённый при подведении итогов. Чтобы провести акт заново,
               разблокируйте его и подведите итоги ещё раз.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Акт «Итоги требуют проверки»: Quick Resto не прислал расчёт по
+          строкам. Здесь — единственное объяснение прочерков в суммах и
+          колонках «Расчёт», «Разница», «Упр. сумма». */}
+      {!hasLineAmounts ? (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
+          <div className="min-w-0">
+            <div className="font-medium">Quick Resto не прислал расчёт по строкам</div>
+            <p className="mt-0.5 text-muted-foreground">
+              Расчёт, разница и суммы показаны прочерком: точно посчитать их без
+              Quick Resto нельзя. Факт исполнителя виден, строки можно отметить и
+              отправить на пересчёт. Нажмите «Обновить итоги», чтобы запросить
+              расчёт ещё раз. Если он так и не появится, проверьте акт в Quick Resto.
             </p>
           </div>
         </div>
@@ -1291,17 +1373,19 @@ export function InventoryResultsTable({
               <div className="text-xs text-muted-foreground" data-tip={QR_TILE_HINT}>
                 Уйдёт в Quick Resto
               </div>
-              <div className={cn("mt-1 text-xl font-semibold tabular-nums sm:text-[28px] sm:leading-tight", signedAmountClass(-Math.abs(totals.qrShortfallSum)))}>
-                {formatMoney(Math.abs(totals.qrShortfallSum), "RUB", amountRoundingScale)}
-              </div>
+              <TileAmount
+                value={hasLineAmounts ? -Math.abs(totals.qrShortfallSum) : null}
+                amountRoundingScale={amountRoundingScale}
+              />
             </div>
             <div>
               <div className="text-xs text-muted-foreground" data-tip={MANAGEMENT_TILE_HINT}>
                 Управленческая оценка
               </div>
-              <div className={cn("mt-1 text-xl font-semibold tabular-nums sm:text-[28px] sm:leading-tight", signedAmountClass(-Math.abs(totals.managementShortfallSum)))}>
-                {formatMoney(Math.abs(totals.managementShortfallSum), "RUB", amountRoundingScale)}
-              </div>
+              <TileAmount
+                value={hasLineAmounts ? -Math.abs(totals.managementShortfallSum) : null}
+                amountRoundingScale={amountRoundingScale}
+              />
             </div>
           </div>
         </div>
@@ -1319,17 +1403,19 @@ export function InventoryResultsTable({
               <div className="text-xs text-muted-foreground" data-tip={QR_TILE_HINT}>
                 Уйдёт в Quick Resto
               </div>
-              <div className={cn("mt-1 text-xl font-semibold tabular-nums sm:text-[28px] sm:leading-tight", signedAmountClass(Math.abs(totals.qrSurplusSum)))}>
-                {formatMoney(Math.abs(totals.qrSurplusSum), "RUB", amountRoundingScale)}
-              </div>
+              <TileAmount
+                value={hasLineAmounts ? Math.abs(totals.qrSurplusSum) : null}
+                amountRoundingScale={amountRoundingScale}
+              />
             </div>
             <div>
               <div className="text-xs text-muted-foreground" data-tip={MANAGEMENT_TILE_HINT}>
                 Управленческая оценка
               </div>
-              <div className={cn("mt-1 text-xl font-semibold tabular-nums sm:text-[28px] sm:leading-tight", signedAmountClass(Math.abs(totals.managementSurplusSum)))}>
-                {formatMoney(Math.abs(totals.managementSurplusSum), "RUB", amountRoundingScale)}
-              </div>
+              <TileAmount
+                value={hasLineAmounts ? Math.abs(totals.managementSurplusSum) : null}
+                amountRoundingScale={amountRoundingScale}
+              />
             </div>
           </div>
         </div>
@@ -1377,7 +1463,7 @@ export function InventoryResultsTable({
               <TableSortPicker
                 sorting={sorting}
                 onChange={changeSorting}
-                fields={RESULT_SORT_FIELDS}
+                fields={sortFields}
                 labels={RESULT_SORT_FIELD_LABEL}
               />
             ),
@@ -1425,7 +1511,9 @@ export function InventoryResultsTable({
           }
           summary={
             <>
-              Показано {visibleItems.length} из {items.length}; расхождений {mismatchCount}
+              Показано {visibleItems.length} из {items.length}
+              {/* Без расчёта расхождения неизвестны — «расхождений 0» соврал бы. */}
+              {hasLineAmounts ? <>; расхождений {mismatchCount}</> : null}
               {resultsSnapshotAt ? (
                 <> · итоги зафиксированы {formatDayMonth(resultsSnapshotAt)}</>
               ) : null}
@@ -1467,7 +1555,7 @@ export function InventoryResultsTable({
         hasFilters={hasActiveFilters}
         sorting={sorting}
         onSortingChange={changeSorting}
-        sortFields={RESULT_SORT_FIELDS}
+        sortFields={sortFields}
         sortLabels={RESULT_SORT_FIELD_LABEL}
         search={searchQuery}
         onSearchClear={() => {
@@ -1476,7 +1564,8 @@ export function InventoryResultsTable({
         }}
         onReset={onClearAll}
       >
-        {filtersVisible || showDifferences ? (
+        {/* Без расчёта Quick Resto расхождений не знаем — фильтровать не по чему. */}
+        {hasLineAmounts && (filtersVisible || showDifferences) ? (
           <TableFilterChip
             label="Расхождения"
             value={showDifferences ? "only" : ""}
@@ -1707,7 +1796,7 @@ export function InventoryResultsTable({
                 table={table}
                 isControlColumn={(columnId) => columnId === "select" || columnId === "actions"}
                 sortableColumnIds={sortableColumnIds}
-                onSort={(columnId) => cycleSort(COLUMN_TO_RESULT_FIELD[columnId])}
+                onSort={(columnId) => cycleSort(columnToResultField[columnId])}
                 headerIndicator={headerIndicator}
                 headerAriaSort={headerAriaSort}
                 renderControlHeader={(header) =>
@@ -1827,7 +1916,8 @@ export function InventoryResultsTable({
           итоги»). Поясняющий текст про блокировку — в тултипе кнопки. */}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
         <div className="text-xs text-muted-foreground">
-          Показано {visibleItems.length} из {items.length}; расхождений {mismatchCount}
+          Показано {visibleItems.length} из {items.length}
+          {hasLineAmounts ? <>; расхождений {mismatchCount}</> : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {canSendToRecount ? (
@@ -1873,6 +1963,19 @@ export function InventoryResultsTable({
               <span className="text-xs text-muted-foreground">
                 Подвести итоги можно после пересчёта
               </span>
+            ) : !hasLineAmounts ? (
+              // Без расчёта по строкам проводить нечего: в Quick Resto ушла бы
+              // разница, которую проверяющий не видел. Причина — текстом рядом
+              // (DS «Кнопки»: у неактивной кнопки подсказка не появляется).
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <span className="text-xs text-muted-foreground">
+                  Подвести итоги можно, когда Quick Resto пришлёт расчёт по строкам
+                </span>
+                <Button type="button" disabled>
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  Подвести итоги
+                </Button>
+              </div>
             ) : (
               <span
                 className="inline-flex"
@@ -2131,14 +2234,16 @@ export function InventoryResultsTable({
       {/* Floating bar групповых действий — появляется при выборе строк.
           Сюда «опущены» все row-bulk операции: Пересорт / Не учитывать /
           Исключать всегда / Пересчёт. */}
-      {canAdjust || canRecount ? (
+      {canAdjustSums || canRecount ? (
         <TableBulkBar
           floating
           selectedCount={selectedItems.length}
           onClear={() => setSelectedIds(new Set())}
           actions={
             <>
-              {canAdjust ? (
+              {/* Пересорт и исключения опираются на суммы — без расчёта
+                  Quick Resto остаётся только пересчёт. */}
+              {canAdjustSums ? (
                 <>
                   <Button
                     type="button"

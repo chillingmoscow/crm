@@ -12,10 +12,11 @@ import {
   writeoffCounts,
   type WriteoffPoolAssignment,
 } from "@/lib/stock/writeoff-pools";
+import type { WriteoffPoolSuggestion } from "@/lib/stock/writeoff-pool-suggestion";
 import type { WriteoffData } from "./actions";
 
 type Pool = WriteoffPoolAssignment["pool"];
-const poolNames: Record<Pool, string> = {
+export const poolNames: Record<Pool, string> = {
   shared: "Вся команда",
   department: "Подразделение",
   personal: "Один сотрудник",
@@ -26,14 +27,19 @@ const poolNames: Record<Pool, string> = {
  * Состояние формы «Кто платит». Живёт в панели, а не в разделе: кнопки
  * «Сохранить» и «Снять разнесение» стоят в подвале панели (DS § «Боковая
  * панель», тип Б: все действия — в подвале).
+ *
+ * `suggestion` — подсказка по типу акта в Quick Resto: подставляется в форму,
+ * только если у акта ещё нет пометки, и сохраняется лишь по «Сохранить».
  */
 export function useWriteoffPoolForm(
   row: WriteoffRow,
   onAssign: (pool: Pool | null, key: string | null) => Promise<void>,
+  suggestion: WriteoffPoolSuggestion | null = null,
 ) {
   const mark = row.assignment;
-  const [pool, setPool] = useState<Pool | "">(mark?.pool ?? "");
-  const [key, setKey] = useState(mark?.key ?? "");
+  const start = mark ? null : suggestion;
+  const [pool, setPool] = useState<Pool | "">(mark?.pool ?? start?.pool ?? "");
+  const [key, setKey] = useState(mark?.key ?? start?.key ?? "");
   const [busy, setBusy] = useState<"save" | "clear" | null>(null);
   // Ошибка сохранения остаётся в панели (DS § «Боковая панель»), а не в тосте.
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +80,12 @@ export function useWriteoffPoolForm(
     key,
     busy,
     error,
+    // Подпись «подставлено» видна, пока в форме именно подсказка и она не сохранена.
+    suggested:
+      !mark &&
+      !!start &&
+      pool === start.pool &&
+      (key || null) === (start.key ?? null),
     canSave: complete && changed && busy === null,
     choosePool: (next: Pool | "") => {
       setPool(next);
@@ -170,9 +182,13 @@ export function PoolSection({
             id="writeoff-pool"
             label="Плательщик"
             hint={
-              doc.payload.kind === "personal" && !mark
-                ? "Личное потребление сотрудник оплачивает сам, это не удержание. Обычно выбирают «Не удерживать»."
-                : undefined
+              form.suggested
+                ? doc.payload.kind === "personal"
+                  ? "Подставлено по типу акта в Quick Resto: личное потребление сотрудник оплачивает сам. Проверьте и сохраните."
+                  : "Подставлено по типу акта в Quick Resto. Проверьте и сохраните."
+                : doc.payload.kind === "personal" && !mark
+                  ? "Личное потребление сотрудник оплачивает сам, это не удержание. Обычно выбирают «Не удерживать»."
+                  : undefined
             }
           >
             {(control) => (

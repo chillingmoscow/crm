@@ -19,6 +19,7 @@ import {
   Paperclip,
   PencilLine,
   Plus,
+  Repeat,
   RotateCcw,
   SearchX,
   Trash2,
@@ -84,6 +85,10 @@ import type { AccountVenueRow, LegalEntityRow } from "@/lib/org/legal-entities";
 import { AmountRangeFilter } from "./filters/amount-range-filter";
 import { BulkEditDialog } from "./bulk-edit-dialog";
 import { TransactionFormSheet, type FormMode } from "./transaction-form-sheet";
+import {
+  RecurringFormSheet,
+  type RecurringFormMode,
+} from "../../recurring/_components/recurring-form-sheet";
 import { TRANSACTION_CREATE_OPTIONS } from "../../_components/transaction-create-options";
 import {
   AccountCell,
@@ -508,6 +513,9 @@ export function TransactionsPage({
   const openCopy = (tx: TransactionRow) =>
     setFormMode({ kind: "create", type: tx.type, copyOf: tx });
 
+  // «Сделать повторяющейся»: панель шаблона, заполненная по операции.
+  const [recurringMode, setRecurringMode] = useState<RecurringFormMode>({ kind: "closed" });
+
   // ─── Массовая правка ──────────────────────────────────────────────────────
 
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
@@ -631,6 +639,15 @@ export function TransactionsPage({
     return [
       ...(permissions.create && !(tx.type === "transfer" && transferBlocked)
         ? [{ label: "Копировать", icon: <Copy />, onSelect: () => openCopy(tx) }]
+        : []),
+      ...(permissions.create && tx.type !== "transfer"
+        ? [
+            {
+              label: "Сделать повторяющейся",
+              icon: <Repeat />,
+              onSelect: () => setRecurringMode({ kind: "create", from: tx }),
+            },
+          ]
         : []),
       ...(permissions.delete && !transactionLock(tx)
         ? [
@@ -1387,6 +1404,27 @@ export function TransactionsPage({
           setRowSelection({});
           router.refresh();
         }}
+      />
+
+      <RecurringFormSheet
+        mode={recurringMode}
+        onClose={() => setRecurringMode({ kind: "closed" })}
+        onSaved={() => {
+          setRecurringMode({ kind: "closed" });
+          toast.success("Повторяющийся платёж создан", {
+            action: { label: "Открыть", onClick: () => router.push("/finance/recurring") },
+          });
+        }}
+        bankAccounts={activeAccounts}
+        allBankAccounts={bankAccounts}
+        venues={formVenues}
+        allVenues={venues}
+        categories={categories}
+        counterparties={counterparties}
+        permissions={permissions}
+        amountRoundingScale={amountRoundingScale}
+        dadataEnabled={dadataEnabled}
+        timeZone={timeZone}
       />
 
       <TransactionFormSheet

@@ -164,3 +164,12 @@ test("условия из базы: годные читаются, испорч�
   assert.equal(parseStoredConditions([{ field: "tag", op: "eq", value: "x" }]), null);
   assert.equal(parseStoredConditions("oops"), null);
 });
+
+test("лимит условий считается вместе с автоматическим условием на тип", () => {
+  const twenty = Array.from({ length: 20 }, (_, i) => ({ field: "description", op: "contains", value: `т${i}` }));
+  assert.equal(
+    errorOf({ conditions: twenty, actions: { category_id: "cat-supply" } }),
+    "Условий не больше 20, считая условие на тип операции",
+  );
+  assert.equal(errorOf({ conditions: twenty, actions: { category_id: "cat-mixed" } }), null);
+});

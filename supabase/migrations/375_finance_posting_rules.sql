@@ -34,7 +34,8 @@ on conflict (role_id, permission_id)
 do update set granted = excluded.granted;
 
 -- Новым заведениям — через преcет ролей. Тело — из 229 без изменений, кроме
--- нового кода рядом с finance.manage_counterparties (управляющий и администратор).
+-- нового кода рядом с finance.manage_counterparties (администратор и бухгалтер —
+-- у управляющего в преcете нет manage-прав финансов).
 create or replace function public.seed_default_venue_roles_impl(p_venue_id uuid)
 returns void
 language plpgsql security definer
@@ -196,7 +197,8 @@ create table public.finance_posting_rules (
   id          uuid primary key default gen_random_uuid(),
   account_id  uuid not null references public.accounts(id) on delete cascade,
   name        text check (name is null or length(btrim(name)) between 1 and 200),
-  position    integer not null,
+  -- Новое правило встаёт в конец списка: номер ставит триггер ниже.
+  position    integer not null default 0,
   enabled     boolean not null default true,
   -- Каждое условие — объект с известным полем. Остальное (операторы,
   -- значения) проверяет приложение и при чтении, и при записи: правило с
@@ -252,7 +254,9 @@ create index finance_posting_rules_updated_by_idx on public.finance_posting_rule
   where updated_by is not null;
 
 -- Кто и когда создал и изменил — ставит база, а не клиент: иначе пользователь
--- с правом настройки мог бы записать правило от чужого имени.
+-- с правом настройки мог бы записать правило от чужого имени. Номер нового
+-- правила — тоже здесь, под блокировкой аккаунта: два одновременных создания
+-- иначе получили бы один номер и непредсказуемый порядок.
 create or replace function public.finance_posting_rules_stamp()
 returns trigger
 language plpgsql
@@ -260,6 +264,11 @@ set search_path = public, pg_catalog
 as $$
 begin
   if tg_op = 'INSERT' then
+    perform pg_advisory_xact_lock(hashtextextended('finance-posting-rules:' || new.account_id::text, 0));
+    new.position := coalesce(
+      (select max(r.position) from public.finance_posting_rules r where r.account_id = new.account_id),
+      0
+    ) + 1;
     new.created_by := auth.uid();
     new.created_at := now();
   else

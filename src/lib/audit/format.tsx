@@ -1177,6 +1177,7 @@ const SPECS: Record<string, AuditEventSpec> = {
     icon: Trash2,
     iconClass: "text-destructive bg-destructive/10",
     buildHeadline: (e) => <>удалил(а) правило разнесения{postingRuleTitle(e)}</>,
+    buildDetails: (e) => postingRulePhrase(e),
   },
   "finance.posting_rule.order_changed": {
     icon: Layers,

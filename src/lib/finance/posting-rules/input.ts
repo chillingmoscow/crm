@@ -140,6 +140,9 @@ export function normalizePostingRuleInput(
     if (categoryType !== "mixed") {
       const typeCondition = conditions.find((c) => c.field === "type");
       if (!typeCondition) {
+        if (conditions.length >= MAX_CONDITIONS) {
+          return fail(`Условий не больше ${MAX_CONDITIONS}, считая условие на тип операции`);
+        }
         conditions.push({ field: "type", op: "eq", value: categoryType });
       } else if (typeCondition.value !== categoryType) {
         return fail(

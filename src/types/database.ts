@@ -818,7 +818,7 @@ export type Database = {
           enabled?: boolean
           id?: string
           name?: string | null
-          position: number
+          position?: number
           updated_at?: string
           updated_by?: string | null
         }

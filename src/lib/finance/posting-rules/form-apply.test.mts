@@ -122,3 +122,51 @@ test("форма открылась заново: описание — исхо�
   const edit = resetFormRuleState({ category_id: null, counterparty_id: null, venue_id: "v-1" }, null, "");
   assert.equal(edit.state.sources.venue_id, "user");
 });
+
+const ctxBase = {
+  counterparties: new Map([["cp-t", { inn: null, group_id: null }]]),
+  categoryTypes: new Map<string, "income" | "expense" | "mixed">([["cat-fee", "expense"]]),
+  inactiveIds: new Set<string>(),
+  allowedVenueIds: null,
+};
+const feeRules = [
+  {
+    id: "by-text",
+    name: null,
+    position: 1,
+    enabled: true,
+    conditions: [{ field: "description" as const, op: "contains" as const, value: "сбп" }],
+    actions: { counterparty_id: "cp-t" },
+  },
+  {
+    id: "by-cp",
+    name: null,
+    position: 2,
+    enabled: true,
+    conditions: [{ field: "counterparty" as const, op: "in" as const, ids: ["cp-t"] }],
+    actions: { category_id: "cat-fee" },
+  },
+];
+
+test("шаг формы: копия операции с описанием сразу заполняется по описанию", async () => {
+  const { computeAutofill, resetFormRuleState } = await import("./form-apply.ts");
+  const opened = resetFormRuleState({ category_id: null, counterparty_id: null, venue_id: null }, null, "Комиссия СБП");
+  const next = computeAutofill(feeRules, ctxBase, opened.state, {
+    type: "expense",
+    amount: 100,
+    bank_account_id: "acc",
+    description: opened.description,
+  });
+  assert.equal(next.values.counterparty_id, "cp-t");
+  assert.equal(next.values.category_id, "cat-fee");
+});
+
+test("шаг формы: контрагент от правила не подтверждает сам себя, когда описание поменялось", async () => {
+  const { computeAutofill, resetFormRuleState } = await import("./form-apply.ts");
+  const opened = resetFormRuleState({ category_id: null, counterparty_id: null, venue_id: null }, null, "");
+  const input = { type: "expense" as const, amount: 100, bank_account_id: "acc", description: "Комиссия СБП" };
+  const filled = computeAutofill(feeRules, ctxBase, opened.state, input);
+  const after = computeAutofill(feeRules, ctxBase, filled, { ...input, description: "Аренда" });
+  assert.equal(after.values.counterparty_id, null);
+  assert.equal(after.values.category_id, null);
+});

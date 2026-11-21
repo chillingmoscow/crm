@@ -270,7 +270,8 @@ const NAV_SECTIONS: NavSection[] = [
         title: "Правила",
         href: "/finance/rules",
         icon: Wand2,
-        permission: "finance.view_transactions",
+        // Видит тот, кто видит операции, или тот, кто правила настраивает.
+        permissions: ["finance.view_transactions", "finance.manage_posting_rules"],
       },
     ],
   },

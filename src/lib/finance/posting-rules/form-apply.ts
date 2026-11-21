@@ -1,4 +1,11 @@
-import type { PostingRuleActionField, RuleResult } from "./types.ts";
+import { evaluatePostingRules } from "./evaluate.ts";
+import type {
+  PostingRule,
+  PostingRuleActionField,
+  RuleContext,
+  RuleResult,
+  RuleSubject,
+} from "./types.ts";
 
 /** Откуда значение поля в форме операции:
  *  empty — пусто; filter — заведение подставлено фильтром страницы (подсказка,
@@ -91,4 +98,25 @@ export function resetFormRuleState(
     },
     description,
   };
+}
+
+/** Один шаг формы: посчитать правила по текущим полям и применить результат.
+ *  Контрагент, подставленный правилом, в условия не идёт — иначе устаревшая
+ *  подстановка подтверждала бы сама себя. */
+export function computeAutofill(
+  rules: PostingRule[],
+  ctx: RuleContext,
+  state: FormRuleState,
+  input: Omit<RuleSubject, "counterparty_id">,
+): FormRuleState {
+  const result = evaluatePostingRules(
+    rules,
+    {
+      ...input,
+      counterparty_id: state.sources.counterparty_id === "rule" ? null : state.values.counterparty_id,
+    },
+    ctx,
+    fillableFrom(state),
+  );
+  return applyRulesToForm(state, result);
 }

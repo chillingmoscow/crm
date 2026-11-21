@@ -24,20 +24,22 @@ import {
 } from "./input";
 import { describePostingRule, type RuleNameKind, type RuleNames } from "./phrase";
 import type { PostingRule } from "./types";
+import type { Json, Tables } from "@/types/database";
 
-type RuleRow = {
-  id: string;
-  name: string | null;
-  position: number;
-  enabled: boolean;
-  conditions: unknown;
-  action_category_id: string | null;
-  action_counterparty_id: string | null;
-  action_venue_id: string | null;
-};
+type RuleRow = Pick<
+  Tables<"finance_posting_rules">,
+  | "id"
+  | "name"
+  | "position"
+  | "enabled"
+  | "conditions"
+  | "action_category_id"
+  | "action_counterparty_id"
+  | "action_venue_id"
+>;
 
 const RULE_COLUMNS =
-  "id, name, position, enabled, conditions, action_category_id, action_counterparty_id, action_venue_id";
+  "id, name, position, enabled, conditions, action_category_id, action_counterparty_id, action_venue_id" as const;
 
 function toRule(row: RuleRow): PostingRule {
   const actions: PostingRule["actions"] = {};
@@ -64,8 +66,8 @@ function revalidateRules() {
 /** Правила активного аккаунта сверху вниз (под RLS: нужен доступ к операциям). */
 export async function listPostingRules(): Promise<PostingRule[]> {
   const supabase = await createClient();
-  const { data, error } = await asLooseDb(supabase)
-    .from<RuleRow[]>("finance_posting_rules")
+  const { data, error } = await supabase
+    .from("finance_posting_rules")
     .select(RULE_COLUMNS)
     .order("position", { ascending: true });
   if (error) throw new Error(error.message);
@@ -193,7 +195,9 @@ const REF_TABLES: Record<RuleNameKind, RefTable> = {
   },
 };
 
-function referencedIds(input: PostingRuleInput): Record<RuleNameKind, string[]> {
+function referencedIds(
+  input: Pick<PostingRule, "conditions" | "actions">,
+): Record<RuleNameKind, string[]> {
   const refs: Record<RuleNameKind, Set<string>> = {
     counterparty: new Set(),
     counterparty_group: new Set(),
@@ -214,15 +218,16 @@ function referencedIds(input: PostingRuleInput): Record<RuleNameKind, string[]> 
   ) as Record<RuleNameKind, string[]>;
 }
 
-/** Все id правила принадлежат аккаунту и не в архиве. Возвращает названия
- *  для журнала или текст ошибки. */
-async function checkReferences(
+/** Названия справочников правила — для журнала. С `rejectArchived` заодно
+ *  проверяет, что все id принадлежат аккаунту и не в архиве (сохранение). */
+async function loadNames(
   supabase: Supabase,
   accountId: string,
-  input: PostingRuleInput,
+  rule: Pick<PostingRule, "conditions" | "actions">,
+  rejectArchived: boolean,
 ): Promise<{ names: RuleNames } | { error: string }> {
   const found = new Map<string, string>();
-  const refs = referencedIds(input);
+  const refs = referencedIds(rule);
   for (const kind of Object.keys(refs) as RuleNameKind[]) {
     const spec = REF_TABLES[kind];
     for (const ids of chunk(refs[kind], 200)) {
@@ -234,9 +239,9 @@ async function checkReferences(
         .in("id", ids);
       if (error) return { error: error.message };
       const rows = data ?? [];
-      if (rows.length !== ids.length) return { error: spec.missing };
+      if (rejectArchived && rows.length !== ids.length) return { error: spec.missing };
       for (const row of rows) {
-        if (spec.archive && row[spec.archive]) {
+        if (rejectArchived && spec.archive && row[spec.archive]) {
           return { error: spec.archived.replace("%s", row.name ?? "") };
         }
         found.set(`${kind}:${row.id}`, row.name ?? "");
@@ -256,15 +261,15 @@ async function categoryTypesFor(
       ? (raw as { actions?: { category_id?: unknown } }).actions?.category_id
       : null;
   if (typeof id !== "string" || !id) return new Map();
-  const { data } = await asLooseDb(supabase)
-    .from<Array<{ id: string; type: "income" | "expense" | "mixed" }>>("finance_categories")
+  const { data } = await supabase
+    .from("finance_categories")
     .select("id, type")
     .eq("account_id", accountId)
     .eq("id", id);
   return new Map((data ?? []).map((c) => [c.id, c.type]));
 }
 
-function phraseOf(input: PostingRuleInput, names: RuleNames): string {
+function phraseOf(input: Pick<PostingRule, "conditions" | "actions">, names: RuleNames): string {
   const { conditions, actions } = describePostingRule(input, names);
   return `Если ${conditions} → ${actions}`;
 }
@@ -279,7 +284,7 @@ async function prepare(
     await categoryTypesFor(supabase, session.accountId, raw),
   );
   if (!normalized.ok) return { error: normalized.error };
-  const refs = await checkReferences(supabase, session.accountId, normalized.value);
+  const refs = await loadNames(supabase, session.accountId, normalized.value, true);
   if ("error" in refs) return refs;
   return { input: normalized.value, phrase: phraseOf(normalized.value, refs.names) };
 }
@@ -288,7 +293,7 @@ function rowValues(input: PostingRuleInput) {
   return {
     name: input.name,
     enabled: input.enabled,
-    conditions: input.conditions,
+    conditions: input.conditions as unknown as Json,
     action_category_id: input.actions.category_id ?? null,
     action_counterparty_id: input.actions.counterparty_id ?? null,
     action_venue_id: input.actions.venue_id ?? null,
@@ -304,20 +309,12 @@ export async function createPostingRule(
   const prepared = await prepare(supabase, session, raw);
   if ("error" in prepared) return { id: null, error: prepared.error };
 
-  const db = asLooseDb(supabase);
-  const { data: last } = await db
-    .from<Array<{ position: number }>>("finance_posting_rules")
-    .select("position")
-    .eq("account_id", session.accountId)
-    .order("position", { ascending: false })
-    .limit(1);
-  const position = (last?.[0]?.position ?? 0) + 1;
-
-  const { data, error } = await db
-    .from<{ id: string }>("finance_posting_rules")
+  // Позицию (в конец списка) ставит триггер под блокировкой аккаунта:
+  // два одновременных создания не получат один номер.
+  const { data, error } = await supabase
+    .from("finance_posting_rules")
     .insert({
       account_id: session.accountId,
-      position,
       ...rowValues(prepared.input),
     })
     .select("id")
@@ -343,8 +340,8 @@ export async function updatePostingRule(id: string, raw: unknown): Promise<{ err
   const prepared = await prepare(supabase, session, raw);
   if ("error" in prepared) return { error: prepared.error };
 
-  const { data, error } = await asLooseDb(supabase)
-    .from<Array<{ id: string }>>("finance_posting_rules")
+  const { data, error } = await supabase
+    .from("finance_posting_rules")
     .update(rowValues(prepared.input))
     .eq("id", id)
     .eq("account_id", session.accountId)
@@ -371,8 +368,8 @@ export async function setPostingRuleEnabled(
   const session = await requireManager();
   if (typeof session === "string") return { error: session };
   const supabase = await createClient();
-  const { data, error } = await asLooseDb(supabase)
-    .from<Array<{ id: string; name: string | null }>>("finance_posting_rules")
+  const { data, error } = await supabase
+    .from("finance_posting_rules")
     .update({ enabled })
     .eq("id", id)
     .eq("account_id", session.accountId)
@@ -396,14 +393,19 @@ export async function deletePostingRule(id: string): Promise<{ error: string | n
   const session = await requireManager();
   if (typeof session === "string") return { error: session };
   const supabase = await createClient();
-  const { data, error } = await asLooseDb(supabase)
-    .from<Array<{ id: string; name: string | null }>>("finance_posting_rules")
+  const { data, error } = await supabase
+    .from("finance_posting_rules")
     .delete()
     .eq("id", id)
     .eq("account_id", session.accountId)
-    .select("id, name");
+    .select(RULE_COLUMNS);
   if (error) return { error: error.message };
   if (!data || data.length === 0) return { error: "Правило не найдено" };
+
+  // Фраза — чтобы в журнале было видно, что за правило удалили, даже без названия.
+  const deleted = toRule(data[0]);
+  const refs = await loadNames(supabase, session.accountId, deleted, false);
+  const phrase = "names" in refs ? phraseOf(deleted, refs.names) : null;
 
   await writeAuditEvent({
     accountId: session.accountId,
@@ -411,7 +413,7 @@ export async function deletePostingRule(id: string): Promise<{ error: string | n
     actionCode: "finance.posting_rule.deleted",
     entityType: "finance_posting_rule",
     entityId: id,
-    details: { name: data[0].name },
+    details: { name: data[0].name, phrase },
   });
   revalidateRules();
   return { error: null };

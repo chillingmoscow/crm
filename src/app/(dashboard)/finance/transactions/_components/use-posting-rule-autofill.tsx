@@ -4,10 +4,8 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import Link from "next/link";
 
 import { buildRuleContext, type RuleDirectories } from "@/lib/finance/posting-rules/context";
-import { evaluatePostingRules } from "@/lib/finance/posting-rules/evaluate";
 import {
-  applyRulesToForm,
-  fillableFrom,
+  computeAutofill,
   markUserChoice,
   resetFormRuleState,
   type FormRuleState,
@@ -74,30 +72,23 @@ export function usePostingRuleAutofill({
   );
   const enabledRules = useMemo(() => rules.filter((r) => r.enabled), [rules]);
 
+  const step = (text: string) =>
+    computeAutofill(enabledRules, ctx, { ...meta, values: valuesOf(form) }, {
+      type: form.type,
+      amount: form.amount,
+      bank_account_id: form.bank_account_id || null,
+      description: text,
+    });
+
   useEffect(() => {
     if (!active || enabledRules.length === 0) return;
-    const state: FormRuleState = { ...meta, values: valuesOf(form) };
-    const result = evaluatePostingRules(
-      enabledRules,
-      {
-        type: form.type,
-        amount: form.amount,
-        bank_account_id: form.bank_account_id || null,
-        // Контрагент, подставленный правилом, не должен сам себя подтверждать:
-        // правило пересчитывается с нуля.
-        counterparty_id: meta.sources.counterparty_id === "rule" ? null : form.counterparty_id,
-        description,
-      },
-      ctx,
-      fillableFrom(state),
-    );
-    const next = applyRulesToForm(state, result);
-    const valuesChanged = FIELDS.some((f) => next.values[f] !== state.values[f]);
+    const next = step(description);
+    const valuesChanged = FIELDS.some((f) => next.values[f] !== form[f]);
     const metaChanged =
       FIELDS.some((f) => next.sources[f] !== meta.sources[f] || next.ruleIds[f] !== meta.ruleIds[f]);
     if (valuesChanged) onApply(next.values);
     if (metaChanged) setMeta({ sources: next.sources, ruleIds: next.ruleIds, filterVenueId: next.filterVenueId });
-    // onApply — колбэк формы, меняется на каждый рендер; ориентируемся на данные.
+    // onApply и step — колбэки формы, меняются на каждый рендер; ориентируемся на данные.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     active,
@@ -112,6 +103,13 @@ export function usePostingRuleAutofill({
     form.venue_id,
     description,
   ]);
+
+  /** Перед сохранением: досчитать правила по описанию, введённому только что
+   *  (пересчёт по описанию идёт с паузой, а сохранить могут сразу). */
+  const settle = (): Values => {
+    if (!active || enabledRules.length === 0) return valuesOf(form);
+    return step(form.description).values;
+  };
 
   /** Форма открылась заново: непустые поля — выбор человека, заведение из фильтра — подсказка. */
   const reset = useCallback(
@@ -165,7 +163,7 @@ export function usePostingRuleAutofill({
     );
   };
 
-  return { reset, userPick, clear, hint };
+  return { reset, userPick, clear, hint, settle };
 }
 
 const EMPTY_VALUES: Values = { category_id: null, counterparty_id: null, venue_id: null };

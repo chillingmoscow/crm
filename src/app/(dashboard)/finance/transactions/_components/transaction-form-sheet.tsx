@@ -343,9 +343,11 @@ export function TransactionFormSheet({
       return;
     }
 
+    // Правила по только что введённому описанию: пересчёт идёт с паузой.
+    const ruled = autofill.settle();
     const common = {
       legal_entity_id: sourceAccount.legal_entity_id,
-      venue_id: form.venue_id,
+      venue_id: ruled.venue_id,
       bank_account_id: form.bank_account_id,
       amount: form.amount as number,
       currency: sourceAccount.currency,
@@ -368,8 +370,8 @@ export function TransactionFormSheet({
       payload = {
         ...common,
         type: form.type,
-        category_id: form.category_id,
-        counterparty_id: form.counterparty_id,
+        category_id: ruled.category_id,
+        counterparty_id: ruled.counterparty_id,
       };
     }
 

@@ -255,25 +255,33 @@ function RuleRow({
         </button>
       ) : null}
       <span className="mt-1.5 w-6 shrink-0 text-right text-sm tabular-nums text-muted-foreground">{number}</span>
-      <div className={cn("min-w-0 flex-1 space-y-1 py-1", !rule.enabled && "opacity-60")}>
-        {rule.name ? <p className="truncate text-sm font-medium">{rule.name}</p> : null}
-        <p className="text-sm">
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`Открыть «${label}»`}
+        className={cn(
+          "min-w-0 flex-1 space-y-1 rounded-md py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          !rule.enabled && "opacity-60",
+        )}
+      >
+        {rule.name ? <span className="block truncate text-sm font-medium">{rule.name}</span> : null}
+        <span className="block text-sm">
           <span className="text-muted-foreground">Если </span>
           {rule.conditionsText}
           <span className="text-muted-foreground"> → </span>
           <span className="font-medium">{rule.actionsText || "ничего не заполняет"}</span>
-        </p>
+        </span>
         {rule.attention || !rule.enabled ? (
-          <div className="flex flex-wrap gap-2 pt-1">
+          <span className="flex flex-wrap gap-2 pt-1">
             {rule.attention ? (
               <StatusBadge tone="warning" tip="Правило ссылается на запись в архиве или ничего не заполняет — оно не срабатывает">
                 Требует внимания
               </StatusBadge>
             ) : null}
             {!rule.enabled ? <StatusBadge>Выключено</StatusBadge> : null}
-          </div>
+          </span>
         ) : null}
-      </div>
+      </button>
       <Switch
         className="mt-1.5 shrink-0"
         checked={rule.enabled}

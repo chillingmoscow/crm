@@ -3,7 +3,7 @@
 import { useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeftRight, CalendarDays, Check, ChevronDown, Minus, Plus } from "lucide-react";
+import { CalendarDays, Check, ChevronDown, Plus } from "lucide-react";
 import { ru } from "date-fns/locale/ru";
 import { toast } from "sonner";
 
@@ -36,6 +36,8 @@ import {
 } from "@/lib/finance/dashboard-period";
 import { cn } from "@/lib/utils";
 
+import { TRANSACTION_CREATE_OPTIONS } from "./transaction-create-options";
+
 type Option = { value: string; label: string };
 
 /**
@@ -49,6 +51,7 @@ type Option = { value: string; label: string };
  * новый период, оно приглушено и помечено `aria-busy`.
  */
 export function DashboardShell({
+  today: todayIso,
   period,
   venueId,
   venues,
@@ -58,6 +61,12 @@ export function DashboardShell({
   compare,
   children,
 }: {
+  /**
+   * Сегодняшний день `YYYY-MM-DD` по часам заведения — с сервера, чтобы
+   * период по умолчанию и «Сегодня» совпадали с тем, что посчитал сервер,
+   * в любом часовом поясе браузера.
+   */
+  today: string;
   period: DashboardPeriod;
   venueId: string | null;
   /** Пусто — фильтра по заведению нет (одно заведение или нет права видеть все). */
@@ -79,6 +88,7 @@ export function DashboardShell({
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const today = parseIsoDay(todayIso) ?? new Date();
 
   const navigate = (next: {
     period?: DashboardPeriod;
@@ -87,7 +97,7 @@ export function DashboardShell({
   }) => {
     const params = new URLSearchParams(searchParams.toString());
     const p = next.period ?? period;
-    const fallback = defaultPeriod();
+    const fallback = defaultPeriod(today);
     if (p.from === fallback.from && p.to === fallback.to) {
       params.delete("date_from");
       params.delete("date_to");
@@ -118,7 +128,7 @@ export function DashboardShell({
 
   const hasFilters = !!venueId || !!legalEntityId;
   const canFilter = venues.length > 0 || legalEntities.length > 0;
-  const current = defaultPeriod();
+  const current = defaultPeriod(today);
   const isCurrent = period.from === current.from && period.to === current.to;
 
   return (
@@ -133,7 +143,11 @@ export function DashboardShell({
               onPrevious={() => navigate({ period: shiftPeriod(period, -1) })}
               onNext={() => navigate({ period: shiftPeriod(period, 1) })}
             >
-              <PeriodPicker value={period} onChange={(p) => navigate({ period: p })} />
+              <PeriodPicker
+                value={period}
+                today={today}
+                onChange={(p) => navigate({ period: p })}
+              />
             </PeriodStepper>
             {/* «Сегодня» возвращает к текущему месяцу — периоду по умолчанию. */}
             <Button
@@ -141,7 +155,7 @@ export function DashboardShell({
               size="sm"
               className="h-9"
               disabled={isCurrent}
-              onClick={() => navigate({ period: defaultPeriod() })}
+              onClick={() => navigate({ period: defaultPeriod(today) })}
             >
               Сегодня
             </Button>
@@ -259,22 +273,6 @@ function CompareSwitch({
   );
 }
 
-const CREATE_OPTIONS = [
-  {
-    type: "income",
-    label: "Приход",
-    icon: Plus,
-    tone: "bg-green-500/10 text-green-700 dark:text-green-400",
-  },
-  {
-    type: "expense",
-    label: "Расход",
-    icon: Minus,
-    tone: "bg-red-500/10 text-red-700 dark:text-red-400",
-  },
-  { type: "transfer", label: "Перевод", icon: ArrowLeftRight, tone: "bg-muted text-muted-foreground" },
-] as const;
-
 /**
  * Главная кнопка шапки. Форма операции живёт в журнале операций — туда и
  * ведём, она откроется сразу (`?create=<тип>`). Своей копии формы на
@@ -293,7 +291,7 @@ function CreateMenu() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
-        {CREATE_OPTIONS.map(({ type, label, icon: Icon, tone }) => (
+        {TRANSACTION_CREATE_OPTIONS.map(({ type, label, icon: Icon, tone }) => (
           <DropdownMenuItem key={type} asChild>
             <Link href={`/finance/transactions?create=${type}`}>
               <span className={cn("grid size-6 place-items-center rounded-md", tone)}>
@@ -311,14 +309,15 @@ function CreateMenu() {
 /** Середина `PeriodStepper`: подпись периода, по нажатию — быстрый выбор и календарь. */
 function PeriodPicker({
   value,
+  today,
   onChange,
 }: {
   value: DashboardPeriod;
+  today: Date;
   onChange: (next: DashboardPeriod) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<{ from?: Date; to?: Date }>({});
-  const today = new Date();
 
   const choose = (next: DashboardPeriod) => {
     setOpen(false);

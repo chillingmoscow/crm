@@ -165,14 +165,16 @@ export function parseCompareMode(value: string | null | undefined): CompareMode 
 
 /**
  * Подпись варианта «прошлый период» в переключателе: «Прошлый месяц»,
- * «Прошлый квартал», «Прошлая неделя», для произвольных дат — «Прошлый
+ * «Прошлый квартал» (календарный), «Прошлая неделя», для остального — «Прошлый
  * период».
  */
 export function previousPeriodLabel(period: DashboardPeriod): string {
   const months = wholeMonths(period);
-  if (months === 1) return "Прошлый месяц";
-  if (months === 3) return "Прошлый квартал";
   const a = parseIsoDay(period.from)!;
+  if (months === 1) return "Прошлый месяц";
+  // Квартал — только календарный: сентябрь–ноябрь сравнивается с
+  // июнем–августом, а это не «прошлый квартал».
+  if (months === 3 && a.getMonth() % 3 === 0) return "Прошлый квартал";
   const b = parseIsoDay(period.to)!;
   // Неделя с понедельника по воскресенье.
   if (daysBetween(a, b) === 6 && a.getDay() === 1) return "Прошлая неделя";

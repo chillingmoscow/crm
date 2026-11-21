@@ -33,7 +33,7 @@ import {
   relativeChange,
 } from "@/lib/finance/dashboard-compare";
 import type { FlowSummary } from "@/lib/finance/dashboard-flow";
-import { resolvePeriod } from "@/lib/finance/dashboard-period";
+import { parseIsoDay, resolvePeriod } from "@/lib/finance/dashboard-period";
 import {
   getPeriodFlow,
   getPeriodTotals,
@@ -44,6 +44,7 @@ import {
   type StatisticsRange,
 } from "@/lib/finance/statistics";
 import { formatDayMonth } from "@/lib/format/date";
+import { dateInZone } from "@/lib/schedule/utils";
 import { countRu } from "@/lib/format/plural";
 import { signedAmountClass, type AmountRoundingScale } from "@/lib/format/amount";
 import { listAccountVenues, listLegalEntities } from "@/lib/org/legal-entities";
@@ -91,15 +92,22 @@ export default async function FinanceDashboardPage({
   const canCreate = canSeeTransactions && can("finance.create_transaction");
 
   const sp = await searchParams;
-  const { period } = resolvePeriod(sp.date_from, sp.date_to);
 
-  const [{ rows: legalEntities }, { rows: venues }, cookieLegalEntityId, scale] =
+  const [{ rows: legalEntities }, { rows: venues }, cookieLegalEntityId, scale, timeZone] =
     await Promise.all([
       listLegalEntities(),
       listAccountVenues({ liveOnly: true }),
       getActiveFinanceLegalEntityId(),
       getActiveAccountAmountRoundingScale(),
+      activeVenueTimeZone(),
     ]);
+
+  // «Сегодня» — по часам заведения, а не сервера (на проде он в UTC):
+  // иначе с полуночи до трёх ночи первого числа сервер считал бы текущим
+  // прошлый месяц, а шапка в браузере — новый. Шапка получает этот же день.
+  const todayIso = dateInZone(new Date(), timeZone);
+  const today = parseIsoDay(todayIso)!;
+  const { period } = resolvePeriod(sp.date_from, sp.date_to, today);
 
   // Выбор из адреса или cookie, которого нет среди доступных вариантов
   // (юрлицо в архиве, чужое заведение), не применяем: иначе данные были бы
@@ -121,7 +129,7 @@ export default async function FinanceDashboardPage({
   // С чем сравнивать итоги — выбор в шапке: прошлый период или тот же
   // период год назад. Идущий период сравнивается по прошедшим дням. Когда
   // прошлый период и есть «год назад» (выбран год), выбирать нечего.
-  const comparisons = canSeeTransactions ? comparisonWindows(period) : null;
+  const comparisons = canSeeTransactions ? comparisonWindows(period, today) : null;
   const compareMode = comparisons?.previous ? parseCompareMode(sp.compare) : "year";
   const compareWindow = comparisons
     ? compareMode === "previous"
@@ -196,6 +204,7 @@ export default async function FinanceDashboardPage({
       <Breadcrumbs items={[{ label: "Финансы" }, { label: "Дашборд" }]} />
       <PageFrame>
         <DashboardShell
+          today={todayIso}
           period={period}
           compare={
             comparisons?.previous
@@ -376,6 +385,23 @@ export default async function FinanceDashboardPage({
 
 // ─── Данные ────────────────────────────────────────────────────────────────
 
+/**
+ * Часовой пояс активного заведения — в нём считается «сегодня» для периода
+ * по умолчанию и сравнения. Без заведения — московское время, как в журнале
+ * событий.
+ */
+async function activeVenueTimeZone(): Promise<string> {
+  const supabase = await createClient();
+  const { data: venueId } = await supabase.rpc("get_active_venue_id");
+  if (!venueId) return "Europe/Moscow";
+  const { data } = await supabase
+    .from("venues")
+    .select("timezone")
+    .eq("id", venueId)
+    .maybeSingle();
+  return data?.timezone || "Europe/Moscow";
+}
+
 /** Имена контрагентов только для показанных операций — справочник может быть большим. */
 async function loadCounterpartyNames(rows: RecentTransaction[]): Promise<Map<string, string>> {
   const ids = [...new Set(rows.map((r) => r.counterparty_id).filter((id): id is string => !!id))];
@@ -408,7 +434,7 @@ function changeLines(
     if (kind === "net") {
       if (summary.incomeCount + summary.expenseCount === 0) return [];
       return [
-        <span key={label} className="block" data-tip={`Было: ${formatRub(summary.net, { fraction: "auto" })}`}>
+        <span key={label} className="block" data-tip={`Было: ${formatRub(summary.net, { scale })}`}>
           <Money value={current.net - summary.net} scale={scale} signed /> к {label}
         </span>,
       ];
@@ -417,7 +443,7 @@ function changeLines(
     const change = relativeChange(current[kind], summary[kind]);
     if (count === 0 || change === null) return [];
     return [
-      <span key={label} className="block" data-tip={`Было: ${formatRub(summary[kind], { fraction: "auto" })}`}>
+      <span key={label} className="block" data-tip={`Было: ${formatRub(summary[kind], { scale })}`}>
         <span className={cn("tabular-nums", signedAmountClass(kind === "expense" ? -change : change))}>
           {formatChange(change)}
         </span>{" "}

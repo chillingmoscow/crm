@@ -65,11 +65,17 @@ export function formatRub(
   {
     signed = false,
     fraction = false,
-  }: { signed?: boolean; fraction?: boolean | "auto" } = {},
+    scale,
+  }: {
+    signed?: boolean;
+    fraction?: boolean | "auto";
+    /** Как у `Money`: настройка аккаунта «Округление сумм», главнее `fraction`. */
+    scale?: AmountRoundingScale;
+  } = {},
 ): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "—";
   const sign = signed ? (value > 0 ? "+" : value < 0 ? "−" : "") : value < 0 ? "−" : "";
-  return `${sign}${formatAmount(Math.abs(value), digits(value, fraction))} ₽`;
+  return `${sign}${formatAmount(Math.abs(value), scale ?? digits(value, fraction))} ₽`;
 }
 
 function digits(value: number, fraction: boolean | "auto"): 0 | 2 {

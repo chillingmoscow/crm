@@ -217,6 +217,96 @@ begin
     not has_function_privilege('anon', 'public.finance_recurring_materialize_mine()', 'execute')
     and has_function_privilege('authenticated', 'public.finance_recurring_materialize_mine()', 'execute'),
     'materialize_mine: authenticated only');
+  perform public.test_assert(
+    not has_function_privilege('anon', 'private.finance_account_today(uuid)', 'execute')
+    and not has_function_privilege('authenticated', 'private.finance_account_today(uuid)', 'execute'),
+    'finance_account_today: not for anon/authenticated');
+end $$;
+
+-- ── 5. RLS: пользователь заведения A ───────────────────────
+-- Контекст — через быстрый путь 237 (app.ctx_ready): права и заведение задаём
+-- GUC-ами, роль — authenticated. Все юрлица разрешены, чужие заведения — нет.
+do $$
+declare
+  v_acc uuid := (select account_id from rf);
+  v_le uuid := (select le_id from rf);
+  v_ba uuid := (select ba_id from rf);
+  v_va uuid := (select venue_id from rf);
+  v_vb uuid;
+  v_ta uuid; v_tb uuid; v_tarch uuid;
+  n int;
+  v_failed boolean;
+begin
+  insert into public.venues (account_id, name, type, default_legal_entity_id)
+  values (v_acc, 'Spot R2', 'cafe'::public.venue_type, v_le) returning id into v_vb;
+
+  insert into public.finance_recurring_templates (
+    account_id, legal_entity_id, venue_id, bank_account_id, type, amount, name,
+    frequency, day_of_month, starts_on, materialize_from)
+  values (v_acc, v_le, v_va, v_ba, 'expense', 10, 'A', 'monthly', 5, '2026-01-01', '2026-01-01')
+  returning id into v_ta;
+  insert into public.finance_recurring_templates (
+    account_id, legal_entity_id, venue_id, bank_account_id, type, amount, name,
+    frequency, day_of_month, starts_on, materialize_from)
+  values (v_acc, v_le, v_vb, v_ba, 'expense', 10, 'B', 'monthly', 5, '2026-01-01', '2026-01-01')
+  returning id into v_tb;
+  insert into public.finance_recurring_templates (
+    account_id, legal_entity_id, venue_id, bank_account_id, type, amount, name,
+    frequency, day_of_month, starts_on, materialize_from, archived_at)
+  values (v_acc, v_le, v_va, v_ba, 'expense', 10, 'Arch', 'monthly', 5, '2026-01-01', '2026-01-01', now())
+  returning id into v_tarch;
+
+  perform set_config('app.account_id', v_acc::text, true);
+  perform set_config('app.venue_id', v_va::text, true);
+  perform set_config('app.perms',
+    ',finance.view_transactions,finance.create_transaction,finance.view_all_legal_entities,', true);
+  perform set_config('app.ctx_ready', '1', true);
+  set local role authenticated;
+
+  -- видим своё заведение, чужое и архив (есть create_transaction) — по правилам
+  perform public.test_assert(
+    exists (select 1 from public.finance_recurring_templates where id = v_ta), 'venue A template visible');
+  perform public.test_assert(
+    not exists (select 1 from public.finance_recurring_templates where id = v_tb), 'venue B template hidden');
+  perform public.test_assert(
+    exists (select 1 from public.finance_recurring_templates where id = v_tarch),
+    'archived visible with create_transaction');
+
+  -- перенос шаблона в невидимое заведение B отвергается (WITH CHECK)
+  v_failed := false;
+  begin
+    update public.finance_recurring_templates set venue_id = v_vb where id = v_ta;
+  exception when others then
+    v_failed := true;
+  end;
+  perform public.test_assert(v_failed, 'update to invisible venue B must be rejected');
+
+  -- обычная правка своего шаблона проходит
+  update public.finance_recurring_templates set name = 'A2' where id = v_ta;
+  get diagnostics n = row_count;
+  perform public.test_assert(n = 1, 'own venue update works');
+
+  -- вставка в чужое заведение отвергается
+  v_failed := false;
+  begin
+    insert into public.finance_recurring_templates (
+      account_id, legal_entity_id, venue_id, bank_account_id, type, amount, name,
+      frequency, day_of_month, starts_on, materialize_from)
+    values (v_acc, v_le, v_vb, v_ba, 'expense', 10, 'X', 'monthly', 5, '2026-01-01', '2026-01-01');
+  exception when others then
+    v_failed := true;
+  end;
+  perform public.test_assert(v_failed, 'insert into invisible venue B must be rejected');
+
+  -- без create_transaction архив скрыт
+  perform set_config('app.perms', ',finance.view_transactions,finance.view_all_legal_entities,', true);
+  perform public.test_assert(
+    exists (select 1 from public.finance_recurring_templates where id = v_ta), 'live visible with view only');
+  perform public.test_assert(
+    not exists (select 1 from public.finance_recurring_templates where id = v_tarch),
+    'archived hidden without create_transaction');
+
+  reset role;
 end $$;
 
 select 'finance-recurring: all tests passed' as result;

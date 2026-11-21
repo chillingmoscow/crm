@@ -187,10 +187,14 @@ revoke all on public.finance_recurring_templates from anon;
 revoke all on public.finance_recurring_occurrences from anon;
 revoke insert, delete on public.finance_recurring_occurrences from authenticated;
 
+-- Live/archive: две disjoint select-политики (docs/CONVENTIONS.md). Слияние в одну
+-- OR-политику не «чинить»: архив видят только те, кто управляет шаблонами.
 create policy finance_recurring_templates_select
   on public.finance_recurring_templates for select
   using (
-    account_id = (select public.get_active_account_id())
+    archived_at is null
+    and
+account_id = (select public.get_active_account_id())
     and (
       legal_entity_id = (select public.get_active_legal_entity_id())
       or (select public.has_permission('finance.view_all_legal_entities'))
@@ -201,6 +205,25 @@ create policy finance_recurring_templates_select
       or (select public.has_permission('finance.view_all_venues'))
     )
     and (select public.has_permission('finance.view_transactions'))
+  );
+
+create policy finance_recurring_templates_select_archived
+  on public.finance_recurring_templates for select
+  using (
+    archived_at is not null
+    and
+account_id = (select public.get_active_account_id())
+    and (
+      legal_entity_id = (select public.get_active_legal_entity_id())
+      or (select public.has_permission('finance.view_all_legal_entities'))
+    )
+    and (
+      venue_id is null
+      or venue_id = (select public.get_active_venue_id())
+      or (select public.has_permission('finance.view_all_venues'))
+    )
+    and (select public.has_permission('finance.view_transactions'))
+    and (select public.has_permission('finance.create_transaction'))
   );
 
 create policy finance_recurring_templates_insert
@@ -238,6 +261,16 @@ create policy finance_recurring_templates_update
   )
   with check (
     account_id = (select public.get_active_account_id())
+    and (
+      legal_entity_id = (select public.get_active_legal_entity_id())
+      or (select public.has_permission('finance.view_all_legal_entities'))
+    )
+    and (
+      venue_id is null
+      or venue_id = (select public.get_active_venue_id())
+      or (select public.has_permission('finance.view_all_venues'))
+    )
+    and (select public.has_permission('finance.view_transactions'))
     and (select public.has_permission('finance.create_transaction'))
   );
 
@@ -292,6 +325,16 @@ create policy finance_recurring_occurrences_update
   )
   with check (
     account_id = (select public.get_active_account_id())
+    and (
+      legal_entity_id = (select public.get_active_legal_entity_id())
+      or (select public.has_permission('finance.view_all_legal_entities'))
+    )
+    and (
+      venue_id is null
+      or venue_id = (select public.get_active_venue_id())
+      or (select public.has_permission('finance.view_all_venues'))
+    )
+    and (select public.has_permission('finance.view_transactions'))
     and (select public.has_permission('finance.create_transaction'))
   );
 
@@ -441,7 +484,9 @@ as $$
         t, greatest(t.materialize_from, today.d + 1), today.d + 400) d
   )
     from public.finance_recurring_templates t
-   cross join lateral (select private.finance_account_today(t.account_id) as d) today
+   cross join lateral (
+     select (now() at time zone public.get_active_account_timezone())::date as d
+   ) today
    where t.id = p_template_id
      and t.archived_at is null
      and t.paused_at is null
@@ -499,9 +544,11 @@ revoke all on function public.finance_recurring_release_transaction() from publi
 revoke all on function private.finance_recurring_materialize_account(uuid) from public, anon, authenticated;
 grant execute on function private.finance_recurring_materialize_account(uuid) to service_role;
 
--- next_due — SECURITY INVOKER, поэтому вызывающему нужны эти две функции.
-revoke all on function private.finance_account_today(uuid) from public, anon;
-grant execute on function private.finance_account_today(uuid) to authenticated, service_role;
+-- next_due — SECURITY INVOKER: вызывающему нужны due_dates; «сегодня» он берёт
+-- из get_active_account_timezone(), а finance_account_today — только для
+-- definer-функций порождения.
+revoke all on function private.finance_account_today(uuid) from public, anon, authenticated;
+grant execute on function private.finance_account_today(uuid) to service_role;
 revoke all on function private.finance_recurring_due_dates(public.finance_recurring_templates, date, date) from public, anon;
 grant execute on function private.finance_recurring_due_dates(public.finance_recurring_templates, date, date) to authenticated, service_role;
 
@@ -514,6 +561,8 @@ begin
     or has_function_privilege('anon', 'public.finance_recurring_next_due(uuid)', 'EXECUTE')
     or has_function_privilege('anon', 'private.finance_recurring_materialize_account(uuid)', 'EXECUTE')
     or has_function_privilege('authenticated', 'private.finance_recurring_materialize_account(uuid)', 'EXECUTE')
+    or has_function_privilege('anon', 'private.finance_account_today(uuid)', 'EXECUTE')
+    or has_function_privilege('authenticated', 'private.finance_account_today(uuid)', 'EXECUTE')
     or has_function_privilege('authenticated', 'public.finance_recurring_release_transaction()', 'EXECUTE')
   then
     raise exception 'finance_recurring_*: функции доступны лишним ролям: применяйте от supabase_admin';

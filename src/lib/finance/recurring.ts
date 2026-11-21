@@ -455,7 +455,12 @@ export async function listInbox(): Promise<{ items: RecurringOccurrenceRow[]; er
 export async function countInbox(): Promise<number> {
   const ctx = await getCtx();
   if ("error" in ctx) return 0;
-  const { count } = await inboxQuery(ctx.supabase, ctx.today, true);
+  // Страховка от молчащего cron, как в listInbox: счётчик сам порождает
+  // наступившие сроки. После первого запуска за день совпадений нет — дёшево.
+  const { error: materializeError } = await ctx.supabase.rpc("finance_recurring_materialize_mine");
+  if (materializeError) console.error(`[recurring] materialize_mine: ${materializeError.message}`);
+  const { count, error } = await inboxQuery(ctx.supabase, ctx.today, true);
+  if (error) console.error(`[recurring] countInbox: ${error.message}`);
   return count ?? 0;
 }
 

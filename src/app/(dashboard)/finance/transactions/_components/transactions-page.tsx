@@ -497,6 +497,32 @@ export function TransactionsPage({
     setFormMode({ kind: "create", type });
   };
 
+  // Кнопка «Добавить операцию» на дашборде ведёт сюда с `?create=<тип>`.
+  // Форма открывается один раз, параметр сразу убирается из адреса — иначе
+  // обновление страницы или «Назад» открывали бы её снова.
+  const createFromUrl = searchParams.get("create");
+  const handledCreate = useRef<string | null>(null);
+  useEffect(() => {
+    if (!createFromUrl) {
+      handledCreate.current = null;
+      return;
+    }
+    if (handledCreate.current === createFromUrl) return;
+    handledCreate.current = createFromUrl;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("create");
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    if (!canCreate) return;
+    if (createFromUrl !== "income" && createFromUrl !== "expense" && createFromUrl !== "transfer")
+      return;
+    if (createFromUrl === "transfer" && bankAccounts.length < 2) {
+      toast.error("Для создания перевода необходимо иметь как минимум два счёта");
+      return;
+    }
+    setFormMode({ kind: "create", type: createFromUrl });
+  }, [createFromUrl, canCreate, bankAccounts.length, searchParams, pathname, router]);
+
   const openEdit = (tx: TransactionRow) => {
     setFormMode({ kind: "edit", transaction: tx });
   };

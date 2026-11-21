@@ -5,7 +5,12 @@ import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import type { LooseQuery } from "@/lib/supabase/loose";
 import type { BankAccountRow, TransactionRow } from "@/types/finance";
 
-import { aggregateFlow, type FlowBreakdown, type FlowRow } from "./dashboard-flow";
+import {
+  aggregateFlow,
+  type FlowBreakdown,
+  type FlowRow,
+  type FlowSummary,
+} from "./dashboard-flow";
 import { nextIsoDay } from "./dashboard-period";
 
 /**
@@ -68,30 +73,63 @@ export async function listBalanceAccounts(
 
 // ─── Поток за период ────────────────────────────────────────────────────────
 
+type DatedFlowRow = FlowRow & { date: string };
+
+/** Операции периода без переводов — все страницы, а не первая тысяча. */
+async function fetchFlowRows<T>(range: StatisticsRange, columns: string): Promise<T[]> {
+  const supabase = await createClient();
+  return fetchAllRows<T>(() =>
+    applyRange(
+      supabase
+        .from("transactions")
+        .select(columns)
+        .is("deleted_at", null)
+        .neq("type", "transfer") as unknown as Filterable<T[]>,
+      range,
+    ),
+  );
+}
+
 /**
  * Доходы, расходы и расходы по статьям за период. Читает все операции
  * периода постранично: PostgREST отдаёт не больше 1000 строк и молча
  * обрезает остальное — за год сумма «Расходов» была бы неполной.
+ *
+ * `cutoff` — последний прошедший день идущего периода: `elapsed` тогда
+ * считает итоги только по него, чтобы сравнивать с прошлым периодом по
+ * одинаковому числу дней. Операции, заведённые вперёд датой после
+ * сегодняшней, в сравнение не попадают.
  */
 export async function getPeriodFlow(
   range: StatisticsRange,
   topN = 5,
-): Promise<{ flow: FlowBreakdown | null; error: string | null }> {
-  const supabase = await createClient();
+  cutoff: string | null = null,
+): Promise<{ flow: FlowBreakdown | null; elapsed: FlowSummary | null; error: string | null }> {
   try {
-    const rows = await fetchAllRows<FlowRow>(() =>
-      applyRange(
-        supabase
-          .from("transactions")
-          .select("type, amount, category_id")
-          .is("deleted_at", null)
-          .neq("type", "transfer") as unknown as Filterable<FlowRow[]>,
-        range,
-      ),
-    );
-    return { flow: aggregateFlow(rows, topN), error: null };
+    const rows = await fetchFlowRows<DatedFlowRow>(range, "type, amount, category_id, date");
+    const flow = aggregateFlow(rows, topN);
+    // `date` — timestamptz полночью UTC; календарный день — первые 10 символов.
+    const elapsed = cutoff
+      ? aggregateFlow(rows.filter((r) => r.date.slice(0, 10) <= cutoff), 0).summary
+      : flow.summary;
+    return { flow, elapsed, error: null };
   } catch (e) {
-    return { flow: null, error: e instanceof Error ? e.message : String(e) };
+    return { flow: null, elapsed: null, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Только итоги периода — для сравнения с прошлым периодом и годом назад. */
+export async function getPeriodTotals(
+  range: StatisticsRange,
+): Promise<{ summary: FlowSummary | null; error: string | null }> {
+  try {
+    const rows = await fetchFlowRows<Omit<FlowRow, "category_id">>(range, "type, amount");
+    return {
+      summary: aggregateFlow(rows.map((r) => ({ ...r, category_id: null })), 0).summary,
+      error: null,
+    };
+  } catch (e) {
+    return { summary: null, error: e instanceof Error ? e.message : String(e) };
   }
 }
 

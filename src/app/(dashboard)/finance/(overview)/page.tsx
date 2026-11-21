@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import {
   ArrowLeftRight,
   ArrowRight,
+  ArrowUpRight,
   Banknote,
   CreditCard,
   Landmark,
@@ -17,15 +18,22 @@ import {
 
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { Metric, MetricStrip } from "@/components/shared/metric-strip";
-import { Money } from "@/components/shared/money";
+import { Money, formatRub } from "@/components/shared/money";
 import { PageFrame } from "@/components/shared/page-frame";
 import { Button } from "@/components/ui/button";
 import { getActiveFinanceLegalEntityId } from "@/lib/finance/active-legal-entity";
 import { listBankAccounts } from "@/lib/finance/bank-accounts";
 import { listFinanceCategories } from "@/lib/finance/categories";
+import {
+  comparisonWindows,
+  formatChange,
+  relativeChange,
+} from "@/lib/finance/dashboard-compare";
+import type { FlowSummary } from "@/lib/finance/dashboard-flow";
 import { resolvePeriod } from "@/lib/finance/dashboard-period";
 import {
   getPeriodFlow,
+  getPeriodTotals,
   getRecentTransactions,
   listBalanceAccounts,
   type BalanceAccount,
@@ -75,6 +83,7 @@ export default async function FinanceDashboardPage({
   const canSeeAccounts = can("finance.view_bank_accounts");
   const canPickLegalEntity = can("finance.view_all_legal_entities");
   const canPickVenue = can("finance.view_all_venues");
+  const canCreate = canSeeTransactions && can("finance.create_transaction");
 
   const sp = await searchParams;
   const { period } = resolvePeriod(sp.date_from, sp.date_to);
@@ -104,16 +113,36 @@ export default async function FinanceDashboardPage({
     venue_id: venueId,
   };
 
-  const [balance, flowResult, recentResult, { rows: categories }, { rows: bankAccounts }] =
-    await Promise.all([
+  // С чем сравнивать итоги: прошлый период и тот же период год назад, у
+  // идущего периода — по одинаковому числу прошедших дней.
+  const comparisons = canSeeTransactions ? comparisonWindows(period) : null;
+  const windows = comparisons
+    ? [comparisons.previous, comparisons.lastYear].filter((w) => w !== null)
+    : [];
+
+  const [
+    balance,
+    flowResult,
+    recentResult,
+    { rows: categories },
+    { rows: bankAccounts },
+    windowTotals,
+  ] = await Promise.all([
       canSeeAccounts
         ? listBalanceAccounts({ legal_entity_id: legalEntityId })
         : Promise.resolve(null),
-      canSeeTransactions ? getPeriodFlow(range, 5) : Promise.resolve(null),
+      canSeeTransactions
+        ? getPeriodFlow(range, 5, comparisons?.cutoff ?? null)
+        : Promise.resolve(null),
       canSeeTransactions ? getRecentTransactions(range, 8) : Promise.resolve(null),
       listFinanceCategories({ include_inactive: true }),
       // С удалёнными: последние операции могут ссылаться на удалённый счёт.
       listBankAccounts({ include_deleted: true }),
+      Promise.all(
+        windows.map((w) =>
+          getPeriodTotals({ ...range, date_from: w.period.from, date_to: w.period.to }),
+        ),
+      ),
     ]);
 
   const recent = recentResult?.rows ?? [];
@@ -124,6 +153,13 @@ export default async function FinanceDashboardPage({
   const accountName = new Map(bankAccounts.map((a) => [a.id, a.name]));
 
   const flow = flowResult?.flow ?? null;
+  const elapsed = flowResult?.elapsed ?? null;
+  // Окно без итогов (ошибка чтения) просто не показывается: сравнение —
+  // подсказка, а не сам показатель.
+  const baselines = windows.flatMap((w, i) => {
+    const summary = windowTotals[i]?.summary;
+    return summary ? [{ label: w.label, summary }] : [];
+  });
   const flowFailed = !!flowResult?.error;
   const balanceFailed = !!balance?.error;
   const totalBalance = balance && !balance.error
@@ -151,6 +187,7 @@ export default async function FinanceDashboardPage({
       <PageFrame>
         <DashboardShell
           period={period}
+          canCreate={canCreate}
           venueId={venueId}
           venues={
             canPickVenue && venues.length > 1
@@ -168,6 +205,8 @@ export default async function FinanceDashboardPage({
             <Metric
               primary
               label="На счетах"
+              href={canSeeAccounts ? "/finance/accounts" : undefined}
+              icon={canSeeAccounts ? <ArrowUpRight size={15} aria-hidden /> : undefined}
               value={<Money value={totalBalance} scale={scale} />}
               hint={
                 !canSeeAccounts
@@ -181,18 +220,31 @@ export default async function FinanceDashboardPage({
             />
             <Metric
               label="Доходы"
+              href={flow ? transactionsHref({ type: "income" }) : undefined}
+              icon={flow ? <ArrowUpRight size={15} aria-hidden /> : undefined}
               value={<Money value={flow?.summary.income} scale={scale} />}
-              hint={flowHint(flow?.summary.incomeCount)}
+              hint={
+                (elapsed && changeLines("income", elapsed, baselines, scale)) ??
+                flowHint(flow?.summary.incomeCount)
+              }
             />
             <Metric
               label="Расходы"
+              href={flow ? transactionsHref({ type: "expense" }) : undefined}
+              icon={flow ? <ArrowUpRight size={15} aria-hidden /> : undefined}
               value={<Money value={flow?.summary.expense} scale={scale} />}
-              hint={flowHint(flow?.summary.expenseCount)}
+              hint={
+                (elapsed && changeLines("expense", elapsed, baselines, scale)) ??
+                flowHint(flow?.summary.expenseCount)
+              }
             />
             <Metric
               label="Чистый поток"
               value={<Money value={flow?.summary.net} scale={scale} signed />}
-              hint={flow ? "Без учёта переводов" : flowHint(undefined)}
+              hint={
+                (elapsed && changeLines("net", elapsed, baselines, scale)) ??
+                (flow ? "Без учёта переводов" : flowHint(undefined))
+              }
             />
           </MetricStrip>
 
@@ -319,6 +371,45 @@ async function loadCounterpartyNames(rows: RecentTransaction[]): Promise<Map<str
 }
 
 // ─── Блоки ─────────────────────────────────────────────────────────────────
+
+type Baseline = { label: string; summary: FlowSummary };
+
+/**
+ * Строки сравнения под показателем: «+12% к 1–21 октября», «−3% к ноябрю
+ * 2025». Цвет — по смыслу, а не по знаку: рост расходов красный. У чистого
+ * потока — разница в деньгах: процент от суммы, которая бывает минусовой,
+ * ничего не значит. Окно без операций пропускается; если не осталось ни
+ * одного — `null`, и под числом остаётся обычная подпись.
+ */
+function changeLines(
+  kind: "income" | "expense" | "net",
+  current: FlowSummary,
+  baselines: Baseline[],
+  scale: AmountRoundingScale,
+): ReactNode {
+  const lines = baselines.flatMap(({ label, summary }) => {
+    if (kind === "net") {
+      if (summary.incomeCount + summary.expenseCount === 0) return [];
+      return [
+        <span key={label} className="block" data-tip={`Было: ${formatRub(summary.net, { fraction: "auto" })}`}>
+          <Money value={current.net - summary.net} scale={scale} signed /> к {label}
+        </span>,
+      ];
+    }
+    const count = kind === "income" ? summary.incomeCount : summary.expenseCount;
+    const change = relativeChange(current[kind], summary[kind]);
+    if (count === 0 || change === null) return [];
+    return [
+      <span key={label} className="block" data-tip={`Было: ${formatRub(summary[kind], { fraction: "auto" })}`}>
+        <span className={cn("tabular-nums", signedAmountClass(kind === "expense" ? -change : change))}>
+          {formatChange(change)}
+        </span>{" "}
+        к {label}
+      </span>,
+    ];
+  });
+  return lines.length ? <>{lines}</> : null;
+}
 
 function Section({
   title,

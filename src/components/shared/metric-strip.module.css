@@ -24,21 +24,27 @@
 .metric:last-child {
   border-right: 0;
 }
-button.metric {
+button.metric,
+a.metric {
+  display: block;
   cursor: pointer;
+  text-decoration: none;
   transition: background 0.15s;
 }
-button.metric:hover {
+button.metric:hover,
+a.metric:hover {
   background: hsl(var(--accent));
 }
-button.metric:focus-visible {
+button.metric:focus-visible,
+a.metric:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: -2px;
 }
 .primary {
   background: hsl(var(--brand) / 0.06);
 }
-button.primary:hover {
+button.primary:hover,
+a.primary:hover {
   background: hsl(var(--brand) / 0.1);
 }
 .label {

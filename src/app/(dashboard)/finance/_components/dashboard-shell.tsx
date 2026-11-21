@@ -1,13 +1,20 @@
 "use client";
 
 import { useState, useTransition, type ReactNode } from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CalendarDays, Check, ChevronDown } from "lucide-react";
+import { ArrowLeftRight, CalendarDays, Check, ChevronDown, Minus, Plus } from "lucide-react";
 import { ru } from "date-fns/locale/ru";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PeriodStepper, periodTriggerClass } from "@/components/shared/period-stepper";
 import {
@@ -46,6 +53,7 @@ export function DashboardShell({
   venues,
   legalEntityId,
   legalEntities,
+  canCreate,
   children,
 }: {
   period: DashboardPeriod;
@@ -55,6 +63,8 @@ export function DashboardShell({
   legalEntityId: string | null;
   /** Пусто — выбора юрлица нет (одно юрлицо или нет права видеть все). */
   legalEntities: Option[];
+  /** Право заводить операции — показывать «Добавить операцию». */
+  canCreate: boolean;
   children: ReactNode;
 }) {
   const router = useRouter();
@@ -124,13 +134,18 @@ export function DashboardShell({
           </>
         }
         actions={
-          canFilter ? (
-            <TableControls
-              filters={{
-                active: hasFilters,
-                onClick: () => setFiltersOpen((open) => !open),
-              }}
-            />
+          canFilter || canCreate ? (
+            <>
+              {canFilter ? (
+                <TableControls
+                  filters={{
+                    active: hasFilters,
+                    onClick: () => setFiltersOpen((open) => !open),
+                  }}
+                />
+              ) : null}
+              {canCreate ? <CreateMenu /> : null}
+            </>
           ) : undefined
         }
       />
@@ -178,6 +193,55 @@ export function DashboardShell({
         {children}
       </div>
     </div>
+  );
+}
+
+const CREATE_OPTIONS = [
+  {
+    type: "income",
+    label: "Приход",
+    icon: Plus,
+    tone: "bg-green-500/10 text-green-700 dark:text-green-400",
+  },
+  {
+    type: "expense",
+    label: "Расход",
+    icon: Minus,
+    tone: "bg-red-500/10 text-red-700 dark:text-red-400",
+  },
+  { type: "transfer", label: "Перевод", icon: ArrowLeftRight, tone: "bg-muted text-muted-foreground" },
+] as const;
+
+/**
+ * Главная кнопка шапки. Форма операции живёт в журнале операций — туда и
+ * ведём, она откроется сразу (`?create=<тип>`). Своей копии формы на
+ * дашборде нет: справочники счетов, статей и контрагентов грузились бы на
+ * каждом открытии дашборда ради одной кнопки.
+ */
+function CreateMenu() {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button className="h-9 gap-1.5">
+          <Plus className="size-4" />
+          <span className="sm:hidden">Добавить</span>
+          <span className="hidden sm:inline">Добавить операцию</span>
+          <ChevronDown className="size-4 opacity-80" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48">
+        {CREATE_OPTIONS.map(({ type, label, icon: Icon, tone }) => (
+          <DropdownMenuItem key={type} asChild>
+            <Link href={`/finance/transactions?create=${type}`}>
+              <span className={cn("grid size-6 place-items-center rounded-md", tone)}>
+                <Icon className="size-3.5" />
+              </span>
+              {label}
+            </Link>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

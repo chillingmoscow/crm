@@ -7,7 +7,8 @@ import type { Tables } from "./database";
 // ─── Row shapes (re-exports from generated database.ts) ─────────────────────
 
 export type BankAccountGroupRow      = Tables<"bank_account_groups">;
-export type BankAccountRow           = Tables<"bank_accounts"> & { excluded_from_balance?: boolean };
+// balance_anchor_at — контрольный остаток переноса (миграция 257), в сгенерированных типах его нет.
+export type BankAccountRow           = Tables<"bank_accounts"> & { excluded_from_balance?: boolean; balance_anchor_at?: string | null };
 // is_payroll — миграция 246 (группа «Фонд оплаты труда»), в сгенерированных типах её нет.
 export type FinanceCategoryGroupRow  = Tables<"finance_category_groups"> & { is_payroll?: boolean };
 // Adapter: миграция 202 заменила is_active на archived_at + archived_by;

@@ -13,7 +13,11 @@ import {
   listBankAccountGroups,
 } from "@/lib/finance/bank-accounts";
 import { listAuditEvents } from "@/lib/audit/list";
-import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
+import { listBankAccountReconciliations } from "@/lib/finance/bank-reconciliations";
+import {
+  getActiveAccountAmountRoundingScale,
+  getActiveAccountTimezone,
+} from "@/lib/settings/account";
 import { BankAccountDetail } from "./_components/bank-account-detail";
 
 export const metadata: Metadata = { title: "Счёт" };
@@ -34,6 +38,9 @@ export default async function BankAccountDetailPage({
   if (!can("finance.view_bank_accounts")) redirect("/dashboard");
   const canManage = Boolean(can("finance.manage_bank_accounts"));
   const canViewAudit = Boolean(can("org.view_audit"));
+  // Сверка раскрывает остаток на любую дату — то есть обороты: только тем,
+  // кто видит операции (так же гейтит база, миграция 374).
+  const canViewTransactions = Boolean(can("finance.view_transactions"));
 
   const { row, error } = await getBankAccount(id);
   if (error || !row) redirect("/finance/accounts");
@@ -46,6 +53,8 @@ export default async function BankAccountDetailPage({
     archiveImpact,
     { data: isOwner },
     auditResult,
+    reconciliations,
+    timezone,
   ] = await Promise.all([
     listLegalEntities(),
     listAccountVenues({ liveOnly: true }),
@@ -60,6 +69,10 @@ export default async function BankAccountDetailPage({
     canViewAudit
       ? listAuditEvents({ entityType: "bank_account", entityId: id })
       : Promise.resolve({ events: [], hasMore: false, error: null }),
+    canViewTransactions
+      ? listBankAccountReconciliations(id)
+      : Promise.resolve({ rows: [], error: null }),
+    getActiveAccountTimezone(),
   ]);
 
   // Кто создал и менял — для «О счёте» в верхней панели.
@@ -83,7 +96,7 @@ export default async function BankAccountDetailPage({
       venues={venues.map((v) => ({ id: v.id, name: v.name }))}
       groups={groups}
       canManage={canManage}
-      canViewTransactions={Boolean(can("finance.view_transactions"))}
+      canViewTransactions={canViewTransactions}
       isOwner={Boolean(isOwner)}
       canHardDelete={Boolean(can("finance.delete_bank_account"))}
       canViewAudit={canViewAudit}
@@ -93,6 +106,9 @@ export default async function BankAccountDetailPage({
       initialAuditHasMore={auditResult.hasMore}
       createdByName={profileName(row.created_by)}
       updatedByName={profileName(row.updated_by)}
+      reconciliations={reconciliations.rows}
+      reconciliationsError={reconciliations.error}
+      timezone={timezone}
     />
   );
 }

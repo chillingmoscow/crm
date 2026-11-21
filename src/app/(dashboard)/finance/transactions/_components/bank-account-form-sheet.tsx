@@ -2,19 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Field } from "@/components/ui/field";
+import { OptionSelect } from "@/components/ui/option-select";
 import { Textarea } from "@/components/ui/textarea";
 import { createBankAccount } from "@/lib/finance/bank-accounts";
 import type { BankAccountRow } from "@/types/finance";
@@ -29,6 +22,7 @@ const TYPE_OPTIONS: { value: AccountType; label: string }[] = [
 ];
 
 const CURRENCY_OPTIONS = ["RUB", "USD", "EUR"];
+const CURRENCY_LABEL: Record<string, string> = { RUB: "Рубли, ₽", USD: "Доллары, $", EUR: "Евро, €" };
 
 /**
  * Subset of BankAccountRow needed by the transaction form-sheet to
@@ -65,46 +59,45 @@ export function BankAccountFormSheet({
   const [type, setType] = useState<AccountType>("checking");
   const [currency, setCurrency] = useState<string>("RUB");
   const [description, setDescription] = useState("");
+  const [errors, setErrors] = useState<Partial<Record<"name" | "legalEntity", string>>>({});
+  const [serverError, setServerError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (open) {
-      setName("");
-      setLegalEntityId(defaultLegalEntityId ?? legalEntities[0]?.id ?? "");
-      setType("checking");
-      setCurrency("RUB");
-      setDescription("");
-    }
+    if (!open) return;
+    setName("");
+    setLegalEntityId(defaultLegalEntityId ?? legalEntities[0]?.id ?? "");
+    setType("checking");
+    setCurrency("RUB");
+    setDescription("");
+    setErrors({});
+    setServerError(null);
   }, [open, defaultLegalEntityId, legalEntities]);
 
   const handleSave = async () => {
-    if (!name.trim()) {
-      toast.error("Укажите название счёта");
-      return;
-    }
-    if (!legalEntityId) {
-      toast.error("Выберите юрлицо");
-      return;
-    }
+    const found: Partial<Record<"name" | "legalEntity", string>> = {};
+    if (!name.trim()) found.name = "Укажите название счёта";
+    if (!legalEntityId) found.legalEntity = "Выберите юрлицо";
+    setErrors(found);
+    if (Object.keys(found).length) return;
+
     setSaving(true);
+    setServerError(null);
     const { id, error } = await createBankAccount({
       legal_entity_id: legalEntityId,
       name: name.trim(),
       type,
       currency,
       description: description.trim() || null,
-    });
+    }).catch(() => ({ id: null, error: "Нет связи с сервером. Проверьте соединение и повторите" }));
     setSaving(false);
     if (error || !id) {
-      toast.error(error ?? "Не удалось создать счёт");
+      setServerError(error ?? "Не удалось создать счёт");
       return;
     }
     toast.success("Счёт создан");
-    // Hand the full account info back, not just the id — transaction
-    // form needs `legal_entity_id` and `currency` for its save payload
-    // BEFORE the parent's router.refresh() repopulates `bankAccounts`
-    // (otherwise the just-created id is in form state but absent from
-    // the lookup array, and validation rejects with «Счёт не найден»).
+    // Отдаём счёт целиком, а не только id: форме операции нужны юрлицо и
+    // валюта для сохранения раньше, чем router.refresh() обновит список.
     onCreated({
       id,
       legal_entity_id: legalEntityId,
@@ -117,94 +110,100 @@ export function BankAccountFormSheet({
   return (
     <EditDrawer
       open={open}
-      onOpenChange={(o) => { if (!o) onClose(); }}
+      onOpenChange={(o) => {
+        if (!o && !saving) onClose();
+      }}
       title="Новый счёт"
-      description="Расчётный счёт, дебетовая карта или касса."
       footer={
         <>
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Отмена
           </Button>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving && <Loader2 className="animate-spin" />}
-            Создать
+          <Button onClick={() => void handleSave()} disabled={saving} className="min-w-36">
+            {saving ? "Создаём…" : "Создать счёт"}
           </Button>
         </>
       }
     >
-      <div className="space-y-1.5">
-        <Label htmlFor="ba-name">
-          Название <span className="text-destructive">*</span>
-        </Label>
-        <Input
-          id="ba-name"
-          placeholder="Например: Основной"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          autoFocus
-        />
-      </div>
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void handleSave();
+        }}
+      >
+        <Field label="Название" required error={errors.name}>
+          {(control) => (
+            <Input
+              {...control}
+              placeholder="Например: расчётный счёт в Сбере"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setErrors((x) => ({ ...x, name: undefined }));
+              }}
+              autoFocus
+            />
+          )}
+        </Field>
 
-      <div className="space-y-1.5">
-        <Label>
-          Юрлицо <span className="text-destructive">*</span>
-        </Label>
-        <Select value={legalEntityId} onValueChange={setLegalEntityId}>
-          <SelectTrigger>
-            <SelectValue placeholder="Выберите юрлицо" />
-          </SelectTrigger>
-          <SelectContent>
-            {legalEntities.map((le) => (
-              <SelectItem key={le.id} value={le.id}>
-                {le.short_name ?? le.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+        <Field label="Юрлицо" required error={errors.legalEntity}>
+          {(control) => (
+            <OptionSelect
+              {...control}
+              value={legalEntityId}
+              onValueChange={(v) => {
+                setLegalEntityId(v);
+                setErrors((x) => ({ ...x, legalEntity: undefined }));
+              }}
+              placeholder="Выберите юрлицо"
+              options={legalEntities.map((le) => ({ value: le.id, label: le.short_name ?? le.name }))}
+            />
+          )}
+        </Field>
 
-      <div className="space-y-1.5">
-        <Label>Тип счёта</Label>
-        <Select value={type} onValueChange={(v) => setType(v as AccountType)}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {TYPE_OPTIONS.map((t) => (
-              <SelectItem key={t.value} value={t.value}>
-                {t.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Тип счёта">
+            {(control) => (
+              <OptionSelect
+                {...control}
+                value={type}
+                onValueChange={(v) => setType(v as AccountType)}
+                options={TYPE_OPTIONS}
+              />
+            )}
+          </Field>
+          <Field label="Валюта">
+            {(control) => (
+              <OptionSelect
+                {...control}
+                value={currency}
+                onValueChange={setCurrency}
+                options={CURRENCY_OPTIONS.map((c) => ({ value: c, label: CURRENCY_LABEL[c] ?? c }))}
+              />
+            )}
+          </Field>
+        </div>
 
-      <div className="space-y-1.5">
-        <Label>Валюта</Label>
-        <Select value={currency} onValueChange={setCurrency}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {CURRENCY_OPTIONS.map((c) => (
-              <SelectItem key={c} value={c}>
-                {c}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+        <Field label="Описание">
+          {(control) => (
+            <Textarea
+              {...control}
+              rows={3}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Например: последние 4 цифры карты"
+            />
+          )}
+        </Field>
 
-      <div className="space-y-1.5">
-        <Label htmlFor="ba-desc">Описание</Label>
-        <Textarea
-          id="ba-desc"
-          rows={3}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Необязательно — например, последние 4 цифры или банк"
-        />
-      </div>
+        {serverError ? (
+          <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm">
+            {serverError}
+          </p>
+        ) : null}
+        <button type="submit" hidden aria-hidden tabIndex={-1} />
+      </form>
     </EditDrawer>
   );
 }

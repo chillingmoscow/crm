@@ -381,7 +381,10 @@ export function TransactionFormSheet({
   };
 
   const requestClose = () => {
-    if (dirty && !saving && editable) setConfirmDiscard(true);
+    // Пока операция и её файлы сохраняются, панель не закрываем: иначе по
+    // окончании сохранения закрылась бы уже другая открытая операция.
+    if (saving) return;
+    if (dirty && editable) setConfirmDiscard(true);
     else onClose();
   };
 

@@ -281,6 +281,19 @@ export async function listAuditEvents(input?: {
         );
     }
     query = query.or(parts.join(","));
+  } else if (
+    input?.entityType === "transaction" &&
+    input.entityId &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      input.entityId,
+    )
+  ) {
+    // Массовая правка пишет одно событие на команду (миграция 367) со
+    // списком операций в details.ids — в истории операции оно тоже нужно.
+    query = query.or(
+      `and(entity_type.eq.transaction,entity_id.eq.${input.entityId}),` +
+        `and(action_code.eq.finance.transaction.bulk_updated,details->ids.cs.["${input.entityId}"])`,
+    );
   } else {
     if (input?.entityType) query = query.eq("entity_type", input.entityType);
     if (input?.entityId) query = query.eq("entity_id", input.entityId);

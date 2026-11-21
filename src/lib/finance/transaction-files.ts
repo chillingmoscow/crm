@@ -20,7 +20,7 @@ export type TransactionFile = {
 const URL_TTL_SECONDS = 60 * 60;
 // Совпадает с `storage.file_size_limit` и лимитом тела server action (50 МБ).
 // Не экспортируется: из файла "use server" можно экспортировать только функции.
-const MAX_TRANSACTION_FILE_BYTES = 50 * 1024 * 1024;
+const MAX_TRANSACTION_FILE_BYTES = 49 * 1024 * 1024;
 
 /**
  * Файлы операции. Видимость — RLS: `transaction_attachments_select`
@@ -80,7 +80,18 @@ export async function uploadTransactionFile(
   file: File,
 ): Promise<{ error: string | null }> {
   if (file.size > MAX_TRANSACTION_FILE_BYTES)
-    return { error: `Файл «${file.name}» больше 50 МБ` };
+    return { error: `Файл «${file.name}» больше 49 МБ` };
+  // У удалённой операции файлы не меняем: панель её показывает только для
+  // чтения и восстановления.
+  const supabase = await createClient();
+  const { data: tx } = await supabase
+    .from("transactions")
+    .select("id, deleted_at")
+    .eq("id", transactionId)
+    .maybeSingle();
+  if (!tx) return { error: "Операция недоступна" };
+  if (tx.deleted_at) return { error: "Операция удалена: сначала восстановите её" };
+
   const { error } = await uploadAndAttach({
     parent: { kind: "transaction", id: transactionId },
     file,
@@ -123,7 +134,7 @@ function humanizeFileError(message: string, action: "upload" | "delete"): string
       ? "Нет прав на загрузку файлов"
       : "Нет прав на удаление файлов";
   if (/exceeded|too large|maximum allowed size|413/i.test(message))
-    return "Файл больше 50 МБ";
+    return "Файл больше 49 МБ";
   return action === "upload"
     ? "Не удалось загрузить файл. Повторите позже"
     : "Не удалось удалить файл. Повторите позже";

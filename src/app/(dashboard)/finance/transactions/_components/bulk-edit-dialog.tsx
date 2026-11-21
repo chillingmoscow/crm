@@ -114,7 +114,7 @@ export function BulkEditDialog({
     }
     toast.success(
       result.skipped > 0
-        ? `Изменено: ${result.updated} из ${targets.length}. Остальные изменить нельзя: связаны с зарплатой или нет прав`
+        ? `Изменено: ${result.updated} из ${targets.length}. Остальные пропущены: другой тип, связь с зарплатой или нет прав`
         : `Изменено: ${countRu(result.updated, "операция", "операции", "операций")}`,
     );
     onDone();

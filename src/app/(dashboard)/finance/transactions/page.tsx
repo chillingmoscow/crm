@@ -10,7 +10,7 @@ import { createClient } from "@/lib/supabase/server";
 import { listBankAccounts } from "@/lib/finance/bank-accounts";
 import { listFinanceCategories } from "@/lib/finance/categories";
 import { listCounterparties } from "@/lib/finance/counterparties";
-import { queryTransactions } from "@/lib/finance/transactions";
+import { getTransaction, queryTransactions } from "@/lib/finance/transactions";
 import { getActiveFinanceLegalEntityId } from "@/lib/finance/active-legal-entity";
 import { parseTransactionQuery } from "@/lib/finance/transaction-query";
 import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
@@ -128,8 +128,20 @@ export default async function TransactionsServerPage({
           pageSize: query.pageSize,
         });
 
+  // ?id=<операция> — ссылки из журнала, зарплаты, поставок и дашборда.
+  // Операция грузится здесь же, на сервере: запрос из браузера после
+  // открытия страницы Next обрывал при любом обновлении оболочки, и панель
+  // молча не открывалась. Удалённая тоже приходит — её можно восстановить.
+  const linkedParam = typeof sp.id === "string" ? sp.id : null;
+  const linkedTransaction =
+    linkedParam && /^[0-9a-f-]{36}$/i.test(linkedParam)
+      ? (await getTransaction(linkedParam)).row
+      : null;
+
   return (
     <TransactionsPage
+      linkedTransaction={linkedTransaction}
+      linkedTransactionId={linkedParam}
       result={result}
       query={{ ...query, page }}
       cookieLegalEntityId={cookieLegalEntityId}

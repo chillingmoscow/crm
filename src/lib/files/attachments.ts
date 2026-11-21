@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
-import { deleteAccountFile, uploadAttachment } from "@/lib/files/upload";
+import { uploadAttachment } from "@/lib/files/upload";
+import { removeFreshUpload } from "@/lib/files/upload-cleanup";
 import type { AttachmentDocumentType } from "@/types/database";
 import type {
   AccountFileRow,
@@ -240,7 +241,7 @@ export async function uploadAndAttach(args: {
     // violation on (transaction_id, file_id), etc.) would otherwise
     // leave an unreferenced file accumulating in the bucket. Best-effort
     // — if cleanup itself fails, the original attach error wins.
-    await deleteAccountFile(upload.row.id);
+    await removeFreshUpload({ fileId: upload.row.id, storagePath: upload.row.storage_path });
     return { fileId: null, error: attachErr };
   }
   return { fileId: upload.row.id, error: null };

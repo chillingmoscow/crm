@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getCachedPermissionChecker } from "@/lib/supabase/server";
+import { asLooseDb } from "@/lib/supabase/loose";
 import type { TransactionFormInput, TransactionRow } from "@/types/finance";
 import {
   fetchTransactionsPage,
@@ -42,6 +43,22 @@ export async function getTransaction(
 // ─── Mutations ───────────────────────────────────────────────────────────────
 
 /**
+ * Без finance.view_all_venues операции чужого заведения пользователь не
+ * видит (политика transactions_select), поэтому и ставить такое заведение
+ * не даём: иначе вставка проходит, а ответ падает с ошибкой RLS.
+ */
+async function venueNotAllowed(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  venueId: string | null | undefined,
+): Promise<string | null> {
+  if (!venueId) return null;
+  const can = await getCachedPermissionChecker();
+  if (can("finance.view_all_venues")) return null;
+  const { data: active } = await supabase.rpc("get_active_venue_id");
+  return active === venueId ? null : "Можно выбрать только своё заведение";
+}
+
+/**
  * Create a transaction. The DB trigger pereschityvaet bank_accounts.balance
  * automatically (migration 040). Don't try to update balance manually —
  * it will be silently rolled back by the guard trigger.
@@ -66,6 +83,8 @@ export async function createTransaction(
   if (accountErr || !accountId) {
     return { id: null, error: "Не удалось определить активный аккаунт" };
   }
+  const venueError = await venueNotAllowed(supabase, input.venue_id);
+  if (venueError) return { id: null, error: venueError };
 
   const base = {
     account_id:         accountId as unknown as string,
@@ -136,6 +155,10 @@ export async function updateTransaction(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
+  if ("venue_id" in patch) {
+    const venueError = await venueNotAllowed(supabase, patch.venue_id);
+    if (venueError) return { error: venueError };
+  }
 
   const normalised: Record<string, unknown> = { ...patch };
   if (patch.type === "transfer") {
@@ -177,68 +200,43 @@ export type BulkTransactionPatch =
   | { field: "venue_id"; value: string | null };
 
 /**
- * Массовая правка: статья, контрагент или заведение у выбранных операций.
- *
- * По одной операции, а не одним UPDATE: связанные операции (выплаты
- * зарплаты, покупки формы) отклоняются триггером, и одна такая строка не
- * должна отменять правку остальных. Права — та же политика
- * transactions_update: чужие операции без update_any молча не меняются,
- * их считаем по пустому ответу. Статья и контрагент к переводам не
- * относятся — переводы пропускаются; статья ставится только операциям
- * своего типа (приход / расход).
+ * Массовая правка: статья, контрагент или заведение у выбранных операций —
+ * SQL-функцией `finance_bulk_update_transactions` (миграция 367). Права —
+ * та же политика transactions_update; переводы, операции другого типа и
+ * связанные с зарплатой пропускаются; в журнал — одна запись на команду.
  */
 export async function bulkUpdateTransactions(
   ids: string[],
   patch: BulkTransactionPatch,
 ): Promise<{ updated: number; skipped: number; error: string | null }> {
-  if (!["category_id", "counterparty_id", "venue_id"].includes(patch.field))
-    return { updated: 0, skipped: ids.length, error: "Это поле нельзя менять массово" };
-  const unique = [...new Set(ids)].slice(0, 500);
+  const unique = [...new Set(ids)];
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { updated: 0, skipped: unique.length, error: "Сессия устарела. Обновите страницу" };
-
-  let categoryType: "income" | "expense" | null = null;
-  if (patch.field === "category_id" && patch.value) {
-    const { data: category } = await supabase
-      .from("finance_categories")
-      .select("type")
-      .eq("id", patch.value)
-      .maybeSingle();
-    if (!category) return { updated: 0, skipped: unique.length, error: "Статья не найдена" };
-    categoryType = category.type as "income" | "expense";
-  }
-
-  let updated = 0;
-  let lastError: string | null = null;
-  for (const id of unique) {
-    let query = supabase
-      .from("transactions")
-      .update({
-        [patch.field]: patch.value,
-        updated_at: new Date().toISOString(),
-        updated_by: user.id,
-      })
-      .eq("id", id)
-      .is("deleted_at", null);
-    if (patch.field !== "venue_id") query = query.neq("type", "transfer");
-    if (categoryType) query = query.eq("type", categoryType);
-    const { data, error } = await query.select("id");
-    if (error) lastError = error.message;
-    else if (data && data.length > 0) updated++;
-  }
-
+  const { data, error } = await asLooseDb(supabase).rpc("finance_bulk_update_transactions", {
+    p_ids: unique,
+    p_field: patch.field,
+    p_value: patch.value,
+  });
+  if (error) return { updated: 0, skipped: unique.length, error: humanizeBulkError(error.message) };
+  const result = (data ?? {}) as { updated?: number; skipped?: number };
+  const updated = Number(result.updated ?? 0);
   if (updated > 0) {
     revalidatePath("/finance/transactions");
     revalidatePath("/finance");
   }
   return {
     updated,
-    skipped: unique.length - updated,
-    error: updated === 0 ? (lastError ?? "Ни одну операцию изменить не удалось: нет прав или операции не подходят") : null,
+    skipped: Number(result.skipped ?? unique.length - updated),
+    error:
+      updated === 0
+        ? "Ни одну операцию изменить не удалось: нет прав, операции другого типа или связаны с зарплатой"
+        : null,
   };
+}
+
+function humanizeBulkError(message: string): string {
+  // Тексты функции уже для человека; технические — общим сообщением.
+  if (/[а-яё]/i.test(message) && !/violates|permission denied/i.test(message)) return message;
+  return "Не удалось изменить операции. Повторите позже";
 }
 
 /**

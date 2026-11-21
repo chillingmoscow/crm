@@ -1,17 +1,6 @@
-// Helpers for the transactions module: color for new categories, URL
-// detection in descriptions, local today's date. Money and dates are
+// Helpers for the transactions module: URL detection in descriptions,
+// local today's date. Money and dates are
 // formatted by the shared `@/lib/format/*` helpers.
-
-const CATEGORY_COLORS = [
-  "#FF6B6B", "#FF9F43", "#FFA94D", "#FFC93C", "#A0E14C",
-  "#4ECDC4", "#45B7D1", "#5C6BC0", "#7E57C2", "#AB47BC",
-  "#EC407A", "#26A69A", "#66BB6A", "#9CCC65", "#FFCA28",
-  "#FFA726",
-] as const;
-
-export function generateRandomColor(): string {
-  return CATEGORY_COLORS[Math.floor(Math.random() * CATEGORY_COLORS.length)];
-}
 
 export type LinkifyPart = { type: "text"; value: string } | { type: "link"; value: string };
 

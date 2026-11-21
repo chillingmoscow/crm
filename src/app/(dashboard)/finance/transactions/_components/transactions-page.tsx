@@ -58,7 +58,6 @@ import {
 } from "@/components/shared/table";
 import { setActiveFinanceLegalEntityId } from "@/lib/finance/active-legal-entity";
 import {
-  getTransaction,
   restoreTransaction,
   softDeleteTransaction,
 } from "@/lib/finance/transactions";
@@ -154,6 +153,9 @@ const collator = new Intl.Collator("ru", { sensitivity: "base", numeric: true })
 
 type Props = {
   result: QueryTransactionsResult;
+  /** Операция из ссылки ?id= (сервер; null — нет или нет доступа). */
+  linkedTransaction: TransactionRow | null;
+  linkedTransactionId: string | null;
   query: TransactionQuery;
   cookieLegalEntityId: string | null;
   legalEntities: LegalEntityRow[];
@@ -174,6 +176,8 @@ type ListRow = TransactionRow & { attachments_count?: number };
 
 export function TransactionsPage({
   result,
+  linkedTransaction,
+  linkedTransactionId,
   query,
   cookieLegalEntityId,
   legalEntities,
@@ -436,29 +440,13 @@ export function TransactionsPage({
   const linkedId = searchParams.get("id");
   const openedLinkedId = useRef<string | null>(null);
   useEffect(() => {
-    if (!linkedId || openedLinkedId.current === linkedId) return;
-    let active = true;
-    // Ссылки из журнала событий, зарплаты и поставок: ?id=<операция>.
-    // Удалённая операция тоже открывается — в ней можно её восстановить.
-    // Отметка «открыта» — только после ответа: эффект, прерванный до него
-    // (повторный запуск в dev, быстрый переход), иначе потерял бы ссылку.
-    getTransaction(linkedId)
-      .then(({ row, error }) => {
-        if (!active) return;
-        openedLinkedId.current = linkedId;
-        if (error || !row) {
-          toast.error("Операция недоступна: её нет или у вас нет к ней доступа");
-          return;
-        }
-        setFormMode({ kind: "edit", transaction: row });
-      })
-      .catch(() => {
-        if (active) toast.error("Не удалось открыть операцию");
-      });
-    return () => {
-      active = false;
-    };
-  }, [linkedId]);
+    // Операцию по ссылке ?id= сервер отдаёт вместе со страницей.
+    if (!linkedTransactionId || openedLinkedId.current === linkedTransactionId) return;
+    openedLinkedId.current = linkedTransactionId;
+    if (linkedTransaction && linkedTransaction.id === linkedTransactionId)
+      setFormMode({ kind: "edit", transaction: linkedTransaction });
+    else toast.error("Операция недоступна: её нет или у вас нет к ней доступа");
+  }, [linkedTransaction, linkedTransactionId]);
 
   const closeForm = () => {
     setFormMode({ kind: "closed" });
@@ -1372,7 +1360,7 @@ export function TransactionsPage({
         preferredAccountId={preferredAccountId}
         venues={formVenues}
         allVenues={venues}
-        preferredVenueId={filters.venue_id}
+        preferredVenueId={formVenues.some((v) => v.id === filters.venue_id) ? filters.venue_id : undefined}
         onFilesChanged={() => router.refresh()}
         categories={categories}
         counterparties={counterparties}

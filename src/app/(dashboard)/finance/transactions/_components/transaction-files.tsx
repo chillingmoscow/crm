@@ -16,8 +16,11 @@ import {
 import { formatDayMonth } from "@/lib/format/date";
 import { cn } from "@/lib/utils";
 
-/** Как `storage.file_size_limit` и лимит тела server action. */
-export const MAX_FILE_BYTES = 50 * 1024 * 1024;
+/**
+ * Чуть меньше 50 МБ (`storage.file_size_limit` и лимит тела server action):
+ * у запроса с файлом есть свои накладные байты.
+ */
+export const MAX_FILE_BYTES = 49 * 1024 * 1024;
 
 /**
  * Раздел «Файлы» в панели операции: чеки, счета, акты.
@@ -83,7 +86,7 @@ export function TransactionFiles({
     const ok = picked.filter((f) => f.size <= MAX_FILE_BYTES);
     if (tooBig.length)
       setActionError(
-        `Больше 50 МБ, не прикреплены: ${tooBig.map((f) => `«${f.name}»`).join(", ")}`,
+        `Больше 49 МБ, не прикреплены: ${tooBig.map((f) => `«${f.name}»`).join(", ")}`,
       );
     if (ok.length === 0) return;
 
@@ -249,13 +252,17 @@ export function TransactionFiles({
               event.target.value = "";
             }}
           />
-          <span className="inline-flex items-center gap-2 font-medium">
-            <Upload className="size-4 text-muted-foreground" />
+          <Upload className="size-4 text-muted-foreground" aria-hidden />
+          {/* На сенсорном экране перетаскивать некуда — только выбор файла. */}
+          <span className="font-medium [@media(pointer:coarse)]:hidden">
             Перетащите чек или счёт сюда или <span className="text-brand">выберите файл</span>
+          </span>
+          <span className="hidden font-medium text-brand [@media(pointer:coarse)]:inline">
+            Прикрепить чек, счёт или фото
           </span>
           <span className="text-xs text-muted-foreground">
             {transactionId
-              ? "До 50 МБ: фото, PDF, документы"
+              ? "До 49 МБ: фото, PDF, документы"
               : "Файлы прикрепятся, когда операция будет создана"}
           </span>
         </label>

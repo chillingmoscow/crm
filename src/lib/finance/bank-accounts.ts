@@ -222,7 +222,7 @@ export async function archiveBankAccount(
   if (row.deleted_at) return { error: null }; // идемпотентно
 
   if (opts.confirmName.trim() !== row.name.trim()) {
-    return { error: "Введите название точно как у счёта" };
+    return { error: "Название не совпадает с названием счёта" };
   }
 
   const { error } = await supabase
@@ -236,7 +236,6 @@ export async function archiveBankAccount(
   if (error) return { error: error.message };
 
   revalidatePath("/finance/accounts");
-  revalidatePath("/finance/accounts/archive");
   revalidatePath(`/finance/accounts/${id}`);
   return { error: null };
 }
@@ -274,7 +273,6 @@ export async function restoreBankAccount(
   if (error) return { error: error.message };
 
   revalidatePath("/finance/accounts");
-  revalidatePath("/finance/accounts/archive");
   revalidatePath(`/finance/accounts/${id}`);
   return { error: null };
 }
@@ -298,13 +296,13 @@ export async function deleteBankAccount(
   if (!ownerCheck.ok) return { error: ownerCheck.error };
 
   if (opts.confirmName.trim() !== ownerCheck.name.trim()) {
-    return { error: "Введите название точно как у счёта" };
+    return { error: "Название не совпадает с названием счёта" };
   }
 
   const impact = await getBankAccountArchiveImpact(id);
   if (impact.transactions > 0) {
     return {
-      error: `Нельзя удалить — есть транзакции по этому счёту (${impact.transactions}). Используйте «Архивировать» или удалите транзакции.`,
+      error: `Нельзя удалить: по счёту есть операции (${impact.transactions}). Оставьте счёт в архиве`,
     };
   }
 
@@ -312,7 +310,6 @@ export async function deleteBankAccount(
   if (error) return { error: error.message };
 
   revalidatePath("/finance/accounts");
-  revalidatePath("/finance/accounts/archive");
   return { error: null };
 }
 

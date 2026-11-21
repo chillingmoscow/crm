@@ -238,7 +238,7 @@ function EntityReference({
       <>
         <span className="text-muted-foreground/50">·</span>
         <Link
-          href="/finance/accounts"
+          href={`/finance/accounts/${entity.id}`}
           className="text-muted-foreground hover:text-foreground transition-colors"
         >
           открыть счёт

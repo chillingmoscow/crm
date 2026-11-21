@@ -184,7 +184,13 @@ export async function saveSupplyReadRules(
     p_venue: s.venueId,
     p_version: checked(z.number().int().min(0), version),
     p_config: checked(supplyReadRulesSchema, config),
-    p_reason: checked(z.string().trim().min(1).max(1000), reason),
+    // Комментарий к настройкам необязателен (решение владельца 21.11.2026):
+    // история настроек всё равно хранит строку, поэтому пустой заменяем
+    // нейтральной подписью. Основание для оплаты остаётся обязательным.
+    p_reason: checked(
+      z.string().trim().max(1000),
+      reason,
+    ) || "Настройки изменены",
   });
   if (r.error) throw Error(r.error.message);
 }

@@ -16,8 +16,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
  *
  * Функция доступна только service_role — вызываем admin-клиентом.
  *
- * Строка crontab на хосте:
- *   5 0 * * * curl -fsS -X POST -H "X-Cron-Secret: $CRON_SECRET" https://crm.sheerly.app/api/cron/finance-recurring
+ * Запуск на хосте — `scripts/crm-finance-recurring.sh` (копия
+ * /usr/local/bin/crm-finance-recurring) из /etc/cron.d/crm-finance-recurring
+ * в 00:05 по Москве. Как crm-module-workers, он зовёт маршрут изнутри
+ * контейнера: CRON_SECRET живёт только в окружении приложения.
  *
  * Auth: shared-secret из ENV — как medical-book-expiry-notifications.
  */

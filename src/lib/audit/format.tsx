@@ -181,6 +181,25 @@ function categoryName(event: AuditEvent): string {
   return (event.details.name as string) || "статья";
 }
 
+/** « «Название»» у правила разнесения, если название есть. */
+function postingRuleTitle(event: AuditEvent): ReactNode {
+  const name = event.details.name;
+  return typeof name === "string" && name ? (
+    <>
+      {" "}
+      <strong className="font-medium">«{name}»</strong>
+    </>
+  ) : null;
+}
+
+/** Правило словами, как в списке правил: «Если … → …». */
+function postingRulePhrase(event: AuditEvent): ReactNode {
+  const phrase = event.details.phrase;
+  return typeof phrase === "string" && phrase ? (
+    <p className="text-sm text-muted-foreground">{phrase}</p>
+  ) : null;
+}
+
 function counterpartyName(event: AuditEvent): string {
   if (event.entity && event.entity.type === "counterparty") return event.entity.name;
   return (event.details.name as string) || "контрагент";
@@ -1135,6 +1154,34 @@ const SPECS: Record<string, AuditEventSpec> = {
         <strong className="font-medium">«{counterpartyName(e)}»</strong>
       </>
     ),
+  },
+  // ── finance.posting_rule ───────────────────────────────────
+  "finance.posting_rule.created": {
+    icon: FilePlus2,
+    iconClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+    buildHeadline: (e) => <>добавил(а) правило разнесения{postingRuleTitle(e)}</>,
+    buildDetails: (e) => postingRulePhrase(e),
+  },
+  "finance.posting_rule.updated": {
+    icon: Pencil,
+    iconClass: "text-brand bg-brand/10",
+    buildHeadline: (e) => {
+      const enabled = e.details.enabled;
+      if (enabled === true) return <>включил(а) правило разнесения{postingRuleTitle(e)}</>;
+      if (enabled === false) return <>выключил(а) правило разнесения{postingRuleTitle(e)}</>;
+      return <>изменил(а) правило разнесения{postingRuleTitle(e)}</>;
+    },
+    buildDetails: (e) => postingRulePhrase(e),
+  },
+  "finance.posting_rule.deleted": {
+    icon: Trash2,
+    iconClass: "text-destructive bg-destructive/10",
+    buildHeadline: (e) => <>удалил(а) правило разнесения{postingRuleTitle(e)}</>,
+  },
+  "finance.posting_rule.order_changed": {
+    icon: Layers,
+    iconClass: "text-foreground bg-muted",
+    buildHeadline: () => <>изменил(а) порядок правил разнесения</>,
   },
   "finance.counterparty.restored": {
     icon: RotateCcw,

@@ -198,8 +198,18 @@ create table public.finance_posting_rules (
   name        text check (name is null or length(btrim(name)) between 1 and 200),
   position    integer not null,
   enabled     boolean not null default true,
+  -- Каждое условие — объект с известным полем. Остальное (операторы,
+  -- значения) проверяет приложение и при чтении, и при записи: правило с
+  -- испорченными условиями не применяется.
   conditions  jsonb not null
-    check (jsonb_typeof(conditions) = 'array' and jsonb_array_length(conditions) between 1 and 20),
+    check (
+      jsonb_typeof(conditions) = 'array'
+      and jsonb_array_length(conditions) between 1 and 20
+      and not jsonb_path_exists(
+        conditions,
+        '$[*] ? (@.type() != "object" || !exists(@.field) || !(@.field == "counterparty" || @.field == "counterparty_group" || @.field == "counterparty_inn" || @.field == "bank_account" || @.field == "type" || @.field == "amount" || @.field == "description"))'
+      )
+    ),
   action_category_id     uuid,
   action_counterparty_id uuid,
   action_venue_id        uuid,
@@ -240,6 +250,34 @@ create index finance_posting_rules_created_by_idx on public.finance_posting_rule
   where created_by is not null;
 create index finance_posting_rules_updated_by_idx on public.finance_posting_rules(updated_by)
   where updated_by is not null;
+
+-- Кто и когда создал и изменил — ставит база, а не клиент: иначе пользователь
+-- с правом настройки мог бы записать правило от чужого имени.
+create or replace function public.finance_posting_rules_stamp()
+returns trigger
+language plpgsql
+set search_path = public, pg_catalog
+as $$
+begin
+  if tg_op = 'INSERT' then
+    new.created_by := auth.uid();
+    new.created_at := now();
+  else
+    new.account_id := old.account_id;
+    new.created_by := old.created_by;
+    new.created_at := old.created_at;
+  end if;
+  new.updated_by := auth.uid();
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+revoke all on function public.finance_posting_rules_stamp() from public, anon, authenticated;
+
+create trigger finance_posting_rules_stamp
+  before insert or update on public.finance_posting_rules
+  for each row execute function public.finance_posting_rules_stamp();
 
 -- 3. RLS. Чтение — с доступом к операциям или с правом настройки (роль может
 -- иметь manage без view); запись — только с правом настройки.
@@ -317,9 +355,7 @@ begin
   end if;
 
   update public.finance_posting_rules r
-  set position = o.ord,
-      updated_at = now(),
-      updated_by = auth.uid()
+  set position = o.ord
   from unnest(p_ids) with ordinality as o(id, ord)
   where r.id = o.id
     and r.account_id = v_account
@@ -338,6 +374,9 @@ begin
   end if;
   if not has_function_privilege('authenticated', 'public.finance_posting_rules_reorder(uuid[])', 'execute') then
     raise exception 'authenticated должен вызывать finance_posting_rules_reorder';
+  end if;
+  if has_function_privilege('authenticated', 'public.finance_posting_rules_stamp()', 'execute') then
+    raise exception 'finance_posting_rules_stamp — только для триггера';
   end if;
   if has_table_privilege('anon', 'public.finance_posting_rules', 'select') then
     raise exception 'anon не должен читать finance_posting_rules';

@@ -57,6 +57,13 @@ const inputSchema = z.object({
   }),
 });
 
+/** Условия, прочитанные из базы. Правило могли записать в обход приложения,
+ *  поэтому испорченный список даёт null — такое правило не применяется. */
+export function parseStoredConditions(value: unknown): PostingRuleCondition[] | null {
+  const parsed = z.array(conditionSchema).min(1).max(MAX_CONDITIONS).safeParse(value);
+  return parsed.success ? (parsed.data as PostingRuleCondition[]) : null;
+}
+
 type Result = { ok: true; value: PostingRuleInput } | { ok: false; error: string };
 const fail = (error: string): Result => ({ ok: false, error });
 

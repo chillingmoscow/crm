@@ -29,7 +29,7 @@ function hasActions(rule: PostingRule): boolean {
 
 /** Правило ссылается на архивный/удалённый справочник или ему нечего делать. */
 export function ruleNeedsAttention(rule: PostingRule, ctx: RuleContext): boolean {
-  if (!hasActions(rule)) return true;
+  if (!hasActions(rule) || rule.conditions.length === 0) return true;
   return referencedIds(rule).some((id) => ctx.inactiveIds.has(id));
 }
 

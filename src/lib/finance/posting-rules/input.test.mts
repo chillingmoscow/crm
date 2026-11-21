@@ -154,3 +154,13 @@ test("неизвестное поле условия — ошибка", () => {
     "Правило заполнено с ошибкой",
   );
 });
+
+test("условия из базы: годные читаются, испорченные дают null", async () => {
+  const { parseStoredConditions } = await import("./input.ts");
+  assert.deepEqual(parseStoredConditions([{ field: "type", op: "eq", value: "income" }]), [
+    { field: "type", op: "eq", value: "income" },
+  ]);
+  assert.equal(parseStoredConditions([{ field: "counterparty", op: "in" }]), null);
+  assert.equal(parseStoredConditions([{ field: "tag", op: "eq", value: "x" }]), null);
+  assert.equal(parseStoredConditions("oops"), null);
+});

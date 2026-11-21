@@ -286,3 +286,8 @@ test("если первое правило не может поставить с
     category_id: { value: "cat-supply", ruleId: "right" },
   });
 });
+
+test("правило без условий требует внимания", () => {
+  const r = rule({ conditions: [], actions: { venue_id: "v-1" } });
+  assert.equal(ruleNeedsAttention(r, ctx()), true);
+});

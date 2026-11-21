@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { aggregateFlow, type FlowRow } from "./dashboard-flow.ts";
+import { aggregateFlow, parsePeriodFlow, type FlowRow } from "./dashboard-flow.ts";
 
 const rows: FlowRow[] = [
   { type: "income", amount: "1000.50", category_id: "sales" },
@@ -53,4 +53,41 @@ test("пустой период — нули и доли без деления �
   assert.deepEqual(flow.summary, { income: 0, expense: 0, net: 0, incomeCount: 0, expenseCount: 0 });
   assert.deepEqual(flow.top, []);
   assert.equal(flow.rest, null);
+});
+
+test("ответ базы даёт ту же разбивку, что и строки", () => {
+  const fromRows = aggregateFlow(rows, 2);
+  const { flow, elapsed } = parsePeriodFlow(
+    {
+      income: 1500.5,
+      expense: 675,
+      income_count: 2,
+      expense_count: 5,
+      categories: [
+        { category_id: "rent", amount: 500, count: 2 },
+        { category_id: "food", amount: 100, count: 1 },
+        { category_id: null, amount: 50, count: 1 },
+        { category_id: "misc", amount: 25, count: 1 },
+      ],
+      elapsed: null,
+    },
+    2,
+  );
+  assert.deepEqual(flow, fromRows);
+  assert.equal(elapsed, null);
+});
+
+test("ответ базы: итоги по прошедшие дни и пустой период", () => {
+  const { flow, elapsed } = parsePeriodFlow({
+    income: 0,
+    expense: 0,
+    income_count: 0,
+    expense_count: 0,
+    categories: [],
+    elapsed: { income: "120.5", expense: 20, income_count: 1, expense_count: 1 },
+  });
+  assert.deepEqual(flow.summary, { income: 0, expense: 0, net: 0, incomeCount: 0, expenseCount: 0 });
+  assert.deepEqual(flow.top, []);
+  assert.equal(flow.rest, null);
+  assert.deepEqual(elapsed, { income: 120.5, expense: 20, net: 100.5, incomeCount: 1, expenseCount: 1 });
 });

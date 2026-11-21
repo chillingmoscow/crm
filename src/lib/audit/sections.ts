@@ -27,6 +27,7 @@ export const AUDIT_SECTIONS: { id: string; name: string }[] = [
   { id: "payroll_import", name: "Импорт зарплаты" },
   { id: "transaction", name: "Транзакции" },
   { id: "bank_account", name: "Счета и кассы" },
+  { id: "bank_account_group", name: "Группы счетов" },
   { id: "finance_category", name: "Статьи" },
   { id: "counterparty", name: "Контрагенты" },
   { id: "schedule_shift", name: "Смены" },

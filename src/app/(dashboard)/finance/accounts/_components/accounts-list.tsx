@@ -11,7 +11,7 @@ import {
   type ColumnDef,
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
-import { Archive, ArchiveRestore, ArrowLeftRight, Plus, SearchX, Trash2, Wallet } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowLeftRight, Layers, Plus, SearchX, Trash2, Wallet } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -53,6 +53,7 @@ import {
 } from "@/lib/finance/bank-accounts";
 import type { BankAccountGroupRow, BankAccountRow } from "@/types/finance";
 import { BankAccountCreateDrawer } from "./bank-account-create-drawer";
+import { BankAccountGroupsDrawer } from "./bank-account-groups-drawer";
 import type { BankAccountLegalEntityOption, BankAccountVenueOption } from "./bank-account-form";
 import { BankAccountIcon } from "./bank-account-icon";
 import { bankAccountDeleteRestrictions } from "./bank-account-restrictions";
@@ -131,6 +132,7 @@ export function AccountsList({
   const [groupFilter, setGroupFilter] = useState("");
   const [showArchive, setShowArchive] = useState(openArchive && isOwner);
   const [createOpen, setCreateOpen] = useState(openCreate && canManage);
+  const [groupsOpen, setGroupsOpen] = useState(false);
   const firstPage = () => st.setPagination((p) => ({ ...p, pageIndex: 0 }));
 
   // Параметры из старых адресов нужны один раз: убираем их, чтобы обновление
@@ -145,6 +147,16 @@ export function AccountsList({
   }, [legalEntities]);
   const venueName = useMemo(() => new Map(venues.map((v) => [v.id, v.name])), [venues]);
   const groupName = useMemo(() => new Map(groups.map((g) => [g.id, g.name])), [groups]);
+  // Порядок групп задают в панели «Группы счетов» — по нему и фильтр, и
+  // сортировка столбца, а не по алфавиту.
+  const groupRank = useMemo(() => new Map(groups.map((g, i) => [g.id, i])), [groups]);
+  const accountsByGroup = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const a of accounts) {
+      if (a.group_id && !a.deleted_at) counts.set(a.group_id, (counts.get(a.group_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [accounts]);
 
   const rows: AccountView[] = useMemo(
     () =>
@@ -206,9 +218,11 @@ export function AccountsList({
     return {
       legalEntities: uniq(modeRows.map((a) => [a.legal_entity_id, a.legalEntityLabel])),
       venues: uniq(modeRows.flatMap((a) => (a.venue_id && a.venueLabel ? [[a.venue_id, a.venueLabel] as [string, string]] : []))),
-      groups: uniq(modeRows.flatMap((a) => (a.group_id && a.groupLabel ? [[a.group_id, a.groupLabel] as [string, string]] : []))),
+      groups: groups
+        .filter((g) => modeRows.some((a) => a.group_id === g.id))
+        .map((g) => ({ value: g.id, label: g.name })),
     };
-  }, [modeRows]);
+  }, [modeRows, groups]);
 
   // ── Архив, возврат, удаление ───────────────────────────────
 
@@ -412,7 +426,8 @@ export function AccountsList({
       minSize: 110,
       accessorFn: (a) => a.groupLabel ?? undefined,
       sortUndefined: "last",
-      sortingFn: (a, b) => collator.compare(a.original.groupLabel ?? "", b.original.groupLabel ?? ""),
+      sortingFn: (a, b) =>
+        (groupRank.get(a.original.group_id ?? "") ?? 0) - (groupRank.get(b.original.group_id ?? "") ?? 0),
       cell: ({ row }) =>
         row.original.groupLabel ? (
           <span className="block truncate" data-tip={row.original.groupLabel}>
@@ -592,15 +607,25 @@ export function AccountsList({
             // пуст, кнопки нет. Архив видит только владелец: возвращает и
             // удаляет счета тоже только он.
             secondaryActions={
-              isOwner && (archivedRows.length > 0 || showArchive) ? (
-                <TableIconButton
-                  label={showArchive ? "Вернуться к действующим счетам" : `Архив счетов · ${archivedRows.length}`}
-                  active={showArchive}
-                  onClick={toggleArchive}
-                >
-                  <Archive />
-                </TableIconButton>
-              ) : null
+              <>
+                {canManage && !showArchive ? (
+                  <TableIconButton
+                    label={groups.length > 0 ? `Группы счетов · ${groups.length}` : "Группы счетов"}
+                    onClick={() => setGroupsOpen(true)}
+                  >
+                    <Layers />
+                  </TableIconButton>
+                ) : null}
+                {isOwner && (archivedRows.length > 0 || showArchive) ? (
+                  <TableIconButton
+                    label={showArchive ? "Вернуться к действующим счетам" : `Архив счетов · ${archivedRows.length}`}
+                    active={showArchive}
+                    onClick={toggleArchive}
+                  >
+                    <Archive />
+                  </TableIconButton>
+                ) : null}
+              </>
             }
             primaryActions={createButton}
           />
@@ -755,6 +780,14 @@ export function AccountsList({
           venues={venues}
           groups={groups}
           defaultLegalEntityId={legalEntityFilter || null}
+        />
+      ) : null}
+      {canManage ? (
+        <BankAccountGroupsDrawer
+          open={groupsOpen}
+          onOpenChange={setGroupsOpen}
+          groups={groups}
+          accountsByGroup={accountsByGroup}
         />
       ) : null}
 

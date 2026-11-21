@@ -251,6 +251,9 @@ async function mutateTemplate(
   opts: {
     patch: (ctx: Ctx) => Record<string, unknown>;
     liveOnly: boolean; // true — только живой шаблон, false — только архивный
+    /** Требуемое состояние паузы: "paused" — на паузе, "active" — не на паузе. */
+    pauseState?: "paused" | "active";
+    emptyMessage?: string;
     actionCode: string;
   },
 ): Promise<{ error: string | null }> {
@@ -264,9 +267,11 @@ async function mutateTemplate(
     .update({ ...opts.patch(ctx), updated_by: ctx.userId, updated_at: new Date().toISOString() })
     .eq("id", id);
   query = opts.liveOnly ? query.is("archived_at", null) : query.not("archived_at", "is", null);
+  if (opts.pauseState === "paused") query = query.not("paused_at", "is", null);
+  if (opts.pauseState === "active") query = query.is("paused_at", null);
   const { data, error } = await query.select("id, name, venue_id");
   if (error) return { error: error.message };
-  if (!data || data.length === 0) return { error: TEMPLATE_GONE };
+  if (!data || data.length === 0) return { error: opts.emptyMessage ?? TEMPLATE_GONE };
 
   await writeAuditEvent({
     accountId: ctx.accountId,
@@ -285,6 +290,8 @@ export async function pauseRecurringTemplate(id: string) {
   return mutateTemplate(id, {
     patch: () => ({ paused_at: new Date().toISOString() }),
     liveOnly: true,
+    pauseState: "active",
+    emptyMessage: "Шаблон уже на паузе",
     actionCode: "finance.recurring.paused",
   });
 }
@@ -293,6 +300,8 @@ export async function resumeRecurringTemplate(id: string) {
   return mutateTemplate(id, {
     patch: (ctx) => ({ paused_at: null, materialize_from: ctx.tomorrow }),
     liveOnly: true,
+    pauseState: "paused",
+    emptyMessage: "Шаблон уже активен",
     actionCode: "finance.recurring.resumed",
   });
 }

@@ -8,12 +8,10 @@ import { listLegalEntities, listAccountVenues } from "@/lib/org/legal-entities";
 import { listBankAccounts } from "@/lib/finance/bank-accounts";
 import { listFinanceCategories } from "@/lib/finance/categories";
 import { listCounterparties } from "@/lib/finance/counterparties";
-import { listTransactions } from "@/lib/finance/transactions";
+import { fetchTransactionsPage } from "@/lib/finance/transactions-page-query";
 import { getActiveFinanceLegalEntityId } from "@/lib/finance/active-legal-entity";
-import type {
-  TransactionListFilters,
-  TransactionRow,
-} from "@/types/finance";
+import { parseTransactionQuery } from "@/lib/finance/transaction-query";
+import type { TransactionRow } from "@/types/finance";
 
 /**
  * Hard cap on rows per export — protects the server / browser from
@@ -23,19 +21,17 @@ import type {
  */
 const MAX_EXPORT_ROWS = 10_000;
 
-const ALLOWED_TYPES = new Set<TransactionRow["type"]>(["income", "expense", "transfer"]);
-
 const TYPE_LABEL: Record<TransactionRow["type"], string> = {
-  income:   "Доход",
+  income:   "Приход",
   expense:  "Расход",
   transfer: "Перевод",
 };
 
 const SOURCE_LABEL: Record<TransactionRow["source"], string> = {
   manual:     "Вручную",
-  quickresto: "QuickResto",
+  quickresto: "Quick Resto",
   import:     "Импорт",
-  bank_sync:  "Банк-синк",
+  bank_sync:  "Банк",
 };
 
 /**
@@ -67,27 +63,42 @@ export async function GET(request: Request) {
   const canSeeDeleted = can("finance.delete_transaction");
 
   const sp = new URL(request.url).searchParams;
-  const filters = parseFilters(sp, canSeeDeleted);
+  // Тот же разбор, что у страницы: несколько счетов, «Без статьи», поиск по
+  // контрагенту и сортировка дают в файле ровно строки таблицы.
+  const query = parseTransactionQuery((key) => sp.get(key), {
+    allowDeleted: canSeeDeleted,
+  });
+  const filters = query.filters;
 
   // Honour the LegalEntitySwitcher cookie like the list page does.
-  const cookieLegalEntityId = await getActiveFinanceLegalEntityId();
-  const effectiveFilters: TransactionListFilters = {
+  // Как на странице: устаревшее значение cookie не применяем.
+  const [storedLegalEntityId, { rows: knownLegalEntities }] = await Promise.all([
+    getActiveFinanceLegalEntityId(),
+    listLegalEntities(),
+  ]);
+  const cookieLegalEntityId = knownLegalEntities.some((le) => le.id === storedLegalEntityId)
+    ? storedLegalEntityId
+    : null;
+  const effectiveFilters = {
     ...filters,
     legal_entity_id: filters.legal_entity_id ?? cookieLegalEntityId ?? undefined,
   };
 
-  // Pull lookups + first page concurrently. The page fetch tells us
-  // the total; if it exceeds MAX_EXPORT_ROWS we fail fast with a
-  // helpful message so the user narrows the filter.
   const [
-    firstPage,
+    result,
     { rows: legalEntities },
     { rows: venues },
     { rows: bankAccounts },
     { rows: categories },
     { rows: counterparties },
   ] = await Promise.all([
-    listTransactions({ filters: effectiveFilters, page: 1, pageSize: 200 }),
+    // One extra row tells «too many» without counting twice.
+    fetchTransactionsPage({
+      filters: effectiveFilters,
+      sort: query.sort,
+      page: 1,
+      pageSize: MAX_EXPORT_ROWS + 1,
+    }),
     listLegalEntities(),
     listAccountVenues(),
     listBankAccounts({ include_deleted: true }),
@@ -95,36 +106,20 @@ export async function GET(request: Request) {
     listCounterparties({ include_deleted: true }),
   ]);
 
-  if (firstPage.error) {
-    return NextResponse.json({ error: firstPage.error }, { status: 500 });
+  if (result.error) {
+    return NextResponse.json({ error: "Не удалось подготовить выгрузку. Повторите позже" }, { status: 500 });
   }
 
-  if (firstPage.total > MAX_EXPORT_ROWS) {
+  if (result.total > MAX_EXPORT_ROWS) {
     return NextResponse.json(
       {
-        error: `Слишком много транзакций для одной выгрузки (${firstPage.total}). Сузьте период до ${MAX_EXPORT_ROWS}.`,
+        error: `Слишком много операций для одной выгрузки: ${result.total}. Сузьте период, чтобы осталось не больше ${MAX_EXPORT_ROWS.toLocaleString("ru-RU")}`,
       },
       { status: 413 }
     );
   }
 
-  // Pull the rest of the pages. Total ≤ 10k → at most 50 round-trips
-  // at 200 rows each. listTransactions already orders date desc,
-  // public_id desc — preserve that across pages by re-using the same
-  // filter set with bumped page numbers.
-  const allRows: TransactionRow[] = [...firstPage.rows];
-  const totalPages = Math.ceil(firstPage.total / 200);
-  for (let p = 2; p <= totalPages; p++) {
-    const { rows, error } = await listTransactions({
-      filters: effectiveFilters,
-      page: p,
-      pageSize: 200,
-    });
-    if (error) {
-      return NextResponse.json({ error }, { status: 500 });
-    }
-    allRows.push(...rows);
-  }
+  const allRows: TransactionRow[] = result.rows;
 
   // Build lookup maps for name resolution.
   const leNameById = new Map<string, string>();
@@ -140,15 +135,15 @@ export async function GET(request: Request) {
   // by doubling. Excel-RU friendly.
   const headers = [
     "Дата",
-    "№",
+    "Номер",
     "Тип",
     "Сумма",
     "Валюта",
     "Юрлицо",
     "Точка",
     "Счёт",
-    "Получатель — юрлицо",
-    "Получатель — счёт",
+    "Юрлицо поступления",
+    "Счёт поступления",
     "Статья",
     "Контрагент",
     "Источник",
@@ -215,51 +210,6 @@ export async function GET(request: Request) {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
-
-function parseFilters(
-  sp: URLSearchParams,
-  canSeeDeleted: boolean
-): TransactionListFilters {
-  const f: TransactionListFilters = {};
-
-  const type = sp.get("type");
-  if (type && ALLOWED_TYPES.has(type as TransactionRow["type"])) {
-    f.type = type as TransactionRow["type"];
-  }
-
-  const map: Array<[keyof TransactionListFilters, string]> = [
-    ["legal_entity_id", "legal_entity_id"],
-    ["venue_id",        "venue_id"],
-    ["bank_account_id", "bank_account_id"],
-    ["category_id",     "category_id"],
-    ["counterparty_id", "counterparty_id"],
-    ["date_from",       "date_from"],
-    ["date_to",         "date_to"],
-  ];
-  for (const [target, source] of map) {
-    const v = sp.get(source);
-    if (v) (f as Record<string, unknown>)[target] = v;
-  }
-
-  const min = sp.get("amount_min");
-  if (min) {
-    const n = Number(min);
-    if (Number.isFinite(n)) f.amount_min = n;
-  }
-  const max = sp.get("amount_max");
-  if (max) {
-    const n = Number(max);
-    if (Number.isFinite(n)) f.amount_max = n;
-  }
-  const q = sp.get("q");
-  if (q && q.trim()) f.q = q.trim();
-
-  if (canSeeDeleted) {
-    const inc = sp.get("include_deleted");
-    if (inc === "1" || inc === "true") f.include_deleted = true;
-  }
-  return f;
-}
 
 function csvCell(value: string): string {
   // CSV/Excel formula injection: Excel and Google Sheets evaluate any

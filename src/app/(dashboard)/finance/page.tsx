@@ -294,7 +294,7 @@ export default async function FinanceDashboardPage({
                 {recent.map((tx) => (
                   <li key={tx.id}>
                     <Link
-                      href={`/finance/transactions/${tx.id}`}
+                      href={`/finance/transactions?id=${tx.id}`}
                       className="flex items-center justify-between gap-3 px-3 py-2 hover:bg-accent transition-colors"
                     >
                       <div className="flex items-center gap-2 min-w-0">

@@ -20,6 +20,9 @@ type TableControlPinProps = {
   align?: "start" | "center" | "end";
   className?: string;
   contentClassName?: string;
+  /** Управляемое открытие: чтобы закрыть окно после «Применить». */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 };
 
 export function TableControlPin({
@@ -32,9 +35,11 @@ export function TableControlPin({
   align = "start",
   className,
   contentClassName,
+  open,
+  onOpenChange,
 }: TableControlPinProps) {
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={onOpenChange}>
       <div className="relative inline-flex">
         <PopoverTrigger asChild>
           <button

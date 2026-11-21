@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
 
-// Transaction detail is now shown via the edit drawer on the list page.
-// Permalink redirect — historical share links keep working.
+// Операция открывается панелью на странице списка. Старые ссылки
+// /finance/transactions/<id> ведут туда же и открывают эту операцию.
 export default async function TransactionDetailRedirect({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await params;
-  redirect("/finance/transactions");
+  const { id } = await params;
+  redirect(`/finance/transactions?id=${encodeURIComponent(id)}`);
 }

@@ -1,156 +1,189 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useTransition,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { toast } from "sonner";
+import {
+  getCoreRowModel,
+  useReactTable,
+  type ColumnDef,
+  type RowSelectionState,
+  type SortingState,
+} from "@tanstack/react-table";
+import { arrayMove } from "@dnd-kit/sortable";
 import {
   ArrowLeftRight,
-  Building2,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
+  Copy,
   Download,
-  FileX2,
-  Inbox,
   Loader2,
   Minus,
+  Paperclip,
+  PencilLine,
   Plus,
-  Search,
+  RotateCcw,
+  SearchX,
   Trash2,
   Wallet,
-  X,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { buttonVariants } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { cn } from "@/lib/utils";
-import type { AmountRoundingScale } from "@/lib/format/amount";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { DateRangeFilter, type DateRangeValue } from "@/components/shared/date-range-filter";
+import { PageFrame } from "@/components/shared/page-frame";
+import {
+  DataTable,
+  ROW_MENU_COLUMN_SIZE,
+  TableBulkBar,
+  TableColumnManager,
+  TableConditions,
+  TableControls,
+  TableFilterChip,
+  TableIconButton,
+  TablePageHeader,
+  TablePagination,
+  TableRowMenu,
+  TableSortPicker,
+  useTableState,
+  type TableRowMenuAction,
+} from "@/components/shared/table";
+import { setActiveFinanceLegalEntityId } from "@/lib/finance/active-legal-entity";
 import {
   getTransaction,
+  restoreTransaction,
   softDeleteTransaction,
 } from "@/lib/finance/transactions";
+import type { QueryTransactionsResult } from "@/lib/finance/transactions-page-query";
+import {
+  NO_CATEGORY,
+  NO_COUNTERPARTY,
+  NO_VENUE,
+  hasTransactionFilters,
+  type TransactionQuery,
+  type TransactionSortField,
+} from "@/lib/finance/transaction-query";
+import { formatDateCell } from "@/lib/format/date";
+import { formatAmount, type AmountRoundingScale } from "@/lib/format/amount";
+import { countRu } from "@/lib/format/plural";
+import { cn } from "@/lib/utils";
 import type {
-  BankAccountGroupRow,
   BankAccountRow,
-  CounterpartyGroupRow,
   CounterpartyRow,
-  FinanceCategoryGroupRow,
   FinanceCategoryRow,
-  TransactionListFilters,
   TransactionRow,
 } from "@/types/finance";
 import type { AccountVenueRow, LegalEntityRow } from "@/lib/org/legal-entities";
 
 import { AmountRangeFilter } from "./filters/amount-range-filter";
+import { BulkEditDialog } from "./bulk-edit-dialog";
+import { TransactionFormSheet, type FormMode } from "./transaction-form-sheet";
 import {
-  DateRangeFilter,
-  type DateRangeValue,
-} from "@/components/shared/date-range-filter";
+  AccountCell,
+  CategoryCell,
+  DescriptionText,
+  TxAmount,
+  currencySymbol,
+  signedTxAmount,
+} from "./transaction-cells";
 import {
-  MultiSelectFilter,
-  type MultiSelectGroup,
-  type MultiSelectItem,
-} from "./filters/multi-select-filter";
-import { TransactionFormSheet } from "./transaction-form-sheet";
-import {
-  formatCurrency,
-  formatShortAmount,
-  linkifyParts,
-  splitDateTime,
-} from "../_lib/utils";
-
-const FILTERS_VISIBLE_STORAGE_KEY = "transactions.filters-visible";
-const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
-
-const NO_CATEGORY_ID = "__no-category__";
-const NO_COUNTERPARTY_ID = "__no-counterparty__";
+  SOURCE_LABEL,
+  TYPE_LABEL,
+  canEditTransaction,
+  type TransactionPermissions,
+} from "../_lib/labels";
 
 const SEARCH_DEBOUNCE_MS = 350;
+const UNDO_WINDOW_MS = 15_000;
+
+type ColKey =
+  | "date"
+  | "amount"
+  | "category"
+  | "description"
+  | "counterparty"
+  | "account"
+  | "venue"
+  | "legal_entity"
+  | "source"
+  | "number"
+  | "created";
+
+const labels: Record<ColKey, string> = {
+  date: "Дата",
+  amount: "Сумма",
+  category: "Статья",
+  description: "Описание",
+  counterparty: "Контрагент",
+  account: "Счёт",
+  venue: "Заведение",
+  legal_entity: "Юрлицо",
+  source: "Источник",
+  number: "Номер",
+  created: "Создана",
+};
+
+// Стабильная ссылка вне компонента: useTableState пересчитывает умолчания по ней.
+const columnConfig = [
+  { id: "date", defaultSize: 120 },
+  { id: "amount", defaultSize: 150 },
+  { id: "category", defaultSize: 200 },
+  { id: "description", defaultSize: 280 },
+  { id: "counterparty", defaultSize: 200 },
+  { id: "account", defaultSize: 230 },
+  { id: "venue", defaultSize: 160, defaultVisible: false },
+  { id: "legal_entity", defaultSize: 170, defaultVisible: false },
+  { id: "source", defaultSize: 130, defaultVisible: false },
+  { id: "number", defaultSize: 100, defaultVisible: false },
+  { id: "created", defaultSize: 120, defaultVisible: false },
+  { id: "actions", defaultSize: ROW_MENU_COLUMN_SIZE },
+];
+
+/** Столбец → поле сортировки на сервере (`finance_transactions_page`). */
+const sortFields: TransactionSortField[] = ["date", "amount", "category", "counterparty", "account"];
+
+const collator = new Intl.Collator("ru", { sensitivity: "base", numeric: true });
 
 type Props = {
-  initialTransactions: TransactionRow[];
-  /** Total count from the server matching current filters (for pagination). */
-  total: number;
-  /** Current 1-based page from URL (already clamped server-side). */
-  page: number;
-  /** Current page size from URL (one of PAGE_SIZE_OPTIONS). */
-  pageSize: number;
-  activeLegalEntityIdFromCookie: string | null;
-  /** Filters parsed server-side from URL — drives initial render and external sync. */
-  filtersFromUrl: TransactionListFilters;
-  /** Date preset label persisted in URL — restores button label after navigation. */
-  datePresetFromUrl: string | null;
+  result: QueryTransactionsResult;
+  query: TransactionQuery;
+  cookieLegalEntityId: string | null;
   legalEntities: LegalEntityRow[];
-  /** Reserved for a future venue filter chip. */
-  venues: AccountVenueRow[];
+  /** Все счета, статьи и контрагенты — включая архивные (для подписей старых строк). */
   bankAccounts: BankAccountRow[];
-  bankAccountGroups: BankAccountGroupRow[];
   categories: FinanceCategoryRow[];
-  categoryGroups: FinanceCategoryGroupRow[];
   counterparties: CounterpartyRow[];
-  counterpartyGroups: CounterpartyGroupRow[];
-  canCreate: boolean;
-  canDelete: boolean;
-  canExport: boolean;
+  /** Действующие заведения аккаунта. */
+  venues: AccountVenueRow[];
+  activeVenueId: string | null;
+  permissions: TransactionPermissions;
+  currentUserId: string | null;
   amountRoundingScale: AmountRoundingScale;
 };
 
-type FormMode =
-  | { kind: "closed" }
-  | { kind: "create"; type: TransactionRow["type"] }
-  | { kind: "edit"; transaction: TransactionRow };
+/** Строка списка: операция и число её файлов (`finance_transactions_page`). */
+type ListRow = TransactionRow & { attachments_count?: number };
 
 export function TransactionsPage({
-  initialTransactions,
-  total,
-  page,
-  pageSize,
-  activeLegalEntityIdFromCookie,
-  filtersFromUrl,
-  datePresetFromUrl,
+  result,
+  query,
+  cookieLegalEntityId,
   legalEntities,
   bankAccounts,
-  bankAccountGroups,
   categories,
-  categoryGroups,
   counterparties,
-  counterpartyGroups,
-  canCreate,
-  canDelete,
-  canExport,
+  venues,
+  activeVenueId,
+  permissions,
+  currentUserId,
   amountRoundingScale,
 }: Props) {
   const router = useRouter();
@@ -158,1353 +191,1207 @@ export function TransactionsPage({
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
 
-  const transactions = initialTransactions;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const fromIndex = total === 0 ? 0 : (page - 1) * pageSize + 1;
-  const toIndex = Math.min(page * pageSize, total);
+  const { filters } = query;
+  const deletedMode = !!filters.deleted;
+  const rows = result.rows as ListRow[];
 
-  // ─── URL helpers ──────────────────────────────────────────────────────────
+  // ─── Адрес — источник условий ─────────────────────────────────────────────
 
+  const pushParams = useCallback(
+    (params: URLSearchParams) => {
+      const qs = params.toString();
+      startTransition(() => {
+        router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+      });
+    },
+    [pathname, router],
+  );
+
+  // Адрес, который уже отправлен, но ещё не пришёл в searchParams: два
+  // быстрых изменения подряд (поиск с задержкой и клик по чипу) иначе
+  // строились бы от одного старого адреса, и второе стирало бы первое.
+  const pendingQs = useRef<string | null>(null);
+  const currentQs = searchParams.toString();
+  useEffect(() => {
+    pendingQs.current = null;
+  }, [currentQs]);
+
+  /** Любая смена условий возвращает на первую страницу; смена страницы — нет. */
   const updateUrl = useCallback(
     (updates: Record<string, string | null>) => {
-      const params = new URLSearchParams(searchParams.toString());
+      const params = new URLSearchParams(pendingQs.current ?? currentQs);
       for (const [key, value] of Object.entries(updates)) {
         if (value === null || value === "") params.delete(key);
         else params.set(key, value);
       }
-      // Filter changes invalidate page indices — reset to page 1 unless the
-      // caller is the one toggling page itself.
-      const onlyPaging = Object.keys(updates).every(
-        (k) => k === "page" || k === "size",
-      );
-      if (!onlyPaging) params.delete("page");
-      const qs = params.toString();
-      startTransition(() => {
-        router.push(qs ? `${pathname}?${qs}` : pathname);
-      });
+      if (!("page" in updates)) params.delete("page");
+      params.delete("id");
+      pendingQs.current = params.toString();
+      pushParams(params);
     },
-    [searchParams, pathname, router],
+    [pushParams, currentQs],
   );
 
-  // ─── Filter values derived from URL ───────────────────────────────────────
+  // ─── Поиск: черновик в поле, в адрес — с задержкой ────────────────────────
 
-  // Type
-  const typeValue = (filtersFromUrl.type ?? "all") as
-    "all" | TransactionRow["type"];
-
-  // Date range + preset
-  const dateRange: DateRangeValue = useMemo(
-    () => ({
-      start: filtersFromUrl.date_from
-        ? new Date(filtersFromUrl.date_from)
-        : null,
-      end: filtersFromUrl.date_to ? new Date(filtersFromUrl.date_to) : null,
-    }),
-    [filtersFromUrl.date_from, filtersFromUrl.date_to],
-  );
-
-  // Multi-select arrays — sentinels reattached for UI display (not in
-  // filtersFromUrl.category_id which only carries real ids).
-  const accountIds = useMemo(
-    () => normaliseToArray(filtersFromUrl.bank_account_id),
-    [filtersFromUrl.bank_account_id],
-  );
-
-  const categoryIds = useMemo(() => {
-    const real = normaliseToArray(filtersFromUrl.category_id);
-    return filtersFromUrl.category_include_none
-      ? [NO_CATEGORY_ID, ...real]
-      : real;
-  }, [filtersFromUrl.category_id, filtersFromUrl.category_include_none]);
-
-  const counterpartyIds = useMemo(() => {
-    const real = normaliseToArray(filtersFromUrl.counterparty_id);
-    return filtersFromUrl.counterparty_include_none
-      ? [NO_COUNTERPARTY_ID, ...real]
-      : real;
-  }, [
-    filtersFromUrl.counterparty_id,
-    filtersFromUrl.counterparty_include_none,
-  ]);
-
-  const amountRange = useMemo(
-    () => ({
-      min: filtersFromUrl.amount_min ?? null,
-      max: filtersFromUrl.amount_max ?? null,
-    }),
-    [filtersFromUrl.amount_min, filtersFromUrl.amount_max],
-  );
-
-  // Search has its own draft state for typing UX, debounced into URL.
-  const urlQ = filtersFromUrl.q ?? "";
+  const urlQ = filters.q ?? "";
   const [searchDraft, setSearchDraft] = useState(urlQ);
-  const [searchExpanded, setSearchExpanded] = useState(!!urlQ);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
-  // External URL change (e.g. user clicks chip-clear) → re-sync draft.
+  const [searchOpen, setSearchOpen] = useState(!!urlQ);
+  const lastPushedQ = useRef(urlQ);
   useEffect(() => {
-    setSearchDraft(urlQ);
+    // Адрес поменялся снаружи («Очистить все», чип поиска) — поле за ним.
+    if (urlQ !== lastPushedQ.current) {
+      lastPushedQ.current = urlQ;
+      setSearchDraft(urlQ);
+    }
   }, [urlQ]);
-
-  // Debounced push to URL.
   useEffect(() => {
-    if (searchDraft === urlQ) return;
-    const t = setTimeout(() => {
-      updateUrl({ q: searchDraft.trim() || null });
+    const next = searchDraft.trim();
+    if (next === lastPushedQ.current) return;
+    const timer = setTimeout(() => {
+      lastPushedQ.current = next;
+      updateUrl({ q: next || null });
     }, SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchDraft]);
+    return () => clearTimeout(timer);
+  }, [searchDraft, updateUrl]);
+  const clearSearch = () => {
+    setSearchDraft("");
+    lastPushedQ.current = "";
+    updateUrl({ q: null });
+  };
 
-  // Filter-panel visibility — local UX, persisted via localStorage.
-  const [filtersVisible, setFiltersVisible] = useState(true);
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(FILTERS_VISIBLE_STORAGE_KEY);
-      if (stored !== null) setFiltersVisible(stored === "true");
-    } catch {
-      // private mode etc — keep default.
-    }
-  }, []);
-  const toggleFiltersVisibility = useCallback(() => {
-    setFiltersVisible((v) => {
-      const next = !v;
-      try {
-        window.localStorage.setItem(FILTERS_VISIBLE_STORAGE_KEY, String(next));
-      } catch {
-        /* see useEffect above */
-      }
-      return next;
-    });
-  }, []);
+  // ─── Справочники ──────────────────────────────────────────────────────────
 
-  // ─── Selection (client-only — doesn't persist across pages) ──────────────
-
-  const [selected, setSelected] = useState<string[]>([]);
-  const selectedSet = useMemo(() => new Set(selected), [selected]);
-
-  // Reset selection when transaction list changes (page nav, filter change).
-  // Stale ids could otherwise trigger bulk operations on rows the user
-  // doesn't see anymore.
-  const transactionIdsKey = useMemo(
-    () => transactions.map((t) => t.id).join(","),
-    [transactions],
+  const accountById = useMemo(() => new Map(bankAccounts.map((b) => [b.id, b])), [bankAccounts]);
+  const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
+  const counterpartyById = useMemo(
+    () => new Map(counterparties.map((c) => [c.id, c])),
+    [counterparties],
   );
-  useEffect(() => {
-    setSelected([]);
-  }, [transactionIdsKey]);
+  const legalEntityName = useCallback(
+    (id: string | null | undefined) => {
+      const le = id ? legalEntities.find((l) => l.id === id) : null;
+      return le ? (le.short_name ?? le.name) : null;
+    },
+    [legalEntities],
+  );
+  const accountName = useCallback(
+    (id: string | null) => (id ? (accountById.get(id)?.name ?? null) : null),
+    [accountById],
+  );
 
-  const allOnPageSelected =
-    transactions.length > 0 &&
-    transactions.every((tx) => selectedSet.has(tx.id));
-  const someOnPageSelected = selected.length > 0 && !allOnPageSelected;
+  const venueName = useCallback(
+    (id: string | null) => (id ? (venues.find((v) => v.id === id)?.name ?? "Другое заведение") : null),
+    [venues],
+  );
+  // В форме — заведения, операции которых пользователь увидит после
+  // сохранения: без view_all_venues это только активное.
+  const formVenues = useMemo(
+    () => (permissions.viewAllVenues ? venues : venues.filter((v) => v.id === activeVenueId)),
+    [activeVenueId, permissions.viewAllVenues, venues],
+  );
+  const venueOptions = useMemo(
+    () => [
+      { value: "", label: "Все заведения" },
+      ...venues
+        .slice()
+        .sort((a, b) => collator.compare(a.name, b.name))
+        .map((v) => ({ value: v.id, label: v.name })),
+      { value: NO_VENUE, label: "Без заведения" },
+    ],
+    [venues],
+  );
 
-  const toggleAllOnPage = () => {
-    if (allOnPageSelected) setSelected([]);
-    else setSelected(transactions.map((tx) => tx.id));
-  };
+  const activeAccounts = useMemo(() => bankAccounts.filter((b) => !b.deleted_at), [bankAccounts]);
 
-  const toggleOne = (id: string) => {
-    setSelected((s) =>
-      s.includes(id) ? s.filter((x) => x !== id) : [...s, id],
-    );
-  };
+  // ─── Условия ──────────────────────────────────────────────────────────────
 
-  const allSelectedSameType = useMemo(() => {
-    if (selected.length <= 1) return true;
-    const types = new Set(
-      transactions.filter((t) => selectedSet.has(t.id)).map((t) => t.type),
-    );
-    return types.size === 1;
-  }, [selected.length, selectedSet, transactions]);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const effectiveLegalEntityId = filters.legal_entity_id ?? cookieLegalEntityId ?? "";
+  const showLegalEntityFilter = legalEntities.length >= 2;
+  const hasFilters =
+    hasTransactionFilters(filters) || (showLegalEntityFilter && !!effectiveLegalEntityId);
+  const isFiltered = hasFilters || !!urlQ;
 
-  const selectedTotal = useMemo(() => {
-    return transactions
-      .filter((t) => selectedSet.has(t.id))
-      .reduce((sum, t) => sum + Number(t.amount), 0);
-  }, [selectedSet, transactions]);
+  const sorting: SortingState = useMemo(
+    () =>
+      query.sort.map((mode) => {
+        const [field, direction] = mode.split("_");
+        return { id: field, desc: direction === "desc" };
+      }),
+    [query.sort],
+  );
+  const changeSorting = (next: SortingState) =>
+    updateUrl({
+      sort: next.length ? next.map((s) => `${s.id}_${s.desc ? "desc" : "asc"}`).join(",") : null,
+    });
 
-  // ─── Bulk delete ──────────────────────────────────────────────────────────
-
-  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
-  const [bulkDeleting, setBulkDeleting] = useState(false);
-
-  const performBulkDelete = async () => {
-    setBulkDeleting(true);
-    const toDelete = [...selected];
-    let failed = 0;
-    for (const id of toDelete) {
-      const { error } = await softDeleteTransaction(id);
-      if (error) failed++;
+  const changeLegalEntity = async (next: string) => {
+    // Юрлицо — общее для раздела «Финансы» (его же помнят дашборд и счета),
+    // поэтому выбор пишется туда, а не только в адрес этой страницы.
+    const { error } = await setActiveFinanceLegalEntityId(next || null);
+    if (error) {
+      toast.error(error);
+      return;
     }
-    setBulkDeleting(false);
-    setConfirmBulkDelete(false);
-    setSelected([]);
-    if (failed > 0) {
-      toast.error(`Не удалось удалить ${failed} из ${toDelete.length}`);
-    } else {
-      toast.success(`Удалено: ${toDelete.length}`);
-    }
+    updateUrl({ legal_entity_id: null });
     router.refresh();
   };
 
-  // ─── Quick lookups ────────────────────────────────────────────────────────
-
-  const accountById = useMemo(
-    () => new Map(bankAccounts.map((b) => [b.id, b] as const)),
-    [bankAccounts],
-  );
-  const categoryById = useMemo(
-    () => new Map(categories.map((c) => [c.id, c] as const)),
-    [categories],
-  );
-  const counterpartyById = useMemo(
-    () => new Map(counterparties.map((c) => [c.id, c] as const)),
-    [counterparties],
-  );
-
-  // ─── Filter dropdown source data ──────────────────────────────────────────
-
-  const accountFilterItems: MultiSelectItem[] = useMemo(
-    () =>
-      bankAccounts.map((b) => ({
-        id: b.id,
-        name: b.name,
-        groupId: b.group_id,
-      })),
-    [bankAccounts],
-  );
-  const accountFilterGroups: MultiSelectGroup[] = useMemo(
-    () => bankAccountGroups.map((g) => ({ id: g.id, name: g.name })),
-    [bankAccountGroups],
-  );
-
-  const categoryFilterItems: MultiSelectItem[] = useMemo(
-    () => [
-      { id: NO_CATEGORY_ID, name: "Без статьи", special: true },
-      ...categories.map((c) => ({
-        id: c.id,
-        name: c.name,
-        groupId: c.group_id,
-      })),
-    ],
-    [categories],
-  );
-  const categoryFilterGroups: MultiSelectGroup[] = useMemo(
-    () => categoryGroups.map((g) => ({ id: g.id, name: g.name })),
-    [categoryGroups],
-  );
-
-  const counterpartyFilterItems: MultiSelectItem[] = useMemo(
-    () => [
-      { id: NO_COUNTERPARTY_ID, name: "Без контрагента", special: true },
-      ...counterparties.map((c) => ({
-        id: c.id,
-        name: c.name,
-        groupId: c.group_id,
-      })),
-    ],
-    [counterparties],
-  );
-  const counterpartyFilterGroups: MultiSelectGroup[] = useMemo(
-    () => counterpartyGroups.map((g) => ({ id: g.id, name: g.name })),
-    [counterpartyGroups],
-  );
-
-  // ─── Active filter count + reset ──────────────────────────────────────────
-
-  const activeFilterCount = useMemo(() => {
-    let c = 0;
-    if (filtersFromUrl.date_from || filtersFromUrl.date_to) c++;
-    if (filtersFromUrl.type) c++;
-    if (accountIds.length > 0) c++;
-    if (categoryIds.length > 0) c++;
-    if (counterpartyIds.length > 0) c++;
-    if (
-      filtersFromUrl.amount_min !== undefined ||
-      filtersFromUrl.amount_max !== undefined
-    )
-      c++;
-    return c;
-  }, [filtersFromUrl, accountIds, categoryIds, counterpartyIds]);
-
-  const hasAnyActiveFilter = activeFilterCount > 0 || urlQ !== "";
-
-  const resetAllFilters = () => {
-    // Keep page-size preference; drop everything else.
-    const keep = searchParams.get("size");
+  const resetConditions = async () => {
+    setSearchDraft("");
+    lastPushedQ.current = "";
+    if (cookieLegalEntityId) await setActiveFinanceLegalEntityId(null);
     const params = new URLSearchParams();
+    const keep = searchParams.get("size");
     if (keep) params.set("size", keep);
-    const qs = params.toString();
-    startTransition(() => {
-      router.push(qs ? `${pathname}?${qs}` : pathname);
-    });
+    if (deletedMode) params.set("deleted", "1");
+    pendingQs.current = params.toString();
+    pushParams(params);
+    if (cookieLegalEntityId) router.refresh();
   };
 
-  const expandPeriodToYear = () => {
-    const y = new Date().getFullYear();
-    updateUrl({
-      date_from: toIsoDate(new Date(y, 0, 1)),
-      date_to: toIsoDate(new Date(y, 11, 31)),
-      date_preset: "Текущий год",
-    });
-  };
+  const dateRange: DateRangeValue = useMemo(
+    () => ({
+      start: filters.date_from ? parseLocalDate(filters.date_from) : null,
+      end: filters.date_to ? parseLocalDate(filters.date_to) : null,
+    }),
+    [filters.date_from, filters.date_to],
+  );
 
-  // ─── Form drawer (create/edit) — client-only state ────────────────────────
+  const categoryValue = [
+    ...(filters.category_none ? [NO_CATEGORY] : []),
+    ...(filters.category_ids ?? []),
+  ];
+  const counterpartyValue = [
+    ...(filters.counterparty_none ? [NO_COUNTERPARTY] : []),
+    ...(filters.counterparty_ids ?? []),
+  ];
+
+  // В вариантах фильтра — действующие записи и уже выбранные архивные.
+  const accountOptions = useMemo(
+    () =>
+      bankAccounts
+        .filter((b) => !b.deleted_at || filters.bank_account_ids?.includes(b.id))
+        .sort((a, b) => collator.compare(a.name, b.name))
+        .map((b) => ({ value: b.id, label: b.name })),
+    [bankAccounts, filters.bank_account_ids],
+  );
+  const categoryOptions = useMemo(
+    () => [
+      { value: NO_CATEGORY, label: "Без статьи" },
+      ...categories
+        .filter((c) => !c.archived_at || filters.category_ids?.includes(c.id))
+        .filter((c) => !filters.type || filters.type === "transfer" || c.type === filters.type)
+        .sort((a, b) => collator.compare(a.name, b.name))
+        .map((c) => ({ value: c.id, label: c.name })),
+    ],
+    [categories, filters.category_ids, filters.type],
+  );
+  const counterpartyOptions = useMemo(
+    () => [
+      { value: NO_COUNTERPARTY, label: "Без контрагента" },
+      ...counterparties
+        .filter((c) => !c.deleted_at || filters.counterparty_ids?.includes(c.id))
+        .sort((a, b) => collator.compare(a.name, b.name))
+        .map((c) => ({ value: c.id, label: c.name })),
+    ],
+    [counterparties, filters.counterparty_ids],
+  );
+  const legalEntityOptions = useMemo(
+    () => [
+      { value: "", label: "Все юрлица" },
+      ...legalEntities.map((le) => ({ value: le.id, label: le.short_name ?? le.name })),
+    ],
+    [legalEntities],
+  );
+
+  const splitIds = (ids: string[], none: string) => ({
+    ids: ids.filter((id) => id !== none),
+    none: ids.includes(none),
+  });
+
+  // ─── Выбор строк ──────────────────────────────────────────────────────────
+
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [selectionRows, setSelectionRows] = useState(rows);
+  if (selectionRows !== rows) {
+    // Новая страница или условия — выбор с невидимых строк не тянем.
+    setSelectionRows(rows);
+    setRowSelection({});
+  }
+  const selected = rows.filter((tx) => rowSelection[tx.id]);
+  const selectedIncome = selected
+    .filter((tx) => tx.type === "income")
+    .reduce((sum, tx) => sum + Number(tx.amount), 0);
+  const selectedMixedCurrency = new Set(selected.map((tx) => tx.currency)).size > 1;
+  const selectedExpense = selected
+    .filter((tx) => tx.type === "expense")
+    .reduce((sum, tx) => sum + Number(tx.amount), 0);
+
+  // ─── Панель операции ──────────────────────────────────────────────────────
 
   const [formMode, setFormMode] = useState<FormMode>({ kind: "closed" });
-  const [prefill, setPrefill] = useState<TransactionRow | null>(null);
-  const [createMenuOpen, setCreateMenuOpen] = useState(false);
 
-  const linkedTransactionId = searchParams.get("id");
-  const openedTransactionId = useRef<string | null>(null);
+  const linkedId = searchParams.get("id");
+  const openedLinkedId = useRef<string | null>(null);
   useEffect(() => {
-    if (
-      !linkedTransactionId ||
-      openedTransactionId.current === linkedTransactionId
-    )
-      return;
+    if (!linkedId || openedLinkedId.current === linkedId) return;
     let active = true;
-    getTransaction(linkedTransactionId)
+    // Ссылки из журнала событий, зарплаты и поставок: ?id=<операция>.
+    // Удалённая операция тоже открывается — в ней можно её восстановить.
+    // Отметка «открыта» — только после ответа: эффект, прерванный до него
+    // (повторный запуск в dev, быстрый переход), иначе потерял бы ссылку.
+    getTransaction(linkedId)
       .then(({ row, error }) => {
         if (!active) return;
-        openedTransactionId.current = linkedTransactionId;
+        openedLinkedId.current = linkedId;
         if (error || !row) {
-          toast.error("Транзакция недоступна");
+          toast.error("Операция недоступна: её нет или у вас нет к ней доступа");
           return;
         }
         setFormMode({ kind: "edit", transaction: row });
       })
       .catch(() => {
-        if (active) toast.error("Не удалось открыть транзакцию");
+        if (active) toast.error("Не удалось открыть операцию");
       });
     return () => {
       active = false;
     };
-  }, [linkedTransactionId]);
+  }, [linkedId]);
 
-  const openCreate = (type: TransactionRow["type"]) => {
-    setCreateMenuOpen(false);
-    if (type === "transfer" && bankAccounts.length < 2) {
-      toast.error(
-        "Для создания перевода необходимо иметь как минимум два счёта",
+  const closeForm = () => {
+    setFormMode({ kind: "closed" });
+    if (linkedId) {
+      openedLinkedId.current = null;
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("id");
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    }
+  };
+
+  const transferBlocked = activeAccounts.length < 2;
+  // Новая операция берёт счёт из текущих условий: выбранный в фильтре или
+  // первый счёт выбранного юрлица.
+  const preferredAccountId =
+    filters.bank_account_ids?.find((id) => activeAccounts.some((a) => a.id === id)) ??
+    (effectiveLegalEntityId
+      ? activeAccounts.find((a) => a.legal_entity_id === effectiveLegalEntityId)?.id
+      : undefined);
+  const openCreate = (type: TransactionRow["type"]) => setFormMode({ kind: "create", type });
+  const openCopy = (tx: TransactionRow) =>
+    setFormMode({ kind: "create", type: tx.type, copyOf: tx });
+
+  // ─── Массовая правка ──────────────────────────────────────────────────────
+
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const canEditAny = permissions.updateAny || permissions.updateOwn;
+
+  // ─── Удаление и восстановление ────────────────────────────────────────────
+
+  const [deleteTarget, setDeleteTarget] = useState<TransactionRow[] | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const restoreMany = async (ids: string[]) => {
+    let failed = 0;
+    let lastError = "";
+    for (const id of ids) {
+      const { error } = await restoreTransaction(id);
+      if (error) {
+        failed++;
+        lastError = error;
+      }
+    }
+    if (failed === ids.length) toast.error(lastError || "Не удалось восстановить");
+    else if (failed > 0)
+      toast.error(`Восстановлено ${ids.length - failed} из ${ids.length}. ${lastError}`);
+    else
+      toast.success(
+        ids.length === 1
+          ? "Операция восстановлена"
+          : `Восстановлено: ${countRu(ids.length, "операция", "операции", "операций")}`,
       );
+    setRowSelection({});
+    router.refresh();
+  };
+
+  const notifyDeleted = (ids: string[]) =>
+    toast(
+      ids.length === 1
+        ? "Операция удалена"
+        : `Удалено: ${countRu(ids.length, "операция", "операции", "операций")}`,
+      {
+        duration: UNDO_WINDOW_MS,
+        action: { label: "Отменить", onClick: () => void restoreMany(ids) },
+      },
+    );
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    const done: string[] = [];
+    let lastError = "";
+    for (const tx of deleteTarget) {
+      const { error } = await softDeleteTransaction(tx.id).catch(() => ({
+        error: "Нет связи с сервером. Проверьте соединение и повторите",
+      }));
+      if (error) lastError = error;
+      else done.push(tx.id);
+    }
+    setDeleteBusy(false);
+    if (done.length === 0) {
+      setDeleteError(lastError || "Не удалось удалить");
       return;
     }
-    // No accounts at all → still open the form; bank-account picker has
-    // an inline-create affordance that onboards the user without
-    // bouncing them to /finance/accounts.
-    setFormMode({ kind: "create", type });
+    if (done.length < deleteTarget.length) {
+      // Часть удалилась: остальное оставляем в диалоге с причиной.
+      setDeleteTarget(deleteTarget.filter((tx) => !done.includes(tx.id)));
+      setDeleteError(
+        `Удалено ${done.length} из ${done.length + deleteTarget.length - done.length}. Остальные: ${lastError}`,
+      );
+      router.refresh();
+      return;
+    }
+    setDeleteTarget(null);
+    setRowSelection({});
+    notifyDeleted(done);
+    router.refresh();
   };
 
-  const openEdit = (tx: TransactionRow) => {
-    setFormMode({ kind: "edit", transaction: tx });
+  // ─── Выгрузка ─────────────────────────────────────────────────────────────
+
+  const [exporting, setExporting] = useState(false);
+  const runExport = async () => {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const key of ["page", "size", "id", "date_preset"]) params.delete(key);
+    setExporting(true);
+    try {
+      const response = await fetch(`/api/finance/transactions/export?${params.toString()}`);
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string } | null;
+        toast.error(body?.error ?? "Не удалось выгрузить операции. Повторите позже");
+        return;
+      }
+      const blob = await response.blob();
+      const name =
+        /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") ?? "")?.[1] ??
+        "transactions.csv";
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Нет связи с сервером. Проверьте соединение и повторите");
+    } finally {
+      setExporting(false);
+    }
   };
 
-  const handleCopyOne = () => {
-    if (selected.length !== 1) return;
-    const tx = transactions.find((t) => t.id === selected[0]);
-    if (!tx) return;
-    setPrefill({
-      ...tx,
-      description: tx.description ? `Копия: ${tx.description}` : "Копия",
-    });
-    setFormMode({ kind: "create", type: tx.type });
+  // ─── Таблица ──────────────────────────────────────────────────────────────
+
+  const st = useTableState({ tableId: "finance.transactions", columns: columnConfig });
+
+  const rowMenu = (tx: TransactionRow): TableRowMenuAction[] => {
+    if (tx.deleted_at)
+      return permissions.delete
+        ? [{ label: "Восстановить", icon: <RotateCcw />, onSelect: () => void restoreMany([tx.id]) }]
+        : [];
+    return [
+      ...(permissions.create && !(tx.type === "transfer" && transferBlocked)
+        ? [{ label: "Копировать", icon: <Copy />, onSelect: () => openCopy(tx) }]
+        : []),
+      ...(permissions.delete
+        ? [
+            {
+              label: "Удалить",
+              icon: <Trash2 />,
+              destructive: true,
+              separatorBefore: permissions.create,
+              onSelect: () => {
+                setDeleteError(null);
+                setDeleteTarget([tx]);
+              },
+            },
+          ]
+        : []),
+    ];
   };
+  const hasMenu = deletedMode ? permissions.delete : permissions.create || permissions.delete;
 
-  // ─── Cookie-LE notice ─────────────────────────────────────────────────────
+  const columns: ColumnDef<ListRow>[] = [
+    {
+      id: "select",
+      size: 44,
+      minSize: 44,
+      maxSize: 44,
+      enableHiding: false,
+      enableResizing: false,
+      enableSorting: false,
+      cell: ({ row }) => (
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={(v) => row.toggleSelected(v === true)}
+          aria-label={`Выбрать операцию от ${formatDateCell(row.original.date)}`}
+          className="align-middle"
+        />
+      ),
+    },
+    {
+      id: "date",
+      header: labels.date,
+      size: 120,
+      minSize: 100,
+      enableHiding: false,
+      cell: ({ row }) => (
+        // Настоящая кнопка в первой ячейке: строку можно открыть с клавиатуры.
+        <button
+          type="button"
+          className="tabular-nums hover:underline"
+          onClick={() => setFormMode({ kind: "edit", transaction: row.original })}
+        >
+          {formatDateCell(row.original.date) ?? "—"}
+        </button>
+      ),
+    },
+    {
+      id: "amount",
+      header: labels.amount,
+      size: 150,
+      minSize: 110,
+      enableHiding: false,
+      cell: ({ row }) => (
+        <TxAmount
+          value={signedTxAmount(row.original)}
+          currency={row.original.currency}
+          signed={row.original.type !== "transfer"}
+          scale={amountRoundingScale}
+          className="font-medium"
+        />
+      ),
+    },
+    {
+      id: "category",
+      header: labels.category,
+      size: 200,
+      minSize: 110,
+      cell: ({ row }) => {
+        const tx = row.original;
+        const category = tx.category_id ? (categoryById.get(tx.category_id) ?? null) : null;
+        return <CategoryCell tx={tx} category={category} />;
+      },
+    },
+    {
+      id: "description",
+      header: labels.description,
+      size: 280,
+      minSize: 120,
+      enableSorting: false,
+      cell: ({ row }) => {
+        const count = row.original.attachments_count ?? 0;
+        return (
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 flex-1">
+              <DescriptionText text={row.original.description} />
+            </span>
+            {count > 0 ? (
+              <span
+                className="inline-flex shrink-0 items-center gap-0.5 text-xs tabular-nums text-muted-foreground"
+                data-tip={`Файлы: ${count}`}
+                aria-label={`Файлов: ${count}`}
+              >
+                <Paperclip className="size-3.5" />
+                {count > 1 ? count : null}
+              </span>
+            ) : null}
+          </span>
+        );
+      },
+    },
+    {
+      id: "counterparty",
+      header: labels.counterparty,
+      size: 200,
+      minSize: 130,
+      cell: ({ row }) => {
+        const cp = row.original.counterparty_id
+          ? counterpartyById.get(row.original.counterparty_id)
+          : null;
+        return cp ? (
+          <span className="block truncate" data-tip={cp.name}>
+            {cp.name}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        );
+      },
+    },
+    {
+      id: "account",
+      header: labels.account,
+      size: 230,
+      minSize: 110,
+      cell: ({ row }) => <AccountCell tx={row.original} accountName={accountName} />,
+    },
+    {
+      id: "venue",
+      header: labels.venue,
+      size: 160,
+      minSize: 110,
+      enableSorting: false,
+      cell: ({ row }) => {
+        const name = venueName(row.original.venue_id);
+        return name ? (
+          <span className="block truncate" data-tip={name}>
+            {name}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        );
+      },
+    },
+    {
+      id: "legal_entity",
+      header: labels.legal_entity,
+      size: 170,
+      minSize: 100,
+      enableSorting: false,
+      cell: ({ row }) => {
+        const name = legalEntityName(row.original.legal_entity_id) ?? "—";
+        return (
+          <span className="block truncate" data-tip={name}>
+            {name}
+          </span>
+        );
+      },
+    },
+    {
+      id: "source",
+      header: labels.source,
+      size: 130,
+      minSize: 110,
+      enableSorting: false,
+      cell: ({ row }) => SOURCE_LABEL[row.original.source] ?? row.original.source,
+    },
+    {
+      id: "number",
+      header: labels.number,
+      size: 100,
+      minSize: 90,
+      enableSorting: false,
+      cell: ({ row }) => <span className="tabular-nums">{row.original.public_id}</span>,
+    },
+    {
+      id: "created",
+      header: labels.created,
+      size: 120,
+      minSize: 100,
+      enableSorting: false,
+      cell: ({ row }) => (
+        <span className="tabular-nums">{formatDateCell(row.original.created_at) ?? "—"}</span>
+      ),
+    },
+    ...(hasMenu
+      ? [
+          {
+            id: "actions",
+            size: ROW_MENU_COLUMN_SIZE,
+            minSize: ROW_MENU_COLUMN_SIZE,
+            maxSize: ROW_MENU_COLUMN_SIZE,
+            enableHiding: false,
+            enableResizing: false,
+            enableSorting: false,
+            cell: ({ row }) => {
+              const menu = rowMenu(row.original);
+              return menu.length ? <TableRowMenu actions={menu} /> : null;
+            },
+          } satisfies ColumnDef<ListRow>,
+        ]
+      : []),
+  ];
 
-  const cookieFilterActive =
-    !filtersFromUrl.legal_entity_id &&
-    !!activeLegalEntityIdFromCookie &&
-    bankAccounts.some(
-      (b) => b.legal_entity_id === activeLegalEntityIdFromCookie,
+  const table = useReactTable({
+    data: rows,
+    columns,
+    state: {
+      sorting,
+      rowSelection,
+      columnVisibility: {
+        ...st.columnVisibility,
+        date: true,
+        amount: true,
+        actions: hasMenu,
+      },
+      columnOrder: ["select", ...st.columnOrder],
+      columnSizing: st.columnSizing,
+    },
+    getRowId: (tx) => tx.id,
+    enableRowSelection: true,
+    onRowSelectionChange: setRowSelection,
+    onColumnVisibilityChange: st.setColumnVisibility,
+    onColumnSizingChange: st.setColumnSizing,
+    getCoreRowModel: getCoreRowModel(),
+    manualSorting: true,
+    manualPagination: true,
+    rowCount: result.total,
+  });
+
+  // ─── Счётчик, итоги, пустые состояния ─────────────────────────────────────
+
+  const sectionTotal = deletedMode ? result.deletedTotal : result.allTotal;
+  const count = isFiltered ? `${result.total} из ${sectionTotal}` : sectionTotal;
+  const net = result.income - result.expense;
+  const mixedCurrency = result.currencies.length > 1;
+  const totalCurrency = result.currencies[0] ?? "RUB";
+
+  // Расшифровка — только когда есть и приход, и расход: иначе итог и есть она.
+  // Ставится в самый широкий видимый текстовый столбец.
+  const breakdownColumn = (["description", "category", "counterparty", "account"] as const).find(
+    (id) => st.columnVisibility[id] !== false,
+  );
+  const totals: Partial<Record<string, ReactNode>> = {
+    select: "",
+    date: (
+      <span
+        data-tip="По всем операциям с учётом условий, не только на этой странице"
+        data-tip-sub="Переводы между счетами в итог не входят"
+      >
+        Итого
+      </span>
+    ),
+    amount: mixedCurrency ? (
+      <span className="text-muted-foreground">—</span>
+    ) : (
+      <TxAmount
+        value={net}
+        currency={totalCurrency}
+        signed
+        scale={amountRoundingScale}
+        className="font-medium"
+      />
+    ),
+  };
+  if (breakdownColumn && mixedCurrency)
+    // Недостоверную сумму не показываем: прочерк и причина текстом.
+    totals[breakdownColumn] = (
+      <span className="block truncate text-muted-foreground">
+        Счета в разных валютах: итог не сложить. Отберите один счёт или валюту
+      </span>
     );
-  const cookieLEName = cookieFilterActive
-    ? (legalEntities.find((le) => le.id === activeLegalEntityIdFromCookie)
-        ?.short_name ??
-      legalEntities.find((le) => le.id === activeLegalEntityIdFromCookie)
-        ?.name ??
-      null)
-    : null;
+  else if (breakdownColumn && result.income > 0 && result.expense > 0)
+    totals[breakdownColumn] = (
+      <span className="block truncate text-muted-foreground">
+        Приход +{formatAmount(result.income, amountRoundingScale)} {currencySymbol(totalCurrency)} · Расход −
+        {formatAmount(result.expense, amountRoundingScale)} {currencySymbol(totalCurrency)}
+      </span>
+    );
 
-  // ─── Header subtitle (counter) ────────────────────────────────────────────
+  const toggleDeleted = () => {
+    setRowSelection({});
+    updateUrl({ deleted: deletedMode ? null : "1" });
+  };
 
-  const subtitle = (() => {
-    if (total === 0 && !hasAnyActiveFilter) {
-      return "Здесь появятся ваши приходы, расходы и переводы.";
-    }
-    if (hasAnyActiveFilter) {
-      return `${total} ${pluralize(total, ["операция", "операции", "операций"])} за выбранный период`;
-    }
-    return `${total} ${pluralize(total, ["операция", "операции", "операций"])}`;
-  })();
-
-  // ─── Export href: append current URL params so filtered exports work ──────
-
-  const exportHref = (() => {
-    const qs = searchParams.toString();
-    return qs
-      ? `/api/finance/transactions/export?${qs}`
-      : "/api/finance/transactions/export";
-  })();
-
-  // ─── Render ───────────────────────────────────────────────────────────────
+  const createMenu = permissions.create && !deletedMode && (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button className="h-8 gap-1.5 px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm">
+          <Plus className="size-4" />
+          Добавить операцию
+          <ChevronDown className="size-4 opacity-80" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuItem className="gap-2" onSelect={() => openCreate("income")}>
+          <Plus className="size-4 text-green-700 dark:text-green-400" />
+          Приход
+        </DropdownMenuItem>
+        <DropdownMenuItem className="gap-2" onSelect={() => openCreate("expense")}>
+          <Minus className="size-4 text-red-700 dark:text-red-400" />
+          Расход
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="gap-2"
+          disabled={transferBlocked}
+          onSelect={() => openCreate("transfer")}
+        >
+          <ArrowLeftRight className="size-4 text-muted-foreground" />
+          <span className="flex flex-col">
+            Перевод
+            {transferBlocked ? (
+              <span className="text-xs text-muted-foreground">Нужно хотя бы два счёта</span>
+            ) : null}
+          </span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
   return (
-    <div className="p-6 md:p-8 w-full">
-      {/* Header */}
-      <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
-        <div>
-          <h1 className="text-3xl">Транзакции</h1>
-          <p className="text-muted-foreground mt-1 text-sm">{subtitle}</p>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          {/* Expandable search */}
-          <div className="flex items-center">
-            {searchExpanded || searchDraft ? (
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  ref={searchInputRef}
-                  autoFocus
-                  value={searchDraft}
-                  onChange={(e) => setSearchDraft(e.target.value)}
-                  onBlur={() => {
-                    if (!searchDraft) setSearchExpanded(false);
-                  }}
-                  placeholder="Поиск по операциям…"
-                  className="pl-9 pr-8 h-9 w-72"
+    <PageFrame className="flex min-w-0 flex-col gap-4">
+      <Breadcrumbs items={[{ label: "Финансы" }, { label: "Транзакции" }]} />
+      <TablePageHeader
+        title={deletedMode ? "Удалённые операции" : "Транзакции"}
+        count={count}
+        actions={
+          <TableControls
+            search={{
+              value: searchDraft,
+              onChange: setSearchDraft,
+              open: searchOpen,
+              onOpenChange: setSearchOpen,
+              placeholder: "Описание, контрагент, сумма",
+            }}
+            filters={{ active: hasFilters, onClick: () => setFiltersOpen((v) => !v) }}
+            sort={{
+              active: sorting.length > 0,
+              content: (
+                <TableSortPicker
+                  sorting={sorting}
+                  onChange={changeSorting}
+                  fields={sortFields}
+                  labels={labels}
                 />
-                {searchDraft && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearchDraft("");
-                      // Skip debounce — explicit clear, push immediately.
-                      updateUrl({ q: null });
-                      searchInputRef.current?.focus();
-                    }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
-                    aria-label="Очистить поиск"
+              ),
+            }}
+            columns={{
+              // Подсветка — когда спрятан столбец, который виден по умолчанию.
+              active: columnConfig.some(
+                (c) => c.defaultVisible !== false && st.columnVisibility[c.id] === false,
+              ),
+              content: (
+                <TableColumnManager
+                  columns={st.columnOrder
+                    .filter((id) => id !== "actions")
+                    .map((id) => {
+                      const column = table.getColumn(id);
+                      return {
+                        id,
+                        label: labels[id as ColKey],
+                        visible: column?.getIsVisible() ?? false,
+                        canHide: column?.getCanHide() ?? false,
+                      };
+                    })}
+                  onVisibilityChange={(id, visible) => table.getColumn(id)?.toggleVisibility(visible)}
+                  onMoveColumn={(from, to) =>
+                    st.setColumnOrder((order) =>
+                      arrayMove(order, order.indexOf(from), order.indexOf(to)),
+                    )
+                  }
+                  onReset={st.resetColumns}
+                />
+              ),
+            }}
+            secondaryActions={
+              <>
+                {permissions.delete && (result.deletedTotal > 0 || deletedMode) ? (
+                  <TableIconButton
+                    label={
+                      deletedMode
+                        ? "Вернуться к операциям"
+                        : `Удалённые операции · ${result.deletedTotal}`
+                    }
+                    active={deletedMode}
+                    onClick={toggleDeleted}
                   >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-            ) : (
-              <IconButton
-                onClick={() => setSearchExpanded(true)}
-                aria-label="Поиск"
-              >
-                <Search className="h-4 w-4" />
-              </IconButton>
-            )}
-          </div>
+                    <Trash2 />
+                  </TableIconButton>
+                ) : null}
+                {permissions.export ? (
+                  <TableIconButton
+                    label={exporting ? "Готовим файл…" : "Выгрузить в CSV"}
+                    disabled={exporting || result.total === 0}
+                    onClick={() => void runExport()}
+                  >
+                    {exporting ? <Loader2 className="animate-spin" /> : <Download />}
+                  </TableIconButton>
+                ) : null}
+              </>
+            }
+            primaryActions={createMenu}
+            summary={`Показано ${rows.length} из ${result.total}`}
+          />
+        }
+      />
 
-          <IconButton
-            onClick={toggleFiltersVisibility}
-            // Active visual only when there are real applied filters —
-            // panel-visibility alone shouldn't make the button look engaged.
-            active={activeFilterCount > 0}
-            badge={activeFilterCount}
-            aria-label={filtersVisible ? "Скрыть фильтры" : "Показать фильтры"}
-          >
-            <FilterIcon />
-          </IconButton>
-
-          {canExport && (
-            <IconButton asChild aria-label="Экспорт CSV">
-              <a href={exportHref} download>
-                <Download className="h-4 w-4" />
-              </a>
-            </IconButton>
-          )}
-
-          {canCreate && (
-            <CreateButton
-              open={createMenuOpen}
-              onOpenChange={setCreateMenuOpen}
-              onPick={openCreate}
-              transferDisabled={bankAccounts.length < 2}
-            />
-          )}
-        </div>
-      </div>
-
-      {/* Filter chips bar */}
-      {filtersVisible && (
-        <div
-          className={cn(
-            "mb-4 flex flex-wrap items-center gap-2 transition-opacity",
-            isPending && "opacity-70",
-          )}
-        >
+      <TableConditions
+        label="Условия списка операций"
+        open={filtersOpen}
+        hasFilters={hasFilters}
+        sorting={sorting}
+        onSortingChange={changeSorting}
+        sortFields={sortFields}
+        sortLabels={labels}
+        search={urlQ}
+        onSearchClear={clearSearch}
+        onReset={() => void resetConditions()}
+      >
+        {filtersOpen || filters.date_from || filters.date_to ? (
           <DateRangeFilter
             value={dateRange}
-            presetLabel={datePresetFromUrl}
-            onChange={(next, preset) => {
+            presetLabel={query.datePreset}
+            onChange={(next, preset) =>
               updateUrl({
                 date_from: next.start ? toIsoDate(next.start) : null,
                 date_to: next.end ? toIsoDate(next.end) : null,
                 date_preset: preset,
+              })
+            }
+          />
+        ) : null}
+        {filtersOpen || filters.type ? (
+          <TableFilterChip
+            label="Тип"
+            value={filters.type ?? ""}
+            onChange={(v) => updateUrl({ type: v || null })}
+            options={[
+              { value: "", label: "Все типы" },
+              { value: "income", label: TYPE_LABEL.income },
+              { value: "expense", label: TYPE_LABEL.expense },
+              { value: "transfer", label: TYPE_LABEL.transfer },
+            ]}
+          />
+        ) : null}
+        {showLegalEntityFilter && (filtersOpen || effectiveLegalEntityId) ? (
+          <TableFilterChip
+            label="Юрлицо"
+            value={effectiveLegalEntityId}
+            onChange={(v) => void changeLegalEntity(v)}
+            options={legalEntityOptions}
+          />
+        ) : null}
+        {venues.length > 0 && (filtersOpen || filters.venue_id || filters.venue_none) ? (
+          <TableFilterChip
+            label="Заведение"
+            value={filters.venue_none ? NO_VENUE : (filters.venue_id ?? "")}
+            onChange={(v) => updateUrl({ venue_id: v || null })}
+            options={venueOptions}
+          />
+        ) : null}
+        {filtersOpen || filters.bank_account_ids?.length ? (
+          <TableFilterChip
+            label="Счета"
+            multiple
+            value={filters.bank_account_ids ?? []}
+            onChange={(ids) => updateUrl({ bank_account_id: ids.length ? ids.join(",") : null })}
+            options={accountOptions}
+            searchPlaceholder={accountOptions.length > 8 ? "Найти счёт" : undefined}
+          />
+        ) : null}
+        {filtersOpen || categoryValue.length ? (
+          <TableFilterChip
+            label="Статьи"
+            multiple
+            value={categoryValue}
+            onChange={(ids) => {
+              const { ids: real, none } = splitIds(ids, NO_CATEGORY);
+              updateUrl({
+                category_id: none || real.length ? [...(none ? [NO_CATEGORY] : []), ...real].join(",") : null,
               });
             }}
+            options={categoryOptions}
+            searchPlaceholder={categoryOptions.length > 8 ? "Найти статью" : undefined}
           />
-
-          <TypeFilter
-            value={typeValue}
-            onChange={(next) => {
-              updateUrl({ type: next === "all" ? null : next });
-            }}
-          />
-
-          <MultiSelectFilter
-            placeholder="Счета"
-            items={accountFilterItems}
-            groups={accountFilterGroups}
-            selectedIds={accountIds}
+        ) : null}
+        {filtersOpen || counterpartyValue.length ? (
+          <TableFilterChip
+            label="Контрагенты"
+            multiple
+            value={counterpartyValue}
             onChange={(ids) => {
-              updateUrl({ bank_account_id: ids.length ? ids.join(",") : null });
+              const { ids: real, none } = splitIds(ids, NO_COUNTERPARTY);
+              updateUrl({
+                counterparty_id:
+                  none || real.length ? [...(none ? [NO_COUNTERPARTY] : []), ...real].join(",") : null,
+              });
             }}
+            options={counterpartyOptions}
+            searchPlaceholder={counterpartyOptions.length > 8 ? "Найти контрагента" : undefined}
           />
-
-          <MultiSelectFilter
-            placeholder="Статьи"
-            items={categoryFilterItems}
-            groups={categoryFilterGroups}
-            selectedIds={categoryIds}
-            onChange={(ids) => {
-              updateUrl({ category_id: ids.length ? ids.join(",") : null });
-            }}
-          />
-
-          <MultiSelectFilter
-            placeholder="Контрагенты"
-            items={counterpartyFilterItems}
-            groups={counterpartyFilterGroups}
-            selectedIds={counterpartyIds}
-            onChange={(ids) => {
-              updateUrl({ counterparty_id: ids.length ? ids.join(",") : null });
-            }}
-          />
-
+        ) : null}
+        {filtersOpen || filters.amount_min !== undefined || filters.amount_max !== undefined ? (
           <AmountRangeFilter
-            value={amountRange}
-            onChange={(next) => {
+            value={{ min: filters.amount_min ?? null, max: filters.amount_max ?? null }}
+            onChange={(next) =>
               updateUrl({
                 amount_min: next.min !== null ? String(next.min) : null,
                 amount_max: next.max !== null ? String(next.max) : null,
-              });
+              })
+            }
+          />
+        ) : null}
+        {permissions.viewAttachments && (filtersOpen || filters.files) ? (
+          <TableFilterChip
+            label="Файлы"
+            value={filters.files ?? ""}
+            onChange={(v) => updateUrl({ files: v || null })}
+            options={[
+              { value: "", label: "Все операции" },
+              { value: "with", label: "С файлами" },
+              { value: "without", label: "Без файлов" },
+            ]}
+          />
+        ) : null}
+      </TableConditions>
+
+      {result.error ? (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm"
+        >
+          <p className="min-w-0 flex-1">Не удалось загрузить операции. Проверьте соединение и повторите</p>
+          <Button variant="outline" size="sm" className="h-8" onClick={() => router.refresh()}>
+            Повторить
+          </Button>
+        </div>
+      ) : rows.length === 0 ? (
+        deletedMode && !isFiltered ? (
+          <EmptyState
+            icon={Trash2}
+            title="Удалённых операций нет"
+            description="Сюда попадают удалённые операции: их можно восстановить"
+            action={
+              <Button variant="outline" onClick={toggleDeleted}>
+                К операциям
+              </Button>
+            }
+          />
+        ) : !isFiltered ? (
+          <EmptyState
+            icon={Wallet}
+            title="Операций пока нет"
+            description={
+              permissions.create
+                ? "Добавьте первый приход, расход или перевод между счетами"
+                : "Здесь появятся приходы, расходы и переводы между счетами"
+            }
+            action={
+              permissions.create ? (
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <Button variant="outline" onClick={() => openCreate("income")}>
+                    <Plus className="text-green-700 dark:text-green-400" />
+                    Добавить приход
+                  </Button>
+                  <Button variant="outline" onClick={() => openCreate("expense")}>
+                    <Minus className="text-red-700 dark:text-red-400" />
+                    Добавить расход
+                  </Button>
+                </div>
+              ) : null
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={SearchX}
+            title="Операции не найдены"
+            description="Измените условия поиска или сбросьте фильтры"
+            action={
+              <Button variant="outline" onClick={() => void resetConditions()}>
+                Очистить все
+              </Button>
+            }
+          />
+        )
+      ) : (
+        <div className={cn("flex flex-col gap-4 transition-opacity", isPending && "opacity-60")}>
+          <DataTable
+            table={table}
+            label={deletedMode ? "Удалённые операции" : "Операции"}
+            labels={labels}
+            onColumnSizingChange={st.setColumnSizing}
+            sorting={sorting}
+            onSortingChange={changeSorting}
+            sortable={sortFields}
+            numeric={["amount"]}
+            renderControlHeader={(header) =>
+              header.column.id === "select" ? (
+                <Checkbox
+                  checked={
+                    table.getIsAllPageRowsSelected() ||
+                    (table.getIsSomePageRowsSelected() && "indeterminate")
+                  }
+                  onCheckedChange={(v) => table.toggleAllPageRowsSelected(v === true)}
+                  aria-label="Выбрать все операции на странице"
+                  className="align-middle"
+                />
+              ) : null
+            }
+            onRowClick={(row) => setFormMode({ kind: "edit", transaction: row.original })}
+            empty={null}
+            totals={totals}
+            mobile={{
+              label: "Карточки операций",
+              nameColumn: "amount",
+              roleColumn: "category",
+              actionsPlacement: "footer",
             }}
           />
-
-          {urlQ && (
-            <Chip
-              label={`Поиск: «${urlQ}»`}
-              onClear={() => {
-                setSearchDraft("");
-                updateUrl({ q: null });
-              }}
-            />
-          )}
-
-          {hasAnyActiveFilter && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={resetAllFilters}
-              className="rounded-full h-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
-            >
-              Очистить все
-            </Button>
-          )}
+          <TablePagination
+            pageIndex={query.page - 1}
+            pageSize={query.pageSize}
+            total={result.total}
+            onPageChange={(pageIndex) => updateUrl({ page: pageIndex > 0 ? String(pageIndex + 1) : null })}
+            onPageSizeChange={(size) => updateUrl({ size: String(size), page: null })}
+          />
         </div>
       )}
 
-      {cookieLEName && (
-        <p className="text-xs text-muted-foreground mb-2">
-          Активное юрлицо:{" "}
-          <span className="text-foreground font-medium">{cookieLEName}</span> —
-          переключатель в шапке.
-        </p>
-      )}
-
-      {/* Table / empty / no-results */}
-      <div
-        className={cn(
-          "rounded-lg border bg-background overflow-hidden transition-opacity",
-          isPending && "opacity-70",
-        )}
-      >
-        {transactions.length === 0 ? (
-          !hasAnyActiveFilter ? (
-            <EmptyAllState
-              canCreate={canCreate}
-              onCreate={(type) => openCreate(type)}
-            />
-          ) : (
-            <NoResultsState
-              hasSearch={urlQ !== ""}
-              hasDateFilter={!!(dateRange.start || dateRange.end)}
-              onClearSearch={() => {
-                setSearchDraft("");
-                updateUrl({ q: null });
-              }}
-              onExpandPeriod={expandPeriodToYear}
-              onResetAll={resetAllFilters}
-            />
-          )
-        ) : (
-          <table className="w-full text-sm border-collapse">
-            <thead className="bg-muted/40">
-              {selected.length > 0 ? (
-                <tr className="h-11 bg-brand/10">
-                  <th className="px-3 w-12">
-                    <Checkbox
-                      checked={
-                        allOnPageSelected
-                          ? true
-                          : someOnPageSelected
-                            ? "indeterminate"
-                            : false
-                      }
-                      onCheckedChange={toggleAllOnPage}
-                      className="data-[state=checked]:bg-brand data-[state=checked]:border-brand data-[state=indeterminate]:bg-brand data-[state=indeterminate]:border-brand"
-                    />
-                  </th>
-                  <th colSpan={5} className="text-left px-2">
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-medium text-brand">
-                        {selected.length}{" "}
-                        {pluralize(selected.length, [
-                          "выбрана",
-                          "выбрано",
-                          "выбрано",
-                        ])}
-                      </span>
-                      <span className="text-xs text-brand">
-                        на сумму{" "}
-                        {formatCurrency(
-                          selectedTotal,
-                          "RUB",
-                          amountRoundingScale,
-                        )}
-                      </span>
-                      <div className="ml-auto flex items-center gap-2 mr-2">
-                        {selected.length === 1 && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 text-xs"
-                            onClick={handleCopyOne}
-                          >
-                            Копировать
-                          </Button>
-                        )}
-                        {allSelectedSameType && selected.length === 1 && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 text-xs"
-                            onClick={() => {
-                              const tx = transactions.find(
-                                (t) => t.id === selected[0],
-                              );
-                              if (tx) openEdit(tx);
-                            }}
-                          >
-                            Редактировать
-                          </Button>
-                        )}
-                        {canDelete && (
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            className="h-8 text-xs"
-                            onClick={() => setConfirmBulkDelete(true)}
-                          >
-                            <Trash2 />
-                            Удалить
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </th>
-                </tr>
-              ) : (
-                <tr className="h-10 text-left text-xs uppercase tracking-wider text-muted-foreground">
-                  <th className="px-3 w-12">
-                    <Checkbox
-                      checked={
-                        allOnPageSelected
-                          ? true
-                          : someOnPageSelected
-                            ? "indeterminate"
-                            : false
-                      }
-                      onCheckedChange={toggleAllOnPage}
-                      className="data-[state=checked]:bg-brand data-[state=checked]:border-brand data-[state=indeterminate]:bg-brand data-[state=indeterminate]:border-brand"
-                    />
-                  </th>
-                  <th className="px-3 font-medium" style={{ width: "12%" }}>
-                    Дата
-                  </th>
-                  <th className="px-3 font-medium" style={{ width: "16%" }}>
-                    Сумма
-                  </th>
-                  <th className="px-3 font-medium" style={{ width: "30%" }}>
-                    Статья и описание
-                  </th>
-                  <th className="px-3 font-medium" style={{ width: "20%" }}>
-                    Контрагент
-                  </th>
-                  <th className="px-3 font-medium" style={{ width: "22%" }}>
-                    Счёт
-                  </th>
-                </tr>
-              )}
-            </thead>
-            <tbody>
-              {transactions.map((tx) => (
-                <Row
-                  key={tx.id}
-                  tx={tx}
-                  isSelected={selectedSet.has(tx.id)}
-                  onToggle={() => toggleOne(tx.id)}
-                  onClick={() => openEdit(tx)}
-                  accountById={accountById}
-                  categoryById={categoryById}
-                  counterpartyById={counterpartyById}
-                  amountRoundingScale={amountRoundingScale}
-                />
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* Pagination */}
-      {total > 0 && (
-        <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
-          <div className="text-sm text-muted-foreground">
-            Строк на странице:{" "}
-            <Select
-              value={String(pageSize)}
-              onValueChange={(v) => {
-                updateUrl({ size: v, page: null });
-              }}
-            >
-              <SelectTrigger className="inline-flex w-auto h-7 px-2 mx-1 align-middle">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PAGE_SIZE_OPTIONS.map((s) => (
-                  <SelectItem key={s} value={String(s)}>
-                    {s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <span className="ml-2 tabular-nums">
-              {fromIndex}–{toIndex} из {total}
-            </span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="text-sm tabular-nums text-muted-foreground mr-2">
-              Стр. {page} из {totalPages}
-            </span>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => updateUrl({ page: String(Math.max(1, page - 1)) })}
-              disabled={page <= 1 || isPending}
-            >
-              <ChevronLeft className="h-4 w-4" />
+      <TableBulkBar
+        floating
+        selectedCount={selected.length}
+        onClear={() => setRowSelection({})}
+        summary={
+          <span className="truncate text-sm text-muted-foreground">
+            {selectedMixedCurrency
+              ? "Счета в разных валютах: сумму не сложить"
+              : [
+                  selectedIncome
+                    ? `Приход +${formatAmount(selectedIncome, amountRoundingScale)} ${currencySymbol(selected[0]?.currency)}`
+                    : null,
+                  selectedExpense
+                    ? `Расход −${formatAmount(selectedExpense, amountRoundingScale)} ${currencySymbol(selected[0]?.currency)}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+          </span>
+        }
+        actions={
+          permissions.delete ? (
+            deletedMode ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                onClick={() => void restoreMany(selected.map((tx) => tx.id))}
+              >
+                <RotateCcw />
+                Восстановить · {selected.length}
+              </Button>
+            ) : (
+              <>
+                {canEditAny ? (
+                  <Button variant="outline" size="sm" className="h-8" onClick={() => setBulkEditOpen(true)}>
+                    <PencilLine />
+                    Изменить · {selected.length}
+                  </Button>
+                ) : null}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => {
+                  setDeleteError(null);
+                  setDeleteTarget(selected);
+                }}
+              >
+                <Trash2 />
+                Удалить · {selected.length}
+              </Button>
+              </>
+            )
+          ) : canEditAny && !deletedMode ? (
+            <Button variant="outline" size="sm" className="h-8" onClick={() => setBulkEditOpen(true)}>
+              <PencilLine />
+              Изменить · {selected.length}
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() =>
-                updateUrl({ page: String(Math.min(totalPages, page + 1)) })
-              }
-              disabled={page >= totalPages || isPending}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+          ) : null
+        }
+      />
 
-      {/* Bulk-delete confirmation — AlertDialog primitive. Копи без
-          «30 дней» — реального retention в БД нет, soft-delete просто
-          скрывает запись от read-фильтров, восстановление доступно
-          всегда через журнал изменений. */}
-      <AlertDialog open={confirmBulkDelete} onOpenChange={setConfirmBulkDelete}>
-        <AlertDialogContent
-          className="sm:max-w-md"
-          // Пока идёт удаление — блокируем Esc, чтобы юзер не закрыл
-          // диалог в полёте и не отправил delete повторно (Codex P2).
-          // Outside-click у AlertDialog уже заблокирован Radix'ом.
-          onEscapeKeyDown={(e) => {
-            if (bulkDeleting) e.preventDefault();
-          }}
-        >
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-                <Trash2 className="h-4 w-4" />
-              </span>
-              {selected.length > 1
-                ? "Удалить выбранные операции"
-                : "Удалить операцию"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {selected.length > 1
-                ? `Будут удалены ${selected.length} ${pluralize(selected.length, ["операция", "операции", "операций"])} на общую сумму ${formatCurrency(selectedTotal, "RUB", amountRoundingScale)}. Восстановить операции можно из истории изменений.`
-                : "Операция будет удалена из текущего журнала. Восстановить её можно из истории изменений."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={bulkDeleting}>
-              Отмена
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                performBulkDelete();
-              }}
-              disabled={bulkDeleting}
-              className={buttonVariants({ variant: "destructive" })}
-            >
-              {bulkDeleting && <Loader2 className="animate-spin" />}
-              <Trash2 />
-              Удалить{selected.length > 1 ? ` ${selected.length}` : ""}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open && !deleteBusy) setDeleteTarget(null);
+        }}
+        title={
+          deleteTarget && deleteTarget.length > 1
+            ? `Удалить ${countRu(deleteTarget.length, "операцию", "операции", "операций")}?`
+            : deleteTarget?.[0]
+              ? `Удалить операцию №${deleteTarget[0].public_id}?`
+              : "Удалить операцию?"
+        }
+        description={
+          <>
+            {deleteTarget && deleteTarget.length > 1
+              ? "Операции пропадут из списка, а остатки счетов пересчитаются. "
+              : "Операция пропадёт из списка, а остаток счёта пересчитается. "}
+            Вернуть можно сразу кнопкой «Отменить» или позже из «Удалённых операций».
+          </>
+        }
+        confirmLabel={
+          deleteTarget && deleteTarget.length > 1
+            ? `Удалить ${countRu(deleteTarget.length, "операцию", "операции", "операций")}`
+            : "Удалить операцию"
+        }
+        pendingLabel="Удаляем…"
+        destructive
+        busy={deleteBusy}
+        error={deleteError}
+        onConfirm={() => void confirmDelete()}
+      />
 
-      {/* Right-sidebar form */}
-      <TransactionFormSheet
-        mode={formMode}
-        prefill={prefill}
-        onClose={() => {
-          setFormMode({ kind: "closed" });
-          setPrefill(null);
-        }}
-        onSaved={() => {
-          setFormMode({ kind: "closed" });
-          setPrefill(null);
-          router.refresh();
-        }}
-        onTypeChange={(t) => {
-          if (formMode.kind === "create")
-            setFormMode({ kind: "create", type: t });
-        }}
-        legalEntities={legalEntities}
-        bankAccounts={bankAccounts}
+      <BulkEditDialog
+        open={bulkEditOpen}
+        onOpenChange={setBulkEditOpen}
+        selected={selected}
+        editable={selected.filter((tx) => canEditTransaction(tx, permissions, currentUserId))}
         categories={categories}
         counterparties={counterparties}
-        canDelete={canDelete}
+        venues={formVenues}
+        onDone={() => {
+          setBulkEditOpen(false);
+          setRowSelection({});
+          router.refresh();
+        }}
+      />
+
+      <TransactionFormSheet
+        mode={formMode}
+        onClose={closeForm}
+        onSaved={() => {
+          closeForm();
+          router.refresh();
+        }}
+        onDeleted={(tx) => {
+          closeForm();
+          notifyDeleted([tx.id]);
+          router.refresh();
+        }}
+        onRestored={() => {
+          closeForm();
+          router.refresh();
+        }}
+        onModeChange={setFormMode}
+        legalEntities={legalEntities}
+        bankAccounts={activeAccounts}
+        allBankAccounts={bankAccounts}
+        preferredAccountId={preferredAccountId}
+        venues={formVenues}
+        allVenues={venues}
+        preferredVenueId={filters.venue_id}
+        onFilesChanged={() => router.refresh()}
+        categories={categories}
+        counterparties={counterparties}
+        permissions={permissions}
+        currentUserId={currentUserId}
         amountRoundingScale={amountRoundingScale}
       />
-    </div>
+    </PageFrame>
   );
 }
 
-// ─── Header subcomponents ────────────────────────────────────────────────────
+// ─── Даты ─────────────────────────────────────────────────────────────────────
 
-function IconButton({
-  children,
-  onClick,
-  active,
-  badge,
-  asChild,
-  ...rest
-}: {
-  children: React.ReactNode;
-  onClick?: () => void;
-  active?: boolean;
-  badge?: number;
-  asChild?: boolean;
-} & React.HTMLAttributes<HTMLElement>) {
-  const className = cn(
-    "relative inline-flex items-center justify-center h-9 w-9 rounded-md border border-border bg-background text-muted-foreground hover:bg-muted transition-colors",
-    active && "bg-brand/10 border-brand/20 text-brand",
-  );
-  const tooltipLabel =
-    typeof rest["aria-label"] === "string" ? rest["aria-label"] : undefined;
-  const inner = asChild ? (
-    <span className={className} {...rest}>
-      {children}
-      {badge !== undefined && badge > 0 && (
-        <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full border-2 border-background bg-destructive text-[10px] font-semibold text-destructive-foreground">
-          {badge}
-        </span>
-      )}
-    </span>
-  ) : (
-    <button type="button" onClick={onClick} className={className} {...rest}>
-      {children}
-      {badge !== undefined && badge > 0 && (
-        <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full border-2 border-background bg-destructive text-[10px] font-semibold text-destructive-foreground">
-          {badge}
-        </span>
-      )}
-    </button>
-  );
-  return tooltipLabel ? (
-    <IconTooltip label={tooltipLabel}>{inner}</IconTooltip>
-  ) : (
-    inner
-  );
-}
-
-function FilterIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-    </svg>
-  );
-}
-
-function CreateButton({
-  open,
-  onOpenChange,
-  onPick,
-  transferDisabled,
-}: {
-  open: boolean;
-  onOpenChange: (o: boolean) => void;
-  onPick: (type: TransactionRow["type"]) => void;
-  transferDisabled: boolean;
-}) {
-  return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>
-        <Button className="h-9 gap-1.5">
-          <Plus className="h-4 w-4" />
-          Добавить операцию
-          <ChevronDown className="h-4 w-4 opacity-80" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-56 p-1">
-        <button
-          type="button"
-          onClick={() => onPick("income")}
-          className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent"
-        >
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">
-            <Plus className="h-3.5 w-3.5" />
-          </span>
-          Приход
-        </button>
-        <button
-          type="button"
-          onClick={() => onPick("expense")}
-          className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent"
-        >
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400">
-            <Minus className="h-3.5 w-3.5" />
-          </span>
-          Расход
-        </button>
-        <button
-          type="button"
-          onClick={() => onPick("transfer")}
-          disabled={transferDisabled}
-          className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent disabled:opacity-50 disabled:hover:bg-transparent"
-        >
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-brand/10 text-brand">
-            <ArrowLeftRight className="h-3.5 w-3.5" />
-          </span>
-          Перевод
-        </button>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-// ─── Type filter ─────────────────────────────────────────────────────────────
-
-function TypeFilter({
-  value,
-  onChange,
-}: {
-  value: "all" | TransactionRow["type"];
-  onChange: (v: "all" | TransactionRow["type"]) => void;
-}) {
-  const options: { value: "all" | TransactionRow["type"]; label: string }[] = [
-    { value: "all", label: "Все типы" },
-    { value: "income", label: "Приход" },
-    { value: "expense", label: "Расход" },
-    { value: "transfer", label: "Переводы" },
-  ];
-  const active = value !== "all";
-  const label = options.find((o) => o.value === value)?.label ?? "Тип";
-  return (
-    <Popover>
-      <div className="relative inline-flex">
-        <PopoverTrigger asChild>
-          <Button
-            variant="outline"
-            size="sm"
-            className={cn(
-              "h-8 rounded-full pl-3 pr-8 font-normal text-sm",
-              active
-                ? "bg-brand/10 border-brand/20 text-brand hover:bg-brand/15 hover:text-brand"
-                : "bg-muted/60 border-transparent text-muted-foreground hover:bg-muted",
-            )}
-          >
-            <span>{label}</span>
-            {!active && <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-70" />}
-          </Button>
-        </PopoverTrigger>
-        {active && (
-          <button
-            type="button"
-            aria-label="Сбросить тип"
-            onClick={(e) => {
-              e.stopPropagation();
-              onChange("all");
-            }}
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand-hover"
-          >
-            <X className="h-3 w-3" />
-          </button>
-        )}
-      </div>
-      <PopoverContent align="start" className="w-44 p-1">
-        {options.map((o) => (
-          <button
-            key={o.value}
-            type="button"
-            onClick={() => onChange(o.value)}
-            className={cn(
-              "block w-full rounded-sm px-3 py-2 text-sm text-left hover:bg-accent",
-              o.value === value && "bg-accent",
-            )}
-          >
-            {o.label}
-          </button>
-        ))}
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function Chip({ label, onClear }: { label: string; onClear: () => void }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-brand/10 border border-brand/20 text-brand text-sm pl-3 pr-1.5 py-0.5 h-8">
-      <span className="truncate max-w-[200px]">{label}</span>
-      <button
-        type="button"
-        onClick={onClear}
-        aria-label="Очистить"
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand-hover"
-      >
-        <X className="h-3 w-3" />
-      </button>
-    </span>
-  );
-}
-
-// ─── Empty / no-results states ───────────────────────────────────────────────
-
-function EmptyAllState({
-  canCreate,
-  onCreate,
-}: {
-  canCreate: boolean;
-  onCreate: (type: TransactionRow["type"]) => void;
-}) {
-  return (
-    <EmptyState
-      icon={Inbox}
-      title="У вас пока нет операций"
-      description="Нажмите «Добавить операцию» в правом верхнем углу, чтобы создать первый приход, расход или перевод."
-      action={
-        canCreate ? (
-          <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => onCreate("income")}>
-              <Plus className="text-green-600" />
-              Приход
-            </Button>
-            <Button variant="outline" onClick={() => onCreate("expense")}>
-              <Minus className="text-destructive" />
-              Расход
-            </Button>
-          </div>
-        ) : null
-      }
-    />
-  );
-}
-
-function NoResultsState({
-  hasSearch,
-  hasDateFilter,
-  onClearSearch,
-  onExpandPeriod,
-  onResetAll,
-}: {
-  hasSearch: boolean;
-  hasDateFilter: boolean;
-  onClearSearch: () => void;
-  onExpandPeriod: () => void;
-  onResetAll: () => void;
-}) {
-  return (
-    <EmptyState
-      icon={FileX2}
-      title="Ничего не найдено"
-      description="Попробуйте изменить запрос, расширить период или сбросить активные фильтры."
-      action={
-        <div className="flex items-center gap-2 flex-wrap justify-center">
-          {hasSearch && (
-            <Button variant="outline" onClick={onClearSearch}>
-              <X />
-              Очистить поиск
-            </Button>
-          )}
-          {hasDateFilter && (
-            <Button variant="outline" onClick={onExpandPeriod}>
-              Расширить период
-            </Button>
-          )}
-          <Button onClick={onResetAll}>Сбросить все фильтры</Button>
-        </div>
-      }
-    />
-  );
-}
-
-// ─── Table row ──────────────────────────────────────────────────────────────
-
-function Row({
-  tx,
-  isSelected,
-  onToggle,
-  onClick,
-  accountById,
-  categoryById,
-  counterpartyById,
-  amountRoundingScale,
-}: {
-  tx: TransactionRow;
-  isSelected: boolean;
-  onToggle: () => void;
-  onClick: () => void;
-  accountById: Map<string, BankAccountRow>;
-  categoryById: Map<string, FinanceCategoryRow>;
-  counterpartyById: Map<string, CounterpartyRow>;
-  amountRoundingScale: AmountRoundingScale;
-}) {
-  const account = accountById.get(tx.bank_account_id);
-  const toAccount = tx.to_bank_account_id
-    ? accountById.get(tx.to_bank_account_id)
-    : null;
-  const category = tx.category_id ? categoryById.get(tx.category_id) : null;
-  const counterparty = tx.counterparty_id
-    ? counterpartyById.get(tx.counterparty_id)
-    : null;
-
-  const amount = Number(tx.amount);
-  const sign = tx.type === "income" ? "+" : tx.type === "expense" ? "−" : "";
-  // Semantic income/expense palette per DS — green-700 / red-700 in light;
-  // dark mode is handled by lighter shades on the same scale.
-  const amountClass =
-    tx.type === "income"
-      ? "text-green-700 dark:text-green-400"
-      : tx.type === "expense"
-        ? "text-red-700 dark:text-red-400"
-        : "text-foreground";
-
-  const { date, time } = splitDateTime(tx.date, tx.created_at);
-
-  return (
-    <tr
-      onClick={onClick}
-      className={cn(
-        "h-14 cursor-pointer border-t transition-colors",
-        "hover:bg-accent/40",
-        isSelected && "bg-brand/5",
-      )}
-    >
-      <td className="px-3 align-middle" onClick={(e) => e.stopPropagation()}>
-        <Checkbox
-          checked={isSelected}
-          onCheckedChange={onToggle}
-          className="data-[state=checked]:bg-brand data-[state=checked]:border-brand"
-        />
-      </td>
-      <td className="px-3 align-middle whitespace-nowrap">
-        <div className="flex items-center gap-1.5 text-sm">
-          <span>{date}</span>
-          {time && (
-            <span className="text-muted-foreground text-xs">· {time}</span>
-          )}
-        </div>
-      </td>
-      <td
-        className={cn(
-          "px-3 align-middle font-medium tabular-nums",
-          amountClass,
-        )}
-      >
-        {sign}
-        {formatCurrency(amount, tx.currency, amountRoundingScale)}
-      </td>
-      <td className="px-3 align-middle">
-        {tx.type === "transfer" ? (
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2">
-              <ArrowLeftRight className="h-3.5 w-3.5 text-zinc-400" />
-              <span className="text-sm">Перевод между счетами</span>
-            </div>
-            {tx.description && <DescriptionLine text={tx.description} />}
-          </div>
-        ) : (
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2">
-              <span
-                className="inline-block h-2 w-2 rounded-full shrink-0"
-                style={{ backgroundColor: category?.color ?? "#cccccc" }}
-              />
-              <span className="text-sm truncate">
-                {category?.name ?? "Без статьи"}
-              </span>
-            </div>
-            {tx.description && <DescriptionLine text={tx.description} />}
-          </div>
-        )}
-      </td>
-      <td className="px-3 align-middle">
-        {counterparty ? (
-          <div className="flex items-center gap-2">
-            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-muted shrink-0">
-              <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-            </div>
-            <span className="text-sm truncate max-w-[160px]">
-              {counterparty.name}
-            </span>
-          </div>
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        )}
-      </td>
-      <td className="px-3 align-middle">
-        {tx.type === "transfer" && toAccount ? (
-          <div className="flex flex-col gap-0.5">
-            <AccountLine
-              account={account}
-              amountRoundingScale={amountRoundingScale}
-            />
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <ArrowLeftRight className="h-3 w-3" />
-              <span className="truncate">{toAccount.name}</span>
-            </div>
-          </div>
-        ) : (
-          <AccountLine
-            account={account}
-            showBalance
-            amountRoundingScale={amountRoundingScale}
-          />
-        )}
-      </td>
-    </tr>
-  );
-}
-
-function AccountLine({
-  account,
-  showBalance,
-  amountRoundingScale,
-}: {
-  account: BankAccountRow | undefined;
-  showBalance?: boolean;
-  amountRoundingScale: AmountRoundingScale;
-}) {
-  if (!account)
-    return (
-      <span className="text-muted-foreground text-sm">Неизвестный счёт</span>
-    );
-  return (
-    <div className="flex flex-col">
-      <div className="flex items-center gap-1.5">
-        <Wallet className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-        <span className="text-sm truncate max-w-[180px]">{account.name}</span>
-      </div>
-      {showBalance && (
-        <span className="text-xs text-muted-foreground tabular-nums pl-5">
-          {formatShortAmount(
-            Number(account.balance),
-            account.currency,
-            amountRoundingScale,
-          )}
-        </span>
-      )}
-    </div>
-  );
-}
-
-function DescriptionLine({ text }: { text: string }) {
-  const parts = linkifyParts(text);
-  return (
-    <p className="text-xs text-muted-foreground leading-tight mt-0.5 truncate">
-      {parts.map((p, i) =>
-        p.type === "link" ? (
-          <a
-            key={i}
-            href={p.value}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-brand underline"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {p.value}
-          </a>
-        ) : (
-          <span key={i}>{p.value}</span>
-        ),
-      )}
-    </p>
-  );
-}
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-/** Russian plural form: pluralize(1, ["a","b","c"]) → "a"; (3,…) → "b"; (5,…) → "c" */
-function pluralize(n: number, forms: [string, string, string]): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return forms[0];
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20))
-    return forms[1];
-  return forms[2];
-}
-
-function normaliseToArray(v: string | string[] | undefined): string[] {
-  if (v === undefined) return [];
-  if (Array.isArray(v)) return v;
-  return v ? [v] : [];
+/** `YYYY-MM-DD` → локальная полночь (не UTC: западнее Москвы день съехал бы). */
+function parseLocalDate(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
 }
 
 function toIsoDate(d: Date): string {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }

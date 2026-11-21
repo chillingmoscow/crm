@@ -11,7 +11,7 @@ import { getConnection } from "@/lib/sales/quickresto";
 import { enqueueDay } from "@/lib/sales/sync";
 import { businessDate, validDate, addDays } from "@/lib/sales/time";
 import { z } from "zod";
-import { salesSettingsColumns } from "@/lib/sales/types";
+import { metricKeys, salesSettingsColumns } from "@/lib/sales/types";
 import type {
   SalesData,
   SalesDay,
@@ -208,7 +208,18 @@ export async function adjustSales(input: {
     version: z.number().int().positive(),
     reason: z.string().trim().min(3).max(1000),
     note: z.string().max(5000),
+    // null — вернуть исходное значение. NaN и Infinity при передаче
+    // превращаются в null и молча сбросили бы исправление: отклоняем их.
+    changes: z.record(
+      z.enum(metricKeys),
+      z.number().finite().gt(-1e12).lt(1e12).nullable(),
+    ),
   }).parse(input);
+  if (
+    typeof input.changes.checks === "number" &&
+    (!Number.isInteger(input.changes.checks) || input.changes.checks < 0)
+  )
+    throw new Error("Количество чеков: целое неотрицательное число");
   const r = await s.db.rpc("sales_adjust", {
     p_day_id: input.id,
     p_version: input.version,
@@ -327,6 +338,8 @@ export async function saveSalesSettings(
     .select(Object.keys(values).join(","))
     .eq("venue_id", s.venueId)
     .maybeSingle();
+  // Без прежних значений журнал записал бы правку как новую настройку.
+  if (before.error) throw new Error("Не удалось прочитать текущие настройки. Повторите попытку");
   const r = await admin.from("sales_settings").upsert({
     ...values,
     account_id: s.accountId,

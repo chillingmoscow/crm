@@ -99,7 +99,7 @@ test("summary and report name each chat and the written-off bonus", () => {
   assert.match(text, /Иван Петров/);
   assert.match(text, /Бар — исключён/);
   assert.match(text, /150/);
-  assert.match(terminationReport("Иван", [], []), /не было/);
+  assert.doesNotMatch(terminationReport("Иван", [], []), /[Бб]онус/);
 });
 
 test("failed unban is not final; the retry unbans and only then records removed", async () => {

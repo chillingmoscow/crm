@@ -2,7 +2,7 @@ import 'server-only';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { asLooseDb } from '@/lib/supabase/loose';
 import { decryptSecret } from '@/lib/integrations/crypto';
-import { getBackOfficeAuth, getConnection, withBackOfficeSession } from '@/app/(dashboard)/inventory/actions-shared';
+import { getConnection, withBackOfficeSession } from '@/app/(dashboard)/inventory/actions-shared';
 import { buildQuickRestoBackOfficeOrigin, callQuickRestoBackOfficeData, callQuickRestoBackOfficeRemove, quickRestoFetch } from '@/lib/integrations/quickresto/client';
 import { loadTelegramBot } from '@/lib/integrations/telegram-bot';
 import { removalComplete } from '@/lib/integrations/telegram-membership';
@@ -43,7 +43,6 @@ export async function processStaffTermination(id?:string) {
    throw new Error('Список Quick Resto слишком большой для безопасной проверки удаления');
   };
   const password=decryptSecret({encrypted:connection.password_encrypted,iv:connection.password_iv,tag:connection.password_tag});
-  let debitAuth:Awaited<ReturnType<typeof getBackOfficeAuth>>|null=null;
   await removeStaffFromQuickResto({ids,done:job.steps,save,transport:{rows,
    remove:async(moduleName,className,entityId)=>{
     const url=new URL('/platform/online/api/remove',buildQuickRestoBackOfficeOrigin({layerName:connection.login,baseUrl:connection.backoffice_base_url}));
@@ -53,20 +52,6 @@ export async function processStaffTermination(id?:string) {
     // The subsequent read is the success signal, not HTTP 200 or an empty body.
    },
    removeChild:async(path,row,query)=>{await withBackOfficeSession({connection,admin:db,run:authorization=>callQuickRestoBackOfficeRemove({layerName:connection.login,baseUrl:connection.backoffice_base_url,authorization,path,query,body:row})});},
-   closeBonus:async(row,query)=>{await withBackOfficeSession({connection,admin:db,run:authorization=>callQuickRestoBackOfficeData({layerName:connection.login,baseUrl:connection.backoffice_base_url,authorization,path:'crm.accounting.account/update',query,body:{...row,accountState:'closed'}})});},
-   // Auth is obtained before the write-off marker: a login failure must not force a manual write-off.
-   prepareDebit:async()=>{debitAuth=await getBackOfficeAuth({connection,admin:db});},
-   debitBonus:async(row,amount)=>{
-    // Same request as the payroll bonus worker; no auth refresh or retry may wrap this POST.
-    const authorization=debitAuth??await getBackOfficeAuth({connection,admin:db});debitAuth=null;
-    const result=await callQuickRestoBackOfficeData<unknown>({layerName:connection.login,baseUrl:connection.backoffice_base_url,authorization,
-     path:'crm.accounting.account/action',query:{businessDayOffsetInMs:32400000,mode:'bonuses',timeZone:-180},
-     body:{actionName:'accountDebit',data:{className:'accountDebitModal',ownerContextIds:[Number(row.id)],amount,timeZone:-180},ids:[Number(row.id)],
-      owner:{ownerContextId:Number(job.guest_id),ownerContextClassName:'ru.edgex.quickresto.modules.crm.customer.CrmCustomer'}}});
-    if(typeof result!=='object'||result===null||'error' in result||'errors' in result||('success' in result&&result.success===false))
-     throw new Error('Quick Resto не подтвердил списание остатка бонусов');
-    // The following balance read is the success signal.
-   },
   }});
   }
   // Telegram runs after Quick Resto; its failures keep their own text (see catch below). A lost lease stays a lost lease.

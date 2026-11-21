@@ -13,6 +13,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { conflictHint } from "@/lib/inventory/act-assignment";
 import { assignInventoryDocument } from "@/app/(dashboard)/inventory/_actions/assignment";
 import { personInitials } from "@/lib/format/initials";
 
@@ -36,13 +37,23 @@ export function AssigneeSelect({
   documentId,
   assignedTo,
   staff,
+  options,
+  blockedUserId,
   disabled,
   lockReason,
   linkToPerson = false,
 }: {
   documentId: string;
   assignedTo: string | null;
+  /** Справочник имён: по нему показываем текущего человека, даже если права
+   *  на роль у него уже нет. */
   staff: AssigneeOption[];
+  /** Кого можно выбрать (есть право на роль в заведении акта). По умолчанию —
+   *  весь справочник. */
+  options?: AssigneeOption[];
+  /** Человек на второй роли этого акта: виден в списке, но выбрать нельзя —
+   *  исполнитель и проверяющий должны быть разными людьми. */
+  blockedUserId?: string | null;
   disabled?: boolean;
   /** Если задано — Select не рендерится, бейдж (ссылка на профиль при linkToPerson). */
   lockReason?: string | null;
@@ -117,14 +128,22 @@ export function AssigneeSelect({
             Не назначен
           </span>
         </SelectItem>
-        {staff.map((member) => (
-          <SelectItem key={member.id} value={member.id}>
-            <span className="inline-flex items-center gap-2">
-              <AssigneeAvatar name={member.name} />
-              {member.name}
-            </span>
-          </SelectItem>
-        ))}
+        {(options ?? staff).map((member) => {
+          const blocked = member.id === blockedUserId;
+          return (
+            <SelectItem key={member.id} value={member.id} disabled={blocked}>
+              <span className="inline-flex items-center gap-2">
+                <AssigneeAvatar name={member.name} muted={blocked} />
+                <span className="flex flex-col">
+                  <span>{member.name}</span>
+                  {blocked ? (
+                    <span className="text-xs text-muted-foreground">{conflictHint("assignee")}</span>
+                  ) : null}
+                </span>
+              </span>
+            </SelectItem>
+          );
+        })}
       </SelectContent>
     </Select>
   );
@@ -178,7 +197,7 @@ export function AssigneeAvatar({ name, muted = false }: { name: string; muted?: 
     <div
       aria-hidden="true"
       className={cn(
-        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-medium",
+        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-medium",
         muted ? "bg-muted text-muted-foreground" : "bg-brand/15 text-brand",
       )}
     >

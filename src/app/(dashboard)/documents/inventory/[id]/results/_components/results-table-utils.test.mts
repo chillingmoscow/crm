@@ -2,11 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  QR_CALCULATED_COLUMNS,
+  columnToResultFieldFor,
   combineResultSort,
   hasDifference,
   isOpenDifference,
+  resultFactAmount,
+  resultSortFieldsFor,
   resultSortToDirection,
   resultSortToField,
+  resultSortsToSorting,
+  sortingToResultSorts,
   type ResultSortMode,
 } from "./results-table-utils.ts";
 
@@ -36,6 +42,32 @@ test("combineResultSort round-trip по всем режимам", () => {
   for (const mode of ALL_MODES) {
     assert.equal(combineResultSort(resultSortToField(mode), resultSortToDirection(mode)), mode);
   }
+});
+
+test("resultSortsToSorting / sortingToResultSorts — round-trip и порядок", () => {
+  const sorts: ResultSortMode[] = ["sum_desc", "empty_first", "name_asc"];
+  const sorting = resultSortsToSorting(sorts);
+  assert.deepEqual(sorting, [
+    { id: "sum", desc: true },
+    { id: "empty", desc: false },
+    { id: "name", desc: false },
+  ]);
+  assert.deepEqual(sortingToResultSorts(sorting), sorts);
+  for (const mode of ALL_MODES) {
+    assert.deepEqual(sortingToResultSorts(resultSortsToSorting([mode])), [mode]);
+  }
+});
+
+test("sortingToResultSorts отбрасывает неизвестные поля и повторы", () => {
+  assert.deepEqual(
+    sortingToResultSorts([
+      { id: "group", desc: true },
+      { id: "unknown", desc: false },
+      { id: "group", desc: false },
+      { id: "empty", desc: true },
+    ]),
+    ["group_desc", "empty_last"],
+  );
 });
 
 test("hasDifference: ненулевая разница → true", () => {
@@ -71,4 +103,24 @@ test("isOpenDifference: исключённые и полностью покры�
   assert.equal(isOpenDifference({ difference_amount: -5, difference_sum: -500 }, undefined), true);
   // без разницы → не открытое
   assert.equal(isOpenDifference({ difference_amount: 0, difference_sum: 0 }, undefined), false);
+});
+
+test("resultFactAmount: с расчётом — факт Quick Resto, без расчёта — введённое исполнителем", () => {
+  assert.equal(resultFactAmount({ actual_amount: 3, submitted_amount: 5 }, true), 3);
+  assert.equal(resultFactAmount({ actual_amount: null, submitted_amount: 5 }, true), null);
+  assert.equal(resultFactAmount({ actual_amount: 3, submitted_amount: 5 }, false), 5);
+  assert.equal(resultFactAmount({ actual_amount: 3, submitted_amount: null }, false), 3);
+  assert.equal(resultFactAmount({ actual_amount: null }, false), null);
+});
+
+test("без расчёта по строкам сортировки по сумме нет", () => {
+  assert.deepEqual(resultSortFieldsFor(true), ["name", "group", "empty", "sum"]);
+  assert.deepEqual(resultSortFieldsFor(false), ["name", "group", "empty"]);
+  assert.equal(columnToResultFieldFor(true).management, "sum");
+  assert.equal(columnToResultFieldFor(false).management, undefined);
+  assert.equal(columnToResultFieldFor(false).fact, "empty");
+});
+
+test("QR_CALCULATED_COLUMNS — ровно колонки расчёта Quick Resto", () => {
+  assert.deepEqual([...QR_CALCULATED_COLUMNS].sort(), ["calculated", "difference", "management"]);
 });

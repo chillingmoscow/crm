@@ -1,17 +1,27 @@
+import { PageFrame } from "@/components/shared/page-frame";
+import { Skeleton } from "@/components/ui/skeleton";
+
 // Мгновенный скелетон при открытии акта: страница итогов/формы тяжёлая
-// (много запросов + подсказки), без этого навигация выглядит «зависшей».
+// (много запросов), без него навигация выглядит «зависшей». Форма как у
+// шапки карточки: плитка 56px, название, строка контекста, вкладки.
 export default function Loading() {
   return (
-    <div className="w-full space-y-6 p-6 md:p-8">
-      <div className="space-y-2">
-        <div className="h-7 w-56 animate-pulse rounded bg-muted" />
-        <div className="h-4 w-72 animate-pulse rounded bg-muted" />
+    <PageFrame aria-label="Загружаем акт" aria-busy className="flex flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6">
+        <div className="flex items-center gap-4">
+          <Skeleton className="size-14 rounded-[14px]" />
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-8 w-56" />
+            <Skeleton className="h-4 w-72 max-w-full" />
+          </div>
+        </div>
+        <Skeleton className="h-10 w-full" />
       </div>
-      <div className="space-y-2">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="h-16 animate-pulse rounded-lg border bg-muted/40" />
+      <div className="flex flex-col gap-2">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Skeleton key={i} className="h-16 rounded-lg" />
         ))}
       </div>
-    </div>
+    </PageFrame>
   );
 }

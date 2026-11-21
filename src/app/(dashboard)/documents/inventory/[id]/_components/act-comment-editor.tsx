@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
+import { SaveBar } from "@/components/shared/save-bar";
 import { updateInventoryDocumentNote } from "@/app/(dashboard)/inventory/_actions/documents";
 
 type Props = {
@@ -15,17 +15,32 @@ type Props = {
   canEdit: boolean;
 };
 
+/**
+ * Комментарий к акту — правка на месте: поле в секции, сохранение через
+ * общую полосу `SaveBar` (видна только при изменениях, защищает уход со
+ * страницы). Своей кнопки «Сохранить комментарий» нет — design-system
+ * § «SaveBar».
+ */
 export function ActCommentEditor({ documentId, note, canEdit }: Props) {
   const router = useRouter();
-  const [value, setValue] = useState(note ?? "");
+  const saved = note ?? "";
+  const [value, setValue] = useState(saved);
   const [saving, startSaving] = useTransition();
 
-  const dirty = (note ?? "") !== value;
+  // Пришло свежее значение с сервера (после сохранения или правки другим
+  // человеком) — поле без несохранённых правок подтягивает его.
+  const [lastSaved, setLastSaved] = useState(saved);
+  useEffect(() => {
+    if (saved !== lastSaved) {
+      setLastSaved(saved);
+      setValue((current) => (current === lastSaved ? saved : current));
+    }
+  }, [saved, lastSaved]);
 
   if (!canEdit) {
     return (
-      <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-        {note?.trim() ? note : "Комментарий не задан."}
+      <p className="whitespace-pre-wrap text-sm">
+        {saved.trim() ? saved : <span className="text-muted-foreground">Не указан</span>}
       </p>
     );
   }
@@ -43,18 +58,34 @@ export function ActCommentEditor({ documentId, note, canEdit }: Props) {
   };
 
   return (
-    <div className="max-w-2xl">
-      <Textarea
-        value={value}
-        onChange={(event) => setValue(event.target.value)}
-        disabled={saving}
-        rows={4}
-        placeholder="Общий комментарий к акту…"
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (value !== saved && !saving) save();
+      }}
+      className="flex flex-col gap-4"
+    >
+      <Field
+        label="Комментарий"
+        hint="Не уходит в Quick Resto и не меняется при синхронизации"
+      >
+        {(control) => (
+          <Textarea
+            {...control}
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+            disabled={saving}
+            rows={4}
+            placeholder="Например, что учесть при подсчёте"
+          />
+        )}
+      </Field>
+      <SaveBar
+        dirty={value !== saved}
+        saving={saving}
+        onSave={save}
+        onReset={() => setValue(saved)}
       />
-      <Button type="button" className="mt-3" disabled={!dirty || saving} onClick={save}>
-        {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-        Сохранить комментарий
-      </Button>
-    </div>
+    </form>
   );
 }

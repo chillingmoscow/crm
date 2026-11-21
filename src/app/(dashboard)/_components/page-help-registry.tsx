@@ -20,6 +20,7 @@ import { IntegrationsHelp, OfficeCodesHelp, QuickRestoHelp, TelegramHelp, TildaH
 
 import { InventoryActsHelp } from "@/app/(dashboard)/documents/inventory/_components/inventory-acts-help";
 import { CatalogHelp } from "@/app/(dashboard)/catalog/_components/catalog-help";
+import { WriteoffsHelp } from "@/app/(dashboard)/documents/writeoffs/_components/writeoffs-help";
 import { AuditHelp } from "@/app/(dashboard)/org/audit/_components/audit-help";
 import { StoresHelp } from "@/app/(dashboard)/org/stores/_components/stores-help";
 import { CategoriesHelp } from "@/app/(dashboard)/finance/categories/_components/categories-help";
@@ -94,6 +95,7 @@ export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
     title: "Номенклатура",
     Content: CatalogHelp,
   },
+  { match: (p) => p === "/documents/writeoffs", title: "Списания", Content: WriteoffsHelp },
   { match: (p) => p === "/org/audit", title: "Журнал событий", Content: AuditHelp },
   { match: (p) => p === "/finance/categories", title: "Статьи", Content: CategoriesHelp },
   {

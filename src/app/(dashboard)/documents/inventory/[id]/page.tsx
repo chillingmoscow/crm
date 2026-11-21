@@ -9,6 +9,7 @@ import {
 import { asLooseDb } from "@/lib/supabase/loose";
 import { chunk } from "@/lib/supabase/fetch-all";
 import { mediaUrl } from "@/lib/storage/media";
+import { canFillInventoryAct } from "@/lib/inventory/act-status";
 import { getCachedInventoryDocumentBasics, getCachedStoreTitle } from "./layout";
 import { InventoryDocumentEditor } from "./_components/document-editor";
 
@@ -136,7 +137,8 @@ export default async function InventoryDocumentPage({
   const canFill = permissions.includes("inventory.fill_assigned_documents");
 
   if (!user) redirect("/login");
-  if (!accountId || (!canView && !canFill)) redirect("/dashboard");
+  if (!accountId || (!canView && !canFill && !permissions.includes("inventory.recount_documents")))
+    redirect("/dashboard");
 
   // Ту же строку акта уже прочитал layout и положил в React.cache — свой
   // запрос здесь был вторым чтением одной записи за рендер.
@@ -146,7 +148,17 @@ export default async function InventoryDocumentPage({
   // Акт удалён в Quick Resto (авто-архив) — скрыт из списка; закрываем и прямой
   // доступ по URL/закладке, чтобы нельзя было редактировать мёртвый акт.
   if (document.archived_at) redirect("/documents/inventory");
-  if (!canView && document.assigned_to !== user.id) redirect("/documents/inventory");
+  // Кто может заполнять форму — та же проверка, что у отправки акта
+  // (submitInventoryDocumentDraft): управляющий актами, исполнитель или
+  // проверяющий акта. Остальные видят форму только для чтения, иначе ввод
+  // трёхсот значений заканчивался бы отказом на «Завершить».
+  const canFillDocument = canFillInventoryAct({
+    permissions,
+    userId: user.id,
+    assignedTo: document.assigned_to,
+    reviewerId: document.reviewer_id,
+  });
+  if (!canView && !canFillDocument) redirect("/documents/inventory");
 
   const [{ data: store }, { data: itemsRaw }, { data: groupsRaw }] = await Promise.all([
     // Название склада тоже уже в кэше layout'а.
@@ -214,6 +226,8 @@ export default async function InventoryDocumentPage({
 
   return (
     <InventoryDocumentEditor
+      canFill={canFillDocument}
+      currentUserId={user.id}
       document={{
         id: document.id,
         documentNumber: document.document_number,
@@ -237,6 +251,7 @@ export default async function InventoryDocumentPage({
         syncedAt: document.synced_at ?? null,
         lastReturnedAt: document.last_returned_at ?? null,
         recountCount: document.recount_count ?? 0,
+        assignedTo: document.assigned_to,
       }}
       groups={groupsUsedByDocument(orderedGroups, groupById, productById, items).map(({ group, depth, path }) => ({
         id: group.id,

@@ -70,8 +70,16 @@ export function groupMissing(refs: string[], lookup: MissingLookup): MissingGrou
 
   for (const ref of refs) {
     if (ref.startsWith("inventory:")) add("inventory", documentItem(bareDocumentId(ref), lookup));
-    else if (ref.startsWith("writeoff:"))
-      add("writeoff", { label: `Акт списания ${ref.slice(ref.lastIndexOf(":") + 1)}`, href: "/documents/writeoffs" });
+    else if (ref.startsWith("writeoff:")) {
+      // Ссылка открывает сам акт: страница списаний по `?act=` переходит на его
+      // месяц и открывает карточку. Раньше вела на текущий месяц без акта, а
+      // номер в подписи — внешний id Quick Resto, по которому поиск не находил.
+      const externalId = ref.slice(ref.lastIndexOf(":") + 1);
+      add("writeoff", {
+        label: `Акт списания ${externalId}`,
+        href: `/documents/writeoffs?act=${encodeURIComponent(externalId)}`,
+      });
+    }
     else if (ref.startsWith("shift:")) {
       const [, employeeId, date] = ref.split(":");
       const name = lookup.employees.get(employeeId) ?? "Сотрудник без имени в справочнике";

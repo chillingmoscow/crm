@@ -12,6 +12,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { conflictHint } from "@/lib/inventory/act-assignment";
 import { assignInventoryReviewer } from "@/app/(dashboard)/inventory/_actions/assignment";
 import {
   AssigneeAvatar,
@@ -31,13 +32,23 @@ export function ReviewerSelect({
   documentId,
   reviewerId,
   staff,
+  options,
+  blockedUserId,
   disabled,
   lockReason,
   linkToPerson = false,
 }: {
   documentId: string;
   reviewerId: string | null;
+  /** Справочник имён: по нему показываем текущего человека, даже если права
+   *  на роль у него уже нет. */
   staff: AssigneeOption[];
+  /** Кого можно выбрать (есть право на роль в заведении акта). По умолчанию —
+   *  весь справочник. */
+  options?: AssigneeOption[];
+  /** Человек на второй роли этого акта: виден в списке, но выбрать нельзя —
+   *  исполнитель и проверяющий должны быть разными людьми. */
+  blockedUserId?: string | null;
   disabled?: boolean;
   /** Если задано — Select не рендерится, бейдж (ссылка на профиль при linkToPerson). */
   lockReason?: string | null;
@@ -112,14 +123,22 @@ export function ReviewerSelect({
             Без проверяющего
           </span>
         </SelectItem>
-        {staff.map((member) => (
-          <SelectItem key={member.id} value={member.id}>
-            <span className="inline-flex items-center gap-2">
-              <AssigneeAvatar name={member.name} />
-              {member.name}
-            </span>
-          </SelectItem>
-        ))}
+        {(options ?? staff).map((member) => {
+          const blocked = member.id === blockedUserId;
+          return (
+            <SelectItem key={member.id} value={member.id} disabled={blocked}>
+              <span className="inline-flex items-center gap-2">
+                <AssigneeAvatar name={member.name} muted={blocked} />
+                <span className="flex flex-col">
+                  <span>{member.name}</span>
+                  {blocked ? (
+                    <span className="text-xs text-muted-foreground">{conflictHint("reviewer")}</span>
+                  ) : null}
+                </span>
+              </span>
+            </SelectItem>
+          );
+        })}
       </SelectContent>
     </Select>
   );

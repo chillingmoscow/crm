@@ -185,10 +185,13 @@ alter table public.finance_recurring_occurrences enable row level security;
 
 revoke all on public.finance_recurring_templates from anon;
 revoke all on public.finance_recurring_occurrences from anon;
-revoke insert, delete on public.finance_recurring_occurrences from authenticated;
+revoke insert, update, delete on public.finance_recurring_occurrences from authenticated;
+-- Клиент меняет только поля разбора; снимок шаблона неизменяем (см. триггер ниже).
+grant update (status, postponed_to, transaction_id, resolved_by, resolved_at)
+  on public.finance_recurring_occurrences to authenticated;
 
 -- Live/archive: две disjoint select-политики (docs/CONVENTIONS.md). Слияние в одну
--- OR-политику не «чинить»: архив видят только те, кто управляет шаблонами.
+-- OR-политику не «чинить». Архив — не граница конфиденциальности: видимость та же, что у живых.
 create policy finance_recurring_templates_select
   on public.finance_recurring_templates for select
   using (
@@ -223,7 +226,6 @@ account_id = (select public.get_active_account_id())
       or (select public.has_permission('finance.view_all_venues'))
     )
     and (select public.has_permission('finance.view_transactions'))
-    and (select public.has_permission('finance.create_transaction'))
   );
 
 create policy finance_recurring_templates_insert
@@ -288,7 +290,7 @@ create policy finance_recurring_templates_delete
       or (select public.has_permission('finance.view_all_venues'))
     )
     and (select public.has_permission('finance.view_transactions'))
-    and (select public.has_permission('finance.create_transaction'))
+    and (select public.has_permission('finance.delete_transaction'))
   );
 
 create policy finance_recurring_occurrences_select
@@ -374,7 +376,7 @@ as $$
              p_template.day_of_month,
              extract(day from (m::date + interval '1 month - 1 day'))::int
            ) - 1))::date as d
-      from generate_series(date_trunc('month', p_from)::date, p_to, interval '1 month') m
+      from generate_series(date_trunc('month', greatest(p_from, p_template.starts_on))::date, p_to, interval '1 month') m
      where p_template.frequency in ('monthly', 'quarterly')
        and (
          p_template.frequency = 'monthly'
@@ -382,7 +384,7 @@ as $$
        )
     union all
     select g::date
-      from generate_series(p_from, p_to, interval '1 day') g
+      from generate_series(greatest(p_from, p_template.starts_on), p_to, interval '1 day') g
      where p_template.frequency = 'weekly'
        and extract(isodow from g)::int = p_template.weekday
   )
@@ -493,6 +495,133 @@ as $$
 $$;
 
 -- ────────────────────────────────────────────────────────────
+-- 4a. Охрана точки отсчёта: materialize_from не раньше «сегодня» аккаунта
+-- ────────────────────────────────────────────────────────────
+create or replace function public.finance_recurring_templates_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+begin
+  if (tg_op = 'INSERT' or new.materialize_from is distinct from old.materialize_from)
+     and new.materialize_from < private.finance_account_today(new.account_id) then
+    raise exception 'materialize_from не может быть в прошлом';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger finance_recurring_templates_guard
+  before insert or update on public.finance_recurring_templates
+  for each row execute function public.finance_recurring_templates_guard();
+
+-- ────────────────────────────────────────────────────────────
+-- 4b. Ожидаемый платёж — конечный автомат
+--   pending -> skipped | posted | pending (перенос срока разбора)
+--   posted  -> pending только из триггера удаления операции (флаг в транзакции)
+-- ────────────────────────────────────────────────────────────
+create or replace function public.finance_recurring_occurrences_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_today date := private.finance_account_today(old.account_id);
+  v_uid uuid := auth.uid();
+  v_tx record;
+begin
+  if (new.template_id, new.due_date, new.account_id, new.legal_entity_id, new.venue_id,
+      new.bank_account_id, new.category_id, new.counterparty_id, new.type, new.amount,
+      new.amount_varies, new.currency, new.description, new.name)
+     is distinct from
+     (old.template_id, old.due_date, old.account_id, old.legal_entity_id, old.venue_id,
+      old.bank_account_id, old.category_id, old.counterparty_id, old.type, old.amount,
+      old.amount_varies, old.currency, old.description, old.name)
+  then
+    -- venue/category/counterparty обнуляются каскадом FK (on delete set null) — это не правка клиента.
+    if not (
+      new.template_id = old.template_id and new.due_date = old.due_date
+      and new.account_id = old.account_id and new.legal_entity_id = old.legal_entity_id
+      and new.bank_account_id = old.bank_account_id and new.type = old.type
+      and new.amount = old.amount and new.amount_varies = old.amount_varies
+      and new.currency = old.currency and new.description is not distinct from old.description
+      and new.name = old.name
+      and new.status = old.status and new.postponed_to is not distinct from old.postponed_to
+      and new.transaction_id is not distinct from old.transaction_id
+      and (new.venue_id is null or new.venue_id = old.venue_id)
+      and (new.category_id is null or new.category_id = old.category_id)
+      and (new.counterparty_id is null or new.counterparty_id = old.counterparty_id)
+    ) then
+      raise exception 'Снимок ожидаемого платежа менять нельзя';
+    end if;
+    return new;
+  end if;
+
+  if (new.status, new.postponed_to, new.transaction_id, new.resolved_by, new.resolved_at)
+     is not distinct from
+     (old.status, old.postponed_to, old.transaction_id, old.resolved_by, old.resolved_at) then
+    return new;
+  end if;
+
+  if old.status = 'pending' and new.status = 'skipped' then
+    if new.transaction_id is not null then
+      raise exception 'Пропущенный платёж не связан с операцией';
+    end if;
+
+  elsif old.status = 'pending' and new.status = 'pending' then
+    if new.transaction_id is not null
+       or new.resolved_by is distinct from old.resolved_by
+       or new.resolved_at is distinct from old.resolved_at then
+      raise exception 'Недопустимое изменение ожидаемого платежа';
+    end if;
+    if new.postponed_to is null or new.postponed_to <= v_today then
+      raise exception 'Перенести можно только на дату позже сегодняшней';
+    end if;
+
+  elsif old.status = 'pending' and new.status = 'posted' then
+    select t.legal_entity_id, t.type into v_tx
+      from public.transactions t
+     where t.id = new.transaction_id
+       and t.account_id = new.account_id
+       and t.deleted_at is null;
+    if not found
+       or v_tx.legal_entity_id <> new.legal_entity_id
+       or v_tx.type <> new.type then
+      raise exception 'Операция не подходит для проведения платежа';
+    end if;
+    if exists (
+      select 1 from public.finance_recurring_occurrences o
+       where o.transaction_id = new.transaction_id and o.id <> new.id
+    ) then
+      raise exception 'Операция уже связана с другим платежом';
+    end if;
+
+  elsif old.status = 'posted' and new.status = 'pending'
+        and coalesce(current_setting('app.finance_recurring_release', true), '') = '1' then
+    if new.transaction_id is not null then
+      raise exception 'Недопустимое изменение ожидаемого платежа';
+    end if;
+    return new;
+
+  else
+    raise exception 'Недопустимый переход состояния ожидаемого платежа: % -> %', old.status, new.status;
+  end if;
+
+  if new.status in ('skipped', 'posted') and v_uid is not null
+     and new.resolved_by is distinct from v_uid then
+    raise exception 'resolved_by должен совпадать с текущим пользователем';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger finance_recurring_occurrences_guard
+  before update on public.finance_recurring_occurrences
+  for each row execute function public.finance_recurring_occurrences_guard();
+
+-- ────────────────────────────────────────────────────────────
 -- 6. Удалённая операция возвращает проведённый платёж в очередь
 -- ────────────────────────────────────────────────────────────
 create or replace function public.finance_recurring_release_transaction()
@@ -503,12 +632,14 @@ set search_path = public, pg_catalog
 as $$
 begin
   if tg_op = 'DELETE' or (old.deleted_at is null and new.deleted_at is not null) then
+    perform set_config('app.finance_recurring_release', '1', true);
     update public.finance_recurring_occurrences
        set status = 'pending', transaction_id = null,
            resolved_by = null, resolved_at = null
      where account_id = old.account_id
        and transaction_id = old.id
        and status = 'posted';
+    perform set_config('app.finance_recurring_release', '', true);
   end if;
   if tg_op = 'DELETE' then
     return old;
@@ -540,6 +671,8 @@ revoke all on function public.finance_recurring_next_due(uuid) from public, anon
 grant execute on function public.finance_recurring_next_due(uuid) to authenticated;
 
 revoke all on function public.finance_recurring_release_transaction() from public, anon, authenticated;
+revoke all on function public.finance_recurring_templates_guard() from public, anon, authenticated;
+revoke all on function public.finance_recurring_occurrences_guard() from public, anon, authenticated;
 
 revoke all on function private.finance_recurring_materialize_account(uuid) from public, anon, authenticated;
 grant execute on function private.finance_recurring_materialize_account(uuid) to service_role;
@@ -566,6 +699,17 @@ begin
     or has_function_privilege('authenticated', 'public.finance_recurring_release_transaction()', 'EXECUTE')
   then
     raise exception 'finance_recurring_*: функции доступны лишним ролям: применяйте от supabase_admin';
+  end if;
+  if has_table_privilege('authenticated', 'public.finance_recurring_occurrences', 'INSERT')
+    or has_table_privilege('authenticated', 'public.finance_recurring_occurrences', 'DELETE')
+    or has_table_privilege('authenticated', 'public.finance_recurring_occurrences', 'UPDATE')
+    or has_column_privilege('authenticated', 'public.finance_recurring_occurrences', 'amount', 'UPDATE')
+    or has_column_privilege('authenticated', 'public.finance_recurring_occurrences', 'due_date', 'UPDATE')
+    or has_column_privilege('anon', 'public.finance_recurring_occurrences', 'status', 'UPDATE')
+    or not has_column_privilege('authenticated', 'public.finance_recurring_occurrences', 'status', 'UPDATE')
+    or not has_column_privilege('authenticated', 'public.finance_recurring_occurrences', 'transaction_id', 'UPDATE')
+  then
+    raise exception 'finance_recurring_occurrences: права клиента не те, что нужны (применяйте от supabase_admin)';
   end if;
   if not has_function_privilege('service_role', 'public.finance_recurring_materialize_all()', 'EXECUTE')
     or not has_function_privilege('authenticated', 'public.finance_recurring_materialize_mine()', 'EXECUTE')

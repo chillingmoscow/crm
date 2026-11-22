@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { loadTelegramBot } from "@/lib/integrations/telegram-bot";
+import { TelegramNetworkError } from "@/lib/integrations/telegram-transport";
 import {
   loadScheduleImage,
   scheduleImageRequest,
@@ -28,6 +29,7 @@ export type ScheduleImageSetup = {
 };
 
 const EMPTY_MESSAGE = "На этой неделе нет опубликованных смен";
+const UNCERTAIN_MESSAGE = "Telegram не подтвердил отправку. Проверьте чат, прежде чем отправлять ещё раз";
 const isEmpty = (image: { parts: { rows: unknown[] }[] }) => image.parts.every((p) => !p.rows.length);
 const message = (e: unknown, fallback: string) =>
   e instanceof z.ZodError ? "Некорректная неделя" : e instanceof Error ? e.message : fallback;
@@ -101,9 +103,13 @@ export async function sendScheduleImage(
     const result = await bot.sendPhotoFiles(chatId, photos, scheduleImageCaption(image));
     if (result.ok) return { sent: photos.length };
     if (result.uncertain)
-      return { error: "Telegram не подтвердил отправку. Проверьте чат, прежде чем отправлять ещё раз", uncertain: true };
+      return { error: UNCERTAIN_MESSAGE, uncertain: true };
     return { error: telegramError(result.description) };
   } catch (e) {
+    if (e instanceof TelegramNetworkError)
+      return e.delivery === "not_sent"
+        ? { error: "Не удалось связаться с Telegram: картинка не отправлена. Попробуйте ещё раз через минуту" }
+        : { error: UNCERTAIN_MESSAGE, uncertain: true };
     return { error: message(e, "Не удалось отправить расписание") };
   }
 }

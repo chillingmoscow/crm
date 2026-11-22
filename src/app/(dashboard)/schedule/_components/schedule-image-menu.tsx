@@ -23,6 +23,7 @@ import { OptionSelect } from "@/components/ui/option-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import type { TemplateSort } from "@/lib/schedule/template-order";
 import { scheduleImageSetup, sendScheduleImage, type ScheduleImageSetup } from "../image-actions";
 
 /**
@@ -34,17 +35,20 @@ import { scheduleImageSetup, sendScheduleImage, type ScheduleImageSetup } from "
 export function ScheduleImageMenu({
   week,
   department,
+  sort,
   venueId,
 }: {
   week: string;
   department: string | null;
+  /** Порядок строк — как в виде «По шаблонам». */
+  sort: TemplateSort;
   venueId: string;
 }) {
   const [open, setOpen] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const imageUrl = (part: number, download = false) => {
-    const params = new URLSearchParams({ week, part: String(part) });
+    const params = new URLSearchParams({ week, sort, part: String(part) });
     if (department) params.set("department", department);
     if (download) params.set("download", "1");
     return `/api/schedule/image?${params}`;
@@ -53,7 +57,7 @@ export function ScheduleImageMenu({
   const download = async () => {
     setDownloading(true);
     try {
-      const setup = await scheduleImageSetup({ week, department });
+      const setup = await scheduleImageSetup({ week, department, sort });
       if ("error" in setup) {
         toast.error(setup.error);
         return;
@@ -103,11 +107,11 @@ export function ScheduleImageMenu({
         </Tooltip>
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuItem onSelect={() => void download()}>
-            <Download />
+            <Download className="size-4 text-muted-foreground" />
             Скачать картинкой
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setSendOpen(true)}>
-            <Send />
+            <Send className="size-4 text-muted-foreground" />
             Отправить в Telegram
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -116,6 +120,7 @@ export function ScheduleImageMenu({
         <SendDialog
           week={week}
           department={department}
+          sort={sort}
           venueId={venueId}
           imageUrl={imageUrl}
           onClose={() => setSendOpen(false)}
@@ -137,12 +142,14 @@ const readChat = (venueId: string) => {
 function SendDialog({
   week,
   department,
+  sort,
   venueId,
   imageUrl,
   onClose,
 }: {
   week: string;
   department: string | null;
+  sort: TemplateSort;
   venueId: string;
   imageUrl: (part: number) => string;
   onClose: () => void;
@@ -155,7 +162,7 @@ function SendDialog({
 
   useEffect(() => {
     let alive = true;
-    scheduleImageSetup({ week, department })
+    scheduleImageSetup({ week, department, sort })
       .then((result) => {
         if (!alive) return;
         if ("error" in result) return setLoadError(result.error);
@@ -169,7 +176,7 @@ function SendDialog({
     return () => {
       alive = false;
     };
-  }, [week, department, venueId]);
+  }, [week, department, sort, venueId]);
 
   const parts = setup?.parts.length ?? 0;
   const ready = !!setup && !setup.empty && setup.canSend && setup.telegram.state === "ready";
@@ -180,7 +187,7 @@ function SendDialog({
     setBusy(true);
     setError(null);
     try {
-      const result = await sendScheduleImage({ week, department, chatId });
+      const result = await sendScheduleImage({ week, department, sort, chatId });
       if ("error" in result) {
         setError(result.error);
         return;

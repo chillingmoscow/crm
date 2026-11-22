@@ -6,9 +6,12 @@ import {
   type TelegramApiResult,
 } from "./telegram-response";
 export type { TelegramApiResult } from "./telegram-response";
+import { fetchTelegram } from "./telegram-transport";
 
 // Bot API client for one organization. The token lives only inside this closure:
 // it is never returned, logged or put into error messages (fetch errors may carry the URL).
+// Network failures throw TelegramNetworkError: a failed connection is retried first
+// (the request never left), anything after the connection is reported as "may have arrived".
 
 export type TelegramButton = { text: string; url: string };
 type Settings = {
@@ -88,32 +91,26 @@ export async function loadTelegramBot(
     method: string,
     payload: Record<string, unknown>,
   ): Promise<TelegramApiResult<T>> => {
-    let response: Response;
-    try {
-      response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+    const response = await fetchTelegram(() =>
+      fetch(`https://api.telegram.org/bot${token}/${method}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
         cache: "no-store",
         signal: AbortSignal.timeout(12000),
-      });
-    } catch {
-      throw new Error("Telegram не ответил");
-    }
+      }),
+    );
     return readTelegramResponse<T>(response);
   };
   const upload = async <T>(method: string, form: FormData): Promise<TelegramApiResult<T>> => {
-    let response: Response;
-    try {
-      response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+    const response = await fetchTelegram(() =>
+      fetch(`https://api.telegram.org/bot${token}/${method}`, {
         method: "POST",
         body: form,
         cache: "no-store",
         signal: AbortSignal.timeout(30000),
-      });
-    } catch {
-      throw new Error("Telegram не ответил");
-    }
+      }),
+    );
     return readTelegramResponse<T>(response);
   };
   return {

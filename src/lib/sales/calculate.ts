@@ -12,8 +12,23 @@ export type OrderDetail = {
   returned: boolean;
   deleted: boolean;
   service: number;
-  lines: { product_id: number; amount: number; quantity: number }[];
+  lines: {
+    product_id: number;
+    amount: number;
+    quantity: number;
+    /** Вид позиции по классу товара Quick Resto; отсутствует, если класса нет. */
+    kind?: LineKind;
+  }[];
 };
+export type LineKind = "dish" | "modifier" | "other";
+/** Вид строки по суффиксу класса товара; без класса — undefined. */
+function lineKind(product: unknown): LineKind | undefined {
+  const className = (product as { className?: unknown } | null)?.className;
+  if (typeof className !== "string" || className === "") return undefined;
+  if (className.endsWith(".Dish")) return "dish";
+  if (className.endsWith(".Modifier")) return "modifier";
+  return "other";
+}
 export function number(value: unknown, name: string): number {
   if (value == null || value === "" || typeof value === "boolean")
     throw new Error(`Нет числового значения: ${name}`);
@@ -64,14 +79,18 @@ export function normalizeDetail(
     returned: d.returned === true,
     deleted: d.deleted === true,
     service: number(d.frontTotalAbsoluteCharge ?? 0, "сервисный сбор"),
-    lines: d.orderItemList.map((l: Record<string, unknown>) => ({
-      product_id: number((l.product as { id?: number })?.id, "позиция чека"),
-      amount:
-        number(l.totalPrice, "сумма позиции") -
-        number(l.totalAbsoluteDiscount ?? 0, "скидка") +
-        number(l.totalAbsoluteCharge ?? 0, "надбавка"),
-      quantity: number(l.amount ?? 0, "количество"),
-    })),
+    lines: d.orderItemList.map((l: Record<string, unknown>) => {
+      const kind = lineKind(l.product);
+      return {
+        product_id: number((l.product as { id?: number })?.id, "позиция чека"),
+        amount:
+          number(l.totalPrice, "сумма позиции") -
+          number(l.totalAbsoluteDiscount ?? 0, "скидка") +
+          number(l.totalAbsoluteCharge ?? 0, "надбавка"),
+        quantity: number(l.amount ?? 0, "количество"),
+        ...(kind === undefined ? {} : { kind }),
+      };
+    }),
   };
 }
 export function calculateOrders(

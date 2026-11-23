@@ -27,7 +27,8 @@ type GroupRow = {
 };
 
 /**
- * Каталог блюд, модификаторов и их групп (архивные тоже — в старых чеках они есть).
+ * Каталог блюд, модификаторов и их групп (архивные тоже — в старых чеках они есть)
+ * и коды позиций остальных видов — чтобы строка чека без вида не попала в неизвестные.
  * `syncedAt` — максимум `synced_at` по ВСЕМ позициям аккаунта любого вида:
  * ровно то, с чем сравнивает очередь, когда решает пересчитать день.
  */
@@ -42,7 +43,7 @@ export async function loadUpsellCatalog(
     .eq("account_id", accountId)
     .order("synced_at", { ascending: false })
     .limit(1);
-  const [items, groups] = await Promise.all([
+  const [items, groups, others] = await Promise.all([
     fetchAllRows<ItemRow>(() =>
       db
         .from<ItemRow[]>("ingredients")
@@ -57,13 +58,24 @@ export async function loadUpsellCatalog(
         .eq("account_id", accountId)
         .in("kind", ["dish", "modifier"]),
     ),
+    fetchAllRows<{ external_id: string }>(() =>
+      db
+        .from<{ external_id: string }[]>("ingredients")
+        .select("external_id")
+        .eq("account_id", accountId)
+        .not("kind", "in", "(dish,modifier)"),
+    ),
   ]);
   if (latest.error) throw new Error(latest.error.message);
   const groupKey = new Map(groups.map((g) => [g.id, `${g.kind}_group:${g.external_id}`]));
   // Ссылка на группу, которой нет в каталоге, — заведомо «битый» ключ: подсчёт
   // отнесёт позицию к неизвестным, а не оставит её молча без оплаты.
   const resolve = (id: string | null) => (id ? (groupKey.get(id) ?? `?group:${id}`) : null);
-  const catalog: UpsellCatalog = { items: new Map(), groups: new Map() };
+  const catalog: UpsellCatalog = {
+    items: new Map(),
+    groups: new Map(),
+    other: new Set(others.map((o) => o.external_id)),
+  };
   for (const g of groups)
     catalog.groups.set(`${g.kind}_group:${g.external_id}`, {
       name: g.name,

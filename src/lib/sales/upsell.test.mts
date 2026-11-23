@@ -48,6 +48,8 @@ const catalog: UpsellCatalog = {
     ["dish_group:11", { name: "Чай", parent: "dish_group:9" }],
     ["modifier_group:70", { name: "Добавки", parent: null }],
   ]),
+  // 300 — товар; 2022 есть ещё и у блюда с модификатором (неоднозначный id)
+  other: new Set(["300", "2022"]),
 };
 
 const noSettings = { tip_products: {}, deposit_products: {}, parking_product_ids: [] as number[] };
@@ -84,6 +86,7 @@ test("цикл в дереве групп — ошибка", () => {
       ["dish_group:1", { name: "a", parent: "dish_group:2" }],
       ["dish_group:2", { name: "b", parent: "dish_group:1" }],
     ]),
+    other: new Set(),
   };
   assert.throws(() => resolveUpsellLine("dish:1", [rule("dish_group", "99", 1)], cyc));
 });
@@ -174,6 +177,14 @@ test("строка без вида находится по каталогу, е�
   assert.deepEqual(r.paid, { "dish:50": "dish:50", "modifier:51": "modifier:51" });
 });
 
+test("товар без вида строки — не в unknown и не оплачивается", () => {
+  const noKind = (id: number): L => ({ product_id: id, amount: 100, quantity: 3 });
+  const r = run([detail(1, [noKind(300), noKind(301)])], [rule("dish_group", "9", 10)]);
+  assert.equal(r.bonus, 0);
+  assert.deepEqual(r.paid, {});
+  assert.deepEqual(r.unknown, [{ key: "?:301", quantity: 3 }]);
+});
+
 test("id есть и у блюда, и у модификатора — строка в unknown", () => {
   const r = run([detail(1, [{ product_id: 2022, amount: 100, quantity: 2 }])], [rule("dish", "2022", 10)]);
   assert.equal(r.bonus, 0);
@@ -224,6 +235,7 @@ test("позиция в категории, которой нет в катал�
       ["dish:2", { name: "y", group: "dish_group:9" }],
     ]),
     groups: new Map([["dish_group:9", { name: "Всё", parent: null }]]),
+    other: new Set(),
   };
   const r = run([detail(1, [dl(1, 100, 2), dl(2, 100, 1)])], [rule("dish_group", "9", 10)], undefined, [], cat);
   assert.deepEqual(r.unknown, [{ key: "dish:1", quantity: 2 }]);
@@ -252,6 +264,7 @@ test("чаевые, депозит и парковка внутри оплачи
       ["dish:92", { name: "park", group: "dish_group:9" }],
     ]),
     groups: new Map([["dish_group:9", { name: "Всё", parent: null }]]),
+    other: new Set(),
   };
   const settings = { tip_products: { "90": 1 }, deposit_products: { "91": 1 }, parking_product_ids: [92] };
   const r = run(

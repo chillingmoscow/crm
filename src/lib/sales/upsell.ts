@@ -8,6 +8,12 @@ export type UpsellCatalog = {
   items: Map<string, { name: string; group: string | null }>;
   /** "dish_group:45" → родитель */
   groups: Map<string, { name: string; parent: string | null }>;
+  /**
+   * Коды позиций каталога других видов (ингредиент, товар, полуфабрикат),
+   * архивные тоже. Строка чека без вида с таким кодом — не блюдо и не
+   * модификатор: она не оплачивается и не считается неизвестной.
+   */
+  other: Set<string>;
 };
 export type UpsellDayResult = {
   bonus: number;
@@ -121,6 +127,8 @@ export function countUpsellDay(input: {
         const dish = `dish:${line.product_id}`;
         const mod = `modifier:${line.product_id}`;
         const found = [dish, mod].filter((k) => catalog.items.has(k));
+        // Товар (не блюдо и не модификатор) допродажей не бывает.
+        if (!found.length && catalog.other.has(String(line.product_id))) continue;
         itemKey = found.length === 1 ? found[0] : `?:${line.product_id}`;
       }
       const { key: target, broken } = walkUpsellLine(itemKey, keySet, catalog);

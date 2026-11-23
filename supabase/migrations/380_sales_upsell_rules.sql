@@ -228,7 +228,9 @@ begin
   join public.sales_settings q on q.venue_id = u.venue_id and q.account_id = u.account_id and q.enabled
  loop
   cutoff := ((now() at time zone s.timezone) - make_interval(hours => s.day_start_hour))::date;
-  for d in select generate_series(cutoff - 3, cutoff - 1, interval '1 day')::date loop
+  -- Окно — как у перепроверки чеков «Смен» (scheduleDueDays, 7 дней): иначе
+  -- новые загрузки дней 4–7 и обновление номенклатуры их бы не пересчитали.
+  for d in select generate_series(cutoff - 7, cutoff - 1, interval '1 day')::date loop
    if exists (select 1 from public.sales_upsell_rules r where r.department_id = s.department_id and r.valid_from <= d) then
     n := n + private.sales_request_upsell_day(s.department_id, d, false);
    end if;

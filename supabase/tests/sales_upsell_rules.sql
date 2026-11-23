@@ -277,7 +277,9 @@ declare bar uuid:=current_setting('test.bar')::uuid;v uuid:=current_setting('tes
 begin
  delete from public.sales_upsell_days where department_id=bar;
  n:=public.sales_schedule_upsell_days();
- if n<>3 or (select count(*) from public.sales_upsell_days where department_id=bar and business_date between cutoff-3 and cutoff-1 and state='pending')<>3 then raise exception 'TEST FAILED: schedule queued % rows',n;end if;
+ -- окно — 7 завершённых дней, как перепроверка чеков «Смен»; версия с cutoff-10 покрывает все
+ if n<>7 or (select count(*) from public.sales_upsell_days where department_id=bar and business_date between cutoff-7 and cutoff-1 and state='pending')<>7 then raise exception 'TEST FAILED: schedule queued % rows',n;end if;
+ if exists(select 1 from public.sales_upsell_days where department_id=bar and business_date<cutoff-7) then raise exception 'TEST FAILED: schedule went past 7 days';end if;
  if public.sales_schedule_upsell_days()<>0 then raise exception 'TEST FAILED: schedule not idempotent';end if;
  m:=date_trunc('month',cutoff-1)::date;
  select count(*) into expected from generate_series(m,(m+interval '1 month'-interval '1 day')::date,interval '1 day') g where g::date<cutoff and g::date>=cutoff-10;

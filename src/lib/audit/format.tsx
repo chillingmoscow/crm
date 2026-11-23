@@ -485,8 +485,14 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "sales.additional_rules.updated": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
-    buildHeadline: () => <>изменил(а) правила допродаж</>,
-    buildDetails: e => <div className="text-xs text-muted-foreground"><p>Действует с {formatDate(e.details.valid_from)}</p><p>{String(e.details.reason ?? "")}</p></div>,
+    buildHeadline: e => <>изменил(а) правила допродаж{e.details.department_name ? <>: {String(e.details.department_name)}</> : null}</>,
+    buildDetails: e => (
+      <div className="text-xs text-muted-foreground">
+        <p>Действует с {formatDate(e.details.valid_from)}</p>
+        <p>{String(e.details.reason ?? "")}</p>
+        {Array.isArray(e.details.lines) && <p>Строк: {e.details.lines.length}</p>}
+      </div>
+    ),
   },
   "sales.additional.refresh_requested": {
     icon: RotateCcw, iconClass: "text-brand bg-brand/10",

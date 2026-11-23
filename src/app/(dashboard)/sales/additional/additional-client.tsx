@@ -75,7 +75,7 @@ import {
   loadAdditionalHistory,
   type AdditionalData,
 } from "./actions";
-import { AdditionalRulesEditor } from "./additional-rules";
+import { UpsellRulesEditor } from "./upsell-rules-editor";
 
 const baseLabels: Record<string, string> = {
   date: "Дата",
@@ -804,7 +804,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
                     <Archive />
                   </TableIconButton>
                 )}
-                {data.configured && can("configure") && (
+                {data.departments.length > 0 && can("configure") && (
                   <TableIconButton
                     label="Правила расчёта"
                     onClick={() => setRulesOpen(true)}
@@ -879,7 +879,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
         />
       )}
       {rulesOpen && (
-        <AdditionalRulesEditor
+        <UpsellRulesEditor
           data={data}
           onClose={() => setRulesOpen(false)}
           onSaved={setData}

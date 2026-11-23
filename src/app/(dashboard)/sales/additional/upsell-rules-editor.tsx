@@ -26,7 +26,7 @@ import {
 } from "@/lib/sales/upsell-prefill";
 import { saveUpsellRules, type AdditionalData, type UpsellDepartment } from "./actions";
 
-const TARGET_LABEL: Record<UpsellTarget, string> = {
+export const TARGET_LABEL: Record<UpsellTarget, string> = {
   dish: "Блюдо",
   dish_group: "Категория",
   modifier: "Модификатор",

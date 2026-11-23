@@ -1,5 +1,5 @@
-import { effectiveMetrics, type SalesDay } from "./types";
-import type { AdditionalKind } from "./additional";
+import { effectiveMetrics, type SalesDay } from "./types.ts";
+import type { AdditionalKind } from "./additional.ts";
 import type { Accrual, PayEmployee, Component } from "@/lib/payroll/types";
 export type DayReference = Pick<
   SalesDay,

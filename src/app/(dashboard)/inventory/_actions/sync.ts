@@ -5,6 +5,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { resolveQrUnprocessedAt, resolveStatusAfterSync } from "@/lib/inventory/act-status";
 import { storeVenueBindingPatch } from "@/lib/inventory/store-venue-binding";
 import { storeDepartmentBindingPatch } from "@/lib/inventory/store-department-binding";
@@ -23,6 +24,7 @@ import {
 } from "@/lib/integrations/quickresto/client";
 import {
   type InventoryProductLookup,
+  listStockProductLookups,
   type InventoryStoreLookup,
   type InventorySyncSummary,
   actionErrorMessage,
@@ -274,22 +276,28 @@ async function importNomenclatureKind(input: {
   // иначе синк ингредиентов заархивировал бы все блюда.
   {
     const incoming = new Set(productRows.map((row) => row.external_id));
-    const { data: localProducts } = await admin
-      .from<Array<{ id: string; external_id: string; archived_at: string | null }>>("ingredients")
-      .select("id, external_id, archived_at")
-      .eq("account_id", accountId)
-      .eq("kind", spec.kind);
-    const toArchive = (localProducts ?? [])
+    // Постранично: позиций одного вида бывает больше тысячи, а хвост за
+    // пределом PostgREST не архивировался бы и не возвращался из архива.
+    type LocalRow = { id: string; external_id: string; archived_at: string | null };
+    const localProducts = await fetchAllRows<LocalRow>(() =>
+      admin
+        .from<LocalRow[]>("ingredients")
+        .select("id, external_id, archived_at")
+        .eq("account_id", accountId)
+        .eq("kind", spec.kind),
+    );
+    const toArchive = localProducts
       .filter((row) => row.external_id && !incoming.has(row.external_id) && !row.archived_at)
       .map((row) => row.id);
-    const toUnarchive = (localProducts ?? [])
+    const toUnarchive = localProducts
       .filter((row) => row.external_id && incoming.has(row.external_id) && row.archived_at)
       .map((row) => row.id);
-    if (toArchive.length > 0) {
-      await admin.from("ingredients").update({ archived_at: syncedAt }).in("id", toArchive);
+    // Списки id уходят в URL запроса — порциями.
+    for (const ids of catalogChunks(toArchive)) {
+      await admin.from("ingredients").update({ archived_at: syncedAt }).in("id", ids);
     }
-    if (toUnarchive.length > 0) {
-      await admin.from("ingredients").update({ archived_at: null }).in("id", toUnarchive);
+    for (const ids of catalogChunks(toUnarchive)) {
+      await admin.from("ingredients").update({ archived_at: null }).in("id", ids);
     }
   }
 
@@ -527,11 +535,8 @@ export async function syncQuickRestoInventory(input?: {
       await saveSnapshot({ admin, accountId: ctx.accountId, entityType: "store", externalId: String(store.id), payload: store });
     }
   } else {
-    const [{ data: productRows }, { data: storeRows }, loadedDocuments] = await Promise.all([
-      admin
-        .from<InventoryProductLookup[]>("ingredients")
-        .select("id, external_id, article, barcode, kind")
-        .eq("account_id", ctx.accountId),
+    const [productRows, { data: storeRows }, loadedDocuments] = await Promise.all([
+      listStockProductLookups(admin, ctx.accountId),
       admin
         .from<InventoryStoreLookup[]>("stores")
         .select("id, external_id")
@@ -540,7 +545,7 @@ export async function syncQuickRestoInventory(input?: {
     ]);
 
     documentList = loadedDocuments;
-    for (const product of productRows ?? []) {
+    for (const product of productRows) {
       if (!product.external_id) continue;
       // Ключ с видом — как и в полном синке: по голому id блюдо и ингредиент с
       // одинаковым номером затёрли бы друг друга.

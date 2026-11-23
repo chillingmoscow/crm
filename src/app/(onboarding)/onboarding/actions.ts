@@ -702,7 +702,8 @@ async function syncQuickRestoInventoryCatalog(params: {
     const groupsResult = await params.adminDb
       .from("ingredient_groups")
       .select("id, external_id")
-      .eq("account_id", params.accountId);
+      .eq("account_id", params.accountId)
+      .eq("kind", "ingredient");
     const groupByExternalId = new Map(
       (((groupsResult.data as Array<{ id: string; external_id: string }> | null) ?? []).map((row) => [
         row.external_id,

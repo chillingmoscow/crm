@@ -5,6 +5,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { resolveQrUnprocessedAt, resolveStatusAfterSync } from "@/lib/inventory/act-status";
 import { storeVenueBindingPatch } from "@/lib/inventory/store-venue-binding";
 import { storeDepartmentBindingPatch } from "@/lib/inventory/store-department-binding";
@@ -12,6 +13,7 @@ import {
   listDishTreeItems,
   listIngredientTreeItems,
   listInventoryDocuments,
+  listModifierTreeItems,
   listSemiProductTreeItems,
   listStores,
   readInventoryDocument,
@@ -22,6 +24,7 @@ import {
 } from "@/lib/integrations/quickresto/client";
 import {
   type InventoryProductLookup,
+  listStockProductLookups,
   type InventoryStoreLookup,
   type InventorySyncSummary,
   actionErrorMessage,
@@ -91,6 +94,15 @@ const NOMENCLATURE_IMPORTS = [
     groupEntityType: "semi_finished_group",
     productNoun: "Полуфабрикат",
     groupNoun: "категорий полуфабрикатов",
+  },
+  {
+    kind: "modifier",
+    categorySuffix: "ModifierGroup",
+    productSuffix: "Modifier",
+    entityType: "modifier",
+    groupEntityType: "modifier_group",
+    productNoun: "Модификатор",
+    groupNoun: "групп модификаторов",
   },
 ] as const;
 
@@ -264,22 +276,28 @@ async function importNomenclatureKind(input: {
   // иначе синк ингредиентов заархивировал бы все блюда.
   {
     const incoming = new Set(productRows.map((row) => row.external_id));
-    const { data: localProducts } = await admin
-      .from<Array<{ id: string; external_id: string; archived_at: string | null }>>("ingredients")
-      .select("id, external_id, archived_at")
-      .eq("account_id", accountId)
-      .eq("kind", spec.kind);
-    const toArchive = (localProducts ?? [])
+    // Постранично: позиций одного вида бывает больше тысячи, а хвост за
+    // пределом PostgREST не архивировался бы и не возвращался из архива.
+    type LocalRow = { id: string; external_id: string; archived_at: string | null };
+    const localProducts = await fetchAllRows<LocalRow>(() =>
+      admin
+        .from<LocalRow[]>("ingredients")
+        .select("id, external_id, archived_at")
+        .eq("account_id", accountId)
+        .eq("kind", spec.kind),
+    );
+    const toArchive = localProducts
       .filter((row) => row.external_id && !incoming.has(row.external_id) && !row.archived_at)
       .map((row) => row.id);
-    const toUnarchive = (localProducts ?? [])
+    const toUnarchive = localProducts
       .filter((row) => row.external_id && incoming.has(row.external_id) && row.archived_at)
       .map((row) => row.id);
-    if (toArchive.length > 0) {
-      await admin.from("ingredients").update({ archived_at: syncedAt }).in("id", toArchive);
+    // Списки id уходят в URL запроса — порциями.
+    for (const ids of catalogChunks(toArchive)) {
+      await admin.from("ingredients").update({ archived_at: syncedAt }).in("id", ids);
     }
-    if (toUnarchive.length > 0) {
-      await admin.from("ingredients").update({ archived_at: null }).in("id", toUnarchive);
+    for (const ids of catalogChunks(toUnarchive)) {
+      await admin.from("ingredients").update({ archived_at: null }).in("id", ids);
     }
   }
 
@@ -374,6 +392,7 @@ export async function syncQuickRestoInventory(input?: {
     resultsBlocked: 0,
     failedDocuments: 0,
     relinked: 0,
+    warnings: [],
   };
 
   // Словарь групп теперь свой у каждого вида — он живёт внутри
@@ -390,14 +409,33 @@ export async function syncQuickRestoInventory(input?: {
       activeVenueId: ctx.venueId,
     });
 
-    const [ingredientItems, dishItems, semiItems, stores, loadedDocuments] = await Promise.all([
+    const [
+      ingredientItems,
+      dishItems,
+      semiItems,
+      modifierItems,
+      stores,
+      loadedDocuments,
+    ] = await Promise.all([
       listIngredientTreeItems(auth),
       listDishTreeItems(auth),
       listSemiProductTreeItems(auth),
+      // Модификаторы нужны только допродажам, а не складу. Их сбой (нет прав
+      // в Quick Resto, другое имя модуля, приложение раньше миграции 379) не
+      // должен останавливать синк складов и актов. При сбое импорт модификаторов
+      // пропускается целиком: иначе пустой список заархивировал бы уже
+      // загруженные.
+      listModifierTreeItems(auth).catch((error: unknown) => {
+        console.error("[syncQuickRestoInventory] modifiers fetch failed:", error);
+        return null;
+      }),
       listStores(auth),
       listInventoryDocuments(auth),
     ]);
     documentList = loadedDocuments;
+    if (modifierItems === null) {
+      summary.warnings.push("Модификаторы Quick Resto не загрузились — в каталоге остались прежние");
+    }
 
     // Три вида номенклатуры импортируются одинаково — отличаются источником,
     // классами категории и товара и значением kind. Раньше здесь был
@@ -405,12 +443,18 @@ export async function syncQuickRestoInventory(input?: {
     // не доезжали вовсе: строки актов на них оставались без ingredient_id, и
     // пересорт для них был недоступен (#531).
     for (const spec of NOMENCLATURE_IMPORTS) {
+      if (spec.kind === "modifier" && modifierItems === null) continue;
       const counts = await importNomenclatureKind({
         admin,
         accountId: ctx.accountId,
         syncedAt,
         spec,
-        items: { ingredient: ingredientItems, dish: dishItems, semi_finished: semiItems }[spec.kind] as unknown[],
+        items: {
+          ingredient: ingredientItems,
+          dish: dishItems,
+          semi_finished: semiItems,
+          modifier: modifierItems,
+        }[spec.kind] as unknown[],
         productByExternalId,
       });
       summary.groups += counts.groups;
@@ -491,11 +535,8 @@ export async function syncQuickRestoInventory(input?: {
       await saveSnapshot({ admin, accountId: ctx.accountId, entityType: "store", externalId: String(store.id), payload: store });
     }
   } else {
-    const [{ data: productRows }, { data: storeRows }, loadedDocuments] = await Promise.all([
-      admin
-        .from<InventoryProductLookup[]>("ingredients")
-        .select("id, external_id, article, barcode, kind")
-        .eq("account_id", ctx.accountId),
+    const [productRows, { data: storeRows }, loadedDocuments] = await Promise.all([
+      listStockProductLookups(admin, ctx.accountId),
       admin
         .from<InventoryStoreLookup[]>("stores")
         .select("id, external_id")
@@ -504,7 +545,7 @@ export async function syncQuickRestoInventory(input?: {
     ]);
 
     documentList = loadedDocuments;
-    for (const product of productRows ?? []) {
+    for (const product of productRows) {
       if (!product.external_id) continue;
       // Ключ с видом — как и в полном синке: по голому id блюдо и ингредиент с
       // одинаковым номером затёрли бы друг друга.

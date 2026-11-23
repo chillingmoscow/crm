@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { calculateOrdersDetailed, type Order, type OrderDetail } from "./calculate.ts";
+import { calculateOrdersDetailed, normalizeDetail, type Order, type OrderDetail } from "./calculate.ts";
 import type { SalesSettings } from "./types.ts";
 
 const settings = {
@@ -34,4 +34,43 @@ test("гостевые чеки — действующие чеки без Staff
   assert.equal(guestChecks, 2);
   assert.equal(metrics.turnover, 2000);
   assert.equal(metrics.staff_checks, 1000);
+});
+
+const rawDetail = (product: Record<string, unknown>) => ({
+  id: 9,
+  orderItemList: [{ product, totalPrice: 100, amount: 1 }],
+});
+
+test("normalizeDetail: вид строки — блюдо по классу Dish", () => {
+  const d = normalizeDetail(
+    rawDetail({ id: 5, className: "ru.edgex.quickresto.modules.warehouse.nomenclature.dish.Dish" }),
+    9,
+  );
+  assert.equal(d.lines[0].kind, "dish");
+});
+
+test("normalizeDetail: вид строки — модификатор по классу Modifier", () => {
+  const d = normalizeDetail(
+    rawDetail({ id: 5, className: "ru.edgex.quickresto.modules.warehouse.nomenclature.mods.Modifier" }),
+    9,
+  );
+  assert.equal(d.lines[0].kind, "modifier");
+});
+
+test("normalizeDetail: вид строки — любой другой класс это other", () => {
+  const d = normalizeDetail(
+    rawDetail({ id: 5, className: "ru.edgex.quickresto.modules.warehouse.nomenclature.singleproduct.SingleProduct" }),
+    9,
+  );
+  assert.equal(d.lines[0].kind, "other");
+});
+
+test("normalizeDetail: без класса поля kind нет", () => {
+  const d = normalizeDetail(rawDetail({ id: 5 }), 9);
+  assert.equal("kind" in d.lines[0], false);
+});
+
+test("normalizeDetail: пустой класс не даёт вида", () => {
+  const d = normalizeDetail(rawDetail({ id: 5, className: "" }), 9);
+  assert.equal("kind" in d.lines[0], false);
 });

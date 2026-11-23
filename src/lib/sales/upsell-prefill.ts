@@ -118,7 +118,8 @@ export type UpsellPrefill = {
 /**
  * Первая версия правил подразделения из старых правил: бар — каждая
  * категория Quick Resto старой группы ищется категорией блюд с тем же
- * именем, иначе блюдом; кальяны — три категории с решёнными ставками.
+ * именем, иначе блюдом, группой модификаторов, модификатором; кальяны — три
+ * категории с решёнными ставками.
  */
 export function prefillUpsell(input: {
   legacyKind: "bar" | "masters";
@@ -150,7 +151,10 @@ export function prefillUpsell(input: {
     for (const raw of g.branches) {
       const name = raw.trim();
       if (!name) continue;
-      const p = find("dish_group", name) ?? find("dish", name);
+      // Старые ветки бывают и модификаторами («Сиропы к кофе»): после блюд
+      // ищем группу модификаторов, затем модификатор.
+      const p =
+        find("dish_group", name) ?? find("dish", name) ?? find("modifier_group", name) ?? find("modifier", name);
       if (p) add(p, g.rate);
       else if (!notFound.includes(name)) notFound.push(name);
     }

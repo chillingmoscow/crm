@@ -62,6 +62,29 @@ test("бар: имени нет в номенклатуре → в notFound, с�
   assert.deepEqual(r.notFound, ["Сиропы к кофе"]);
 });
 
+test("бар: нет блюд с тем же именем → группа модификаторов, затем модификатор", () => {
+  const r = prefillUpsell({
+    legacyKind: "bar",
+    oldRules: rules([
+      { id: "additions", label: "Добавки", branches: ["Сиропы к кофе", "Двойной эспрессо", "Пюре"], rate: 20 },
+    ]),
+    picker: [
+      item("modifier", "60", "Сиропы к кофе"),
+      item("modifier_group", "61", "Сиропы к кофе"),
+      item("modifier", "62", "Двойной эспрессо", { archived: true }),
+      item("modifier", "63", "Двойной эспрессо"),
+      item("modifier_group", "64", "Пюре"),
+      item("dish", "65", "Пюре"),
+    ],
+  });
+  assert.deepEqual(r.lines, [
+    { target: "modifier_group", external_id: "61", name: "Сиропы к кофе", rate: 20 },
+    { target: "modifier", external_id: "63", name: "Двойной эспрессо", rate: 20 },
+    { target: "dish", external_id: "65", name: "Пюре", rate: 20 },
+  ]);
+  assert.deepEqual(r.notFound, []);
+});
+
 test("бар: архивная позиция уступает действующей, повтор цели не дублирует строку", () => {
   const r = prefillUpsell({
     legacyKind: "bar",

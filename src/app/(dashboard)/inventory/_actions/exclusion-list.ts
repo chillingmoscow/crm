@@ -44,7 +44,7 @@ type RuleDbRow = ExclusionRuleRow & {
   metadata: Record<string, unknown> | null;
 };
 
-type GroupRow = GroupNode & { name: string };
+type GroupRow = GroupNode & { name: string; kind: string };
 
 const RULE_COLUMNS =
   "id, target_kind, ingredient_id, external_product_id, ingredient_group_id, product_name, reason, created_by, created_at, status, metadata";
@@ -57,7 +57,7 @@ function revalidateVenueSettings() {
 async function loadGroups(admin: LooseDb, accountId: string): Promise<GroupRow[]> {
   const { data, error } = await admin
     .from<GroupRow[]>("ingredient_groups")
-    .select("id, name, parent_group_id")
+    .select("id, name, parent_group_id, kind")
     .eq("account_id", accountId)
     .limit(10000);
   if (error) throw new Error(error.message);
@@ -232,8 +232,9 @@ export async function searchExclusionCandidates(query: string): Promise<Exclusio
     const byId = new Map(groups.map((g) => [g.id, g]));
     const lower = q.toLowerCase();
 
+    // Модификаторы — не складские позиции: в исключения пересорта не годятся.
     const matchedGroups = groups
-      .filter((g) => g.name.toLowerCase().includes(lower))
+      .filter((g) => g.kind !== "modifier" && g.name.toLowerCase().includes(lower))
       .sort((a, b) => a.name.localeCompare(b.name, "ru"))
       .slice(0, SEARCH_LIMIT);
 
@@ -254,6 +255,7 @@ export async function searchExclusionCandidates(query: string): Promise<Exclusio
         .from<{ id: string; name: string; group_id: string | null }[]>("ingredients")
         .select("id, name, group_id")
         .eq("account_id", ctx.accountId)
+        .neq("kind", "modifier")
         .is("archived_at", null)
         .ilike("name", `%${q}%`)
         .order("name", { ascending: true })

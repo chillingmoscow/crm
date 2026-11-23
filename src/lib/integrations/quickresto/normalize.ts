@@ -54,7 +54,9 @@ export type QuickRestoClassSuffix =
   | "DishCategory"
   | "Dish"
   | "SemiCategory"
-  | "SemiProduct";
+  | "SemiProduct"
+  | "ModifierGroup"
+  | "Modifier";
 
 export function isQuickRestoClass(value: unknown, suffix: QuickRestoClassSuffix) {
   return className(value).endsWith(`.${suffix}`);
@@ -135,7 +137,12 @@ export function externalProductId(item: QuickRestoInventoryItem2): string | null
 }
 
 /** Вид номенклатуры в нашем каталоге. Совпадает с enum nomenclature_kind_enum. */
-export type NomenclatureKind = "ingredient" | "dish" | "semi_finished" | "product";
+export type NomenclatureKind =
+  | "ingredient"
+  | "dish"
+  | "semi_finished"
+  | "product"
+  | "modifier";
 
 /**
  * Какой номенклатуре принадлежит позиция акта.

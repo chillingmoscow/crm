@@ -187,6 +187,13 @@ const SEMIPRODUCT_CLASS =
   "ru.edgex.quickresto.modules.warehouse.nomenclature.semiproduct.SemiProduct";
 const SEMIPRODUCT_MODULE = "warehouse.nomenclature.semiproduct";
 
+// Модификаторы блюд: отдельный модуль номенклатуры, иерархия как у блюд —
+// группа модификаторов (ModifierGroup) и модификатор (Modifier) внутри неё.
+const MODIFIER_CLASS = "ru.edgex.quickresto.modules.warehouse.nomenclature.mods.Modifier";
+const MODIFIER_GROUP_CLASS =
+  "ru.edgex.quickresto.modules.warehouse.nomenclature.mods.ModifierGroup";
+const MODIFIER_MODULE = "warehouse.nomenclature.mods";
+
 // Классы категорий. Подтверждены пробой на живом подключении: плоский list по
 // модулю блюд вернул 12 объектов класса DishCategory, по модулю полуфабрикатов
 // — 4 объекта SemiCategory. То есть иерархия здесь ровно как у ингредиентов:
@@ -1296,11 +1303,24 @@ export async function listSemiProductTreeItems(input: {
   });
 }
 
+export async function listModifierTreeItems(input: {
+  layerName: string;
+  login: string;
+  password: string;
+}) {
+  return listNomenclatureTreeItems({
+    ...input,
+    moduleName: MODIFIER_MODULE,
+    className: MODIFIER_CLASS,
+  });
+}
+
 /** Классы категорий — чтобы вызывающая сторона отличала категорию от товара. */
 export const QUICK_RESTO_CATEGORY_CLASSES = {
   ingredient: SINGLE_CATEGORY_CLASS,
   dish: DISH_CATEGORY_CLASS,
   semi_finished: SEMIPRODUCT_CATEGORY_CLASS,
+  modifier: MODIFIER_GROUP_CLASS,
 } as const;
 
 export async function listStores(input: {

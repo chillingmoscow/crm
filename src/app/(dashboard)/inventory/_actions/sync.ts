@@ -12,6 +12,7 @@ import {
   listDishTreeItems,
   listIngredientTreeItems,
   listInventoryDocuments,
+  listModifierTreeItems,
   listSemiProductTreeItems,
   listStores,
   readInventoryDocument,
@@ -91,6 +92,15 @@ const NOMENCLATURE_IMPORTS = [
     groupEntityType: "semi_finished_group",
     productNoun: "Полуфабрикат",
     groupNoun: "категорий полуфабрикатов",
+  },
+  {
+    kind: "modifier",
+    categorySuffix: "ModifierGroup",
+    productSuffix: "Modifier",
+    entityType: "modifier",
+    groupEntityType: "modifier_group",
+    productNoun: "Модификатор",
+    groupNoun: "групп модификаторов",
   },
 ] as const;
 
@@ -390,10 +400,18 @@ export async function syncQuickRestoInventory(input?: {
       activeVenueId: ctx.venueId,
     });
 
-    const [ingredientItems, dishItems, semiItems, stores, loadedDocuments] = await Promise.all([
+    const [
+      ingredientItems,
+      dishItems,
+      semiItems,
+      modifierItems,
+      stores,
+      loadedDocuments,
+    ] = await Promise.all([
       listIngredientTreeItems(auth),
       listDishTreeItems(auth),
       listSemiProductTreeItems(auth),
+      listModifierTreeItems(auth),
       listStores(auth),
       listInventoryDocuments(auth),
     ]);
@@ -410,7 +428,12 @@ export async function syncQuickRestoInventory(input?: {
         accountId: ctx.accountId,
         syncedAt,
         spec,
-        items: { ingredient: ingredientItems, dish: dishItems, semi_finished: semiItems }[spec.kind] as unknown[],
+        items: {
+          ingredient: ingredientItems,
+          dish: dishItems,
+          semi_finished: semiItems,
+          modifier: modifierItems,
+        }[spec.kind] as unknown[],
         productByExternalId,
       });
       summary.groups += counts.groups;

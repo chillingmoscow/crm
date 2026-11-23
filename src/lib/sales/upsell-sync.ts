@@ -35,7 +35,14 @@ export async function loadUpsellCatalog(
   db: LooseDb,
   accountId: string,
 ): Promise<{ catalog: UpsellCatalog; syncedAt: string | null }> {
-  const [items, groups, latest] = await Promise.all([
+  // Версия каталога читается ДО страниц: `catalog_at` не должен быть новее каталога в подсчёте.
+  const latest = await db
+    .from<{ synced_at: string }[]>("ingredients")
+    .select("synced_at")
+    .eq("account_id", accountId)
+    .order("synced_at", { ascending: false })
+    .limit(1);
+  const [items, groups] = await Promise.all([
     fetchAllRows<ItemRow>(() =>
       db
         .from<ItemRow[]>("ingredients")
@@ -50,25 +57,22 @@ export async function loadUpsellCatalog(
         .eq("account_id", accountId)
         .in("kind", ["dish", "modifier"]),
     ),
-    db
-      .from<{ synced_at: string }[]>("ingredients")
-      .select("synced_at")
-      .eq("account_id", accountId)
-      .order("synced_at", { ascending: false })
-      .limit(1),
   ]);
   if (latest.error) throw new Error(latest.error.message);
   const groupKey = new Map(groups.map((g) => [g.id, `${g.kind}_group:${g.external_id}`]));
+  // Ссылка на группу, которой нет в каталоге, — заведомо «битый» ключ: подсчёт
+  // отнесёт позицию к неизвестным, а не оставит её молча без оплаты.
+  const resolve = (id: string | null) => (id ? (groupKey.get(id) ?? `?group:${id}`) : null);
   const catalog: UpsellCatalog = { items: new Map(), groups: new Map() };
   for (const g of groups)
     catalog.groups.set(`${g.kind}_group:${g.external_id}`, {
       name: g.name,
-      parent: g.parent_group_id ? (groupKey.get(g.parent_group_id) ?? null) : null,
+      parent: resolve(g.parent_group_id),
     });
   for (const i of items)
     catalog.items.set(`${i.kind}:${i.external_id}`, {
       name: i.name,
-      group: i.group_id ? (groupKey.get(i.group_id) ?? null) : null,
+      group: resolve(i.group_id),
     });
   return { catalog, syncedAt: latest.data?.[0]?.synced_at ?? null };
 }
@@ -153,12 +157,15 @@ export async function processUpsellDay(): Promise<{ idle: boolean; error?: boole
     });
     if (saved.error) throw new Error(saved.error.message);
     if (saved.data === true) {
-      // Зарплата дня должна учесть готовую прибавку. День уже зафиксирован:
-      // сбой постановки (например, зарплата у заведения выключена) его не откатывает —
-      // планировщик зарплаты всё равно пересчитывает недавние дни.
+      // Зарплата дня должна учесть готовую прибавку. День уже зафиксирован, поэтому
+      // сбой постановки его не откатывает, но и не теряется: он виден в счётчике ошибок.
+      // Заведение без зарплаты — не ошибка.
       try {
         await queuePayroll(day.account_id, day.venue_id, [day.date]);
-      } catch {}
+      } catch (e) {
+        if (!(e instanceof Error && e.message.startsWith("Включите обработку зарплаты")))
+          return { idle: false, error: true };
+      }
     }
     return { idle: false };
   } catch (error) {

@@ -50,8 +50,15 @@ const catalog: UpsellCatalog = {
   ]),
 };
 
-const run = (details: OrderDetail[], lines: UpsellLine[], orders?: Order[], staffIds: number[] = [], cat = catalog) =>
-  countUpsellDay({ orders: orders ?? details.map((d) => order(d.id)), details, staffIds, lines, catalog: cat });
+const noSettings = { tip_products: {}, deposit_products: {}, parking_product_ids: [] as number[] };
+const run = (
+  details: OrderDetail[],
+  lines: UpsellLine[],
+  orders?: Order[],
+  staffIds: number[] = [],
+  cat = catalog,
+  settings = noSettings,
+) => countUpsellDay({ orders: orders ?? details.map((d) => order(d.id)), details, staffIds, lines, catalog: cat, settings });
 
 test("блюдо со своей ставкой внутри категории со ставкой оплачивается один раз по блюду", () => {
   const r = run([detail(1, [dl(1, 500, 2)])], [rule("dish_group", "10", 50), rule("dish", "1", 100)]);
@@ -180,7 +187,7 @@ test("итог округляется до рубля", () => {
 });
 
 test("неполные чеки — ошибка", () => {
-  assert.throws(() => countUpsellDay({ orders: [order(1)], details: [], staffIds: [], lines: [], catalog }));
+  assert.throws(() => countUpsellDay({ orders: [order(1)], details: [], staffIds: [], lines: [], catalog, settings: noSettings }));
 });
 
 test("результат проходит проверку фиксации: ключи, числа, свои свойства", () => {
@@ -234,4 +241,34 @@ test("ставка проверяется по записи: 1.0000000001 отк
 
 test("countUpsellDay проверяет строки правил", () => {
   assert.throws(() => run([], [rule("dish", "1", 1), rule("dish", "1", 2)]), /повторяется/);
+});
+
+test("чаевые, депозит и парковка внутри оплачиваемой категории не оплачиваются и не в unknown", () => {
+  const cat: UpsellCatalog = {
+    items: new Map([
+      ["dish:1", { name: "a", group: "dish_group:9" }],
+      ["dish:90", { name: "tip", group: "dish_group:9" }],
+      ["dish:91", { name: "dep", group: "dish_group:9" }],
+      ["dish:92", { name: "park", group: "dish_group:9" }],
+    ]),
+    groups: new Map([["dish_group:9", { name: "Всё", parent: null }]]),
+  };
+  const settings = { tip_products: { "90": 1 }, deposit_products: { "91": 1 }, parking_product_ids: [92] };
+  const r = run(
+    [detail(1, [dl(1), dl(90), dl(91), dl(92), dl(93)])],
+    [rule("dish_group", "9", 10)],
+    undefined,
+    [],
+    cat,
+    settings,
+  );
+  assert.equal(r.bonus, 10);
+  assert.deepEqual(r.paid, { "dish:1": "dish_group:9" });
+  assert.deepEqual(r.unknown, [{ key: "dish:93", quantity: 1 }]);
+});
+
+test("строки с нулевым или отрицательным количеством не оплачиваются и не в unknown", () => {
+  const r = run([detail(1, [dl(1, 100, 1), dl(1, 100, -5), dl(1, 100, 0), dl(777, 100, -1)])], [rule("dish", "1", 10)]);
+  assert.equal(r.bonus, 10);
+  assert.deepEqual(r.unknown, []);
 });

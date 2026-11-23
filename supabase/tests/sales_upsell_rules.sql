@@ -156,6 +156,10 @@ begin
   jsonb_set(res,'{bonus}','125.5'),
   jsonb_set(res,'{bonus}','"125"'),
   jsonb_set(res,'{bonus}','1e13'),
+  jsonb_set(res,'{bonus}','-1'),
+  jsonb_set(res,'{lines}','[{"key":"dish:101","quantity":-2,"amount":100},{"key":"dish_group:7","quantity":1,"amount":25}]'),
+  jsonb_set(res,'{lines}','[{"key":"dish:101","quantity":2,"amount":-100},{"key":"dish_group:7","quantity":1,"amount":25}]'),
+  jsonb_set(res,'{unknown}','[{"key":"?:5","quantity":-1}]'),
   jsonb_set(res,'{lines}','[{"key":"dish:101","quantity":2,"amount":100}]'),                                                                   -- не хватает строки версии
   jsonb_set(res,'{lines}','[{"key":"dish:101","quantity":2,"amount":100},{"key":"dish_group:7","quantity":1,"amount":25},{"key":"dish:5","quantity":1,"amount":1}]'), -- лишняя
   jsonb_set(res,'{lines}','[{"key":"dish:101","quantity":2,"amount":100},{"key":"dish:101","quantity":1,"amount":25}]'),                      -- повтор вместо строки

@@ -108,6 +108,17 @@ export function calculateOrders(
  * Staff, а в «Количестве чеков» Staff есть. Число хранится в сводке смены,
  * а не среди показателей: его не исправляют вручную.
  */
+type LineSettings = Pick<SalesSettings, "tip_products" | "deposit_products" | "parking_product_ids">;
+/** Чаевые и депозиты: строка не продажа и нигде не учитывается. */
+export function isTipOrDepositLine(line: { product_id: number }, settings: LineSettings): boolean {
+  const pid = String(line.product_id);
+  return pid in settings.tip_products || pid in settings.deposit_products;
+}
+/** Строка не продажа: чаевые, депозит или парковка (парковку смена считает отдельно). */
+export function isNonSalesLine(line: { product_id: number }, settings: LineSettings): boolean {
+  return isTipOrDepositLine(line, settings) || settings.parking_product_ids.includes(line.product_id);
+}
+
 export function calculateOrdersDetailed(
   orders: Order[],
   details: OrderDetail[],
@@ -141,9 +152,7 @@ export function calculateOrdersDetailed(
       continue;
     }
     for (const line of d.lines) {
-      const pid = String(line.product_id);
-      if (pid in settings.tip_products || pid in settings.deposit_products)
-        continue;
+      if (isTipOrDepositLine(line, settings)) continue;
       if (settings.parking_product_ids.includes(line.product_id)) {
         parking += line.amount;
         continue;

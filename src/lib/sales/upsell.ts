@@ -1,4 +1,5 @@
-import { validOrder, type Order, type OrderDetail } from "./calculate.ts";
+import { isNonSalesLine, validOrder, type Order, type OrderDetail } from "./calculate.ts";
+import type { SalesSettings } from "./types.ts";
 
 export type UpsellTarget = "dish" | "dish_group" | "modifier" | "modifier_group";
 export type UpsellLine = { target: UpsellTarget; external_id: string; name: string; rate: number };
@@ -85,8 +86,9 @@ export function countUpsellDay(input: {
   staffIds: number[];
   lines: UpsellLine[];
   catalog: UpsellCatalog;
+  settings: Pick<SalesSettings, "tip_products" | "deposit_products" | "parking_product_ids">;
 }): UpsellDayResult {
-  const { orders, details, staffIds, lines, catalog } = input;
+  const { orders, details, staffIds, lines, catalog, settings } = input;
   validateUpsellLines(lines);
   const staff = new Set(staffIds);
   const byId = new Map(details.map((d) => [d.id, d]));
@@ -109,7 +111,8 @@ export function countUpsellDay(input: {
     if (!validOrder(o) || d.returned || d.deleted) continue;
     if (o.payer_id !== null && staff.has(o.payer_id)) continue;
     for (const line of d.lines) {
-      if (!(line.amount > 0)) continue;
+      if (!(line.amount > 0) || !(line.quantity > 0)) continue;
+      if (isNonSalesLine(line, settings)) continue;
       if (line.kind === "other") continue;
       let itemKey: string;
       if (line.kind === "dish" || line.kind === "modifier") {

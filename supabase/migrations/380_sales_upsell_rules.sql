@@ -310,7 +310,7 @@ begin
     or jsonb_typeof(p_result->'paid') <> 'object' or jsonb_typeof(p_result->'unknown') <> 'array' then
   raise exception 'Некорректный результат допродаж';
  end if;
- if abs((p_result->>'bonus')::numeric) > 1e12 or (p_result->>'bonus')::numeric <> round((p_result->>'bonus')::numeric) then
+ if (p_result->>'bonus')::numeric < 0 or abs((p_result->>'bonus')::numeric) > 1e12 or (p_result->>'bonus')::numeric <> round((p_result->>'bonus')::numeric) then
   raise exception 'Некорректная прибавка допродаж';
  end if;
 
@@ -322,7 +322,7 @@ begin
      or jsonb_typeof(x->'key') <> 'string' or jsonb_typeof(x->'quantity') <> 'number' or jsonb_typeof(x->'amount') <> 'number' then
    raise exception 'Некорректная строка результата допродаж';
   end if;
-  if abs((x->>'quantity')::numeric) > 1e12 or abs((x->>'amount')::numeric) > 1e12 then raise exception 'Некорректная строка результата допродаж';end if;
+  if (x->>'quantity')::numeric < 0 or (x->>'amount')::numeric < 0 or abs((x->>'quantity')::numeric) > 1e12 or abs((x->>'amount')::numeric) > 1e12 then raise exception 'Некорректная строка результата допродаж';end if;
   k := x->>'key';
   if k = any(seen) or not k = any(keys) then raise exception 'Строки результата не совпадают с правилами допродаж';end if;
   seen := array_append(seen, k);
@@ -338,7 +338,7 @@ begin
      or jsonb_typeof(x->'key') <> 'string' or jsonb_typeof(x->'quantity') <> 'number' then
    raise exception 'Некорректный результат допродаж';
   end if;
-  if abs((x->>'quantity')::numeric) > 1e12 then raise exception 'Некорректный результат допродаж';end if;
+  if (x->>'quantity')::numeric < 0 or abs((x->>'quantity')::numeric) > 1e12 then raise exception 'Некорректный результат допродаж';end if;
  end loop;
 
  update public.sales_upsell_days set result = p_result, job_id = p_job, catalog_at = p_catalog_at, computed_at = now(), state = 'ready', last_error = null where id = r.id;

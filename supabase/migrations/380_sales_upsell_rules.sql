@@ -126,13 +126,20 @@ language sql stable set search_path = public, pg_catalog as $$
  order by valid_from desc, created_at desc, id desc limit 1
 $$;
 
--- Последняя успешная загрузка чеков дня («Смены»). Воркер обязан выбирать
--- job тем же порядком, иначе фиксация отклоняется.
+-- Последняя успешная загрузка чеков ЗАВЕРШЁННОГО дня («Смены»). Загрузка берёт
+-- чеки до момента своего создания (salesSource: конец окна = min(конец дня,
+-- created_at)), поэтому промежуточная загрузка, созданная до конца рабочего
+-- дня, видит не все чеки — хотя её статус тоже 'success'. Принимается только
+-- загрузка, созданная не раньше конца дня: она же фиксирует день как
+-- 'complete' (проверка закрытых кассовых смен в sales/sync.ts). Запрос дня,
+-- захват и фиксация зовут эту функцию — выбор job у них общий.
 create function private.sales_upsell_job_for(p_venue uuid, p_date date) returns uuid
 language sql stable set search_path = public, pg_catalog as $$
- select id from public.sales_sync_jobs
- where venue_id = p_venue and business_date = p_date and status = 'success'
- order by finished_at desc nulls last, created_at desc, id desc limit 1
+ select j.id from public.sales_sync_jobs j
+ join public.sales_settings s on s.venue_id = j.venue_id
+ where j.venue_id = p_venue and j.business_date = p_date and j.status = 'success'
+  and j.created_at >= ((p_date + 1)::timestamp + make_interval(hours => s.day_start_hour)) at time zone s.timezone
+ order by j.finished_at desc nulls last, j.created_at desc, j.id desc limit 1
 $$;
 
 -- ── Сохранение версии правил ─────────────────────────────────

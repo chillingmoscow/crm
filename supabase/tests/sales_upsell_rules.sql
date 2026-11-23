@@ -127,7 +127,9 @@ do $$
 declare a uuid:=current_setting('test.account')::uuid;v uuid:=current_setting('test.venue')::uuid;bar uuid:=current_setting('test.bar')::uuid;cutoff date:=current_setting('test.cutoff')::date;
  d date;rule uuid;j1 uuid;j2 uuid;job jsonb;job2 jsonb;res jsonb;dr public.sales_upsell_days;msg text;bad jsonb;cat timestamptz;
 begin
- d:=cutoff-1;
+ -- позавчера: конец этого рабочего дня заведомо раньше «now() - 3 часа»,
+ -- поэтому загрузки ниже — загрузки завершённого дня (см. блок 3a)
+ d:=cutoff-2;
  -- историческая версия (сохранение задним числом через RPC запрещено)
  insert into public.sales_upsell_rules(account_id,venue_id,department_id,valid_from,lines,reason)
  values(a,v,bar,cutoff-10,'[{"target":"dish","external_id":"101","name":"Мохито","rate":50},{"target":"dish_group","external_id":"7","name":"Коктейли","rate":25}]','История') returning id into rule;
@@ -233,6 +235,38 @@ begin
  if not found then raise exception 'TEST SETUP: seed has no ingredients';end if;
  if private.sales_request_upsell_day(bar,d,false)<>1 then raise exception 'TEST FAILED: catalog refresh did not re-queue unknown day';end if;
  perform set_config('test.day',dr.id::text,true);
+end $$;
+
+-- ────────────────────────────────────────────────────────────
+-- 3a. Промежуточная загрузка дня (создана до конца рабочего дня, статус тоже
+--     success) не считается чеками дня: прибавка ждёт загрузку, созданную
+--     после конца дня.
+-- ────────────────────────────────────────────────────────────
+do $$
+declare a uuid:=current_setting('test.account')::uuid;v uuid:=current_setting('test.venue')::uuid;bar uuid:=current_setting('test.bar')::uuid;cutoff date:=current_setting('test.cutoff')::date;
+ e date:=cutoff-1;day_end timestamptz;pre uuid;fin uuid;job jsonb;dr public.sales_upsell_days;
+begin
+ select ((e+1)::timestamp+make_interval(hours=>day_start_hour)) at time zone timezone into day_end from public.sales_settings where venue_id=v;
+ if day_end>now() then raise exception 'TEST SETUP: day % is not over yet',e;end if;
+ insert into public.sales_sync_jobs(account_id,venue_id,business_date,status,created_at,finished_at)
+ values(a,v,e,'success',day_end-interval '20 minutes',day_end-interval '15 minutes') returning id into pre;
+ if private.sales_upsell_job_for(v,e) is not null then raise exception 'TEST FAILED: preliminary job accepted';end if;
+ -- день встаёт в очередь без чеков, захват отдаёт job_id = null
+ if private.sales_request_upsell_day(bar,e,false)<>1 then raise exception 'TEST FAILED: closed day not queued';end if;
+ select * into dr from public.sales_upsell_days where department_id=bar and business_date=e;
+ if dr.job_id is not null then raise exception 'TEST FAILED: preliminary job linked %',to_jsonb(dr);end if;
+ job:=public.sales_claim_upsell_day();
+ if (job->>'id')::uuid<>dr.id or job->>'job_id' is not null then raise exception 'TEST FAILED: claim with preliminary job %',job;end if;
+ -- фиксация на промежуточной загрузке отклоняется
+ if public.sales_commit_upsell_day(dr.id,(job->>'lease_token')::uuid,pre,now(),'{"bonus":0,"lines":[{"key":"dish:101","quantity":0,"amount":0}],"paid":{},"unknown":[]}') then
+  raise exception 'TEST FAILED: commit on preliminary job accepted';end if;
+ -- загрузка, созданная ровно в конце дня, — чеки дня; день пересчитывается
+ insert into public.sales_sync_jobs(account_id,venue_id,business_date,status,created_at,finished_at)
+ values(a,v,e,'success',day_end,day_end+interval '5 minutes') returning id into fin;
+ if private.sales_upsell_job_for(v,e) is distinct from fin then raise exception 'TEST FAILED: final job not accepted';end if;
+ if private.sales_request_upsell_day(bar,e,false)<>1 then raise exception 'TEST FAILED: final job did not re-queue';end if;
+ select * into dr from public.sales_upsell_days where id=dr.id;
+ if dr.state<>'pending' or dr.job_id is distinct from fin then raise exception 'TEST FAILED: row after final job %',to_jsonb(dr);end if;
 end $$;
 
 -- ────────────────────────────────────────────────────────────

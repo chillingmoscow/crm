@@ -28,7 +28,7 @@
 
 ## Review Focus
 
-1. Чеки дня перехода загружены до выкатки (в строках нет `kind`) → день в ошибке «Чеки загружены до обновления, обновите смену», а не 0. Тест — задача 5.
+1. В строке чека нет вида (чеки загружены до выкатки или Quick Resto не отдаёт класс) → вид берётся по каталогу; id совпал и с блюдом, и с модификатором → позиция в `unknown` с предупреждением, не оплачивается наугад. Тест — задача 5.
 2. Граница перехода: день `valid_from − 1` считается и платится старым кодом, день `valid_from` — новым, в «Допродажах» и в зарплате одинаково. Тесты — задачи 7 и 9.
 3. Блюдо с собственной ставкой внутри категории со ставкой в том же подразделении оплачивается один раз (по блюду); в другом подразделении — независимо. Тест — задача 5.
 4. Чеки дня перезагрузили после расчёта (новый успешный job) → день пересчитывается, зарплата видит новое значение. Проверка в SQL-тесте — задача 4.
@@ -59,7 +59,7 @@
 - Test: `src/lib/integrations/quickresto/normalize.test.mts`
 
 **Interfaces:**
-- Consumes: классы из задачи 1.
+- Consumes: классы `ru.edgex.quickresto.modules.warehouse.nomenclature.mods.Modifier` / `...mods.ModifierGroup`, модуль `warehouse.nomenclature.mods` (задача 1, подтверждено).
 - Produces: строки `ingredients.kind = 'modifier'` и `ingredient_groups.kind = 'modifier'` с `external_id` = id Quick Resto, `group_id`/`parent_group_id` как у блюд, `tags` из `storeItemTags`.
 
 - [ ] **Step 1:** тест: `isQuickRestoClass({className: "<класс модификатора>"}, "Modifier") === true`, для группы — `"ModifierGroup"`; `isQuickRestoClass({className: "...dish.Dish"}, "Modifier") === false`.
@@ -76,11 +76,11 @@
 - Test: `src/lib/sales/calculate.test.mts`
 
 **Interfaces:**
-- Produces: `OrderDetail.lines[i].kind?: "dish" | "modifier" | "other"` — опционально в типе, потому что сохранённые раньше чеки его не содержат.
+- Produces: `OrderDetail.lines[i].kind?: "dish" | "modifier" | "other"` — опционально: старые чеки и строки без класса его не содержат.
 
-- [ ] **Step 1:** тесты `normalizeDetail`: строка с `product: {id: 5, className: "...dish.Dish"}` → `kind: "dish"`; с классом модификатора из задачи 1 → `"modifier"`; с `...SingleProduct` → `"other"`; без `className` → `"other"`. Существующие тесты `calculateOrdersDetailed` не меняются и проходят.
+- [ ] **Step 1:** тесты `normalizeDetail`: строка с `product: {id: 5, className: "ru.edgex.quickresto.modules.warehouse.nomenclature.dish.Dish"}` → `kind: "dish"`; с `ru.edgex.quickresto.modules.warehouse.nomenclature.mods.Modifier` → `"modifier"`; с `...singleproduct.SingleProduct` → `"other"`; без `className` → поля `kind` нет. Существующие тесты `calculateOrdersDetailed` не меняются и проходят.
 - [ ] **Step 2:** FAIL.
-- [ ] **Step 3:** в `normalizeDetail` определить `kind` по суффиксу класса (путь — из задачи 1). `calculateOrdersDetailed` поле не использует.
+- [ ] **Step 3:** в `normalizeDetail` определить `kind` по суффиксу `product.className`: `.Dish` → `dish`, `.Modifier` → `modifier`, другой непустой класс → `other`; класса нет — поле не ставить (вид определит каталог, задача 5). `calculateOrdersDetailed` поле не использует.
 - [ ] **Step 4:** PASS, tsc, lint.
 - [ ] **Step 5:** commit «Смены: вид позиции в строках чека». Открыть PR 1, дождаться зелёного CI, ждать команды на мерж. После мержа миграцию 379 докатить на прод (memory `prod_migration_drift_122.md`) и запустить загрузку номенклатуры, проверить на проде `select kind, count(*) from ingredients group by 1`.
 
@@ -143,6 +143,7 @@
   export function resolveUpsellLine(itemKey: string, lines: UpsellLine[], catalog: UpsellCatalog): string | null;
   export function countUpsellDay(input: { orders: Order[]; details: OrderDetail[]; staffIds: number[]; lines: UpsellLine[]; catalog: UpsellCatalog }): UpsellDayResult;
   ```
+  Вид строки чека: `line.kind` из задачи 3, если это `dish`/`modifier`; `other` — не оплачивается и не в `unknown`; нет поля — ключ ищется в `catalog.items` как `dish:<id>` и `modifier:<id>`, ровно одно совпадение — оно, иначе ключ `?:<id>` в `unknown`.
   `resolveUpsellLine`: своё правило позиции главнее; иначе идти вверх по группам, первая группа со строкой — её ключ; цикл в дереве — `Error`. Позиции вида `other` не оплачиваются и не попадают в `unknown`.
 
 - [ ] **Step 1:** тесты (имена — как поведение):
@@ -154,7 +155,7 @@
   - «блюдо и модификатор с одним id не путаются» (`dish:2022` и `modifier:2022`);
   - «позиция не из каталога — в unknown, сумма считается по известным»;
   - «строки без продаж есть в результате с нулём»;
-  - «строки чека без вида — ошибка "Чеки загружены до обновления. Обновите смену"» (Review Focus 1);
+  - «строка без вида находится по каталогу, если id есть только у блюда или только у модификатора» и «id есть и у блюда, и у модификатора — строка в unknown» (Review Focus 1);
   - «итог округляется до рубля» (3 × 33.33 → 100).
   - `validateUpsellLines`: повтор цели, ставка 1.005, `target: "ingredient"` → throw.
 - [ ] **Step 2:** `node --test --experimental-strip-types src/lib/sales/upsell.test.mts` → FAIL.

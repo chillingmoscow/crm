@@ -76,6 +76,8 @@ export type InventorySyncSummary = {
   failedDocuments: number;
   /** Строки актов, которым синк восстановил связь с каталогом (см. relink). */
   relinked: number;
+  /** Что синк пропустил, не прерывая прохода (например, модификаторы). Текст для пользователя. */
+  warnings: string[];
 };
 
 export type InventoryProductLookup = {

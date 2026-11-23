@@ -384,6 +384,7 @@ export async function syncQuickRestoInventory(input?: {
     resultsBlocked: 0,
     failedDocuments: 0,
     relinked: 0,
+    warnings: [],
   };
 
   // Словарь групп теперь свой у каждого вида — он живёт внутри
@@ -411,11 +412,22 @@ export async function syncQuickRestoInventory(input?: {
       listIngredientTreeItems(auth),
       listDishTreeItems(auth),
       listSemiProductTreeItems(auth),
-      listModifierTreeItems(auth),
+      // Модификаторы нужны только допродажам, а не складу. Их сбой (нет прав
+      // в Quick Resto, другое имя модуля, приложение раньше миграции 379) не
+      // должен останавливать синк складов и актов. При сбое импорт модификаторов
+      // пропускается целиком: иначе пустой список заархивировал бы уже
+      // загруженные.
+      listModifierTreeItems(auth).catch((error: unknown) => {
+        console.error("[syncQuickRestoInventory] modifiers fetch failed:", error);
+        return null;
+      }),
       listStores(auth),
       listInventoryDocuments(auth),
     ]);
     documentList = loadedDocuments;
+    if (modifierItems === null) {
+      summary.warnings.push("Модификаторы Quick Resto не загрузились — в каталоге остались прежние");
+    }
 
     // Три вида номенклатуры импортируются одинаково — отличаются источником,
     // классами категории и товара и значением kind. Раньше здесь был
@@ -423,6 +435,7 @@ export async function syncQuickRestoInventory(input?: {
     // не доезжали вовсе: строки актов на них оставались без ingredient_id, и
     // пересорт для них был недоступен (#531).
     for (const spec of NOMENCLATURE_IMPORTS) {
+      if (spec.kind === "modifier" && modifierItems === null) continue;
       const counts = await importNomenclatureKind({
         admin,
         accountId: ctx.accountId,

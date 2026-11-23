@@ -107,7 +107,7 @@ begin
  r:=public.sales_save_upsell_rules(v,bar,0,cutoff+1,l,'  Первая версия  ');
  if (select version from public.sales_upsell_departments where department_id=bar)<>1 then raise exception 'TEST FAILED: first save version is not 1';end if;
  if not exists(select 1 from public.sales_upsell_rules where id=r and department_id=bar and valid_from=cutoff+1 and lines=l and reason='Первая версия' and created_by=current_setting('test.owner')::uuid) then raise exception 'TEST FAILED: rule row';end if;
- select * into lg from public.audit_logs where entity_id=r and action_code='sales.additional_rules.updated';
+ select * into lg from public.audit_logs where entity_id=r and action_code='sales.additional_rules.updated' and entity_type='sales_upsell_rules';
  if not found or lg.details->>'department_id'<>bar::text or lg.details->>'department_name'<>'Бар (тест допродаж)' or (lg.details->>'valid_from')::date<>cutoff+1 or lg.details->>'reason'<>'Первая версия' or lg.details->'lines'<>l
   or (select array_agg(k order by k) from jsonb_object_keys(lg.details) k)<>array['department_id','department_name','lines','reason','valid_from'] then raise exception 'TEST FAILED: audit row %',to_jsonb(lg);end if;
  -- устаревший редактор

@@ -173,7 +173,7 @@ begin
  insert into public.sales_upsell_rules(account_id, venue_id, department_id, valid_from, lines, reason, created_by)
  values (a, v, p_department, p_from, p_lines, reason, auth.uid()) returning id into r;
  insert into public.audit_logs(account_id, venue_id, user_id, action_code, entity_type, entity_id, details)
- values (a, v, auth.uid(), 'sales.additional_rules.updated', 'sales_additional_rules', r,
+ values (a, v, auth.uid(), 'sales.additional_rules.updated', 'sales_upsell_rules', r,
   jsonb_build_object('department_id', p_department, 'department_name', dep_name, 'valid_from', p_from, 'reason', reason, 'lines', p_lines));
  return r;
 end $$;

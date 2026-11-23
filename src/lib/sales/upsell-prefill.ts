@@ -187,3 +187,32 @@ export function prefillUpsell(input: {
 
   return { lines, notFound, taggedWithoutRate, ratedWithoutTag };
 }
+
+type VersionRef = { id: string; department_id: string; valid_from: string; created_at: string };
+
+/**
+ * С какой версии подразделения начинает редактор. `start` — версия,
+ * действующая на `nextFrom` (первый день, с которого можно сохранить), а если
+ * все версии позже — последняя. `later` — ближайшая из других версий,
+ * назначенных после `nextFrom`: о ней редактор предупреждает, иначе правка
+ * «сегодняшних» правил молча подменила бы запланированные.
+ */
+export function upsellStartVersion<T extends VersionRef>(
+  versions: T[],
+  departmentId: string,
+  nextFrom: string,
+): { start: T | null; later: T | null } {
+  // Тот же порядок, что `private.sales_upsell_rule_for`.
+  const own = versions
+    .filter((v) => v.department_id === departmentId)
+    .sort((a, b) =>
+      a.valid_from !== b.valid_from
+        ? (a.valid_from < b.valid_from ? 1 : -1)
+        : a.created_at !== b.created_at
+          ? (a.created_at < b.created_at ? 1 : -1)
+          : a.id < b.id ? 1 : a.id > b.id ? -1 : 0,
+    );
+  const start = own.find((v) => v.valid_from <= nextFrom) ?? own[0] ?? null;
+  const later = own.filter((v) => v !== start && v.valid_from > nextFrom).at(-1) ?? null;
+  return { start, later };
+}

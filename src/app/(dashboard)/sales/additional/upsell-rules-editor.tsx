@@ -18,7 +18,12 @@ import { formatDayMonth, formatDayMonthTime } from "@/lib/format/date";
 import { countRu } from "@/lib/format/plural";
 import { defaultAdditionalRules } from "@/lib/sales/additional";
 import { lineKey, type UpsellTarget } from "@/lib/sales/upsell";
-import { prefillUpsell, type UpsellPickerItem, type UpsellPrefill } from "@/lib/sales/upsell-prefill";
+import {
+  prefillUpsell,
+  upsellStartVersion,
+  type UpsellPickerItem,
+  type UpsellPrefill,
+} from "@/lib/sales/upsell-prefill";
 import { saveUpsellRules, type AdditionalData, type UpsellDepartment } from "./actions";
 
 const TARGET_LABEL: Record<UpsellTarget, string> = {
@@ -37,21 +42,40 @@ const validRate = (r: number | null): r is number =>
   r !== null && Number.isFinite(r) && r >= 0 && r <= 1_000_000;
 const rowKey = (r: Pick<Row, "target" | "external_id">) => lineKey(r);
 
+/**
+ * Начало правки подразделения. Снимок берётся один раз при открытии вкладки:
+ * опрос страницы обновляет `data`, но черновик сохраняется с той версией,
+ * которую видел пользователь, — иначе чужое сохранение прошло бы проверку
+ * «Правила изменились» и было бы молча перезаписано.
+ */
 type Draft = {
+  depId: string;
+  version: number;
+  nextFrom: string;
   lines: Row[];
   prefill: UpsellPrefill | null;
+  /** Дата другой версии, назначенной позже `nextFrom`. */
+  laterFrom: string | null;
 };
 
 function initialDraft(data: AdditionalData, dep: UpsellDepartment): Draft {
-  const latest = data.upsellRules.find((r) => r.department_id === dep.id);
-  if (latest) return { lines: latest.lines.map((l) => ({ ...l })), prefill: null };
-  if (!dep.legacyKind) return { lines: [], prefill: null };
+  const { start, later } = upsellStartVersion(data.upsellRules, dep.id, data.nextFrom);
+  const base = {
+    depId: dep.id,
+    version: dep.version,
+    nextFrom: data.nextFrom,
+    laterFrom: later?.valid_from ?? null,
+  };
+  if (start) return { ...base, lines: start.lines.map((l) => ({ ...l })), prefill: null };
+  if (!dep.legacyKind) return { ...base, lines: [], prefill: null };
   const prefill = prefillUpsell({
     legacyKind: dep.legacyKind,
-    oldRules: data.rules[0]?.config ?? defaultAdditionalRules,
+    // Как старый редактор: прежние правила, действующие на `nextFrom`.
+    oldRules:
+      data.rules.find((r) => r.valid_from <= data.nextFrom)?.config ?? defaultAdditionalRules,
     picker: data.picker,
   });
-  return { lines: prefill.lines.map((l) => ({ ...l })), prefill };
+  return { ...base, lines: prefill.lines.map((l) => ({ ...l })), prefill };
 }
 
 function NameList({ title, names }: { title: string; names: string[] }) {
@@ -170,11 +194,13 @@ export function UpsellRulesEditor({
   onClose: () => void;
   onSaved: (d: AdditionalData) => void;
 }) {
-  const [depId, setDepId] = useState(data.departments[0]?.id ?? "");
+  const [initial, setInitial] = useState<Draft | null>(() =>
+    data.departments[0] ? initialDraft(data, data.departments[0]) : null,
+  );
+  const depId = initial?.depId ?? "";
   const dep = data.departments.find((d) => d.id === depId) ?? null;
-  const initial = useMemo(() => (dep ? initialDraft(data, dep) : null), [data, dep]);
   const [lines, setLines] = useState<Row[]>(() => initial?.lines ?? []);
-  const [from, setFrom] = useState(data.nextFrom),
+  const [from, setFrom] = useState(initial?.nextFrom ?? data.nextFrom),
     [reason, setReason] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null),
@@ -183,7 +209,7 @@ export function UpsellRulesEditor({
   const dirty =
     JSON.stringify(lines) !== JSON.stringify(initial?.lines ?? []) ||
     reason.trim() !== "" ||
-    from !== data.nextFrom;
+    from !== (initial?.nextFrom ?? data.nextFrom);
   const { guard, dialog } = useDiscardGuard(dirty, "Новые правила подразделения не сохранятся");
   const pickerByKey = useMemo(() => new Map(data.picker.map((p) => [p.key, p])), [data.picker]);
   const taken = useMemo(() => new Set(lines.map(rowKey)), [lines]);
@@ -195,16 +221,17 @@ export function UpsellRulesEditor({
   function switchTo(id: string) {
     const next = data.departments.find((d) => d.id === id);
     if (!next) return;
-    setDepId(id);
-    setLines(initialDraft(data, next).lines);
-    setFrom(data.nextFrom);
+    const draft = initialDraft(data, next);
+    setInitial(draft);
+    setLines(draft.lines);
+    setFrom(draft.nextFrom);
     setReason("");
     setError(null);
     setShowErrors(false);
   }
 
   async function save() {
-    if (!dep) return;
+    if (!dep || !initial) return;
     setShowErrors(true);
     setError(null);
     if (!ratesValid) {
@@ -220,12 +247,13 @@ export function UpsellRulesEditor({
       const next = await saveUpsellRules({
         venueId: data.venueId,
         departmentId: dep.id,
-        version: dep.version,
+        version: initial.version,
         from,
         lines: lines.map((l) => ({
           target: l.target,
           external_id: l.external_id,
-          name: l.name,
+          // Название из номенклатуры: после переименования в Quick Resto версия не отстаёт.
+          name: pickerByKey.get(rowKey(l))?.name ?? l.name,
           rate: Math.round((l.rate as number) * 100) / 100,
         })),
         reason: reason.trim(),
@@ -288,9 +316,14 @@ export function UpsellRulesEditor({
                   description={
                     prefill
                       ? "Первая версия: строки перенесены из прежних правил. Проверьте ставки и сохраните"
-                      : "Рублей за одну проданную позицию. Для категории — за каждую позицию внутри"
+                      : "Рублей за одну проданную позицию. Ставка категории действует на каждую позицию внутри"
                   }
                 >
+                  {initial?.laterFrom && (
+                    <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+                      С {formatDayMonth(initial.laterFrom)} запланирована другая версия
+                    </p>
+                  )}
                   {prefill &&
                     (prefill.notFound.length > 0 ||
                       prefill.taggedWithoutRate.length > 0 ||

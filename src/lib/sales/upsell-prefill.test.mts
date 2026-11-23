@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildUpsellPicker, prefillUpsell, type UpsellPickerItem } from "./upsell-prefill.ts";
+import {
+  buildUpsellPicker,
+  prefillUpsell,
+  upsellStartVersion,
+  type UpsellPickerItem,
+} from "./upsell-prefill.ts";
 import { defaultAdditionalRules, type AdditionalRules } from "./additional.ts";
 
 const item = (
@@ -151,4 +156,45 @@ test("buildUpsellPicker: пути, пометка тегом «Продажи / 
   assert.equal(byKey.get("dish_group:1")?.path, "");
   assert.equal(byKey.get("modifier:13")?.parent, "modifier_group:3");
   assert.equal(byKey.get("modifier_group:3")?.target, "modifier_group");
+});
+
+const version = (id: string, department_id: string, valid_from: string, created_at = "2026-11-01T10:00:00Z") => ({
+  id,
+  department_id,
+  valid_from,
+  created_at,
+});
+
+test("upsellStartVersion: есть будущая версия → берётся действующая, будущая — в later", () => {
+  const versions = [
+    version("dec", "bar", "2026-12-01"),
+    version("nov", "bar", "2026-11-10"),
+    version("old", "bar", "2026-10-01"),
+    version("other", "hookah", "2026-11-20"),
+  ];
+  const r = upsellStartVersion(versions, "bar", "2026-11-24");
+  assert.equal(r.start?.id, "nov");
+  assert.equal(r.later?.id, "dec");
+});
+
+test("upsellStartVersion: действующей нет → последняя; ближайшая из остальных будущих — в later", () => {
+  const versions = [
+    version("dec", "bar", "2026-12-01"),
+    version("jan", "bar", "2027-01-01"),
+    version("feb", "bar", "2027-02-01"),
+  ];
+  const r = upsellStartVersion(versions, "bar", "2026-11-24");
+  assert.equal(r.start?.id, "feb");
+  assert.equal(r.later?.id, "dec");
+});
+
+test("upsellStartVersion: версия с даты nextFrom действует; одна дата — новее по созданию; без версий — null", () => {
+  const versions = [
+    version("a", "bar", "2026-11-24", "2026-11-20T10:00:00Z"),
+    version("b", "bar", "2026-11-24", "2026-11-21T10:00:00Z"),
+  ];
+  const r = upsellStartVersion(versions, "bar", "2026-11-24");
+  assert.equal(r.start?.id, "b");
+  assert.equal(r.later, null);
+  assert.deepEqual(upsellStartVersion(versions, "hookah", "2026-11-24"), { start: null, later: null });
 });

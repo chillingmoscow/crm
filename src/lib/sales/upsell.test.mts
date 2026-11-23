@@ -209,3 +209,29 @@ test("validateUpsellLines: повтор цели, ставка 1.005, ingredient
     /500/,
   );
 });
+
+test("позиция в категории, которой нет в каталоге, — в unknown, а не молча без оплаты", () => {
+  const cat: UpsellCatalog = {
+    items: new Map([
+      ["dish:1", { name: "x", group: "dish_group:10" }],
+      ["dish:2", { name: "y", group: "dish_group:9" }],
+    ]),
+    groups: new Map([["dish_group:9", { name: "Всё", parent: null }]]),
+  };
+  const r = run([detail(1, [dl(1, 100, 2), dl(2, 100, 1)])], [rule("dish_group", "9", 10)], undefined, [], cat);
+  assert.deepEqual(r.unknown, [{ key: "dish:1", quantity: 2 }]);
+  assert.deepEqual(r.paid, { "dish:2": "dish_group:9" });
+  assert.equal(r.bonus, 10);
+  const own = run([detail(1, [dl(1, 100, 1)])], [rule("dish", "1", 5)], undefined, [], cat);
+  assert.deepEqual(own.unknown, []);
+  assert.equal(own.bonus, 5);
+});
+
+test("ставка проверяется по записи: 1.0000000001 отклоняется", () => {
+  assert.throws(() => validateUpsellLines([rule("dish", "1", 1.0000000001)]), /ставка/);
+  assert.doesNotThrow(() => validateUpsellLines([rule("dish", "1", 1000000)]));
+});
+
+test("countUpsellDay проверяет строки правил", () => {
+  assert.throws(() => run([], [rule("dish", "1", 1), rule("dish", "1", 2)]), /повторяется/);
+});

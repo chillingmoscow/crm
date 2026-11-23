@@ -9,7 +9,7 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import { salesRead } from "@/lib/sales/rate-limit";
 import { dayWindow, addDays } from "@/lib/sales/time";
 import type { PaySettings } from "./types";
-import { defaultAdditionalRules,type AdditionalRuleVersion } from "@/lib/sales/additional";
+import { defaultAdditionalRules,type AdditionalRuleVersion,additionalAward,additionalQuantities,extraBonuses,type AdditionalReport } from "@/lib/sales/additional";
 export type ObjectRow = { id?: number; [key: string]: unknown };
 export type PayrollResponse = {
   ds: { type: string; object: ObjectRow }[];
@@ -20,6 +20,12 @@ export async function readPayrollDay(
   date: string,
   timezone: string,
   hour: number,
+  /**
+   * Виды старых отчётов допродаж, чьё подразделение на эту дату уже перешло
+   * на расчёт по чекам: их отчёты не запрашиваются и возвращаются как `null`.
+   * Бар — пара отчётов бара и конструктора коктейлей, мастера — отчёт мастеров.
+   */
+  switched: { bar: boolean; masters: boolean } = { bar: false, masters: false },
 ) {
   const connection = await getConnection(settings.account_id);
   if (!connection)
@@ -140,9 +146,9 @@ export async function readPayrollDay(
       throw new Error(`Неполный отчёт продаж ${vid}`);
     return result;
   };
-  const masters = await report(extraSource.data?.masters_report_id ?? 140),
-    bar = await report(extraSource.data?.bar_report_id ?? 175),
-    cocktails = await report(extraSource.data?.cocktail_report_id ?? 227);
+  const masters = switched.masters ? null : await report(extraSource.data?.masters_report_id ?? 140),
+    bar = switched.bar ? null : await report(extraSource.data?.bar_report_id ?? 175),
+    cocktails = switched.bar ? null : await report(extraSource.data?.cocktail_report_id ?? 227);
   return {
     attendance,
     cashbox,
@@ -158,4 +164,20 @@ export async function readPayrollDay(
     date,
   };
 }
-export { extraBonuses } from "@/lib/sales/additional";
+export { extraBonuses };
+/**
+ * Прибавки по старым отчётам допродаж. Отчёт перешедшего вида не запрашивался
+ * (`null`) — его прибавка `null`, а не ноль: если её всё же попросит старая
+ * ветка по должности, начисление уйдёт на проверку, а не обнулится молча.
+ * Оба отчёта на месте — ровно прежний `extraBonuses`.
+ */
+export function legacyExtras(
+  masters: AdditionalReport | null,
+  bar: AdditionalReport | null,
+  rules = defaultAdditionalRules,
+): { masters: number | null; bar: number | null; masterPoints: number | null } {
+  if (masters && bar) return extraBonuses(masters, bar, rules);
+  const m = masters ? additionalAward("masters", additionalQuantities("masters", masters, rules), rules) : null,
+    b = bar ? additionalAward("bar", additionalQuantities("bar", bar, rules), rules) : null;
+  return { masters: m?.bonus ?? null, bar: b?.bonus ?? null, masterPoints: m?.points ?? null };
+}

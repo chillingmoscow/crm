@@ -983,10 +983,16 @@ export async function loadPayrollRules(): Promise<PayrollData> {
       name: `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim(),
     }));
   }
-  const roleRows = await s.client.from("roles").select("id,name").eq("venue_id",s.venueId).is("archived_at",null);
+  const [roleRows, upsellRows] = await Promise.all([
+    s.client.from("roles").select("id,name,department_id").eq("venue_id",s.venueId).is("archived_at",null),
+    s.admin.from<{ department_id: string }[]>("sales_upsell_departments").select("department_id")
+      .eq("account_id", s.accountId).eq("venue_id", s.venueId),
+  ]);
   if(roleRows.error) throw new Error(roleRows.error.message);
+  if(upsellRows.error) throw new Error(upsellRows.error.message);
   return {
     roles: roleRows.data ?? [],
+    upsellDepartments: (upsellRows.data ?? []).map((r) => r.department_id),
     venueId: s.venueId,
     timezone: "Europe/Moscow",
     dayStartHour: 9,

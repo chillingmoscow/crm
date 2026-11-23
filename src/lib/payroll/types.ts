@@ -256,7 +256,9 @@ export type PayrollData = {
   asOfDate?: string;
   experienceStartsOn?: string | null;
   attendanceRules?: AttendanceRule[];
-  roles?: {id:string;name:string}[];
+  roles?: {id:string;name:string;department_id?:string|null}[];
+  /** Подразделения заведения, участвующие в допродажах по правилам. */
+  upsellDepartments?: string[];
   transfers: PayrollTransfer[];
   venueId: string;
   /** Название заведения — для шапки выгрузки ведомости. */

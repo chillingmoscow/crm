@@ -20,7 +20,8 @@ import type {
   Cashbox,
   PayAssignment,
 } from "./types";
-import { readPayrollDay, extraBonuses } from "./source";
+import { readPayrollDay, legacyExtras } from "./source";
+import { departmentShares, extrasEligible, readyUpsellBonus, staleUpsellPayrollDays } from "./upsell-share";
 import { applyScheduleReviews, reconcileAttendance, reconcileBoundaryClocks, blocksPayrollAttendance, attendanceRuleAtDate, payrollFactRows } from "./attendance";
 import {
   computeAccrual,
@@ -31,6 +32,7 @@ import {
   employeeAtDate,
   shiftPayModelId,
   shiftDutyRoleName,
+  shiftDutyDepartment,
   recognizeTipComment,
   tipMatch,
   tipBatch,
@@ -174,6 +176,47 @@ export async function processPayrollDay() {
     if (roleRows.error) throw new Error(roleRows.error.message);
     const rolesById = new Map((roleRows.data ?? []).map((role) => [role.id, role]));
     const departmentsByRole = new Map((roleRows.data ?? []).map((role) => [role.id, role.department_id]));
+    // Допродажи по подразделениям: с даты перехода подразделения (первая версия
+    // его правил) прибавка берётся из готового дня по чекам, а не из отчётов
+    // Quick Resto по названию должности. Дни до перехода — прежний расчёт.
+    const [upsellDepartments, upsellRules, upsellDays, departmentRows] = await Promise.all([
+      admin.from<{ department_id: string; legacy_kind: "bar" | "masters" | null }[]>("sales_upsell_departments")
+        .select("department_id,legacy_kind").eq("account_id", accountId).eq("venue_id", venueId),
+      admin.from<{ department_id: string; valid_from: string }[]>("sales_upsell_rules")
+        .select("department_id,valid_from").eq("account_id", accountId).eq("venue_id", venueId),
+      admin.from<{ department_id: string; state: string; result: unknown; computed_at: string | null }[]>("sales_upsell_days")
+        .select("department_id,state,result,computed_at").eq("account_id", accountId).eq("venue_id", venueId).eq("business_date", date),
+      admin.from<{ id: string; name: string }[]>("departments").select("id,name").eq("venue_id", venueId),
+    ]);
+    for (const r of [upsellDepartments, upsellRules, upsellDays, departmentRows])
+      if (r.error) throw new Error(r.error.message);
+    const switchDates = new Map<string, string>();
+    for (const r of upsellRules.data ?? []) {
+      const known = switchDates.get(r.department_id);
+      if (!known || r.valid_from < known) switchDates.set(r.department_id, r.valid_from);
+    }
+    const switchedOn = (departmentId: string) => {
+      const from = switchDates.get(departmentId);
+      return from !== undefined && from <= date;
+    };
+    const switchedDepartments = [...switchDates.keys()].filter(switchedOn);
+    const legacySwitched = {
+      bar: (upsellDepartments.data ?? []).some((d) => d.legacy_kind === "bar" && switchedOn(d.department_id)),
+      masters: (upsellDepartments.data ?? []).some((d) => d.legacy_kind === "masters" && switchedOn(d.department_id)),
+    };
+    const upsellRow = (departmentId: string) =>
+      (upsellDays.data ?? []).find((d) => d.department_id === departmentId);
+    // Какие дни подразделений учтены в этом расчёте: после фиксации сверяемся,
+    // не досчитался ли день, пока шёл расчёт зарплаты.
+    const upsellUsed = Object.fromEntries(
+      switchedDepartments.map((id) => {
+        const row = upsellRow(id);
+        return [id, row?.state === "ready" ? row.computed_at : null];
+      }),
+    );
+    const upsellAmounts = new Map(switchedDepartments.map((id) => [id, readyUpsellBonus(upsellRow(id))]));
+    const departmentName = (id: string) =>
+      (departmentRows.data ?? []).find((d) => d.id === id)?.name ?? "Подразделение";
     const positionName = (modelId: string | null) => {
       const roleId = models.find((model) => model.id === modelId)?.role_id;
       return roleId ? rolesById.get(roleId)?.name : undefined;
@@ -186,6 +229,7 @@ export async function processPayrollDay() {
       date,
       sales.timezone,
       sales.day_start_hour,
+      legacySwitched,
     );
     const linksResult = await admin
       .from<{ external_id: string; local_id: string }[]>(
@@ -329,6 +373,9 @@ export async function processPayrollDay() {
     );
     const primaryEmployees = employees.map(e => ({...e}));
     const positionIssues = new Map<string, string>();
+    // Подразделение должности, в которой сотрудник работал: по смене графика,
+    // без смены — по должности его схемы оплаты на этот день.
+    const dutyDepartments = new Map<string, string | null>();
     const sameDepartmentRateFrom = settings.same_department_rate_from
       ? Date.parse(settings.same_department_rate_from)
       : Infinity;
@@ -361,7 +408,11 @@ export async function processPayrollDay() {
           paysShift,
         );
         const positionName = shift.role_id ? rolesById.get(shift.role_id)?.name : null;
-        return { modelId, duty: shiftDutyRoleName(shift, models, modelId, positionName, person.role_name) };
+        return {
+          modelId,
+          duty: shiftDutyRoleName(shift, models, modelId, positionName, person.role_name),
+          department: shiftDutyDepartment(shift, models, modelId, departmentsByRole),
+        };
       });
       const ids = [...new Set(choices.map((choice) => choice.modelId))];
       const duties = [...new Set(choices.map((choice) => choice.duty))];
@@ -375,6 +426,12 @@ export async function processPayrollDay() {
           model_id: modelId,
           role_name: duties.length === 1 ? duties[0] : selectedModel?.role_name ?? person.role_name,
         };
+        const departments = [...new Set(choices.map((choice) => choice.department))];
+        if (departments.length === 1) dutyDepartments.set(person.id, departments[0]);
+      }
+      if (!dutyDepartments.has(employees[i].id)) {
+        const roleId = models.find((m) => m.id === employees[i].model_id)?.role_id;
+        dutyDepartments.set(employees[i].id, roleId ? departmentsByRole.get(roleId) ?? null : null);
       }
     }
     const present = [
@@ -384,8 +441,27 @@ export async function processPayrollDay() {
           .map((r) => r.employee_id!),
       ),
     ].map((id) => employees.find((e) => e.id === id)!);
-    const extras = extraBonuses(source.masters, source.bar, source.additional_rules),
+    const extras = legacyExtras(source.masters, source.bar, source.additional_rules),
       metrics = day ? effectiveMetrics(day) : {};
+    const shiftPaid = (e: PayEmployee) =>
+      hasShiftPay(models.find((m) => m.id === e.model_id) ?? null, selectRule(rules, e, date));
+    // Фонд подразделения делят те, кому начисляется сменная часть и у кого
+    // в условиях оплаты включены допродажи.
+    const shares = departmentShares({
+      date,
+      present: present.map((e) => ({
+        id: e.id,
+        departmentId: dutyDepartments.get(e.id) ?? null,
+        eligible:
+          shiftPaid(e) &&
+          extrasEligible(
+            effectivePayModel(models.find((m) => m.id === e.model_id) ?? null, selectRule(rules, e, date)),
+            e.role_name,
+          ),
+      })),
+      switchDates,
+      days: upsellAmounts,
+    });
     if (!day) await enqueueDay(accountId, venueId, date);
     const tipRecipients = present.filter(
       (e) =>
@@ -420,6 +496,14 @@ export async function processPayrollDay() {
           );
         if (!day || day.status !== "complete")
           attendanceIssues.push("Финансовая смена ещё не завершена");
+        const share = shares.get(e.id);
+        const departmentId = dutyDepartments.get(e.id) ?? null;
+        const extraShare =
+          share === "legacy" || share === undefined
+            ? undefined
+            : share && departmentId
+              ? { ...share, department: departmentName(departmentId) }
+              : null;
         const result = computeAccrual({
           employee: e,
           model,
@@ -438,6 +522,7 @@ export async function processPayrollDay() {
           adjustments: adjustments.filter((a) => a.employee_id === e.id),
           experienceStartsOn: settings.experience_starts_on,
           cleanerPresent: present.some((p) => p.role_name === "Клиннер"),
+          extraShare,
         });
         return {
           employee_id: e.id,
@@ -454,6 +539,9 @@ export async function processPayrollDay() {
             financial_day_version: day?.version,
             extra: extras,
             extra_rule: {id:source.additional_rule_id,config:source.additional_rules},
+            ...(extraShare !== undefined && departmentId
+              ? { extra_share: { department_id: departmentId, computed_at: upsellUsed[departmentId] ?? null, entitled: extraShare !== null, ...(extraShare ?? {}) } }
+              : {}),
             source: employeeAttendance.some((a) => a.external_id < 0)
               ? "schedule"
               : "quickresto",
@@ -601,12 +689,33 @@ export async function processPayrollDay() {
           cross_boundary_ids: unresolvedBoundary.map((r) => r.id),
           cashbox_count: source.cashbox.length,
           extras,
+          ...(switchedDepartments.length ? { upsell: upsellUsed } : {}),
           timeZone: source.timeZone,
           window: source.window,
         },
       },
     });
     if (committed.error) throw new Error(committed.error.message);
+    // День подразделения мог досчитаться, пока шёл этот расчёт: постановка
+    // зарплаты из обработчика допродаж тогда пропущена (день «загружается»).
+    // Сверяемся после фиксации и ставим день заново — сбой не отменяет расчёт,
+    // день подхватит и планировщик.
+    if (switchedDepartments.length) {
+      try {
+        const after = await admin
+          .from<{ department_id: string; computed_at: string | null }[]>("sales_upsell_days")
+          .select("department_id,computed_at")
+          .eq("account_id", accountId)
+          .eq("venue_id", venueId)
+          .eq("business_date", date)
+          .eq("state", "ready")
+          .in("department_id", switchedDepartments);
+        if (!after.error && (after.data ?? []).some((d) => d.computed_at !== upsellUsed[d.department_id]))
+          await queuePayroll(accountId, venueId, [date]);
+      } catch {
+        /* планировщик поставит день по времени расчёта допродаж */
+      }
+    }
     // A balance read failure leaves bonus fines visibly on review; it does not fail a valid salary day.
     try {
       await previewPayrollBonuses(accountId, venueId);
@@ -749,6 +858,30 @@ export async function schedulePayroll() {
     )
       if (date >= s.starts_on && !known.has(date)) missing.push(date);
     if (missing.length) await queuePayroll(s.account_id, s.venue_id, missing);
+    // Допродажи подразделения посчитаны позже зарплаты дня (постановка из
+    // обработчика допродаж не прошла или совпала с расчётом) — пересчитать.
+    const previousMonth = `${addDays(`${today.slice(0, 7)}-01`, -1).slice(0, 7)}-01`;
+    const [upsellReady, payrollDays] = await Promise.all([
+      admin
+        .from<{ business_date: string; state: string; computed_at: string | null }[]>("sales_upsell_days")
+        .select("business_date,state,computed_at")
+        .eq("account_id", s.account_id)
+        .eq("venue_id", s.venue_id)
+        .eq("state", "ready")
+        .gte("business_date", previousMonth),
+      admin
+        .from<{ business_date: string; state: string; synced_at: string | null }[]>("payroll_source_days")
+        .select("business_date,state,synced_at")
+        .eq("account_id", s.account_id)
+        .eq("venue_id", s.venue_id)
+        .gte("business_date", previousMonth),
+    ]);
+    if (upsellReady.error) throw new Error(upsellReady.error.message);
+    if (payrollDays.error) throw new Error(payrollDays.error.message);
+    const stale = staleUpsellPayrollDays(upsellReady.data ?? [], payrollDays.data ?? []).filter(
+      (date) => date >= s.starts_on && !(s.historical_through && date <= s.historical_through),
+    );
+    if (stale.length) await queuePayroll(s.account_id, s.venue_id, stale);
     for (const date of [today, addDays(today, -1)]) {
       if (date < s.starts_on) continue;
       const row = await admin

@@ -73,7 +73,7 @@ create index sales_upsell_days_rule on public.sales_upsell_days(department_id, r
 create index sales_upsell_days_queue on public.sales_upsell_days(next_retry_at) where state in ('pending','running','error');
 
 -- «Последняя успешная загрузка дня» ищется на каждый день очереди.
-create index sales_sync_jobs_success_day on public.sales_sync_jobs(venue_id, business_date, finished_at desc) where status = 'success';
+create index sales_sync_jobs_success_day on public.sales_sync_jobs(venue_id, business_date, finished_at desc nulls last) where status = 'success';
 
 -- ── RLS: чтение как у sales_additional_read (283), запись только через RPC ──
 
@@ -362,8 +362,6 @@ revoke all on function private.sales_validate_upsell_lines(jsonb) from public, a
 revoke all on function private.sales_upsell_rule_for(uuid, date) from public, anon, authenticated;
 revoke all on function private.sales_upsell_job_for(uuid, date) from public, anon, authenticated;
 revoke all on function private.sales_request_upsell_day(uuid, date, boolean) from public, anon, authenticated;
-grant execute on function private.sales_validate_upsell_lines(jsonb) to service_role;
-grant execute on function private.sales_request_upsell_day(uuid, date, boolean) to service_role;
 
 revoke all on function public.sales_save_upsell_rules(uuid, uuid, integer, date, jsonb, text) from public, anon;
 grant execute on function public.sales_save_upsell_rules(uuid, uuid, integer, date, jsonb, text) to authenticated;

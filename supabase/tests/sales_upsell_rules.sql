@@ -270,6 +270,21 @@ begin
 end $$;
 
 -- ────────────────────────────────────────────────────────────
+-- 5a. Подразделение из допродаж не удаляется (FK без каскада), а текст
+--     ошибки содержит имя ограничения — по нему deleteDepartment
+--     (src/lib/people/department-delete.ts) показывает понятное сообщение.
+-- ────────────────────────────────────────────────────────────
+do $$
+declare c text;m text;
+begin
+ delete from public.departments where id=current_setting('test.bar')::uuid;
+ raise exception 'TEST FAILED: participating department deleted';
+exception when foreign_key_violation then
+ get stacked diagnostics c=constraint_name,m=message_text;
+ if c<>'sales_upsell_departments_department_id_fkey' or position(c in m)=0 then raise exception 'TEST FAILED: unexpected FK % / %',c,m;end if;
+end $$;
+
+-- ────────────────────────────────────────────────────────────
 -- 6. RLS: владелец видит своё заведение, аноним — ничего.
 -- ────────────────────────────────────────────────────────────
 set local role authenticated;

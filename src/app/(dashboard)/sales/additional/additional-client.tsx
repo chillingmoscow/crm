@@ -616,12 +616,19 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
       })),
     [monthCols, labels],
   );
+  const monthSorting = useMemo(
+    () => st.sorting.filter((x) => monthIds.has(x.id)),
+    [st.sorting, monthIds],
+  );
   const table = useReactTable({
     data: rows,
     columns,
     getRowId: (r) => r.id,
     state: {
-      sorting: st.sorting,
+      // Состояние таблицы знает столбцы всех версий правил, а в таблице —
+      // только столбцы месяца: сортировка по отсутствующему столбцу заставила бы
+      // TanStack искать его и ругаться в консоль на каждом рендере.
+      sorting: monthSorting,
       columnOrder: st.columnOrder,
       columnVisibility: st.columnVisibility,
       columnSizing: st.columnSizing,
@@ -973,7 +980,8 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
               content: (
                 <TableColumnManager
                   columns={st.columnOrder
-                    .filter((id) => table.getColumn(id))
+                    // Только столбцы месяца: getColumn на чужой id пишет ошибку в консоль.
+                    .filter((id) => monthIds.has(id))
                     .map((id) => {
                       const c = table.getColumn(id)!;
                       return {

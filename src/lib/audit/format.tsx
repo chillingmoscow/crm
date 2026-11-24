@@ -48,6 +48,7 @@ import { financeDirectoryAuditSpecs } from "./finance-directory";
 import { financeRecurringAuditSpecs } from "./finance-recurring";
 import { bankReconciliationAuditSpecs } from "./bank-reconciliation";
 import { writeoffAuditSpecs } from "./writeoffs";
+import { payrollOfficialAuditSpecs } from "./payroll-official";
 import { ChangeLines } from "./change-lines";
 import { countRu } from "@/lib/format/plural";
 
@@ -315,6 +316,7 @@ const SPECS: Record<string, AuditEventSpec> = {
   ...financeRecurringAuditSpecs,
   ...bankReconciliationAuditSpecs,
   ...writeoffAuditSpecs,
+  ...payrollOfficialAuditSpecs,
   "integration.updated": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => <>изменил(а) настройки интеграции{e.details.provider === "quickresto" ? " Quick Resto" : e.details.provider === "adesk" ? " Adesk" : e.details.provider === "telegram" ? " Telegram" : e.details.provider === "office_codes" ? " «Коды замка»" : ""}</>,

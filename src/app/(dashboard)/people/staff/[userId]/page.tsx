@@ -14,6 +14,7 @@ import { StaffDetailPage } from "./_components/staff-detail-page";
 import { listAuditEvents } from "@/lib/audit/list";
 import type { StaffProfile, StaffAccountDetails } from "../actions";
 import { staffProfileIdentitySchema } from "@/lib/people/staff-identity";
+import { getOfficialEmployment } from "../official-actions";
 
 export const metadata: Metadata = { title: "Сотрудник" };
 
@@ -306,6 +307,10 @@ export default async function StaffMemberPage({
     salesSettings?.timezone ?? "Europe/Moscow",
     salesSettings?.day_start_hour ?? 9,
   );
+  // Официальное трудоустройство — только с правом просмотра зарплаты.
+  const officialEmployment = can("payroll.view")
+    ? await getOfficialEmployment(userId)
+    : null;
 
   return (
     <>
@@ -354,6 +359,7 @@ export default async function StaffMemberPage({
         needsPasswordSetup={needsPasswordSetup}
         canViewAudit={Boolean(canViewAudit)}
         canConfigurePayroll={can("payroll.configure")}
+        officialEmployment={officialEmployment}
         canViewPay={can("payroll.view") || user.id === userId}
         initialTab={tab === "documents" || tab === "pay" ? tab : "main"}
         initialAuditEvents={auditResult.events}

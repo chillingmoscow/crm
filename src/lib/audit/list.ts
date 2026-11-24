@@ -281,6 +281,20 @@ export async function listAuditEvents(input?: {
         parts.push(
           `and(entity_type.eq.payroll_uniform,entity_id.in.(${issues.data.map((i) => i.id).join(",")}))`,
         );
+      // Официальное трудоустройство, включая отменённые периоды. Без права
+      // просмотра зарплаты RLS вернёт пусто, и этих событий в ленте не будет.
+      const official = await asLooseDb(supabase)
+        .from<{ id: string }[]>("payroll_official_employments")
+        .select("id")
+        .eq("venue_id", venue.data)
+        .in("employee_id", ids)
+        .limit(100);
+      if (official.error)
+        return { events: [], hasMore: false, error: official.error.message };
+      if (official.data?.length)
+        parts.push(
+          `and(entity_type.eq.payroll_official_employment,entity_id.in.(${official.data.map((o) => o.id).join(",")}))`,
+        );
     }
     query = query.or(parts.join(","));
   } else if (

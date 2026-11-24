@@ -19,9 +19,13 @@ import {
   type Gender,
 } from "@/lib/people/gender";
 import {
-  encodeStaffDocumentName,
   decodeStaffDocumentName,
+  staffDocumentProblem,
 } from "@/lib/people/staff-document-name";
+import {
+  StaffDocumentUploadError,
+  uploadStaffDocument,
+} from "@/lib/people/staff-document-upload";
 import { useRouter } from "next/navigation";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -72,6 +76,7 @@ import { createClient } from "@/lib/supabase/client";
 import { translateError } from "@/lib/i18n/translate-error";
 import { listAuditEvents, type AuditEvent } from "@/lib/audit/list";
 import { EmployeeDocuments, BasicMedicalCard } from "./employee-documents";
+import { OfficialEmploymentSection } from "./official-employment-section";
 import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
 import {
   fireStaff,
@@ -84,6 +89,8 @@ import {
   changeStaffDocument,
 } from "../../actions";
 import type { StaffProfile, StaffAccountDetails } from "../../actions";
+import type { OfficialEmploymentData } from "../../official-actions";
+import type { ActionResult } from "@/lib/actions/result";
 
 const schema = z.object({
   // Тир 1+2 — personal (profiles)
@@ -171,6 +178,8 @@ interface Props {
    *  conditional render'а. */
   canViewAudit: boolean;
   canConfigurePayroll: boolean;
+  /** Блок «Официальное трудоустройство»; null — нет права просмотра зарплаты. */
+  officialEmployment: ActionResult<OfficialEmploymentData> | null;
   /** Показывать ли вкладку «Оплата»: право на зарплату или своя карточка. */
   canViewPay: boolean;
   initialTab?: "main" | "documents" | "pay";
@@ -194,6 +203,7 @@ const STAFF_JOURNAL_SECTIONS = [
   { value: "payroll_employee", label: "Участие в зарплатном учёте" },
   { value: "payroll_automation_person", label: "Медкнижка и сведения для автоматизаций" },
   { value: "payroll_uniform", label: "Рабочая форма" },
+  { value: "payroll_official_employment", label: "Официальное трудоустройство" },
 ];
 
 // ── Component ─────────────────────────────────────────────────
@@ -230,6 +240,7 @@ export function StaffDetailPage({
   needsPasswordSetup,
   canViewAudit,
   canConfigurePayroll,
+  officialEmployment,
   canViewPay,
   initialTab = "main",
   initialAuditEvents,
@@ -640,49 +651,27 @@ export function StaffDetailPage({
   // Display name is reversible ASCII; user filenames never become storage paths.
   const submitDocModal = async () => {
     if (!docFile) return;
-    const formats: Record<string, string> = {
-      "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp",
-      "image/heic": "heic", "image/heif": "heif", "application/pdf": "pdf",
-    };
-    const extension = formats[docFile.type];
-    if (!extension || docFile.size > 10 * 1024 * 1024) {
-      toast.error("Выберите JPEG, PNG, WebP, HEIC или PDF размером до 10 МБ");
-      return;
-    }
-    const trimmedName = docName.trim();
-    if (!trimmedName || trimmedName.length > 100) {
-      toast.error("Укажите название документа до 100 символов");
+    const problem = staffDocumentProblem(docFile, docName);
+    if (problem) {
+      toast.error(problem);
       return;
     }
     setUploadingDocs(true);
     try {
-      const supabase = createClient();
-      const ts = Date.now();
-      const safeName = encodeStaffDocumentName(trimmedName);
-      const filename = `${ts}__${safeName}__${crypto.randomUUID()}.${extension}`;
-      const path = `${venueId}/${profile.id}/passport/${filename}`;
-      const { error } = await supabase.storage
-        .from("staff-documents")
-        .upload(path, docFile, { contentType: docFile.type });
-      if (error) {
-        toast.error(`Ошибка загрузки: ${error.message}`);
-        return;
-      }
-      const updated = [...passportPhotos, path];
-      const result = await changeStaffDocument({
-        userId: profile.id, accountId, expectedPaths: passportPhotos, addPath: path,
+      const { paths } = await uploadStaffDocument({
+        venueId, userId: profile.id, accountId, name: docName, file: docFile, expectedPaths: passportPhotos,
       });
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-      setPassportPhotos(result.paths ?? updated);
+      setPassportPhotos(paths);
       setDocModalOpen(false);
       setDocName("");
       setDocFile(null);
       toast.success("Документ добавлен");
-    } catch {
-      toast.error("Не удалось завершить загрузку. Обновите карточку, чтобы проверить документы");
+    } catch (error) {
+      toast.error(
+        error instanceof StaffDocumentUploadError
+          ? error.message
+          : "Не удалось завершить загрузку. Обновите карточку, чтобы проверить документы",
+      );
     } finally {
       setUploadingDocs(false);
     }
@@ -945,6 +934,7 @@ export function StaffDetailPage({
             forceMount
             className="data-[state=inactive]:hidden"
           >
+            <div className="flex flex-col gap-5">
             <form
               onSubmit={(event) => {
                 event.preventDefault();
@@ -1338,8 +1328,28 @@ export function StaffDetailPage({
                 </div>
                 {doorCode && <div className="border-t pt-4">{doorCode}</div>}
               </FormSection>
+            </form>
 
-              {/* Заметка — тир 3, видна только админам */}
+              {/* Вне формы: у блока свои панели и команды, Enter в них не
+                  сохраняет карточку. */}
+              {officialEmployment && (
+                <OfficialEmploymentSection
+                  data={officialEmployment}
+                  employeeName={displayName}
+                  today={venueToday}
+                  canAttachFiles={canManageStaff}
+                  documents={{
+                    venueId,
+                    userId: profile.id,
+                    accountId,
+                    documentPaths: passportPhotos,
+                    onDocumentsChange: setPassportPhotos,
+                  }}
+                />
+              )}
+
+              {/* Заметка — тир 3, видна только админам. Поле многострочное,
+                  Enter его не отправляет — форма ему не нужна. */}
               <FormSection
                 title="Заметка о сотруднике"
                 description="Видна только админам этого аккаунта"
@@ -1353,7 +1363,7 @@ export function StaffDetailPage({
                   rows={4}
                 />
               </FormSection>
-            </form>
+            </div>
           </TabsContent>
 
           {/* ── Оплата ───────────────────────────────────────── */}

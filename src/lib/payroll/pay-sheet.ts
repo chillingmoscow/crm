@@ -4,6 +4,12 @@ import type { Accrual, Allocation, Payment } from "./types";
 /** Одна строка внутри раскрытой статьи расчётного листа. */
 export type PaySheetItem = {
   key: string;
+  /** Начисление, из которого взята строка: по нему открывается расчёт дня. */
+  accrualId: string;
+  /** Вид составляющей (`base`, `bonus`, `deduction`…). */
+  kind: string;
+  /** Сумму ввёл человек (премия, штраф, надбавка): строка ведёт к записи. */
+  manual: boolean;
   date: string;
   title: string;
   note: string;
@@ -94,6 +100,9 @@ export function buildPaySheet(
       const manual = MANUAL.has(c.kind);
       const item: PaySheetItem = {
         key: `${accrual.id}.${index}`,
+        accrualId: accrual.id,
+        kind: c.kind,
+        manual,
         date: accrual.business_date,
         title: c.kind === "base" ? roleOf(accrual) : manual ? c.label : c.basis || c.label,
         note: c.kind === "base" ? c.basis : "",

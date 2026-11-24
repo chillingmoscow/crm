@@ -155,22 +155,33 @@ export function PayrollJournal({
   actions,
   toolbarTargetId = "payroll-workspace-controls",
   employeeId,
+  drawerOnly = false,
+  openId,
+  onOpenIdChange,
 }: {
   data: PayrollData;
   month: string;
-  query: string;
-  onQuery: (q: string) => void;
+  query?: string;
+  onQuery?: (q: string) => void;
   onChange: () => Promise<void>;
   actions?: ReactNode;
   toolbarTargetId?: string;
   employeeId?: string;
+  /** Только панель записи, без таблицы: её открывает расчётный лист сотрудника. */
+  drawerOnly?: boolean;
+  /** Открытая запись, когда ею управляет родитель. */
+  openId?: string | null;
+  onOpenIdChange?: (id: string | null) => void;
 }) {
   const [kind, setKind] = useState("all"),
     [employee, setEmployee] = useState("all"),
     [showDeleted, setShowDeleted] = useState(false);
   const [createKind, setCreateKind] = useState<"deduction" | "allowance">("deduction");
   const [creating, setCreating] = useState(false),
-    [selectedId, setSelectedId] = useState<string | null>(null);
+    [ownSelectedId, setOwnSelectedId] = useState<string | null>(null);
+  const selectedId = openId !== undefined ? openId : ownSelectedId;
+  const setSelectedId = (id: string | null) =>
+    onOpenIdChange ? onOpenIdChange(id) : setOwnSelectedId(id);
   const [detail, setDetail] = useState<PayrollEntryDetail | null>(null),
     [error, setError] = useState("");
   const [busy, setBusy] = useState(false),
@@ -291,9 +302,10 @@ export function PayrollJournal({
     };
   }, [selectedId]);
   useEffect(() => {
+    if (drawerOnly) return;
     const id = new URLSearchParams(window.location.search).get("entry");
-    if (id && data.adjustments.some((a) => a.id === id)) setSelectedId(id);
-  }, [data.adjustments]);
+    if (id && data.adjustments.some((a) => a.id === id)) setOwnSelectedId(id);
+  }, [data.adjustments, drawerOnly]);
   const rows = data.adjustments.filter(
     (a) =>
       a.business_date.startsWith(month.slice(0, 7)) &&
@@ -398,6 +410,7 @@ export function PayrollJournal({
   };
   return (
     <>
+      {!drawerOnly && <>
       <PayrollTable
         // Ключ сохранённых настроек столбцов: остался от прежнего названия
         // экрана, менять нельзя — у всех сбросятся порядок и ширина столбцов.
@@ -414,7 +427,7 @@ export function PayrollJournal({
         defaultSort="date"
         defaultSortDesc
         toolbarTargetId={toolbarTargetId}
-        externalSearch={{ value: query, onChange: onQuery }}
+        externalSearch={{ value: query ?? "", onChange: onQuery ?? (() => {}) }}
         searchText={(r) =>
           `${data.employees.find((e) => e.id === r.employee_id)?.name} ${r.reason} ${kindLabels[r.kind]}`
         }
@@ -484,6 +497,7 @@ export function PayrollJournal({
           if (ids.length === 1) setSelectedId(ids[0]);
         }}
       />
+      </>}
       <PayrollDetailDialog
         open={Boolean(selected)}
         onOpenChange={(open) => { if (!open && !busy) setSelectedId(null); }}

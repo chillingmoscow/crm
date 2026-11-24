@@ -31,6 +31,6 @@ export default async function EmployeeSalaryPage({
         // а не месяц начала учёта.
         `${(data.asOfDate ?? new Date().toISOString()).slice(0, 7)}-01`;
   return (
-    <EmployeePayrollPage initial={data} employeeId={employeeId} month={month} initialTab={query.tab} />
+    <EmployeePayrollPage initial={data} employeeId={employeeId} month={month}/>
   );
 }

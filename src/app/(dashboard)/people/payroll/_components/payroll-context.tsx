@@ -6,7 +6,7 @@ import { unwrapAction } from "@/lib/actions/result";
 import type { PayrollData } from "@/lib/payroll/types";
 import { Money } from "@/components/shared/money";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { selectClass } from "./employee-pay";
+import { selectClass } from "./select-class";
 import { StaffPaySheet } from "./staff-pay-sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";

@@ -9,7 +9,7 @@ import { Money } from "@/components/shared/money";
 import { countRu } from "@/lib/format/plural";
 import { confirmLegacyPayment } from "../actions";
 import { unwrapAction } from "@/lib/actions/result";
-import { selectClass } from "./employee-pay";
+import { selectClass } from "./select-class";
 export function LegacyPayments({
   data,
   month,

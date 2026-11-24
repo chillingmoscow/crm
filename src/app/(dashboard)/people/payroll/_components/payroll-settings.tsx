@@ -14,7 +14,7 @@ import { PayrollExperiencePolicy } from "./payroll-experience-policy";
 import type { PayrollData } from "@/lib/payroll/types";
 import { loadPayrollRules, payrollCommand } from "../actions";
 import { unwrapAction } from "@/lib/actions/result";
-import { selectClass } from "./employee-pay";
+import { selectClass } from "./select-class";
 import { PayrollSetup } from "./payroll-setup";
 import { PayrollInitialData } from "./payroll-initial-data";
 import { Input } from "@/components/ui/input";

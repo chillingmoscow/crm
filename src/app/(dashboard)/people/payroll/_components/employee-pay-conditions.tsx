@@ -1,5 +1,4 @@
 "use client";
-import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -13,65 +12,113 @@ import { assignPayrollPosition, setPayrollAttendanceSource } from "../actions";
 import { unwrapAction } from "@/lib/actions/result";
 import { PayrollDetailDialog } from "./payroll-detail-dialog";
 import form from "@/app/(dashboard)/people/payroll/_components/payroll-payment-form.module.css";
-import s from "./employee-pay.module.css";
-const dateLabel = (value: string) => new Date(`${value}T12:00:00Z`).toLocaleDateString("ru-RU", { timeZone: "UTC" });
-export function EmployeePayConditions({ data, employee, month, onChange }: {
-    data: PayrollData;
-    employee: PayEmployee;
-    month: string;
-    onChange: () => Promise<void>;
-}) {
-    const [mode, setMode] = useState<"model" | "attendance" | null>(null);
-    const [busy, setBusy] = useState(false);
-    const [model, setModel] = useState(employee.role_id ?? "");
-    const [from, setFrom] = useState(month);
-    const [reason, setReason] = useState("");
-    const [attendanceSource,setAttendanceSource]=useState<"quickresto"|"schedule"|"excluded">("quickresto");
-    const configure = data.permissions.includes("payroll.configure");
-    const casualCode = Boolean(employee.casual && employee.quickresto_id !== null && employee.quickresto_pin);
-    const assignments = data.assignments.filter(a => a.employee_id === employee.id).sort((a, b) => b.valid_from.localeCompare(a.valid_from));
-    const monthEnd = new Date(`${month}T12:00:00Z`);
-    monthEnd.setUTCMonth(monthEnd.getUTCMonth() + 1);
-    const lastDay = new Date(monthEnd.getTime() - 86400000).toISOString().slice(0, 10);
-    const referenceDate = data.asOfDate && data.asOfDate < lastDay ? data.asOfDate : lastDay;
-    const tenureStart = data.settings?.experience_starts_on ?? data.experienceStartsOn;
-    const sourceRule=attendanceRuleAtDate(data.attendanceRules??[],employee.id,new Date(monthEnd.getTime()-86400000).toISOString().slice(0,10));
-    const latestSourceRule=(data.attendanceRules??[]).filter(r=>r.employee_id===employee.id).sort((a,b)=>b.valid_from.localeCompare(a.valid_from)||b.created_at.localeCompare(a.created_at)||b.id.localeCompare(a.id))[0];
-    const open = (next: typeof mode) => { setAttendanceSource(sourceRule?.source??"quickresto"); setModel(employee.role_id ?? ""); setFrom(month); setReason(""); setMode(next); };
-    const save = async () => {
-        setBusy(true);
-        try {
-            if(mode==="attendance") unwrapAction(await setPayrollAttendanceSource(employee.id,attendanceSource,from,reason,latestSourceRule?.id??null));
-            if (mode === "model")
-                unwrapAction(await assignPayrollPosition(employee.id, model, from));
-            await onChange();
-            setMode(null);
-            toast.success("Условия сохранены");
-        }
-        catch (e) {
-            toast.error(e instanceof Error ? e.message : "Не удалось сохранить");
-        }
-        finally {
-            setBusy(false);
-        }
-    };
-    return <div className={s.settings}>
-  <section className={s.setting}><div><h3>Основная должность</h3><p>{data.roles?.find(r => r.id === employee.role_id)?.name ?? "Не назначена"}</p><p>Ставки и проценты настраиваются в должности.</p></div><div className="flex shrink-0 flex-col items-end gap-2">{employee.role_id && <Button variant="outline" size="sm" asChild><Link href={`/people/roles/${employee.role_id}?tab=compensation`}>Оплата должности</Link></Button>}{configure && (employee.local_user_id
-    // У сотрудника с карточкой должность меняется в одном месте — в карточке:
-    // там меняются и доступ, и условия оплаты. Здесь менялась только оплата,
-    // и из одной карточки получались две разные должности.
-    ? <Button variant="ghost" size="sm" asChild><Link href={`/people/staff/${employee.local_user_id}`}>Изменить в карточке</Link></Button>
-    : <Button variant="ghost" size="sm" onClick={() => open("model")}>Изменить должность</Button>)}</div></section>
-  <section className={s.setting}><div><h3>Факт работы</h3><p>{sourceRule?.source==="excluded"?"Не участвует в зарплатном учёте":casualCode?`По отметкам Quick Resto · PIN ${employee.quickresto_pin}`:employee.casual||sourceRule?.source==="schedule"?"По опубликованному графику":"По отметкам Quick Resto"}</p><p>{sourceRule?.source==="excluded"?"Начисления за работу с выбранной даты отключены. Прежняя история сохраняется.":casualCode?"Есть отметка — считаем фактическое время и опоздание. Нет отметки — смена засчитывается по графику.":employee.casual?"Завершённая смена в графике учитывается как отработанная. Чтобы отметки на кассе шли в его зарплату, добавьте его в «Сотрудники → Добавить → Разовый» с тем же именем: он получит свой PIN.":sourceRule?.source==="schedule"?"Завершённая смена в графике учитывается как отработанная.":"График задаёт план, личная смена подтверждает выход."}</p></div>{configure&&!employee.casual&&<Button variant="outline" size="sm" onClick={()=>open("attendance")}>Изменить</Button>}</section>
-  <section className={s.setting}><div><h3>Надбавка за стаж</h3><p>{tenureStart ? `${referenceDate < tenureStart ? "Начисление с" : "Начисляется с"} ${dateLabel(tenureStart)}` : "Дата начала начисления ещё не назначена"}</p><p>{employee.hired_on ? `Дата приёма: ${dateLabel(employee.hired_on)}. ` : ""}Сумма за выход определяется шкалой должности.</p></div></section>
-  <details className={s.issue}><summary>История условий</summary>{(data.attendanceRules??[]).filter(r=>r.employee_id===employee.id).map(r=><p key={r.id}>Факт работы с {dateLabel(r.valid_from)} · {r.source==="excluded"?"Не учитывать в зарплате":r.source==="schedule"?"График":"Quick Resto"} · {r.reason}</p>)}{assignments.map(a => <p key={a.id}>С {dateLabel(a.valid_from)} · {data.roles?.find(r => r.id === data.models.find(m => m.id === a.model_id)?.role_id)?.name ?? data.models.find(m => m.id === a.model_id)?.name ?? "Должность"}</p>)}{!assignments.length && <p>Сохранённых версий пока нет.</p>}</details>
-  <PayrollDetailDialog open={Boolean(mode)} onOpenChange={v => { if (!v && !busy)
-        setMode(null); }} title={mode==="attendance"?"Факт работы":"Основная должность"} description="Условия оплаты сотрудника" employee={{ name: employee.name, role: employee.role_name, avatarUrl: employee.avatar_url }} footer={<><Button variant="outline" disabled={busy} onClick={() => setMode(null)}>Отмена</Button><Button disabled={busy || (mode==="attendance"&&(!from||reason.trim().length<3)) || (mode === "model" && (!model || !from))} onClick={() => void save()}>{busy ? "Сохраняем…" : "Сохранить"}</Button></>}>
-   <div className={form.form}>
-    {mode==="attendance"&&<><div className="space-y-2"><Label>Источник</Label><Select value={attendanceSource} onValueChange={v=>setAttendanceSource(v as "quickresto"|"schedule"|"excluded")} disabled={busy}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent><SelectItem value="quickresto">Отметки Quick Resto</SelectItem><SelectItem value="schedule">Опубликованный график</SelectItem><SelectItem value="excluded">Не учитывать в зарплате</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Действует с</Label><DatePicker value={from} onChange={setFrom} clearable={false} disabled={busy}/></div><div className="space-y-2"><Label htmlFor="attendance-source-reason">Причина изменения</Label><Textarea id="attendance-source-reason" value={reason} onChange={e=>setReason(e.target.value)} disabled={busy}/></div></>}
 
-    {mode === "model" && <><div className="space-y-2"><Label>Основная должность</Label><Select value={model} onValueChange={setModel} disabled={busy}><SelectTrigger><SelectValue placeholder="Выберите должность"/></SelectTrigger><SelectContent>{(data.roles ?? []).filter(r => data.models.some(m => m.role_id === r.id && m.is_role_default && !m.archived)).map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label htmlFor="employee-model-from">Действует с</Label><DatePicker id="employee-model-from" value={from} onChange={setFrom} clearable={false} disabled={busy}/></div></>}
-   </div>
-  </PayrollDetailDialog>
- </div>;
+const dateLabel = (value: string) =>
+  new Date(`${value}T12:00:00Z`).toLocaleDateString("ru-RU", { timeZone: "UTC" });
+const sourceLabel = { quickresto: "Отметки Quick Resto", schedule: "Опубликованный график", excluded: "Не учитывать в зарплате" } as const;
+type Source = keyof typeof sourceLabel;
+
+export type ConditionMode = "attendance" | "model";
+
+/**
+ * Правка одного условия оплаты сотрудника: источник выходов или должность
+ * (последнее — только у сотрудника без карточки; с карточкой должность
+ * меняется в ней, иначе получились бы две разные должности).
+ */
+export function EmployeeConditionDrawer({ data, employee, month, mode, onClose, onChange }: {
+  data: PayrollData;
+  employee: PayEmployee;
+  month: string;
+  mode: ConditionMode | null;
+  onClose: () => void;
+  onChange: () => Promise<void>;
+}) {
+  const monthEnd = new Date(`${month}T12:00:00Z`);
+  monthEnd.setUTCMonth(monthEnd.getUTCMonth() + 1);
+  const lastDay = new Date(monthEnd.getTime() - 86400000).toISOString().slice(0, 10);
+  const rules = (data.attendanceRules ?? [])
+    .filter((r) => r.employee_id === employee.id)
+    .sort((a, b) => b.valid_from.localeCompare(a.valid_from) || b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
+  const current = attendanceRuleAtDate(data.attendanceRules ?? [], employee.id, lastDay);
+  const [busy, setBusy] = useState(false);
+  const [source, setSource] = useState<Source>(current?.source ?? "quickresto");
+  const [model, setModel] = useState(employee.role_id ?? "");
+  const [from, setFrom] = useState(month);
+  const [reason, setReason] = useState("");
+  const valid = mode === "attendance" ? Boolean(from) && reason.trim().length >= 3 : Boolean(model && from);
+  const save = async () => {
+    setBusy(true);
+    try {
+      if (mode === "attendance")
+        unwrapAction(await setPayrollAttendanceSource(employee.id, source, from, reason, rules[0]?.id ?? null));
+      if (mode === "model") unwrapAction(await assignPayrollPosition(employee.id, model, from));
+      await onChange();
+      onClose();
+      toast.success("Условия сохранены");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось сохранить");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <PayrollDetailDialog
+      open={Boolean(mode)}
+      onOpenChange={(open) => { if (!open && !busy) onClose(); }}
+      title={mode === "attendance" ? "Учёт выходов" : "Должность"}
+      description={employee.name}
+      footer={<>
+        <Button variant="outline" disabled={busy} onClick={onClose}>Отмена</Button>
+        <Button disabled={busy || !valid} onClick={() => void save()}>{busy ? "Сохраняем…" : "Сохранить"}</Button>
+      </>}
+    >
+      <div className={form.form}>
+        {mode === "attendance" && <>
+          <div className="space-y-2">
+            <Label>Откуда брать выходы</Label>
+            <Select value={source} onValueChange={(v) => setSource(v as Source)} disabled={busy}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(Object.keys(sourceLabel) as Source[]).map((key) => (
+                  <SelectItem key={key} value={key}>{sourceLabel[key]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2"><Label>Действует с</Label><DatePicker value={from} onChange={setFrom} clearable={false} disabled={busy} /></div>
+          <div className="space-y-2">
+            <Label htmlFor="attendance-source-reason">Причина изменения</Label>
+            <Textarea id="attendance-source-reason" value={reason} onChange={(e) => setReason(e.target.value)} disabled={busy} />
+          </div>
+          {rules.length > 0 && (
+            <section className="space-y-2 border-t pt-5">
+              <h3 className="text-sm font-medium">Прежние изменения</h3>
+              <ul className="space-y-3">
+                {rules.map((r) => (
+                  <li key={r.id} className="text-[13px]">
+                    <p>С {dateLabel(r.valid_from)} · {sourceLabel[r.source]}</p>
+                    {r.reason && <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{r.reason}</p>}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </>}
+        {mode === "model" && <>
+          <div className="space-y-2">
+            <Label>Должность</Label>
+            <Select value={model} onValueChange={setModel} disabled={busy}>
+              <SelectTrigger><SelectValue placeholder="Выберите должность" /></SelectTrigger>
+              <SelectContent>
+                {(data.roles ?? [])
+                  .filter((r) => data.models.some((m) => m.role_id === r.id && m.is_role_default && !m.archived))
+                  .map((r) => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2"><Label htmlFor="employee-model-from">Действует с</Label><DatePicker id="employee-model-from" value={from} onChange={setFrom} clearable={false} disabled={busy} /></div>
+        </>}
+      </div>
+    </PayrollDetailDialog>
+  );
 }

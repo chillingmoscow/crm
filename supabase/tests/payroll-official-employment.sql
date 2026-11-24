@@ -146,6 +146,35 @@ begin
   insert into fx values ('emp_october', emp);
 end $$;
 
+-- ── 1б. Оформление и увольнение в одном месяце; февраль ───
+do $$
+declare
+  a uuid := (select id from fx where key = 'a');
+  v uuid := (select id from fx where key = 'v');
+  e uuid; emp uuid; r record;
+begin
+  perform pg_temp.act_as((select id from fx where key = 'owner'));
+
+  -- Оформлен 10.11, уволен 20.11: месяц увольнения важнее первого месяца.
+  insert into public.payroll_employees(account_id, venue_id, name, role_name)
+  values (a, v, 'Один месяц', 'Кассир') returning id into e;
+  emp := public.payroll_official_command('employ', jsonb_build_object(
+    'employee_id', e, 'starts_on', '2026-11-10', 'position', 'Кассир-официант', 'gross', 27500));
+  perform public.payroll_official_command('end', jsonb_build_object('employment_id', emp, 'ends_on', '2026-11-20'));
+  select * into r from private.payroll_official_gross(emp, '2026-11-01');
+  perform pg_temp.check(r.kind = 'final' and r.gross is null and r.days_paid is null and r.days_in_month = 30,
+    'оформление и увольнение в одном месяце — последний месяц: ' || r::text);
+
+  -- Февраль 2027 (28 дней), оформлен 15-го: за 14 из 28 дней.
+  insert into public.payroll_employees(account_id, venue_id, name, role_name)
+  values (a, v, 'С февраля', 'Кассир') returning id into e;
+  emp := public.payroll_official_command('employ', jsonb_build_object(
+    'employee_id', e, 'starts_on', '2027-02-15', 'position', 'Кассир-официант', 'gross', 80000));
+  select * into r from private.payroll_official_gross(emp, '2027-02-01');
+  perform pg_temp.check(r.kind = 'first' and r.gross = round(80000 * 14 / 28.0, 2) and r.days_paid = 14 and r.days_in_month = 28,
+    'февраль с 15-го — за 14 из 28 дней: ' || r::text);
+end $$;
+
 -- ── 2. Повторное оформление ───────────────────────────────
 do $$
 begin

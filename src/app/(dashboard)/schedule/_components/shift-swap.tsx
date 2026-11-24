@@ -22,6 +22,7 @@ import {
   type SwapDisplayStatus,
 } from "@/lib/schedule/shift-swaps";
 import { loadSwapCandidates, swapCommand, type SwapCandidate, type SwapCommandInput } from "../actions";
+import { unwrapAction } from "@/lib/actions/result";
 
 const statusTone: Record<SwapDisplayStatus, StatusTone> = {
   pending: "warning",
@@ -258,6 +259,7 @@ export function SwapRequestDrawer({
     setFailed(false);
     setCandidates(null);
     loadSwapCandidates(shift.id)
+      .then(unwrapAction)
       .then((list) => alive && setCandidates(list))
       .catch(() => alive && setFailed(true));
     return () => {

@@ -77,6 +77,7 @@ import type {
   ScheduleEvent,
 } from "@/lib/schedule/types";
 import { loadShiftAttendance, loadSchedule, scheduleCommand, shiftHistoryPage } from "../actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { ShiftAttendancePopover } from "./shift-attendance-popover";
 import type { ShiftAttendanceMark } from "@/lib/payroll/types";
 import { reviewedMark, type ShiftReviewDecision } from "@/lib/payroll/shift-attendance";
@@ -244,8 +245,8 @@ export function ScheduleClient({
     const request = ++tasksRequest.current;
     try {
       const [next, schedule] = await Promise.all([
-        loadCalendarTasks({ from: week, to: addDays(week, 6) }),
-        refreshSchedule ? loadSchedule() : null,
+        loadCalendarTasks({ from: week, to: addDays(week, 6) }).then(unwrapAction),
+        refreshSchedule ? loadSchedule().then(unwrapAction) : null,
       ]);
       if (request === tasksRequest.current) {
         if (schedule) setData(schedule);
@@ -378,6 +379,7 @@ export function ScheduleClient({
     let active = true;
     const load = () => {
       void loadShiftAttendance(week)
+        .then(unwrapAction)
         .then((marks) => {
           if (active) setAttendance({ week, marks });
         })
@@ -420,7 +422,7 @@ export function ScheduleClient({
     : [];
   const refresh = useCallback(async () => {
     try {
-      setData(await loadSchedule());
+      setData(unwrapAction(await loadSchedule()));
     } catch (e) {
       toast.error(
         e instanceof Error ? e.message : "Не удалось обновить расписание",
@@ -469,6 +471,7 @@ export function ScheduleClient({
     setHistoryHasMore(false);
     if (selected)
       shiftHistoryPage(selected.id)
+        .then(unwrapAction)
         .then((page) => {
           if (!alive) return;
           setHistory(page.events);
@@ -486,7 +489,7 @@ export function ScheduleClient({
     if (!selected || !history?.length) return;
     try {
       const last = history[history.length - 1];
-      const page = await shiftHistoryPage(selected.id, { created_at: last.created_at, id: last.id });
+      const page = unwrapAction(await shiftHistoryPage(selected.id, { created_at: last.created_at, id: last.id }));
       setHistory((current) => [...(current ?? []), ...page.events]);
       setHistoryHasMore(page.hasMore);
     } catch {

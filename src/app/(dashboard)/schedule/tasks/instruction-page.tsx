@@ -18,6 +18,7 @@ import type { TaskData, TaskInstruction } from "@/lib/schedule/tasks";
 import { createKbPage } from "@/lib/knowledge/pages";
 import { getKbAttachmentSignedUrl } from "@/lib/knowledge/attachments";
 import { loadTaskInstructionPage, loadTaskInstructionPages, taskInstructionFileUrl } from "./actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { toast } from "sonner";
 
 const Reader = dynamic(
@@ -41,7 +42,7 @@ export function InstructionBody({
 }) {
   const resolve = useCallback(
     async (url: string) => {
-      const signed = await taskInstructionFileUrl(url);
+      const signed = unwrapAction(await taskInstructionFileUrl(url));
       if (signed || !kbAccess || !url.startsWith("kbfile://")) return signed;
       return (await getKbAttachmentSignedUrl(url.slice(9))).url ?? "";
     },
@@ -69,7 +70,7 @@ export function InstructionPagePicker({
   name: string;
   disabled: boolean;
 }) {
-  const [pages, setPages] = useState<Awaited<ReturnType<typeof loadTaskInstructionPages>>>([]),
+  const [pages, setPages] = useState<Extract<Awaited<ReturnType<typeof loadTaskInstructionPages>>, { ok: true }>["data"]>([]),
     [query, setQuery] = useState(""),
     [instruction, setInstruction] = useState<TaskInstruction | null>(null),
     [error, setError] = useState(""),
@@ -81,6 +82,7 @@ export function InstructionPagePicker({
     if (!canView) return;
     let alive = true;
     void loadTaskInstructionPages()
+      .then(unwrapAction)
       .then((rows) => {
         if (!alive) return;
         setPages((current) => {

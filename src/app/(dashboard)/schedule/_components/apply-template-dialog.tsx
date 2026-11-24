@@ -15,6 +15,7 @@ import {
 import { shiftTemplateLabel, type Shift, type ShiftTemplate } from "@/lib/schedule/types";
 import { addDays, dateInZone, dayLabel, weekStart } from "@/lib/schedule/utils";
 import { applyTemplateToShifts, countTemplateShifts } from "../actions";
+import { unwrapAction } from "@/lib/actions/result";
 
 /**
  * После сохранения шаблона предлагает перенести изменения в уже созданные
@@ -46,6 +47,7 @@ export function ApplyTemplateDialog({
   useEffect(() => {
     let live = true;
     countTemplateShifts({ id: template.id, from })
+      .then(unwrapAction)
       .then((count) => { if (live) setCounted({ from, count }); })
       .catch(() => {});
     return () => { live = false; };

@@ -13,6 +13,7 @@ import { shiftAssignee, shiftTemplateLabel, type ScheduleData } from "@/lib/sche
 import { dateInZone, timeInZone } from "@/lib/schedule/utils";
 import { cn } from "@/lib/utils";
 import { assignTaskOnce, loadTaskChoices } from "../tasks/actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { Field, isoWeekday } from "./editors";
 
 type Mode = "template" | "role";
@@ -38,7 +39,7 @@ export function TaskAssignDrawer({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [choices, setChoices] = useState<Awaited<ReturnType<typeof loadTaskChoices>> | null>(null);
+  const [choices, setChoices] = useState<Extract<Awaited<ReturnType<typeof loadTaskChoices>>, { ok: true }>["data"] | null>(null);
   const [taskId, setTaskId] = useState("");
   const [date, setDate] = useState(day);
   const [mode, setMode] = useState<Mode>("template");
@@ -49,6 +50,7 @@ export function TaskAssignDrawer({
   useEffect(() => {
     let alive = true;
     loadTaskChoices()
+      .then(unwrapAction)
       .then((c) => alive && setChoices(c))
       .catch(() => alive && setChoices({ tasks: [] }));
     return () => {

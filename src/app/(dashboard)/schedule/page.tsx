@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getCachedUser } from "@/lib/supabase/server";
 import { loadSchedule } from "./actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { ScheduleClient } from "./_components/schedule-client";
 import { loadCalendarTasks } from "./tasks/actions";
 import { addDays, weekStart } from "@/lib/schedule/utils";
@@ -30,9 +31,9 @@ export default async function SchedulePage({
   const showTasks = params.showTasks === "1";
   const week = initialDate ? weekStart(initialDate) : null;
   const [data, calendarTasks] = await Promise.all([
-    loadSchedule(),
+    loadSchedule().then(unwrapAction),
     showTasks
-      ? loadCalendarTasks(week ? { from: week, to: addDays(week, 6) } : undefined).catch(() => null)
+      ? loadCalendarTasks(week ? { from: week, to: addDays(week, 6) } : undefined).then(unwrapAction).catch(() => null)
       : null,
   ]);
   return (

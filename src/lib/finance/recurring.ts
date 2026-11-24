@@ -9,6 +9,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { createClient, getCachedPermissionChecker } from "@/lib/supabase/server";
 import { LAST_DAY_OF_MONTH, WEEKDAY_LABELS } from "@/lib/finance/recurring-schedule";
+import {
+  countOfficialReview,
+  loadOfficialReview,
+  type OfficialInbox,
+} from "@/lib/finance/official-inbox-data";
 import type {
   RecurringOccurrenceRow,
   RecurringSchedule,
@@ -509,14 +514,29 @@ function inboxQuery(supabase: Supabase, today: string, head: boolean) {
     .or(`postponed_to.is.null,postponed_to.lte.${today}`);
 }
 
-export async function listInbox(): Promise<{ items: RecurringOccurrenceRow[]; error: string | null }> {
+/**
+ * Очередь «На разбор»: ожидаемые повторяющиеся платежи и официальная часть
+ * зарплаты активного заведения, которую крон не провёл сам (`official`).
+ * Ошибка официальной части не прячет платежи и наоборот.
+ */
+export async function listInbox(): Promise<{
+  items: RecurringOccurrenceRow[];
+  official: OfficialInbox;
+  error: string | null;
+}> {
+  const officialPromise = loadOfficialReview();
   const ctx = await getCtx();
-  if ("error" in ctx) return { items: [], error: ctx.error };
+  if ("error" in ctx) {
+    const official = await officialPromise;
+    return { items: [], official: official.data, error: ctx.error };
+  }
   // Порождаем недостающие сроки сейчас — cron может быть ещё не отработавшим.
   const { error: materializeError } = await ctx.supabase.rpc("finance_recurring_materialize_mine");
   if (materializeError) console.error(`[recurring] materialize_mine: ${materializeError.message}`);
+  let items: RecurringOccurrenceRow[] = [];
+  let error: string | null = null;
   try {
-    const items = await fetchAllRows<RecurringOccurrenceRow>(() =>
+    items = await fetchAllRows<RecurringOccurrenceRow>(() =>
       asLooseDb(ctx.supabase)
         .from<RecurringOccurrenceRow[]>("finance_recurring_occurrences")
         .select("*")
@@ -524,10 +544,11 @@ export async function listInbox(): Promise<{ items: RecurringOccurrenceRow[]; er
         .or(`postponed_to.is.null,postponed_to.lte.${ctx.today}`)
         .order("due_date"),
     );
-    return { items, error: null };
   } catch (e) {
-    return { items: [], error: e instanceof Error ? e.message : "Не удалось загрузить платежи" };
+    error = e instanceof Error ? e.message : "Не удалось загрузить платежи";
   }
+  const official = await officialPromise;
+  return { items, official: official.data, error: error ?? official.error };
 }
 
 export async function countInbox(): Promise<number> {
@@ -537,9 +558,13 @@ export async function countInbox(): Promise<number> {
   // наступившие сроки. После первого запуска за день совпадений нет — дёшево.
   const { error: materializeError } = await ctx.supabase.rpc("finance_recurring_materialize_mine");
   if (materializeError) console.error(`[recurring] materialize_mine: ${materializeError.message}`);
-  const { count, error } = await inboxQuery(ctx.supabase, ctx.today, true);
+  const [{ count, error }, official] = await Promise.all([
+    inboxQuery(ctx.supabase, ctx.today, true),
+    // Официальная часть зарплаты на разборе; без таблицы (выкатка раньше миграции) — 0.
+    countOfficialReview().catch(() => 0),
+  ]);
   if (error) console.error(`[recurring] countInbox: ${error.message}`);
-  return count ?? 0;
+  return (count ?? 0) + official;
 }
 
 async function auditOccurrence(

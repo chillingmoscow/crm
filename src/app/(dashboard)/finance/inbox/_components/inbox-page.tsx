@@ -15,7 +15,15 @@ import { TablePageHeader } from "@/components/shared/table";
 import { notifyInboxChanged } from "@/lib/finance/use-inbox-count";
 import type { AmountRoundingScale } from "@/lib/format/amount";
 import { formatDayMonth } from "@/lib/format/date";
+import type { OfficialInbox } from "@/lib/finance/official-inbox-data";
 import type { AccountVenueRow } from "@/lib/org/legal-entities";
+import {
+  initialOfficialDraft,
+  officialMonthName,
+  officialPayDate,
+  type OfficialReviewDraft,
+  type OfficialReviewItem,
+} from "@/lib/payroll/official-review";
 import type {
   BankAccountRow,
   CounterpartyRow,
@@ -29,10 +37,20 @@ import {
   type OccurrenceDraft,
   type OccurrenceResolution,
 } from "./occurrence-card";
+import { OfficialMonthCard, type OfficialResolution } from "./official-month-card";
+
+/** Карточка очереди: ожидаемый платёж или официальная часть зарплаты. */
+type QueueEntry =
+  | { type: "occurrence"; id: string; due: string; row: RecurringOccurrenceRow }
+  | { type: "official"; id: string; due: string; row: OfficialReviewItem };
 
 type Props = {
   /** Ожидаемые платежи по сроку, старые первыми. */
   items: RecurringOccurrenceRow[];
+  /** Официальная часть зарплаты активного заведения, не проведённая сама. */
+  official: OfficialInbox;
+  /** Права на выплаты зарплаты и на операции в финансах. */
+  canResolveOfficial: boolean;
   loadError: string | null;
   /** Все счета, статьи и контрагенты — включая архивные (для подписей). */
   bankAccounts: BankAccountRow[];
@@ -53,9 +71,13 @@ type Props = {
  * стрелками «назад/дальше» и счётчиком «Осталось N», одна карточка платежа.
  * Разобранный платёж уходит из очереди, на его месте — следующий; после
  * каждого разбора бейдж в сайдбаре перечитывается (`finance:inbox-changed`).
+ * В той же очереди, по сроку, — официальная часть зарплаты, которая не
+ * провелась сама (`OfficialMonthCard`).
  */
 export function InboxPage({
   items,
+  official,
+  canResolveOfficial,
   loadError,
   bankAccounts,
   categories,
@@ -68,15 +90,33 @@ export function InboxPage({
 }: Props) {
   const router = useRouter();
   const [resolved, setResolved] = useState<Set<string>>(() => new Set());
-  const [currentId, setCurrentId] = useState<string | null>(items[0]?.id ?? null);
   const [drafts, setDrafts] = useState<Record<string, OccurrenceDraft>>({});
+  const [officialDrafts, setOfficialDrafts] = useState<Record<string, OfficialReviewDraft>>({});
+
+  // Одна очередь по сроку: у официальной части срок — день проведения за месяц.
+  const entries = useMemo<QueueEntry[]>(
+    () =>
+      [
+        ...official.items.map(
+          (row): QueueEntry => ({
+            type: "official",
+            id: row.id,
+            due: officialPayDate(row.month, official.settings.payDay),
+            row,
+          }),
+        ),
+        ...items.map((row): QueueEntry => ({ type: "occurrence", id: row.id, due: row.due_date, row })),
+      ].sort((a, b) => a.due.localeCompare(b.due)),
+    [items, official],
+  );
+  const [currentId, setCurrentId] = useState<string | null>(entries[0]?.id ?? null);
 
   // Открытие очереди порождает наступившие сроки — счётчик в сайдбаре мог отстать.
   useEffect(() => {
     notifyInboxChanged();
-  }, [items]);
+  }, [entries]);
 
-  const queue = useMemo(() => items.filter((item) => !resolved.has(item.id)), [items, resolved]);
+  const queue = useMemo(() => entries.filter((entry) => !resolved.has(entry.id)), [entries, resolved]);
   const found = queue.findIndex((item) => item.id === currentId);
   const index = found === -1 ? 0 : found;
   const current = queue[index] ?? null;
@@ -87,17 +127,39 @@ export function InboxPage({
     [counterparties],
   );
 
-  const resolve = (occurrence: RecurringOccurrenceRow, result: OccurrenceResolution) => {
-    // На место разобранного встаёт следующий, а если он был последним — предыдущий.
+  /** Карточка разобрана: на её место встаёт следующая, а если она была последней — предыдущая. */
+  const dismiss = (id: string) => {
     const next = queue[index + 1] ?? queue[index - 1] ?? null;
-    setResolved((set) => new Set(set).add(occurrence.id));
+    setResolved((set) => new Set(set).add(id));
     setCurrentId(next?.id ?? null);
     setDrafts((all) => {
       const rest = { ...all };
-      delete rest[occurrence.id];
+      delete rest[id];
+      return rest;
+    });
+    setOfficialDrafts((all) => {
+      const rest = { ...all };
+      delete rest[id];
       return rest;
     });
     notifyInboxChanged();
+  };
+
+  const resolveOfficial = (item: OfficialReviewItem, result: OfficialResolution) => {
+    dismiss(item.id);
+    const who = `${item.employee_name}, ${officialMonthName(item.month, today)}`;
+    if (result.kind === "posted") {
+      toast.success(`Официальная выплата проведена: ${who}`);
+    } else if (result.kind === "gone") {
+      toast("Карточка уже разобрана");
+      router.refresh();
+    } else {
+      toast(`Официальная выплата пропущена: ${who}`);
+    }
+  };
+
+  const resolve = (occurrence: RecurringOccurrenceRow, result: OccurrenceResolution) => {
+    dismiss(occurrence.id);
 
     if (result.kind === "posted") {
       toast.success(`Платёж «${occurrence.name}» проведён`, {
@@ -120,24 +182,41 @@ export function InboxPage({
   };
 
   let body: React.ReactNode;
-  if (current) {
-    const account = accountById.get(current.bank_account_id);
+  if (current?.type === "official") {
+    const item = current.row;
+    const fallback = () => initialOfficialDraft(item, official.settings, official.banks, today);
+    body = (
+      <OfficialMonthCard
+        key={item.id}
+        item={item}
+        draft={officialDrafts[item.id] ?? fallback()}
+        onDraftChange={(next) => setOfficialDrafts((all) => ({ ...all, [item.id]: next }))}
+        onResolved={(result) => resolveOfficial(item, result)}
+        banks={official.banks}
+        payDay={official.settings.payDay}
+        canResolve={canResolveOfficial}
+        today={today}
+      />
+    );
+  } else if (current) {
+    const occurrence = current.row;
+    const account = accountById.get(occurrence.bank_account_id);
     body = (
       <OccurrenceCard
-        key={current.id}
-        occurrence={current}
-        draft={drafts[current.id] ?? initialDraft(current, today)}
+        key={occurrence.id}
+        occurrence={occurrence}
+        draft={drafts[occurrence.id] ?? initialDraft(occurrence, today)}
         onDraftChange={(patch) =>
           setDrafts((all) => ({
             ...all,
-            [current.id]: { ...(all[current.id] ?? initialDraft(current, today)), ...patch },
+            [occurrence.id]: { ...(all[occurrence.id] ?? initialDraft(occurrence, today)), ...patch },
           }))
         }
-        onResolved={(result) => resolve(current, result)}
+        onResolved={(result) => resolve(occurrence, result)}
         accountName={account?.name ?? null}
-        currency={account?.currency ?? current.currency}
+        currency={account?.currency ?? occurrence.currency}
         counterpartyName={
-          current.counterparty_id ? (counterpartyById.get(current.counterparty_id) ?? null) : null
+          occurrence.counterparty_id ? (counterpartyById.get(occurrence.counterparty_id) ?? null) : null
         }
         categories={categories}
         venues={formVenues}
@@ -152,7 +231,7 @@ export function InboxPage({
       <EmptyState
         icon={CheckCheck}
         title="Всё разобрано"
-        description="Здесь появляются повторяющиеся платежи, когда наступает их срок"
+        description="Здесь появляются повторяющиеся платежи, когда наступает их срок, и официальные выплаты, которые не провелись сами"
         action={
           <Button asChild variant="outline">
             <Link href="/finance/recurring">Открыть повторяющиеся платежи</Link>
@@ -170,8 +249,8 @@ export function InboxPage({
         actions={
           queue.length > 0 ? (
             <PeriodStepper
-              previous="Предыдущий платёж"
-              next="Следующий платёж"
+              previous="Предыдущая карточка"
+              next="Следующая карточка"
               previousDisabled={index === 0}
               nextDisabled={index >= queue.length - 1}
               onPrevious={() => setCurrentId(queue[index - 1]?.id ?? null)}

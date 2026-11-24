@@ -512,7 +512,7 @@ export async function swapCommand(input: SwapCommandInput): Promise<{ error?: st
   const { action, ...rest } = parsed.data;
   const db = await client();
   const { error } = await asLooseDb(db).rpc("schedule_swap_command", { p_action: action, p_input: rest });
-  if (error) return { error: error.message };
+  if (error) return { error: actionErrorMessage(error, "Не удалось выполнить замену") };
   revalidatePath("/schedule");
   return {};
 }
@@ -596,7 +596,7 @@ export async function scheduleCommand(
     const { data, error } = action === "shift.create_template_slot"
       ? await asLooseDb(db).rpc("schedule_create_template_slot", { p_input: parsed })
       : await db.rpc("schedule_command", { p_action: action, p_input: parsed as Json });
-    if (error) return { error: error.message };
+    if (error) return { error: actionErrorMessage(error, "Не удалось сохранить") };
     revalidatePath("/schedule");
     return data as { id: string };
   } catch (e) {
@@ -636,7 +636,7 @@ export async function applyTemplateToShifts(input: {
       p_previous_title: parsed.data.previousTitle ?? null,
     },
   );
-  if (error || !data) return { error: error?.message ?? "Не удалось обновить смены" };
+  if (error || !data) return { error: actionErrorMessage(error, "Не удалось обновить смены") };
   revalidatePath("/schedule");
   return data as ApplyTemplateResult;
 }
@@ -712,7 +712,7 @@ export async function uploadEvidence(runId: string, form: FormData) {
   const { error } = await db.storage
     .from("schedule-evidence")
     .upload(path, file, { contentType: file.type });
-  return error ? { error: error.message } : { path };
+  return error ? { error: actionErrorMessage(error, "Не удалось загрузить файл") } : { path };
 }
 export async function evidenceUrl(path: string) {
   const db = await client();
@@ -721,7 +721,7 @@ export async function evidenceUrl(path: string) {
   const { error } = await db.storage
     .from("schedule-evidence")
     .createSignedUrl(path, 60);
-  if (error) return { error: error.message };
+  if (error) return { error: actionErrorMessage(error, "Не удалось открыть файл") };
   return { url: mediaUrl("schedule-evidence", path) };
 }
 

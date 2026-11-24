@@ -358,7 +358,7 @@ async function taskHistoryImpl(id: string) {
 export async function previewTasks(from: string, to: string) {
   const { db } = await context();
   const r = await db.rpc("schedule_task_preview", { p_from: from, p_to: to });
-  if (r.error) return { error: r.error.message };
+  if (r.error) return { error: actionErrorMessage(r.error, "Не удалось подготовить задачи") };
   return { rows: r.data as TaskPreview[] };
 }
 export async function retryTaskMessage(id: string, evidence: string) {

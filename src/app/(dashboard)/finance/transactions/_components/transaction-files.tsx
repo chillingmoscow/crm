@@ -13,15 +13,10 @@ import {
   uploadTransactionFile,
   type TransactionFile,
 } from "@/lib/finance/transaction-files";
-import { fileKindLabel, formatFileSize } from "@/lib/files/file-name";
+import { MAX_FILE_BYTES, fileKindLabel, formatFileSize } from "@/lib/files/file-name";
 import { formatDayMonth } from "@/lib/format/date";
 import { cn } from "@/lib/utils";
 
-/**
- * Чуть меньше 50 МБ (`storage.file_size_limit` и лимит тела server action):
- * у запроса с файлом есть свои накладные байты.
- */
-export const MAX_FILE_BYTES = 49 * 1024 * 1024;
 
 /**
  * Раздел «Файлы» в панели операции: чеки, счета, акты.

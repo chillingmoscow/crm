@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ProfileTabsList, Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs";
 import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
-import { AttachmentUploader, type AttachmentRowDisplay } from "@/components/shared/attachment-uploader";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
@@ -25,6 +24,7 @@ import { formatDateCell } from "@/lib/format/date";
 import { LEGAL_FORM_LABELS } from "@/lib/org/legal-entity-labels";
 import type { CounterpartyRow } from "@/types/finance";
 import { CounterpartyDangerZone } from "./counterparty-danger-zone";
+import { CounterpartyDocuments, type CounterpartyDocument } from "./counterparty-documents";
 import { CounterpartyOperations } from "./counterparty-operations";
 import { CounterpartyRequisites } from "./counterparty-requisites";
 
@@ -69,7 +69,7 @@ export function CounterpartyCard({
 }: {
   row: CounterpartyRow;
   groups: { id: string; name: string }[];
-  attachments: AttachmentRowDisplay[];
+  attachments: CounterpartyDocument[];
   operations: CounterpartyOperation[];
   /** `null` — нет права на операции или сбой подсчёта. */
   activity: CounterpartyActivity | null;
@@ -216,17 +216,15 @@ export function CounterpartyCard({
             <TabsContent value="documents">
               <ProfileSection
                 title="Документы"
-                description="Договоры, акты, счета и учредительные документы контрагента"
+                description="Договоры, акты, счета, банковская карточка и другие файлы контрагента"
                 locked={readOnly && lockMessage ? { tone: "locked", message: lockMessage } : undefined}
               >
-                <AttachmentUploader
-                  parent={{ kind: "counterparty", id: row.id }}
-                  attachments={attachments}
-                  defaultDocumentType="contract"
+                <CounterpartyDocuments
+                  counterpartyId={row.id}
+                  documents={attachments}
                   readOnly={readOnly}
                   canUpload={canUploadAttachments}
-                  canDetach={canDeleteAttachments}
-                  canHardDelete={canDeleteAttachments}
+                  canDelete={canDeleteAttachments}
                 />
               </ProfileSection>
             </TabsContent>

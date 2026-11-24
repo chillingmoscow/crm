@@ -2,6 +2,12 @@
  * Помощники для названий и вида файлов: общие для сервера и браузера.
  */
 
+/**
+ * Чуть меньше 50 МБ (`storage.file_size_limit` и лимит тела server action):
+ * у запроса с файлом есть свои накладные байты.
+ */
+export const MAX_FILE_BYTES = 49 * 1024 * 1024;
+
 const MAX_NAME_LENGTH = 200;
 const EXTENSION = /\.([a-z0-9]{1,5})$/i;
 const PREVIEW_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);

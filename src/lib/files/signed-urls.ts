@@ -64,7 +64,11 @@ export async function getFileDownloadUrl(
 
   const { data, error } = await supabase.storage
     .from("account-attachments")
-    .createSignedUrl(row.storage_path, DEFAULT_TTL_SECONDS, { download: row.name });
+    .createSignedUrl(row.storage_path, DEFAULT_TTL_SECONDS, {
+      // Имя уходит в заголовок Content-Disposition: без кавычек, обратных
+      // слэшей и служебных символов (у загруженных файлов имя не проверялось).
+      download: row.name.replace(/[\p{Cc}\p{Cf}"\\]/gu, "_") || "file",
+    });
   if (error || !data) {
     return { url: null, error: error?.message ?? "Не удалось получить ссылку" };
   }

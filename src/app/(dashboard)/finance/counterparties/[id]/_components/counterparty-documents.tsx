@@ -117,7 +117,6 @@ export function CounterpartyDocuments({
     }
     setRenamingId(doc.fileId);
     const { name, error } = await renameCounterpartyFile({
-      counterpartyId,
       fileId: doc.fileId,
       name: value,
     }).catch(() => ({ name: null, error: OFFLINE }));

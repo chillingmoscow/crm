@@ -33,6 +33,7 @@ import {
 } from "@/lib/finance/native-sync";
 import { scheduleGuestReads, processGuestRead } from "@/lib/guests/sync";
 import { scheduleSupplies, processSupplyRead } from "@/lib/supplies/sync";
+import { processDueNomenclatureSync } from "@/lib/inventory/nomenclature-sync";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -69,7 +70,9 @@ export async function POST(request: NextRequest) {
       guestErrors = 0,
       supplySlices = 0,
       supplyErrors = 0,
-      supplyPending = 0;
+      supplyPending = 0,
+      nomenclatureRuns = 0,
+      nomenclatureErrors = 0;
     try {
       await scheduleStatisticsReports();
     } catch {
@@ -115,19 +118,37 @@ export async function POST(request: NextRequest) {
     } catch {
       supplyErrors++;
     }
+    // Nomenclature reconciliation runs once per account every few hours (see
+    // NOMENCLATURE_SYNC_INTERVAL_MS). A tick that ran it is its provider
+    // workload: the lanes below wait for the next tick, and the rotation is
+    // not advanced, so no queue loses its turn.
+    let nomenclatureBusy = false;
+    try {
+      const r = await processDueNomenclatureSync();
+      if (!r.idle) {
+        nomenclatureBusy = true;
+        nomenclatureRuns++;
+        if (r.error) nomenclatureErrors++;
+      }
+    } catch {
+      nomenclatureErrors++;
+    }
     // Give each queue its scheduled turn, with at most one active provider
     // workload per tick. Shifts can use a turn whose assigned queue is idle.
-    const rotation = await asLooseDb(createAdminClient()).rpc(
-      "sales_next_worker_lane",
-    );
-    if (
-      rotation.error ||
-      !Number.isInteger(rotation.data) ||
-      Number(rotation.data) < 0 ||
-      Number(rotation.data) > 9
-    )
-      throw new Error("Не удалось выбрать очередь");
-    const lane = Number(rotation.data);
+    let lane = -1;
+    if (!nomenclatureBusy) {
+      const rotation = await asLooseDb(createAdminClient()).rpc(
+        "sales_next_worker_lane",
+      );
+      if (
+        rotation.error ||
+        !Number.isInteger(rotation.data) ||
+        Number(rotation.data) < 0 ||
+        Number(rotation.data) > 9
+      )
+        throw new Error("Не удалось выбрать очередь");
+      lane = Number(rotation.data);
+    }
     const started = Date.now();
     if (lane === 9) {
       while (Date.now() - started < 25000 && supplySlices < 100) {
@@ -255,7 +276,7 @@ export async function POST(request: NextRequest) {
       guestSlices, guestErrors,
       supplySlices, supplyErrors,
     ].some(Boolean);
-    if (lane === 0 || !otherWork) {
+    if (!nomenclatureBusy && (lane === 0 || !otherWork)) {
       while (Date.now() - started < 25000 && slices < 100) {
         const r = await runOneSlice();
         if (r.idle) break;
@@ -289,6 +310,8 @@ export async function POST(request: NextRequest) {
       supplySlices,
       supplyErrors,
       supplyPending,
+      nomenclatureRuns,
+      nomenclatureErrors,
     });
   } catch {
     return NextResponse.json(

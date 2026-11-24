@@ -37,7 +37,9 @@ while (!stopping) {
         (stats.cashMovementSlices && !stats.cashMovementErrors) ||
         (stats.nativeFinanceSlices && !stats.nativeFinanceErrors) ||
         (stats.guestSlices && !stats.guestErrors) ||
-        ((stats.supplySlices || stats.supplyPending) && !stats.supplyErrors)
+        ((stats.supplySlices || stats.supplyPending) && !stats.supplyErrors) ||
+        // Тик сверки номенклатуры пропускает очереди — следующий сразу.
+        stats.nomenclatureRuns
       )
         delay = 500;
       if (stats.slices || stats.queued)
@@ -71,6 +73,10 @@ while (!stopping) {
       if (stats.supplySlices || stats.supplyErrors)
         console.log(
           `Поставки: частей ${stats.supplySlices}, ошибок ${stats.supplyErrors}`,
+        );
+      if (stats.nomenclatureRuns || stats.nomenclatureErrors)
+        console.log(
+          `Номенклатура: сверок ${stats.nomenclatureRuns}, ошибок ${stats.nomenclatureErrors}`,
         );
       if (stats.guestSlices || stats.guestErrors)
         console.log(

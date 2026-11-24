@@ -8,6 +8,7 @@ import {
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { queuePayroll } from "@/lib/payroll/sync";
+import { normalizeOfficialExpected, type OfficialExpectedRow } from "@/lib/payroll/official-expected";
 import { attendanceReviewRows, needsAttendanceReview } from "@/lib/payroll/attendance-review-rows";
 import { validateRates, tipBatch, tipMatch } from "@/lib/payroll/calculate";
 import { validDate, addDays, businessDate } from "@/lib/sales/time";
@@ -341,6 +342,15 @@ async function loadPayrollData(
       }));
     }
   }
+  // Ожидаемая официальная часть: RPC сам режет по активному заведению и правам
+  // (без права — только свои строки). Как и остальные чтения, при ошибке бросаем.
+  const asOf = businessDate(new Date(), venue.data?.timezone ?? "Europe/Moscow", hours.data?.day_start_hour ?? 9);
+  const expected = await s.db.rpc("payroll_official_expected", {
+    p_from: "2000-01-01",
+    p_to: `${asOf.slice(0, 7)}-01`,
+  });
+  if (expected.error) throw new Error(expected.error.message);
+  const officialExpected = normalizeOfficialExpected(expected.data as OfficialExpectedRow[] | null, single ? employeeId : undefined);
   const settings = managerData?.settings ?? null;
   // Own-salary access needs only this public policy date, not finance settings.
   let experienceStartsOn = settings?.experience_starts_on ?? null;
@@ -363,6 +373,7 @@ async function loadPayrollData(
     settings,
     employees: employees.map(e => ({ ...e, role_name: roleRows.data?.find(r => r.id === e.role_id)?.name ?? e.role_name })),
     ...result,
+    officialExpected,
     sources: managerData?.sources ?? [],
     banks: managerData?.banks ?? [],
     categories: managerData?.categories ?? [],
@@ -380,7 +391,7 @@ async function loadPayrollManagerData(
     overview ? null : s.admin.from<PayrollData["sources"]>("payroll_source_days")
       .select("business_date,state,error,synced_at,missing_shifts:source->missing_shifts")
       .eq("account_id", s.accountId).eq("venue_id", s.venueId).order("business_date", { ascending: false }),
-    s.client.from("bank_accounts").select("id,name,legal_entity_id")
+    s.client.from("bank_accounts").select("id,name,legal_entity_id,type")
       .eq("account_id", s.accountId).eq("is_active", true).eq("currency", "RUB")
       .or(`venue_id.is.null,venue_id.eq.${s.venueId}`),
     overview ? null : s.client.from("finance_categories").select("id,name")
@@ -959,7 +970,7 @@ async function loadPayrollRulesImpl(): Promise<PayrollData> {
       .eq("venue_id", s.venueId),
     s.db
       .from<PayrollData["banks"]>("bank_accounts")
-      .select("id,name,legal_entity_id")
+      .select("id,name,legal_entity_id,type")
       .eq("account_id", s.accountId)
       .eq("is_active", true),
     s.db

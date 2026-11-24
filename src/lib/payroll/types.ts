@@ -311,7 +311,7 @@ export type PayrollData = {
   adeskSync?: AdeskSync[];
   allocations: Allocation[];
   sources: SourceDay[];
-  banks: { id: string; name: string; legal_entity_id: string }[];
+  banks: { id: string; name: string; legal_entity_id: string; type: "checking" | "debit_card" | "cash" | "fund" | "safe" }[];
   categories: { id: string; name: string }[];
   financeTransactions?: {
     id: string;

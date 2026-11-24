@@ -13,6 +13,7 @@ import {
   uploadTransactionFile,
   type TransactionFile,
 } from "@/lib/finance/transaction-files";
+import { fileKindLabel, formatFileSize } from "@/lib/files/file-name";
 import { formatDayMonth } from "@/lib/format/date";
 import { cn } from "@/lib/utils";
 
@@ -165,7 +166,7 @@ export function TransactionFiles({
             <FileRow
               key={file.fileId}
               name={file.name}
-              meta={[fileKind(file.mimeType, file.name), formatSize(file.sizeBytes), formatDayMonth(file.uploadedAt)]
+              meta={[fileKindLabel(file.mimeType, file.name), formatFileSize(file.sizeBytes), formatDayMonth(file.uploadedAt)]
                 .filter(Boolean)
                 .join(" · ")}
               previewUrl={file.mimeType.startsWith("image/") ? file.url : null}
@@ -194,7 +195,7 @@ export function TransactionFiles({
             <FileRow
               key={`${file.name}-${index}`}
               name={file.name}
-              meta={[fileKind(file.type, file.name), formatSize(file.size)].filter(Boolean).join(" · ")}
+              meta={[fileKindLabel(file.type, file.name), formatFileSize(file.size)].filter(Boolean).join(" · ")}
               previewUrl={null}
               href={null}
               action={
@@ -343,17 +344,4 @@ function FileRow({
       {action}
     </li>
   );
-}
-
-function fileKind(mime: string, name: string): string {
-  if (mime.startsWith("image/")) return "Фото";
-  if (mime === "application/pdf") return "PDF";
-  const ext = /\.([a-z0-9]{1,5})$/i.exec(name)?.[1];
-  return ext ? ext.toUpperCase() : "Файл";
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} Б`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} КБ`;
-  return `${(bytes / 1024 / 1024).toFixed(1).replace(".", ",")} МБ`;
 }

@@ -139,7 +139,8 @@ end $$;
 -- Журнал оформления — та же ограничительная политика, что у начислений и переводов.
 alter policy payroll_audit_salary_access on public.audit_logs using (
   entity_type <> all (array['payroll_adjustment', 'payroll_transfer', 'payroll_import',
-                            'payroll_official_employment', 'payroll_official_month'])
+                            'payroll_official_employment', 'payroll_official_month',
+                            'payroll_official_run'])
   or (venue_id = (select public.get_active_venue_id())
       and (select public.has_permission('payroll.view')))
 );

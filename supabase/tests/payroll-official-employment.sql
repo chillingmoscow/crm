@@ -289,7 +289,7 @@ end $$;
 do $$
 declare
   waiter uuid := (select id from fx where key = 'waiter');
-  n int; ok_e boolean; ok_s boolean; ok_m boolean; ok_l boolean; ok_any boolean; denied boolean;
+  n int; ok_e boolean; ok_s boolean; ok_m boolean; ok_l boolean; ok_any boolean; ok_r boolean; denied boolean;
 begin
   -- Общий журнал официанту открыт (org.view_audit), зарплатный — нет.
   insert into public.role_permissions(role_id, permission_id, granted)
@@ -299,6 +299,8 @@ begin
   on conflict (role_id, permission_id) do update set granted = true;
   insert into public.audit_logs(account_id, venue_id, action_code, entity_type)
   values ((select id from fx where key = 'a'), (select id from fx where key = 'v'), 'test.sanity.created', 'test_sanity');
+  insert into public.audit_logs(account_id, venue_id, action_code, entity_type)
+  values ((select id from fx where key = 'a'), (select id from fx where key = 'v'), 'payroll.official_run.created', 'payroll_official_run');
 
   perform pg_temp.act_as(waiter);
   perform pg_temp.check(not public.has_permission('payroll.configure') and not public.has_permission('payroll.view'),
@@ -320,7 +322,9 @@ begin
   ok_m := not exists(select 1 from public.payroll_official_months);
   ok_l := not exists(select 1 from public.audit_logs where entity_type = 'payroll_official_employment');
   ok_any := exists(select 1 from public.audit_logs where entity_type = 'test_sanity');
+  ok_r := not exists(select 1 from public.audit_logs where entity_type = 'payroll_official_run');
   reset role;
+  perform pg_temp.check(ok_r, 'журнал крона закрыт без payroll.view');
   perform pg_temp.check(ok_any, 'официант видит общий журнал');
   perform pg_temp.check(ok_e, 'таблица периодов закрыта без payroll.view');
   perform pg_temp.check(ok_s, 'таблица окладов закрыта без payroll.view');
@@ -335,6 +339,7 @@ begin
   set local role authenticated;
   select count(*) into n from public.payroll_official_employments;
   ok_l := exists(select 1 from public.audit_logs where entity_type = 'payroll_official_employment');
+  ok_r := exists(select 1 from public.audit_logs where entity_type = 'payroll_official_run');
   begin
     insert into public.payroll_official_months(account_id, venue_id, employment_id, employee_id, month, kind, status)
     select account_id, venue_id, id, employee_id, '2027-01-01', 'full', 'posted' from public.payroll_official_employments limit 1;
@@ -345,6 +350,7 @@ begin
   reset role;
   perform pg_temp.check(n >= 4, 'владелец видит периоды: ' || n);
   perform pg_temp.check(ok_l, 'владелец видит журнал оформления');
+  perform pg_temp.check(ok_r, 'владелец видит журнал крона');
   perform pg_temp.check(denied, 'запись в таблицы — только через функции');
 end $$;
 

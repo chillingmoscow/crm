@@ -122,7 +122,9 @@ export function PayrollPaymentsTable({
               )}
             </span>
           ) : id === "kind" && (row.original.bonus || row.original.official) ? (
-            <span className="inline-flex items-center gap-2">
+            // Бейдж переносится под статью, когда в столбце не хватает места:
+            // иначе он вылезает из ячейки и обрезается соседним столбцом.
+            <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
               <span>
                 {row.original.kind}
                 {row.original.bonus && <small className="text-muted-foreground"> · Премия</small>}

@@ -73,6 +73,9 @@ export function PayrollLedger({
       Object.entries(visibleLabels).map(([id, label]) => ({
         id,
         header: label,
+        // Длинный заголовок целиком, со стрелкой сортировки: иначе при
+        // обычной ширине «Официальная часть» обрезается до «Официальная…».
+        ...(id === "officialExpected" ? { minSize: label.length * 8 + 32 } : {}),
         accessorFn: (row) =>
           id === "employee" ? row.employee.name : cellValue(row, id),
         cell: ({ row }) => {

@@ -14,6 +14,7 @@ import { dateTimeLabel } from "./fields";
 import { commentCandidate, editCandidateComment } from "../actions";
 import { personInitials } from "@/lib/format/initials";
 import { avatarImageUrl } from "@/lib/people/avatar-thumb";
+import { unwrapAction } from "@/lib/actions/result";
 
 export function CandidateComments({ candidateId, comments, viewerId, editable, onSaved }: {
   candidateId: string; comments: Comment[]; viewerId: string; editable: boolean; onSaved: () => Promise<void>;
@@ -27,8 +28,8 @@ export function CandidateComments({ candidateId, comments, viewerId, editable, o
   const close = () => { setComposing(false); setEditing(null); setBody(""); };
   const save = () => start(async () => {
     try {
-      if (editing) await editCandidateComment(candidateId, editing.id, editing.revision, body);
-      else await commentCandidate(candidateId, body, requestKey);
+      if (editing) unwrapAction(await editCandidateComment(candidateId, editing.id, editing.revision, body));
+      else unwrapAction(await commentCandidate(candidateId, body, requestKey));
       await onSaved();
       close();
     } catch (error) { toast.error(candidateError(error, "Не удалось сохранить комментарий")); }
@@ -86,7 +87,7 @@ export function CandidateComments({ candidateId, comments, viewerId, editable, o
       onConfirm={() => {
         if (!deleting) return;
         start(async () => {
-          try { await editCandidateComment(candidateId, deleting.id, deleting.revision, null, true); await onSaved(); setDeleting(null); }
+          try { unwrapAction(await editCandidateComment(candidateId, deleting.id, deleting.revision, null, true)); await onSaved(); setDeleting(null); }
           catch (error) { toast.error(candidateError(error, "Не удалось удалить комментарий")); }
         });
       }}

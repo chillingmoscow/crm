@@ -21,6 +21,7 @@ import { candidateError } from "@/lib/candidates/errors";
 import { updateCandidate } from "../actions";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { CandidateStatusAppointment } from "./candidate-status-appointment";
+import { unwrapAction } from "@/lib/actions/result";
 
 export type CandidateStatusUpdate = {
   id: string;
@@ -53,10 +54,12 @@ export function CandidateStatusCell({
     if (next === candidate.status) return;
     setPending(next);
     try {
-      const saved = await updateCandidate(candidate.id, {
-        revision: candidate.revision,
-        status: next,
-      });
+      const saved = unwrapAction(
+        await updateCandidate(candidate.id, {
+          revision: candidate.revision,
+          status: next,
+        }),
+      );
       onSaved(saved);
     } catch (e) {
       toast.error(candidateError(e, "Не удалось изменить статус."));

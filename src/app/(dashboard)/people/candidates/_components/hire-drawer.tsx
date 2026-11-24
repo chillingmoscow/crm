@@ -18,6 +18,7 @@ import {
 } from "../actions";
 import { Field, FieldSelect, dateLabel } from "./fields";
 import { GENDER_OPTIONS, isGender } from "@/lib/people/gender";
+import { unwrapAction } from "@/lib/actions/result";
 export function HireDrawer({
   detail,
   options: initialOptions,
@@ -88,7 +89,7 @@ export function HireDrawer({
             ),
           ]),
         );
-        const id = await createCandidateRole(venue, {
+        const id = unwrapAction(await createCandidateRole(venue, {
           name: roleName,
           copy_role_id: copyRole || null,
           valid_from: date.slice(0, 7) + "-01",
@@ -100,8 +101,8 @@ export function HireDrawer({
           food_amount: Number(food),
           knowledge_amount: Number(knowledge),
           quickresto_role_id: qrRole ? Number(qrRole) : null,
-        });
-        setOptions(await getCandidateOptions());
+        }));
+        setOptions(unwrapAction(await getCandidateOptions()));
         setRole(id);
         setShowRole(false);
         toast.success("Должность и условия оплаты созданы");
@@ -112,7 +113,7 @@ export function HireDrawer({
   const hire = () =>
     start(async () => {
       try {
-        const result = await hireCandidate(
+        const result = unwrapAction(await hireCandidate(
           c.id,
           old ?? {
             revision: c.revision,
@@ -125,7 +126,7 @@ export function HireDrawer({
             existing_user_id: existing || null,
             attendance_source: "quickresto",
           },
-        );
+        ));
         toast.success("Кандидат принят на работу");
         onSaved(result.user_id);
         onClose();

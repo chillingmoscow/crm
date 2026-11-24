@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { countNewCandidates } from "@/app/(dashboard)/people/candidates/actions";
+import { unwrapAction } from "@/lib/actions/result";
 
 export function useNewCandidateCount(
   accountId: string | null,
@@ -21,7 +22,7 @@ export function useNewCandidateCount(
     const refresh = async (notifyList = false) => {
       const current = ++request;
       try {
-        const next = await countNewCandidates();
+        const next = unwrapAction(await countNewCandidates());
         if (!cancelled && request === current) {
           setCount(next);
           if (next !== lastCount) {

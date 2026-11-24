@@ -19,6 +19,11 @@ export type RenameResult = { name: string; error: null } | { name: null; error: 
  * файла сохраняется: без него PDF перестал бы открываться как PDF.
  */
 export function renameFileName(current: string, input: string): RenameResult {
+  // Управляющие и невидимые символы (в том числе смена направления текста,
+  // которой маскируют «.exe» под «.pdf») в названии не нужны.
+  if (/[\p{Cc}\p{Cf}]/u.test(input.replace(/[\t\n\r]/g, " "))) {
+    return { name: null, error: "Название не может содержать служебные символы" };
+  }
   const base = input.replace(/\s+/g, " ").trim();
   if (!base) return { name: null, error: "Укажите название файла" };
   if (/[/\\]/.test(base)) return { name: null, error: "Название не может содержать / и \\" };
@@ -29,9 +34,13 @@ export function renameFileName(current: string, input: string): RenameResult {
   return { name, error: null };
 }
 
-/** Как показать файл в окне предпросмотра. */
-export function filePreviewKind(mime: string, name: string): "pdf" | "image" | "none" {
-  if (mime === "application/pdf" || /\.pdf$/i.test(name)) return "pdf";
+/**
+ * Как показать файл в окне предпросмотра. Только по сохранённому типу:
+ * название меняет пользователь, и HTML с именем «.pdf» во встроенный
+ * просмотрщик попасть не должен.
+ */
+export function filePreviewKind(mime: string): "pdf" | "image" | "none" {
+  if (mime === "application/pdf") return "pdf";
   if (PREVIEW_IMAGE_TYPES.has(mime)) return "image";
   return "none";
 }

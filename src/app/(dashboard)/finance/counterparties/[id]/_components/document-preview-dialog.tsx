@@ -29,7 +29,7 @@ export function DocumentPreviewDialog({
   onOpenChange: (open: boolean) => void;
   onDownload: (document: CounterpartyDocument) => void;
 }) {
-  const kind = document ? filePreviewKind(document.mimeType, document.name) : "none";
+  const kind = document ? filePreviewKind(document.mimeType) : "none";
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
 

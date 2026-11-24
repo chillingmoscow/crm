@@ -24,13 +24,15 @@ test("renameFileName отказывает длиннее 200 символов (�
   assert.deepEqual(renameFileName("a.pdf", "я".repeat(197)), { name: null, error: "Название длиннее 200 символов" });
 });
 test("filePreviewKind", () => {
-  assert.equal(filePreviewKind("application/pdf", "x"), "pdf");
-  assert.equal(filePreviewKind("application/octet-stream", "Акт.PDF"), "pdf");
-  assert.equal(filePreviewKind("image/jpeg", "x.jpg"), "image");
-  assert.equal(filePreviewKind("image/png", "x.png"), "image");
-  assert.equal(filePreviewKind("image/webp", "x.webp"), "image");
-  assert.equal(filePreviewKind("image/heic", "x.heic"), "none");
-  assert.equal(filePreviewKind("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "x.docx"), "none");
+  assert.equal(filePreviewKind("application/pdf"), "pdf");
+  // Вид — только по сохранённому типу: имя «.pdf» у HTML не делает его PDF.
+  assert.equal(filePreviewKind("application/octet-stream"), "none");
+  assert.equal(filePreviewKind("text/html"), "none");
+  assert.equal(filePreviewKind("image/jpeg"), "image");
+  assert.equal(filePreviewKind("image/png"), "image");
+  assert.equal(filePreviewKind("image/webp"), "image");
+  assert.equal(filePreviewKind("image/heic"), "none");
+  assert.equal(filePreviewKind("application/vnd.openxmlformats-officedocument.wordprocessingml.document"), "none");
 });
 test("fileKindLabel и formatFileSize как раньше в transaction-files", () => {
   assert.equal(fileKindLabel("image/png", "x.png"), "Фото");
@@ -39,4 +41,10 @@ test("fileKindLabel и formatFileSize как раньше в transaction-files",
   assert.equal(formatFileSize(512), "512 Б");
   assert.equal(formatFileSize(157_286), "154 КБ");
   assert.equal(formatFileSize(5 * 1024 * 1024), "5,0 МБ");
+});
+test("renameFileName отказывает на управляющих и невидимых символах", () => {
+  const error = "Название не может содержать служебные символы";
+  assert.deepEqual(renameFileName("a.pdf", "счёт\u202Efdp.exe"), { name: null, error });
+  assert.deepEqual(renameFileName("a.pdf", "счёт\u0007"), { name: null, error });
+  assert.deepEqual(renameFileName("a.pdf", "счёт\u200B"), { name: null, error });
 });

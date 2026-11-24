@@ -120,7 +120,7 @@ export default async function CounterpartyDetailPage({
   // крупного вида (кэш браузера на месяц, см. lib/storage/media.ts).
   const attachments: CounterpartyDocument[] = attachmentRows
     .map(({ file }) => {
-      const isImage = filePreviewKind(file.mime_type, file.name) === "image";
+      const isImage = filePreviewKind(file.mime_type) === "image";
       return {
         fileId:     file.id,
         name:       file.name,

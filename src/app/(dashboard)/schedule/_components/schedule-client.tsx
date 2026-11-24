@@ -49,6 +49,8 @@ import {
 } from "@/components/ui/popover";
 import { PageFrame } from "@/components/shared/page-frame";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import tabStyle from "@/components/shared/workspace-tabs.module.css";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import {
   Dialog,
@@ -159,6 +161,92 @@ type DropTarget = { day: string; ok: boolean } & (
   | { userId: string | null; templateId?: undefined }
   | { templateId: string; userId?: undefined }
 );
+const TODO_STATUSES = new Set<TaskOccurrence["status"]>(["assigned", "in_progress", "returned"]);
+
+/**
+ * Телефон, вкладка «Мои задачи»: задачи сотрудника на неделе — сначала что
+ * сделать сейчас, потом на проверке, впереди и готовые. Нажатие открывает
+ * задачу: чек-лист, фото и отправку отчёта.
+ */
+function MyTasks({
+  tasks,
+  loading,
+  error,
+  today,
+  onRetry,
+  card,
+}: {
+  tasks: TaskOccurrence[];
+  loading: boolean;
+  error: boolean;
+  today: string;
+  onRetry: () => void;
+  card: (task: TaskOccurrence) => React.ReactNode;
+}) {
+  if (error)
+    return (
+      <div role="alert" className="flex items-center gap-3 text-sm text-destructive">
+        Не удалось загрузить задачи
+        <Button variant="outline" size="sm" onClick={onRetry}>Повторить</Button>
+      </div>
+    );
+  if (loading)
+    return (
+      <div role="status" aria-label="Загрузка задач" className="space-y-2">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="h-14 animate-pulse rounded-md bg-muted motion-reduce:animate-none" />
+        ))}
+      </div>
+    );
+  const byDate = (a: TaskOccurrence, b: TaskOccurrence) => a.business_date.localeCompare(b.business_date);
+  const groups = [
+    {
+      label: "Сделать",
+      items: tasks.filter((t) => TODO_STATUSES.has(t.status) && t.business_date <= today),
+    },
+    { label: "На проверке", items: tasks.filter((t) => t.status === "submitted") },
+    {
+      label: "Впереди",
+      items: tasks.filter((t) => TODO_STATUSES.has(t.status) && t.business_date > today),
+    },
+    {
+      label: "Готово",
+      items: tasks.filter((t) => ["completed", "missed", "blocked"].includes(t.status)),
+    },
+  ].filter((group) => group.items.length);
+  if (!groups.length)
+    return (
+      <EmptyState
+        icon={ListChecks}
+        title="Задач на этой неделе нет"
+        description="Задачи появятся, когда их назначат на ваши смены."
+        className="min-h-0 p-6"
+      />
+    );
+  return (
+    <div className="space-y-5">
+      {groups.map((group) => (
+        <section key={group.label} aria-label={group.label} className="space-y-2">
+          <h2 className="text-xs font-semibold text-muted-foreground">
+            {group.label} · {group.items.length}
+          </h2>
+          {group.items.sort(byDate).map((task) => (
+            <div key={task.id}>
+              <p className="mb-1 text-xs text-muted-foreground">
+                {task.business_date === today ? "Сегодня" : dayLabel(task.business_date)}
+              </p>
+              {card(task)}
+            </div>
+          ))}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+/** Префикс id черновика, который ещё сохраняется. */
+const PENDING_SHIFT = "pending:";
+
 export function ScheduleClient({
   initial,
   section = "calendar",
@@ -214,6 +302,8 @@ export function ScheduleClient({
   const serverTasksWeek = useRef(initialCalendarTasks ? week : null);
   const [tasksError, setTasksError] = useState(false);
   const [selectedTask, setSelectedTask] = useState<TaskOccurrence | null>(null);
+  /** Телефон: вкладка «Мои задачи» вместо расписания. */
+  const [mobileTasks, setMobileTasks] = useState(false);
   const tasksRequest = useRef(0);
   useEffect(() => {
     if (initialShowTasks !== undefined) {
@@ -263,7 +353,7 @@ export function ScheduleClient({
     }
   }, [week]);
   useEffect(() => {
-    if (!showTasks || tab !== "calendar") return;
+    if (!(showTasks || mobileTasks) || tab !== "calendar") return;
     if (serverTasksWeek.current !== week) {
       serverTasksWeek.current = null;
       void refreshCalendarTasks().catch(() => {});
@@ -278,7 +368,7 @@ export function ScheduleClient({
       tasksRequest.current++;
       clearInterval(timer);
     };
-  }, [showTasks, tab, week, refreshCalendarTasks]);
+  }, [showTasks, mobileTasks, tab, week, refreshCalendarTasks]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [filters, setFilters] = useState(false);
   /** Полоса шаблонов («По сотрудникам») или сотрудников («По шаблонам»). */
@@ -452,6 +542,49 @@ export function ScheduleClient({
       return false;
     }
   };
+  /**
+   * Перетаскивание: смена встаёт на место сразу, команда и перечитывание
+   * расписания идут в фоне, без уведомления об успехе. Пока идут другие
+   * такие сохранения, свежие данные не применяем — иначе ответ первого
+   * броска на миг откатил бы второй. При ошибке — сообщение и данные сервера.
+   */
+  const pendingDrops = useRef(0);
+  const saveInstantly = async (
+    action: string,
+    input: unknown,
+    apply: (shifts: Shift[]) => Shift[],
+  ) => {
+    const before = data.shifts;
+    pendingDrops.current += 1;
+    setData((d) => ({ ...d, shifts: apply(d.shifts) }));
+    let ok = false;
+    try {
+      const r = await scheduleCommand(action, input);
+      if (r.error) toast.error(r.error);
+      else ok = true;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось сохранить");
+    }
+    pendingDrops.current -= 1;
+    if (pendingDrops.current > 0) return ok;
+    try {
+      const fresh = unwrapAction(await loadSchedule());
+      if (pendingDrops.current === 0) setData(fresh);
+    } catch {
+      if (!ok) setData((d) => ({ ...d, shifts: before }));
+      else toast.warning("Изменения сохранены. Обновите страницу, чтобы увидеть их.");
+    }
+    return ok;
+  };
+  /** Начало и конец смены по дню и времени; конец раньше начала — следующие сутки. */
+  const shiftSpan = (day: string, start: string, end: string) => {
+    const starts_at = instantInZone(day, start, data.timezone);
+    const endDay = end.slice(0, 5) <= start.slice(0, 5) ? addDays(day, 1) : day;
+    const ends_at = instantInZone(endDay, end, data.timezone);
+    return starts_at && ends_at ? { starts_at, ends_at } : null;
+  };
+  const patchShift = (id: string, patch: Partial<Shift>) => (shifts: Shift[]) =>
+    shifts.map((shift) => (shift.id === id ? { ...shift, ...patch } : shift));
   /** Сохранение шаблона; после правки предлагаем обновить смены по нему. */
   const saveTemplate = (before?: ShiftTemplate): Save => async (action, input) => {
     const saved = await save(action, input);
@@ -801,7 +934,7 @@ export function ScheduleClient({
       create(day, userId, template);
       return;
     }
-    await save("shift.create", {
+    const input = {
       name: template.name,
       title: template.name,
       color: template.color,
@@ -815,7 +948,30 @@ export function ScheduleClient({
       payroll_model_id: payModel,
       note: "",
       template_id: template.id,
-    });
+    };
+    const span = shiftSpan(day, times.start_time, times.end_time);
+    // Черновик-заглушка до ответа сервера; настоящий придёт с перечитыванием.
+    const draft: Shift | null = span && {
+      id: `${PENDING_SHIFT}${crypto.randomUUID()}`,
+      venue_id: data.venueId,
+      ...assignmentFields(userId),
+      payroll_model_id: payModel,
+      role_id: template.role_id,
+      department_id: template.department_id,
+      template_id: template.id,
+      title: template.name,
+      color: template.color,
+      ...span,
+      break_minutes: template.break_minutes,
+      arrival_minutes: template.arrival_minutes,
+      note: "",
+      checklist_snapshots: {},
+      checklist_ids: input.checklist_ids,
+      published: false,
+      version: 0,
+      updated_at: new Date().toISOString(),
+    };
+    await saveInstantly("shift.create", input, (shifts) => (draft ? [...shifts, draft] : shifts));
   };
   /** В списке перенос — на другой день у того же сотрудника. */
   const listDropUser = dragItem?.kind === "shift" ? shiftAssignee(dragItem.shift) : null;
@@ -924,14 +1080,19 @@ export function ScheduleClient({
     const times = templateTimesFor(template, isoWeekday(day));
     if (!times) return;
     const assignee = shiftAssignee(item.shift);
-    await save("shift.edit", {
-      ...item.shift,
-      date: day,
-      start_time: times.start_time.slice(0, 5),
-      end_time: times.end_time.slice(0, 5),
-      ...assignmentFields(assignee),
-      payroll_model_id: casualPayModel(assignee, item.shift),
-    });
+    const span = shiftSpan(day, times.start_time, times.end_time);
+    await saveInstantly(
+      "shift.edit",
+      {
+        ...item.shift,
+        date: day,
+        start_time: times.start_time.slice(0, 5),
+        end_time: times.end_time.slice(0, 5),
+        ...assignmentFields(assignee),
+        payroll_model_id: casualPayModel(assignee, item.shift),
+      },
+      span ? patchShift(item.shift.id, span) : (shifts) => shifts,
+    );
   };
   /** Сотрудника — на смену без сотрудника. Разовый без однозначной ставки — через форму «Назначить». */
   const assignOpenShift = async (shift: Shift, userId: string, day: string) => {
@@ -942,12 +1103,16 @@ export function ScheduleClient({
       setEditor({ type: "shift", shift, day, templateSlot: true, userId });
       return;
     }
-    await save("shift.assign", {
-      ...assignmentFields(userId),
-      payroll_model_id: payModel,
-      id: shift.id,
-      version: shift.version,
-    });
+    await saveInstantly(
+      "shift.assign",
+      {
+        ...assignmentFields(userId),
+        payroll_model_id: payModel,
+        id: shift.id,
+        version: shift.version,
+      },
+      patchShift(shift.id, { ...assignmentFields(userId), payroll_model_id: payModel }),
+    );
   };
   const confirmDelete = (shift: Shift) =>
     setConfirmation({
@@ -992,14 +1157,31 @@ export function ScheduleClient({
     )
       return;
     if (!can("shift_edit") || occupied(userId, day, shift.id)) return;
-    await save("shift.edit", {
-      ...shift,
-      date: day,
-      start_time: timeInZone(shift.starts_at, data.timezone),
-      end_time: timeInZone(shift.ends_at, data.timezone),
-      ...assignmentFields(userId),
-      payroll_model_id: casualPayModel(userId, shift),
-    });
+    const start_time = timeInZone(shift.starts_at, data.timezone);
+    const end_time = timeInZone(shift.ends_at, data.timezone);
+    const payroll_model_id = casualPayModel(userId, shift);
+    const span = shiftSpan(day, start_time, end_time);
+    await saveInstantly(
+      "shift.edit",
+      {
+        ...shift,
+        date: day,
+        start_time,
+        end_time,
+        ...assignmentFields(userId),
+        payroll_model_id,
+      },
+      patchShift(shift.id, { ...span, ...assignmentFields(userId), payroll_model_id }),
+    );
+  };
+  /** Брошенная в корзину смена удаляется сразу, без вопроса. */
+  const deleteDropped = async (shift: Shift) => {
+    if (
+      await saveInstantly("shift.delete", { id: shift.id, version: shift.version }, (shifts) =>
+        shifts.filter((s) => s.id !== shift.id),
+      )
+    )
+      setSelected((current) => (current?.id === shift.id ? null : current));
   };
   const cellTemplates = (day: string) =>
     data.templates.filter(
@@ -1093,12 +1275,15 @@ export function ScheduleClient({
     const assignSlot = () =>
       setEditor({ type: "shift", shift: s, day, templateSlot: true });
     const dragged = dragItem?.kind === "shift" && dragItem.shift.id === s.id;
+    // Заглушка до ответа сервера: у неё ещё нет настоящего id.
+    const pending = s.id.startsWith(PENDING_SHIFT);
     return (
     <ContextMenu key={s.id} modal={false}>
     <ContextMenuTrigger asChild>
     <div className="relative min-w-0">
     <button
-      draggable={can("shift_edit")}
+      draggable={can("shift_edit") && !pending}
+      disabled={pending}
       onDragStart={(e) => {
         e.dataTransfer.setData("application/sheerly-shift", s.id);
         e.dataTransfer.effectAllowed = "move";
@@ -1328,6 +1513,14 @@ export function ScheduleClient({
   const canPublish = can("shift_publish") && draftShifts.length > 0;
   const filtersActive = department !== "all" || publication !== "all";
   const today = dateInZone(new Date(), data.timezone);
+  const myTasks = calendarTasksWeek === week
+    ? (calendarTasks?.occurrences ?? []).filter(
+        (task) => task.user_id === data.userId && days.includes(task.business_date),
+      )
+    : [];
+  const myOpenTasks = myTasks.filter(
+    (task) => TODO_STATUSES.has(task.status) && task.business_date <= today,
+  ).length;
   // День для «Новая смена» / «Задача» из шапки: сегодня, если он на открытой
   // неделе, иначе её первый день — иначе смена уезжает с экрана.
   const addDay = days.includes(today) ? today : days[0];
@@ -1575,6 +1768,31 @@ export function ScheduleClient({
             </TaskHeaderTarget.Provider>
           ) : (
             <>
+              <Tabs
+                value={mobileTasks ? "tasks" : "schedule"}
+                onValueChange={(value) => setMobileTasks(value === "tasks")}
+                className={cn(tabStyle.tabs, "md:hidden")}
+              >
+                <TabsList aria-label="Разделы графика">
+                  <TabsTrigger value="schedule">График</TabsTrigger>
+                  <TabsTrigger value="tasks">
+                    Мои задачи{myOpenTasks > 0 ? ` · ${myOpenTasks}` : ""}
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+              {mobileTasks && (
+                <div className="md:hidden">
+                  <MyTasks
+                    tasks={myTasks}
+                    loading={!calendarTasks || calendarTasksWeek !== week}
+                    error={tasksError}
+                    today={today}
+                    onRetry={() => void refreshCalendarTasks().catch(() => {})}
+                    card={(task) => taskCard(task, false)}
+                  />
+                </div>
+              )}
+              <div className={cn("space-y-5", mobileTasks && "max-md:hidden")}>
               {(filters || filtersActive) && (
                 <div className="flex flex-wrap items-center gap-2" aria-label="Фильтры расписания">
                   <TableFilterChip
@@ -1658,6 +1876,7 @@ export function ScheduleClient({
                 <EmployeeStrip
                   data={data}
                   days={days}
+                  department={department === "all" ? null : department}
                   dragging={dragItem?.kind === "employee" ? dragItem.userId : null}
                   onDragStart={(userId) => startDrag({ kind: "employee", userId })}
                   onDragEnd={endDrag}
@@ -2069,6 +2288,7 @@ export function ScheduleClient({
                   <span>Задач на неделе: {weekTasks.length}</span>
                 )}
               </div>
+              </div>
             </>
           )}
           </section>
@@ -2188,7 +2408,7 @@ export function ScheduleClient({
             e.preventDefault();
             const shift = dragItem.shift;
             endDrag();
-            confirmDelete(shift);
+            void deleteDropped(shift);
           }}
           className={cn(
             "fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border-2 border-dashed px-5 py-3 text-sm font-medium shadow-lg transition-all animate-in fade-in-0 slide-in-from-bottom-4",

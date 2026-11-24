@@ -57,6 +57,10 @@ type Props = {
   triggerClassName?: string;
   /** Optional label text to render inside the trigger when value is selected. */
   ariaLabel?: string;
+  /** id триггера — для `<Label htmlFor>`. */
+  id?: string;
+  "aria-invalid"?: boolean;
+  "aria-describedby"?: string;
 };
 
 /**
@@ -77,6 +81,9 @@ export function Combobox({
   className,
   triggerClassName,
   ariaLabel,
+  id,
+  "aria-invalid": ariaInvalid,
+  "aria-describedby": ariaDescribedBy,
 }: Props) {
   const [open, setOpen] = useState(false);
 
@@ -94,6 +101,9 @@ export function Combobox({
           role="combobox"
           aria-expanded={open}
           aria-label={ariaLabel}
+          id={id}
+          aria-invalid={ariaInvalid}
+          aria-describedby={ariaDescribedBy}
           disabled={disabled}
           className={cn(
             // Поле формы, а не кнопка: фокус и рамка ошибки как у Input.

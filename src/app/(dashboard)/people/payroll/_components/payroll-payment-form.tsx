@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Field } from "@/components/ui/field";
 import { AmountInput } from "@/components/finance/amount-input";
+import { Combobox } from "@/components/finance/combobox";
 import { officialGrossFromNet } from "@/lib/payroll/official";
 import {
   canRecordOfficialPayment,
@@ -22,13 +23,6 @@ import {
   officialPaymentOption,
   officialTaxOf,
 } from "@/lib/payroll/official-payment";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { PayrollEmployeePicker } from "@/app/(dashboard)/people/payroll/_components/payroll-employee-picker";
 import { DatePicker } from "@/components/ui/date-picker";
 import { zonedParts } from "@/lib/sales/time";
@@ -238,28 +232,19 @@ export function PayrollPaymentForm({
         <div className={s.fields}>
           <div className={s.accountField}>
             <Label htmlFor={`${formId}-bank`}>Счёт списания</Label>
-            <Select
-              required
-              value={bankValue}
-              onValueChange={officialOn ? setOfficialBankPick : setBank}
+            <Combobox
+              id={`${formId}-bank`}
+              value={bankValue || null}
+              onChange={(v) => v && (officialOn ? setOfficialBankPick : setBank)(v)}
+              options={(officialOn ? officialChecking : data.banks).map((b) => ({ value: b.id, label: b.name }))}
+              placeholder="Выберите счёт"
+              searchPlaceholder="Найти счёт"
+              emptyText="Счёт не найден"
               disabled={busy}
-            >
-              <SelectTrigger
-                id={`${formId}-bank`}
-                className={s.select}
-                aria-describedby={officialOn && !officialChecking.length ? `${formId}-bank-error` : undefined}
-                aria-invalid={officialOn && !officialChecking.length ? true : undefined}
-              >
-                <SelectValue placeholder="Выберите счёт" />
-              </SelectTrigger>
-              <SelectContent>
-                {(officialOn ? officialChecking : data.banks).map((b) => (
-                  <SelectItem key={b.id} value={b.id}>
-                    {b.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              triggerClassName={s.select}
+              aria-describedby={officialOn && !officialChecking.length ? `${formId}-bank-error` : undefined}
+              aria-invalid={officialOn && !officialChecking.length ? true : undefined}
+            />
             {officialOn && !officialChecking.length && (
               <p id={`${formId}-bank-error`} className="text-xs text-destructive">
                 Нет расчётного счёта: официальную выплату проводят только с него

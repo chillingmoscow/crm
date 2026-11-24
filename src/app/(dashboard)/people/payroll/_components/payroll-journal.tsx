@@ -1,5 +1,6 @@
 "use client";
 
+import { Combobox } from "@/components/finance/combobox";
 import { PayrollEmployeePicker } from "@/app/(dashboard)/people/payroll/_components/payroll-employee-picker";
 
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
@@ -1018,12 +1019,17 @@ export function PayrollEntryForm({
               <div className={formStyle.fields}>
                 <div>
                   <Label htmlFor="entry-bank">Счёт списания</Label>
-                  <Select value={bank} onValueChange={setBank} disabled={busy}>
-                    <SelectTrigger id="entry-bank" className={formStyle.select}><SelectValue placeholder="Выберите счёт" /></SelectTrigger>
-                    <SelectContent>
-                      {data.banks.map((account) => <SelectItem key={account.id} value={account.id}>{account.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <Combobox
+                    id="entry-bank"
+                    value={bank || null}
+                    onChange={(v) => v && setBank(v)}
+                    options={data.banks.map((account) => ({ value: account.id, label: account.name }))}
+                    placeholder="Выберите счёт"
+                    searchPlaceholder="Найти счёт"
+                    emptyText="Счёт не найден"
+                    disabled={busy}
+                    triggerClassName={formStyle.select}
+                  />
                   {!data.banks.length && <p className="text-xs text-muted-foreground">Нет доступных счетов</p>}
                 </div>
                 <div>

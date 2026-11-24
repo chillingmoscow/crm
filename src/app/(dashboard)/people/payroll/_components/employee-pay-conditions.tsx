@@ -10,6 +10,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { attendanceRuleAtDate } from "@/lib/payroll/attendance";
 import type { PayrollData, PayEmployee } from "@/lib/payroll/types";
 import { assignPayrollPosition, setPayrollAttendanceSource } from "../actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { PayrollDetailDialog } from "./payroll-detail-dialog";
 import form from "@/app/(dashboard)/people/payroll/_components/payroll-payment-form.module.css";
 import s from "./employee-pay.module.css";
@@ -40,9 +41,9 @@ export function EmployeePayConditions({ data, employee, month, onChange }: {
     const save = async () => {
         setBusy(true);
         try {
-            if(mode==="attendance") await setPayrollAttendanceSource(employee.id,attendanceSource,from,reason,latestSourceRule?.id??null);
+            if(mode==="attendance") unwrapAction(await setPayrollAttendanceSource(employee.id,attendanceSource,from,reason,latestSourceRule?.id??null));
             if (mode === "model")
-                await assignPayrollPosition(employee.id, model, from);
+                unwrapAction(await assignPayrollPosition(employee.id, model, from));
             await onChange();
             setMode(null);
             toast.success("Условия сохранены");

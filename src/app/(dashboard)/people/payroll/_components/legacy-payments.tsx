@@ -8,6 +8,7 @@ import type { PayrollData } from "@/lib/payroll/types";
 import { Money } from "@/components/shared/money";
 import { countRu } from "@/lib/format/plural";
 import { confirmLegacyPayment } from "../actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { selectClass } from "./employee-pay";
 export function LegacyPayments({
   data,
@@ -99,7 +100,7 @@ export function LegacyPayments({
                   onClick={async () => {
                     setBusy(p.id);
                     try {
-                      await confirmLegacyPayment(p.id, bank, category);
+                      unwrapAction(await confirmLegacyPayment(p.id, bank, category));
                       await onChange();
                       toast.success("Историческая выплата учтена");
                     } catch (e) {

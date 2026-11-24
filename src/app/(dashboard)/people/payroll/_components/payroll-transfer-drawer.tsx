@@ -12,6 +12,7 @@ import { PayrollDetailDialog } from "@/app/(dashboard)/people/payroll/_component
 import { PayrollMonthPicker } from "@/app/(dashboard)/people/payroll/_components/payroll-month-picker";
 import { PayrollEmployeePicker } from "@/app/(dashboard)/people/payroll/_components/payroll-employee-picker";
 import { transferPayroll, cancelPayrollTransfer } from "@/app/(dashboard)/people/payroll/actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { statementRows } from "@/lib/payroll/calculate";
 import formStyle from "./payroll-payment-form.module.css";
 import type { PayrollData, PayrollTransfer } from "@/lib/payroll/types";
@@ -54,7 +55,7 @@ export function PayrollTransferDrawer({data, month, employeeId, onClose, onChang
     setBusy(true);
     setCancelError("");
     try {
-      await cancelPayrollTransfer(cancelling.id);
+      unwrapAction(await cancelPayrollTransfer(cancelling.id));
     } catch (e) {
       setCancelError(e instanceof Error ? e.message : "Не удалось отменить перенос");
       setBusy(false);
@@ -69,7 +70,7 @@ export function PayrollTransferDrawer({data, month, employeeId, onClose, onChang
     description={`Из ведомости за ${monthLabel(month)}`}
     footer={<><Button variant="outline" disabled={busy} onClick={() => onClose()}>Отмена</Button><Button disabled={busy || !valid} onClick={() => void run(async () => {
       requestKey.current ??= crypto.randomUUID();
-      await transferPayroll({ request_key:requestKey.current, employee_id:employee, from_month:month, to_month:dateMonth(target), amount:numeric*Math.sign(remaining), reason:reason.trim() });
+      unwrapAction(await transferPayroll({ request_key:requestKey.current, employee_id:employee, from_month:month, to_month:dateMonth(target), amount:numeric*Math.sign(remaining), reason:reason.trim() }));
       requestKey.current=null; setValue(""); setReason(""); toast.success("Остаток перенесён");
     })}>{busy ? "Сохраняем…" : "Перенести"}</Button></>}>
     <div className={formStyle.form}>

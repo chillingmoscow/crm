@@ -19,6 +19,7 @@ import type {
   Rates,
 } from "@/lib/payroll/types";
 import { z } from "zod";
+import { actionResult } from "@/lib/actions/result";
 async function scope(permission?: string) {
   const client = await createClient();
   const [user, permissions, accountId, venue] = await Promise.all([
@@ -41,20 +42,12 @@ async function scope(permission?: string) {
     permissions,
   };
 }
-export async function loadPayroll(): Promise<PayrollData> {
-  return loadPayrollData(false);
-}
-
-export async function loadPayrollOverview(): Promise<PayrollData> {
-  return loadPayrollData(true);
-}
-
 /**
  * Зарплата одного сотрудника — для вкладки «Оплата» в его карточке.
  * Читает только его начисления, записи, выплаты и переносы, а не всё
  * заведение. Права те же, что у `loadPayroll`: запросы идут под RLS.
  */
-export async function loadEmployeePayroll(userId: string): Promise<PayrollData> {
+async function loadEmployeePayrollImpl(userId: string): Promise<PayrollData> {
   z.string().uuid().parse(userId);
   return loadPayrollData(false, userId);
 }
@@ -65,7 +58,7 @@ export async function loadEmployeePayroll(userId: string): Promise<PayrollData> 
  * (`attendanceReviewRows`), но читаются только нужные месяцы, а не вся
  * история. Закрытый месяц не считается: решения в нём уже не принять.
  */
-export async function loadAttendanceAttention(
+async function loadAttendanceAttentionImpl(
   months: string[],
 ): Promise<{ month: string; count: number }[]> {
   const list = z.array(z.string().regex(/^\d{4}-\d{2}$/)).min(1).max(3).parse([...new Set(months)]).sort();
@@ -134,7 +127,7 @@ async function allPages<T>(
  * на листе «Начисления по дням»). Обзор их не грузит, чтобы не тянуть
  * историю на каждый заход.
  */
-export async function loadStatementExportData(
+async function loadStatementExportDataImpl(
   month: string,
 ): Promise<Pick<PayrollData, "attendance" | "models">> {
   if (!validDate(month)) throw new Error("Некорректный месяц");
@@ -427,7 +420,7 @@ async function loadPayrollFinanceTransactions(s: Awaited<ReturnType<typeof scope
   throw new Error("Слишком большая история финансовых операций");
 }
 
-export async function saveExperienceStart(input: {
+async function saveExperienceStartImpl(input: {
   startsOn: string;
   version: number;
   requestKey: string;
@@ -453,7 +446,7 @@ export async function saveExperienceStart(input: {
   if (result.error) throw new Error(result.error.message);
 }
 
-export async function payrollCommand(
+async function payrollCommandImpl(
   action: string,
   input: Record<string, unknown>,
 ) {
@@ -586,7 +579,7 @@ export type AttendanceDecisionResult = {
  * транзакция с теми же проверками, что и при решении из панели: ошибка одной
  * строки не откатывает остальные. Пересчёт затронутых дней ставится один раз.
  */
-export async function reviewAttendanceDecisions(
+async function reviewAttendanceDecisionsImpl(
   input: AttendanceDecisionInput,
 ): Promise<AttendanceDecisionResult> {
   const value = attendanceDecisionSchema.parse(input);
@@ -781,14 +774,14 @@ const individualPaymentsSchema = z
     (value) => value.recipients.every((r) => r.month || value.month),
     "Укажите месяц расчёта для каждого сотрудника",
   );
-export async function recordIndividualPayments(input: unknown) {
+async function recordIndividualPaymentsImpl(input: unknown) {
   const s = await scope("payroll.pay"),
     p = individualPaymentsSchema.parse(input);
   const result = await s.db.rpc("payroll_record_payments", { p_input: p });
   if (result.error) throw new Error(result.error.message);
   return result.data;
 }
-export async function reconcileTips(
+async function reconcileTipsImpl(
   date: string,
   bankId: string,
   categoryId: string,
@@ -798,7 +791,7 @@ export async function reconcileTips(
   z.string().uuid().parse(bankId);
   z.string().uuid().parse(categoryId);
   if (!validDate(date)) throw new Error("Некорректный день");
-  const d = await loadPayroll();
+  const d = await loadPayrollData(false);
   const accruals = d.accruals.filter(
       (a) => a.business_date === date && a.tips > 0,
     ),
@@ -856,13 +849,13 @@ export async function reconcileTips(
   return r.data;
 }
 /** Sends a payout to Adesk again after its cause (mapping, a duplicate) was fixed. */
-export async function retryPayrollAdeskSync(paymentId: string) {
+async function retryPayrollAdeskSyncImpl(paymentId: string) {
   const s = await scope("payroll.pay");
   z.string().uuid().parse(paymentId);
   const r = await s.db.rpc("payroll_retry_adesk_sync", { p_payment: paymentId });
   if (r.error) throw new Error(r.error.message);
 }
-export async function cancelPayrollPayment(paymentId: string) {
+async function cancelPayrollPaymentImpl(paymentId: string) {
   const s = await scope("payroll.pay");
   z.string().uuid().parse(paymentId);
   const r = await s.db.rpc("payroll_cancel_payment", { p_id: paymentId });
@@ -870,7 +863,7 @@ export async function cancelPayrollPayment(paymentId: string) {
   return r.data;
 }
 
-export async function confirmLegacyPayment(
+async function confirmLegacyPaymentImpl(
   id: string,
   bankId: string,
   categoryId: string,
@@ -915,7 +908,7 @@ export async function confirmLegacyPayment(
 }
 
 // Rule configuration is independent of access to employees' earnings and payments.
-export async function loadPayrollRules(): Promise<PayrollData> {
+async function loadPayrollRulesImpl(): Promise<PayrollData> {
   const s = await scope("payroll.configure");
   const results = await Promise.all([
     s.admin
@@ -1024,19 +1017,19 @@ export async function loadPayrollRules(): Promise<PayrollData> {
   };
 }
 
-export async function transferPayroll(input: Record<string, unknown>) {
+async function transferPayrollImpl(input: Record<string, unknown>) {
   const s = await scope("payroll.review");
   const result = await s.db.rpc("payroll_transfer", { p_input: input });
   if (result.error) throw new Error(result.error.message);
   return result.data;
 }
-export async function cancelPayrollTransfer(id: string) {
+async function cancelPayrollTransferImpl(id: string) {
   const s = await scope("payroll.review");
   const result = await s.db.rpc("payroll_cancel_transfer", { p_id: id });
   if (result.error) throw new Error(result.error.message);
 }
 
-export async function loadPayrollTransactionDetails(id: string) {
+async function loadPayrollTransactionDetailsImpl(id: string) {
   z.string().uuid().parse(id);
   const s = await scope("payroll.view");
   const result = await s.client
@@ -1084,7 +1077,7 @@ async function queueChangedConditions(s:Awaited<ReturnType<typeof scope>>,from:s
  if(days.error||periods.error) throw new Error("Условия сохранены. Не удалось запланировать пересчёт: обновите период вручную.");
  await queuePayroll(s.accountId,s.venueId,(days.data??[]).filter(d=>d.business_date>=from&&!(periods.data??[]).some(p=>p.status!=="draft"&&p.month.slice(0,7)===d.business_date.slice(0,7))).map(d=>d.business_date));
 }
-export async function saveRoleCompensation(roleId:string,input:Record<string,unknown>,expectedRuleId:string|null) {
+async function saveRoleCompensationImpl(roleId:string,input:Record<string,unknown>,expectedRuleId:string|null) {
  const s=await scope("payroll.configure");
  if(!validDate(String(input.valid_from))) throw new Error("Укажите дату начала действия");
  validateRates(input.rates as Rates);
@@ -1093,7 +1086,7 @@ export async function saveRoleCompensation(roleId:string,input:Record<string,unk
  await queueChangedConditions(s,String(input.valid_from));
  return result.data;
 }
-export async function assignPayrollPosition(employeeId:string,roleId:string,from:string) {
+async function assignPayrollPositionImpl(employeeId:string,roleId:string,from:string) {
  const data=await assignPayrollPositionOnly(employeeId,roleId,from);
  await requeuePayrollFrom(from);
  return data;
@@ -1111,11 +1104,83 @@ export async function requeuePayrollFrom(from:string) {
  await queueChangedConditions(s,from);
 }
 
-export async function setPayrollAttendanceSource(employeeId:string,source:"quickresto"|"schedule"|"excluded",from:string,reason:string,expectedRuleId:string|null) {
+async function setPayrollAttendanceSourceImpl(employeeId:string,source:"quickresto"|"schedule"|"excluded",from:string,reason:string,expectedRuleId:string|null) {
  const s=await scope("payroll.configure");
  if(!validDate(from))throw new Error("Укажите дату начала действия");
  const result=await s.db.rpc("payroll_set_attendance_source",{p_employee_id:employeeId,p_source:source,p_valid_from:from,p_reason:reason,p_expected_rule_id:expectedRuleId});
  if(result.error)throw new Error(result.error.message);
  await queueChangedConditions(s,from);
  return result.data;
+}
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js
+// заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function loadPayroll() {
+  return actionResult(() => loadPayrollData(false), "Не удалось загрузить данные о зарплате");
+}
+export async function loadPayrollOverview() {
+  return actionResult(() => loadPayrollData(true), "Не удалось загрузить данные о зарплате");
+}
+export async function loadEmployeePayroll(userId: string) {
+  return actionResult(() => loadEmployeePayrollImpl(userId), "Не удалось загрузить зарплату сотрудника");
+}
+export async function loadAttendanceAttention(months: string[]) {
+  return actionResult(() => loadAttendanceAttentionImpl(months), "Не удалось загрузить отметки на проверке");
+}
+export async function loadStatementExportData(month: string) {
+  return actionResult(() => loadStatementExportDataImpl(month), "Не удалось подготовить выгрузку ведомости");
+}
+export async function saveExperienceStart(input: Parameters<typeof saveExperienceStartImpl>[0]) {
+  return actionResult(() => saveExperienceStartImpl(input), "Не удалось сохранить дату начала стажа");
+}
+export async function payrollCommand(action: string, input: Record<string, unknown>) {
+  return actionResult(() => payrollCommandImpl(action, input), "Не удалось сохранить изменение");
+}
+export async function reviewAttendanceDecisions(input: AttendanceDecisionInput) {
+  return actionResult(() => reviewAttendanceDecisionsImpl(input), "Не удалось сохранить решения по отметкам");
+}
+export async function recordIndividualPayments(input: unknown) {
+  return actionResult(() => recordIndividualPaymentsImpl(input), "Не удалось провести выплату");
+}
+export async function reconcileTips(date: string, bankId: string, categoryId: string, reason = "") {
+  return actionResult(() => reconcileTipsImpl(date, bankId, categoryId, reason), "Не удалось сверить чаевые");
+}
+export async function retryPayrollAdeskSync(paymentId: string) {
+  return actionResult(() => retryPayrollAdeskSyncImpl(paymentId), "Не удалось повторить отправку в Adesk");
+}
+export async function cancelPayrollPayment(paymentId: string) {
+  return actionResult(() => cancelPayrollPaymentImpl(paymentId), "Не удалось отменить выплату");
+}
+export async function confirmLegacyPayment(id: string, bankId: string, categoryId: string) {
+  return actionResult(() => confirmLegacyPaymentImpl(id, bankId, categoryId), "Не удалось подтвердить выплату");
+}
+export async function loadPayrollRules() {
+  return actionResult(() => loadPayrollRulesImpl(), "Не удалось загрузить правила оплаты");
+}
+export async function transferPayroll(input: Record<string, unknown>) {
+  return actionResult(() => transferPayrollImpl(input), "Не удалось перенести начисление");
+}
+export async function cancelPayrollTransfer(id: string) {
+  return actionResult(() => cancelPayrollTransferImpl(id), "Не удалось отменить перенос");
+}
+export async function loadPayrollTransactionDetails(id: string) {
+  return actionResult(() => loadPayrollTransactionDetailsImpl(id), "Не удалось загрузить операцию");
+}
+export async function saveRoleCompensation(roleId: string, input: Record<string, unknown>, expectedRuleId: string | null) {
+  return actionResult(() => saveRoleCompensationImpl(roleId, input, expectedRuleId), "Не удалось сохранить условия оплаты");
+}
+export async function assignPayrollPosition(employeeId: string, roleId: string, from: string) {
+  return actionResult(() => assignPayrollPositionImpl(employeeId, roleId, from), "Не удалось назначить должность");
+}
+export async function setPayrollAttendanceSource(
+  employeeId: string,
+  source: "quickresto" | "schedule" | "excluded",
+  from: string,
+  reason: string,
+  expectedRuleId: string | null,
+) {
+  return actionResult(
+    () => setPayrollAttendanceSourceImpl(employeeId, source, from, reason, expectedRuleId),
+    "Не удалось сохранить источник выходов",
+  );
 }

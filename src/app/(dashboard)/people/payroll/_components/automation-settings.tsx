@@ -17,6 +17,7 @@ import {
   loadAutomationSettings,
   saveAutomationSettings,
 } from "../automation-actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { selectClass } from "./employee-pay";
 import { formatRub } from "@/components/shared/money";
 import { ProfileSection } from "@/components/shared/profile-section";
@@ -127,14 +128,15 @@ const date = (value: string) =>
   });
 
 export function AutomationSettings({ venueId }: { venueId: string }) {
-  const [record, setRecord] = useState<Awaited<
-    ReturnType<typeof loadAutomationSettings>
-  > | null>(null);
+  const [record, setRecord] = useState<Extract<
+    Awaited<ReturnType<typeof loadAutomationSettings>>,
+    { ok: true }
+  >["data"] | null>(null);
   const [config, setConfig] = useState<Config | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const reload = useCallback(async () => {
-    const data = await loadAutomationSettings(venueId);
+    const data = unwrapAction(await loadAutomationSettings(venueId));
     setRecord(data);
     setConfig(data.current.config);
   }, [venueId]);
@@ -154,11 +156,11 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
       if (!record || !parsed?.success) return false;
       setBusy(true);
       try {
-        await saveAutomationSettings({
+        unwrapAction(await saveAutomationSettings({
           venueId,
           version: record.current.version,
           config: parsed.data,
-        });
+        }));
         await reload();
         toast.success(
           "Настройки сохранены. Действующие автоматизации работают по-прежнему",
@@ -186,6 +188,7 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
   useEffect(() => {
     let alive = true;
     void loadAutomationSettings(venueId)
+      .then(unwrapAction)
       .then((data) => {
         if (alive) {
           setRecord(data);

@@ -48,6 +48,7 @@ import {
   reviewAttendanceDecisions,
   type AttendanceDecisionInput,
 } from "../actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { PayrollTable } from "./payroll-table";
 
 const labels = {
@@ -226,7 +227,7 @@ export function AttendanceReview({
         return value ? [value] : [];
       });
       if (!items.length) return "Нет строк, по которым можно принять это решение";
-      const result = await reviewAttendanceDecisions({ decision, reason: text, items });
+      const result = unwrapAction(await reviewAttendanceDecisions({ decision, reason: text, items }));
       if (result.done.length) {
         setSelection((current) => {
           const next = { ...current };

@@ -211,6 +211,10 @@ export type PaySettings = {
   cashbox_accounts: Record<string, string>;
   salary_category_id: string | null;
   tip_category_id: string | null;
+  /** Первый месяц официальных выплат (1-е число); null — выключено. */
+  official_from?: string | null;
+  official_pay_day?: number;
+  official_bank_account_id?: string | null;
   enabled: boolean;
   benefits_mode: "review" | "disabled" | "active";
 };

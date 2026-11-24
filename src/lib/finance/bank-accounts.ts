@@ -319,7 +319,16 @@ export async function deleteBankAccount(
   }
 
   const { error } = await supabase.from("bank_accounts").delete().eq("id", id);
-  if (error) return { error: error.message };
+  if (error) {
+    // Счёт выбран для официальных выплат в настройках зарплаты (FK без on delete).
+    if (error.code === "23503" && error.message.includes("payroll_settings_official_bank_account_fkey")) {
+      return {
+        error:
+          "Счёт выбран для официальных выплат в настройках зарплаты — сначала выберите другой",
+      };
+    }
+    return { error: error.message };
+  }
 
   revalidatePath("/finance/accounts");
   return { error: null };

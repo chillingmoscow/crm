@@ -972,7 +972,9 @@ async function loadPayrollRulesImpl(): Promise<PayrollData> {
       .from<PayrollData["banks"]>("bank_accounts")
       .select("id,name,legal_entity_id,type")
       .eq("account_id", s.accountId)
-      .eq("is_active", true),
+      .eq("is_active", true)
+      .eq("currency", "RUB")
+      .or(`venue_id.is.null,venue_id.eq.${s.venueId}`),
     s.db
       .from<PayrollData["categories"]>("finance_categories")
       .select("id,name")

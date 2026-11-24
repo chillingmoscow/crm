@@ -283,6 +283,8 @@ export async function listAuditEvents(input?: {
         );
       // Официальное трудоустройство, включая отменённые периоды. Без права
       // просмотра зарплаты RLS вернёт пусто, и этих событий в ленте не будет.
+      // Ошибка (например, код выкачен раньше миграций 383–385) убирает только
+      // эту часть: остальной журнал сотрудника должен загрузиться.
       const official = await asLooseDb(supabase)
         .from<{ id: string }[]>("payroll_official_employments")
         .select("id")
@@ -290,8 +292,8 @@ export async function listAuditEvents(input?: {
         .in("employee_id", ids)
         .limit(100);
       if (official.error)
-        return { events: [], hasMore: false, error: official.error.message };
-      if (official.data?.length)
+        console.error("Журнал сотрудника: официальное трудоустройство не загружено", official.error);
+      else if (official.data?.length)
         parts.push(
           `and(entity_type.eq.payroll_official_employment,entity_id.in.(${official.data.map((o) => o.id).join(",")}))`,
         );

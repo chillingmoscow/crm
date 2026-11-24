@@ -51,7 +51,7 @@ export function OfficialEndDialog({
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
-      title={`Уволить «${employeeName}» официально?`}
+      title={ended ? "Изменить дату официального увольнения?" : `Уволить «${employeeName}» официально?`}
       description="Оклад по договору начисляется по эту дату. Месяц увольнения не выплачивается автоматически: сумма за него уточняется, карточка появится в «На разбор»."
       confirmLabel={ended ? "Сохранить дату" : "Уволить официально"}
       pendingLabel="Сохраняем…"

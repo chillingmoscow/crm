@@ -71,7 +71,7 @@ export const payrollOfficialAuditSpecs: Record<string, AuditEventSpec> = {
   "payroll.official_run.created": {
     icon: Banknote,
     iconClass: INFO,
-    buildHeadline: (e) => <>автоматически обработал(а) официальную зарплату</>,
+    buildHeadline: () => <>автоматически обработана официальная зарплата</>,
     buildDetails: (e) => {
       const errors = Array.isArray(e.details.errors) ? e.details.errors.length : 0;
       const failed = typeof e.details.error === "string" ? e.details.error : null;

@@ -68,6 +68,25 @@ function Changes({ e }: { e: AuditEvent }) {
 }
 
 export const payrollOfficialAuditSpecs: Record<string, AuditEventSpec> = {
+  "payroll.official_run.created": {
+    icon: Banknote,
+    iconClass: INFO,
+    buildHeadline: (e) => <>автоматически обработал(а) официальную зарплату</>,
+    buildDetails: (e) => {
+      const errors = Array.isArray(e.details.errors) ? e.details.errors.length : 0;
+      const failed = typeof e.details.error === "string" ? e.details.error : null;
+      return (
+        <div className="space-y-0.5 text-xs text-muted-foreground">
+          <p>
+            За {String(e.details.month ?? "").slice(0, 7)} · проведено {Number(e.details.posted) || 0} на {money(e.details.amount)}
+            {Number(e.details.review) > 0 && <> · на разбор {Number(e.details.review)}</>}
+          </p>
+          {failed && <p className="text-destructive">Ошибка заведения: {failed}</p>}
+          {errors > 0 && <p className="text-destructive">Ошибок по сотрудникам: {errors}</p>}
+        </div>
+      );
+    },
+  },
   "payroll.official_employment.created": {
     icon: BriefcaseBusiness,
     iconClass: CREATED,

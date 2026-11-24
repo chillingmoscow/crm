@@ -130,8 +130,12 @@ export async function POST(request: NextRequest) {
         nomenclatureRuns++;
         if (r.error) nomenclatureErrors++;
       }
-    } catch {
+    } catch (error) {
       nomenclatureErrors++;
+      console.error(
+        "[nomenclature-sync] выбор подключения:",
+        error instanceof Error ? error.message : error,
+      );
     }
     // Give each queue its scheduled turn, with at most one active provider
     // workload per tick. Shifts can use a turn whose assigned queue is idle.

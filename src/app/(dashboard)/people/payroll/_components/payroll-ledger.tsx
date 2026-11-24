@@ -27,7 +27,12 @@ const labels = {
   remaining: "К выплате",
   tips: "Чаевые",
 };
-const numeric = Object.keys(labels).filter((id) => id !== "employee");
+/** Без официальной части за месяц столбца нет совсем, даже в выборе столбцов. */
+const labelsWithoutOfficial: Record<string, string> = Object.fromEntries(
+  Object.entries(labels).filter(([id]) => id !== "officialExpected"),
+);
+const numericAll = Object.keys(labels).filter((id) => id !== "employee");
+const numericWithoutOfficial = numericAll.filter((id) => id !== "officialExpected");
 const hidden = ["opening", "transferredOut", "tips"];
 const searchText = (row: Row) =>
   `${row.employee.name} ${row.employee.role_name}`;
@@ -60,9 +65,12 @@ export function PayrollLedger({
   exporting?: boolean;
   filters: PayrollTableFilters;
 }) {
+  const hasOfficial = rows.some((row) => row.officialExpected);
+  const visibleLabels: Record<string, string> = hasOfficial ? labels : labelsWithoutOfficial;
+  const numeric = hasOfficial ? numericAll : numericWithoutOfficial;
   const columns = useMemo<ColumnDef<Row>[]>(
     () =>
-      Object.entries(labels).map(([id, label]) => ({
+      Object.entries(visibleLabels).map(([id, label]) => ({
         id,
         header: label,
         accessorFn: (row) =>
@@ -117,7 +125,7 @@ export function PayrollLedger({
           );
         },
       })),
-    [data.legacyPayments, month],
+    [data.legacyPayments, month, visibleLabels],
   );
   return (
     <PayrollTable
@@ -127,7 +135,7 @@ export function PayrollLedger({
       label="Ведомость"
       rows={rows}
       columns={columns}
-      labels={labels}
+      labels={visibleLabels}
       numeric={numeric}
       searchText={searchText}
       onRow={onEmployee}

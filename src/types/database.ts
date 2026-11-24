@@ -2892,6 +2892,171 @@ export type Database = {
           },
         ]
       }
+      sales_upsell_days: {
+        Row: {
+          account_id: string
+          attempts: number
+          business_date: string
+          catalog_at: string | null
+          claimed_at: string | null
+          computed_at: string | null
+          department_id: string
+          id: string
+          job_id: string | null
+          last_error: string | null
+          lease_token: string | null
+          next_retry_at: string
+          result: Json | null
+          rule_id: string
+          state: string
+          venue_id: string
+        }
+        Insert: {
+          account_id: string
+          attempts?: number
+          business_date: string
+          catalog_at?: string | null
+          claimed_at?: string | null
+          computed_at?: string | null
+          department_id: string
+          id?: string
+          job_id?: string | null
+          last_error?: string | null
+          lease_token?: string | null
+          next_retry_at?: string
+          result?: Json | null
+          rule_id: string
+          state?: string
+          venue_id: string
+        }
+        Update: {
+          account_id?: string
+          attempts?: number
+          business_date?: string
+          catalog_at?: string | null
+          claimed_at?: string | null
+          computed_at?: string | null
+          department_id?: string
+          id?: string
+          job_id?: string | null
+          last_error?: string | null
+          lease_token?: string | null
+          next_retry_at?: string
+          result?: Json | null
+          rule_id?: string
+          state?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_upsell_days_account_id_venue_id_department_id_fkey"
+            columns: ["account_id", "venue_id", "department_id"]
+            isOneToOne: false
+            referencedRelation: "sales_upsell_departments"
+            referencedColumns: ["account_id", "venue_id", "department_id"]
+          },
+          {
+            foreignKeyName: "sales_upsell_days_department_id_rule_id_fkey"
+            columns: ["department_id", "rule_id"]
+            isOneToOne: false
+            referencedRelation: "sales_upsell_rules"
+            referencedColumns: ["department_id", "id"]
+          },
+        ]
+      }
+      sales_upsell_departments: {
+        Row: {
+          account_id: string
+          created_at: string
+          department_id: string
+          legacy_kind: string | null
+          venue_id: string
+          version: number
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          department_id: string
+          legacy_kind?: string | null
+          venue_id: string
+          version?: number
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          department_id?: string
+          legacy_kind?: string | null
+          venue_id?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_upsell_departments_account_id_venue_id_fkey"
+            columns: ["account_id", "venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "sales_upsell_departments_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: true
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sales_upsell_rules: {
+        Row: {
+          account_id: string
+          created_at: string
+          created_by: string | null
+          department_id: string
+          id: string
+          lines: Json
+          reason: string
+          valid_from: string
+          venue_id: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          created_by?: string | null
+          department_id: string
+          id?: string
+          lines: Json
+          reason: string
+          valid_from: string
+          venue_id: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          created_by?: string | null
+          department_id?: string
+          id?: string
+          lines?: Json
+          reason?: string
+          valid_from?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_upsell_rules_account_id_venue_id_department_id_fkey"
+            columns: ["account_id", "venue_id", "department_id"]
+            isOneToOne: false
+            referencedRelation: "sales_upsell_departments"
+            referencedColumns: ["account_id", "venue_id", "department_id"]
+          },
+          {
+            foreignKeyName: "sales_upsell_rules_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       transaction_attachments: {
         Row: {
           document_type: Database["public"]["Enums"]["attachment_document_type_enum"]

@@ -39,6 +39,7 @@ export const AUDIT_SECTIONS: { id: string; name: string }[] = [
   { id: "schedule_task_report", name: "Отчёты по задачам" },
   { id: "sales_day_comment", name: "Комментарии к сменам продаж" },
   { id: "sales_additional_rules", name: "Правила допродаж" },
+  { id: "sales_upsell_rules", name: "Правила допродаж подразделений" },
   { id: "sales_settings", name: "Настройки продаж" },
   { id: "ingredient", name: "Номенклатура" },
   { id: "ingredient_group", name: "Группы номенклатуры" },

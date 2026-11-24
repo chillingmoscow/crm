@@ -7,6 +7,7 @@ import {
   scheduleAdditionalReports,
   processAdditionalReport,
 } from "@/lib/sales/additional-sync";
+import { scheduleUpsellDays, processUpsellDay } from "@/lib/sales/upsell-sync";
 import {
   scheduleStatisticsReports,
   processStatisticsReport,
@@ -80,6 +81,11 @@ export async function POST(request: NextRequest) {
     }
     try {
       await scheduleAdditionalReports();
+    } catch {
+      additionalErrors++;
+    }
+    try {
+      await scheduleUpsellDays();
     } catch {
       additionalErrors++;
     }
@@ -256,6 +262,13 @@ export async function POST(request: NextRequest) {
     } else if (lane === 2) {
       try {
         const r = await processAdditionalReport();
+        if (!r.idle) additionalReports++;
+        if (r.error) additionalErrors++;
+      } catch {
+        additionalErrors++;
+      }
+      try {
+        const r = await processUpsellDay();
         if (!r.idle) additionalReports++;
         if (r.error) additionalErrors++;
       } catch {

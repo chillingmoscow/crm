@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { statementRows } from "@/lib/payroll/calculate";
+import { officialExpectedNote } from "@/lib/payroll/official";
 import { componentAmount, shiftSalary, accrualOtherAmount, isShiftAccrual, accrualRole, componentLabels } from "@/lib/payroll/accrual-view";
 import type { PayrollData, PayEmployee, Accrual } from "@/lib/payroll/types";
 import { PayrollDetailDialog } from "./payroll-detail-dialog";
@@ -72,7 +73,8 @@ export function EmployeePay({ data, employee, month, onChange, fullPage = false,
     };
     const accruals = useMemo(() => data.accruals.filter(a => a.employee_id === employee.id && a.business_date.startsWith(month.slice(0, 7))), [data.accruals, employee.id, month]);
     const shifts = useMemo(() => accruals.filter(isShiftAccrual), [accruals]);
-    const row = statementRows([employee], data.accruals, data.adjustments, data.payments, data.allocations, month, data.transfers, data.settings?.starts_on)[0];
+    const row = statementRows([employee], data.accruals, data.adjustments, data.payments, data.allocations, month, data.transfers, data.settings?.starts_on, data.officialExpected ?? [])[0];
+    const official = row?.officialExpected ?? null;
     const pending = data.legacyPayments.some(p => p.employee_id === employee.id && p.month === month && p.state === "review");
     const balanceKnown = !pending;
     const remaining = row?.remaining ?? 0;
@@ -110,7 +112,7 @@ export function EmployeePay({ data, employee, month, onChange, fullPage = false,
    <Metric label={balanceKnown && toKopecks(remaining) < 0 ? "Переплата" : "К выплате"} value={<Money value={balanceKnown ? Math.abs(toKopecks(remaining)) : null} fraction="auto" />} hint={balanceKnown ? undefined : "Появится после сверки прежних выплат"} />
    <Metric label="Чаевые" value={<Money value={row?.tips ?? 0} />} hint="Отдельно от зарплаты" />
   </MetricStrip>
-  <div className={s.meta}><span>{shifts.length > 0 ? `В среднем ${formatRub((row?.earned ?? 0) / shifts.length)} за смену` : ""}</span>{!fullPage && <Button variant="ghost" size="sm" onClick={() => setConditions(true)}>Условия сотрудника</Button>}</div>
+  <div className={s.meta}><span className="flex flex-col gap-1"><span>{shifts.length > 0 ? `В среднем ${formatRub((row?.earned ?? 0) / shifts.length)} за смену` : ""}</span>{official && <span>{official.amount === null ? `Официальная часть — ${officialExpectedNote(official, month)}` : `Официальная часть ${formatRub(-official.amount, { signed: true, fraction: "auto" })}, ${officialExpectedNote(official, month)}`}</span>}</span>{!fullPage && <Button variant="ghost" size="sm" onClick={() => setConditions(true)}>Условия сотрудника</Button>}</div>
   {!fullPage && <div id={controlsId} className={s.controls}/>}
   <Tabs value={tab} onValueChange={setTab} className={tabStyle.tabs}>
    <TabsList aria-label="Расчёт сотрудника"><TabsTrigger value="shifts">Смены</TabsTrigger><TabsTrigger value="entries">Начисления и удержания</TabsTrigger><TabsTrigger value="payments">Выплаты</TabsTrigger>{documentsAvailable && <TabsTrigger value="documents">Документы</TabsTrigger>}</TabsList>

@@ -161,6 +161,23 @@ export type Payment = {
   note: string;
   occurred_at: string;
   created_at: string;
+  /** Месяц официальной (бухгалтерской) выплаты, YYYY-MM-01; null — обычная выплата. */
+  official_month?: string | null;
+};
+/**
+ * Ожидаемая, ещё не проведённая официальная часть за месяц
+ * (`payroll_official_expected`). `gross` null — сумма месяца увольнения
+ * уточняется вручную.
+ */
+export type OfficialExpected = {
+  employee_id: string;
+  employment_id: string;
+  /** YYYY-MM-01 */
+  month: string;
+  kind: "full" | "first" | "final";
+  gross: number | null;
+  days_paid: number | null;
+  days_in_month: number;
 };
 /** Mirror of a payout in Adesk; only payouts made in the app are queued. */
 export type AdeskSync = {
@@ -262,6 +279,8 @@ export type PayrollData = {
   /** Подразделения заведения, участвующие в допродажах по правилам. */
   upsellDepartments?: string[];
   transfers: PayrollTransfer[];
+  /** Ожидаемые официальные части по месяцам; уменьшают «К выплате». */
+  officialExpected?: OfficialExpected[];
   venueId: string;
   /** Название заведения — для шапки выгрузки ведомости. */
   venueName?: string | null;

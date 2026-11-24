@@ -28,7 +28,7 @@ export function PayrollTransferDrawer({data, month, employeeId, onClose, onChang
 }) {
   const nextMonth = new Date(`${month}T12:00:00`);
   nextMonth.setMonth(nextMonth.getMonth()+1);
-  const rows = statementRows(data.employees, data.accruals, data.adjustments, data.payments, data.allocations, month, data.transfers, data.settings?.starts_on ?? month);
+  const rows = statementRows(data.employees, data.accruals, data.adjustments, data.payments, data.allocations, month, data.transfers, data.settings?.starts_on ?? month, data.officialExpected ?? []);
   const [employee, setEmployee] = useState(employeeId ?? "");
   const [target, setTarget] = useState(nextMonth);
   const [value, setValue] = useState("");

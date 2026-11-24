@@ -2,6 +2,7 @@
 // the renderer is heavy and only needed when someone downloads a statement.
 import { Document, Font, Page, StyleSheet, Text, View, pdf } from "@react-pdf/renderer";
 import type { Payslip, PayslipEntry, PayslipShift } from "./payslip";
+import { officialExpectedNote } from "./official";
 
 const C = { text: "#1c1917", muted: "#a8a29e", line: "#d6d3d1", band: "#f5f5f4", zebra: "#fafaf9", accent: "#1570EF" };
 
@@ -81,6 +82,9 @@ function formula(p: Payslip): Link[] {
   if (p.opening) links.push({ label: p.opening < 0 ? "переплата" : "долг", value: Math.abs(p.opening), op: p.opening < 0 ? "−" : "+" });
   if (p.transferredOut) links.push({ label: "перенесено", value: p.transferredOut, op: "−" });
   if (p.paid) links.push({ label: "выплачено", value: p.paid, op: "−" });
+  // Неизвестная сумма месяца увольнения в остаток не входит — её в цепочке нет.
+  if (p.officialExpected?.amount)
+    links.push({ label: "официальная часть", value: p.officialExpected.amount, op: "−" });
   return links;
 }
 
@@ -207,6 +211,14 @@ export function PayslipDocument({ p, generatedAt }: { p: Payslip; generatedAt: D
                 : `Начислено за месяц ${money(p.earned)}, выплачено ${money(p.paid)}. Остаток с прошлых периодов ещё сверяется, поэтому сумма к выплате появится позже.`}
             </Text>
           </View>
+        )}
+
+        {p.officialExpected && (
+          <Text style={{ marginTop: -12, marginBottom: 22 }}>
+            Официальная часть (ожидается):{" "}
+            {p.officialExpected.amount === null ? "" : `${money(p.officialExpected.amount)}, `}
+            <Text style={s.muted}>{officialExpectedNote(p.officialExpected, p.month)}</Text>
+          </Text>
         )}
 
         {p.shifts.length > 0 && <ShiftTable shifts={p.shifts} total={p.shiftTotal} />}

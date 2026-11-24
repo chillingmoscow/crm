@@ -21,6 +21,7 @@ import { countRu } from "@/lib/format/plural";
 import { accrualRole } from "@/lib/payroll/accrual-view";
 import { attendanceRuleAtDate } from "@/lib/payroll/attendance";
 import { statementRows } from "@/lib/payroll/calculate";
+import { officialExpectedNote } from "@/lib/payroll/official";
 import {
   buildPaySheet,
   monthKey,
@@ -135,6 +136,7 @@ export function StaffPaySheet({
     month,
     data.transfers,
     data.settings?.starts_on,
+    data.officialExpected ?? [],
   )[0];
 
   const can = (permission: string) => data.permissions.includes(permission);
@@ -149,8 +151,10 @@ export function StaffPaySheet({
     transferredOut = row?.transferredOut ?? 0,
     remaining = row?.remaining ?? 0,
     tips = row?.tips ?? 0,
-    tipPaid = row?.tipPaid ?? 0;
-  const owed = opening + earned - transferredOut;
+    tipPaid = row?.tipPaid ?? 0,
+    official = row?.officialExpected ?? null;
+  // Официальную часть выплатит бухгалтерия: в «из N» её нет, как и в «К выплате».
+  const owed = opening + earned - transferredOut - (official?.amount ?? 0);
   const legacyPending = data.legacyPayments.some(
     (p) => p.employee_id === employee.id && monthKey(p.month) === monthKey(month) && p.state === "review",
   );
@@ -325,7 +329,7 @@ export function StaffPaySheet({
             </span>
           )}
         </div>
-        {(opening !== 0 || transferredOut !== 0) && (
+        {(opening !== 0 || transferredOut !== 0 || official) && (
           <dl className="grid gap-1 border-t pt-3 text-[13px]">
             {opening !== 0 && (
               <div className="flex justify-between gap-4">
@@ -337,6 +341,25 @@ export function StaffPaySheet({
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">Перенесено на другой месяц</dt>
                 <dd className="tabular-nums"><Money value={-transferredOut} signed /></dd>
+              </div>
+            )}
+            {official && (
+              <div className="flex justify-between gap-4">
+                <dt>
+                  <span className="text-muted-foreground">Официальная часть</span>
+                  {official.amount !== null && (
+                    <span className="block text-xs text-muted-foreground">
+                      {officialExpectedNote(official, month)}
+                    </span>
+                  )}
+                </dt>
+                <dd className="shrink-0 tabular-nums">
+                  {official.amount === null ? (
+                    <span className="text-muted-foreground">{officialExpectedNote(official, month)}</span>
+                  ) : (
+                    <Money value={-official.amount} signed fraction="auto" />
+                  )}
+                </dd>
               </div>
             )}
           </dl>
@@ -401,14 +424,17 @@ export function StaffPaySheet({
                     title={
                       <>
                         {p.kind === "advance" ? "Аванс" : "Зарплата"}
+                        {p.official && (
+                          <StatusBadge tone="info" className="ml-2">Официальная</StatusBadge>
+                        )}
                         {!p.posted && (
                           <StatusBadge className="ml-2">Удалена</StatusBadge>
                         )}
                       </>
                     }
-                    note={new Intl.DateTimeFormat("ru-RU", { timeZone: data.timezone }).format(
+                    note={`${new Intl.DateTimeFormat("ru-RU", { timeZone: data.timezone }).format(
                       new Date(p.date),
-                    )}
+                    )}${p.tax > 0 ? ` · налог ${formatRub(p.tax, { fraction: "auto" })}` : ""}`}
                     amount={
                       <span className={p.posted ? undefined : "text-muted-foreground line-through"}>
                         <Money value={p.amount} />

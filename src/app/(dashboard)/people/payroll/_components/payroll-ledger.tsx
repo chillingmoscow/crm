@@ -9,6 +9,7 @@ import {
 import { statementRows } from "@/lib/payroll/calculate";
 import type { PayrollData } from "@/lib/payroll/types";
 import { formatAmount } from "@/lib/format/amount";
+import { officialExpectedNote } from "@/lib/payroll/official";
 import { Money } from "@/components/shared/money";
 import { PayrollEmployeeCell } from "@/app/(dashboard)/people/payroll/_components/payroll-employee-cell";
 
@@ -22,6 +23,7 @@ const labels = {
   opening: "Перенос в этот месяц",
   paid: "Выплачено",
   transferredOut: "Перенесено далее",
+  officialExpected: "Официальная часть",
   remaining: "К выплате",
   tips: "Чаевые",
 };
@@ -29,6 +31,11 @@ const numeric = Object.keys(labels).filter((id) => id !== "employee");
 const hidden = ["opening", "transferredOut", "tips"];
 const searchText = (row: Row) =>
   `${row.employee.name} ${row.employee.role_name}`;
+/** Число столбца для сортировки и итога; официальная часть — ожидаемая сумма. */
+const cellValue = (row: Row, id: string) =>
+  id === "officialExpected"
+    ? (row.officialExpected?.amount ?? 0)
+    : Number(row[id as keyof Omit<Row, "employee" | "officialExpected">]);
 
 export function PayrollLedger({
   data,
@@ -59,9 +66,7 @@ export function PayrollLedger({
         id,
         header: label,
         accessorFn: (row) =>
-          id === "employee"
-            ? row.employee.name
-            : row[id as keyof Omit<Row, "employee">],
+          id === "employee" ? row.employee.name : cellValue(row, id),
         cell: ({ row }) => {
           const record = row.original;
           if (id === "employee")
@@ -83,7 +88,18 @@ export function PayrollLedger({
                 —
               </span>
             );
-          const value = Number(record[id as keyof Omit<Row, "employee">]);
+          if (id === "officialExpected") {
+            const official = record.officialExpected;
+            // Месяц увольнения: сумма неизвестна и в «К выплате» не вычтена.
+            if (official && official.amount === null)
+              return <span className="text-muted-foreground">уточняется</span>;
+            return (
+              <span data-tip={official ? officialExpectedNote(official, month) : undefined}>
+                <Money value={-(official?.amount ?? 0)} signed />
+              </span>
+            );
+          }
+          const value = cellValue(record, id);
           if (id === "shifts") return formatAmount(value, 0);
           // Премии со знаком «+», удержания хранятся положительными и
           // показываются со знаком «−»; ноль серый, без цвета.
@@ -144,11 +160,7 @@ export function PayrollLedger({
             ) : (
               totalCell(
                 id,
-                visible.reduce(
-                  (sum, record) =>
-                    sum + Number(record[id as keyof Omit<Row, "employee">]),
-                  0,
-                ),
+                visible.reduce((sum, record) => sum + cellValue(record, id), 0),
               )
             ),
           ]),
@@ -163,5 +175,6 @@ function totalCell(id: string, value: number) {
   if (id === "shifts") return formatAmount(value, 0);
   if (id === "bonuses") return <Money value={value} signed />;
   if (id === "deductions") return <Money value={-value} signed />;
+  if (id === "officialExpected") return <Money value={-value} signed />;
   return <Money value={value} />;
 }

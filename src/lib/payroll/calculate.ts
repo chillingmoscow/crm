@@ -219,6 +219,7 @@ export function statementRows(
   month: string,
   transfers: import("./types").PayrollTransfer[] = [],
   startsOn = "2026-09-01",
+  officialExpected: import("./types").OfficialExpected[] = [],
 ) {
   const activePayments = new Map(
     payments.filter((p) => p.state === "posted").map((p) => [p.id, p]),
@@ -263,6 +264,20 @@ export function statementRows(
         (month === startsOn && e.opening_confirmed ? Number(e.opening_balance) : 0) +
           transferredIn,
       );
+      // Ещё не проведённая официальная часть месяца: её выплатит бухгалтерия,
+      // поэтому она уменьшает «К выплате». После проведения строки нет —
+      // выплата закрывает долг сама, через paid.
+      const expected = officialExpected.find(
+        (o) => o.employee_id === e.id && o.month.slice(0, 7) === month.slice(0, 7),
+      );
+      const official = expected
+        ? {
+            amount: expected.gross === null ? null : round(Number(expected.gross)),
+            kind: expected.kind,
+            days_paid: expected.days_paid,
+            days_in_month: expected.days_in_month,
+          }
+        : null;
       const earned = round(current.reduce((s, a) => s + Number(a.salary), 0)),
         tips = round(current.reduce((s, a) => s + Number(a.tips), 0)),
         salaryPaid = round(paid(false, false)),
@@ -289,9 +304,12 @@ export function statementRows(
         tipRemaining: round(tips - tipPaid),
         opening,
         paid: salaryPaid,
-        remaining: round(opening + earned - salaryPaid - transferredOut),
+        remaining: round(
+          opening + earned - salaryPaid - transferredOut - (official?.amount ?? 0),
+        ),
         transferredIn,
         transferredOut,
+        officialExpected: official,
         bonuses: round(bonuses),
         deductions: round(deductions),
         issues: current.filter((a) => a.issues.length).length,
@@ -304,6 +322,7 @@ export function statementRows(
         r.tips ||
         r.opening ||
         r.paid ||
+        r.officialExpected ||
         r.employee.active,
     );
 }

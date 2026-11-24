@@ -61,7 +61,7 @@ export async function deleteInventoryDocument(input: {
       .neq("status", "processed")
       .is("results_snapshot_at", null)
       .select(DELETED_DOCUMENT_COLUMNS);
-    if (error) return { error: error.message };
+    if (error) return { error: actionErrorMessage(error, "Не удалось удалить акт") };
     // Ноль удалённых строк при видимом акте = сработало условие: акт успели
     // провести или зафиксировать.
     if ((deleted ?? []).length === 0) return { error: DELETE_BLOCKED_MESSAGE };
@@ -70,12 +70,7 @@ export async function deleteInventoryDocument(input: {
     return { error: null };
   } catch (e) {
     console.error("[deleteInventoryDocument] unhandled error:", e);
-    return {
-      error:
-        e instanceof Error && e.message
-          ? e.message
-          : "Не удалось удалить акт. Подробности в логах.",
-    };
+    return { error: actionErrorMessage(e, "Не удалось удалить акт. Подробности в логах.") };
   }
 }
 
@@ -110,7 +105,7 @@ export async function bulkDeleteInventoryDocuments(input: {
       .neq("status", "processed")
       .is("results_snapshot_at", null)
       .select(DELETED_DOCUMENT_COLUMNS);
-    if (error) return { deleted: 0, error: error.message };
+    if (error) return { deleted: 0, error: actionErrorMessage(error, "Не удалось удалить акты") };
     if (ctx.user) await logDeletedDocuments(admin, ctx, deletedRows ?? []);
 
     const deletedCount = (deletedRows ?? []).length;
@@ -126,11 +121,7 @@ export async function bulkDeleteInventoryDocuments(input: {
     };
   } catch (e) {
     console.error("[bulkDeleteInventoryDocuments] unhandled error:", e);
-    return {
-      deleted: 0,
-      error:
-        e instanceof Error && e.message ? e.message : "Не удалось удалить акты. Подробности в логах.",
-    };
+    return { deleted: 0, error: actionErrorMessage(e, "Не удалось удалить акты. Подробности в логах.") };
   }
 }
 
@@ -349,7 +340,7 @@ export async function updateInventoryStoreDepartment(input: {
       p_scope: input.scope,
       p_department_id: input.departmentId || null,
     });
-    if (error) return { error: error.message };
+    if (error) return { error: actionErrorMessage(error, "Не удалось сохранить привязку склада") };
 
     if (
       ctx.user &&

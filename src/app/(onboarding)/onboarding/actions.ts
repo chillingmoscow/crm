@@ -1,5 +1,6 @@
 "use server";
 
+import { errorText } from "@/lib/actions/error-text";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hasCustomMailerConfig, sendInvitationEmail } from "@/lib/people/invitations/mailer";
@@ -75,7 +76,7 @@ export async function uploadAvatar(formData: FormData): Promise<{ url: string | 
     .from("avatars")
     .upload(path, file, { upsert: true });
 
-  if (error) return { url: null, error: error.message };
+  if (error) return { url: null, error: errorText(error, "Не удалось загрузить фото") };
 
   const { data } = supabase.storage.from("avatars").getPublicUrl(path);
   return { url: data.publicUrl, error: null };
@@ -97,7 +98,7 @@ export async function uploadLogo(formData: FormData): Promise<{ url: string | nu
     .from("avatars")
     .upload(path, file, { upsert: true });
 
-  if (error) return { url: null, error: error.message };
+  if (error) return { url: null, error: errorText(error, "Не удалось загрузить логотип") };
 
   const { data } = supabase.storage.from("avatars").getPublicUrl(path);
   return { url: data.publicUrl, error: null };
@@ -148,7 +149,7 @@ export async function createAccountAndVenue(data: {
     p_working_hours: data.workingHours as unknown as Json,
   });
 
-  if (error) return { accountId: null, legalEntityId: null, venueId: null, error: error.message };
+  if (error) return { accountId: null, legalEntityId: null, venueId: null, error: errorText(error, "Не удалось создать аккаунт и заведение") };
 
   const rpcResult = result as { account_id: string; legal_entity_id: string; venue_id: string };
   return {
@@ -221,7 +222,7 @@ export async function sendInvitation(data: {
     .select("id")
     .single();
 
-  if (invError || !insertedInvitation?.id) return { error: invError?.message ?? "Не удалось создать приглашение" };
+  if (invError || !insertedInvitation?.id) return { error: errorText(invError, "Не удалось создать приглашение") };
 
   // Build redirect paths:
   //   - New users  → /set-password (create password first) → /invite?invitation=ID
@@ -256,7 +257,7 @@ export async function sendInvitation(data: {
 
       if (!isExistingUserError) {
         await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
-        return { error: inviteError.message };
+        return { error: errorText(inviteError, "Не удалось отправить приглашение") };
       }
 
       const { error: otpError } = await adminClient.auth.signInWithOtp({
@@ -271,7 +272,7 @@ export async function sendInvitation(data: {
 
       if (otpError) {
         await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
-        return { error: otpError.message };
+        return { error: errorText(otpError, "Не удалось отправить приглашение") };
       }
     }
 
@@ -301,7 +302,7 @@ export async function sendInvitation(data: {
 
     if (!isExistingUserError) {
       await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
-      return { error: inviteLinkError.message };
+      return { error: errorText(inviteLinkError, "Не удалось сгенерировать ссылку приглашения") };
     }
 
     const { data: magicLinkData, error: magicLinkError } =
@@ -313,7 +314,7 @@ export async function sendInvitation(data: {
 
     if (magicLinkError || !magicLinkData?.properties?.hashed_token) {
       await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
-      return { error: magicLinkError?.message ?? "Не удалось сгенерировать ссылку приглашения" };
+      return { error: errorText(magicLinkError, "Не удалось сгенерировать ссылку приглашения") };
     }
 
     existingUser = true;
@@ -386,7 +387,7 @@ export async function saveProfile(data: {
     })
     .eq("id", user.id);
 
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось сохранить профиль") };
   return { error: null };
 }
 
@@ -658,7 +659,7 @@ async function syncQuickRestoInventoryCatalog(params: {
 
       const saved = row as { id?: string } | null;
       if (error || !saved?.id) {
-        params.summary.errors.push(`Ingredient group ${group.id}: ${error?.message ?? "save error"}`);
+        params.summary.errors.push(`Группа ингредиентов ${group.id}: ${errorText(error, "не удалось сохранить")}`);
         continue;
       }
 
@@ -752,7 +753,7 @@ async function syncQuickRestoInventoryCatalog(params: {
 
       const saved = row as { id?: string } | null;
       if (error || !saved?.id) {
-        params.summary.errors.push(`Ingredient ${product.id}: ${error?.message ?? "save error"}`);
+        params.summary.errors.push(`Ингредиент ${product.id}: ${errorText(error, "не удалось сохранить")}`);
         continue;
       }
 
@@ -792,7 +793,7 @@ async function syncQuickRestoInventoryCatalog(params: {
         .eq("external_id", String(store.id))
         .maybeSingle();
       if (existingError) {
-        params.summary.errors.push(`Store ${store.id}: ${existingError.message}`);
+        params.summary.errors.push(`Склад ${store.id}: ${errorText(existingError, "не удалось прочитать")}`);
         continue;
       }
       const existingStore = existing as { id?: string } | null;
@@ -823,7 +824,7 @@ async function syncQuickRestoInventoryCatalog(params: {
 
       const saved = row as { id?: string } | null;
       if (error || !saved?.id) {
-        params.summary.errors.push(`Store ${store.id}: ${error?.message ?? "save error"}`);
+        params.summary.errors.push(`Склад ${store.id}: ${errorText(error, "не удалось сохранить")}`);
         continue;
       }
 
@@ -962,7 +963,7 @@ function encryptionErrorMessage(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : fallback;
   return message.includes("INTEGRATIONS_ENCRYPTION_KEY")
     ? "Не настроен ключ шифрования интеграций. Проверьте INTEGRATIONS_ENCRYPTION_KEY."
-    : message;
+    : errorText(error, fallback);
 }
 
 async function resolveQuickRestoConnection(params: {
@@ -1067,7 +1068,7 @@ export async function createAccountOnly(data: {
     .select("id")
     .single();
 
-  if (error) return { accountId: null, error: error.message };
+  if (error) return { accountId: null, error: errorText(error, "Не удалось создать аккаунт") };
   return { accountId: row.id, error: null };
 }
 
@@ -1126,7 +1127,7 @@ export async function saveQuickRestoCredentials(data: {
 
   const savedConnection = row as { id?: string } | null;
   if (error || !savedConnection?.id) {
-    return { connectionId: null, error: error?.message ?? "Не удалось сохранить подключение" };
+    return { connectionId: null, error: errorText(error, "Не удалось сохранить подключение") };
   }
 
   return { connectionId: savedConnection.id, error: null };
@@ -1159,7 +1160,7 @@ export async function testQuickRestoConnection(data: {
     if (message.includes("401")) {
       return { ok: false, error: "Неверный логин или пароль Quick Resto" };
     }
-    return { ok: false, error: message };
+    return { ok: false, error: errorText(error, "Не удалось проверить подключение к Quick Resto") };
   }
 }
 
@@ -1252,7 +1253,7 @@ export async function verifyQuickRestoBotRole(data: {
       roleTitle: null,
       missingRights: [],
       backOfficeUser: false,
-      error: error instanceof Error ? error.message : "Не удалось проверить должность Quick Resto",
+      error: errorText(error, "Не удалось проверить должность Quick Resto"),
     };
   }
 }
@@ -1383,7 +1384,7 @@ export async function verifyQuickRestoBotEmployee(data: {
       employeeName: null,
       roleTitle: null,
       login: null,
-      error: error instanceof Error ? error.message : "Не удалось проверить сотрудника Quick Resto",
+      error: errorText(error, "Не удалось проверить сотрудника Quick Resto"),
     };
   }
 }
@@ -1443,7 +1444,7 @@ export async function saveQuickRestoBackOfficeCredentials(data: {
       })
       .eq("id", connection.id);
 
-    if (error) return { ok: false, error: error.message };
+    if (error) return { ok: false, error: errorText(error, "Не удалось сохранить данные входа в бэк-офис") };
     return { ok: true, error: null };
   } catch (error) {
     return {
@@ -1564,7 +1565,7 @@ export async function loadQuickRestoOptions(data: { accountId?: string; connecti
       venues: [],
       roles: [],
       employees: [],
-      error: error instanceof Error ? error.message : "Не удалось загрузить данные из Quick Resto",
+      error: errorText(error, "Не удалось загрузить данные из Quick Resto"),
     };
   }
 }
@@ -1668,7 +1669,7 @@ export async function runQuickRestoImport(data: {
 
   const importRun = runRow as { id?: string } | null;
   if (runInsertError || !importRun?.id) {
-    return { runId: null, summary: null, status: "failed", error: runInsertError?.message ?? "Не удалось создать import run" };
+    return { runId: null, summary: null, status: "failed", error: errorText(runInsertError, "Не удалось начать импорт") };
   }
 
   const runId = importRun.id;
@@ -1731,7 +1732,7 @@ export async function runQuickRestoImport(data: {
             .eq("account_id", data.accountId);
 
           if (updateError) {
-            summary.errors.push(`Venue ${venue.id}: ${updateError.message}`);
+            summary.errors.push(`Заведение ${venue.id}: ${errorText(updateError, "не удалось обновить")}`);
             continue;
           }
 
@@ -1754,7 +1755,7 @@ export async function runQuickRestoImport(data: {
             .single();
 
           if (insertError || !insertedVenue?.id) {
-            summary.errors.push(`Venue ${venue.id}: ${insertError?.message ?? "insert error"}`);
+            summary.errors.push(`Заведение ${venue.id}: ${errorText(insertError, "не удалось создать")}`);
             continue;
           }
 
@@ -1787,7 +1788,7 @@ export async function runQuickRestoImport(data: {
           );
 
         if (ownerRoleError) {
-          summary.errors.push(`Venue ${venue.id}: ${ownerRoleError.message}`);
+          summary.errors.push(`Заведение ${venue.id}: ${errorText(ownerRoleError, "не удалось назначить владельца")}`);
         }
       }
     }
@@ -1876,7 +1877,7 @@ export async function runQuickRestoImport(data: {
             .eq("id", existingRoleLink.local_id);
 
           if (updateRoleError) {
-            summary.errors.push(`Role ${role.id}: ${updateRoleError.message}`);
+            summary.errors.push(`Должность ${role.id}: ${errorText(updateRoleError, "не удалось обновить")}`);
             continue;
           }
 
@@ -1895,7 +1896,7 @@ export async function runQuickRestoImport(data: {
             .single();
 
           if (insertRoleError || !insertedRole?.id) {
-            summary.errors.push(`Role ${role.id}: ${insertRoleError?.message ?? "insert error"}`);
+            summary.errors.push(`Должность ${role.id}: ${errorText(insertRoleError, "не удалось создать")}`);
             continue;
           }
 
@@ -1947,7 +1948,7 @@ export async function runQuickRestoImport(data: {
           });
         } catch (error) {
           summary.errors.push(
-            `Employee ${employee.id}: ${error instanceof Error ? error.message : "read failed"}`
+            `Сотрудник ${employee.id}: ${errorText(error, "не удалось прочитать данные")}`
           );
           continue;
         }
@@ -1989,7 +1990,7 @@ export async function runQuickRestoImport(data: {
           const fallbackVenueId = fallbackAccountVenueIds[0];
           if (!fallbackVenueId) {
             summary.errors.push(
-              `Employee ${employee.id}: fallback role skipped (нет venue в аккаунте)`,
+              `Сотрудник ${employee.id}: должность не создана — в аккаунте нет заведений`,
             );
             continue;
           }
@@ -2009,7 +2010,7 @@ export async function runQuickRestoImport(data: {
 
           if (insertFallbackRoleError || !insertedFallbackRole?.id) {
             summary.errors.push(
-              `Employee ${employee.id}: fallback role create failed (${insertFallbackRoleError?.message ?? "unknown"})`
+              `Сотрудник ${employee.id}: ${errorText(insertFallbackRoleError, "не удалось создать должность")}`
             );
           } else {
             localRoleId = insertedFallbackRole.id;
@@ -2116,7 +2117,7 @@ export async function runQuickRestoImport(data: {
             });
 
             if (created.error && !created.error.message.toLowerCase().includes("already been registered")) {
-              summary.errors.push(`Employee ${employee.id}: ${created.error.message}`);
+              summary.errors.push(`Сотрудник ${employee.id}: ${errorText(created.error, "не удалось создать пользователя")}`);
               continue;
             }
 
@@ -2126,7 +2127,7 @@ export async function runQuickRestoImport(data: {
             } else {
               const found = await findAuthUserByEmail(targetEmail, adminClient);
               if (!found?.id) {
-                summary.errors.push(`Employee ${employee.id}: failed to resolve auth user`);
+                summary.errors.push(`Сотрудник ${employee.id}: не удалось найти пользователя`);
                 continue;
               }
               localUserId = found.id;
@@ -2138,7 +2139,7 @@ export async function runQuickRestoImport(data: {
         }
 
         if (!localUserId) {
-          summary.errors.push(`Employee ${employee.id}: local user id missing`);
+          summary.errors.push(`Сотрудник ${employee.id}: не найден пользователь в Sheerly`);
           continue;
         }
 
@@ -2175,7 +2176,7 @@ export async function runQuickRestoImport(data: {
               { onConflict: "user_id,venue_id" }
             );
           if (membershipError) {
-            summary.errors.push(`Employee ${employee.id} membership: ${membershipError.message}`);
+            summary.errors.push(`Сотрудник ${employee.id}: ${errorText(membershipError, "не удалось добавить в заведение")}`);
           }
         }
 
@@ -2250,6 +2251,6 @@ export async function runQuickRestoImport(data: {
       })
       .eq("id", runId);
 
-    return { runId, summary, status: "failed", error: errorMessage };
+    return { runId, summary, status: "failed", error: errorText(error, "Импорт завершился с ошибкой") };
   }
 }

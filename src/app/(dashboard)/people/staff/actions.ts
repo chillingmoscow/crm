@@ -1,5 +1,6 @@
 "use server";
 
+import { errorText } from "@/lib/actions/error-text";
 import { randomUUID } from "node:crypto";
 import { isStaffPlaceholderEmail } from "@/lib/people/staff-identity";
 import { genderSchema, type Gender } from "@/lib/people/gender";
@@ -141,7 +142,7 @@ export async function updateStaffProfile(
     .from("profiles")
     .update(data)
     .eq("id", userId);
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось сохранить профиль сотрудника") };
   revalidatePath("/people/staff");
   return { error: null };
 }
@@ -184,7 +185,7 @@ export async function updateStaffAccountDetails(
     p_user_id: userId,
     p_data: data as Record<string, unknown>,
   });
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось сохранить данные сотрудника") };
 
   // revalidatePath на динамический сегмент — без `layout` revalidate'ятся
   // только листовые роуты, а /people/staff/[userId] остаётся в cache'е
@@ -209,7 +210,7 @@ export async function changeStaffDocument(input: {
     p_add_path: input.addPath ?? null,
     p_remove_path: input.removePath ?? null,
   });
-  if (result.error) return { paths: null, error: result.error.message };
+  if (result.error) return { paths: null, error: errorText(result.error, "Не удалось изменить документ сотрудника") };
   revalidatePath("/people/staff", "layout");
   return { paths: result.data as string[], error: null };
 }
@@ -225,7 +226,7 @@ export async function updateStaffTerminalPin(
     .from("user_venue_roles")
     .update({ terminal_pin: trimmed })
     .eq("id", uvrId);
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось сохранить PIN-код") };
   revalidatePath("/people/staff");
   return { error: null };
 }
@@ -352,7 +353,7 @@ export async function inviteStaff(data: {
     .single();
 
   if (invError || !insertedInvitation?.id) {
-    return { error: invError?.message ?? "Не удалось создать приглашение", invitation: null };
+    return { error: errorText(invError, "Не удалось создать приглашение"), invitation: null };
   }
 
   const actionLink = `${siteUrl}/invite/accept?token=${token}`;
@@ -457,7 +458,7 @@ export async function createStaffWithoutEmail(data: {
   });
 
   if (createError || !created?.user) {
-    return { error: createError?.message ?? "Не удалось создать пользователя", member: null };
+    return { error: errorText(createError, "Не удалось создать пользователя"), member: null };
   }
 
   const newUserId = created.user.id;
@@ -477,7 +478,7 @@ export async function createStaffWithoutEmail(data: {
   if (profileError) {
     // Откатываем созданного auth user'а если профиль не легёг.
     await admin.auth.admin.deleteUser(newUserId);
-    return { error: profileError.message, member: null };
+    return { error: errorText(profileError, "Не удалось сохранить профиль сотрудника"), member: null };
   }
 
   // UVR (статус active). employment_date в карточке выведется через
@@ -496,7 +497,7 @@ export async function createStaffWithoutEmail(data: {
 
   if (uvrError || !uvrInsert) {
     await admin.auth.admin.deleteUser(newUserId);
-    return { error: uvrError?.message ?? "Не удалось добавить в команду", member: null };
+    return { error: errorText(uvrError, "Не удалось добавить в команду"), member: null };
   }
 
   // Дотягиваем имя роли — нужно для оптимистичного рендера в списке.
@@ -602,7 +603,7 @@ export async function setImportedStaffEmailAndInvite(data: {
       : { email: nextEmail, email_confirm: false, user_metadata: mergedMeta },
   );
   if (updateAuthError) {
-    return { error: updateAuthError.message, invitation: null };
+    return { error: errorText(updateAuthError, "Не удалось сохранить email сотрудника"), invitation: null };
   }
 
   // Шаг 2: контекст для письма (имя заведения, аккаунта, приглашающего, роли).
@@ -660,7 +661,7 @@ export async function setImportedStaffEmailAndInvite(data: {
     .select("id")
     .single();
   if (invError || !insertedInvitation?.id) {
-    return { error: invError?.message ?? "Не удалось создать приглашение", invitation: null };
+    return { error: errorText(invError, "Не удалось создать приглашение"), invitation: null };
   }
 
   const actionLink = `${siteUrl}/invite/accept?token=${token}`;
@@ -739,7 +740,7 @@ export async function inviteImportedStaffByCurrentEmail(data: {
   } = await admin.auth.admin.getUserById(data.userId);
 
   if (targetError || !targetUser?.email) {
-    return { error: targetError?.message ?? "Не удалось получить email сотрудника", invitation: null };
+    return { error: errorText(targetError, "Не удалось получить email сотрудника"), invitation: null };
   }
 
   const email = targetUser.email.toLowerCase();
@@ -822,7 +823,7 @@ export async function updateStaffRole(
         payrollChanged = true;
       } catch (e) {
         return {
-          error: e instanceof Error ? e.message : "Не удалось изменить должность в зарплате",
+          error: errorText(e, "Не удалось изменить должность в зарплате"),
         };
       }
     }
@@ -837,7 +838,7 @@ export async function updateStaffRole(
   const error = updateError ?? (updated?.length ? null : { message: "Не удалось изменить доступ сотрудника: нет права или запись изменилась" });
 
   if (error) {
-    if (!payrollChanged || !payrollRow) return { error: error.message };
+    if (!payrollChanged || !payrollRow) return { error: errorText(error, "Не удалось изменить доступ сотрудника") };
     // Откат зарплатной части (best effort). Повторный вызов RPC с прежней
     // должностью с той же даты упёрся бы в unique(employee_id, valid_from),
     // поэтому снимаем запись истории и возвращаем прежние модель/название.
@@ -896,7 +897,7 @@ export async function fireStaff(
   }
   const supabase = await createClient();
   const { data, error } = await asLooseDb(supabase).rpc("staff_begin_termination", {p_uvr:uvrId,p_reason:trimmed});
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось начать увольнение") };
   try {
     await processStaffTermination(String(data));
     const status=await asLooseDb(createAdminClient()).from<{state:string}>("staff_terminations").select("state").eq("id",data).single();
@@ -904,7 +905,7 @@ export async function fireStaff(
   }
   catch (error) {
     revalidatePath("/people/staff");
-    return {error:"Доступ к заведению закрыт. Внешнее удаление не завершено: " + (error instanceof Error ? error.message : "проверьте карточку сотрудника")};
+    return {error:"Доступ к заведению закрыт. Внешнее удаление не завершено: " + errorText(error, "проверьте карточку сотрудника")};
   }
   revalidatePath("/people/staff");
   return { error: null };
@@ -923,7 +924,7 @@ export async function restoreStaff(
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
   const { data, error } = await asLooseDb(supabase).rpc("staff_begin_restore", { p_uvr: uvrId });
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось вернуть сотрудника") };
   try {
     await processStaffRestore(String(data));
     const status = await asLooseDb(createAdminClient()).from<{ state: string; error: string | null }>("staff_restorations")
@@ -932,7 +933,7 @@ export async function restoreStaff(
       throw new Error(status.data?.error ?? "Возврат ещё выполняется. Состояние доступно в карточке сотрудника");
   } catch (e) {
     revalidatePath("/people/staff");
-    return { error: e instanceof Error ? e.message : "Сотрудник не возвращён. Проверьте карточку сотрудника" };
+    return { error: errorText(e, "Сотрудник не возвращён. Проверьте карточку сотрудника") };
   }
   revalidatePath("/people/staff");
   return { error: null };
@@ -979,7 +980,7 @@ export async function cancelInvitation(
     .delete()
     .eq("id", invId);
 
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось отменить приглашение") };
   revalidatePath("/people/staff");
   return { error: null };
 }

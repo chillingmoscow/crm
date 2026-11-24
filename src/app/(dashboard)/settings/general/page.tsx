@@ -9,8 +9,7 @@ import {
   getCachedPermissionChecker,
   getCachedUser,
 } from "@/lib/supabase/server";
-import { Button } from "@/components/ui/button";
-import { updateGeneralSettings } from "./actions";
+import { GeneralSettingsForm } from "./_components/general-settings-form";
 import { AmountRoundingSelect } from "./_components/amount-rounding-select";
 import { TimezoneSelect } from "./_components/timezone-select";
 
@@ -56,7 +55,7 @@ export default async function GeneralSettingsPage() {
         </p>
       </div>
 
-      <form action={updateGeneralSettings} className="max-w-xl rounded-lg border bg-background p-5">
+      <GeneralSettingsForm>
         <div>
           <label className="text-sm font-medium" htmlFor="amountRoundingScale">
             Округление сумм
@@ -97,11 +96,7 @@ export default async function GeneralSettingsPage() {
             </span>
           </label>
         </div>
-
-        <div className="mt-5 flex justify-end">
-          <Button type="submit">Сохранить</Button>
-        </div>
-      </form>
+      </GeneralSettingsForm>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 "use server";
 
+import { errorText } from "@/lib/actions/error-text";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
@@ -138,7 +139,7 @@ export async function createDepartment(input: {
     .select("id")
     .single();
 
-  if (error) return { id: null, error: error.message };
+  if (error) return { id: null, error: errorText(error, "Не удалось создать подразделение") };
 
   revalidatePath("/people/departments");
   return { id: data.id, error: null };
@@ -192,7 +193,7 @@ export async function updateDepartment(
     .update(update)
     .eq("id", id);
 
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось сохранить подразделение") };
 
   revalidatePath("/people/departments");
   revalidatePath(`/people/departments/${id}`);
@@ -279,7 +280,7 @@ export async function archiveDepartment(
     .from("departments")
     .update({ archived_at: new Date().toISOString(), archived_by: user.id })
     .eq("id", id);
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось перенести подразделение в архив") };
 
   revalidatePath("/people/departments");
   revalidatePath("/people/departments/archive");
@@ -308,7 +309,7 @@ export async function restoreDepartment(
     .from("departments")
     .update({ archived_at: null, archived_by: null })
     .eq("id", id);
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось восстановить подразделение") };
 
   revalidatePath("/people/departments");
   revalidatePath("/people/departments/archive");
@@ -372,7 +373,7 @@ export async function getDepartmentDeleteRestriction(
   try {
     return { restriction: await departmentDeleteBlock(id), error: null };
   } catch (e) {
-    return { restriction: null, error: e instanceof Error ? e.message : "Не удалось проверить подразделение" };
+    return { restriction: null, error: errorText(e, "Не удалось проверить подразделение") };
   }
 }
 
@@ -400,7 +401,7 @@ export async function deleteDepartment(
     const block = await departmentDeleteBlock(id);
     if (block) return { error: block };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "Не удалось проверить подразделение" };
+    return { error: errorText(e, "Не удалось проверить подразделение") };
   }
 
   // `on delete set null` на roles.department_id обнулит привязки автоматически.
@@ -415,7 +416,7 @@ export async function deleteDepartment(
       const acts = await departmentWriteoffActs(id).catch(() => 0);
       if (acts > 0) return { error: writeoffActsBlock(acts) };
     }
-    return { error: error.message };
+    return { error: errorText(error, "Не удалось удалить подразделение") };
   }
 
   revalidatePath("/people/departments");
@@ -462,7 +463,7 @@ export async function setRoleDepartment(
     p_department_id: departmentId,
   });
 
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось привязать должность к подразделению") };
 
   revalidatePath("/people/roles");
   revalidatePath("/people/departments");

@@ -32,6 +32,7 @@ import {
 } from "@/components/shared/table";
 import { PeopleListHeader } from "@/components/people/people-list-header";
 import type { CasualStaffRow } from "@/lib/payroll/casual-list";
+import { matchesStaffKind } from "@/lib/people/staff-kind-filter";
 
 type Row =
   | { kind: "staff"; id: string; member: StaffMember }
@@ -207,6 +208,7 @@ const rowHref = (row: Exclude<Row, { kind: "invitation" }>) =>
 export function StaffTable({
   staff,
   casual,
+  officialUserIds,
   fired,
   showFired,
   invitations,
@@ -229,6 +231,8 @@ export function StaffTable({
 }: {
   staff: StaffMember[];
   casual: CasualStaffRow[];
+  /** Пользователи с открытым сегодня официальным трудоустройством; пусто — фильтра нет. */
+  officialUserIds: string[];
   fired: FiredStaffMember[];
   showFired: boolean;
   invitations: PendingInvitation[];
@@ -284,6 +288,7 @@ export function StaffTable({
     gender: "",
     kind: "",
   });
+  const officialSet = new Set(officialUserIds);
   const q = st.search.trim().toLocaleLowerCase("ru");
   const active = Object.values(filter).some(Boolean);
   const source: Row[] = showFired
@@ -307,7 +312,13 @@ export function StaffTable({
       !fields.some((id) => value(row, id)?.toLocaleLowerCase("ru").includes(q))
     )
       return false;
-    if (filter.kind && (filter.kind === "casual") !== (row.kind === "casual"))
+    if (
+      !matchesStaffKind(
+        filter.kind,
+        { kind: row.kind, userId: row.kind === "staff" ? row.member.user_id : null },
+        officialSet,
+      )
+    )
       return false;
     if (row.kind === "casual")
       return (
@@ -599,6 +610,9 @@ export function StaffTable({
               { value: "", label: "Все сотрудники" },
               { value: "staff", label: "Штатные" },
               { value: "casual", label: "Разовые" },
+              ...(officialUserIds.length > 0
+                ? [{ value: "official", label: "Официально трудоустроены" }]
+                : []),
             ]}
           />
         )}

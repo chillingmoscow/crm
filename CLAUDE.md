@@ -46,6 +46,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Парадигма данных
 - **Server Actions — основной способ мутаций.** Лимит тела действия поднят до 50 MB ради KB-аплоадов ([`next.config.ts`](next.config.ts:32)) и должен совпадать с `storage.file_size_limit` в [`supabase/config.toml`](supabase/config.toml).
+- **Server action не бросает исключение с текстом для пользователя.** В прод-сборке Next.js заменяет текст брошенного из действия исключения английской заглушкой «An error occurred in the Server Components render…», и пользователь не видит причину. Действие, вызываемое из браузера, оборачивается в `actionResult(fn, "<русский fallback>")` из [`src/lib/actions/result.ts`](src/lib/actions/result.ts), клиент разворачивает результат через `unwrapAction`; действия с ответом вида `{ error }` пропускают текст через `errorText` ([`src/lib/actions/error-text.ts`](src/lib/actions/error-text.ts)). Оба фильтра показывают русский текст (наш или `raise exception` из базы) как есть, а английский технический заменяют на fallback — поэтому тексты `raise exception` в миграциях пишем по-русски. `redirect()`/`notFound()` внутри `actionResult` не вызывать: обёртка поймает их как ошибку. Прецедент — удаление штрафа в зарплате, PR #710.
 - **Публичного API нет и пока не делаем** — см. ниже раздел политики.
 
 ### Supabase-клиенты

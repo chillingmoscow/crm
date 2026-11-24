@@ -56,6 +56,7 @@ import { zonedParts } from "@/lib/sales/time";
 import { formatQuantityAmount, signedAmountClass } from "@/lib/format/amount";
 import { Money, formatRub } from "@/components/shared/money";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { unwrapAction } from "@/lib/actions/result";
 import style from "./payroll-journal.module.css";
 import formStyle from "./payroll-payment-form.module.css";
 
@@ -190,7 +191,15 @@ export function PayrollJournal({
   const canWrite = data.permissions.includes("payroll.review");
   const entryLive = canWrite && !!selected && !selected.deleted_at;
   const canEditSelected = entryLive && Object.hasOwn(editTitles, selected.kind);
-  const canDeleteSelected = entryLive && !selectedPaid;
+  /** Запись проведена бонусами Quick Resto: удаление сначала возвращает бонусы. */
+  const selectedBonusDone =
+    !!selected && selected.medium === "bonus" && selected.external_state === "done";
+  // Возврат бонусов, поставленный при удалении, ещё не закончен.
+  const bonusReturn =
+    selected && !selected.deleted_at && detail?.bonusReturn && !["done", "cancelled"].includes(detail.bonusReturn.state)
+      ? detail.bonusReturn
+      : null;
+  const canDeleteSelected = entryLive && !selectedPaid && !bonusReturn;
   const editAmountLocked =
     !!selected &&
     (selectedPaid ||
@@ -213,13 +222,13 @@ export function PayrollJournal({
     setBusy(true);
     setEditError("");
     try {
-      await updatePayrollEntry({
+      unwrapAction(await updatePayrollEntry({
         id: selected.id,
         amount: selected.kind === "warning" ? 0 : (editAmount ?? 0),
         reason: editReason,
         expected_amount: editExpected.amount,
         expected_reason: editExpected.reason,
-      });
+      }));
     } catch (e) {
       // Ошибка сохранения остаётся в панели, ввод не теряется.
       setEditError(e instanceof Error ? e.message : "Не удалось сохранить");
@@ -240,7 +249,7 @@ export function PayrollJournal({
   };
   const reloadDetail = async () => {
     if (!selectedId) return;
-    const next = await loadPayrollEntry(selectedId);
+    const next = unwrapAction(await loadPayrollEntry(selectedId));
     if (selection.current === selectedId) setDetail(next);
   };
   useEffect(() => {
@@ -254,6 +263,7 @@ export function PayrollJournal({
     let live = true;
     const load = () =>
       loadPayrollEntry(selectedId)
+        .then(unwrapAction)
         .then((d) => {
           if (live) {
             setDetail(d);
@@ -353,15 +363,18 @@ export function PayrollJournal({
     if (!selected) return;
     setBusy(true);
     setDeleteError("");
+    let queued = false;
     try {
-      await deletePayrollEntry(selected.id, deleteReason);
+      queued = unwrapAction(await deletePayrollEntry(selected.id, deleteReason)).bonusReturnQueued;
     } catch (e) {
       setDeleteError(e instanceof Error ? e.message : "Не удалось удалить запись");
       setBusy(false);
       return;
     }
     setDeleting(false);
-    toast.success("Запись удалена");
+    toast.success(queued
+      ? "Возврат бонусов отправлен в Quick Resto. Запись удалится, когда Quick Resto его подтвердит"
+      : "Запись удалена");
     try {
       await onChange();
       await reloadDetail();
@@ -467,8 +480,11 @@ export function PayrollJournal({
         employee={selected ? (() => { const e = data.employees.find((e) => e.id === selected.employee_id); return {name:e?.name ?? "Сотрудник", role:e?.role_name, avatarUrl:e?.avatar_url}; })() : undefined}
         amount={selected && !editing ? entryAmount(selected, true) : undefined}
         amountLabel={selected?.kind === "warning" ? "Без денежного удержания" : selected?.kind === "allowance" ? "Надбавка за месяц" : selected?.kind === "bonus" ? "Сумма премии" : selected?.kind === "correction" ? "Сумма корректировки" : "Сумма удержания"}
-        status={selected && (selected.deleted_at || selectedPaid || detail?.notification) ? <span className="flex flex-wrap items-center justify-end gap-2">
+        status={selected && (selected.deleted_at || selectedPaid || detail?.notification || bonusReturn) ? <span className="flex flex-wrap items-center justify-end gap-2">
           {selected.deleted_at && <StatusBadge>Удалено</StatusBadge>}
+          {bonusReturn && <span className="inline-flex" data-tip={bonusReturn.message ?? undefined}>
+            <StatusBadge tone="warning">{bonusReturn.state === "review" ? "Возврат бонусов: нужна сверка" : "Возвращаем бонусы"}</StatusBadge>
+          </span>}
           {selectedPaid && <StatusBadge tone="success">Выплачена</StatusBadge>}
           {!selected.deleted_at && detail?.notification && <span
             className="inline-flex"
@@ -611,7 +627,7 @@ export function PayrollJournal({
                           void run(async () => {
                             const form = new FormData();
                             form.set("file", f);
-                            await uploadPayrollPhoto(selected.id, form);
+                            unwrapAction(await uploadPayrollPhoto(selected.id, form));
                             await reloadDetail();
                           });
                         e.target.value = "";
@@ -639,6 +655,7 @@ export function PayrollJournal({
                           bonus_operation: "Обработка бонусной операции",
                         }[h.action] ?? h.action}
                       </p>
+                      {h.action === "bonus_operation" && h.details.operation === "reverse" && <p className="text-muted-foreground">Возврат бонусов при удалении</p>}
                       {h.action === "bonus_operation" && <p className="text-muted-foreground">{({pending:"В очереди",reading:"Проверка баланса",sending:"Отправлена в Quick Resto",done:"Проведена",review:"Нужна сверка",cancelled:"Отменена",money:"Удержано деньгами"} as Record<string,string>)[String(h.details.state)]??"Нужна сверка"}{h.details.message?` · ${String(h.details.message)}`:""}</p>}
                       {h.action === "updated" && h.details.previous_amount != null && Number(h.details.previous_amount) !== Number(h.details.amount) && <p className="text-muted-foreground">Сумма: {h.details.medium === "bonus" ? `${bonusPoints(Number(h.details.previous_amount), false)} → ${bonusPoints(Number(h.details.amount), false)}` : `${formatRub(Number(h.details.previous_amount), { fraction: true })} → ${formatRub(Number(h.details.amount), { fraction: true })}`}</p>}
                       {h.action === "updated" && typeof h.details.previous_reason === "string" && h.details.previous_reason !== h.details.reason && <p className="text-muted-foreground">Основание: {h.details.previous_reason} → {String(h.details.reason)}</p>}
@@ -689,11 +706,11 @@ export function PayrollJournal({
                       disabled={busy || !comment.trim()}
                       onClick={() =>
                         void run(async () => {
-                          await commentPayrollEntry(
+                          unwrapAction(await commentPayrollEntry(
                             selected.id,
                             comment,
                             crypto.randomUUID(),
-                          );
+                          ));
                           setComment("");
                           await reloadDetail();
                         })
@@ -714,7 +731,9 @@ export function PayrollJournal({
         open={deleting && Boolean(selected)}
         onOpenChange={(open) => { if (!open) setDeleting(false); }}
         title={`Удалить ${deleteObject}?`}
-        description="Запись перестанет учитываться и останется в журнале с отметкой «Удалено»: её видно с фильтром «Показывать удалённые». Причина сохранится в истории записи."
+        description={selectedBonusDone
+          ? `Бонусы по этой записи уже проведены в Quick Resto. Sheerly отправит обратную операцию — ${Number(selected?.amount) < 0 ? "вернёт списанные бонусы" : "спишет начисленные бонусы"}, — и запись удалится, когда Quick Resto её подтвердит. Обычно это занимает несколько минут. Причина сохранится в истории записи.`
+          : "Запись перестанет учитываться и останется в журнале с отметкой «Удалено»: её видно с фильтром «Показывать удалённые». Причина сохранится в истории записи."}
         confirmLabel={`Удалить ${deleteObject}`}
         pendingLabel="Удаляем…"
         destructive
@@ -836,14 +855,14 @@ export function PayrollEntryForm({
         request.current = { key: crypto.randomUUID(), payload };
       const key = request.current.key;
       const ids = isBonus
-        ? await recordPayrollBonuses({ ...bonus, request_key: key })
-        : [await createPayrollEntry({ ...single, id: key, request_key: key })];
+        ? unwrapAction(await recordPayrollBonuses({ ...bonus, request_key: key }))
+        : [unwrapAction(await createPayrollEntry({ ...single, id: key, request_key: key }))];
       let photoError = false;
       await runWithConcurrency(ids.flatMap((id) => files.map((file) => ({ id, file }))), 3, async ({ id, file }) => {
         try {
           const f = new FormData();
           f.set("file", file);
-          await uploadPayrollPhoto(id, f);
+          unwrapAction(await uploadPayrollPhoto(id, f));
         } catch {
           photoError = true;
         }

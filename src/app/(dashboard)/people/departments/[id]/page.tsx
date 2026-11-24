@@ -6,6 +6,7 @@ import {
   getCachedUser,
 } from "@/lib/supabase/server";
 import { listAuditEvents } from "@/lib/audit/list";
+import { unwrapAction } from "@/lib/actions/result";
 import { getDepartment } from "../actions";
 import {
   loadStockRules,
@@ -89,7 +90,7 @@ export default async function DepartmentDetailServerPage({
   let stockRules: StockRuleData | null = null;
   if (can("inventory.view_results")) {
     try {
-      stockRules = await loadStockRules(department.venue_id);
+      stockRules = unwrapAction(await loadStockRules(department.venue_id));
     } catch {
       stockRules = null;
     }

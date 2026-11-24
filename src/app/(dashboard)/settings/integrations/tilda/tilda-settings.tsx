@@ -13,6 +13,7 @@ import { Metric, MetricStrip } from "@/components/shared/metric-strip";
 import { candidateError } from "@/lib/candidates/errors";
 import { countRu, pluralRu } from "@/lib/format/plural";
 import type { ConnectionView } from "@/lib/candidates/types";
+import { unwrapAction } from "@/lib/actions/result";
 import { readTildaConnection, saveTildaConnection } from "../actions";
 import { IntegrationLayout, IntegrationSection, IntegrationStatus, IntegrationWarning } from "../_components/integration-layout";
 import { CopyValue } from "../_components/copy-value";
@@ -41,8 +42,8 @@ export function TildaSettings({ initial, recent, notifyChat, siteUrl }: { initia
   const save = (patch: { enabled?: boolean; form_id?: string; rotate?: boolean }, onDone: (secret: string | null) => void) => start(async () => {
     setError("");
     try {
-      const saved = await saveTildaConnection({ enabled: patch.enabled ?? connection?.enabled ?? false, form_id: patch.form_id ?? connection?.form_id, rotate: patch.rotate });
-      setConnection(await readTildaConnection());
+      const saved = unwrapAction(await saveTildaConnection({ enabled: patch.enabled ?? connection?.enabled ?? false, form_id: patch.form_id ?? connection?.form_id, rotate: patch.rotate }));
+      setConnection(unwrapAction(await readTildaConnection()));
       onDone(saved.secret);
     } catch (e) {
       const message = candidateError(e, "Не удалось сохранить подключение Tilda");

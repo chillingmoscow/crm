@@ -16,6 +16,7 @@ import {
   saveStockRules,
   type StockRuleData,
 } from "@/app/(dashboard)/documents/writeoffs/rule-actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { deductionRulesSchema } from "@/lib/stock/deduction-rules";
 import {
   multiDepartmentGroupExists,
@@ -118,13 +119,15 @@ function ShortageForm({
         multiplier: 1,
         distribution: "departments",
       });
-      const d = await saveStockRules({
-        venueId: initial.venueId,
-        expectedVersion: initial.versions[0]?.version ?? 0,
-        validFrom: from,
-        config: next,
-        reason,
-      });
+      const d = unwrapAction(
+        await saveStockRules({
+          venueId: initial.venueId,
+          expectedVersion: initial.versions[0]?.version ?? 0,
+          validFrom: from,
+          config: next,
+          reason,
+        }),
+      );
       onSaved(d.data);
       router.refresh();
       toast.success("Доли сохранены");

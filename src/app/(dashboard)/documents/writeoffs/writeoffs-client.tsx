@@ -88,6 +88,7 @@ import {
   assignWriteoffPoolBulk,
   type WriteoffData,
 } from "./actions";
+import { unwrapAction } from "@/lib/actions/result";
 
 type Source = "native" | "archive";
 
@@ -302,6 +303,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     if (source !== "native" || !canSeeDeduction) return;
     let active = true;
     loadWriteoffDeduction(initial.venueId, month)
+      .then(unwrapAction)
       .then(
         (r) =>
           active &&
@@ -503,6 +505,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     const timer = setInterval(() => {
       if (document.visibilityState === "visible")
         void loadWriteoffs(initial.venueId)
+          .then(unwrapAction)
           .then((d) => active && setData(d))
           .catch(() => {});
     }, pollMs);
@@ -532,7 +535,9 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
   async function refresh() {
     setBusy(true);
     try {
-      setData(await requestWriteoffs(data.venueId, month.slice(0, 7)));
+      setData(
+        unwrapAction(await requestWriteoffs(data.venueId, month.slice(0, 7))),
+      );
       setSource("native");
       toast.success("Обновление запрошено. Результат появится автоматически.");
     } catch (e) {
@@ -549,11 +554,8 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     key: string | null,
   ) {
     if (!row.native) return;
-    const { mark, notice } = await assignWriteoffPool(
-      data.venueId,
-      row.native.external_id,
-      to,
-      key,
+    const { mark, notice } = unwrapAction(
+      await assignWriteoffPool(data.venueId, row.native.external_id, to, key),
     );
     const own = writeoffPoolKey(row.native.venue_id, row.native.external_id);
     const replace = (list: WriteoffPoolAssignment[]) => [
@@ -600,11 +602,13 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
   }
   async function assignBulk(to: WriteoffPoolAssignment["pool"], key: string | null) {
     const docs = selectedRows.flatMap((r) => (r.native ? [r.native] : []));
-    const r = await assignWriteoffPoolBulk(
-      data.venueId,
-      docs.map((d) => d.external_id),
-      to,
-      key,
+    const r = unwrapAction(
+      await assignWriteoffPoolBulk(
+        data.venueId,
+        docs.map((d) => d.external_id),
+        to,
+        key,
+      ),
     );
     // Пометки выбранных актов - как их вернул сервер после записи.
     const touched = new Set(
@@ -628,7 +632,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
   async function download() {
     setExporting(true);
     try {
-      const fresh = await loadWriteoffs(data.venueId),
+      const fresh = unwrapAction(await loadWriteoffs(data.venueId)),
         byId = new Map(
           writeoffRows(
             fresh.documents,

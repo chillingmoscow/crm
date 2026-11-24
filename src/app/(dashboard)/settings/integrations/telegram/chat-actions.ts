@@ -1,5 +1,6 @@
 "use server";
 import { z } from "zod";
+import { actionResult } from "@/lib/actions/result";
 import { revalidatePath } from "next/cache";
 import { checked, integrationInput, integrationScope } from "@/lib/integrations/settings";
 import { loadTelegramBot } from "@/lib/integrations/telegram-bot";
@@ -48,7 +49,7 @@ async function validRoles(s: Awaited<ReturnType<typeof integrationScope>>, ids: 
   return unique;
 }
 
-export async function saveTelegramChat(input: unknown, id?: string) {
+async function saveTelegramChatImpl(input: unknown, id?: string) {
   const s = await integrationScope();
   const value = integrationInput(chatSchema, input);
   const role_ids = await validRoles(s, value.role_ids);
@@ -65,7 +66,7 @@ export async function saveTelegramChat(input: unknown, id?: string) {
   revalidatePath("/settings/integrations/telegram");
 }
 
-export async function setTelegramChatArchived(id: string, archived: boolean) {
+async function setTelegramChatArchivedImpl(id: string, archived: boolean) {
   const s = await integrationScope();
   integrationInput(z.string().uuid(), id);
   const updated = checked(await s.db.from<{ id: string }[]>("telegram_chats").update({
@@ -76,7 +77,7 @@ export async function setTelegramChatArchived(id: string, archived: boolean) {
 }
 
 /** Checks that the bot is an administrator of the chat with the rights to invite and remove people. */
-export async function checkTelegramChat(id: string): Promise<ChatCheck> {
+async function checkTelegramChatImpl(id: string): Promise<ChatCheck> {
   const s = await integrationScope();
   integrationInput(z.string().uuid(), id);
   const chat = checked(await s.db.from<{ chat_id: string }>("telegram_chats").select("chat_id")
@@ -94,4 +95,19 @@ export async function checkTelegramChat(id: string): Promise<ChatCheck> {
   return missing.length
     ? { tone: "warning", message: `Администратор, но без права ${missing.join(" и ")}` }
     : { tone: "success", message: "Бот может приглашать и исключать" };
+}
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js
+// заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function saveTelegramChat(input: unknown, id?: string) {
+  return actionResult(() => saveTelegramChatImpl(input, id), "Не удалось сохранить чат");
+}
+export async function setTelegramChatArchived(id: string, archived: boolean) {
+  return actionResult(
+    () => setTelegramChatArchivedImpl(id, archived),
+    archived ? "Не удалось убрать чат в архив" : "Не удалось восстановить чат",
+  );
+}
+export async function checkTelegramChat(id: string) {
+  return actionResult(() => checkTelegramChatImpl(id), "Не удалось проверить права бота");
 }

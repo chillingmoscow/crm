@@ -12,7 +12,8 @@ import { EditDrawer } from "@/components/ui/edit-drawer";
 import { DrawerSection } from "@/components/ui/drawer-blocks";
 import { candidateError } from "@/lib/candidates/errors";
 import type { EmploymentSettings, IntegrationVenue } from "@/lib/integrations/settings";
-import { getEmploymentSettings, getHiringDictionaries, saveHiringSettings } from "../../actions";
+import { unwrapAction } from "@/lib/actions/result";
+import { getEmploymentSettings, getHiringDictionaries, saveHiringSettings, type HiringDictionaries } from "../../actions";
 import { IntegrationFacts, IntegrationNotice, IntegrationSection } from "../../_components/integration-layout";
 import { StorePicker, type DictionaryOption } from "../../_components/store-picker";
 
@@ -21,18 +22,18 @@ const defaults: EmploymentSettings = { store_ids: [1], master_store_ids: [16], s
 export function HiringSettings({ venues, activeVenue, editable }: { venues: IntegrationVenue[]; activeVenue: string; editable: boolean }) {
   const [venue, setVenue] = useState(activeVenue), [saved, setSaved] = useState(defaults), [draft, setDraft] = useState<EmploymentSettings | null>(null);
   const [loaded, setLoaded] = useState(false), [error, setError] = useState(""), [saveError, setSaveError] = useState(""), [attempt, setAttempt] = useState(0);
-  const [dictionaries, setDictionaries] = useState<Awaited<ReturnType<typeof getHiringDictionaries>>>({ stores: [], groups: [], accountTypes: [] });
+  const [dictionaries, setDictionaries] = useState<HiringDictionaries>({ stores: [], groups: [], accountTypes: [] });
   const [dictionaryError, setDictionaryError] = useState(""), [dictionaryAttempt, setDictionaryAttempt] = useState(0), [busy, start] = useTransition();
   useEffect(() => {
     let active = true; setLoaded(false); setError("");
     if (!venue) return;
-    getEmploymentSettings(venue).then(next => { if (active) { setSaved(next ?? defaults); setLoaded(true); } }).catch(e => { if (active) setError(candidateError(e, "Не удалось загрузить настройки сотрудников")); });
+    getEmploymentSettings(venue).then(unwrapAction).then(next => { if (active) { setSaved(next ?? defaults); setLoaded(true); } }).catch(e => { if (active) setError(candidateError(e, "Не удалось загрузить настройки сотрудников")); });
     return () => { active = false; };
   }, [venue, attempt]);
   useEffect(() => {
     let active = true; setDictionaryError("");
     if (!venues.length) return;
-    getHiringDictionaries().then(next => { if (active) setDictionaries(next); }).catch(() => { if (active) setDictionaryError("Не удалось получить названия из Quick Resto. Сохранённые значения доступны"); });
+    getHiringDictionaries().then(unwrapAction).then(next => { if (active) setDictionaries(next); }).catch(() => { if (active) setDictionaryError("Не удалось получить названия из Quick Resto. Сохранённые значения доступны"); });
     return () => { active = false; };
   }, [dictionaryAttempt, venues.length]);
 
@@ -42,7 +43,7 @@ export function HiringSettings({ venues, activeVenue, editable }: { venues: Inte
   const close = () => { if (!busy) { setDraft(null); setSaveError(""); } };
   const save = () => draft && start(async () => {
     setSaveError("");
-    try { await saveHiringSettings(venue, draft); setSaved(draft); setDraft(null); toast.success("Настройки создания сотрудника сохранены"); }
+    try { unwrapAction(await saveHiringSettings(venue, draft)); setSaved(draft); setDraft(null); toast.success("Настройки создания сотрудника сохранены"); }
     catch (e) { setSaveError(candidateError(e, "Не удалось сохранить настройки сотрудников")); }
   });
 

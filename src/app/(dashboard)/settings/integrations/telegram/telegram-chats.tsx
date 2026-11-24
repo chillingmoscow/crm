@@ -17,6 +17,7 @@ import { candidateError } from "@/lib/candidates/errors";
 import { cn } from "@/lib/utils";
 import { IntegrationNotice, IntegrationSection } from "../_components/integration-layout";
 import { CHAT_ID_HINT } from "./chat-id-hint";
+import { unwrapAction } from "@/lib/actions/result";
 import { checkTelegramChat, saveTelegramChat, setTelegramChatArchived, type ChatCheck, type ChatRoleOption, type TelegramChatRow } from "./chat-actions";
 
 type Draft = { id?: string; title: string; chat_id: string; invite: boolean; role_ids: string[] };
@@ -31,7 +32,7 @@ export function TelegramChats({ chats, roles }: { chats: TelegramChatRow[]; role
   const rolesText = (c: TelegramChatRow) => !c.invite ? "Не приглашаем" : c.role_ids.length ? c.role_ids.map(id => roleName.get(id) ?? "Архивная должность").join(", ") : "Все должности";
   const close = () => { setDraft(null); setError(""); };
   const run = (fn: () => Promise<void>) => start(async () => { try { await fn(); } catch (e) { toast.error(candidateError(e, "Не удалось выполнить действие")); } });
-  const check = (c: TelegramChatRow) => run(async () => { const r = await checkTelegramChat(c.id); setChecks(v => ({ ...v, [c.id]: r })); });
+  const check = (c: TelegramChatRow) => run(async () => { const r = unwrapAction(await checkTelegramChat(c.id)); setChecks(v => ({ ...v, [c.id]: r })); });
 
   const row = (c: TelegramChatRow) => <li key={c.id} className={cn("flex items-center gap-3 py-3 first:pt-0 last:pb-0", c.archived_at && "opacity-60")}>
     <div className="min-w-0 flex-1">
@@ -39,7 +40,7 @@ export function TelegramChats({ chats, roles }: { chats: TelegramChatRow[]; role
       <p className="truncate text-xs text-muted-foreground">{rolesText(c)}</p>
       {checks[c.id] ? <p role="status" className={cn("mt-0.5 text-xs", checks[c.id].tone === "success" ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400")}>{checks[c.id].message}</p> : null}
     </div>
-    {c.archived_at ? <Button variant="ghost" size="sm" disabled={busy} onClick={() => run(async () => { await setTelegramChatArchived(c.id, false); toast.success("Чат восстановлен"); })}><ArchiveRestore className="size-4" />Восстановить</Button>
+    {c.archived_at ? <Button variant="ghost" size="sm" disabled={busy} onClick={() => run(async () => { unwrapAction(await setTelegramChatArchived(c.id, false)); toast.success("Чат восстановлен"); })}><ArchiveRestore className="size-4" />Восстановить</Button>
       : <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="size-8 shrink-0" aria-label={`Действия с чатом ${c.title}`} disabled={busy}><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
           <DropdownMenuItem onSelect={() => check(c)}><ShieldCheck className="mr-2 size-4" />Проверить права бота</DropdownMenuItem>
@@ -62,7 +63,7 @@ export function TelegramChats({ chats, roles }: { chats: TelegramChatRow[]; role
       footer={<><Button variant="outline" disabled={busy} onClick={close}>Отмена</Button>
         <Button disabled={busy || !draft?.title.trim() || !draft?.chat_id.trim()} onClick={() => start(async () => {
           if (!draft) return; setError("");
-          try { await saveTelegramChat({ title: draft.title, chat_id: draft.chat_id, invite: draft.invite, role_ids: draft.invite ? draft.role_ids : [] }, draft.id); toast.success("Чат сохранён"); close(); }
+          try { unwrapAction(await saveTelegramChat({ title: draft.title, chat_id: draft.chat_id, invite: draft.invite, role_ids: draft.invite ? draft.role_ids : [] }, draft.id)); toast.success("Чат сохранён"); close(); }
           catch (e) { setError(candidateError(e, "Не удалось сохранить чат")); }
         })}>{busy ? "Сохраняем…" : draft?.id ? "Сохранить" : "Добавить чат"}</Button></>}>
       {draft ? <>
@@ -84,7 +85,7 @@ export function TelegramChats({ chats, roles }: { chats: TelegramChatRow[]; role
       description="Это не удаление: сам чат в Telegram не меняется. Новых сотрудников в него больше не приглашаем, уволенных из него не исключаем. Чат останется в блоке «Архив» внизу списка, его можно восстановить"
       onConfirm={() => start(async () => {
         if (!archiving) return; setArchiveError("");
-        try { await setTelegramChatArchived(archiving.id, true); toast.success("Чат в архиве"); setArchiving(null); }
+        try { unwrapAction(await setTelegramChatArchived(archiving.id, true)); toast.success("Чат в архиве"); setArchiving(null); }
         catch (e) { setArchiveError(candidateError(e, "Не удалось убрать чат в архив")); }
       })} />
   </>;

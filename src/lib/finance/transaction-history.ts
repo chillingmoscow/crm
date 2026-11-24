@@ -6,9 +6,10 @@ import {
   getCachedPermissions,
 } from "@/lib/supabase/server";
 import { listAuditEvents } from "@/lib/audit/list";
+import { actionResult } from "@/lib/actions/result";
 import { z } from "zod";
 
-export async function loadTransactionHistory(transactionId: string) {
+async function loadTransactionHistoryImpl(transactionId: string) {
   z.string().uuid().parse(transactionId);
   const db = await createClient();
   const accountId = await getCachedActiveAccountId();
@@ -38,4 +39,12 @@ export async function loadTransactionHistory(transactionId: string) {
         .maybeSingle()
     : null;
   return { ...history, canView, timeZone: venue?.data?.timezone ?? undefined };
+}
+
+export type TransactionHistoryData = Awaited<ReturnType<typeof loadTransactionHistoryImpl>>;
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js
+// заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function loadTransactionHistory(transactionId: string) {
+  return actionResult(() => loadTransactionHistoryImpl(transactionId), "Не удалось загрузить историю");
 }

@@ -17,6 +17,8 @@
 --   заведения с official_from в день проведения или позже (по поясу аккаунта)
 --   обрабатывает прошлый месяц M: каждый период без строки месяца либо
 --   проводится (датой дня проведения в M+1, 12:00), либо уходит на разбор.
+--   Более ранние месяцы без строки задним числом не проводятся — на разбор
+--   с причиной missed_month.
 --   Строка payroll_official_months остаётся и после удаления выплаты —
 --   поэтому крон не проводит месяц повторно.
 -- * public.payroll_record_official_payment — ручное проведение (карточка
@@ -555,12 +557,17 @@ end $$;
 -- но от p_now, чтобы пропущенный запуск и тесты считались от заданного момента).
 -- До дня проведения ничего не делает; позже — проводит один раз, датой дня
 -- проведения (крон не работал 5-го, запустился 9-го — выплата всё равно от 5-го).
+-- Проводится только прошлый месяц M. Более ранние месяцы (≥ official_from и
+-- месяца оформления) без строки месяца — оформили задним числом или крон не
+-- работал дольше месяца — задним числом не проводятся, а уходят на разбор:
+-- missed_month (последний месяц и неактивный — со своими причинами).
 -- Порядок разбора: неактивный в зарплате без даты увольнения → inactive
 -- (не больше одной открытой карточки на период); месяц увольнения →
--- final_month; нет счёта → no_bank_account; нет статьи → no_category.
--- Ошибка одного периода откатывает только его: остальные проводятся, а ошибка
--- попадает в элемент заведения (errors: [{employment_id, message}]); строки
--- месяца у такого периода нет, следующий запуск попробует снова. Ошибка всего
+-- final_month; прошлый месяц раньше M → missed_month; нет счёта →
+-- no_bank_account; нет статьи → no_category.
+-- Ошибка одного месяца периода откатывает только его: остальные проводятся, а
+-- ошибка попадает в элемент заведения (errors: [{employment_id, month, message}]);
+-- строки месяца у него нет, следующий запуск попробует снова. Ошибка всего
 -- заведения откатывает только его (error). Обе — ещё и warning в лог базы.
 create or replace function public.payroll_official_run(p_now timestamptz default now())
 returns jsonb
@@ -570,7 +577,7 @@ set search_path = public, pg_catalog
 as $$
 declare
   s record;
-  today date; m date; pay_date timestamptz;
+  today date; m date; mm date; pay_date timestamptz;
   oe public.payroll_official_employments;
   emp public.payroll_employees;
   g record;
@@ -608,51 +615,62 @@ begin
         select e.* from public.payroll_official_employments e
         where e.account_id = s.account_id and e.venue_id = s.venue_id and e.archived_at is null
           and e.starts_on < (m + interval '1 month')::date
-          and (e.ends_on is null or e.ends_on >= m)
-          and not exists (select 1 from public.payroll_official_months om where om.employment_id = e.id and om.month = m)
+          and (e.ends_on is null or e.ends_on >= s.official_from)
         order by e.starts_on, e.id
       loop
-        begin
-          select * into g from private.payroll_official_gross(oe.id, m);
-          if g.kind is null then continue; end if;
-          select * into emp from public.payroll_employees where id = oe.employee_id;
-          st := 'review'; rs := null; pid := null; net := 0;
+        -- Месяцы периода от official_from (и месяца оформления) до M, без строки месяца, по порядку.
+        for mm in
+          select x::date from generate_series(
+            greatest(s.official_from::timestamp, date_trunc('month', oe.starts_on::timestamp)),
+            least(m::timestamp, coalesce(date_trunc('month', oe.ends_on::timestamp), m::timestamp)),
+            interval '1 month') x
+          where not exists (select 1 from public.payroll_official_months om
+                             where om.employment_id = oe.id and om.month = x::date)
+        loop
+          begin
+            select * into g from private.payroll_official_gross(oe.id, mm);
+            if g.kind is null then continue; end if;
+            select * into emp from public.payroll_employees where id = oe.employee_id;
+            st := 'review'; rs := null; pid := null; net := 0;
 
-          if not emp.active and oe.ends_on is null then
-            -- Уже висит карточка «проверьте увольнение» — вторую не создаём.
-            if exists (select 1 from public.payroll_official_months om
-                        where om.employment_id = oe.id and om.status = 'review' and om.reason = 'inactive' and om.month < m) then
-              continue;
+            if not emp.active and oe.ends_on is null then
+              -- Уже висит карточка «проверьте увольнение» — вторую не создаём.
+              if exists (select 1 from public.payroll_official_months om
+                          where om.employment_id = oe.id and om.status = 'review' and om.reason = 'inactive' and om.month < mm) then
+                continue;
+              end if;
+              rs := 'inactive';
+            elsif g.kind = 'final' then
+              rs := 'final_month';
+            elsif mm < m then
+              rs := 'missed_month';
+            elsif not bank_ok then
+              rs := 'no_bank_account';
+            elsif private.payroll_official_category(s.account_id, s.venue_id, emp.id) is null then
+              rs := 'no_category';
+            else
+              net := g.gross - round(g.gross * 0.13, 0);
+              pid := private.payroll_official_post(s.account_id, s.venue_id, null, oe.id, mm, g.gross, net,
+                                                   s.official_bank_account_id, pay_date);
+              st := 'posted';
             end if;
-            rs := 'inactive';
-          elsif g.kind = 'final' then
-            rs := 'final_month';
-          elsif not bank_ok then
-            rs := 'no_bank_account';
-          elsif private.payroll_official_category(s.account_id, s.venue_id, emp.id) is null then
-            rs := 'no_category';
-          else
-            net := g.gross - round(g.gross * 0.13, 0);
-            pid := private.payroll_official_post(s.account_id, s.venue_id, null, oe.id, m, g.gross, net,
-                                                 s.official_bank_account_id, pay_date);
-            st := 'posted';
-          end if;
 
-          insert into public.payroll_official_months(account_id, venue_id, employment_id, employee_id, month,
-            kind, gross, status, reason, payment_id)
-          values (s.account_id, s.venue_id, oe.id, oe.employee_id, m, g.kind, g.gross, st, rs, pid);
-          -- Счётчики — только после успешной записи (переменные не откатываются).
-          if st = 'posted' then
-            posted := posted + 1;
-            total := total + net;
-          else
-            review := review + 1;
-          end if;
-        exception when others then
-          raise warning 'payroll_official_run: account %, venue %, employment %, month %: %',
-            s.account_id, s.venue_id, oe.id, m, sqlerrm;
-          errors := errors || jsonb_build_array(jsonb_build_object('employment_id', oe.id, 'message', sqlerrm));
-        end;
+            insert into public.payroll_official_months(account_id, venue_id, employment_id, employee_id, month,
+              kind, gross, status, reason, payment_id)
+            values (s.account_id, s.venue_id, oe.id, oe.employee_id, mm, g.kind, g.gross, st, rs, pid);
+            -- Счётчики — только после успешной записи (переменные не откатываются).
+            if st = 'posted' then
+              posted := posted + 1;
+              total := total + net;
+            else
+              review := review + 1;
+            end if;
+          exception when others then
+            raise warning 'payroll_official_run: account %, venue %, employment %, month %: %',
+              s.account_id, s.venue_id, oe.id, mm, sqlerrm;
+            errors := errors || jsonb_build_array(jsonb_build_object('employment_id', oe.id, 'month', mm, 'message', sqlerrm));
+          end;
+        end loop;
       end loop;
 
       if posted + review > 0 or jsonb_array_length(errors) > 0 then

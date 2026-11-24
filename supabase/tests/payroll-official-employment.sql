@@ -255,8 +255,8 @@ begin
   perform pg_temp.check(exists(select 1 from public.payroll_official_expected('2026-10-01', '2026-11-30') x
     where x.employee_id = october and x.month = '2026-11-01' and x.kind = 'full' and x.gross = 27500), 'ноябрь с октябрьским оформлением — полный');
 
-  -- Строка месяца: проведено — не ожидается; на разборе с известной суммой — ожидается;
-  -- на разборе без суммы (увольнение) — не ожидается.
+  -- Строка месяца: проведено — не ожидается; на разборе — ожидается при любой
+  -- причине (R14): с известной суммой — суммой, без суммы — «уточняется».
   insert into public.payroll_official_months(account_id, venue_id, employment_id, employee_id, month, kind, gross, status)
   values ((select id from fx where key = 'a'), (select id from fx where key = 'v'), emp_october, october, '2026-11-01', 'full', 27500, 'posted');
   perform pg_temp.check(not exists(select 1 from public.payroll_official_expected('2026-11-01', '2026-11-30') x where x.employee_id = october),
@@ -267,9 +267,21 @@ begin
   update public.payroll_official_months set reason = 'no_category' where employment_id = emp_october;
   perform pg_temp.check(exists(select 1 from public.payroll_official_expected('2026-11-01', '2026-11-30') x where x.employee_id = october),
     'на разборе без статьи — ожидается');
+  update public.payroll_official_months set reason = 'missed_month' where employment_id = emp_october;
+  perform pg_temp.check(exists(select 1 from public.payroll_official_expected('2026-11-01', '2026-11-30') x
+    where x.employee_id = october and x.kind = 'full' and x.gross = 27500),
+    'на разборе как пропущенный месяц — ожидается суммой');
   update public.payroll_official_months set kind = 'final', gross = null, reason = 'final_month' where employment_id = emp_october;
+  perform pg_temp.check(exists(select 1 from public.payroll_official_expected('2026-11-01', '2026-11-30') x
+    where x.employee_id = october and x.kind = 'final' and x.gross is null and x.days_paid is null),
+    'на разборе из-за увольнения — ожидается, сумма уточняется');
+  update public.payroll_official_months set reason = 'inactive' where employment_id = emp_october;
+  perform pg_temp.check(exists(select 1 from public.payroll_official_expected('2026-11-01', '2026-11-30') x
+    where x.employee_id = october and x.kind = 'final' and x.gross is null),
+    'на разборе: неактивный — ожидается, сумма уточняется');
+  update public.payroll_official_months set status = 'resolved' where employment_id = emp_october;
   perform pg_temp.check(not exists(select 1 from public.payroll_official_expected('2026-11-01', '2026-11-30') x where x.employee_id = october),
-    'на разборе из-за увольнения — не ожидается');
+    'разобранный месяц не ожидается');
   update public.payroll_official_months set status = 'skipped', reason = null where employment_id = emp_october;
   perform pg_temp.check(not exists(select 1 from public.payroll_official_expected('2026-11-01', '2026-11-30') x where x.employee_id = october),
     'пропущенный месяц не ожидается');

@@ -150,6 +150,67 @@ begin
   insert into fx values ('nocat', emp);
 end $$;
 
+-- ── 0. Пропущенные месяцы (R13): учёт с октября, первый запуск 5 января ──
+-- Проводится только декабрь; октябрь и ноябрь без строки месяца уходят на
+-- разбор («missed_month»), задним числом ничего не проводится. Проверка
+-- откатывается, остальные разделы идут от чистого состояния.
+do $$
+declare r jsonb; m public.payroll_official_months; n bigint;
+begin
+  begin
+    update public.payroll_settings set official_from = '2026-10-01' where venue_id = pg_temp.fx('v');
+    r := pg_temp.run('2027-01-05 06:00+00');
+    perform pg_temp.check(jsonb_array_length(r) = 1 and (r->0->>'month')::date = '2026-12-01'
+      and (r->0->>'posted')::int = 2 and (r->0->>'review')::int = 9 and (r->0->>'amount')::numeric = 139200
+      and jsonb_array_length(r->0->'errors') = 0, 'пропущенные месяцы — итог: ' || r::text);
+
+    -- Полный: декабрь проведён, октябрь и ноябрь — на разбор суммой.
+    perform pg_temp.check((pg_temp.month_row('full', '2026-12-01')).status = 'posted', 'полный — декабрь проведён');
+    m := pg_temp.month_row('full', '2026-10-01');
+    perform pg_temp.check(m.status = 'review' and m.reason = 'missed_month' and m.kind = 'full' and m.gross = 80000
+      and m.payment_id is null, 'полный — октябрь на разбор: ' || row_to_json(m)::text);
+    m := pg_temp.month_row('full', '2026-11-01');
+    perform pg_temp.check(m.status = 'review' and m.reason = 'missed_month' and m.gross = 80000, 'полный — ноябрь на разбор');
+    -- Павлов с 03.11: ноябрь — первый месяц на разбор, декабрь проведён.
+    m := pg_temp.month_row('pavlov', '2026-11-01');
+    perform pg_temp.check(m.status = 'review' and m.reason = 'missed_month' and m.kind = 'first' and m.gross = 74666.67,
+      'Павлов — ноябрь на разбор: ' || row_to_json(m)::text);
+    perform pg_temp.check((pg_temp.month_row('pavlov', '2026-10-01')).id is null, 'Павлов — октября нет (не оформлен)');
+    perform pg_temp.check((pg_temp.month_row('pavlov', '2026-12-01')).status = 'posted', 'Павлов — декабрь проведён');
+    -- Уволен 20.11: октябрь — пропущенный, ноябрь — последний месяц, декабря нет.
+    perform pg_temp.check((pg_temp.month_row('final', '2026-10-01')).reason = 'missed_month', 'уволенный — октябрь пропущен');
+    m := pg_temp.month_row('final', '2026-11-01');
+    perform pg_temp.check(m.status = 'review' and m.reason = 'final_month' and m.gross is null, 'уволенный — ноябрь последний');
+    perform pg_temp.check((pg_temp.month_row('final', '2026-12-01')).id is null, 'уволенный — декабря нет');
+    -- Неактивный: одна карточка на все месяцы (R6).
+    perform pg_temp.check((select count(*) = 1 from public.payroll_official_months where employment_id = pg_temp.fx('inactive')),
+      'неактивный — одна карточка');
+    perform pg_temp.check((pg_temp.month_row('inactive', '2026-10-01')).reason = 'inactive', 'неактивный — карточка за октябрь');
+    -- Без статьи: прошлые месяцы — пропущенные, декабрь — нет статьи.
+    perform pg_temp.check((pg_temp.month_row('nocat', '2026-10-01')).reason = 'missed_month'
+      and (pg_temp.month_row('nocat', '2026-11-01')).reason = 'missed_month'
+      and (pg_temp.month_row('nocat', '2026-12-01')).reason = 'no_category', 'без статьи — пропущенные и нет статьи');
+    perform pg_temp.check(not exists (select 1 from public.payroll_payments where official_month in ('2026-10-01', '2026-11-01')),
+      'задним числом ничего не проведено');
+
+    -- Пропущенные месяцы остаются в ожидаемой части ведомости (R14).
+    perform pg_temp.act_as(pg_temp.fx('owner'));
+    perform pg_temp.check(exists (select 1 from public.payroll_official_expected('2026-10-01', '2026-10-31') x
+      where x.employee_id = pg_temp.fx('full_emp') and x.month = '2026-10-01' and x.gross = 80000),
+      'пропущенный октябрь — в ожидаемой части');
+
+    -- Второй запуск ничего не создаёт.
+    select count(*) into n from public.payroll_official_months;
+    r := pg_temp.run('2027-01-06 06:00+00');
+    perform pg_temp.check(r = '[]'::jsonb, 'второй запуск — пусто: ' || r::text);
+    perform pg_temp.check((select count(*) from public.payroll_official_months) = n, 'второй запуск — строк не прибавилось');
+    raise exception 'rollback-missed-check';
+  exception when others then
+    if sqlerrm <> 'rollback-missed-check' then raise; end if;
+  end;
+  perform pg_temp.check(not exists (select 1 from public.payroll_official_months), 'проверка пропущенных месяцев откатилась');
+end $$;
+
 -- ── 1. До дня проведения — ничего (день считается по поясу аккаунта) ──
 do $$
 declare r jsonb;

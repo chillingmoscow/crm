@@ -77,7 +77,9 @@ create table public.payroll_official_months (
   kind           text not null check (kind in ('full', 'first', 'final')),
   gross          numeric(15,2) check (gross > 0),
   status         text not null check (status in ('posted', 'review', 'resolved', 'skipped')),
-  reason         text check (reason in ('final_month', 'no_bank_account', 'no_category', 'inactive')),
+  -- missed_month — прошлый месяц без строки (поздно оформили, крон не работал
+  -- дольше месяца): задним числом крон не проводит, только на разбор.
+  reason         text check (reason in ('final_month', 'no_bank_account', 'no_category', 'inactive', 'missed_month')),
   payment_id     uuid,
   resolved_by    uuid references public.profiles(id),
   resolved_at    timestamptz,
@@ -199,8 +201,10 @@ $$;
 -- 4. Ожидаемая официальная часть для ведомости
 -- ────────────────────────────────────────────────────────────
 -- Месяцы ≥ official_from заведения, где период активен, а строки месяца нет
--- или она на разборе с известной суммой (нет счёта / статьи). Управляющий
--- с payroll.view видит всех, сотрудник — только себя (как начисления).
+-- или она на разборе (при любой причине). У строки на разборе вид и
+-- сумма — из неё: последний месяц и неактивный — без суммы («уточняется»),
+-- нет счёта / статьи / пропущенный месяц — с суммой. Управляющий с
+-- payroll.view видит всех, сотрудник — только себя (как начисления).
 -- Без доступа — пусто, без ошибки.
 create or replace function public.payroll_official_expected(p_from date, p_to date)
 returns table(employee_id uuid, employment_id uuid, month date, kind text, gross numeric, days_paid int, days_in_month int)
@@ -218,7 +222,11 @@ as $$
       and s.venue_id = public.get_active_venue_id()
       and s.official_from is not null
   )
-  select oe.employee_id, oe.id, g.m::date, x.kind, x.gross, x.days_paid, x.days_in_month
+  select oe.employee_id, oe.id, g.m::date,
+         coalesce(om.kind, x.kind),
+         case when om.id is null then x.gross else om.gross end,
+         case when coalesce(om.kind, x.kind) = 'final' then null else x.days_paid end,
+         x.days_in_month
   from scope
   join public.payroll_official_employments oe
     on oe.account_id = scope.account_id and oe.venue_id = scope.venue_id and oe.archived_at is null
@@ -229,11 +237,10 @@ as $$
           coalesce(date_trunc('month', oe.ends_on::timestamp), date_trunc('month', p_to::timestamp))),
     interval '1 month') g(m)
   cross join lateral private.payroll_official_gross(oe.id, g.m::date) x
+  left join public.payroll_official_months om
+    on om.employment_id = oe.id and om.month = g.m::date
   where (scope.viewer or oe.employee_id = any ((select private.payroll_own_employee_ids())::uuid[]))
-    and not exists (
-      select 1 from public.payroll_official_months om
-      where om.employment_id = oe.id and om.month = g.m::date
-        and not (om.status = 'review' and om.reason in ('no_bank_account', 'no_category')))
+    and (om.id is null or om.status = 'review')
   order by oe.employee_id, g.m
 $$;
 

@@ -1,4 +1,5 @@
 "use client";
+import { unwrapAction } from "@/lib/actions/result";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
@@ -41,6 +42,7 @@ export function SettlementPanel({
     let live = true;
     const load = () =>
       loadSettlementPanel(venueId, date)
+        .then(unwrapAction)
         .then((d) => {
           if (live) {
             setData(d);
@@ -71,8 +73,8 @@ export function SettlementPanel({
   const request = async () => {
     setBusy(true);
     try {
-      await requestSettlement(venueId, date);
-      setData(await loadSettlementPanel(venueId, date));
+      unwrapAction(await requestSettlement(venueId, date));
+      setData(unwrapAction(await loadSettlementPanel(venueId, date)));
       toast.success("Сверка поступлений запущена");
     } catch (e) {
       toast.error(

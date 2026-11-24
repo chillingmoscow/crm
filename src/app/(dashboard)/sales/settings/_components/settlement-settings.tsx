@@ -1,4 +1,5 @@
 "use client";
+import { unwrapAction } from "@/lib/actions/result";
 import { useEffect, useState } from "react";
 import { Plus, Settings2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -132,23 +133,17 @@ function Form({
           ? { ...personal, payerId: Number(personal.payerId) }
           : null,
       };
-      const saved = await saveSettlementConfiguration({
+      const saved = unwrapAction(await saveSettlementConfiguration({
         venueId: data.venueId,
         version: current?.version ?? 0,
         config: next,
         autoRead: auto,
         reason,
-      });
+      }));
       onSaved(saved);
       toast.success("Правила поступлений сохранены");
     } catch (e) {
-      const message =
-        e instanceof Error ? e.message : "Не удалось сохранить правила";
-      setError(
-        message.includes('"code"')
-          ? "Выберите статьи и счета для всех способов оплаты"
-          : message,
-      );
+      setError(e instanceof Error ? e.message : "Не удалось сохранить правила");
     } finally {
       setBusy(false);
     }
@@ -440,6 +435,7 @@ export function SettlementSettingsSection({ venueId }: { venueId: string }) {
   useEffect(() => {
     let live = true;
     loadSettlementConfiguration(venueId)
+      .then(unwrapAction)
       .then((d) => {
         if (live) setData(d);
       })
@@ -468,6 +464,7 @@ export function SettlementSettingsSection({ venueId }: { venueId: string }) {
             size="sm"
             onClick={() =>
               void loadSettlementConfiguration(venueId)
+                .then(unwrapAction)
                 .then((d) => {
                   setData(d);
                   setOpen(true);

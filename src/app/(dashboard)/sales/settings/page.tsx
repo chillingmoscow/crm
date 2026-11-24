@@ -45,7 +45,7 @@ export default async function SalesSettingsPage({
     venueId = typeof active.data === "string" ? active.data : null;
   }
   const configuration = venueId
-    ? await loadSalesConfiguration(venueId).catch(() => null)
+    ? await loadSalesConfiguration(venueId).then((r) => (r.ok ? r.data : null))
     : null;
   if (!configuration)
     return (

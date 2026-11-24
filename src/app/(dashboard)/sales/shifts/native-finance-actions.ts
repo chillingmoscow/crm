@@ -1,5 +1,6 @@
 "use server";
 import { z } from "zod";
+import { actionResult } from "@/lib/actions/result";
 import { createClient, getCachedUser, getCachedActiveAccountId, getCachedPermissions } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { validDate, businessDate, addDays } from "@/lib/sales/time";
@@ -48,7 +49,7 @@ async function scope(venueId: string) {
         throw new Error("Не удалось проверить доступ к финансовым правилам");
     return active.data === venueId && owner.data?.owner_id === user.id ? { db, accountId } : null;
 }
-export async function loadFinanceExecutionConfiguration(venueId: string): Promise<FinanceExecutionConfiguration | null> {
+async function loadFinanceExecutionConfigurationImpl(venueId: string): Promise<FinanceExecutionConfiguration | null> {
     const s = await scope(venueId);
     if (!s)
         return null;
@@ -75,7 +76,7 @@ export async function loadFinanceExecutionConfiguration(venueId: string): Promis
     }
     throw new Error("Не удалось прочитать полную историю финансовых правил");
 }
-export async function saveFinanceExecutionRules(input: {
+async function saveFinanceExecutionRulesImpl(input: {
     venueId: string;
     version: number;
     enabled: boolean;
@@ -92,13 +93,14 @@ export async function saveFinanceExecutionRules(input: {
     const r = await s.db.rpc("finance_save_execution_rules", { p_venue: x.venueId, p_version: x.version, p_enabled: x.enabled, p_from: x.from, p_settlement: x.settlement, p_movements: x.movements, p_legacy_stopped: x.legacyStopped, p_reason: x.reason });
     if (r.error)
         throw new Error(r.error.message);
-    return loadFinanceExecutionConfiguration(x.venueId);
+    return loadFinanceExecutionConfigurationImpl(x.venueId);
 }
-export async function loadFinanceExecutionDay(venueId: string, date: string, before?: string): Promise<{
+export type FinanceExecutionDay = {
     jobs: Job[];
     runs: FinanceExecutionRun[];
     more: boolean;
-} | null> {
+};
+async function loadFinanceExecutionDayImpl(venueId: string, date: string, before?: string): Promise<FinanceExecutionDay | null> {
     if (!validDate(date))
         throw new Error("Выберите рабочий день");
     const s = await scope(venueId);
@@ -122,7 +124,7 @@ export async function loadFinanceExecutionDay(venueId: string, date: string, bef
         return null;
     return { jobs: (jobs.data ?? []) as Job[], runs: (runs.data ?? []).slice(0, 20), more: (runs.data?.length ?? 0) > 20 };
 }
-export async function retryNativeFinance(venueId: string, date: string, kind: NativeFinanceKind) {
+async function retryNativeFinanceImpl(venueId: string, date: string, kind: NativeFinanceKind) {
     const s = await scope(venueId);
     if (!s)
         throw new Error("Повтор запускает владелец");
@@ -132,4 +134,18 @@ export async function retryNativeFinance(venueId: string, date: string, kind: Na
     const r = await s.db.rpc("finance_retry_execution", { p_venue: venueId, p_date: date, p_kind: kind });
     if (r.error)
         throw new Error(r.error.message);
+}
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function loadFinanceExecutionConfiguration(venueId: string) {
+    return actionResult(() => loadFinanceExecutionConfigurationImpl(venueId), "Не удалось загрузить режим проведения");
+}
+export async function saveFinanceExecutionRules(input: Parameters<typeof saveFinanceExecutionRulesImpl>[0]) {
+    return actionResult(() => saveFinanceExecutionRulesImpl(input), "Не удалось сохранить режим проведения");
+}
+export async function loadFinanceExecutionDay(venueId: string, date: string, before?: string) {
+    return actionResult(() => loadFinanceExecutionDayImpl(venueId, date, before), "Не удалось загрузить проведение операций");
+}
+export async function retryNativeFinance(venueId: string, date: string, kind: NativeFinanceKind) {
+    return actionResult(() => retryNativeFinanceImpl(venueId, date, kind), "Не удалось повторить проведение");
 }

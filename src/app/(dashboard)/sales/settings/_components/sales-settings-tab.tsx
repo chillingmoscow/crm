@@ -1,4 +1,5 @@
 "use client";
+import { unwrapAction } from "@/lib/actions/result";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Loader2, RefreshCw, Settings2 } from "lucide-react";
@@ -46,6 +47,7 @@ export function SalesSettingsTab({ initial }: { initial: SalesConfiguration }) {
     const timer = setInterval(() => {
       if (document.visibilityState === "visible")
         void loadSalesConfiguration(initial.venueId)
+          .then(unwrapAction)
           .then(setData)
           .catch(() => {});
     }, 10000);
@@ -56,16 +58,16 @@ export function SalesSettingsTab({ initial }: { initial: SalesConfiguration }) {
     setBusy(true);
     setRecalcError(null);
     try {
-      const n = await recalculateSalesHistory({
+      const n = unwrapAction(await recalculateSalesHistory({
         venueId: data.venueId,
         from,
         to,
-      });
+      }));
       toast.success(
         `На пересчёт ${pluralRu(n, "поставлен", "поставлено", "поставлено")} ${countRu(n, "день", "дня", "дней")}`,
       );
       setConfirming(false);
-      setData(await loadSalesConfiguration(data.venueId));
+      setData(unwrapAction(await loadSalesConfiguration(data.venueId)));
     } catch (e) {
       setRecalcError(
         e instanceof Error ? e.message : "Не удалось запустить пересчёт",
@@ -203,6 +205,7 @@ export function SalesSettingsTab({ initial }: { initial: SalesConfiguration }) {
           onSaved={() => {
             setOpen(false);
             void loadSalesConfiguration(data.venueId)
+              .then(unwrapAction)
               .then(setData)
               .catch((e) => toast.error(e.message));
           }}

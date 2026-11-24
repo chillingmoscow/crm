@@ -6,6 +6,7 @@ import { Field } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { formatDayMonthTime } from "@/lib/format/date";
+import { unwrapAction } from "@/lib/actions/result";
 import { dayCommentCommand, loadDayDiscussion } from "../day-actions";
 import type { DayComment, DayDiscussion } from "@/lib/sales/day-context";
 
@@ -41,6 +42,7 @@ function Discussion({ venueId, date }: { venueId: string; date: string }) {
     request.current = null;
     const refresh = () =>
       loadDayDiscussion(venueId, date)
+        .then(unwrapAction)
         .then((d) => {
           if (active) {
             setData(d);
@@ -90,7 +92,7 @@ function Discussion({ venueId, date }: { venueId: string; date: string }) {
               version: comment?.version,
               ...(action === "edit" ? { body: draft } : {}),
             },
-      );
+      ).then(unwrapAction);
       if (live.current) {
         setData(result);
         setDeleting(null);

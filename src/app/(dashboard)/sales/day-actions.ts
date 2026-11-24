@@ -6,6 +6,7 @@ import {
   getCachedActiveAccountId,
 } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { actionResult } from "@/lib/actions/result";
 import { validDate } from "@/lib/sales/time";
 import {
   nativeDayMembers,
@@ -53,7 +54,7 @@ export async function loadDayArchive(
   if (r.error) throw new Error("Не удалось загрузить архив смены");
   return r.data?.[0] ?? null;
 }
-export async function loadDayTeam(
+async function loadDayTeamImpl(
   venueId: string,
   date: string,
   source: "native" | "archive",
@@ -161,7 +162,7 @@ export async function loadDayTeam(
     ),
   };
 }
-export async function loadDayDiscussion(
+async function loadDayDiscussionImpl(
   venueId: string,
   date: string,
 ): Promise<DayDiscussion> {
@@ -220,7 +221,7 @@ export async function loadDayDiscussion(
     history,
   };
 }
-export async function dayCommentCommand(
+async function dayCommentCommandImpl(
   venueId: string,
   date: string,
   action: "create" | "edit" | "delete" | "restore",
@@ -249,5 +250,36 @@ export async function dayCommentCommand(
     p_input: payload,
   });
   if (r.error) throw new Error(r.error.message);
-  return loadDayDiscussion(venueId, date);
+  return loadDayDiscussionImpl(venueId, date);
+}
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js
+// заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function loadDayTeam(
+  venueId: string,
+  date: string,
+  source: "native" | "archive",
+  archiveId?: string,
+) {
+  return actionResult(
+    () => loadDayTeamImpl(venueId, date, source, archiveId),
+    "Не удалось загрузить команду",
+  );
+}
+export async function loadDayDiscussion(venueId: string, date: string) {
+  return actionResult(
+    () => loadDayDiscussionImpl(venueId, date),
+    "Не удалось загрузить комментарии",
+  );
+}
+export async function dayCommentCommand(
+  venueId: string,
+  date: string,
+  action: "create" | "edit" | "delete" | "restore",
+  input: { id?: string; body?: string; request_key?: string; version?: number },
+) {
+  return actionResult(
+    () => dayCommentCommandImpl(venueId, date, action, input),
+    "Не удалось сохранить комментарий",
+  );
 }

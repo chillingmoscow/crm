@@ -4,6 +4,7 @@ import {
   getCachedUser,
   getCachedPermissionChecker,
 } from "@/lib/supabase/server";
+import { unwrapAction } from "@/lib/actions/result";
 import { loadStatistics } from "./actions";
 import { StatisticsClient } from "./statistics-client";
 import { SalesNoAccess } from "../_components/sales-no-access";
@@ -14,6 +15,6 @@ export default async function SalesStatisticsPage() {
   if (!(await getCachedUser())) redirect("/login");
   if (!(await getCachedPermissionChecker())("sales.view_shifts"))
     return <SalesNoAccess page="Статистика" />;
-  const initial = await loadStatistics();
+  const initial = unwrapAction(await loadStatistics());
   return <StatisticsClient key={initial.venueId} initial={initial} />;
 }

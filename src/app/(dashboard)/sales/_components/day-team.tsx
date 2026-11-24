@@ -13,6 +13,7 @@ import {
   type DayMember,
 } from "@/lib/sales/day-context";
 import type { AdditionalKind } from "@/lib/sales/additional";
+import { unwrapAction } from "@/lib/actions/result";
 import { loadDayTeam } from "../day-actions";
 
 export function DayTeamList({
@@ -194,6 +195,7 @@ export function DayTeamPanel({
     setData(null);
     setError("");
     void loadDayTeam(venueId, date, source, archiveId)
+      .then(unwrapAction)
       .then((d) => live && setData(d))
       .catch(
         (e) =>

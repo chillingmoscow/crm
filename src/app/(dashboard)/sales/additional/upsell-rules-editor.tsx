@@ -24,6 +24,7 @@ import {
   type UpsellPickerItem,
   type UpsellPrefill,
 } from "@/lib/sales/upsell-prefill";
+import { unwrapAction } from "@/lib/actions/result";
 import { saveUpsellRules, type AdditionalData, type UpsellDepartment } from "./actions";
 
 export const TARGET_LABEL: Record<UpsellTarget, string> = {
@@ -244,7 +245,7 @@ export function UpsellRulesEditor({
     }
     setBusy(true);
     try {
-      const next = await saveUpsellRules({
+      const next = unwrapAction(await saveUpsellRules({
         venueId: data.venueId,
         departmentId: dep.id,
         version: initial.version,
@@ -257,7 +258,7 @@ export function UpsellRulesEditor({
           rate: Math.round((l.rate as number) * 100) / 100,
         })),
         reason: reason.trim(),
-      });
+      }));
       onSaved(next);
       toast.success(`Новая версия правил «${dep.name}» сохранена`);
       onClose();

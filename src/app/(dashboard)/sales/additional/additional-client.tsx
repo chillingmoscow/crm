@@ -70,6 +70,7 @@ import { formatDateCell, formatDayMonth, formatDayMonthTime } from "@/lib/format
 import { countRu } from "@/lib/format/plural";
 import { DayTeamPanel } from "../_components/day-team";
 import { DayDiscussionPanel } from "../_components/day-discussion";
+import { unwrapAction } from "@/lib/actions/result";
 import {
   loadAdditional,
   requestAdditional,
@@ -206,14 +207,16 @@ function Detail({
   picker: PickerByKey;
   onClose: () => void;
 }) {
-  const [history, setHistory] = useState<Awaited<
-      ReturnType<typeof loadAdditionalHistory>
-    > | null>(null),
+  const [history, setHistory] = useState<
+      | (Awaited<ReturnType<typeof loadAdditionalHistory>> & { ok: true })["data"]
+      | null
+    >(null),
     [error, setError] = useState(false);
   useEffect(() => {
     let active = true;
     if (row.native)
       void loadAdditionalHistory(data.venueId, row.id)
+        .then(unwrapAction)
         .then((r) => active && setHistory(r))
         .catch(() => active && setError(true));
     return () => {
@@ -651,8 +654,8 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
   async function refresh() {
     setBusy(true);
     try {
-      await requestAdditional(month, data.venueId);
-      setData(await loadAdditional(data.venueId));
+      unwrapAction(await requestAdditional(month, data.venueId));
+      setData(unwrapAction(await loadAdditional(data.venueId)));
       setSource("native");
       toast.success("Отчёты запрошены, они появятся автоматически");
     } catch (e) {
@@ -677,6 +680,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
     const timer = setInterval(() => {
       if (document.visibilityState !== "visible") return;
       void loadAdditional(initial.venueId)
+        .then(unwrapAction)
         .then((d) => {
           if (active) setData(d);
         })
@@ -691,7 +695,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
     if (!tab) return;
     setExporting(true);
     try {
-      const snapshot = await exportAdditional(data.venueId);
+      const snapshot = unwrapAction(await exportAdditional(data.venueId));
       const fresh = departmentRows(snapshot, tab.id, source);
       const byDate = new Map(fresh.map((r) => [r.date, r]));
       const visible = table.getVisibleLeafColumns();

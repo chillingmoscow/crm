@@ -126,6 +126,8 @@ export type Adjustment = {
   created_by?: string | null;
   origin?: string;
   external_state?: "not_required" | "pending" | "done" | "review";
+  /** Возврат бонусов Quick Resto, поставленный при удалении записи и ещё не законченный. */
+  bonus_return?: "pending" | "review";
   id: string;
   employee_id: string;
   business_date: string;

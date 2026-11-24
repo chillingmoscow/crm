@@ -276,6 +276,24 @@ async function loadPayrollData(
     PayrollData,
     keyof typeof tables
   >;
+  if (result.adjustments.length) {
+    // Незаконченные возвраты бонусов, поставленные при удалении записи. Очередь
+    // бонусных операций по RLS видна только настройщикам, а статус записи нужен
+    // всем, кто её видит: читаем сервером только состояние по записям заведения.
+    const returns = await s.admin
+      .from<{ adjustment_id: string; state: string }[]>("payroll_bonus_operations")
+      .select("adjustment_id,state")
+      .eq("account_id", s.accountId)
+      .eq("venue_id", s.venueId)
+      .eq("operation", "reverse")
+      .in("state", ["pending", "reading", "sending", "review"]);
+    if (returns.error) throw new Error(returns.error.message);
+    const state = new Map((returns.data ?? []).map((r) => [r.adjustment_id, r.state]));
+    for (const adjustment of result.adjustments) {
+      const current = state.get(adjustment.id);
+      if (current) adjustment.bonus_return = current === "review" ? "review" : "pending";
+    }
+  }
   if (manager && single) {
     // Выплаты сотрудника: только те, что закрывают его долг.
     const ids = [...new Set(result.allocations.map((a) => a.payment_id))];

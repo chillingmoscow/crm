@@ -55,7 +55,7 @@ import { runWithConcurrency } from "@/lib/run-with-concurrency";
 import { zonedParts } from "@/lib/sales/time";
 import { formatQuantityAmount, signedAmountClass } from "@/lib/format/amount";
 import { Money, formatRub } from "@/components/shared/money";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { unwrapAction } from "@/lib/actions/result";
 import style from "./payroll-journal.module.css";
 import formStyle from "./payroll-payment-form.module.css";
@@ -93,26 +93,32 @@ const labels = {
   employee: "Сотрудник",
   kind: "Тип",
   reason: "Основание",
+  status: "Статус",
   amount: "Сумма",
 };
 /** Бонусы Quick Resto — баллы, не рубли: «+150 б.», «−20 б.». */
 const bonusPoints = (n: number, signed = true) =>
   `${signed ? (n > 0 ? "+" : n < 0 ? "−" : "") : n < 0 ? "−" : ""}${formatQuantityAmount(Math.abs(n), 2)} б.`;
 const dateLabel = (d: string) => d.slice(0, 10).split("-").reverse().join(".");
-const statusLabel = (r: Adjustment) =>
+/** Статус записи в журнале: куда она ушла — в зарплату, в бонусы Quick Resto — и что с ней сейчас. */
+const entryStatus = (r: Adjustment): { label: string; tone: StatusTone } =>
   r.deleted_at
-    ? "Удалено"
-    : r.medium === "bonus"
-      ? r.external_state === "done"
-        ? "Учтено в бонусах"
-        : r.origin === "lateness" && r.external_state === "review"
-          ? "Нужен бонусный баланс"
-          : "Рассчитано · бонусы"
-      : r.kind === "warning"
-        ? "Учтено"
-        : r.approved
-          ? "Учтено в зарплате"
-          : "Прежняя запись";
+    ? { label: "Удалено", tone: "neutral" }
+    : r.bonus_return === "review"
+      ? { label: "Сверка возврата", tone: "danger" }
+      : r.bonus_return
+        ? { label: "Возвращаем бонусы", tone: "warning" }
+        : r.medium === "bonus"
+          ? r.external_state === "done"
+            ? { label: "Учтено в бонусах", tone: "success" }
+            : r.origin === "lateness" && r.external_state === "review"
+              ? { label: "Нужен бонусный баланс", tone: "warning" }
+              : { label: "Ждёт Quick Resto", tone: "info" }
+          : r.kind === "warning"
+            ? { label: "Учтено", tone: "neutral" }
+            : r.approved
+              ? { label: "Учтено в зарплате", tone: "success" }
+              : { label: "Прежняя запись", tone: "neutral" };
 /** Сумма записи со знаком; копейки — только в карточке записи (`fraction`). */
 const entryAmount = (r: Adjustment, fraction = false): ReactNode => {
   if (r.kind === "warning") return <Money value={null} />;
@@ -308,7 +314,7 @@ export function PayrollJournal({
               : id === "kind"
                 ? (kindLabels[r.kind] ?? r.kind)
                 : id === "status"
-                  ? statusLabel(r)
+                  ? entryStatus(r).label
                   : r[id as "amount" | "reason"],
         cell: ({ row }) => {
           const r = row.original;
@@ -341,7 +347,11 @@ export function PayrollJournal({
             ) : (
               entryAmount(r)
             );
-          if (r.deleted_at) return <span className="flex min-w-0 items-center gap-2"><span className="line-clamp-2 min-w-0 text-muted-foreground line-through" data-tip={r.reason}>{r.reason}</span><StatusBadge className="shrink-0">Удалено</StatusBadge></span>;
+          if (id === "status") {
+            const status = entryStatus(r);
+            return <StatusBadge tone={status.tone} className="whitespace-nowrap">{status.label}</StatusBadge>;
+          }
+          if (r.deleted_at) return <span className="line-clamp-2 min-w-0 text-muted-foreground line-through" data-tip={r.reason}>{r.reason}</span>;
           return <span className="line-clamp-2" data-tip={r.reason}>{r.reason}</span>;
         },
       })),
@@ -483,7 +493,7 @@ export function PayrollJournal({
         status={selected && (selected.deleted_at || selectedPaid || detail?.notification || bonusReturn) ? <span className="flex flex-wrap items-center justify-end gap-2">
           {selected.deleted_at && <StatusBadge>Удалено</StatusBadge>}
           {bonusReturn && <span className="inline-flex" data-tip={bonusReturn.message ?? undefined}>
-            <StatusBadge tone="warning">{bonusReturn.state === "review" ? "Возврат бонусов: нужна сверка" : "Возвращаем бонусы"}</StatusBadge>
+            <StatusBadge tone="warning">{bonusReturn.state === "review" ? "Сверка возврата" : "Возвращаем бонусы"}</StatusBadge>
           </span>}
           {selectedPaid && <StatusBadge tone="success">Выплачена</StatusBadge>}
           {!selected.deleted_at && detail?.notification && <span

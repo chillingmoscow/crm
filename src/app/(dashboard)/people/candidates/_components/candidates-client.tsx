@@ -51,6 +51,7 @@ import { usePeopleOverview } from "@/components/people/people-overview";
 import { PeopleListHeader } from "@/components/people/people-list-header";
 import type { CandidateStatusUpdate } from "./candidate-status-cell";
 import { CandidateFilterChip } from "./candidate-filter-chip";
+import { unwrapAction } from "@/lib/actions/result";
 
 const sortableColumns = new Set<string>(CANDIDATE_SORT_FIELDS);
 const isControlColumn = (id: string) => id === "select";
@@ -159,6 +160,7 @@ export function CandidatesClient({
     setLoading(true);
     setError("");
     listCandidates({ ...filters, page: st.pagination.pageIndex, pageSize })
+      .then(unwrapAction)
       .then((next) => {
         if (cancelled) return;
         loaded.current = JSON.stringify([filters, next.page, pageSize, reload]);
@@ -532,8 +534,8 @@ export function CandidatesClient({
             name={deleting?.length === 1 ? deleting[0].full_name : undefined}
             onConfirm={async () => {
               if (!deleting?.length) return;
-              const count = await deleteCandidates(
-                deleting.map((row) => row.id),
+              const count = unwrapAction(
+                await deleteCandidates(deleting.map((row) => row.id)),
               );
               const deletedIds = new Set(deleting.map((row) => row.id));
               setList((current) => ({

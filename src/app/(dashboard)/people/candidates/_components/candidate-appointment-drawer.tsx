@@ -11,6 +11,7 @@ import { appointmentError } from "@/lib/candidates/errors";
 import type { Appointment, CandidateStatus, AppointmentOptions } from "@/lib/candidates/types";
 import { saveCandidateAppointment } from "../actions";
 import { Field, FieldSelect, localTimeToISO, wallTime, safeLink } from "./fields";
+import { unwrapAction } from "@/lib/actions/result";
 
 type Draft = { source: string; place: string; link: string; date: string; time: string; interviewer: string };
 export function CandidateAppointmentDrawer({ candidateId, appointment: a, initialKind, canScheduleTrial, options, onClose, onSaved,
@@ -40,12 +41,12 @@ export function CandidateAppointmentDrawer({ candidateId, appointment: a, initia
   const invalidPlace = kind === "trial" ? !venue : !venue && !(form.place === "__link__" && safeLink(form.link.trim())) && !(form.place === "__legacy__" && a?.location);
   const save = () => start(async () => {
     try {
-      const saved = await saveCandidateAppointment(candidateId, {
+      const saved = unwrapAction(await saveCandidateAppointment(candidateId, {
         ...(a ? { id: a.id, revision: a.revision } : {}), kind, venue_id: venue?.id ?? null,
         appointment_date: form.date, starts_at: time ? localTimeToISO(`${form.date}T${time}`, timezone) : null,
         timezone, location: venue?.name ?? (form.place === "__link__" ? form.link.trim() : a?.location ?? ""),
         interviewer_id: kind === "interview" ? form.interviewer || null : null,
-      });
+      }));
       toast.success(kind === "trial" ? a ? "Стажировка изменена" : "Стажировка назначена" : a ? "Собеседование изменено" : "Собеседование назначено");
       await onSaved({ ...saved, id: candidateId });
     } catch (error) { toast.error(appointmentError(error, kind)); }

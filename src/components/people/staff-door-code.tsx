@@ -11,6 +11,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { getCandidateDoorCode } from "@/app/(dashboard)/people/candidates/actions";
+import { unwrapAction } from "@/lib/actions/result";
 /** Код офисного замка сотрудника: кнопка открывает диалог. Один вид в карточках
  *  сотрудника и кандидата. */
 export function StaffDoorCode({ userId }: { userId: string }) {
@@ -30,7 +31,7 @@ export function StaffDoorCode({ userId }: { userId: string }) {
         onClick={() =>
           start(async () => {
             try {
-              const value = await getCandidateDoorCode(userId);
+              const value = unwrapAction(await getCandidateDoorCode(userId));
               if (value) setCode(value);
               else toast.error("Код замка не найден");
             } catch {

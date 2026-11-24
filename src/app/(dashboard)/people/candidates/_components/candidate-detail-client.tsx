@@ -60,6 +60,7 @@ import { dateLabel, safeLink } from "./fields";
 import { socialLink } from "@/lib/candidates/social-link";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { ProfilePageFrame } from "@/components/shared/page-frame";
+import { unwrapAction } from "@/lib/actions/result";
 export function CandidateDetailClient({
   initial,
   initialOptions,
@@ -88,8 +89,8 @@ export function CandidateDetailClient({
     canEdit = permissions.manage;
   const refresh = async () => {
     const [next, ctx] = await Promise.all([
-      getCandidate(c.id),
-      getCandidateOptions(),
+      getCandidate(c.id).then(unwrapAction),
+      getCandidateOptions().then(unwrapAction),
     ]);
     setData(next);
     setOptions(ctx);
@@ -279,7 +280,7 @@ export function CandidateDetailClient({
                       const form = new FormData();
                       form.set("file", file);
                       action(
-                        () => uploadCandidateFile(c.id, form),
+                        async () => unwrapAction(await uploadCandidateFile(c.id, form)),
                         "Файл добавлен",
                       );
                     }
@@ -341,7 +342,7 @@ export function CandidateDetailClient({
                               onClick={() =>
                                 start(async () => {
                                   try {
-                                    const outcome = await retryCandidateFile(c.id, f.id);
+                                    const outcome = unwrapAction(await retryCandidateFile(c.id, f.id));
                                     await refresh();
                                     if (outcome === "ready") toast.success("Файл перенесён");
                                     else if (outcome === "missing") toast.error("Файл удалён из исходного хранилища");
@@ -434,7 +435,7 @@ export function CandidateDetailClient({
               : undefined
         }
         onConfirm={async () => {
-          await deleteCandidate(c.id);
+          unwrapAction(await deleteCandidate(c.id));
           window.dispatchEvent(new Event("candidates:changed"));
           toast.success("Анкета удалена");
           router.push("/people/candidates");
@@ -461,7 +462,7 @@ export function CandidateDetailClient({
           const file = removingFile;
           start(async () => {
             try {
-              await removeCandidateFile(c.id, file.id);
+              unwrapAction(await removeCandidateFile(c.id, file.id));
               await refresh();
               setRemovingFile(null);
               toast.success("Файл убран");

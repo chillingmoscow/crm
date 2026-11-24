@@ -15,6 +15,7 @@ import { saveCandidateAppointmentResult } from "../actions";
 import { dateLabel, safeLink, wallTime, Field, FieldSelect } from "./fields";
 
 import { PUNCTUALITY_LABELS, SMILE_LABELS, APPEARANCE_OPTIONS, COMMUNICATION_OPTIONS, feedbackOptions } from "@/lib/candidates/interview-feedback";
+import { unwrapAction } from "@/lib/actions/result";
 
 const resultOptions = ["passed", "no_show", "rejected", "canceled"] as const;
 function initialReport(a: Appointment) {
@@ -55,7 +56,7 @@ export function CandidateAppointmentDetails({ candidateId, appointment: a, candi
   const url = a.location ? safeLink(a.location) : null;
   const save = () => start(async () => {
     try {
-      await saveCandidateAppointmentResult(candidateId, { id: a.id, revision: a.revision, ...payload });
+      unwrapAction(await saveCandidateAppointmentResult(candidateId, { id: a.id, revision: a.revision, ...payload }));
       await onSaved();
       toast.success(a.kind === "trial" ? "Результат стажировки сохранён" : "Результат собеседования сохранён");
     } catch (error) { toast.error(appointmentError(error, a.kind)); }

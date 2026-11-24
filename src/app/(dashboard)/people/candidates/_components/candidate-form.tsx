@@ -10,6 +10,7 @@ import { DrawerSection } from "@/components/ui/drawer-blocks";
 import type { Candidate } from "@/lib/candidates/types";
 import { updateCandidate } from "../actions";
 import { Field } from "./fields";
+import { unwrapAction } from "@/lib/actions/result";
 const fields = [
   ["full_name", "ФИО"],
   ["phone", "Телефон"],
@@ -54,10 +55,12 @@ export function CandidateForm({
           age: values.age ? Number(values.age) : null,
           social,
         };
-        const r = await updateCandidate(candidate.id, {
-          ...input,
-          revision: candidate.revision,
-        });
+        const r = unwrapAction(
+          await updateCandidate(candidate.id, {
+            ...input,
+            revision: candidate.revision,
+          }),
+        );
         toast.success("Анкета сохранена");
         onSaved(r.id);
         onClose();

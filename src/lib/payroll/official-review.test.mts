@@ -39,8 +39,12 @@ test("подписи карточки по причине", () => {
     "Нет статьи расхода для официальной выплаты: Павлов",
   );
   assert.equal(officialReviewCopy({ ...base, reason: "inactive" }, today).title, "Проверьте официальное увольнение: Павлов");
+  assert.deepEqual(officialReviewCopy({ ...base, month: "2026-10-01", reason: "missed_month" }, "2027-01-05"), {
+    title: "Официальная часть не проведена: Павлов, октябрь 2026",
+    hint: "Проверьте, выплатила ли бухгалтерия, и проведите выплату или пропустите месяц.",
+  });
   // Длинных тире в текстах интерфейса нет.
-  for (const reason of ["final_month", "no_bank_account", "no_category", "inactive"] as const) {
+  for (const reason of ["final_month", "no_bank_account", "no_category", "inactive", "missed_month"] as const) {
     const copy = officialReviewCopy({ ...base, reason }, today);
     assert.ok(!copy.title.includes("—") && !copy.hint.includes("—"), reason);
   }
@@ -48,6 +52,7 @@ test("подписи карточки по причине", () => {
 
 test("причина из базы проверяется", () => {
   assert.ok(isOfficialReviewReason("inactive"));
+  assert.ok(isOfficialReviewReason("missed_month"));
   assert.ok(!isOfficialReviewReason("other"));
   assert.ok(!isOfficialReviewReason(null));
 });
@@ -68,7 +73,7 @@ test("дата по умолчанию: день проведения, если 
 
 test("начальные значения: оклад известен — на руки досчитано, счёт из настроек", () => {
   const draft = initialOfficialDraft(
-    { gross: 74666.67, month: "2026-11-01" },
+    { gross: 74666.67, month: "2026-11-01", reason: "no_category" },
     { payDay: 5, bankAccountId: "chk-2" },
     banks,
     "2026-12-09",
@@ -82,18 +87,35 @@ test("начальные значения: оклад известен — на 
   });
 });
 
-test("начальные значения: окончательный расчёт пустой; счёт из настроек не расчётный — первый расчётный", () => {
+test("начальные значения: окончательный расчёт пустой; без подходящего счёта в настройках поле счёта пустое", () => {
   const draft = initialOfficialDraft(
-    { gross: null, month: "2026-11-01" },
+    { gross: null, month: "2026-11-01", reason: "final_month" },
     { payDay: 5, bankAccountId: "cash" },
     banks,
     "2026-12-09",
   );
   assert.equal(draft.net, null);
   assert.equal(draft.gross, null);
-  assert.equal(draft.bank_account_id, "chk-1");
+  // Счёт из настроек не расчётный — первый расчётный не подставляется.
+  assert.equal(draft.bank_account_id, "");
+  const settingsNone = { payDay: 5, bankAccountId: null };
   assert.equal(
-    initialOfficialDraft({ gross: null, month: "2026-11-01" }, { payDay: 5, bankAccountId: null }, [], "2026-12-09")
+    initialOfficialDraft({ gross: 80000, month: "2026-11-01", reason: "no_bank_account" }, settingsNone, banks, "2026-12-09")
+      .bank_account_id,
+    "",
+  );
+  // Карточка «нет счёта» начинается с пустого счёта, даже если его потом выбрали в настройках.
+  assert.equal(
+    initialOfficialDraft(
+      { gross: 80000, month: "2026-11-01", reason: "no_bank_account" },
+      { payDay: 5, bankAccountId: "chk-2" },
+      banks,
+      "2026-12-09",
+    ).bank_account_id,
+    "",
+  );
+  assert.equal(
+    initialOfficialDraft({ gross: null, month: "2026-11-01", reason: "inactive" }, settingsNone, [], "2026-12-09")
       .bank_account_id,
     "",
   );

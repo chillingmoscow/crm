@@ -3,10 +3,10 @@
 // карточки: подписи по причине, дата и суммы по умолчанию, данные проведения.
 // Последнее слово за базой (payroll_record_official_payment).
 import { officialGrossFromNet, officialNet } from "./official.ts";
-import { officialAmountsError, officialBankFor } from "./official-payment.ts";
+import { checkingBanks, officialAmountsError } from "./official-payment.ts";
 import type { PayrollData } from "./types.ts";
 
-export type OfficialReviewReason = "final_month" | "no_bank_account" | "no_category" | "inactive";
+export type OfficialReviewReason = "final_month" | "no_bank_account" | "no_category" | "inactive" | "missed_month";
 
 /** Карточка официальной части: строка месяца на разборе и имя сотрудника. */
 export type OfficialReviewItem = {
@@ -42,8 +42,10 @@ export function officialMonthName(month: string, today: string): string {
   return month.slice(0, 4) === today.slice(0, 4) ? name : `${name} ${month.slice(0, 4)}`;
 }
 
+const REASONS: readonly OfficialReviewReason[] = ["final_month", "no_bank_account", "no_category", "inactive", "missed_month"];
+
 export const isOfficialReviewReason = (value: unknown): value is OfficialReviewReason =>
-  value === "final_month" || value === "no_bank_account" || value === "no_category" || value === "inactive";
+  REASONS.includes(value as OfficialReviewReason);
 
 /** Заголовок карточки и пояснение под ним — по причине, по которой месяц не проведён. */
 export function officialReviewCopy(item: Pick<OfficialReviewItem, "reason" | "employee_name" | "month">, today: string) {
@@ -69,6 +71,11 @@ export function officialReviewCopy(item: Pick<OfficialReviewItem, "reason" | "em
       return {
         title: `Проверьте официальное увольнение: ${name}`,
         hint: `${month}. Сотрудник уволен в приложении, а дата официального увольнения не указана. Поставьте её в карточке сотрудника («Уволить официально») или проведите окончательный расчёт здесь`,
+      };
+    case "missed_month":
+      return {
+        title: `Официальная часть не проведена: ${name}, ${month}`,
+        hint: "Проверьте, выплатила ли бухгалтерия, и проведите выплату или пропустите месяц.",
       };
   }
 }
@@ -104,8 +111,22 @@ export type OfficialReviewDraft = {
   date: string;
 };
 
+/**
+ * Счёт карточки по умолчанию — расчётный счёт из настроек заведения. Если
+ * его нет (карточка «нет счёта») или он больше не расчётный, поле пустое:
+ * счёт выбирает человек, первый попавшийся не подставляется.
+ */
+export function officialReviewBank(
+  reason: OfficialReviewReason,
+  settings: OfficialReviewSettings,
+  banks: PayrollData["banks"],
+): string {
+  if (reason === "no_bank_account" || !settings.bankAccountId) return "";
+  return checkingBanks(banks).some((b) => b.id === settings.bankAccountId) ? settings.bankAccountId : "";
+}
+
 export function initialOfficialDraft(
-  item: Pick<OfficialReviewItem, "gross" | "month">,
+  item: Pick<OfficialReviewItem, "gross" | "month" | "reason">,
   settings: OfficialReviewSettings,
   banks: PayrollData["banks"],
   today: string,
@@ -114,7 +135,7 @@ export function initialOfficialDraft(
     net: item.gross === null ? null : officialNet(item.gross),
     gross: item.gross,
     grossTouched: false,
-    bank_account_id: officialBankFor(banks, null, settings.bankAccountId),
+    bank_account_id: officialReviewBank(item.reason, settings, banks),
     date: officialReviewDefaultDate(item.month, settings.payDay, today),
   };
 }

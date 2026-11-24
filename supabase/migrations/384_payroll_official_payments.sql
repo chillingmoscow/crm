@@ -3,8 +3,11 @@
 --
 -- * private.payroll_post_payment_scoped (последнее тело — 246) понимает ключ
 --   official_month: одна аллокация, только зарплата, только расчётный счёт,
---   закрыто (оклад с налогом) ≥ выдано (на руки). Для всех прочих выплат
+--   закрыто (оклад с налогом) ≥ выдано (на руки), не больше одной действующей
+--   официальной выплаты на сотрудника и месяц. Для всех прочих выплат
 --   проверка «Округление доступно только для чаевых» не меняется.
+-- * public.payroll_post_payment (последнее тело — 244) не принимает ключ
+--   official_month: официальную часть проводят только функции ниже.
 -- * private.payroll_queue_adesk_sync (последнее тело — 347): официальная
 --   выплата в очередь Adesk не ставится.
 -- * public.payroll_command (последнее тело — 245, патч 253): ветка 'settings'
@@ -73,6 +76,9 @@ begin
   if v_official is not null then
    if v_month<>v_official then raise exception 'Месяц официальной выплаты не совпадает с периодом';end if;
    if (row->>'settled_amount')::numeric<(row->>'amount')::numeric then raise exception 'Оклад с налогом меньше суммы на руки';end if;
+   -- Одна действующая официальная выплата на сотрудника и месяц (удалённая не мешает).
+   -- Проверка под блокировкой заведения, общая для всех путей проведения.
+   if exists(select 1 from public.payroll_payments op join public.payroll_allocations oa on oa.payment_id=op.id where op.account_id=a and op.venue_id=v and op.state='posted' and op.official_month=v_official and oa.employee_id=emp.id) then raise exception 'За этот месяц уже проведена официальная выплата';end if;
   elsif kind<>'tips' and (row->>'amount')::numeric<>(row->>'settled_amount')::numeric then raise exception 'Округление доступно только для чаевых';end if;
   if kind='tips' then
    if cash is null or row->>'accrual_id' is null or v_month<>date_trunc('month',c.business_date)::date then raise exception 'Чаевые должны быть связаны с инкассацией и начислением';end if;
@@ -110,6 +116,20 @@ begin
  insert into public.payroll_events(account_id,venue_id,entity_id,actor_id,action,details) values(a,v,payment,u,'payment',jsonb_build_object('amount',amount,'kind',kind,'rounding',settled-amount,'reason',p_input->>'reason'));
  return payment;
 end $function$;
+
+-- Последнее тело — 244_payroll.sql. Ключ official_month ослабляет проверку
+-- «закрыто = выдано», поэтому обычная выплата его не принимает: официальную
+-- часть проводят только payroll_record_official_payment, крон и смена счёта.
+create or replace function public.payroll_post_payment(p_input jsonb)
+returns uuid language plpgsql security definer set search_path = public, pg_catalog as $$
+declare a uuid;v uuid;u uuid;
+begin
+ select s.a,s.v,s.u into a,v,u from private.payroll_scope('payroll.pay') s;
+ if not public.has_permission('finance.create_transaction') then raise exception 'Нет доступа к финансовым операциям';end if;
+ if p_input->>'kind'='tips' then raise exception 'Используйте общую дневную сверку чаевых';end if;
+ if p_input ? 'official_month' then raise exception 'Официальная часть проводится отдельно: включите «Официальная часть» в форме выплаты';end if;
+ return private.payroll_post_payment_scoped(p_input,a,v,u);
+end $$;
 
 -- Последнее тело — 347_payroll_adesk_sync.sql.
 create or replace function private.payroll_queue_adesk_sync()
@@ -395,14 +415,8 @@ begin
   if v_net > v_gross then raise exception 'Сумма на руки больше оклада с налогом'; end if;
   v_date := nullif(p_input->>'date', '')::timestamptz;
   if v_date is null then raise exception 'Укажите дату выплаты'; end if;
-  -- Одна действующая официальная выплата на сотрудника и месяц; удалённая не мешает.
-  if exists (
-    select 1 from public.payroll_payments p
-    join public.payroll_allocations al on al.payment_id = p.id
-    where p.account_id = a and p.venue_id = v and p.state = 'posted'
-      and p.official_month = v_month and al.employee_id = oe.employee_id) then
-    raise exception 'За этот месяц уже проведена официальная выплата';
-  end if;
+  -- «Одна действующая официальная выплата за месяц» проверяет
+  -- payroll_post_payment_scoped — для всех путей проведения сразу.
 
   payment := private.payroll_official_post(a, v, u, oe.id, v_month, v_gross, v_net,
     nullif(p_input->>'bank_account_id', '')::uuid, v_date);
@@ -668,6 +682,8 @@ revoke all on function public.payroll_official_skip(uuid) from public, anon;
 grant execute on function public.payroll_official_skip(uuid) to authenticated;
 revoke all on function public.payroll_official_change_account(jsonb) from public, anon;
 grant execute on function public.payroll_official_change_account(jsonb) to authenticated;
+revoke all on function public.payroll_post_payment(jsonb) from public, anon;
+grant execute on function public.payroll_post_payment(jsonb) to authenticated;
 revoke all on function public.payroll_official_run(timestamptz) from public, anon, authenticated;
 grant execute on function public.payroll_official_run(timestamptz) to service_role;
 
@@ -686,6 +702,8 @@ begin
     or has_function_privilege('anon', 'public.payroll_official_skip(uuid)', 'EXECUTE')
     or has_function_privilege('anon', 'public.payroll_official_change_account(jsonb)', 'EXECUTE')
     or has_function_privilege('anon', 'public.payroll_command(text, jsonb)', 'EXECUTE')
+    or has_function_privilege('anon', 'public.payroll_post_payment(jsonb)', 'EXECUTE')
+    or not has_function_privilege('authenticated', 'public.payroll_post_payment(jsonb)', 'EXECUTE')
     or not has_function_privilege('authenticated', 'public.payroll_record_official_payment(jsonb)', 'EXECUTE')
     or not has_function_privilege('authenticated', 'public.payroll_official_skip(uuid)', 'EXECUTE')
     or not has_function_privilege('authenticated', 'public.payroll_official_change_account(jsonb)', 'EXECUTE')

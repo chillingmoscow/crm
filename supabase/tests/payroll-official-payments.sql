@@ -332,6 +332,20 @@ begin
   perform pg_temp.expect_error(format($q$select public.payroll_post_payment('{"request_key":"%s","kind":"salary","bank_account_id":"%s","category_id":"%s","date":"2026-12-10T12:00:00+03:00","amount":100,"allocations":[{"employee_id":"%s","month":"2026-11-01","amount":100,"settled_amount":120}]}')$q$,
     gen_random_uuid(), pg_temp.fx('checking1'), pg_temp.fx('category'), pg_temp.fx('full_emp')),
     'Округление доступно только для чаевых', 'обычная выплата с settled ≠ amount');
+  -- Официальную часть обычной выплатой провести нельзя: 1 ₽ не закроет оклад 80 000.
+  perform pg_temp.expect_error(format($q$select public.payroll_post_payment('{"request_key":"%s","kind":"salary","bank_account_id":"%s","category_id":"%s","date":"2026-12-10T12:00:00+03:00","amount":1,"official_month":"2026-12-01","allocations":[{"employee_id":"%s","month":"2026-12-01","amount":1,"settled_amount":80000}]}')$q$,
+    gen_random_uuid(), pg_temp.fx('checking1'), pg_temp.fx('category'), pg_temp.fx('full_emp')),
+    '%Официальная часть проводится отдельно%', 'обычная выплата с official_month');
+  perform pg_temp.expect_error(format($q$select public.payroll_post_payment('{"request_key":"%s","kind":"salary","bank_account_id":"%s","category_id":"%s","date":"2026-12-10T12:00:00+03:00","amount":1,"official_month":"","allocations":[{"employee_id":"%s","month":"2026-12-01","amount":1,"settled_amount":1}]}')$q$,
+    gen_random_uuid(), pg_temp.fx('checking1'), pg_temp.fx('category'), pg_temp.fx('full_emp')),
+    '%Официальная часть проводится отдельно%', 'обычная выплата с пустым official_month');
+  -- Вторая действующая официальная выплата за месяц — отказ любым путём.
+  perform pg_temp.expect_error(format($q$select private.payroll_post_payment_scoped('{"request_key":"%s","kind":"salary","official_month":"2026-11-01","bank_account_id":"%s","category_id":"%s","date":"2026-12-10T12:00:00+03:00","amount":69600,"allocations":[{"employee_id":"%s","month":"2026-11-01","amount":69600,"settled_amount":80000}]}', '%s', '%s', '%s')$q$,
+    gen_random_uuid(), pg_temp.fx('checking1'), pg_temp.fx('category'), pg_temp.fx('full_emp'),
+    pg_temp.fx('a'), pg_temp.fx('v'), pg_temp.fx('owner')), '%уже проведена%', 'вторая официальная выплата в общем проведении');
+  perform pg_temp.expect_error(format('select private.payroll_official_post(%L, %L, %L, %L, %L, 74666.67, 64959.67, %L, %L)',
+    pg_temp.fx('a'), pg_temp.fx('v'), pg_temp.fx('owner'), pg_temp.fx('pavlov'), '2026-11-01',
+    pg_temp.fx('checking1'), '2026-12-10 12:00+03'), '%уже проведена%', 'вторая официальная выплата Павлову напрямую');
   -- Официальная — одна аллокация и закрыто не меньше выданного.
   perform pg_temp.expect_error(format($q$select private.payroll_post_payment_scoped('{"request_key":"%s","kind":"salary","official_month":"2026-12-01","bank_account_id":"%s","category_id":"%s","date":"2026-12-10T12:00:00+03:00","amount":100,"allocations":[{"employee_id":"%s","month":"2026-12-01","amount":100,"settled_amount":90}]}', '%s', '%s', '%s')$q$,
     gen_random_uuid(), pg_temp.fx('checking1'), pg_temp.fx('category'), pg_temp.fx('full_emp'),

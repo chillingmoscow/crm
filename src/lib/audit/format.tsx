@@ -478,6 +478,26 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline: () => <>обновил(а) журнал списаний из Quick Resto</>,
     buildDetails: e => <p className="text-xs text-muted-foreground">Актов: {Number(e.details.documents ?? 0)} · изменений: {Number(e.details.changed ?? 0)}</p>,
   },
+  // Сверка номенклатуры с Quick Resto: кнопка «Синхронизировать» или фоновый
+  // обработчик раз в несколько часов (тогда автора нет — «Система»). Пишется,
+  // только когда позиции появились, ушли в архив или вернулись из него.
+  "inventory.nomenclature.synced": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: (e) => <>{e.details.trigger === "schedule" ? "обновила номенклатуру из Quick Resto по расписанию" : "обновил(а) номенклатуру из Quick Resto"}</>,
+    buildDetails: (e) => {
+      const warnings = Array.isArray(e.details.warnings)
+        ? e.details.warnings.filter((v): v is string => typeof v === "string")
+        : [];
+      return (
+        <div className="text-xs text-muted-foreground">
+          <p>Добавлено: {Number(e.details.added ?? 0)} · в архив: {Number(e.details.archived ?? 0)} · из архива: {Number(e.details.restored ?? 0)}</p>
+          {warnings.map((warning) => (
+            <p key={warning} className="text-amber-700 dark:text-amber-400">{warning}</p>
+          ))}
+        </div>
+      );
+    },
+  },
   "stock.writeoffs.archive_imported": {
     icon: FilePlus2, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>перенёс(ла) архив списаний</>,

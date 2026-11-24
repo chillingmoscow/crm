@@ -5,22 +5,16 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
-import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { resolveQrUnprocessedAt, resolveStatusAfterSync } from "@/lib/inventory/act-status";
 import { storeVenueBindingPatch } from "@/lib/inventory/store-venue-binding";
 import { storeDepartmentBindingPatch } from "@/lib/inventory/store-department-binding";
+import { syncQuickRestoNomenclature } from "@/lib/inventory/nomenclature-sync";
 import {
-  listDishTreeItems,
-  listIngredientTreeItems,
   listInventoryDocuments,
-  listModifierTreeItems,
-  listSemiProductTreeItems,
   listStores,
   readInventoryDocument,
   type QuickRestoInventoryDocument2,
   type QuickRestoInventoryItem2,
-  type QuickRestoSingleCategory,
-  type QuickRestoSingleProduct
 } from "@/lib/integrations/quickresto/client";
 import {
   type InventoryProductLookup,
@@ -36,273 +30,20 @@ import {
   extractLineResult,
   getActiveContext,
   getConnection,
-  groupName,
   inventoryDocumentItems,
   inventoryDocumentNumber,
   isDeletedQuickRestoRow,
-  isQuickRestoClass,
   isRecentOpenInventoryDocument,
   listBackOfficeInventoryItemsWithSession,
-  num,
-  productName,
   quickRestoDocumentSums,
-  quickRestoParentExternalId,
   resolveDefaultVenueId,
   saveSnapshot,
-  saveSnapshots,
   storeTitle,
   syncDocumentItems,
   text,
   upsertExternalLink,
-  upsertExternalLinks,
   writeInventoryResultEvent
 } from "../actions-shared";
-
-
-/**
- * Виды номенклатуры, которые тянет полный синк.
- *
- * Порядок важен только для отчётности: считается всё в одну сводку. Названия
- * классов подтверждены пробой на живом подключении — плоский list по модулям
- * блюд и полуфабрикатов отдаёт корневые категории (DishCategory / SemiCategory),
- * а товары лежат ниже и достаются фильтром parentId neq 0.
- */
-const NOMENCLATURE_IMPORTS = [
-  {
-    kind: "ingredient",
-    categorySuffix: "SingleCategory",
-    productSuffix: "SingleProduct",
-    entityType: "ingredient",
-    groupEntityType: "ingredient_group",
-    productNoun: "Ингредиент",
-    groupNoun: "групп ингредиентов",
-  },
-  {
-    kind: "dish",
-    categorySuffix: "DishCategory",
-    productSuffix: "Dish",
-    entityType: "dish",
-    groupEntityType: "dish_group",
-    productNoun: "Блюдо",
-    groupNoun: "категорий блюд",
-  },
-  {
-    kind: "semi_finished",
-    categorySuffix: "SemiCategory",
-    productSuffix: "SemiProduct",
-    entityType: "semi_finished",
-    groupEntityType: "semi_finished_group",
-    productNoun: "Полуфабрикат",
-    groupNoun: "категорий полуфабрикатов",
-  },
-  {
-    kind: "modifier",
-    categorySuffix: "ModifierGroup",
-    productSuffix: "Modifier",
-    entityType: "modifier",
-    groupEntityType: "modifier_group",
-    productNoun: "Модификатор",
-    groupNoun: "групп модификаторов",
-  },
-] as const;
-
-type NomenclatureImportSpec = (typeof NOMENCLATURE_IMPORTS)[number];
-
-/**
- * Импорт одного вида номенклатуры в каталог: категории, товары, связи, снимки
- * и архивация пропавших.
- *
- * Вынесено из тела синка, когда к ингредиентам добавились блюда и
- * полуфабрикаты: три копии одного и того же кода разошлись бы при первой же
- * правке. Всё, что различается между видами, собрано в NOMENCLATURE_IMPORTS.
- */
-async function importNomenclatureKind(input: {
-  admin: ReturnType<typeof asLooseDb>;
-  accountId: string;
-  syncedAt: string;
-  spec: NomenclatureImportSpec;
-  items: unknown[];
-  productByExternalId: Map<string, InventoryProductLookup>;
-}): Promise<{ groups: number; products: number }> {
-  const { admin, accountId, syncedAt, spec, items, productByExternalId } = input;
-
-  const groups = items.filter((item) => isQuickRestoClass(item, spec.categorySuffix)) as QuickRestoSingleCategory[];
-  const products = items.filter((item) => isQuickRestoClass(item, spec.productSuffix)) as QuickRestoSingleProduct[];
-
-  // Дедуп по external_id обязателен: PostgreSQL не даёт одному INSERT ... ON
-  // CONFLICT DO UPDATE задеть одну строку дважды. Оставляем последнюю версию.
-  const dedupeByExternalId = <T extends { external_id: string }>(rows: T[]): T[] =>
-    Array.from(new Map(rows.map((row) => [row.external_id, row])).values());
-
-  // ── Категории ─────────────────────────────────────────────────────────────
-  const groupByExternalId = new Map<string, string>();
-  const groupRows = dedupeByExternalId(
-    groups
-      .filter((group) => typeof group.id === "number")
-      .map((group) => ({
-        account_id: accountId,
-        external_id: String(group.id),
-        kind: spec.kind,
-        name: groupName(group),
-        item_title: text(group.itemTitle),
-        parent_group_id: null,
-        parent_external_id: quickRestoParentExternalId(group),
-        raw_payload: group,
-        synced_at: syncedAt,
-      })),
-  );
-  for (const chunk of catalogChunks(groupRows)) {
-    const { data, error } = await admin
-      .from<Array<{ id: string; external_id: string }>>("ingredient_groups")
-      .upsert(chunk, { onConflict: "account_id,kind,external_id" })
-      .select("id, external_id");
-    if (error) throw new Error(error.message);
-    for (const row of data ?? []) groupByExternalId.set(row.external_id, row.id);
-  }
-  if (groupByExternalId.size < groupRows.length) {
-    throw new Error(`Не удалось сохранить часть ${spec.groupNoun} Quick Resto`);
-  }
-  await upsertExternalLinks({
-    admin,
-    accountId,
-    entityType: spec.groupEntityType,
-    localTable: "ingredient_groups",
-    rows: groupRows.map((row) => ({
-      externalId: row.external_id,
-      localId: groupByExternalId.get(row.external_id) as string,
-    })),
-  });
-  await saveSnapshots({
-    admin,
-    accountId,
-    entityType: spec.groupEntityType,
-    rows: groupRows.map((row) => ({ externalId: row.external_id, payload: row.raw_payload })),
-  });
-
-  // Второй проход: расставляем родителей, когда локальные id уже известны.
-  // Идём по groupRows, а не по исходному массиву: там уже сделан дедуп, и по
-  // сырым данным один локальный id попал бы сразу в несколько бакетов.
-  const groupIdsByParent = new Map<string | null, string[]>();
-  for (const row of groupRows) {
-    const localId = groupByExternalId.get(row.external_id);
-    if (!localId) continue;
-    const parentId = row.parent_external_id
-      ? groupByExternalId.get(row.parent_external_id) ?? null
-      : null;
-    const bucket = groupIdsByParent.get(parentId) ?? [];
-    bucket.push(localId);
-    groupIdsByParent.set(parentId, bucket);
-  }
-  for (const [parentId, ids] of groupIdsByParent) {
-    for (const chunk of catalogChunks(ids)) {
-      const { error } = await admin
-        .from("ingredient_groups")
-        .update({ parent_group_id: parentId })
-        .eq("account_id", accountId)
-        .in("id", chunk);
-      if (error) throw new Error(error.message);
-    }
-  }
-
-  // ── Товары ────────────────────────────────────────────────────────────────
-  const productRows = dedupeByExternalId(
-    products
-      .filter((product) => typeof product.id === "number")
-      .map((product) => {
-        const parentExternalId = quickRestoParentExternalId(product);
-        return {
-          account_id: accountId,
-          external_id: String(product.id),
-          kind: spec.kind,
-          external_version: typeof product.version === "number" ? product.version : null,
-          name: productName(product, `${spec.productNoun} #${product.id}`),
-          item_title: text(product.itemTitle),
-          article: text(product.article),
-          barcode: text(product.barCode),
-          measure_unit_id: typeof product.measureUnit?.id === "number" ? product.measureUnit.id : null,
-          measure_unit_name: text(product.measureUnit?.name),
-          measure_unit_full_name: text(product.measureUnit?.fullName),
-          measure_unit_code: text(product.measureUnit?.code),
-          ratio: num(product.ratio),
-          group_id: parentExternalId ? groupByExternalId.get(parentExternalId) ?? null : null,
-          parent_external_id: parentExternalId,
-          tags: Array.isArray(product.storeItemTags) ? product.storeItemTags : [],
-          current_prime_cost: num(product.currentPrimeCost),
-          store_quantity_kg: num(product.storeQuantityKg),
-          stock_limit: num(product.limit),
-          raw_payload: product,
-          synced_at: syncedAt,
-        };
-      }),
-  );
-  const localByExternalId = new Map<string, InventoryProductLookup>();
-  for (const chunk of catalogChunks(productRows)) {
-    const { data, error } = await admin
-      .from<InventoryProductLookup[]>("ingredients")
-      .upsert(chunk, { onConflict: "account_id,kind,external_id" })
-      .select("id, external_id, article, barcode, kind");
-    if (error) throw new Error(error.message);
-    for (const row of data ?? []) localByExternalId.set(String(row.external_id), row);
-  }
-  if (localByExternalId.size < productRows.length) {
-    throw new Error(`Не удалось сохранить часть позиций Quick Resto (${spec.kind})`);
-  }
-  // Ключ карты — пара «вид + id»: идентификаторы уникальны только внутри
-  // класса, и общий словарь по голому id перемешал бы виды.
-  for (const [externalId, row] of localByExternalId) {
-    productByExternalId.set(catalogKey(spec.kind, externalId), row);
-  }
-  await upsertExternalLinks({
-    admin,
-    accountId,
-    entityType: spec.entityType,
-    localTable: "ingredients",
-    rows: productRows.map((row) => ({
-      externalId: row.external_id,
-      localId: (localByExternalId.get(row.external_id) as InventoryProductLookup).id,
-    })),
-  });
-  await saveSnapshots({
-    admin,
-    accountId,
-    entityType: spec.entityType,
-    rows: productRows.map((row) => ({ externalId: row.external_id, payload: row.raw_payload })),
-  });
-
-  // ── Архивация пропавших ───────────────────────────────────────────────────
-  //
-  // Не удаляем: сохраняем историю в актах, локальные поля, поставщиков,
-  // журнал. Вернувшиеся в выгрузку — разархивируем. Строго внутри своего вида,
-  // иначе синк ингредиентов заархивировал бы все блюда.
-  {
-    const incoming = new Set(productRows.map((row) => row.external_id));
-    // Постранично: позиций одного вида бывает больше тысячи, а хвост за
-    // пределом PostgREST не архивировался бы и не возвращался из архива.
-    type LocalRow = { id: string; external_id: string; archived_at: string | null };
-    const localProducts = await fetchAllRows<LocalRow>(() =>
-      admin
-        .from<LocalRow[]>("ingredients")
-        .select("id, external_id, archived_at")
-        .eq("account_id", accountId)
-        .eq("kind", spec.kind),
-    );
-    const toArchive = localProducts
-      .filter((row) => row.external_id && !incoming.has(row.external_id) && !row.archived_at)
-      .map((row) => row.id);
-    const toUnarchive = localProducts
-      .filter((row) => row.external_id && incoming.has(row.external_id) && row.archived_at)
-      .map((row) => row.id);
-    // Списки id уходят в URL запроса — порциями.
-    for (const ids of catalogChunks(toArchive)) {
-      await admin.from("ingredients").update({ archived_at: syncedAt }).in("id", ids);
-    }
-    for (const ids of catalogChunks(toUnarchive)) {
-      await admin.from("ingredients").update({ archived_at: null }).in("id", ids);
-    }
-  }
-
-  return { groups: groupRows.length, products: productRows.length };
-}
 
 
 /**
@@ -409,57 +150,38 @@ export async function syncQuickRestoInventory(input?: {
       activeVenueId: ctx.venueId,
     });
 
-    const [
-      ingredientItems,
-      dishItems,
-      semiItems,
-      modifierItems,
-      stores,
-      loadedDocuments,
-    ] = await Promise.all([
-      listIngredientTreeItems(auth),
-      listDishTreeItems(auth),
-      listSemiProductTreeItems(auth),
-      // Модификаторы нужны только допродажам, а не складу. Их сбой (нет прав
-      // в Quick Resto, другое имя модуля, приложение раньше миграции 379) не
-      // должен останавливать синк складов и актов. При сбое импорт модификаторов
-      // пропускается целиком: иначе пустой список заархивировал бы уже
-      // загруженные.
-      listModifierTreeItems(auth).catch((error: unknown) => {
-        console.error("[syncQuickRestoInventory] modifiers fetch failed:", error);
-        return null;
+    // Номенклатура — общей сверкой (та же идёт по расписанию в фоновом
+    // обработчике): пишет только новое и изменённое, защищена от массовой
+    // архивации, сохраняет итоги запуска и строку журнала. Склады и акты
+    // загружаются параллельно с ней.
+    // allSettled, а не all: при сбое списка складов сверка не должна
+    // продолжать писать в базу в фоне, когда экшен уже вернул ошибку.
+    const settled = await Promise.allSettled([
+      syncQuickRestoNomenclature({
+        admin,
+        accountId: ctx.accountId,
+        connection,
+        trigger: "manual",
+        userId: ctx.user.id,
+        syncedAt,
       }),
       listStores(auth),
       listInventoryDocuments(auth),
-    ]);
+    ] as const);
+    const failed = settled.find((result) => result.status === "rejected");
+    if (failed) throw failed.reason;
+    const [nomenclature, stores, loadedDocuments] = settled.map(
+      (result) => (result as PromiseFulfilledResult<unknown>).value,
+    ) as [
+      Awaited<ReturnType<typeof syncQuickRestoNomenclature>>,
+      Awaited<ReturnType<typeof listStores>>,
+      Awaited<ReturnType<typeof listInventoryDocuments>>,
+    ];
     documentList = loadedDocuments;
-    if (modifierItems === null) {
-      summary.warnings.push("Модификаторы Quick Resto не загрузились — в каталоге остались прежние");
-    }
-
-    // Три вида номенклатуры импортируются одинаково — отличаются источником,
-    // классами категории и товара и значением kind. Раньше здесь был
-    // развёрнутый импорт одних ингредиентов, а блюда и полуфабрикаты в каталог
-    // не доезжали вовсе: строки актов на них оставались без ingredient_id, и
-    // пересорт для них был недоступен (#531).
-    for (const spec of NOMENCLATURE_IMPORTS) {
-      if (spec.kind === "modifier" && modifierItems === null) continue;
-      const counts = await importNomenclatureKind({
-        admin,
-        accountId: ctx.accountId,
-        syncedAt,
-        spec,
-        items: {
-          ingredient: ingredientItems,
-          dish: dishItems,
-          semi_finished: semiItems,
-          modifier: modifierItems,
-        }[spec.kind] as unknown[],
-        productByExternalId,
-      });
-      summary.groups += counts.groups;
-      summary.products += counts.products;
-    }
+    summary.groups = nomenclature.totals.groups;
+    summary.products = nomenclature.totals.products;
+    summary.warnings.push(...nomenclature.warnings);
+    for (const [key, row] of nomenclature.productByExternalId) productByExternalId.set(key, row);
 
     // Обратная привязка строк актов к каталогу.
     //

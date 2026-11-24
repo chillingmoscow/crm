@@ -27,6 +27,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { Money } from "@/components/shared/money";
+import { LocalDateTime } from "@/components/shared/local-date-time";
 import { PageFrame } from "@/components/shared/page-frame";
 import {
   DataTable,
@@ -312,6 +313,8 @@ type Props = {
   canManage: boolean;
   canSync: boolean;
   lastSyncedAt: string | null;
+  /** Предупреждения или ошибка последней сверки с Quick Resto; null — всё прошло. */
+  syncNotice: { at: string; messages: string[] } | null;
   /** Переключатель «весь каталог / из актов заведения»; null — заведение одно. */
   scope: "venue" | "all" | null;
   /** Почему список «из актов заведения» пуст. */
@@ -325,6 +328,7 @@ export function CatalogTable({
   canManage,
   canSync,
   lastSyncedAt,
+  syncNotice,
   scope,
   scopeNotice,
 }: Props) {
@@ -773,6 +777,20 @@ export function CatalogTable({
           />
         }
       />
+      {syncNotice ? (
+        // Сверка идёт и по расписанию, без человека у кнопки, — поэтому её
+        // предупреждения висят здесь, пока следующий запуск не пройдёт чисто.
+        <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+          <p className="font-medium">
+            Сверка с Quick Resto, <LocalDateTime value={syncNotice.at} variant="dayTime" />
+          </p>
+          {syncNotice.messages.map((issue) => (
+            <p key={issue} className="text-muted-foreground">
+              {issue}
+            </p>
+          ))}
+        </div>
+      ) : null}
       <TableConditions
         label={`Условия списка: ${config.title.toLocaleLowerCase("ru")}`}
         open={filtersOpen}

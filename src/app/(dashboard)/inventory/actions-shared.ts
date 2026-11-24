@@ -1538,10 +1538,12 @@ export async function getResultDocumentForAction(input: {
 }
 
 export async function writeInventoryResultEvent(input: {
-  supabase: Awaited<ReturnType<typeof createClient>>;
+  /** Не используется: событие пишет admin-клиент. Оставлен для старых вызовов. */
+  supabase?: Awaited<ReturnType<typeof createClient>>;
   admin: LooseDb;
   accountId: string;
-  userId: string;
+  /** null — событие из синка по расписанию, автора нет. */
+  userId: string | null;
   documentId: string;
   documentItemId?: string | null;
   resortId?: string | null;
@@ -1634,7 +1636,7 @@ async function writeInventoryAudit(
   input: {
     admin: LooseDb;
     accountId: string;
-    userId: string;
+    userId: string | null;
     documentId: string;
     eventType: string;
   },

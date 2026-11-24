@@ -4,9 +4,9 @@ import "server-only";
 // полуфабрикаты, модификаторы и их группы. Без складов и актов.
 //
 // Работает без пользовательской сессии: аккаунт и admin-клиент передаются
-// явно. Вызывают кнопка «Синхронизировать» (полный синк, перед складами и
-// актами) и фоновый обработчик /api/cron/sales-shifts раз в несколько часов —
-// чтобы правила допродаж видели новые блюда и модификаторы без ручной кнопки.
+// явно. Вызывается из общего синка Quick Resto (`quickresto-sync.ts`) — его
+// запускают кнопка «Синхронизировать» и фоновый обработчик
+// /api/cron/sales-shifts раз в несколько часов.
 
 import { writeAuditEvent } from "@/lib/audit/write";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -24,7 +24,6 @@ import {
   catalogChunks,
   catalogKey,
   connectionPassword,
-  getConnection,
   groupName,
   isQuickRestoClass,
   num,
@@ -574,73 +573,6 @@ async function saveSyncResult(
     })
     .eq("id", connectionId);
   if (error) console.error("[nomenclature-sync] не удалось сохранить итоги сверки:", error.message);
-}
-
-/**
- * Один шаг фонового обработчика: берёт подключение, которое не сверялось
- * дольше интервала, и сверяет его номенклатуру.
- *
- * Захват — условным update по метке начала: если два тика выбрали одно
- * подключение, строку получит только первый (второй увидит свежую метку и
- * обновит 0 строк). Неудачный запуск повторяется через тот же интервал, а не
- * на каждом тике: ошибка видна на странице номенклатуры.
- */
-export async function processDueNomenclatureSync(now = new Date()): Promise<{
-  idle: boolean;
-  accountId?: string;
-  error?: string;
-}> {
-  const admin = asLooseDb(createAdminClient());
-  const cutoff = new Date(now.getTime() - NOMENCLATURE_SYNC_INTERVAL_MS).toISOString();
-  const dueFilter = `nomenclature_sync_started_at.is.null,nomenclature_sync_started_at.lt."${cutoff}"`;
-
-  const { data: candidates, error: candidatesError } = await admin
-    .from<Array<{ id: string; account_id: string; nomenclature_sync_started_at: string | null }>>(
-      "integration_connections",
-    )
-    .select("id, account_id, nomenclature_sync_started_at")
-    .eq("provider", "quickresto")
-    .eq("status", "active")
-    .or(dueFilter)
-    .order("nomenclature_sync_started_at", { ascending: true, nullsFirst: true })
-    .limit(1);
-  if (candidatesError) throw new Error(candidatesError.message);
-  const candidate = candidates?.[0];
-  if (!candidate) return { idle: true };
-
-  // Захват — сравнение с прочитанной меткой: второй тик, успевший раньше,
-  // её уже сдвинул, и update не найдёт строку. Без `or` в update: прод-PostgREST
-  // 12.2 на PATCH с `or` и возвратом строк отвечает «column … does not exist».
-  const startedAt = now.toISOString();
-  const claim = admin
-    .from<Array<{ id: string }>>("integration_connections")
-    .update({ nomenclature_sync_started_at: startedAt })
-    .eq("id", candidate.id)
-    .eq("status", "active");
-  const { data: claimed, error: claimError } = await (candidate.nomenclature_sync_started_at === null
-    ? claim.is("nomenclature_sync_started_at", null)
-    : claim.eq("nomenclature_sync_started_at", candidate.nomenclature_sync_started_at)
-  ).select("id");
-  if (claimError) throw new Error(claimError.message);
-  if (!claimed || claimed.length === 0) return { idle: true };
-
-  try {
-    const connection = await getConnection(candidate.account_id);
-    if (!connection) return { idle: false, accountId: candidate.account_id, error: "Подключение Quick Resto не найдено" };
-    await syncQuickRestoNomenclature({
-      admin,
-      accountId: candidate.account_id,
-      connection,
-      trigger: "schedule",
-      userId: null,
-      syncedAt: startedAt,
-    });
-    return { idle: false, accountId: candidate.account_id };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Не удалось сверить номенклатуру";
-    console.error(`[nomenclature-sync] аккаунт ${candidate.account_id}:`, message);
-    return { idle: false, accountId: candidate.account_id, error: message };
-  }
 }
 
 export type NomenclatureSyncState = {

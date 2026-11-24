@@ -33,7 +33,7 @@ import {
 } from "@/lib/finance/native-sync";
 import { scheduleGuestReads, processGuestRead } from "@/lib/guests/sync";
 import { scheduleSupplies, processSupplyRead } from "@/lib/supplies/sync";
-import { processDueNomenclatureSync } from "@/lib/inventory/nomenclature-sync";
+import { processDueQuickRestoSync } from "@/lib/inventory/quickresto-sync";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -118,13 +118,14 @@ export async function POST(request: NextRequest) {
     } catch {
       supplyErrors++;
     }
-    // Nomenclature reconciliation runs once per account every few hours (see
-    // NOMENCLATURE_SYNC_INTERVAL_MS). A tick that ran it is its provider
+    // The full Quick Resto sync (nomenclature, stores, open inventory acts —
+    // the same as the «Синхронизировать» button) runs once per account every
+    // few hours (see NOMENCLATURE_SYNC_INTERVAL_MS). A tick that ran it is its provider
     // workload: the lanes below wait for the next tick, and the rotation is
     // not advanced, so no queue loses its turn.
     let nomenclatureBusy = false;
     try {
-      const r = await processDueNomenclatureSync();
+      const r = await processDueQuickRestoSync();
       if (!r.idle) {
         nomenclatureBusy = true;
         nomenclatureRuns++;
@@ -133,7 +134,7 @@ export async function POST(request: NextRequest) {
     } catch (error) {
       nomenclatureErrors++;
       console.error(
-        "[nomenclature-sync] выбор подключения:",
+        "[quickresto-sync] выбор подключения:",
         error instanceof Error ? error.message : error,
       );
     }

@@ -326,6 +326,18 @@ export function statementRows(
         r.employee.active,
     );
 }
+/**
+ * Сколько остатка месяца можно перенести. Ожидаемая официальная часть уже
+ * вычтена из `remaining`, а база о ней не знает: переплату, которая возникла
+ * только из-за неё, перенести нельзя, пока официальная выплата не проведена.
+ */
+export function transferableBalance(row: {
+  remaining: number;
+  officialExpected: { amount: number | null } | null;
+}): { amount: number; blockedByOfficial: boolean } {
+  const blockedByOfficial = row.remaining < 0 && !!row.officialExpected?.amount;
+  return { amount: blockedByOfficial ? 0 : Math.abs(row.remaining), blockedByOfficial };
+}
 export function distribute(
   total: number,
   weights: { id: string; weight: number }[],

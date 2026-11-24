@@ -13,7 +13,7 @@ import { PayrollMonthPicker } from "@/app/(dashboard)/people/payroll/_components
 import { PayrollEmployeePicker } from "@/app/(dashboard)/people/payroll/_components/payroll-employee-picker";
 import { transferPayroll, cancelPayrollTransfer } from "@/app/(dashboard)/people/payroll/actions";
 import { unwrapAction } from "@/lib/actions/result";
-import { statementRows } from "@/lib/payroll/calculate";
+import { statementRows, transferableBalance } from "@/lib/payroll/calculate";
 import formStyle from "./payroll-payment-form.module.css";
 import type { PayrollData, PayrollTransfer } from "@/lib/payroll/types";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
@@ -39,8 +39,10 @@ export function PayrollTransferDrawer({data, month, employeeId, onClose, onChang
   const pending = data.legacyPayments.some((p) => p.employee_id === employee && p.month === month && p.state === "review");
   const known = Boolean(row && !pending);
   const remaining = row?.remaining ?? 0;
+  // Переплата только из-за ожидаемой официальной части: база её не видит.
+  const { amount: transferable, blockedByOfficial } = row ? transferableBalance(row) : { amount: 0, blockedByOfficial: false };
   const numeric = Number(value.replace(/\s/g, "").replace(",", "."));
-  const valid = known && numeric > 0 && numeric <= Math.abs(remaining) && reason.trim().length >= 3 && dateMonth(target) > month;
+  const valid = known && !blockedByOfficial && numeric > 0 && numeric <= transferable && reason.trim().length >= 3 && dateMonth(target) > month;
   const history = data.transfers.filter((t) => t.employee_id === employee && (t.from_month === month || t.to_month === month)).sort((a,b) => b.created_at.localeCompare(a.created_at));
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -84,8 +86,9 @@ export function PayrollTransferDrawer({data, month, employeeId, onClose, onChang
       </div>
       <div className="space-y-2"><Label htmlFor="transfer-value">Сумма переноса, ₽</Label>
         <Input id="transfer-value" inputMode="decimal" value={value} onChange={(e) => {setValue(e.target.value);requestKey.current=null;}} placeholder="1 000" disabled={busy} />
-        {known && remaining !== 0 && <Button variant="link" size="sm" className="h-auto px-0" onClick={() => {setValue(String(Math.abs(remaining)));requestKey.current=null;}}>Весь остаток · {formatRub(Math.abs(remaining), { fraction: true })}</Button>}
-        {known && numeric > Math.abs(remaining) && <p className="text-xs text-destructive">Сумма превышает остаток этого месяца.</p>}
+        {known && blockedByOfficial && <p className="text-xs text-muted-foreground">Переплату можно перенести после проведения официальной выплаты</p>}
+        {known && transferable !== 0 && <Button variant="link" size="sm" className="h-auto px-0" onClick={() => {setValue(String(transferable));requestKey.current=null;}}>Весь остаток · {formatRub(transferable, { fraction: true })}</Button>}
+        {known && !blockedByOfficial && numeric > transferable && <p className="text-xs text-destructive">Сумма превышает остаток этого месяца.</p>}
       </div>
       <div className="space-y-2"><Label htmlFor="transfer-reason">Причина</Label><Textarea id="transfer-reason" value={reason} onChange={(e) => {setReason(e.target.value);requestKey.current=null;}} placeholder="Например, выплатить вместе с зарплатой за следующий месяц" disabled={busy} /></div>
       <p className="text-xs leading-relaxed text-muted-foreground">Сумма уменьшит остаток этого месяца и добавится к выплате в выбранном месяце. Движения денег не будет.</p>

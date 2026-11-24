@@ -54,7 +54,7 @@ test("подпись ожидаемой части: полный, первый �
 });
 
 // ── Ожидаемая часть в остатке ведомости ───────────────────────
-import { statementRows } from "./calculate.ts";
+import { statementRows, transferableBalance } from "./calculate.ts";
 import type { Accrual, Allocation, OfficialExpected, PayEmployee, Payment } from "./types.ts";
 
 const employee: PayEmployee = {
@@ -148,4 +148,25 @@ test("сотрудник без смен, но с ожидаемой часть�
   );
   assert.equal(rows.length, 1);
   assert.equal(rows[0].remaining, -80000);
+});
+
+test("перенос: переплату из-за ожидаемой официальной части перенести нельзя", () => {
+  // Заработано 20 000, ожидается 27 500: в базе остаток +20 000, переплаты там нет.
+  assert.deepEqual(transferableBalance(rowFor([earned(20000)], [expected({ gross: 27500 })])), {
+    amount: 0,
+    blockedByOfficial: true,
+  });
+  // Заработано 100 000, выплачено 30 000, ожидается 80 000.
+  const payments: Payment[] = [
+    { id: "p1", transaction_id: null, cashbox_id: null, kind: "salary", amount: 30000, state: "posted", note: "", occurred_at: "2026-11-20T10:00:00Z", created_at: "" },
+  ];
+  const allocations: Allocation[] = [
+    { employee_id: "e1", payment_id: "p1", accrual_id: null, month: "2026-11-01", amount: 30000, settled_amount: 30000 },
+  ];
+  assert.equal(transferableBalance(rowFor([earned(100000)], [expected()], payments, allocations)).blockedByOfficial, true);
+  // К выплате после официальной части переносится как раньше.
+  assert.deepEqual(transferableBalance(rowFor([earned(100000)], [expected()])), { amount: 20000, blockedByOfficial: false });
+  // Последний месяц (сумма неизвестна) и обычная переплата не блокируются.
+  assert.deepEqual(transferableBalance(rowFor([earned(100000)], [expected({ kind: "final", gross: null })], payments.map((p) => ({ ...p, amount: 130000 })), allocations.map((a) => ({ ...a, amount: 130000, settled_amount: 130000 })))), { amount: 30000, blockedByOfficial: false });
+  assert.deepEqual(transferableBalance(rowFor([], [], payments, allocations)), { amount: 30000, blockedByOfficial: false });
 });

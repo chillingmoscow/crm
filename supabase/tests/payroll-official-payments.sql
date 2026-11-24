@@ -170,6 +170,19 @@ begin
     if sqlerrm <> 'rollback-tz-check' then raise; end if;
   end;
   perform pg_temp.check(not exists (select 1 from public.payroll_official_months), 'проверка пояса откатилась');
+
+  -- Учитывать с декабря: запуск 5 декабря (за ноябрь) ничего не делает.
+  begin
+    update public.payroll_settings set official_from = '2026-12-01' where venue_id = pg_temp.fx('v');
+    r := pg_temp.run('2026-12-05 09:00+00');
+    perform pg_temp.check(r = '[]'::jsonb, 'месяц раньше official_from — пропуск: ' || r::text);
+    perform pg_temp.check(not exists (select 1 from public.payroll_official_months), 'месяц раньше official_from — строк нет');
+    raise exception 'rollback-from-check';
+  exception when others then
+    if sqlerrm <> 'rollback-from-check' then raise; end if;
+  end;
+  perform pg_temp.check((select official_from = '2026-11-01' from public.payroll_settings where venue_id = pg_temp.fx('v')),
+    'проверка official_from откатилась');
 end $$;
 
 -- ── 2. Крон пропустил 5-е, запустился 9-го — одна выплата датой 5-го ──
@@ -397,6 +410,8 @@ begin
     '%первого числа%', 'начало не с 1-го');
   perform pg_temp.expect_error(format($q$select public.payroll_command('settings', '{"official_bank_account_id":"%s"}')$q$,
     pg_temp.fx('cash')), '%расчётный счёт%', 'касса как счёт по умолчанию');
+  perform pg_temp.expect_error($q$select public.payroll_command('settings', '{"official_from":"2026-08-01"}')$q$,
+    '%раньше начала расчёта%', 'официальные выплаты раньше начала расчёта зарплаты');
 
   perform public.payroll_command('settings', jsonb_build_object('official_pay_day', 6, 'official_bank_account_id', pg_temp.fx('checking2')));
   perform pg_temp.check((select official_pay_day = 6 and official_bank_account_id = pg_temp.fx('checking2') and official_from = '2026-11-01'
@@ -418,6 +433,11 @@ begin
     pg_temp.fx('inactive'), pg_temp.fx('checking1')), '%финансовым операциям%', 'ручная выплата без finance.create_transaction');
   perform pg_temp.expect_error(format('select public.payroll_official_skip(%L)', (pg_temp.month_row('inactive', '2026-11-01')).id),
     '%финансовым операциям%', 'пропуск без finance.create_transaction');
+  -- Смена счёта удаляет операцию — нужно ещё и право на удаление (как отмена выплаты).
+  perform set_config('app.perms', ',payroll.pay,finance.create_transaction,', true);
+  perform pg_temp.expect_error(format($q$select public.payroll_official_change_account('{"payment_ids":["%s"],"bank_account_id":"%s"}')$q$,
+    (pg_temp.month_row('full', '2026-11-01')).payment_id, pg_temp.fx('checking2')),
+    '%отмене финансовой операции%', 'смена счёта без finance.delete_transaction');
   perform pg_temp.act_as(pg_temp.fx('owner'));
 end $$;
 
@@ -454,7 +474,40 @@ begin
   perform pg_temp.check(jsonb_array_length(r) = 1 and (r->0->>'review')::int = 3, 'январь без счёта: ' || r::text);
 end $$;
 
--- ── 11. Права на крон ─────────────────────────────────────
+-- ── 11. Ошибка одного периода не мешает остальным ────────
+do $$
+declare r jsonb; e uuid; emp uuid; p public.payroll_payments;
+begin
+  perform pg_temp.act_as(pg_temp.fx('owner'));
+  perform public.payroll_command('settings', jsonb_build_object('official_bank_account_id', pg_temp.fx('checking1')));
+  insert into public.payroll_employees(account_id, venue_id, name, role_name, role_id)
+  values (pg_temp.fx('a'), pg_temp.fx('v'), 'Сломанный оклад', 'Кассир', pg_temp.fx('role')) returning id into e;
+  emp := public.payroll_official_command('employ', jsonb_build_object(
+    'employee_id', e, 'starts_on', '2027-02-01', 'position', 'Кассир-официант', 'gross', 50000));
+  insert into fx values ('broken', emp);
+  -- Оклад вне допустимого для выплаты: проведение этого периода падает.
+  update public.payroll_official_salaries set gross = 2000000000 where employment_id = emp;
+
+  r := pg_temp.run('2027-03-05 06:00+00');
+  perform pg_temp.check(jsonb_array_length(r) = 1 and (r->0->>'month')::date = '2027-02-01'
+    and (r->0->>'posted')::int = 2 and (r->0->>'review')::int = 1 and (r->0->>'amount')::numeric = 139200
+    and jsonb_array_length(r->0->'errors') = 1
+    and (r->0->'errors'->0->>'employment_id')::uuid = emp
+    and r->0->'errors'->0->>'message' = 'Некорректная выплата', 'ошибка одного периода в итоге: ' || r::text);
+  perform pg_temp.check((pg_temp.month_row('broken', '2027-02-01')).id is null, 'у сломанного периода строки месяца нет');
+  perform pg_temp.check(not exists (select 1 from public.payroll_allocations where employee_id = e), 'у сломанного выплаты нет');
+  select * into p from public.payroll_payments where id = (pg_temp.month_row('full', '2027-02-01')).payment_id;
+  perform pg_temp.check(p.state = 'posted' and p.amount = 69600, 'остальные проведены');
+  perform pg_temp.check((pg_temp.month_row('pavlov', '2027-02-01')).status = 'posted', 'Павлов за февраль проведён');
+  perform pg_temp.check((pg_temp.month_row('nocat', '2027-02-01')).reason = 'no_category', 'без статьи — на разбор');
+
+  -- Следующий запуск пробует сломанный период снова и снова сообщает об ошибке.
+  r := pg_temp.run('2027-03-06 06:00+00');
+  perform pg_temp.check(jsonb_array_length(r) = 1 and (r->0->>'posted')::int = 0 and (r->0->>'review')::int = 0
+    and jsonb_array_length(r->0->'errors') = 1, 'повтор — только ошибка: ' || r::text);
+end $$;
+
+-- ── 12. Права на крон ─────────────────────────────────────
 do $$
 begin
   perform pg_temp.check(not has_function_privilege('authenticated', 'public.payroll_official_run(timestamptz)', 'EXECUTE')

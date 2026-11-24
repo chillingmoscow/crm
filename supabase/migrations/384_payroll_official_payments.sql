@@ -268,6 +268,7 @@ begin
   if exists(select 1 from jsonb_each_text(p_input) z where z.key in ('salary_category_id','tip_category_id') and not exists(select 1 from public.finance_categories c where c.id=z.value::uuid and c.account_id=a and c.type='expense' and c.archived_at is null)) then raise exception 'Статья расхода недоступна';end if;
   -- Официальная зарплата: с какого месяца, день проведения, расчётный счёт по умолчанию.
   if nullif(p_input->>'official_from','') is not null and extract(day from (p_input->>'official_from')::date)<>1 then raise exception 'Месяц начала официальных выплат — с первого числа';end if;
+  if nullif(p_input->>'official_from','') is not null and (p_input->>'official_from')::date<(select starts_on from public.payroll_settings where venue_id=v) then raise exception 'Официальные выплаты не могут начинаться раньше начала расчёта зарплаты';end if;
   if p_input ? 'official_pay_day' and (jsonb_typeof(p_input->'official_pay_day')<>'number' or (p_input->>'official_pay_day')::numeric not between 1 and 28 or (p_input->>'official_pay_day')::numeric<>trunc((p_input->>'official_pay_day')::numeric)) then raise exception 'День официальной выплаты — с 1 по 28 число';end if;
   if nullif(p_input->>'official_bank_account_id','') is not null and not exists(select 1 from public.bank_accounts b join public.venues place on place.id=v where b.id=(p_input->>'official_bank_account_id')::uuid and b.account_id=a and b.is_active and b.deleted_at is null and b.currency='RUB' and b.type='checking' and (b.venue_id=v or (b.venue_id is null and (place.default_legal_entity_id is null or b.legal_entity_id=place.default_legal_entity_id)))) then raise exception 'Выберите расчётный счёт заведения';end if;
   update public.payroll_settings set benefits_mode=coalesce(p_input->>'benefits_mode',benefits_mode),tip_comments=case when p_input ? 'tip_comments' then array(select jsonb_array_elements_text(p_input->'tip_comments')) else tip_comments end,
@@ -468,6 +469,8 @@ begin
   select s.a, s.v, s.u into a, v, u from private.payroll_scope('payroll.pay') s;
   if a is null or v is null then raise exception 'Выберите заведение'; end if;
   if not public.has_permission('finance.create_transaction') then raise exception 'Нет доступа к финансовым операциям'; end if;
+  -- Старая операция удаляется — нужно то же право, что у payroll_cancel_payment.
+  if not public.has_permission('finance.delete_transaction') then raise exception 'Нет доступа к отмене финансовой операции'; end if;
   perform pg_advisory_xact_lock(hashtextextended(v::text, 0));
 
   if jsonb_typeof(p_input->'payment_ids') is distinct from 'array'
@@ -541,7 +544,10 @@ end $$;
 -- Порядок разбора: неактивный в зарплате без даты увольнения → inactive
 -- (не больше одной открытой карточки на период); месяц увольнения →
 -- final_month; нет счёта → no_bank_account; нет статьи → no_category.
--- Ошибка одного заведения откатывает только его и попадает в результат (error).
+-- Ошибка одного периода откатывает только его: остальные проводятся, а ошибка
+-- попадает в элемент заведения (errors: [{employment_id, message}]); строки
+-- месяца у такого периода нет, следующий запуск попробует снова. Ошибка всего
+-- заведения откатывает только его (error). Обе — ещё и warning в лог базы.
 create or replace function public.payroll_official_run(p_now timestamptz default now())
 returns jsonb
 language plpgsql
@@ -557,6 +563,7 @@ declare
   bank_ok boolean;
   posted int; review int; total numeric; net numeric;
   st text; rs text; pid uuid;
+  errors jsonb;
   result jsonb := '[]';
 begin
   for s in
@@ -581,7 +588,7 @@ begin
         where b.id = s.official_bank_account_id and b.account_id = s.account_id
           and b.is_active and b.deleted_at is null and b.currency = 'RUB' and b.type = 'checking'
           and (b.venue_id is null or b.venue_id = s.venue_id)) into bank_ok;
-      posted := 0; review := 0; total := 0;
+      posted := 0; review := 0; total := 0; errors := '[]';
 
       for oe in
         select e.* from public.payroll_official_employments e
@@ -591,45 +598,56 @@ begin
           and not exists (select 1 from public.payroll_official_months om where om.employment_id = e.id and om.month = m)
         order by e.starts_on, e.id
       loop
-        select * into g from private.payroll_official_gross(oe.id, m);
-        if g.kind is null then continue; end if;
-        select * into emp from public.payroll_employees where id = oe.employee_id;
-        st := 'review'; rs := null; pid := null;
+        begin
+          select * into g from private.payroll_official_gross(oe.id, m);
+          if g.kind is null then continue; end if;
+          select * into emp from public.payroll_employees where id = oe.employee_id;
+          st := 'review'; rs := null; pid := null; net := 0;
 
-        if not emp.active and oe.ends_on is null then
-          -- Уже висит карточка «проверьте увольнение» — вторую не создаём.
-          if exists (select 1 from public.payroll_official_months om
-                      where om.employment_id = oe.id and om.status = 'review' and om.reason = 'inactive' and om.month < m) then
-            continue;
+          if not emp.active and oe.ends_on is null then
+            -- Уже висит карточка «проверьте увольнение» — вторую не создаём.
+            if exists (select 1 from public.payroll_official_months om
+                        where om.employment_id = oe.id and om.status = 'review' and om.reason = 'inactive' and om.month < m) then
+              continue;
+            end if;
+            rs := 'inactive';
+          elsif g.kind = 'final' then
+            rs := 'final_month';
+          elsif not bank_ok then
+            rs := 'no_bank_account';
+          elsif private.payroll_official_category(s.account_id, s.venue_id, emp.id) is null then
+            rs := 'no_category';
+          else
+            net := g.gross - round(g.gross * 0.13, 0);
+            pid := private.payroll_official_post(s.account_id, s.venue_id, null, oe.id, m, g.gross, net,
+                                                 s.official_bank_account_id, pay_date);
+            st := 'posted';
           end if;
-          rs := 'inactive';
-        elsif g.kind = 'final' then
-          rs := 'final_month';
-        elsif not bank_ok then
-          rs := 'no_bank_account';
-        elsif private.payroll_official_category(s.account_id, s.venue_id, emp.id) is null then
-          rs := 'no_category';
-        else
-          net := g.gross - round(g.gross * 0.13, 0);
-          pid := private.payroll_official_post(s.account_id, s.venue_id, null, oe.id, m, g.gross, net,
-                                               s.official_bank_account_id, pay_date);
-          st := 'posted';
-          posted := posted + 1;
-          total := total + net;
-        end if;
-        if st = 'review' then review := review + 1; end if;
 
-        insert into public.payroll_official_months(account_id, venue_id, employment_id, employee_id, month,
-          kind, gross, status, reason, payment_id)
-        values (s.account_id, s.venue_id, oe.id, oe.employee_id, m, g.kind, g.gross, st, rs, pid);
+          insert into public.payroll_official_months(account_id, venue_id, employment_id, employee_id, month,
+            kind, gross, status, reason, payment_id)
+          values (s.account_id, s.venue_id, oe.id, oe.employee_id, m, g.kind, g.gross, st, rs, pid);
+          -- Счётчики — только после успешной записи (переменные не откатываются).
+          if st = 'posted' then
+            posted := posted + 1;
+            total := total + net;
+          else
+            review := review + 1;
+          end if;
+        exception when others then
+          raise warning 'payroll_official_run: account %, venue %, employment %, month %: %',
+            s.account_id, s.venue_id, oe.id, m, sqlerrm;
+          errors := errors || jsonb_build_array(jsonb_build_object('employment_id', oe.id, 'message', sqlerrm));
+        end;
       end loop;
 
-      if posted + review > 0 then
+      if posted + review > 0 or jsonb_array_length(errors) > 0 then
         result := result || jsonb_build_array(jsonb_build_object(
           'account_id', s.account_id, 'venue_id', s.venue_id, 'month', m,
-          'posted', posted, 'review', review, 'amount', total));
+          'posted', posted, 'review', review, 'amount', total, 'errors', errors));
       end if;
     exception when others then
+      raise warning 'payroll_official_run: account %, venue %, month %: %', s.account_id, s.venue_id, m, sqlerrm;
       result := result || jsonb_build_array(jsonb_build_object(
         'account_id', s.account_id, 'venue_id', s.venue_id, 'month', m,
         'posted', 0, 'review', 0, 'amount', 0, 'error', sqlerrm));

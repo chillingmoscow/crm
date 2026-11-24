@@ -5,6 +5,7 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import { validDate } from "@/lib/sales/time";
 import { z } from "zod";
 import { mediaUrl } from "@/lib/storage/media";
+import { actionResult } from "@/lib/actions/result";
 
 async function db() {
   const client = await createClient();
@@ -25,7 +26,7 @@ const createSchema = z.object({
   amount: z.number().finite().min(0).max(1e9),
   reason: z.string().trim().min(3).max(4000),
 });
-export async function createPayrollEntry(input: z.infer<typeof createSchema>) {
+async function createPayrollEntryImpl(input: z.infer<typeof createSchema>) {
   const value = createSchema.parse(input);
   const { database } = await db();
   const r = await database.rpc("payroll_journal_command", {
@@ -51,7 +52,7 @@ const bonusBatchSchema = z.object({
   })).min(1).max(500),
 });
 
-export async function recordPayrollBonuses(input: z.infer<typeof bonusBatchSchema>) {
+async function recordPayrollBonusesImpl(input: z.infer<typeof bonusBatchSchema>) {
   const value = bonusBatchSchema.parse(input);
   const { database } = await db();
   const result = await database.rpc("payroll_record_bonuses", { p_input: value });
@@ -65,14 +66,14 @@ const editSchema = z.object({
   expected_amount: z.number().finite(),
   expected_reason: z.string(),
 });
-export async function updatePayrollEntry(input: z.infer<typeof editSchema>) {
+async function updatePayrollEntryImpl(input: z.infer<typeof editSchema>) {
   const value = editSchema.parse(input);
   const { database } = await db();
   const result = await database.rpc("payroll_update_entry", {p_input:value});
   if (result.error) throw new Error(result.error.message);
 }
 
-export async function deletePayrollEntry(id: string, reason: string) {
+async function deletePayrollEntryImpl(id: string, reason: string) {
   const input = z
     .object({ id: uuid, reason: z.string().trim().min(3).max(1000) })
     .parse({ id, reason });
@@ -82,8 +83,17 @@ export async function deletePayrollEntry(id: string, reason: string) {
     p_input: input,
   });
   if (r.error) throw new Error(r.error.message);
+  // Запись, проведённая бонусами Quick Resto, удаляется только после возврата
+  // бонусов: команда ставит возврат в очередь, а запись пока остаётся в расчёте.
+  const after = await database
+    .from<{ deleted_at: string | null }>("payroll_adjustments")
+    .select("deleted_at")
+    .eq("id", input.id)
+    .single();
+  if (after.error) throw new Error(after.error.message);
+  return { bonusReturnQueued: after.data?.deleted_at === null };
 }
-export async function commentPayrollEntry(
+async function commentPayrollEntryImpl(
   id: string,
   body: string,
   requestKey: string,
@@ -121,10 +131,12 @@ export type PayrollEntryDetail = {
   photos: { id: string; name: string; url: string }[];
   /** Telegram chat notification that failed; null when sent, pending or not queued. */
   notification: { final: boolean; last_error: string | null } | null;
+  /** Возврат бонусов Quick Resto, поставленный при удалении записи; null — не запрошен. */
+  bonusReturn: { state: string; message: string | null } | null;
 };
 // Matches the worker's cap (migration 316): after this many failures the row is never retried.
 const NOTIFY_MAX_ATTEMPTS = 8;
-export async function loadPayrollEntry(
+async function loadPayrollEntryImpl(
   id: string,
 ): Promise<PayrollEntryDetail> {
   uuid.parse(id);
@@ -183,7 +195,17 @@ export async function loadPayrollEntry(
     }
     entries.push({id:`creation:${id}`,actor_name:author,action:parent.data.managed ? "created" : "imported",created_at:parent.data.created_at,details:{}});
   }
+  // История идёт от новых к старым: первая запись об обратной операции — её текущее состояние.
+  const reverse = (history.data ?? []).find(
+    (h) => h.action === "bonus_operation" && h.details.operation === "reverse",
+  );
   return {
+    bonusReturn: reverse
+      ? {
+          state: String(reverse.details.state),
+          message: typeof reverse.details.message === "string" ? reverse.details.message : null,
+        }
+      : null,
     comments: (comments.data ?? []).map((c) => ({
       ...c,
       author_name: c.source_author_name ?? names.get(c.id) ?? "Сотрудник",
@@ -202,7 +224,7 @@ export async function loadPayrollEntry(
     })),
   };
 }
-export async function uploadPayrollPhoto(id: string, form: FormData) {
+async function uploadPayrollPhotoImpl(id: string, form: FormData) {
   uuid.parse(id);
   const file = form.get("file");
   if (!(file instanceof File) || file.size > 5 * 1024 * 1024 || file.size < 12)
@@ -265,7 +287,7 @@ const disciplineSchema = z.object({
   bonus_mode: z.literal("parallel"),
 });
 export type DisciplineSettings = z.infer<typeof disciplineSchema>;
-export async function loadDisciplineSettings(): Promise<DisciplineSettings | null> {
+async function loadDisciplineSettingsImpl(): Promise<DisciplineSettings | null> {
   const { database } = await db();
   const r = await database
     .from<DisciplineSettings>("payroll_discipline_settings")
@@ -276,9 +298,39 @@ export async function loadDisciplineSettings(): Promise<DisciplineSettings | nul
   if (r.error) throw new Error(r.error.message);
   return r.data;
 }
-export async function saveDisciplineSettings(input: DisciplineSettings) {
+async function saveDisciplineSettingsImpl(input: DisciplineSettings) {
   const value = disciplineSchema.parse(input);
   const { database } = await db();
   const r = await database.rpc("payroll_save_discipline", { p_input: value });
   if (r.error) throw new Error(r.error.message);
+}
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js
+// заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function createPayrollEntry(input: z.infer<typeof createSchema>) {
+  return actionResult(() => createPayrollEntryImpl(input), "Не удалось сохранить запись");
+}
+export async function recordPayrollBonuses(input: z.infer<typeof bonusBatchSchema>) {
+  return actionResult(() => recordPayrollBonusesImpl(input), "Не удалось начислить премии");
+}
+export async function updatePayrollEntry(input: z.infer<typeof editSchema>) {
+  return actionResult(() => updatePayrollEntryImpl(input), "Не удалось сохранить изменения");
+}
+export async function deletePayrollEntry(id: string, reason: string) {
+  return actionResult(() => deletePayrollEntryImpl(id, reason), "Не удалось удалить запись");
+}
+export async function commentPayrollEntry(id: string, body: string, requestKey: string) {
+  return actionResult(() => commentPayrollEntryImpl(id, body, requestKey), "Не удалось отправить комментарий");
+}
+export async function loadPayrollEntry(id: string) {
+  return actionResult(() => loadPayrollEntryImpl(id), "Не удалось загрузить запись");
+}
+export async function uploadPayrollPhoto(id: string, form: FormData) {
+  return actionResult(() => uploadPayrollPhotoImpl(id, form), "Не удалось загрузить фотографию");
+}
+export async function loadDisciplineSettings() {
+  return actionResult(() => loadDisciplineSettingsImpl(), "Не удалось загрузить настройки");
+}
+export async function saveDisciplineSettings(input: DisciplineSettings) {
+  return actionResult(() => saveDisciplineSettingsImpl(input), "Не удалось сохранить настройки");
 }

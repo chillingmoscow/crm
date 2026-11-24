@@ -4176,6 +4176,19 @@ export type Database = {
           month: string
         }[]
       }
+      payroll_official_change_account: {
+        Args: { p_input: Json }
+        Returns: string[]
+      }
+      payroll_official_run: {
+        Args: { p_now?: string }
+        Returns: Json
+      }
+      payroll_official_skip: { Args: { p_id: string }; Returns: undefined }
+      payroll_record_official_payment: {
+        Args: { p_input: Json }
+        Returns: string
+      }
       payroll_save_fines_chat: {
         Args: { p_chat_id: string | null; p_enabled: boolean }
         Returns: undefined

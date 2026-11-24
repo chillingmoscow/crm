@@ -1,5 +1,6 @@
 "use server";
 import { z } from "zod";
+import { actionResult } from "@/lib/actions/result";
 import {
   createClient,
   getCachedUser,
@@ -155,7 +156,7 @@ function ruleGroupsOf(r: {
     }),
   };
 }
-export async function loadWriteoffs(expected?: string): Promise<WriteoffData> {
+async function loadWriteoffsImpl(expected?: string): Promise<WriteoffData> {
   const s = await scope(expected);
   const rows = <T>(table: string, cols: string, order: string) =>
     pagedRows<T>(s, table, cols, order);
@@ -245,7 +246,7 @@ export async function loadWriteoffs(expected?: string): Promise<WriteoffData> {
     autopost: isDeductionAutopostEnabled(process.env),
   };
 }
-export async function requestWriteoffs(venueId: string, month: string) {
+async function requestWriteoffsImpl(venueId: string, month: string) {
   const s = await scope(venueId);
   z.string()
     .regex(/^20\d{2}-(0[1-9]|1[0-2])$/)
@@ -257,7 +258,7 @@ export async function requestWriteoffs(venueId: string, month: string) {
     p_month: month + "-01",
   });
   if (r.error) throw new Error(r.error.message);
-  return loadWriteoffs(venueId);
+  return loadWriteoffsImpl(venueId);
 }
 /**
  * Поставить, сменить или снять (pool = null) плательщика за акт. Право отдельное
@@ -266,7 +267,7 @@ export async function requestWriteoffs(venueId: string, month: string) {
  * тянет заново всё разнесение заведения. `notice` - пояснение об удержании по недостаче
  * (пересчёт месяца после пометки), если автоматический пересчёт включён.
  */
-export async function assignWriteoffPool(
+async function assignWriteoffPoolImpl(
   venueId: string,
   externalId: number,
   pool: WriteoffPoolAssignment["pool"] | null,
@@ -318,7 +319,7 @@ const poolSchema = z.enum(["shared", "department", "personal", "excluded"]);
  * В журнал - одна строка на команду (RPC set_writeoff_pool_bulk). Пересчёт
  * удержания (если включён) - один раз на каждый затронутый месяц, а не на акт.
  */
-export async function assignWriteoffPoolBulk(
+async function assignWriteoffPoolBulkImpl(
   venueId: string,
   externalIds: number[],
   pool: WriteoffPoolAssignment["pool"],
@@ -395,7 +396,7 @@ export async function assignWriteoffPoolBulk(
  * только тот, кто ставит удержания или видит зарплату (RLS 309); остальным
  * `visible: false` - страница статус не показывает и о расчёте ничего не говорит.
  */
-export async function loadWriteoffDeduction(
+async function loadWriteoffDeductionImpl(
   venueId: string,
   month: string,
 ): Promise<{ visible: boolean; posted: PostedWriteoffDeduction | null }> {
@@ -442,7 +443,7 @@ export type WriteoffHistory = {
   actor_id: string | null;
   actor_name?: string;
 };
-export async function loadWriteoffHistory(
+async function loadWriteoffHistoryImpl(
   venueId: string,
   id: string,
 ): Promise<WriteoffHistory[]> {
@@ -488,4 +489,47 @@ export async function loadWriteoffHistory(
     }
   }
   throw new Error("Не удалось загрузить историю целиком");
+}
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js
+// заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function loadWriteoffs(expected?: string) {
+  return actionResult(() => loadWriteoffsImpl(expected), "Не удалось загрузить списания");
+}
+export async function requestWriteoffs(venueId: string, month: string) {
+  return actionResult(() => requestWriteoffsImpl(venueId, month), "Не удалось обновить списания");
+}
+export async function assignWriteoffPool(
+  venueId: string,
+  externalId: number,
+  pool: WriteoffPoolAssignment["pool"] | null,
+  key: string | null,
+) {
+  return actionResult(
+    () => assignWriteoffPoolImpl(venueId, externalId, pool, key),
+    "Не удалось сохранить, кто платит",
+  );
+}
+export async function assignWriteoffPoolBulk(
+  venueId: string,
+  externalIds: number[],
+  pool: WriteoffPoolAssignment["pool"],
+  key: string | null,
+) {
+  return actionResult(
+    () => assignWriteoffPoolBulkImpl(venueId, externalIds, pool, key),
+    "Не удалось разнести акты",
+  );
+}
+export async function loadWriteoffDeduction(venueId: string, month: string) {
+  return actionResult(
+    () => loadWriteoffDeductionImpl(venueId, month),
+    "Не удалось проверить удержание за месяц",
+  );
+}
+export async function loadWriteoffHistory(venueId: string, id: string) {
+  return actionResult(
+    () => loadWriteoffHistoryImpl(venueId, id),
+    "Не удалось загрузить историю акта",
+  );
 }

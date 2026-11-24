@@ -1,5 +1,6 @@
 "use server";
 import { z } from "zod";
+import { actionResult } from "@/lib/actions/result";
 import { revalidatePath } from "next/cache";
 import { encryptSecret, decryptSecret } from "@/lib/integrations/crypto";
 import { checked, integrationInput, integrationScope } from "@/lib/integrations/settings";
@@ -20,7 +21,7 @@ async function chatTitle(token: string, id: string) {
   if (!response.ok || !body.ok) throw new Error("Бот не имеет доступа к выбранному чату");
   return String(body.result.title || [body.result.first_name, body.result.last_name].filter(Boolean).join(" ") || body.result.username || `Чат ${id}`).slice(0, 500);
 }
-export async function readTelegramSettings(resolveTitles = false) {
+async function readTelegramSettingsImpl(resolveTitles = false) {
   const s = await integrationScope();
   const row = checked(await s.db.from<SavedTelegram>("organization_telegram_settings")
     .select("secret,bot_username,default_chat_id,candidate_chat_id,default_chat_title,candidate_chat_title").eq("account_id", s.accountId).maybeSingle());
@@ -38,7 +39,7 @@ export async function readTelegramSettings(resolveTitles = false) {
   return { bot_username: row.bot_username, default_chat_id: row.default_chat_id, candidate_chat_id: row.candidate_chat_id,
     default_chat_title: defaultTitle, candidate_chat_title: candidateTitle };
 }
-export async function saveOrganizationTelegram(input: unknown) {
+async function saveOrganizationTelegramImpl(input: unknown) {
   const s = await integrationScope(true);
   const value = integrationInput(z.object({ token: z.string().trim().max(300).optional(), chat_id: z.string().trim().regex(/^-?\d+$/, "Укажите ID чата"),
     candidate_chat_id: z.string().trim().regex(/^-?\d+$/, "Укажите ID чата новых анкет").or(z.literal("")) }), input);
@@ -65,7 +66,7 @@ export async function saveOrganizationTelegram(input: unknown) {
 }
 
 export type FinesChatSettings = { chat_id: string | null; title: string | null; notify_from: string | null };
-export async function readFinesChat(resolveTitle = false): Promise<FinesChatSettings | null> {
+async function readFinesChatImpl(resolveTitle = false): Promise<FinesChatSettings | null> {
   const s = await integrationScope();
   const result = await s.db.from<{ secret: SavedTelegram["secret"]; fines_chat_id: string | null; fines_notify_from: string | null }>("organization_telegram_settings")
     .select("secret,fines_chat_id,fines_notify_from").eq("account_id", s.accountId).maybeSingle();
@@ -79,12 +80,29 @@ export async function readFinesChat(resolveTitle = false): Promise<FinesChatSett
   }
   return { chat_id: row.fines_chat_id, title, notify_from: row.fines_notify_from };
 }
-export async function saveFinesChat(input: unknown) {
+async function saveFinesChatImpl(input: unknown) {
   const s = await integrationScope();
   const value = integrationInput(z.object({ chat_id: z.string().trim().regex(/^-?\d+$/, "Укажите числовой ID чата").or(z.literal("")), enabled: z.boolean() })
     .refine(v => !v.enabled || v.chat_id !== "", { message: "Укажите ID чата штрафов и премий" }), input);
   const { error } = await s.client.rpc("payroll_save_fines_chat", { p_chat_id: value.chat_id || null, p_enabled: value.enabled });
   if (error) throw new Error(/[а-яё]/i.test(error.message) ? error.message : "Не удалось сохранить чат штрафов и премий");
   revalidatePath("/settings/integrations/telegram");
-  return readFinesChat(true);
+  return readFinesChatImpl(true);
+}
+
+export type TelegramSettingsView = Awaited<ReturnType<typeof readTelegramSettingsImpl>>;
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js
+// заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function readTelegramSettings(resolveTitles = false) {
+  return actionResult(() => readTelegramSettingsImpl(resolveTitles), "Не удалось загрузить настройки Telegram");
+}
+export async function saveOrganizationTelegram(input: unknown) {
+  return actionResult(() => saveOrganizationTelegramImpl(input), "Не удалось сохранить настройки Telegram");
+}
+export async function readFinesChat(resolveTitle = false) {
+  return actionResult(() => readFinesChatImpl(resolveTitle), "Не удалось загрузить чат штрафов и премий");
+}
+export async function saveFinesChat(input: unknown) {
+  return actionResult(() => saveFinesChatImpl(input), "Не удалось сохранить чат штрафов и премий");
 }

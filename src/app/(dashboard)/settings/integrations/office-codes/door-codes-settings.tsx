@@ -13,7 +13,8 @@ import { OptionSelect } from "@/components/ui/option-select";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { candidateError } from "@/lib/candidates/errors";
 import { countRu } from "@/lib/format/plural";
-import { getEmploymentSettings, readDoorPool, saveDoorPool } from "../actions";
+import { unwrapAction } from "@/lib/actions/result";
+import { getEmploymentSettings, readDoorPool, saveDoorPool, type DoorPool } from "../actions";
 import { IntegrationFacts, IntegrationLayout, IntegrationNotice, IntegrationSection, IntegrationStatus } from "../_components/integration-layout";
 
 const CONTEXT = "Коды доступа новым сотрудникам без повторов";
@@ -24,14 +25,14 @@ export function DoorCodesOwnerOnly() {
   </IntegrationLayout>;
 }
 
-export function DoorCodesSettings({ venues, activeVenue, initialPool }: { venues: IntegrationVenue[]; activeVenue: string; initialPool: Awaited<ReturnType<typeof readDoorPool>> }) {
+export function DoorCodesSettings({ venues, activeVenue, initialPool }: { venues: IntegrationVenue[]; activeVenue: string; initialPool: DoorPool }) {
   const [venue, setVenue] = useState(activeVenue), [ready, setReady] = useState(false), [loaded, setLoaded] = useState(false);
   const [pool, setPool] = useState(initialPool), [adding, setAdding] = useState(false), [codes, setCodes] = useState("");
   const [empty, setEmpty] = useState(false), [error, setError] = useState(""), [saveError, setSaveError] = useState(""), [attempt, setAttempt] = useState(0), [busy, start] = useTransition();
   useEffect(() => {
     let active = true; setLoaded(false); setError("");
     if (!venue) return;
-    getEmploymentSettings(venue).then(value => { if (active) { setReady(value?.office_pool_initialized ?? false); setLoaded(true); } }).catch(e => { if (active) setError(candidateError(e, "Не удалось загрузить настройки кодов")); });
+    getEmploymentSettings(venue).then(unwrapAction).then(value => { if (active) { setReady(value?.office_pool_initialized ?? false); setLoaded(true); } }).catch(e => { if (active) setError(candidateError(e, "Не удалось загрузить настройки кодов")); });
     return () => { active = false; };
   }, [venue, attempt]);
   const hasPool = pool.reservedNumbers > 0 || pool.reservedPasswords > 0;
@@ -56,7 +57,7 @@ export function DoorCodesSettings({ venues, activeVenue, initialPool }: { venues
       {loaded && !ready && hasPool ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
         <span>Занятые коды организации уже учтены. Их можно использовать и для этого заведения</span>
         <Button size="sm" disabled={busy} onClick={() => start(async () => {
-          setError(""); try { await saveDoorPool(venue, { codes: "", confirm_empty_pool: false, use_existing_pool: true }); setReady(true); toast.success("Учёт кодов включён для заведения"); }
+          setError(""); try { unwrapAction(await saveDoorPool(venue, { codes: "", confirm_empty_pool: false, use_existing_pool: true })); setReady(true); toast.success("Учёт кодов включён для заведения"); }
           catch (e) { setError(candidateError(e, "Не удалось включить учёт кодов")); }
         })}>{busy ? "Сохраняем…" : "Использовать резерв"}</Button>
       </div> : null}
@@ -68,7 +69,7 @@ export function DoorCodesSettings({ venues, activeVenue, initialPool }: { venues
       footer={<><Button variant="outline" disabled={busy} onClick={close}>Отмена</Button>
         <Button disabled={busy || (!codes.trim() && !empty)} onClick={() => start(async () => {
           setSaveError("");
-          try { const saved = await saveDoorPool(venue, { codes, confirm_empty_pool: empty }); setPool(await readDoorPool()); setReady(true); setAdding(false); setCodes(""); setEmpty(false);
+          try { const saved = unwrapAction(await saveDoorPool(venue, { codes, confirm_empty_pool: empty })); setPool(unwrapAction(await readDoorPool())); setReady(true); setAdding(false); setCodes(""); setEmpty(false);
             toast.success(saved.imported ? `Добавлено: ${countRu(saved.imported, "строка", "строки", "строк")}` : "Учёт кодов настроен"); }
           catch (e) { setSaveError(candidateError(e, "Не удалось сохранить коды")); }
         })}>{busy ? "Сохраняем…" : "Сохранить"}</Button></>}>

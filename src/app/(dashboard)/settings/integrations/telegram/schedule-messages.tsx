@@ -18,6 +18,7 @@ import {
   weekdayName,
 } from "@/lib/schedule/task-message-schedule";
 import { IntegrationNotice, IntegrationSection } from "../_components/integration-layout";
+import { unwrapAction } from "@/lib/actions/result";
 import { saveScheduleMessages, type ScheduleMessageSettings } from "./schedule-message-actions";
 import type { TelegramChatRow } from "./chat-actions";
 
@@ -91,7 +92,7 @@ export function ScheduleMessages({ settings, chats }: { settings: ScheduleMessag
         <Button disabled={busy || !!problem} onClick={() => start(async () => {
               if (!draft) return; setError("");
               try {
-                await saveScheduleMessages({
+                unwrapAction(await saveScheduleMessages({
                   venue_id: draft.venue_id,
                   chat_id: draft.daily ? draft.chat_id : null,
                   daily_days: draft.daily_days.length ? draft.daily_days : WEEK,
@@ -100,7 +101,7 @@ export function ScheduleMessages({ settings, chats }: { settings: ScheduleMessag
                   schedule_open_day: draft.schedule_open_day,
                   schedule_deadline_day: draft.schedule_deadline_day === draft.schedule_open_day && !draft.reminder ? (draft.schedule_open_day % 7) + 1 : draft.schedule_deadline_day,
                   schedule_time: draft.schedule_time,
-                });
+                }));
                 toast.success("Сообщения сохранены");
                 close();
               } catch (e) { setError(candidateError(e, "Не удалось сохранить сообщения")); }

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { checked, integrationPageScope } from "@/lib/integrations/settings";
+import { unwrapAction } from "@/lib/actions/result";
 import { readTildaConnection } from "../actions";
 import { readTelegramSettings } from "../telegram/actions";
 import { TildaSettings } from "./tilda-settings";
@@ -9,8 +10,8 @@ export default async function TildaPage() {
   const scope = await integrationPageScope();
   const since = new Date(Date.now() - 30 * 86400000).toISOString();
   const [connection, telegram, recent] = await Promise.all([
-    readTildaConnection(),
-    readTelegramSettings(),
+    readTildaConnection().then(unwrapAction),
+    readTelegramSettings().then(unwrapAction),
     scope.db.from("candidates").select("id", { count: "exact", head: true }).eq("account_id", scope.accountId).eq("source", "tilda").gte("created_at", since),
   ]);
   checked(recent);

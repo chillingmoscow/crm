@@ -1,5 +1,6 @@
 "use server";
 import { z } from "zod";
+import { actionResult } from "@/lib/actions/result";
 import {
   createClient,
   getCachedUser,
@@ -46,7 +47,7 @@ async function context(expected: string) {
     );
   return { client, db, user, accountId, venueId: expected };
 }
-export async function loadStockRules(venueId: string): Promise<StockRuleData> {
+async function loadStockRulesImpl(venueId: string): Promise<StockRuleData> {
   const s = await context(venueId);
   const versions: DeductionRuleVersion[] = [];
   for (let start = 0; start < 10000; start += 1000) {
@@ -158,7 +159,7 @@ export async function loadStockRules(venueId: string): Promise<StockRuleData> {
     hasLegacy: !!legacy,
   };
 }
-export async function saveStockRules(input: {
+async function saveStockRulesImpl(input: {
   venueId: string;
   expectedVersion: number;
   validFrom: string;
@@ -187,5 +188,20 @@ export async function saveStockRules(input: {
     venueId: input.venueId,
     validFrom: input.validFrom,
   });
-  return { data: await loadStockRules(input.venueId), deductionNotice };
+  return { data: await loadStockRulesImpl(input.venueId), deductionNotice };
+}
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js
+// заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function loadStockRules(venueId: string) {
+  return actionResult(() => loadStockRulesImpl(venueId), "Не удалось загрузить правила удержаний");
+}
+export async function saveStockRules(input: {
+  venueId: string;
+  expectedVersion: number;
+  validFrom: string;
+  config: DeductionRules;
+  reason: string;
+}) {
+  return actionResult(() => saveStockRulesImpl(input), "Не удалось сохранить правила удержаний");
 }

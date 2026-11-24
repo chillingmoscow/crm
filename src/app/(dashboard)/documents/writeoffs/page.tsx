@@ -7,6 +7,7 @@ import {
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { PageFrame } from "@/components/shared/page-frame";
 import { EmptyState } from "@/components/ui/empty-state";
+import { unwrapAction } from "@/lib/actions/result";
 import { loadWriteoffs } from "./actions";
 import { WriteoffsClient } from "./writeoffs-client";
 export default async function WriteoffsPage() {
@@ -22,6 +23,6 @@ export default async function WriteoffsPage() {
         />
       </PageFrame>
     );
-  const initial = await loadWriteoffs();
+  const initial = unwrapAction(await loadWriteoffs());
   return <WriteoffsClient key={initial.venueId} initial={initial} />;
 }

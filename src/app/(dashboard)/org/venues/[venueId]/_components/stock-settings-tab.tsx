@@ -19,6 +19,7 @@ import {
   saveStockRules,
   type StockRuleData,
 } from "@/app/(dashboard)/documents/writeoffs/rule-actions";
+import { unwrapAction } from "@/lib/actions/result";
 import {
   deductionRulesSchema,
   readLines,
@@ -202,13 +203,15 @@ function RulesForm({
         groups: config.groups,
         excludedDepartmentIds: config.excludedDepartmentIds ?? [],
       });
-      const d = await saveStockRules({
-        venueId: initial.venueId,
-        expectedVersion: initial.versions[0]?.version ?? 0,
-        validFrom: form.from,
-        config: next,
-        reason: form.reason,
-      });
+      const d = unwrapAction(
+        await saveStockRules({
+          venueId: initial.venueId,
+          expectedVersion: initial.versions[0]?.version ?? 0,
+          validFrom: form.from,
+          config: next,
+          reason: form.reason,
+        }),
+      );
       onSaved(d.data);
       router.refresh();
       toast.success("Новая версия правил сохранена");
@@ -428,6 +431,7 @@ export function StockSettingsTab({ venueId }: { venueId: string }) {
   useEffect(() => {
     let active = true;
     void loadStockRules(venueId)
+      .then(unwrapAction)
       .then((d) => active && setData(d))
       .catch((e) => active && setError(e.message));
     return () => {

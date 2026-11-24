@@ -2,7 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { loadTransactionHistory } from "@/lib/finance/transaction-history";
+import { unwrapAction } from "@/lib/actions/result";
+import {
+  loadTransactionHistory,
+  type TransactionHistoryData,
+} from "@/lib/finance/transaction-history";
 import { EntityAuditTab } from "./entity-audit-tab";
 import { Button } from "@/components/ui/button";
 
@@ -11,9 +15,7 @@ export function TransactionHistory({
 }: {
   transactionId: string;
 }) {
-  const [result, setResult] = useState<Awaited<
-    ReturnType<typeof loadTransactionHistory>
-  > | null>(null);
+  const [result, setResult] = useState<TransactionHistoryData | null>(null);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
@@ -21,6 +23,7 @@ export function TransactionHistory({
     setResult(null);
     setError("");
     loadTransactionHistory(transactionId)
+      .then(unwrapAction)
       .then((data) => {
         if (active) setResult(data);
       })

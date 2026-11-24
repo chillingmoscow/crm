@@ -1,5 +1,6 @@
 "use server";
 import { z } from "zod";
+import { actionResult } from "@/lib/actions/result";
 import { revalidatePath } from "next/cache";
 import { checked, integrationInput, integrationScope } from "@/lib/integrations/settings";
 import { writeAuditEvent } from "@/lib/audit/write";
@@ -69,7 +70,7 @@ const schema = z.object({
   schedule_time: time,
 }).refine(v => v.schedule_open_day !== v.schedule_deadline_day, "Начало сбора и последний день должны быть разными днями");
 
-export async function saveScheduleMessages(input: unknown) {
+async function saveScheduleMessagesImpl(input: unknown) {
   const s = await integrationScope();
   const value = integrationInput(schema, input);
   const venue = checked(await s.db.from<{ id: string; name: string }>("venues").select("id,name")
@@ -155,4 +156,10 @@ async function messageChanges(
   return Object.keys(now)
     .filter((field) => old[field] !== now[field])
     .map((field) => ({ field, old: old[field], new: now[field] }));
+}
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js
+// заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function saveScheduleMessages(input: unknown) {
+  return actionResult(() => saveScheduleMessagesImpl(input), "Не удалось сохранить сообщения");
 }

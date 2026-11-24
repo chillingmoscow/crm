@@ -16,10 +16,11 @@ import { ScheduleMessages } from "./schedule-messages";
 import type { ScheduleMessageSettings } from "./schedule-message-actions";
 import type { ChatRoleOption, TelegramChatRow } from "./chat-actions";
 import type { UndeliveredItem } from "./delivery-actions";
-import { readFinesChat, readTelegramSettings, saveFinesChat, saveOrganizationTelegram, type FinesChatSettings } from "./actions";
+import { unwrapAction } from "@/lib/actions/result";
+import { readFinesChat, readTelegramSettings, saveFinesChat, saveOrganizationTelegram, type FinesChatSettings, type TelegramSettingsView } from "./actions";
 import { IntegrationLayout, IntegrationNotice, IntegrationSection, IntegrationStatus } from "../_components/integration-layout";
 
-type TelegramView = Awaited<ReturnType<typeof readTelegramSettings>>;
+type TelegramView = TelegramSettingsView;
 type Panel = null | "bot" | "candidates" | "hired" | "fines";
 
 const enabledAt = (iso: string) => new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
@@ -32,8 +33,8 @@ export function TelegramSettings({ initial, editable, chats, roles, fines: initi
   const [saved, setSaved] = useState(initial), [fines, setFines] = useState(initialFines), [panel, setPanel] = useState<Panel>(null);
   useEffect(() => {
     let active = true;
-    if (initial) void readTelegramSettings(true).then(value => { if (active && value) setSaved(current => current === initial ? value : current); }).catch(() => {});
-    if (initialFines?.chat_id) void readFinesChat(true).then(value => { if (active && value) setFines(value); }).catch(() => {});
+    if (initial) void readTelegramSettings(true).then(unwrapAction).then(value => { if (active && value) setSaved(current => current === initial ? value : current); }).catch(() => {});
+    if (initialFines?.chat_id) void readFinesChat(true).then(unwrapAction).then(value => { if (active && value) setFines(value); }).catch(() => {});
     return () => { active = false; };
   }, [initial, initialFines]);
 
@@ -92,14 +93,14 @@ function SettingsPanel({ panel, saved, fines, onClose, onSaved, onFinesSaved }: 
     setError("");
     try {
       if (panel === "fines") {
-        const next = await saveFinesChat({ chat_id: chat, enabled });
+        const next = unwrapAction(await saveFinesChat({ chat_id: chat, enabled }));
         if (next) onFinesSaved(next);
       } else {
-        onSaved(await saveOrganizationTelegram({
+        onSaved(unwrapAction(await saveOrganizationTelegram({
           token: token || undefined,
           chat_id: panel === "candidates" ? saved?.default_chat_id ?? "" : chat,
           candidate_chat_id: panel === "candidates" ? (same ? "" : chat) : saved?.candidate_chat_id ?? "",
-        }));
+        })));
       }
       toast.success("Сохранено"); onClose();
     } catch (e) { setError(candidateError(e, "Не удалось сохранить")); }

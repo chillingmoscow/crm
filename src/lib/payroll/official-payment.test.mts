@@ -146,9 +146,14 @@ test("счёт официальной выплаты — только расчё
     { id: "rs-1", name: "Р/с 1", legal_entity_id: "le", type: "checking" },
     { id: "rs-2", name: "Р/с 2", legal_entity_id: "le", type: "checking" },
   ];
-  assert.equal(officialBankFor(banks, "rs-2", "rs-1"), "rs-2");
+  // Без выбора пользователя — счёт из настроек, даже если первым в списке стоит другой расчётный.
+  assert.equal(officialBankFor(banks, null, "rs-2"), "rs-2");
+  // Выбранный вручную расчётный счёт важнее настроек.
+  assert.equal(officialBankFor(banks, "rs-1", "rs-2"), "rs-1");
+  // Выбор не расчётного счёта не считается.
   assert.equal(officialBankFor(banks, "card", "rs-2"), "rs-2");
-  assert.equal(officialBankFor(banks, "card", "card"), "rs-1");
-  assert.equal(officialBankFor(banks, "card", null), "rs-1");
-  assert.equal(officialBankFor(banks.slice(0, 1), "card", null), "");
+  // Счёт из настроек не расчётный или не задан — первый расчётный.
+  assert.equal(officialBankFor(banks, null, "card"), "rs-1");
+  assert.equal(officialBankFor(banks, null, null), "rs-1");
+  assert.equal(officialBankFor(banks.slice(0, 1), null, null), "");
 });

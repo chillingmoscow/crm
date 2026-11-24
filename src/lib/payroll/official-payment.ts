@@ -17,12 +17,14 @@ export const canChangeOfficialAccount = (permissions: string[]) =>
 export const checkingBanks = (banks: PayrollData["banks"]) => banks.filter((b) => b.type === "checking");
 
 /**
- * Счёт для официальной выплаты: текущий выбор, если он расчётный, иначе счёт
- * по умолчанию из настроек, иначе первый расчётный. "" — расчётных нет.
+ * Счёт для официальной выплаты: счёт, который пользователь сам выбрал для
+ * неё (`picked`), если он расчётный, иначе счёт по умолчанию из настроек,
+ * иначе первый расчётный. "" — расчётных нет. Счёт обычной выплаты сюда не
+ * передаётся: форма ставит его первым из списка, а не по выбору человека.
  */
-export function officialBankFor(banks: PayrollData["banks"], current: string, preferred?: string | null): string {
+export function officialBankFor(banks: PayrollData["banks"], picked: string | null, preferred?: string | null): string {
   const checking = checkingBanks(banks);
-  if (checking.some((b) => b.id === current)) return current;
+  if (picked && checking.some((b) => b.id === picked)) return picked;
   if (preferred && checking.some((b) => b.id === preferred)) return preferred;
   return checking[0]?.id ?? "";
 }

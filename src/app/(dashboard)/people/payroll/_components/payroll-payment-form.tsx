@@ -66,6 +66,10 @@ export function PayrollPaymentForm({
   const [officialGrossValue, setOfficialGrossValue] = useState<number | null>(null);
   const [grossEdited, setGrossEdited] = useState(false);
   const [prefilledFor, setPrefilledFor] = useState("");
+  // Счёт, выбранный для официальной выплаты вручную; null — берём счёт из
+  // настроек официальной зарплаты. Отдельно от обычного счёта, который
+  // форма ставит первым из списка.
+  const [officialBankPick, setOfficialBankPick] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [footerTarget, setFooterTarget] = useState<HTMLElement | null>(null);
   const request = useRef<{ key: string; date: string; payload: string } | null>(
@@ -114,7 +118,7 @@ export function PayrollPaymentForm({
   }
   const officialChecking = checkingBanks(data.banks);
   const bankValue = officialOn
-    ? officialBankFor(data.banks, bank, data.settings?.official_bank_account_id)
+    ? officialBankFor(data.banks, officialBankPick, data.settings?.official_bank_account_id)
     : bank;
   const officialError = officialAmountsError(officialNetValue, officialGrossValue);
   const officialTax = officialTaxOf(officialNetValue, officialGrossValue);
@@ -223,7 +227,7 @@ export function PayrollPaymentForm({
       </div>
       <p className={s.footerMeta}>
         {officialOn
-          ? "Расход в финансах — на сумму на руки. В Adesk официальная выплата не отправляется."
+          ? "Расход в финансах создаётся на сумму на руки. В Adesk официальная выплата не отправляется."
           : "Каждому сотруднику создаётся отдельная транзакция в финансах."}
       </p>
     </div>
@@ -237,7 +241,7 @@ export function PayrollPaymentForm({
             <Select
               required
               value={bankValue}
-              onValueChange={setBank}
+              onValueChange={officialOn ? setOfficialBankPick : setBank}
               disabled={busy}
             >
               <SelectTrigger

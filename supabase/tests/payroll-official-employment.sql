@@ -386,6 +386,57 @@ begin
   perform public.payroll_official_command('cancel', jsonb_build_object('employment_id', emp));
 end $$;
 
+-- ── Увольнение в приложении ставит дату официального увольнения (385) ──
+do $$
+declare
+  a uuid := (select id from fx where key = 'a');
+  v uuid := (select id from fx where key = 'v');
+  waiter uuid := (select id from fx where key = 'waiter');
+  manager uuid := (select id from fx where key = 'manager');
+  today date := private.finance_account_today((select id from fx where key = 'a'));
+  emp uuid := (select id from fx where key = 'emp_pavlov');
+  uvr_w uuid; uvr_m uuid; mgr_emp uuid; mgr_oe uuid;
+begin
+  perform pg_temp.act_as((select id from fx where key = 'owner'));
+
+  -- Прежние кейсы могли закрыть период Павлова — открываем заново и очищаем журнал.
+  update public.payroll_official_employments set ends_on = null, archived_at = null where id = emp;
+  delete from public.audit_logs where entity_id = emp and action_code = 'payroll.official_employment.ended';
+
+  -- Открытый период Павлова: после увольнения закрыт сегодняшним числом по поясу аккаунта.
+  perform pg_temp.check((select ends_on is null from public.payroll_official_employments where id = emp),
+    'перед увольнением период открыт');
+  select id into uvr_w from public.user_venue_roles where user_id = waiter and venue_id = v and status = 'active' limit 1;
+  perform pg_temp.check(uvr_w is not null, 'у официанта есть активная роль в заведении');
+  perform public.staff_begin_termination(uvr_w, 'Тест увольнения');
+  perform pg_temp.check((select ends_on = today from public.payroll_official_employments where id = emp),
+    'увольнение: ends_on = сегодня по поясу аккаунта');
+  perform pg_temp.check((select count(*) = 1 from public.audit_logs
+    where action_code = 'payroll.official_employment.ended' and entity_id = emp
+      and details->>'source' = 'termination' and details->>'employee_name' = 'Павлов'
+      and user_id = (select id from fx where key = 'owner')), 'журнал: одна строка об увольнении');
+
+  -- Повторный вызов (retry): ничего не меняется, второй строки журнала нет.
+  perform public.staff_begin_termination(uvr_w, 'Повтор');
+  perform pg_temp.check((select count(*) = 1 from public.audit_logs
+    where action_code = 'payroll.official_employment.ended' and entity_id = emp
+      and details->>'source' = 'termination'), 'повтор не пишет вторую строку');
+  perform pg_temp.check((select ends_on = today from public.payroll_official_employments where id = emp),
+    'повтор не меняет дату');
+
+  -- Уже заданная будущая дата не трогается.
+  select id into mgr_emp from public.payroll_employees where venue_id = v and local_user_id = manager;
+  insert into public.payroll_official_employments(account_id, venue_id, employee_id, starts_on, ends_on, position)
+  values (a, v, mgr_emp, '2026-10-01', today + 30, 'Управляющий') returning id into mgr_oe;
+  select id into uvr_m from public.user_venue_roles where user_id = manager and venue_id = v and status = 'active' limit 1;
+  perform pg_temp.check(uvr_m is not null, 'у менеджера есть активная роль в заведении');
+  perform public.staff_begin_termination(uvr_m, 'Тест увольнения 2');
+  perform pg_temp.check((select ends_on = today + 30 from public.payroll_official_employments where id = mgr_oe),
+    'будущий ends_on не меняется');
+  perform pg_temp.check(not exists(select 1 from public.audit_logs
+    where action_code = 'payroll.official_employment.ended' and entity_id = mgr_oe), 'для неизменённого периода нет журнала');
+end $$;
+
 select 'PASS: payroll-official-employment' as result;
 
 rollback;

@@ -9,13 +9,8 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
-import {
-  Archive,
-  ChartNoAxesCombined,
-  RefreshCw,
-  SearchX,
-  Settings2,
-} from "lucide-react";
+import { ChartNoAxesCombined, RefreshCw, SearchX, Settings } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -78,7 +73,7 @@ import {
   loadAdditionalHistory,
   type AdditionalData,
 } from "./actions";
-import { TARGET_LABEL, UpsellRulesEditor } from "./upsell-rules-editor";
+import { TARGET_LABEL } from "./upsell-labels";
 
 const baseLabels: Record<string, string> = {
   date: "Дата",
@@ -439,15 +434,9 @@ function Detail({
 }
 
 export function AdditionalClient({ initial }: { initial: AdditionalData }) {
+  const router = useRouter();
   const [data, setData] = useState(initial),
-    [tabId, setTabId] = useState<string | null>(null),
-    [sourceChoice, setSource] = useState<"native" | "archive">(
-      initial.reports.some((r) => r.metrics) || initial.upsellDays.length
-        ? "native"
-        : initial.archives.length
-          ? "archive"
-          : "native",
-    );
+    [tabId, setTabId] = useState<string | null>(null);
   const latestMonth = (
     [
       ...initial.reports.map((r) => r.business_date),
@@ -461,21 +450,18 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
   const [month, setMonth] = useState(latestMonth);
   const [busy, setBusy] = useState(false),
     [exporting, setExporting] = useState(false),
-    [rulesOpen, setRulesOpen] = useState(false),
     [detail, setDetail] = useState<AdditionalRow | null>(null);
   const can = (p: string) => data.permissions.includes(`sales.${p}_shifts`);
   const tabs = useMemo(() => additionalTabs(data), [data]);
   const tab = tabs.find((t) => t.id === tabId) ?? tabs[0] ?? null;
   const kind = tab?.legacyKind ?? null;
-  const hasArchive = !!kind && data.archives.some((a) => a.kind === kind);
-  const source = hasArchive ? sourceChoice : "native";
   const picker = useMemo<PickerByKey>(
     () => new Map(data.picker.map((p) => [p.key, p])),
     [data.picker],
   );
   const allRows = useMemo(
-    () => (tab ? departmentRows(data, tab.id, source) : []),
-    [data, tab, source],
+    () => (tab ? departmentRows(data, tab.id) : []),
+    [data, tab],
   );
   const hasLegacyRows = allRows.some((r) => !r.upsell);
   /** Колонки старых категорий — пока у подразделения есть дни до перехода. */
@@ -489,7 +475,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
   /** Колонки строк правил: порядок и названия — из новейшей версии. */
   const upsellGroups = useMemo(() => {
     const map = new Map<string, string>();
-    if (tab && source === "native")
+    if (tab)
       for (const v of data.upsellRules)
         if (v.department_id === tab.id)
           for (const l of v.lines) if (!map.has(lineKey(l))) map.set(lineKey(l), l.name);
@@ -497,7 +483,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
       id,
       label: picker.get(id)?.name ?? name,
     }));
-  }, [data.upsellRules, tab, source, picker]);
+  }, [data.upsellRules, tab, picker]);
   const groups = useMemo(
     () => [...legacyGroups, ...upsellGroups],
     [legacyGroups, upsellGroups],
@@ -574,12 +560,18 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
       ),
     [monthRows, query],
   );
+  // Первый день с данными: архив Glide раньше расчёта Sheerly.
   const firstDay =
-    source === "native"
-      ? kind
-        ? data.rules.at(-1)?.valid_from
-        : (tab?.switchDate ?? undefined)
-      : undefined;
+    [
+      ...(kind
+        ? [
+            data.rules.at(-1)?.valid_from,
+            ...data.archives.filter((a) => a.kind === kind).map((a) => a.business_date),
+          ]
+        : [tab?.switchDate ?? undefined]),
+    ]
+      .filter((d): d is string => !!d)
+      .sort()[0];
   const expectedDays = query
     ? rows.length
     : additionalCoverage(`${month}-01`, addDays(data.nextFrom, -2), firstDay);
@@ -656,8 +648,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
     try {
       unwrapAction(await requestAdditional(month, data.venueId));
       setData(unwrapAction(await loadAdditional(data.venueId)));
-      setSource("native");
-      toast.success("Отчёты запрошены, они появятся автоматически");
+      toast.success("Пересчёт месяца запущен, дни обновятся автоматически");
     } catch (e) {
       toast.error(
         salesErrorText(e instanceof Error ? e.message : null, "Не удалось запросить отчёты"),
@@ -667,7 +658,6 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
     }
   }
   const pending =
-    source === "native" &&
     ((data.configured && additionalNeedsRefresh(data.reports, `${month}-01`)) ||
       data.upsellDays.some(
         (d) =>
@@ -696,7 +686,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
     setExporting(true);
     try {
       const snapshot = unwrapAction(await exportAdditional(data.venueId));
-      const fresh = departmentRows(snapshot, tab.id, source);
+      const fresh = departmentRows(snapshot, tab.id);
       const byDate = new Map(fresh.map((r) => [r.date, r]));
       const visible = table.getVisibleLeafColumns();
       const lines: unknown[][] = [
@@ -731,7 +721,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
       );
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Допродажи-${tab.name}-${source === "archive" ? "архив-Glide-" : ""}${month}.csv`;
+      a.download = `Допродажи-${tab.name}-${month}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -787,12 +777,12 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
         ),
       }
     : series;
-  const nativeStart = kind ? data.rules.at(-1)?.valid_from : undefined;
   const switchDate = tab?.switchDate ?? null;
   const workedDays = rows.filter((r) => additionalValue(r, "bonus") !== null).length;
   const stripKeys = ["bonus", "revenue", "primeCost"];
   const monthPoints = monthIds.has("points");
-  const unknown = source === "native" ? upsellUnknown(monthRows) : [];
+  const unknown = upsellUnknown(monthRows);
+  const archiveDays = monthRows.filter((r) => r.archive).map((r) => r.date).sort();
   const hintFor = (key: string) => {
     const sum = additionalTotal(rows, key);
     return sum.value === null
@@ -804,11 +794,14 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
 
   const body = (
     <div className="flex min-w-0 flex-col gap-4">
-      {source === "archive" ? (
-        <p role="status" className="text-sm text-muted-foreground">
-          Допродажи из архива Glide, без пересчёта
+      {archiveDays.length > 0 && (
+        <p className="text-sm text-muted-foreground">
+          {archiveDays.length === monthRows.length
+            ? "Допродажи этого месяца — из архива Glide, без пересчёта"
+            : `Дни по ${formatDayMonth(archiveDays.at(-1)!)} — из архива Glide, без пересчёта`}
         </p>
-      ) : switchDate && switchDate.slice(0, 7) === month ? (
+      )}
+      {switchDate && switchDate.slice(0, 7) === month ? (
         <p className="text-sm text-muted-foreground">
           С {formatDayMonth(switchDate)} прибавка считается по чекам по правилам
           подразделения
@@ -816,16 +809,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
             ? ". Более ранние дни посчитаны по отчётам Quick Resto"
             : ""}
         </p>
-      ) : (
-        nativeStart &&
-        nativeStart.slice(0, 7) === month &&
-        nativeStart.slice(8) !== "01" && (
-          <p className="text-sm text-muted-foreground">
-            Расчёт Sheerly ведётся с {formatDayMonth(nativeStart)}. Более
-            ранние дни есть в архиве Glide
-          </p>
-        )
-      )}
+      ) : null}
       {unknown.length > 0 && (
         <p
           role="status"
@@ -841,13 +825,11 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
           icon={ChartNoAxesCombined}
           title="За этот месяц данных нет"
           description={
-            source === "archive"
-              ? "Выберите другой месяц или вернитесь к расчёту Sheerly"
-              : switchDate
-                ? "Дни появятся после загрузки чеков в «Сменах»"
-                : data.configured
-                  ? "Запросите отчёты завершённых рабочих дней кнопкой «Обновить отчёты»"
-                  : "Источники допродаж пока не подключены"
+            switchDate
+              ? "Дни появятся после загрузки чеков в «Сменах»"
+              : data.configured
+                ? "Посчитайте завершённые рабочие дни кнопкой «Пересчитать месяц»"
+                : "Источники допродаж пока не подключены"
           }
         />
       ) : !rows.length ? (
@@ -916,7 +898,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
       )}
       {allRows.length > 0 && groups.length > 0 && (
         <SalesTrend
-          key={`${source}-${tab?.id}`}
+          key={tab?.id}
           series={chartSeries}
           title="Среднее количество в день с данными"
         />
@@ -1008,33 +990,14 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
               ),
             }}
             secondaryActions={
-              <>
-                {hasArchive && (
-                  <TableIconButton
-                    label={
-                      source === "archive"
-                        ? "Вернуться к расчёту Sheerly"
-                        : "Архив Glide"
-                    }
-                    active={source === "archive"}
-                    pressed={source === "archive"}
-                    onClick={() => {
-                      setSource(source === "archive" ? "native" : "archive");
-                      setDetail(null);
-                    }}
-                  >
-                    <Archive />
-                  </TableIconButton>
-                )}
-                {data.departments.length > 0 && can("configure") && (
-                  <TableIconButton
-                    label="Правила расчёта"
-                    onClick={() => setRulesOpen(true)}
-                  >
-                    <Settings2 />
-                  </TableIconButton>
-                )}
-              </>
+              data.departments.length > 0 && can("configure") ? (
+                <TableIconButton
+                  label="Правила допродаж"
+                  onClick={() => router.push("/sales/additional/rules")}
+                >
+                  <Settings />
+                </TableIconButton>
+              ) : undefined
             }
             exportAction={
               can("export")
@@ -1047,7 +1010,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
                 : undefined
             }
             primaryActions={
-              data.configured && can("sync") && source === "native" ? (
+              data.configured && can("sync") ? (
                 <Button
                   size="sm"
                   className="h-9 gap-2"
@@ -1059,7 +1022,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
                       busy ? "size-4 animate-spin motion-reduce:animate-none" : "size-4"
                     }
                   />
-                  {busy ? "Запрашиваем…" : "Обновить отчёты"}
+                  {busy ? "Запускаем…" : "Пересчитать месяц"}
                 </Button>
               ) : undefined
             }
@@ -1102,7 +1065,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
           title="Допродажи не настроены"
           description={
             can("configure") && data.departments.length > 0
-              ? "Задайте правила подразделения кнопкой «Правила расчёта»"
+              ? "Задайте правила подразделения кнопкой «Правила допродаж»"
               : "Правила допродаж задаёт управляющий"
           }
         />
@@ -1115,13 +1078,6 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
           name={tab.name}
           picker={picker}
           onClose={() => setDetail(null)}
-        />
-      )}
-      {rulesOpen && (
-        <UpsellRulesEditor
-          data={data}
-          onClose={() => setRulesOpen(false)}
-          onSaved={setData}
         />
       )}
     </PageFrame>

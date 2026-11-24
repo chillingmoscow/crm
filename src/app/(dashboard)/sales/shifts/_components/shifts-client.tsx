@@ -20,7 +20,7 @@ import {
   Pencil,
   RefreshCw,
   SearchX,
-  Settings2,
+  Settings,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -751,7 +751,7 @@ export function ShiftsClient({
                   label="Настройки продаж"
                   onClick={() => router.push("/sales/settings")}
                 >
-                  <Settings2 />
+                  <Settings />
                 </TableIconButton>
               ) : undefined
             }

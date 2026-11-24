@@ -106,8 +106,7 @@ test("день до перехода берётся из старой очере
         },
       ],
     }),
-    BAR,
-    "native",
+    BAR
   );
   assert.deepEqual(
     rows.map((r) => [r.date, !!r.upsell, !!r.native]),
@@ -154,8 +153,7 @@ test("выручка дня перехода из отчёта бара", () => 
         },
       ],
     }),
-    BAR,
-    "native",
+    BAR
   );
   assert.equal(additionalValue(row, "revenue"), 45000);
   assert.equal(additionalValue(row, "primeCost"), 12000);
@@ -187,8 +185,7 @@ test("день без результата — bonus null, не 0", () => {
         },
       ],
     }),
-    BAR,
-    "native",
+    BAR
   );
   assert.equal(rows.length, 2);
   for (const r of rows) {
@@ -215,8 +212,7 @@ test("день перехода в состоянии пересчёта (не r
         },
       ],
     }),
-    BAR,
-    "native",
+    BAR
   );
   assert.equal(additionalValue(row, "bonus"), null);
   assert.equal(additionalValue(row, "dish:11"), null);
@@ -232,8 +228,7 @@ test("подразделение без правил — все дни из ст
         report("2026-11-25", "bar", 1),
       ],
     }),
-    MASTERS,
-    "native",
+    MASTERS
   );
   assert.deepEqual(
     rows.map((r) => [r.date, additionalValue(r, "bonus"), additionalValue(r, "points")]),
@@ -278,8 +273,7 @@ test("подразделение без старого вида — только
         },
       ],
     }),
-    MANAGERS,
-    "native",
+    MANAGERS
   );
   assert.equal(rows.length, 1);
   assert.equal(additionalValue(rows[0], "bonus"), 40);
@@ -305,8 +299,7 @@ test("строки дня — из версии, действующей на д�
         computed_at: null,
       })),
     }),
-    BAR,
-    "native",
+    BAR
   );
   assert.deepEqual(
     rows.map((r) => [r.date, r.upsell?.lines]),
@@ -317,7 +310,7 @@ test("строки дня — из версии, действующей на д�
   );
 });
 
-test("архив Glide — без дней по чекам", () => {
+test("архив Glide — старые дни рядом с днями по чекам", () => {
   const rows = departmentRows(
     data({
       archives: [
@@ -344,9 +337,11 @@ test("архив Glide — без дней по чекам", () => {
       ],
     }),
     BAR,
-    "archive",
   );
-  assert.deepEqual(rows.map((r) => [r.date, additionalValue(r, "bonus")]), [["2025-01-10", 300]]);
+  assert.deepEqual(rows.map((r) => [r.date, additionalValue(r, "bonus")]), [
+    ["2026-11-20", 360],
+    ["2025-01-10", 300],
+  ]);
 });
 
 test("вкладки — подразделения с правилами или старым видом", () => {
@@ -368,7 +363,7 @@ test("вкладки — подразделения с правилами или
     ],
   );
   assert.deepEqual(
-    departmentRows(d, "legacy:masters", "native").map((r) => additionalValue(r, "bonus")),
+    departmentRows(d, "legacy:masters").map((r) => additionalValue(r, "bonus")),
     [700],
   );
 });
@@ -394,11 +389,49 @@ test("позиции не из номенклатуры — только по г
         day("2026-11-22", "running", [{ key: "dish:5", quantity: 1 }]),
       ],
     }),
-    BAR,
-    "native",
+    BAR
   );
   assert.deepEqual(upsellUnknown(rows), [
     { key: "?:7", quantity: 2 },
     { key: "dish:99", quantity: 1.5 },
   ]);
+});
+
+test("архив Glide подставляется сам для дней без отчёта с показателями", () => {
+  const archive = (date: string, bonus: number, captured = "2026-11-01T00:00:00Z") => ({
+    id: `a-${date}-${captured}`,
+    venue_id: "v",
+    business_date: date,
+    kind: "bar" as const,
+    metrics: { revenue: 1, primeCost: 1, bonus, points: null, quantities: {} },
+    captured_at: captured,
+    origin: { spreadsheet_id: "s", ranges: ["Fees!A1"] },
+  });
+  const rows = departmentRows(
+    data({
+      upsellRules: [],
+      reports: [
+        report("2026-10-30", "bar", 500),
+        report("2026-10-29", "bar", 0, { metrics: null, state: "pending" }),
+      ],
+      archives: [
+        archive("2026-10-28", 300),
+        archive("2026-10-28", 310, "2026-11-02T00:00:00Z"),
+        archive("2026-10-29", 320),
+        archive("2026-10-30", 330),
+      ],
+    }),
+    BAR,
+  );
+  assert.deepEqual(
+    rows.map((r) => [r.date, r.archive ? "archive" : "native", additionalValue(r, "bonus")]),
+    [
+      // Отчёт с показателями важнее архива.
+      ["2026-10-30", "native", 500],
+      // Отчёта без показателей мало — день берётся из архива.
+      ["2026-10-29", "archive", 320],
+      // Из архива — последний снимок дня.
+      ["2026-10-28", "archive", 310],
+    ],
+  );
 });

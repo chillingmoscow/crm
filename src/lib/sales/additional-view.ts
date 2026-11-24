@@ -149,21 +149,20 @@ export function readyUpsellResult(day: UpsellViewDay | null | undefined) {
 
 /**
  * Дни подразделения: до даты перехода — старая очередь его вида (как
- * `additionalRows`), с даты перехода — расчёт по чекам. Выручка и
- * себестоимость дня новой схемы — из отчёта Quick Resto того же дня.
- * Архив Glide — только старые дни, без пересчёта.
+ * `additionalRows`, вместе с архивом Glide для дней без отчёта), с даты
+ * перехода — расчёт по чекам. Выручка и себестоимость дня новой схемы — из
+ * отчёта Quick Resto того же дня.
  */
 export function departmentRows(
   data: AdditionalViewData,
   departmentId: string,
-  source: "native" | "archive",
 ): AdditionalRow[] {
   const kind = departmentId.startsWith(LEGACY_PREFIX)
     ? (departmentId.slice(LEGACY_PREFIX.length) as AdditionalKind)
     : (data.departments.find((d) => d.id === departmentId)?.legacyKind ?? null);
-  const legacy = kind ? additionalRows(data.reports, data.archives, source, kind, data) : [];
+  const legacy = kind ? additionalRows(data.reports, data.archives, kind, data) : [];
   const switchDate = upsellSwitchDate(data, departmentId);
-  if (source === "archive" || switchDate === null) return legacy;
+  if (switchDate === null) return legacy;
   const reportByDate = new Map(
     data.reports.filter((r) => r.kind === kind).map((r) => [r.business_date, r]),
   );
@@ -218,10 +217,14 @@ export function upsellUnknown(rows: AdditionalRow[]) {
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([key, quantity]) => ({ key, quantity }));
 }
+/**
+ * Дни старого вида: отчёты Quick Resto, а дни, где отчёта с показателями нет,
+ * — из архива Glide (последний снимок дня). Архив подставляется сам, без
+ * переключателя: он есть только за месяцы до расчёта Sheerly.
+ */
 export function additionalRows(
   reports: AdditionalDay[],
   archives: AdditionalArchive[],
-  source: "native" | "archive",
   kind: AdditionalKind,
   context?: {
     venueId: string;
@@ -229,27 +232,19 @@ export function additionalRows(
     dayArchives: DayArchive[];
   },
 ): AdditionalRow[] {
-  if (source === "native")
-    return reports
-      .filter((r) => r.kind === kind)
-      .map((r) => ({
-        id: r.id,
-        date: r.business_date,
-        kind,
-        metrics: r.metrics,
-        rules: (r.metrics_request ?? r.request).rules,
-        native: r,
-        context: context
-          ? dayContext(
-              context.venueId,
-              r.business_date,
-              source,
-              context.days,
-              context.dayArchives,
-            )
-          : undefined,
-      }))
-      .sort((a, b) => b.date.localeCompare(a.date));
+  const native: AdditionalRow[] = reports
+    .filter((r) => r.kind === kind)
+    .map((r) => ({
+      id: r.id,
+      date: r.business_date,
+      kind,
+      metrics: r.metrics,
+      rules: (r.metrics_request ?? r.request).rules,
+      native: r,
+      context: context
+        ? dayContext(context.venueId, r.business_date, "native", context.days, context.dayArchives)
+        : undefined,
+    }));
   const latest = new Map<string, AdditionalArchive>();
   for (const r of archives.filter((r) => r.kind === kind)) {
     const old = latest.get(r.business_date);
@@ -260,7 +255,9 @@ export function additionalRows(
     )
       latest.set(r.business_date, r);
   }
-  return [...latest.values()]
+  const withMetrics = new Set(native.filter((r) => r.metrics).map((r) => r.date));
+  const fromArchive: AdditionalRow[] = [...latest.values()]
+    .filter((r) => !withMetrics.has(r.business_date))
     .map((r) => ({
       id: r.id,
       date: r.business_date,
@@ -272,14 +269,17 @@ export function additionalRows(
         ? dayContext(
             context.venueId,
             r.business_date,
-            source,
+            "archive",
             context.days,
             context.dayArchives,
             r.origin.legacy_shift_id,
           )
         : undefined,
-    }))
-    .sort((a, b) => b.date.localeCompare(a.date));
+    }));
+  const archived = new Set(fromArchive.map((r) => r.date));
+  return [...native.filter((r) => !archived.has(r.date)), ...fromArchive].sort((a, b) =>
+    b.date.localeCompare(a.date),
+  );
 }
 export function additionalValue(r: AdditionalRow, key: string): number | null {
   if (key === "turnover") return r.context?.turnover ?? null;

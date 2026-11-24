@@ -1,4 +1,5 @@
 "use client";
+import { unwrapAction } from "@/lib/actions/result";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { EditDrawer } from "@/components/ui/edit-drawer";
@@ -108,6 +109,7 @@ export function DayDrawer({
     if (activeTab !== "history" || events) return;
     let live = true;
     salesHistory(day.id)
+      .then(unwrapAction)
       .then((v) => {
         if (live) {
           setEvents(v);
@@ -149,13 +151,13 @@ export function DayDrawer({
     }
     setSaving(true);
     try {
-      const updated = await adjustSales({
+      const updated = unwrapAction(await adjustSales({
         id: day.id,
         version: day.version,
         changes,
         reason: reason.trim(),
         note,
-      });
+      }));
       toast.success("Исправления сохранены");
       onSaved(updated);
     } catch (e) {

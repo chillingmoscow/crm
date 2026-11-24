@@ -1,4 +1,5 @@
 "use client";
+import { unwrapAction } from "@/lib/actions/result";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,6 +31,7 @@ export function CashControlHistory({
   useEffect(() => {
     let live = true;
     loadCashHistory(venueId, date)
+      .then(unwrapAction)
       .then((d) => {
         if (live) {
           setAllowed(d !== null);
@@ -48,7 +50,9 @@ export function CashControlHistory({
     if (!rows?.length) return;
     setBusy(true);
     try {
-      const d = await loadCashHistory(venueId, date, rows[rows.length - 1].version);
+      const d = unwrapAction(
+        await loadCashHistory(venueId, date, rows[rows.length - 1].version),
+      );
       setRows((old) => [...(old ?? []), ...(d?.rows ?? [])]);
       setMore(d?.more ?? false);
       setError(null);

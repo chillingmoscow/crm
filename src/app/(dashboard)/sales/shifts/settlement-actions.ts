@@ -1,5 +1,6 @@
 "use server";
 import { z } from "zod";
+import { actionResult } from "@/lib/actions/result";
 import {
   createClient,
   getCachedUser,
@@ -114,7 +115,7 @@ async function all<T>(build: () => LooseQuery<T[]>): Promise<T[]> {
     "Список настроек слишком большой. Загрузка остановлена без усечения",
   );
 }
-export async function loadSettlementConfiguration(
+async function loadSettlementConfigurationImpl(
   venueId: string,
 ): Promise<SettlementConfiguration> {
   const s = await required(venueId);
@@ -181,7 +182,7 @@ export async function loadSettlementConfiguration(
     methods: [...methods.values()].sort((a, b) => a.id - b.id),
   };
 }
-export async function saveSettlementConfiguration(input: {
+async function saveSettlementConfigurationImpl(input: {
   venueId: string;
   version: number;
   config: SettlementSettings;
@@ -189,7 +190,10 @@ export async function saveSettlementConfiguration(input: {
   reason: string;
 }) {
   const s = await required(input.venueId),
-    config = settlementSettingsSchema.parse(input.config);
+    parsed = settlementSettingsSchema.safeParse(input.config);
+  if (!parsed.success)
+    throw new Error("Выберите статьи и счета для всех способов оплаты");
+  const config = parsed.data;
   if (config.venueId !== input.venueId) throw new Error("Заведение изменилось");
   z.number().int().min(0).parse(input.version);
   z.boolean().parse(input.autoRead);
@@ -202,9 +206,9 @@ export async function saveSettlementConfiguration(input: {
     p_reason: input.reason,
   });
   if (r.error) throw new Error(r.error.message);
-  return loadSettlementConfiguration(input.venueId);
+  return loadSettlementConfigurationImpl(input.venueId);
 }
-export async function requestSettlement(venueId: string, date: string) {
+async function requestSettlementImpl(venueId: string, date: string) {
   const s = await required(venueId);
   if (!validDate(date)) throw new Error("Выберите рабочий день");
   const r = await s.db.rpc("finance_request_settlement", {
@@ -213,7 +217,7 @@ export async function requestSettlement(venueId: string, date: string) {
   });
   if (r.error) throw new Error(r.error.message);
 }
-export async function loadSettlementPanel(
+async function loadSettlementPanelImpl(
   venueId: string,
   date: string,
 ): Promise<SettlementPanelData | null> {
@@ -349,4 +353,32 @@ export async function loadSettlementPanel(
   }
   await required(venueId);
   return result;
+}
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function loadSettlementConfiguration(venueId: string) {
+  return actionResult(
+    () => loadSettlementConfigurationImpl(venueId),
+    "Не удалось загрузить настройки сверки",
+  );
+}
+export async function saveSettlementConfiguration(
+  input: Parameters<typeof saveSettlementConfigurationImpl>[0],
+) {
+  return actionResult(
+    () => saveSettlementConfigurationImpl(input),
+    "Не удалось сохранить правила поступлений",
+  );
+}
+export async function requestSettlement(venueId: string, date: string) {
+  return actionResult(
+    () => requestSettlementImpl(venueId, date),
+    "Не удалось запустить сверку",
+  );
+}
+export async function loadSettlementPanel(venueId: string, date: string) {
+  return actionResult(
+    () => loadSettlementPanelImpl(venueId, date),
+    "Не удалось загрузить сверку поступлений",
+  );
 }

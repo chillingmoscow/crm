@@ -1,4 +1,5 @@
 "use client";
+import { unwrapAction } from "@/lib/actions/result";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -60,7 +61,11 @@ import { salesErrorText } from "@/lib/sales/errors";
 import { formatCount, weekdayLabel } from "@/lib/sales/format";
 import { formatDateCell, formatDayMonthTime } from "@/lib/format/date";
 import { countRu } from "@/lib/format/plural";
-import { exportSalesRows, loadSales, requestSalesSync } from "../actions";
+import {
+  exportSalesRows,
+  loadSalesForClient,
+  requestSalesSync,
+} from "../actions";
 import { DayDrawer } from "./day-drawer";
 import {
   SalesStatusBadge,
@@ -251,7 +256,7 @@ export function ShiftsClient({
     const target = monthRef.current;
     if (!quiet) setLoading(true);
     try {
-      const next = await loadSales(target);
+      const next = unwrapAction(await loadSalesForClient(target));
       if (seq !== sequence.current) return;
       setData(next);
       setRefreshFailed(false);
@@ -327,7 +332,7 @@ export function ShiftsClient({
     async (dates: string[]) => {
       setBusy(true);
       try {
-        const n = await requestSalesSync(dates);
+        const n = unwrapAction(await requestSalesSync(dates));
         toast.success(
           n === 1
             ? "Смена поставлена на обновление"
@@ -561,7 +566,9 @@ export function ShiftsClient({
     setExporting(true);
     try {
       const sorted = table.getSortedRowModel().rows;
-      const records = await exportSalesRows(sorted.map((r) => r.id));
+      const records = unwrapAction(
+        await exportSalesRows(sorted.map((r) => r.id)),
+      );
       const byId = new Map(records.map((r) => [r.id, r]));
       const visible = table
         .getVisibleLeafColumns()

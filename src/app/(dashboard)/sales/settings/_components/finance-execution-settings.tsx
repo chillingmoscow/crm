@@ -1,4 +1,5 @@
 "use client";
+import { unwrapAction } from "@/lib/actions/result";
 import { useEffect, useState } from "react";
 import { Settings2 } from "lucide-react";
 import { toast } from "sonner";
@@ -42,7 +43,7 @@ function Form({
     setBusy(true);
     setError(null);
     try {
-      const next = await saveFinanceExecutionRules({
+      const next = unwrapAction(await saveFinanceExecutionRules({
         venueId: data.venueId,
         version: previous?.version ?? 0,
         enabled,
@@ -51,7 +52,7 @@ function Form({
         movements,
         legacyStopped: stopped,
         reason,
-      });
+      }));
       if (next) {
         onSaved(next);
         toast.success("Режим проведения сохранён");
@@ -187,6 +188,7 @@ export function FinanceExecutionSettingsSection({
     setOpen(false);
     setError(null);
     loadFinanceExecutionConfiguration(venueId)
+      .then(unwrapAction)
       .then((v) => {
         if (live) setData(v);
       })

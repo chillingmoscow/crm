@@ -1,4 +1,5 @@
 "use client";
+import { unwrapAction } from "@/lib/actions/result";
 import { useEffect, useState } from "react";
 import { Settings2 } from "lucide-react";
 import { toast } from "sonner";
@@ -71,7 +72,7 @@ function Form({
     setBusy(true);
     setError(null);
     try {
-      const saved = await saveCashConfiguration({
+      const saved = unwrapAction(await saveCashConfiguration({
         venueId: data.venueId,
         version: previous?.version ?? 0,
         config: {
@@ -82,7 +83,7 @@ function Form({
             : initial.intervalMinutes,
         },
         reason,
-      });
+      }));
       onSaved(saved);
       toast.success("Правила контроля кассы сохранены");
     } catch (e) {
@@ -254,6 +255,7 @@ export function CashControlSettingsSection({ venueId }: { venueId: string }) {
   useEffect(() => {
     let live = true;
     loadCashConfiguration(venueId)
+      .then(unwrapAction)
       .then((d) => {
         if (live) setData(d);
       })

@@ -1,4 +1,5 @@
 "use client";
+import { unwrapAction } from "@/lib/actions/result";
 import { useRef, useState } from "react";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { DrawerSection } from "@/components/ui/drawer-blocks";
@@ -98,7 +99,7 @@ export function SettingsDrawer({
         throw new Error(
           "Заполните начало дня, группу Staff и отчёт по кальянам",
         );
-      await saveSalesSettings(
+      unwrapAction(await saveSalesSettings(
         {
           enabled,
           timezone,
@@ -113,7 +114,7 @@ export function SettingsDrawer({
             : [],
         },
         data.venueId,
-      );
+      ));
       toast.success("Настройки сохранены");
       onSaved();
     } catch (e) {

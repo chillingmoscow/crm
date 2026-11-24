@@ -121,7 +121,7 @@ export function BankAccountFields({
                     : undefined,
             })}
           </div>
-          <Field id={id("type")} label="Вид" required={mode === "create"}>
+          <Field id={id("type")} label="Тип" required={mode === "create"}>
             {(control) =>
               mode === "create" ? (
                 <OptionSelect
@@ -132,7 +132,7 @@ export function BankAccountFields({
                   disabled={readOnly}
                 />
               ) : (
-                <Input {...control} value={typeLabel} readOnly data-tip="Вид счёта после создания не меняется" />
+                <Input {...control} value={typeLabel} readOnly data-tip="Тип счёта после создания не меняется" />
               )
             }
           </Field>

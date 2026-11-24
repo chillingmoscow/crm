@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getCachedPermissions, getCachedUser } from "@/lib/supabase/server";
 import { ScheduleTasksTab } from "../_components/tasks-tab";
 import { loadTasks } from "./actions";
+import { unwrapAction } from "@/lib/actions/result";
 
 export const metadata: Metadata = { title: "Задачи" };
 
@@ -20,6 +21,6 @@ export default async function TasksPage() {
     ].some((p) => permissions.includes(p))
   )
     redirect("/schedule?showTasks=1");
-  const tasks = await loadTasks();
+  const tasks = unwrapAction(await loadTasks());
   return <ScheduleTasksTab key={tasks.venueId} initial={tasks} />;
 }

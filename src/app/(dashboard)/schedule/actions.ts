@@ -14,6 +14,7 @@ import { dateInZone } from "@/lib/schedule/utils";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { mediaUrl } from "@/lib/storage/media";
+import { actionErrorMessage, actionResult } from "@/lib/actions/result";
 const uuid = z.string().uuid();
 const nullable = uuid.nullable();
 const time = z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/);
@@ -116,7 +117,7 @@ const checklist = base
 async function client() {
   return (await createClient()) as unknown as SupabaseClient<ScheduleDatabase>;
 }
-export async function loadShiftAttendance(week: string): Promise<Record<string, ShiftAttendanceMark>> {
+async function loadShiftAttendanceImpl(week: string): Promise<Record<string, ShiftAttendanceMark>> {
   if (!validDate(week)) throw new Error("Некорректная дата расписания");
   const db = await client();
   const [{ data: { user } }, { data: venueId }, accountId, permissions] =
@@ -164,7 +165,7 @@ export async function loadShiftAttendance(week: string): Promise<Record<string, 
   }
   return applyShiftReviews(result, reviews.data ?? []);
 }
-export async function reviewShiftAttendance(input: {
+async function reviewShiftAttendanceImpl(input: {
   shiftId: string;
   version: number;
   syncedAt: string | null;
@@ -188,7 +189,7 @@ export async function reviewShiftAttendance(input: {
   });
   if (error) throw new Error(error.message);
 }
-export async function loadSchedule(
+async function loadScheduleImpl(
   from?: string,
   to?: string,
 ): Promise<ScheduleData> {
@@ -421,7 +422,7 @@ export type SwapCandidate = {
  * заведениях сотруднику не видны — читаем их сервисным клиентом, но только
  * после проверки, что смена его. Окончательная проверка — в RPC.
  */
-export async function loadSwapCandidates(shiftId: string): Promise<SwapCandidate[]> {
+async function loadSwapCandidatesImpl(shiftId: string): Promise<SwapCandidate[]> {
   if (!uuid.safeParse(shiftId).success) throw new Error("Смена не найдена");
   const db = await client();
   const [user, { data: venueId }] = await Promise.all([getCachedUser(), db.rpc("get_active_venue_id")]);
@@ -603,9 +604,7 @@ export async function scheduleCommand(
       error:
         e instanceof z.ZodError
           ? "Проверьте поля: " + e.issues.map((i) => i.message).join(", ")
-          : e instanceof Error
-            ? e.message
-            : "Не удалось сохранить",
+          : actionErrorMessage(e, "Не удалось сохранить"),
     };
   }
 }
@@ -642,7 +641,7 @@ export async function applyTemplateToShifts(input: {
   return data as ApplyTemplateResult;
 }
 /** Сколько смен по шаблону начинается с даты (по часам заведения) — для окна «Обновить смены». */
-export async function countTemplateShifts(input: { id: string; from: string }): Promise<number> {
+async function countTemplateShiftsImpl(input: { id: string; from: string }): Promise<number> {
   const parsed = z.object({ id: uuid, from: z.string().refine(validDate) }).safeParse(input);
   if (!parsed.success) throw new Error("Проверьте шаблон и дату");
   const db = await client();
@@ -676,7 +675,7 @@ export async function scheduleHistory(id: string) {
  * последней загруженной записи: события одной транзакции делят created_at,
  * и курсор только по времени терял бы их на границе страниц.
  */
-export async function shiftHistoryPage(id: string, before?: { created_at: string; id: string }) {
+async function shiftHistoryPageImpl(id: string, before?: { created_at: string; id: string }) {
   if (!uuid.safeParse(id).success) throw new Error("Смена не найдена");
   if (before && (!uuid.safeParse(before.id).success || Number.isNaN(Date.parse(before.created_at))))
     throw new Error("Некорректная страница истории");
@@ -724,4 +723,24 @@ export async function evidenceUrl(path: string) {
     .createSignedUrl(path, 60);
   if (error) return { error: error.message };
   return { url: mediaUrl("schedule-evidence", path) };
+}
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function loadShiftAttendance(week: string) {
+  return actionResult(() => loadShiftAttendanceImpl(week), "Не удалось загрузить отметки о выходах");
+}
+export async function reviewShiftAttendance(input: Parameters<typeof reviewShiftAttendanceImpl>[0]) {
+  return actionResult(() => reviewShiftAttendanceImpl(input), "Не удалось сохранить решение");
+}
+export async function loadSchedule(from?: string, to?: string) {
+  return actionResult(() => loadScheduleImpl(from, to), "Не удалось загрузить расписание");
+}
+export async function loadSwapCandidates(shiftId: string) {
+  return actionResult(() => loadSwapCandidatesImpl(shiftId), "Не удалось подобрать замену");
+}
+export async function countTemplateShifts(input: { id: string; from: string }) {
+  return actionResult(() => countTemplateShiftsImpl(input), "Не удалось посчитать смены");
+}
+export async function shiftHistoryPage(id: string, before?: { created_at: string; id: string }) {
+  return actionResult(() => shiftHistoryPageImpl(id, before), "Не удалось загрузить историю");
 }

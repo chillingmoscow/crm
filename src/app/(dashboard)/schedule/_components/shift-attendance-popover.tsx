@@ -12,6 +12,7 @@ import type { ShiftAttendanceMark, ShiftAttendanceState } from "@/lib/payroll/ty
 import { addDays } from "@/lib/sales/time";
 import type { ShiftReviewDecision } from "@/lib/payroll/shift-attendance";
 import { reviewShiftAttendance } from "../actions";
+import { unwrapAction } from "@/lib/actions/result";
 
 const descriptions: Record<ShiftAttendanceState, string> = {
   missing: "Смену можно засчитать вручную.",
@@ -65,13 +66,13 @@ export function ShiftAttendancePopover({ shiftId, version, mark, canReview, onRe
     setSaving(true);
     try {
       const text = reason.trim() || "Выход подтверждён по расписанию";
-      await reviewShiftAttendance({
+      unwrapAction(await reviewShiftAttendance({
         shiftId,
         version,
         syncedAt: mark.syncedAt,
         decision,
         reason: text,
-      });
+      }));
       setSavedAt(mark.syncedAt);
       onReviewed?.(decision, text);
       toast.success("Решение сохранено. Начисления пересчитываются.");

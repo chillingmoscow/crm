@@ -75,6 +75,7 @@ import {
   taskHistory,
   retryTaskMessage,
 } from "./actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 
 const actionLabels: Record<string, string> = {
@@ -405,6 +406,7 @@ export function TasksClient({
     if (!returning) return;
     let alive = true;
     loadTasks()
+      .then(unwrapAction)
       .then((next) => {
         if (alive) setData(next);
       })
@@ -418,7 +420,7 @@ export function TasksClient({
   const manage = data.permissions.includes("schedule.checklist_edit"),
     create = data.permissions.includes("schedule.checklist_create");
   const refresh = async () => {
-    const next = await loadTasks();
+    const next = unwrapAction(await loadTasks());
     setData(next);
     return next;
   };
@@ -1034,7 +1036,7 @@ export function TaskReport({
     [busy, setBusy] = useState(false),
     [dirty, setDirty] = useState(false),
     [urls, setUrls] = useState<Record<string, string>>({}),
-    [history, setHistory] = useState<Awaited<ReturnType<typeof taskHistory>>>(
+    [history, setHistory] = useState<Extract<Awaited<ReturnType<typeof taskHistory>>, { ok: true }>["data"]>(
       [],
     );
   useEffect(() => {
@@ -1046,6 +1048,7 @@ export function TaskReport({
     let alive = true;
     if (o.planned) return;
     taskHistory(o.id)
+      .then(unwrapAction)
       .then((h) => alive && setHistory(h))
       .catch(() => {});
     return () => {

@@ -14,6 +14,7 @@ import { PayrollPaymentsTable } from "./payroll-payments-table";
 import { EmployeeDocuments } from "../../staff/[userId]/_components/employee-documents";
 import { EmployeePayConditions } from "./employee-pay-conditions";
 import { cancelPayrollPayment } from "../actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { PayrollJournal, PayrollEntryForm, PayrollEntryMenuItems } from "@/app/(dashboard)/people/payroll/_components/payroll-journal";
 import { PayrollTransferDrawer } from "./payroll-transfer-drawer";
 import { PayrollPaymentForm } from "@/app/(dashboard)/people/payroll/_components/payroll-payment-form";
@@ -59,7 +60,7 @@ export function EmployeePay({ data, employee, month, onChange, fullPage = false,
         if (!cancelId) return;
         setCancelBusy(true);
         try {
-            await cancelPayrollPayment(cancelId);
+            unwrapAction(await cancelPayrollPayment(cancelId));
             await onChange();
             setCancelId(null);
             toast.success("Выплата удалена");

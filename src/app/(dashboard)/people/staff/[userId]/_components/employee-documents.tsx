@@ -26,6 +26,7 @@ import {
   addUniform,
   cancelUniform,
 } from "../../../automations/actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { updateStaffAccountDetails } from "../../actions";
 import {
   employeeMedicalSchema,
@@ -71,8 +72,10 @@ export function EmployeeDocuments({
   const byUser = "userId" in target;
   const targetId = byUser ? target.userId : target.employeeId;
   const reload = useCallback(async () => {
-    const d = await loadEmployeeDocuments(
-      byUser ? { userId: targetId } : { employeeId: targetId },
+    const d = unwrapAction(
+      await loadEmployeeDocuments(
+        byUser ? { userId: targetId } : { employeeId: targetId },
+      ),
     );
     setData(d);
     setError("");
@@ -84,6 +87,7 @@ export function EmployeeDocuments({
     void loadEmployeeDocuments(
       byUser ? { userId: targetId } : { employeeId: targetId },
     )
+      .then(unwrapAction)
       .then((d) => {
         if (active) {
           setData(d);
@@ -264,14 +268,16 @@ function MedicalCard({
     setBusy(true);
     try {
       const medical = employeeMedicalSchema.parse(form);
-      await saveEmployeeMedical({
-        employeeId: data.employee.id,
-        version: data.person?.version ?? 0,
-        medical,
-        number: data.employee.local_user_id ? number.trim() || null : null,
-        expectedNumber: data.medicalNumber,
-        expectedUntil: data.medicalUntil,
-      });
+      unwrapAction(
+        await saveEmployeeMedical({
+          employeeId: data.employee.id,
+          version: data.person?.version ?? 0,
+          medical,
+          number: data.employee.local_user_id ? number.trim() || null : null,
+          expectedNumber: data.medicalNumber,
+          expectedUntil: data.medicalUntil,
+        }),
+      );
       await onSaved();
       toast.success("Медкнижка сохранена");
       return true;
@@ -421,17 +427,19 @@ function UniformCard({
     if (!valid || !data.employee.role_id) return;
     setBusy(true);
     try {
-      await addUniform({
-        employeeId: data.employee.id,
-        title: title.trim(),
-        amount: Number(amount),
-        installments: parts,
-        bankAccountId: bank,
-        purchasedOn: purchased,
-        roleId: data.employee.role_id,
-        settingsVersion: data.settingsVersion,
-        requestId: request,
-      });
+      unwrapAction(
+        await addUniform({
+          employeeId: data.employee.id,
+          title: title.trim(),
+          amount: Number(amount),
+          installments: parts,
+          bankAccountId: bank,
+          purchasedOn: purchased,
+          roleId: data.employee.role_id,
+          settingsVersion: data.settingsVersion,
+          requestId: request,
+        }),
+      );
       await reload();
       setOpen(false);
       toast.success("Покупка формы записана");
@@ -454,7 +462,7 @@ function UniformCard({
     if (!cancel) return;
     setBusy(true);
     try {
-      await cancelUniform(cancel, reason);
+      unwrapAction(await cancelUniform(cancel, reason));
       await reload();
       setCancel(null);
       toast.success("Будущие удержания отменены");

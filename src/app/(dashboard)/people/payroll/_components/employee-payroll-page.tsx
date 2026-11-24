@@ -11,6 +11,7 @@ import { PeriodStepper } from "@/components/shared/period-stepper";
 import s from "./employee-pay.module.css";
 import type { PayrollData } from "@/lib/payroll/types";
 import { loadPayroll } from "../actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { EmployeePay } from "./employee-pay";
 import { RefreshFailedNotice, useAutoRefresh } from "./auto-refresh";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
@@ -48,7 +49,7 @@ export function EmployeePayrollPage({
     goTo(date.toISOString().slice(0, 7));
   };
   const reload = useCallback(async () => {
-    const next = await loadPayroll();
+    const next = unwrapAction(await loadPayroll());
     if (next.venueId !== initial.venueId) {
       router.replace("/people/payroll");
       throw new Error(

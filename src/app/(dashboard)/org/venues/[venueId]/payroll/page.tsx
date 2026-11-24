@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { loadPayrollRules } from "@/app/(dashboard)/people/payroll/actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { PayrollSettings } from "@/app/(dashboard)/people/payroll/_components/payroll-settings";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { ProfilePageFrame } from "@/components/shared/page-frame";
@@ -19,7 +20,7 @@ export default async function PayRulesPage({
 }: {
   params: Promise<{ venueId: string }>;
 }) {
-  const [{ venueId }, data] = await Promise.all([params, loadPayrollRules()]);
+  const [{ venueId }, data] = await Promise.all([params, loadPayrollRules().then(unwrapAction)]);
   if (data.venueId !== venueId) redirect("/people/payroll");
   return (
     <ProfilePageFrame>

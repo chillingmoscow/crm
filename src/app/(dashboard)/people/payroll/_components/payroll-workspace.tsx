@@ -41,6 +41,7 @@ import {
   loadStatementExportData,
   cancelPayrollPayment,
 } from "@/app/(dashboard)/people/payroll/actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { PayrollJournal, PayrollEntryForm, PayrollEntryMenuItems } from "./payroll-journal";
 import { PayrollTransferDrawer } from "./payroll-transfer-drawer";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
@@ -136,7 +137,7 @@ export function PayrollWorkspace({
   const can = (action: string) =>
     data.permissions.includes(`payroll.${action}`);
   const reload = useCallback(async () => {
-    const next = await loadPayrollOverview();
+    const next = unwrapAction(await loadPayrollOverview());
     if (next.venueId === initial.venueId) setData(next);
   }, [initial.venueId]);
   const autoRefresh = useAutoRefresh(reload, 15000);
@@ -435,7 +436,7 @@ export function PayrollWorkspace({
       // и должности в смене дочитываем их за месяц только при выгрузке.
       const [{ statementWorkbook, statementFileName }, extra] = await Promise.all([
         import("@/lib/payroll/statement-export"),
-        loadStatementExportData(monthStart),
+        loadStatementExportData(monthStart).then(unwrapAction),
       ]);
       return {
         sheets: statementWorkbook({
@@ -1039,7 +1040,7 @@ export function PayrollWorkspace({
           onConfirm={() => {
             if (cancelId)
               void run(async () => {
-                await cancelPayrollPayment(cancelId);
+                unwrapAction(await cancelPayrollPayment(cancelId));
                 setCancelId(null);
               }, "Выплата удалена");
           }}

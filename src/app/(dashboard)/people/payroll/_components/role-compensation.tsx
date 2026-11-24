@@ -13,6 +13,7 @@ import type { PayrollData, PayRule, Rates } from "@/lib/payroll/types";
 import { effectivePayModel, selectRule, hasShiftPay } from "@/lib/payroll/calculate";
 import { extrasEligible } from "@/lib/payroll/upsell-share";
 import { loadPayrollRules, saveRoleCompensation } from "../actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { PayrollDetailDialog } from "./payroll-detail-dialog";
 import { PayrollMonthPicker } from "./payroll-month-picker";
 import { CompensationRow, CompensationRates } from "./compensation-summary";
@@ -44,8 +45,8 @@ export function RoleCompensation({ roleId }: {
     const [draft, setDraft] = useState<PayRule | null>(null), [from, setFrom] = useState(""), [reason, setReason] = useState("");
     const [viewed, setViewed] = useState<PayRule | null>(null);
     const [scaleError, setScaleError] = useState("");
-    const reload = async () => { const next = await loadPayrollRules(); setData(next); };
-    useEffect(() => { let alive = true; loadPayrollRules().then(d => { if (alive)
+    const reload = async () => { const next = unwrapAction(await loadPayrollRules()); setData(next); };
+    useEffect(() => { let alive = true; loadPayrollRules().then(unwrapAction).then(d => { if (alive)
         setData(d); }).catch(e => { if (alive)
         setError(e instanceof Error ? e.message : "Не удалось загрузить условия"); }); return () => { alive = false; }; }, [roleId]);
     if (error)
@@ -86,7 +87,7 @@ export function RoleCompensation({ roleId }: {
             return;
         setBusy(true);
         try {
-            await saveRoleCompensation(roleId, { valid_from: from, reason: reason.trim(), rates: draft.rates, monthly_amount: draft.monthly_amount, experience_steps: draft.experience_steps, tenure_requires_exam: false, config: { ...draft.config, knowledge_amount: 0 } }, latest?.id ?? null);
+            unwrapAction(await saveRoleCompensation(roleId, { valid_from: from, reason: reason.trim(), rates: draft.rates, monthly_amount: draft.monthly_amount, experience_steps: draft.experience_steps, tenure_requires_exam: false, config: { ...draft.config, knowledge_amount: 0 } }, latest?.id ?? null));
             await reload();
             setPanel(null);
             toast.success("Новая версия условий сохранена");

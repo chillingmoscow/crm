@@ -13,6 +13,7 @@ import { SaveBarScope, useSaveSection } from "@/components/shared/save-bar";
 import { PayrollExperiencePolicy } from "./payroll-experience-policy";
 import type { PayrollData } from "@/lib/payroll/types";
 import { loadPayrollRules, payrollCommand } from "../actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { selectClass } from "./employee-pay";
 import { PayrollSetup } from "./payroll-setup";
 import { PayrollInitialData } from "./payroll-initial-data";
@@ -68,7 +69,7 @@ function PayrollSettingsSections({ venueId }: { venueId: string }) {
   const [data, setData] = useState<PayrollData | null>(null),
     [error, setError] = useState("");
   const reload = useCallback(async () => {
-    const d = await loadPayrollRules();
+    const d = unwrapAction(await loadPayrollRules());
     if (d.venueId !== venueId)
       throw new Error(
         "Выберите это заведение в переключателе, чтобы изменить его условия оплаты",
@@ -158,7 +159,7 @@ function TipSettings({
     if (!canPay || blocked) return false;
     setBusy(true);
     try {
-      await payrollCommand("settings", {
+      unwrapAction(await payrollCommand("settings", {
         tip_comments: form.comments
           .split("\n")
           .map((s) => s.trim())
@@ -168,7 +169,7 @@ function TipSettings({
         cashbox_accounts: Object.fromEntries(
           Object.entries(form.cashAccounts).filter(([, value]) => value),
         ),
-      });
+      }));
       await onSaved();
       toast.success("Настройки сохранены");
       return true;

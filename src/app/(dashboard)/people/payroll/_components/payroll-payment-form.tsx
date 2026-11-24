@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { recordIndividualPayments } from "@/app/(dashboard)/people/payroll/actions";
+import { unwrapAction } from "@/lib/actions/result";
 import type { PayrollData } from "@/lib/payroll/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -97,11 +98,11 @@ export function PayrollPaymentForm({
       };
     setBusy(true);
     try {
-      await recordIndividualPayments({
+      unwrapAction(await recordIndividualPayments({
         ...payload,
         request_key: request.current.key,
         date: request.current.date,
-      });
+      }));
       toast.success(
         selected.length === 1
           ? "Выплата записана"

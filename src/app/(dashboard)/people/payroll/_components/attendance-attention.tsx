@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { countRu } from "@/lib/format/plural";
 import { cn } from "@/lib/utils";
 import { loadAttendanceAttention } from "../actions";
+import { unwrapAction } from "@/lib/actions/result";
 
 const monthName = (month: string) =>
   new Date(`${month}-15T12:00:00Z`).toLocaleDateString("ru-RU", { month: "long", timeZone: "UTC" });
@@ -33,6 +34,7 @@ export function AttendanceAttentionNotice({
     let active = true;
     const load = () => {
       void loadAttendanceAttention(key.split(","))
+        .then(unwrapAction)
         .then((items) => {
           if (active) setState({ key, items });
         })

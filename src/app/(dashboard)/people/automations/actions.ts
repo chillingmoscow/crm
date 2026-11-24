@@ -1,5 +1,6 @@
 "use server";
 import { z } from "zod";
+import { actionResult } from "@/lib/actions/result";
 import {
   createClient,
   getCachedPermissionChecker,
@@ -34,7 +35,7 @@ async function scope() {
     userId: user.data.user.id,
   };
 }
-export async function addUniform(input: {
+async function addUniformImpl(input: {
   employeeId: string;
   title: string;
   amount: number;
@@ -84,7 +85,7 @@ export async function addUniform(input: {
   });
   if (r.error) throw new Error(r.error.message);
 }
-export async function cancelUniform(issueId: string, reason: string) {
+async function cancelUniformImpl(issueId: string, reason: string) {
   const s = await scope();
   z.string().uuid().parse(issueId);
   z.string().trim().min(3).max(1000).parse(reason);
@@ -96,7 +97,7 @@ export async function cancelUniform(issueId: string, reason: string) {
 }
 
 /** Employee-bound data, without the venue-wide migration dashboard. */
-export async function loadEmployeeDocuments(
+async function loadEmployeeDocumentsImpl(
   input: { userId: string } | { employeeId: string },
 ): Promise<
   import("@/lib/payroll/employee-documents").EmployeeDocumentsData | null
@@ -278,7 +279,7 @@ export async function loadEmployeeDocuments(
   };
 }
 
-export async function saveEmployeeMedical(input: {
+async function saveEmployeeMedicalImpl(input: {
   employeeId: string;
   version: number;
   medical: unknown;
@@ -310,4 +311,19 @@ export async function saveEmployeeMedical(input: {
     p_expected_until: v.expectedUntil,
   });
   if (r.error) throw new Error(r.error.message);
+}
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js
+// заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function addUniform(input: Parameters<typeof addUniformImpl>[0]) {
+  return actionResult(() => addUniformImpl(input), "Не удалось оформить покупку формы");
+}
+export async function cancelUniform(issueId: string, reason: string) {
+  return actionResult(() => cancelUniformImpl(issueId, reason), "Не удалось отменить выдачу формы");
+}
+export async function loadEmployeeDocuments(input: { userId: string } | { employeeId: string }) {
+  return actionResult(() => loadEmployeeDocumentsImpl(input), "Не удалось загрузить документы сотрудника");
+}
+export async function saveEmployeeMedical(input: Parameters<typeof saveEmployeeMedicalImpl>[0]) {
+  return actionResult(() => saveEmployeeMedicalImpl(input), "Не удалось сохранить медицинскую книжку");
 }

@@ -27,6 +27,7 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { loadPayrollTransactionDetails, retryPayrollAdeskSync } from "../actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { Money } from "@/components/shared/money";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { PayrollTable, type PayrollTableFilters } from "./payroll-table";
@@ -214,7 +215,7 @@ function AdeskStatus({
           onClick={async () => {
             setBusy(true);
             try {
-              await retryPayrollAdeskSync(sync.payment_id);
+              unwrapAction(await retryPayrollAdeskSync(sync.payment_id));
               setRetried(true);
               toast.success("Выплата снова отправится в Adesk в течение минуты");
             } catch (e) {
@@ -244,14 +245,16 @@ function PaymentDetails({
   onClose: () => void;
   onCancel: () => void;
 }) {
-  const [details, setDetails] = useState<Awaited<
-    ReturnType<typeof loadPayrollTransactionDetails>
-  > | null>(null);
+  const [details, setDetails] = useState<Extract<
+    Awaited<ReturnType<typeof loadPayrollTransactionDetails>>,
+    { ok: true }
+  >["data"] | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
     if (row.transactionId)
       loadPayrollTransactionDetails(row.transactionId)
+        .then(unwrapAction)
         .then((value) => {
           if (active) setDetails(value);
         })

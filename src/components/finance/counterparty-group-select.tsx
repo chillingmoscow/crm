@@ -54,6 +54,12 @@ export function CounterpartyGroupSelect({
   // появится пункт, он отвечает пустым значением и выбор сбрасывается на
   // «Без группы». Поэтому выбираем через кадр после того, как пункт добавлен.
   const [pendingId, setPendingId] = useState<string | null>(null);
+  // Свежий обработчик без перезапуска эффекта: родители передают его новой
+  // стрелкой на каждой отрисовке.
+  const onValueChangeRef = useRef(onValueChange);
+  useEffect(() => {
+    onValueChangeRef.current = onValueChange;
+  });
 
   const options = useMemo(() => {
     const known = new Set(groups.map((group) => group.id));
@@ -84,7 +90,7 @@ export function CounterpartyGroupSelect({
     let second = 0;
     const first = requestAnimationFrame(() => {
       second = requestAnimationFrame(() => {
-        onValueChange(pendingId);
+        onValueChangeRef.current(pendingId);
         setPendingId(null);
       });
     });
@@ -92,7 +98,7 @@ export function CounterpartyGroupSelect({
       cancelAnimationFrame(first);
       cancelAnimationFrame(second);
     };
-  }, [pendingId, onValueChange]);
+  }, [pendingId]);
 
   const create = async () => {
     setError(null);

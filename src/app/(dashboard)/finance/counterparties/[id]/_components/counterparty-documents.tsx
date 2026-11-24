@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type DragEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Download, FileText, Loader2, Pencil, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -9,11 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fileLabelFocusClass } from "@/components/ui/field-styles";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
-import { uploadAndAttach } from "@/lib/files/attachments";
-import { MAX_FILE_BYTES, fileKindLabel, formatFileSize } from "@/lib/files/file-name";
+import { deleteCounterpartyDocument, uploadCounterpartyDocument } from "@/lib/files/counterparty-documents";
+import { MAX_FILE_BYTES, fileExtension, fileKindLabel, formatFileSize } from "@/lib/files/file-name";
 import { renameCounterpartyFile } from "@/lib/files/rename";
 import { getFileDownloadUrl } from "@/lib/files/signed-urls";
-import { deleteAccountFile } from "@/lib/files/upload";
 import { formatDayMonth } from "@/lib/format/date";
 import { cn } from "@/lib/utils";
 import { DocumentPreviewDialog } from "./document-preview-dialog";
@@ -55,7 +54,10 @@ export function CounterpartyDocuments({
   const showRename = canUpload && !readOnly;
   const showDelete = canDelete && !readOnly;
 
-  const [uploading, setUploading] = useState<string[]>([]);
+  // Ключ — порядковый номер, а не имя: два файла с одним названием в одной
+  // загрузке не должны делить строку.
+  const [uploading, setUploading] = useState<{ key: number; name: string }[]>([]);
+  const uploadSeq = useRef(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -78,15 +80,14 @@ export function CounterpartyDocuments({
     const ok = picked.filter((f) => f.size <= MAX_FILE_BYTES);
     const errors: string[] = [];
     if (tooBig.length) errors.push(`Больше 49 МБ, не загружены: ${tooBig.map((f) => `«${f.name}»`).join(", ")}`);
-    setUploading(ok.map((f) => f.name));
+    const queue = ok.map((file) => ({ key: ++uploadSeq.current, name: file.name, file }));
+    setUploading(queue.map(({ key, name }) => ({ key, name })));
     let uploaded = 0;
-    for (const file of ok) {
-      const { error } = await uploadAndAttach({ parent: { kind: "counterparty", id: counterpartyId }, file }).catch(
-        () => ({ error: OFFLINE }),
-      );
+    for (const { key, file } of queue) {
+      const { error } = await uploadCounterpartyDocument(counterpartyId, file).catch(() => ({ error: OFFLINE }));
       if (error) errors.push(`«${file.name}»: ${error}`);
       else uploaded += 1;
-      setUploading((names) => names.filter((n) => n !== file.name));
+      setUploading((items) => items.filter((item) => item.key !== key));
     }
     if (errors.length) setUploadError(errors.join(". "));
     if (uploaded > 0) router.refresh();
@@ -133,7 +134,7 @@ export function CounterpartyDocuments({
     if (!deleteTarget) return;
     setDeleteBusy(true);
     setDeleteError(null);
-    const { error } = await deleteAccountFile(deleteTarget.fileId).catch(() => ({ error: OFFLINE }));
+    const { error } = await deleteCounterpartyDocument(deleteTarget.fileId).catch(() => ({ error: OFFLINE }));
     setDeleteBusy(false);
     if (error) {
       setDeleteError(error);
@@ -177,8 +178,8 @@ export function CounterpartyDocuments({
               }}
             />
           ))}
-          {uploading.map((name) => (
-            <li key={`uploading-${name}`} className="flex items-center gap-3 rounded-lg border px-3 py-2">
+          {uploading.map(({ key, name }) => (
+            <li key={`uploading-${key}`} className="flex items-center gap-3 rounded-lg border px-3 py-2">
               <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" />
               </span>
@@ -290,6 +291,11 @@ function DocumentRow({
   const inputRef = useRef<HTMLInputElement>(null);
   // Enter и потеря фокуса обе сохраняют: сохраняем один раз.
   const settled = useRef(false);
+  // Во время сохранения поле недоступно и теряет фокус; после ошибки
+  // возвращаем курсор в поле, чтобы можно было сразу поправить или нажать Esc.
+  useEffect(() => {
+    if (editing && !renaming && renameError) inputRef.current?.focus();
+  }, [editing, renaming, renameError]);
   const meta = [fileKindLabel(doc.mimeType, doc.name), formatFileSize(doc.sizeBytes), formatDayMonth(doc.uploadedAt)]
     .filter(Boolean)
     .join(" · ");
@@ -337,8 +343,7 @@ function DocumentRow({
                 settled.current = false;
                 // Выделяем название без расширения: обычно меняют его.
                 const value = event.currentTarget.value;
-                const dot = value.lastIndexOf(".");
-                event.currentTarget.setSelectionRange(0, dot > 0 ? dot : value.length);
+                event.currentTarget.setSelectionRange(0, value.length - fileExtension(value).length);
               }}
               onKeyDown={onKeyDown}
               onBlur={(event) => {

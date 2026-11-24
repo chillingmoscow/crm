@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { renameFileName, filePreviewKind, fileKindLabel, formatFileSize } from "./file-name.ts";
+import { renameFileName, filePreviewKind, fileKindLabel, formatFileSize, fileExtension } from "./file-name.ts";
 
 test("renameFileName дописывает исходное расширение", () => {
   assert.deepEqual(renameFileName("scan.pdf", "Договор поставки"), { name: "Договор поставки.pdf", error: null });
@@ -47,4 +47,15 @@ test("renameFileName отказывает на управляющих и нев�
   assert.deepEqual(renameFileName("a.pdf", "счёт\u202Efdp.exe"), { name: null, error });
   assert.deepEqual(renameFileName("a.pdf", "счёт\u0007"), { name: null, error });
   assert.deepEqual(renameFileName("a.pdf", "счёт\u200B"), { name: null, error });
+});
+test("renameFileName: «v1.0» — не расширение, цифровой хвост не дописывается", () => {
+  assert.deepEqual(renameFileName("Отчёт v1.0", "Отчёт"), { name: "Отчёт", error: null });
+  assert.deepEqual(renameFileName("архив.7z", "Документы"), { name: "Документы.7z", error: null });
+  assert.deepEqual(renameFileName("трек.mp3", "Музыка"), { name: "Музыка.mp3", error: null });
+});
+test("fileExtension — то же правило, что у переименования", () => {
+  assert.equal(fileExtension("scan.PDF"), ".PDF");
+  assert.equal(fileExtension("Отчёт v1.0"), "");
+  assert.equal(fileExtension("архив.7z"), ".7z");
+  assert.equal(fileExtension("README"), "");
 });

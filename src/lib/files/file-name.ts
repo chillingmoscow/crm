@@ -9,8 +9,15 @@
 export const MAX_FILE_BYTES = 49 * 1024 * 1024;
 
 const MAX_NAME_LENGTH = 200;
-const EXTENSION = /\.([a-z0-9]{1,5})$/i;
+// Расширение — короткий хвост после точки, в котором есть буква: «.pdf»,
+// «.7z», «.mp3». Цифры без букв («Отчёт v1.0») — часть названия.
+const EXTENSION = /\.((?=[a-z0-9]*[a-z])[a-z0-9]{1,5})$/i;
 const PREVIEW_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+
+/** Расширение файла с точкой («.pdf») или пустая строка. */
+export function fileExtension(name: string): string {
+  return EXTENSION.exec(name)?.[0] ?? "";
+}
 
 export type RenameResult = { name: string; error: null } | { name: null; error: string };
 
@@ -28,7 +35,7 @@ export function renameFileName(current: string, input: string): RenameResult {
   if (!base) return { name: null, error: "Укажите название файла" };
   if (/[/\\]/.test(base)) return { name: null, error: "Название не может содержать / и \\" };
 
-  const ext = EXTENSION.exec(current)?.[0] ?? "";
+  const ext = fileExtension(current);
   const name = ext && !base.toLowerCase().endsWith(ext.toLowerCase()) ? `${base}${ext}` : base;
   if (name.length > MAX_NAME_LENGTH) return { name: null, error: "Название длиннее 200 символов" };
   return { name, error: null };

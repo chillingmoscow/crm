@@ -136,7 +136,7 @@ export async function attachToLegalEntity(args: {
   return { error: null };
 }
 
-// ─── Combined upload + attach (used by <AttachmentUploader>) ────────────────
+// ─── Combined upload + attach (документы контрагента, файлы операции) ──────
 //
 // Client component flow:
 //   1. user picks a file via <input type="file">,

@@ -3,8 +3,9 @@
 import { revalidatePath } from "next/cache";
 
 import { errorText } from "@/lib/actions/error-text";
+import { writeAuditEvent } from "@/lib/audit/write";
 import { renameFileName } from "@/lib/files/file-name";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getCachedActiveAccountId, getCachedUser } from "@/lib/supabase/server";
 
 /**
  * Переименовать документ контрагента. Расширение исходного файла
@@ -44,6 +45,17 @@ export async function renameCounterpartyFile(args: {
     if (error) return { name: null, error: errorText(error, "Не удалось переименовать файл") };
     if (!updated || updated.length === 0) return { name: null, error: "Нет прав на переименование файлов" };
 
+    const [user, accountId] = await Promise.all([getCachedUser(), getCachedActiveAccountId()]);
+    if (user && accountId) {
+      await writeAuditEvent({
+        accountId,
+        userId: user.id,
+        actionCode: "finance.counterparty_document.renamed",
+        entityType: "counterparty",
+        entityId: link.counterparty_id,
+        details: { name: next.name, previous_name: current.name, file_id: args.fileId },
+      });
+    }
     revalidatePath(`/finance/counterparties/${link.counterparty_id}`);
     return { name: next.name, error: null };
   } catch (error) {

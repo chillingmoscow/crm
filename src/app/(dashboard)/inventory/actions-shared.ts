@@ -5,6 +5,7 @@
 import "server-only";
 
 import { revalidatePath } from "next/cache";
+import { actionErrorMessage as userFacingErrorMessage } from "@/lib/actions/result";
 import { writeAuditEvent } from "@/lib/audit/write";
 
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -352,9 +353,24 @@ export function buildStoragePath(accountId: string, originalName: string): strin
   return `${accountId}/${yyyy}/${mm}/${uuid}-${safe}`;
 }
 
+/**
+ * Текст ошибки для пользователя. Русский текст (наш или из базы) проходит как
+ * есть, английский технический — ошибки PostgREST, Quick Resto, zod —
+ * заменяется на `fallback`: иначе пользователь видел «permission denied…»
+ * (см. lib/actions/result). Ошибка PostgREST может прийти объектом с
+ * `message`, а не экземпляром Error.
+ */
 export function actionErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error && error.message.trim()) return error.message;
-  return fallback;
+  const normalized =
+    error &&
+    typeof error === "object" &&
+    !(error instanceof Error) &&
+    !("issues" in error) &&
+    "message" in error &&
+    typeof error.message === "string"
+      ? new Error(error.message)
+      : error;
+  return userFacingErrorMessage(normalized, fallback);
 }
 
 export async function getActiveContext(permission?: string | string[]) {

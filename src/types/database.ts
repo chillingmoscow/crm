@@ -2619,6 +2619,202 @@ export type Database = {
         }
         Relationships: []
       }
+      payroll_official_employments: {
+        Row: {
+          account_id: string
+          archived_at: string | null
+          archived_by: string | null
+          contract_date: string | null
+          contract_number: string | null
+          contract_path: string | null
+          created_at: string
+          created_by: string | null
+          employee_id: string
+          ends_on: string | null
+          id: string
+          position: string
+          starts_on: string
+          updated_at: string
+          updated_by: string | null
+          venue_id: string
+        }
+        Insert: {
+          account_id: string
+          archived_at?: string | null
+          archived_by?: string | null
+          contract_date?: string | null
+          contract_number?: string | null
+          contract_path?: string | null
+          created_at?: string
+          created_by?: string | null
+          employee_id: string
+          ends_on?: string | null
+          id?: string
+          position: string
+          starts_on: string
+          updated_at?: string
+          updated_by?: string | null
+          venue_id: string
+        }
+        Update: {
+          account_id?: string
+          archived_at?: string | null
+          archived_by?: string | null
+          contract_date?: string | null
+          contract_number?: string | null
+          contract_path?: string | null
+          created_at?: string
+          created_by?: string | null
+          employee_id?: string
+          ends_on?: string | null
+          id?: string
+          position?: string
+          starts_on?: string
+          updated_at?: string
+          updated_by?: string | null
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payroll_official_employments_archived_by_fkey"
+            columns: ["archived_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payroll_official_employments_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payroll_official_employments_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payroll_official_months: {
+        Row: {
+          account_id: string
+          created_at: string
+          employee_id: string
+          employment_id: string
+          gross: number | null
+          id: string
+          kind: string
+          month: string
+          payment_id: string | null
+          reason: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          status: string
+          venue_id: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          employee_id: string
+          employment_id: string
+          gross?: number | null
+          id?: string
+          kind: string
+          month: string
+          payment_id?: string | null
+          reason?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status: string
+          venue_id: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          employee_id?: string
+          employment_id?: string
+          gross?: number | null
+          id?: string
+          kind?: string
+          month?: string
+          payment_id?: string | null
+          reason?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payroll_official_months_employment_fkey"
+            columns: ["account_id", "venue_id", "employment_id"]
+            isOneToOne: false
+            referencedRelation: "payroll_official_employments"
+            referencedColumns: ["account_id", "venue_id", "id"]
+          },
+          {
+            foreignKeyName: "payroll_official_months_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payroll_official_salaries: {
+        Row: {
+          account_id: string
+          created_at: string
+          created_by: string | null
+          document_path: string | null
+          employment_id: string
+          gross: number
+          id: string
+          valid_from: string
+          venue_id: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          created_by?: string | null
+          document_path?: string | null
+          employment_id: string
+          gross: number
+          id?: string
+          valid_from: string
+          venue_id: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          created_by?: string | null
+          document_path?: string | null
+          employment_id?: string
+          gross?: number
+          id?: string
+          valid_from?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payroll_official_salaries_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payroll_official_salaries_employment_fkey"
+            columns: ["account_id", "venue_id", "employment_id"]
+            isOneToOne: false
+            referencedRelation: "payroll_official_employments"
+            referencedColumns: ["account_id", "venue_id", "id"]
+          },
+        ]
+      }
       permissions: {
         Row: {
           code: string
@@ -3963,6 +4159,22 @@ export type Database = {
           p_message_id: number | null
         }
         Returns: undefined
+      }
+      payroll_official_command: {
+        Args: { p_action: string; p_input: Json }
+        Returns: string
+      }
+      payroll_official_expected: {
+        Args: { p_from: string; p_to: string }
+        Returns: {
+          days_in_month: number
+          days_paid: number | null
+          employee_id: string
+          employment_id: string
+          gross: number | null
+          kind: string
+          month: string
+        }[]
       }
       payroll_save_fines_chat: {
         Args: { p_chat_id: string | null; p_enabled: boolean }

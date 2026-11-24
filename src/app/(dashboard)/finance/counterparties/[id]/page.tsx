@@ -14,22 +14,14 @@ import {
 import { loadCounterpartyActivity, operationDay } from "@/lib/finance/activity";
 import { parsePeriod, periodParam, periodRange } from "@/lib/finance/period";
 import { listCounterpartyAttachments } from "@/lib/files/attachments";
+import { filePreviewKind } from "@/lib/files/file-name";
+import { mediaUrl } from "@/lib/storage/media";
 import { isDadataConfigured } from "@/lib/dadata/client";
 import { listAuditEvents } from "@/lib/audit/list";
 import { CounterpartyCard, type CounterpartyOperation } from "./_components/counterparty-card";
+import type { CounterpartyDocument } from "./_components/counterparty-documents";
 
 export const metadata: Metadata = { title: "Контрагент" };
-
-const DOC_TYPE_LABELS: Record<string, string> = {
-  receipt:          "Чек",
-  contract:         "Договор",
-  act:              "Акт",
-  invoice:          "Счёт",
-  waybill:          "Накладная",
-  tax_document:     "Налоговый документ",
-  registration_doc: "Учредительный",
-  other:            "Прочее",
-};
 
 /** Сколько последних операций показывает вкладка «Операции». */
 const RECENT_OPERATIONS = 20;
@@ -124,18 +116,26 @@ export default async function CounterpartyDetailPage({
     accountName: accountName.get(tx.bank_account_id) ?? null,
   }));
 
-  // Вложения — в вид общего AttachmentUploader. Подпись типа документа
-  // собирается здесь, чтобы клиент не нёс словарь типов.
-  const attachments = attachmentRows.map((att) => ({
-    fileId:     att.file.id,
-    name:       att.file.name,
-    mime_type:  att.file.mime_type,
-    size_bytes: att.file.size_bytes,
-    document_type_label:
-      [DOC_TYPE_LABELS[att.document_type] ?? att.document_type, att.document_number, att.document_date]
-        .filter(Boolean)
-        .join(" · ") || null,
-  }));
+  // Документы: новые сверху; у картинок — постоянные адреса миниатюры и
+  // крупного вида (кэш браузера на месяц, см. lib/storage/media.ts).
+  const attachments: CounterpartyDocument[] = attachmentRows
+    .map(({ file }) => {
+      const isImage = filePreviewKind(file.mime_type, file.name) === "image";
+      return {
+        fileId:     file.id,
+        name:       file.name,
+        mimeType:   file.mime_type,
+        sizeBytes:  file.size_bytes,
+        uploadedAt: file.uploaded_at,
+        thumbUrl: isImage
+          ? mediaUrl("account-attachments", file.storage_path, { transform: { width: 80, height: 80, resize: "cover" } })
+          : null,
+        imageUrl: isImage
+          ? mediaUrl("account-attachments", file.storage_path, { transform: { width: 1600, resize: "contain" } })
+          : null,
+      };
+    })
+    .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
 
   // Кто создал и менял — для «О контрагенте» в верхней панели.
   const auditIds = [row.created_by, row.updated_by].filter((v): v is string => Boolean(v));

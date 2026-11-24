@@ -61,21 +61,6 @@ export async function attachToTransaction(args: {
   return { error: null };
 }
 
-export async function detachFromTransaction(args: {
-  transactionId: string;
-  fileId: string;
-}): Promise<{ error: string | null }> {
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("transaction_attachments")
-    .delete()
-    .eq("transaction_id", args.transactionId)
-    .eq("file_id",        args.fileId);
-  if (error) return { error: error.message };
-  revalidatePath(`/finance/transactions/${args.transactionId}`);
-  return { error: null };
-}
-
 // ─── Counterparty attachments ────────────────────────────────────────────────
 
 export async function listCounterpartyAttachments(
@@ -116,21 +101,6 @@ export async function attachToCounterparty(args: {
   return { error: null };
 }
 
-export async function detachFromCounterparty(args: {
-  counterpartyId: string;
-  fileId: string;
-}): Promise<{ error: string | null }> {
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("counterparty_attachments")
-    .delete()
-    .eq("counterparty_id", args.counterpartyId)
-    .eq("file_id",         args.fileId);
-  if (error) return { error: error.message };
-  revalidatePath(`/finance/counterparties/${args.counterpartyId}`);
-  return { error: null };
-}
-
 // ─── Legal entity attachments ────────────────────────────────────────────────
 
 export async function listLegalEntityAttachments(
@@ -161,21 +131,6 @@ export async function attachToLegalEntity(args: {
     document_type:   args.document_type ?? "registration_doc",
     description:     args.description ?? null,
   });
-  if (error) return { error: error.message };
-  revalidatePath(`/org/legal-entities/${args.legalEntityId}`);
-  return { error: null };
-}
-
-export async function detachFromLegalEntity(args: {
-  legalEntityId: string;
-  fileId: string;
-}): Promise<{ error: string | null }> {
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("legal_entity_attachments")
-    .delete()
-    .eq("legal_entity_id", args.legalEntityId)
-    .eq("file_id",         args.fileId);
   if (error) return { error: error.message };
   revalidatePath(`/org/legal-entities/${args.legalEntityId}`);
   return { error: null };

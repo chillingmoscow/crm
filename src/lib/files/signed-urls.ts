@@ -44,3 +44,29 @@ export async function getFileSignedUrl(
   }
   return { url: data.signedUrl, error: null };
 }
+
+/**
+ * Ссылка на скачивание: браузер сохранит файл под его текущим названием
+ * (после переименования оно расходится с хвостом пути в хранилище).
+ */
+export async function getFileDownloadUrl(
+  fileId: string
+): Promise<{ url: string | null; error: string | null }> {
+  const supabase = await createClient();
+
+  const { data: row, error: fetchErr } = await supabase
+    .from("account_files")
+    .select("storage_path, name")
+    .eq("id", fileId)
+    .maybeSingle();
+  if (fetchErr) return { url: null, error: fetchErr.message };
+  if (!row) return { url: null, error: "Файл не найден или доступ закрыт" };
+
+  const { data, error } = await supabase.storage
+    .from("account-attachments")
+    .createSignedUrl(row.storage_path, DEFAULT_TTL_SECONDS, { download: row.name });
+  if (error || !data) {
+    return { url: null, error: error?.message ?? "Не удалось получить ссылку" };
+  }
+  return { url: data.signedUrl, error: null };
+}

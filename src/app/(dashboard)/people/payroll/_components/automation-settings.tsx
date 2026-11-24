@@ -18,7 +18,7 @@ import {
   saveAutomationSettings,
 } from "../automation-actions";
 import { unwrapAction } from "@/lib/actions/result";
-import { selectClass } from "./employee-pay";
+import { selectClass } from "./select-class";
 import { formatRub } from "@/components/shared/money";
 import { ProfileSection } from "@/components/shared/profile-section";
 import { useSaveSection } from "@/components/shared/save-bar";

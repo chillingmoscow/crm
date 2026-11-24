@@ -2,13 +2,14 @@
 
 import { useId, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowUpRight, ChevronDown, Download, Loader2, Pencil, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MonthPicker } from "@/components/shared/month-picker";
@@ -18,7 +19,7 @@ import { Money, formatRub } from "@/components/shared/money";
 import { toKopecks } from "@/lib/format/amount";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { countRu } from "@/lib/format/plural";
-import { accrualRole } from "@/lib/payroll/accrual-view";
+import { accrualRole, isShiftAccrual, shiftSalary } from "@/lib/payroll/accrual-view";
 import { attendanceRuleAtDate } from "@/lib/payroll/attendance";
 import { statementRows } from "@/lib/payroll/calculate";
 import { officialExpectedNote } from "@/lib/payroll/official";
@@ -31,13 +32,19 @@ import {
   type PaySheetGroup,
   type PaySheetItem,
 } from "@/lib/payroll/pay-sheet";
-import type { PayEmployee, PayrollData } from "@/lib/payroll/types";
+import type { PayEmployee, PayrollData, PayrollTransfer } from "@/lib/payroll/types";
 import { buildPayslip, payslipFileName } from "@/lib/payroll/payslip";
 import { cn } from "@/lib/utils";
-import { PayrollEntryForm } from "@/app/(dashboard)/people/payroll/_components/payroll-journal";
+import { PayrollEntryForm, PayrollJournal } from "@/app/(dashboard)/people/payroll/_components/payroll-journal";
+import { paymentJournalRows } from "@/lib/payroll/payment-journal";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { cancelPayrollPayment, cancelPayrollTransfer } from "../actions";
+import { unwrapAction } from "@/lib/actions/result";
+import { PaymentDetails } from "./payroll-payments-table";
+import { PayrollTransferDrawer } from "./payroll-transfer-drawer";
 import { PayrollPaymentForm } from "@/app/(dashboard)/people/payroll/_components/payroll-payment-form";
 import paymentStyle from "@/app/(dashboard)/people/payroll/_components/payroll-payment-form.module.css";
-import { EmployeePayConditions } from "./employee-pay-conditions";
+import { EmployeeConditionDrawer, type ConditionMode } from "./employee-pay-conditions";
 import { PayrollDetailDialog } from "./payroll-detail-dialog";
 
 /** Сколько строк раскрытой статьи видно до «Показать все». */
@@ -50,6 +57,12 @@ const monthName = (month: string, format: "long" | "short" = "long") =>
   new Date(`${monthKey(month)}-01T12:00:00Z`)
     .toLocaleDateString("ru-RU", { month: format, timeZone: "UTC" })
     .replace(".", "");
+
+/** «сентября», «ноября»: месяц в родительном падеже, для «из …». */
+const monthGenitive = (month: string) =>
+  new Date(`${monthKey(month)}-01T12:00:00Z`)
+    .toLocaleDateString("ru-RU", { day: "numeric", month: "long", timeZone: "UTC" })
+    .replace(/^\d+\s*/, "");
 
 /** Статьи, которые считаются за каждую смену. */
 const PER_SHIFT = new Set(["base", "percent", "extra", "experience", "knowledge", "food"]);
@@ -72,9 +85,12 @@ export function StaffPaySheet({
   maxMonth,
   onMonth,
   onChange,
+  context = "staff",
 }: {
   data: PayrollData;
   employee: PayEmployee;
+  /** Где открыт лист: в карточке сотрудника или в разделе «Зарплата». */
+  context?: "staff" | "payroll";
   /** Первое число выбранного месяца. */
   month: string;
   minMonth: string;
@@ -82,8 +98,15 @@ export function StaffPaySheet({
   onMonth: (month: string) => void;
   onChange: () => Promise<void>;
 }) {
-  const [conditionsOpen, setConditionsOpen] = useState(false);
+  const [condition, setCondition] = useState<ConditionMode | null>(null);
   const [payOpen, setPayOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [dayId, setDayId] = useState<string | null>(null);
+  const [entryId, setEntryId] = useState<string | null>(null);
+  const [paymentId, setPaymentId] = useState<string | null>(null);
+  const [cancelPayment, setCancelPayment] = useState<string | null>(null);
+  const [cancelTransfer, setCancelTransfer] = useState<PayrollTransfer | null>(null);
+  const [cancelBusy, setCancelBusy] = useState(false);
   const [entryOpen, setEntryOpen] = useState(false);
   const [entryKind, setEntryKind] = useState<"deduction" | "allowance">("deduction");
   const [downloading, setDownloading] = useState(false);
@@ -158,54 +181,83 @@ export function StaffPaySheet({
   const legacyPending = data.legacyPayments.some(
     (p) => p.employee_id === employee.id && monthKey(p.month) === monthKey(month) && p.state === "review",
   );
-  // Прочерк вместо нуля: остаток нельзя назвать, пока исходные данные не сверены.
-  const unknownReason = legacyPending
-    ? "Есть несверенные выплаты из прежнего учёта."
-    : null;
   const issues = [
     ...new Set(
       mine.filter((a) => a.business_date.startsWith(monthKey(month))).flatMap((a) => a.issues),
     ),
   ];
+  // Переносы, которые касаются этого месяца: пришедшие в него и ушедшие из него.
+  const transfers = data.transfers
+    .filter(
+      (t) =>
+        t.employee_id === employee.id &&
+        t.state === "posted" &&
+        (monthKey(t.from_month) === monthKey(month) || monthKey(t.to_month) === monthKey(month)),
+    )
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
   const empty =
     !sheet.groups.length && !sheet.deductions.length && !payments.length && !owed && !tips;
 
-  const addMenu =
-    canPay && canReview ? (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button className="h-9">
-            <Plus />
-            Добавить
-            <ChevronDown />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={() => setPayOpen(true)}>Выплата</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => openEntry("deduction")}>Премия / штраф</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => openEntry("allowance")}>Надбавка за месяц</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    ) : canPay ? (
-      <Button className="h-9" onClick={() => setPayOpen(true)}>
-        <Plus />
-        Добавить выплату
-      </Button>
-    ) : canReview ? (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button className="h-9">
-            <Plus />
-            Добавить запись
-            <ChevronDown />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={() => openEntry("deduction")}>Премия / штраф</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => openEntry("allowance")}>Надбавка за месяц</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    ) : null;
+  const paymentRows = useMemo(
+    () => paymentJournalRows(data, data.payments.filter((p) => payments.some((x) => x.id === p.id))),
+    [data, payments],
+  );
+  const paymentRow = paymentRows.find((r) => r.id === paymentId);
+  const day = mine.find((a) => a.id === dayId) ?? null;
+
+  /** Строка листа ведёт к записи (премия, штраф) или к расчёту дня. */
+  function openItem(item: PaySheetItem) {
+    if (item.manual) {
+      const entry = data.adjustments.find(
+        (a) =>
+          a.employee_id === employee.id &&
+          !a.deleted_at &&
+          a.kind === item.kind &&
+          a.reason === item.title &&
+          toKopecks(Number(a.amount)) === toKopecks(item.amount ?? 0) &&
+          monthKey(a.business_date) === monthKey(month),
+      );
+      if (entry) return setEntryId(entry.id);
+    }
+    setDayId(item.accrualId);
+  }
+
+  async function confirmCancel() {
+    setCancelBusy(true);
+    try {
+      if (cancelPayment) unwrapAction(await cancelPayrollPayment(cancelPayment));
+      if (cancelTransfer) unwrapAction(await cancelPayrollTransfer(cancelTransfer.id));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось отменить");
+      setCancelBusy(false);
+      return;
+    }
+    toast.success(cancelPayment ? "Выплата удалена" : "Перенос отменён");
+    setCancelPayment(null);
+    setCancelTransfer(null);
+    try { await onChange(); } catch { /* Обновится при следующем автообновлении. */ }
+    finally { setCancelBusy(false); }
+  }
+
+  const addItems = [
+    canPay && <DropdownMenuItem key="pay" onSelect={() => setPayOpen(true)}>Выплата</DropdownMenuItem>,
+    canReview && <DropdownMenuItem key="deduction" onSelect={() => openEntry("deduction")}>Премия / штраф</DropdownMenuItem>,
+    canReview && <DropdownMenuItem key="allowance" onSelect={() => openEntry("allowance")}>Надбавка за месяц</DropdownMenuItem>,
+    canReview && <DropdownMenuSeparator key="sep" />,
+    canReview && <DropdownMenuItem key="transfer" onSelect={() => setTransferOpen(true)}>Перенести остаток</DropdownMenuItem>,
+  ].filter(Boolean);
+  const addMenu = addItems.length ? (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button className="h-9">
+          <Plus />
+          Добавить
+          <ChevronDown />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">{addItems}</DropdownMenuContent>
+    </DropdownMenu>
+  ) : null;
 
   function openEntry(kind: "deduction" | "allowance") {
     setEntryKind(kind);
@@ -260,10 +312,10 @@ export function StaffPaySheet({
         <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
           <div className="min-w-0">
             <h2 className="text-xs font-medium text-muted-foreground">
-              {!unknownReason && toKopecks(remaining) < 0 ? `Переплата за ${name}` : `К выплате за ${name}`}
+              {!legacyPending && toKopecks(remaining) < 0 ? `Переплата за ${name}` : `К выплате за ${name}`}
             </h2>
             <p className="mt-1 text-[28px] font-semibold leading-tight tracking-tight tabular-nums">
-              <Money value={unknownReason ? null : Math.abs(toKopecks(remaining))} fraction="auto" />
+              <Money value={legacyPending ? null : Math.abs(toKopecks(remaining))} fraction="auto" />
             </p>
           </div>
           <div className="flex gap-2">
@@ -281,21 +333,9 @@ export function StaffPaySheet({
             {addMenu}
           </div>
         </div>
-        {unknownReason ? (
+        {legacyPending ? (
           <p className="text-[13px] text-muted-foreground">
-            {unknownReason} Пока это так, остаток не показывается.
-            {canConfigure && !legacyPending && (
-              <>
-                {" "}
-                <button
-                  type="button"
-                  className="font-medium text-brand hover:underline"
-                  onClick={() => setConditionsOpen(true)}
-                >
-                  Указать остаток
-                </button>
-              </>
-            )}
+            Есть несверенные выплаты из прежнего учёта. Пока это так, остаток не показывается.
           </p>
         ) : (
           owed > 0 && (
@@ -317,7 +357,7 @@ export function StaffPaySheet({
         <div className="flex flex-wrap justify-between gap-x-6 gap-y-1 text-[13px] text-muted-foreground tabular-nums empty:hidden">
           {(paid !== 0 || owed > 0) && (
             <span>
-              {unknownReason || owed <= 0
+              {legacyPending || owed <= 0
                 ? `Выплачено ${formatRub(paid)}`
                 : `Выплачено ${formatRub(paid)} из ${formatRub(owed)}`}
             </span>
@@ -329,20 +369,30 @@ export function StaffPaySheet({
             </span>
           )}
         </div>
-        {(opening !== 0 || transferredOut !== 0 || official) && (
-          <dl className="grid gap-1 border-t pt-3 text-[13px]">
-            {opening !== 0 && (
-              <div className="flex justify-between gap-4">
-                <dt className="text-muted-foreground">Перенос в этот месяц</dt>
-                <dd className="tabular-nums"><Money value={opening} signed /></dd>
-              </div>
-            )}
-            {transferredOut !== 0 && (
-              <div className="flex justify-between gap-4">
-                <dt className="text-muted-foreground">Перенесено на другой месяц</dt>
-                <dd className="tabular-nums"><Money value={-transferredOut} signed /></dd>
-              </div>
-            )}
+        {(transfers.length > 0 || official) && (
+          <dl className="grid gap-2 border-t pt-3 text-[13px]">
+            {transfers.map((t) => {
+              const incoming = monthKey(t.to_month) === monthKey(month);
+              return (
+                <div key={t.id} className="flex items-center justify-between gap-4">
+                  <dt className="flex min-w-0 flex-wrap items-center gap-x-2 text-muted-foreground">
+                    <span>{incoming ? `Перенос из ${monthGenitive(t.from_month)}` : `Перенос на ${monthName(t.to_month)}`}</span>
+                    {canReview && (
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-brand hover:underline"
+                        onClick={() => setCancelTransfer(t)}
+                      >
+                        Отменить
+                      </button>
+                    )}
+                  </dt>
+                  <dd className="shrink-0 tabular-nums">
+                    <Money value={incoming ? Number(t.amount) : -Number(t.amount)} signed fraction="auto" />
+                  </dd>
+                </div>
+              );
+            })}
             {official && (
               <div className="flex justify-between gap-4">
                 <dt>
@@ -381,7 +431,7 @@ export function StaffPaySheet({
             {sheet.groups.length ? (
               <div className="flex flex-col">
                 {sheet.groups.map((group) => (
-                  <GroupLine key={`${month}.${group.id}`} group={group} />
+                  <GroupLine key={`${month}.${group.id}`} group={group} onItem={openItem} />
                 ))}
               </div>
             ) : (
@@ -404,6 +454,7 @@ export function StaffPaySheet({
                     key={item.key}
                     title={item.title}
                     note={fullDate(item.date)}
+                    onOpen={() => openItem(item)}
                     amount={
                       <Money value={item.amount ?? 0} signed />
                     }
@@ -421,6 +472,7 @@ export function StaffPaySheet({
                 {payments.map((p) => (
                   <StaticLine
                     key={p.id}
+                    onOpen={paymentRows.some((r) => r.id === p.id) ? () => setPaymentId(p.id) : undefined}
                     title={
                       <>
                         {p.kind === "advance" ? "Аванс" : "Зарплата"}
@@ -450,36 +502,121 @@ export function StaffPaySheet({
         </>
       )}
 
-      <ProfileSection
-        title="Условия оплаты"
-        actions={
-          <Button variant="outline" size="sm" onClick={() => setConditionsOpen(true)}>
-            {canConfigure && <Pencil />}
-            {canConfigure ? "Изменить" : "Подробнее"}
-          </Button>
-        }
-      >
-        <Conditions data={data} employee={employee} month={month} canConfigure={canConfigure} />
+      <ProfileSection title="Условия оплаты">
+        <Conditions
+          data={data}
+          employee={employee}
+          month={month}
+          canConfigure={canConfigure}
+          context={context}
+          onEdit={setCondition}
+        />
       </ProfileSection>
 
-      {can("payroll.view") && (
-        <Link
-          href={`/people/payroll/${employee.id}?month=${monthKey(month)}`}
-          className="inline-flex items-center gap-1.5 self-start text-sm font-medium text-brand hover:underline"
-        >
-          Открыть расчёт в «Зарплате»
-          <ArrowUpRight className="size-4" />
-        </Link>
+      {condition && (
+        <EmployeeConditionDrawer
+          data={data}
+          employee={employee}
+          month={month}
+          mode={condition}
+          onClose={() => setCondition(null)}
+          onChange={onChange}
+        />
       )}
-
       <PayrollDetailDialog
-        open={conditionsOpen}
-        onOpenChange={setConditionsOpen}
-        title="Условия сотрудника"
-        description={employee.name}
+        open={Boolean(day)}
+        onOpenChange={(open) => { if (!open) setDayId(null); }}
+        title={day?.calculation_snapshot.kind === "monthly" ? "Оклад за месяц" : day && !isShiftAccrual(day) ? "Начисления за месяц" : "Расчёт смены"}
+        description={day ? fullDate(day.business_date) : ""}
+        employee={{ name: employee.name, role: day ? accrualRole(day, employee.role_name, data) : employee.role_name, avatarUrl: employee.avatar_url }}
+        amount={day ? <Money value={isShiftAccrual(day) ? shiftSalary(day) : Number(day.salary)} /> : undefined}
+        amountLabel="Начислено"
       >
-        <EmployeePayConditions data={data} employee={employee} month={month} onChange={onChange} />
+        {day && (
+          <div className="flex flex-col">
+            {isShiftAccrual(day) && (
+              <p className="mb-2 text-xs text-muted-foreground">
+                {day.calculation_snapshot.source === "schedule" ? "Выход по опубликованному графику" : "Выход по отметке Quick Resto"}
+              </p>
+            )}
+            {day.components
+              .filter((c) => c.kind !== "tips" && (!isShiftAccrual(day) || c.kind !== "monthly"))
+              .map((c, i) => (
+                <div key={i} className="flex justify-between gap-5 border-b py-3 text-sm last:border-b-0">
+                  <div className="min-w-0">
+                    <p className="font-medium">{c.label}</p>
+                    {c.basis && <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{c.basis}</p>}
+                  </div>
+                  <strong className="shrink-0 font-medium tabular-nums"><Money value={c.amount} /></strong>
+                </div>
+              ))}
+            {day.issues.length > 0 && (
+              <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-[13px]">
+                <p className="font-medium">Замечания к расчёту</p>
+                <ul className="mt-1 list-disc pl-5 text-muted-foreground">
+                  {day.issues.map((issue) => <li key={issue}>{issue}</li>)}
+                </ul>
+              </div>
+            )}
+            <p className="mt-5 text-xs text-muted-foreground">
+              Сохранённый расчёт · {new Date(day.updated_at).toLocaleString("ru-RU", { timeZone: data.timezone })}
+            </p>
+          </div>
+        )}
       </PayrollDetailDialog>
+      <PayrollJournal
+        drawerOnly
+        data={data}
+        month={month}
+        employeeId={employee.id}
+        openId={entryId}
+        onOpenIdChange={setEntryId}
+        onChange={onChange}
+      />
+      {paymentRow && (
+        <PaymentDetails
+          key={`${paymentRow.id}:${paymentRow.posted}`}
+          row={paymentRow}
+          data={data}
+          busy={cancelBusy}
+          onClose={() => setPaymentId(null)}
+          onCancel={() => {
+            setPaymentId(null);
+            setCancelPayment(paymentRow.id);
+          }}
+        />
+      )}
+      <ConfirmDialog
+        open={Boolean(cancelPayment) || Boolean(cancelTransfer)}
+        onOpenChange={(open) => {
+          if (!open && !cancelBusy) {
+            setCancelPayment(null);
+            setCancelTransfer(null);
+          }
+        }}
+        title={cancelPayment ? "Удалить выплату?" : "Отменить перенос?"}
+        description={
+          cancelPayment
+            ? "Финансовая операция будет помечена удалённой, а сумма вернётся в остаток к выплате сотруднику."
+            : cancelTransfer
+              ? `${formatRub(Math.abs(Number(cancelTransfer.amount)), { fraction: "auto" })} вернутся из ${monthGenitive(cancelTransfer.to_month)} в ${monthName(cancelTransfer.from_month)}. Движения денег не будет.`
+              : undefined
+        }
+        confirmLabel={cancelPayment ? "Удалить выплату" : "Отменить перенос"}
+        pendingLabel={cancelPayment ? "Удаляем…" : "Отменяем…"}
+        destructive
+        busy={cancelBusy}
+        onConfirm={() => void confirmCancel()}
+      />
+      {transferOpen && (
+        <PayrollTransferDrawer
+          data={data}
+          month={month}
+          employeeId={employee.id}
+          onClose={() => setTransferOpen(false)}
+          onChange={onChange}
+        />
+      )}
       <PayrollEntryForm
         initialKind={entryKind}
         employeeId={employee.id}
@@ -518,20 +655,36 @@ function Quiet({ children }: { children: ReactNode }) {
   return <p className="text-sm text-muted-foreground">{children}</p>;
 }
 
-function StaticLine({ title, note, amount }: { title: ReactNode; note: string; amount: ReactNode }) {
-  return (
-    <li className="flex items-center gap-3 border-t py-3 first:border-t-0 first:pt-0 last:pb-0">
+function StaticLine({ title, note, amount, onOpen }: { title: ReactNode; note: string; amount: ReactNode; onOpen?: () => void }) {
+  const content = (
+    <>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium">{title}</p>
         <p className="text-xs text-muted-foreground tabular-nums">{note}</p>
       </div>
       <span className="shrink-0 text-sm font-medium tabular-nums">{amount}</span>
+    </>
+  );
+  return (
+    <li className="border-t first:border-t-0">
+      {onOpen ? (
+        <button
+          type="button"
+          onClick={onOpen}
+          className="-mx-2 flex w-[calc(100%+1rem)] items-center gap-3 rounded-md px-2 py-3 text-left hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {content}
+          <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+        </button>
+      ) : (
+        <div className="flex items-center gap-3 py-3">{content}</div>
+      )}
     </li>
   );
 }
 
 /** Статья начисления: закрыта по умолчанию, раскрывается в строки по дням. */
-function GroupLine({ group }: { group: PaySheetGroup }) {
+function GroupLine({ group, onItem }: { group: PaySheetGroup; onItem: (item: PaySheetItem) => void }) {
   const [open, setOpen] = useState(false);
   const [all, setAll] = useState(false);
   const id = useId();
@@ -562,7 +715,7 @@ function GroupLine({ group }: { group: PaySheetGroup }) {
       {open && (
         <ul id={id} className="mb-3 rounded-lg bg-muted/60 px-3">
           {visible.map((item) => (
-            <ItemLine key={item.key} item={item} />
+            <ItemLine key={item.key} item={item} onOpen={() => onItem(item)} />
           ))}
           {!all && group.items.length > PREVIEW && (
             <li className="border-t py-2">
@@ -581,15 +734,21 @@ function GroupLine({ group }: { group: PaySheetGroup }) {
   );
 }
 
-function ItemLine({ item }: { item: PaySheetItem }) {
+function ItemLine({ item, onOpen }: { item: PaySheetItem; onOpen: () => void }) {
   return (
-    <li className="grid grid-cols-[2.75rem_minmax(0,1fr)_auto] items-baseline gap-3 border-t py-2 text-[13px] first:border-t-0">
-      <span className="text-muted-foreground tabular-nums">{dayMonth(item.date)}</span>
-      <span className="min-w-0">
-        {item.title}
-        {item.note && <span className="text-muted-foreground"> · {item.note}</span>}
-      </span>
-      <Money value={item.amount} />
+    <li className="border-t first:border-t-0">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="-mx-3 grid w-[calc(100%+1.5rem)] grid-cols-[2.75rem_minmax(0,1fr)_auto] items-baseline gap-3 px-3 py-2 text-left text-[13px] hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      >
+        <span className="text-muted-foreground tabular-nums">{dayMonth(item.date)}</span>
+        <span className="min-w-0">
+          {item.title}
+          {item.note && <span className="text-muted-foreground"> · {item.note}</span>}
+        </span>
+        <Money value={item.amount} />
+      </button>
     </li>
   );
 }
@@ -648,11 +807,15 @@ function Conditions({
   employee,
   month,
   canConfigure,
+  context,
+  onEdit,
 }: {
   data: PayrollData;
   employee: PayEmployee;
   month: string;
   canConfigure: boolean;
+  context: "staff" | "payroll";
+  onEdit: (mode: ConditionMode) => void;
 }) {
   const lastDay = new Date(new Date(`${shiftMonth(month, 1)}T12:00:00Z`).getTime() - 86400000)
     .toISOString()
@@ -662,45 +825,74 @@ function Conditions({
   const fact =
     rule?.source === "excluded"
       ? "Не участвует в зарплатном учёте"
-      : withCode || (!employee.casual && rule?.source !== "schedule")
-        ? "По отметкам Quick Resto"
-        : "По опубликованному графику";
+      : withCode
+        ? `По отметкам Quick Resto · PIN ${employee.quickresto_pin}`
+        : !employee.casual && rule?.source !== "schedule"
+          ? "По отметкам Quick Resto"
+          : "По опубликованному графику";
+  const factNote =
+    rule?.source === "excluded"
+      ? "Начисления за работу отключены, прежняя история сохраняется."
+      : withCode
+        ? "Нет отметки — смена засчитывается по графику."
+        : employee.casual
+          ? "Завершённая смена в графике считается отработанной."
+          : rule?.source === "schedule"
+            ? "Завершённая смена в графике считается отработанной."
+            : "График задаёт план, отметка на кассе подтверждает выход.";
   const tenureStart = data.settings?.experience_starts_on ?? data.experienceStartsOn;
   const role = data.roles?.find((r) => r.id === employee.role_id)?.name ?? employee.role_name;
-  const rows: [string, ReactNode][] = [
-    [
-      "Должность",
-      <>
-        {role || "Не назначена"}
-        <span className="block text-[13px] text-muted-foreground">
+  const link = "text-[13px] font-medium text-brand hover:underline";
+  const rows: { label: string; value: ReactNode; note?: ReactNode; action?: ReactNode }[] = [
+    {
+      label: "Должность",
+      value: role || "Не назначена",
+      note: (
+        <>
           Ставки и проценты заданы должностью.
-          {canConfigure && employee.role_id && (
+          {employee.role_id && (
             <>
               {" "}
-              <Link
-                href={`/people/roles/${employee.role_id}?tab=compensation`}
-                className="font-medium text-brand hover:underline"
-              >
+              <Link href={`/people/roles/${employee.role_id}?tab=compensation`} className={link}>
                 Оплата должности
               </Link>
             </>
           )}
-        </span>
-      </>,
-    ],
-    ["Учёт выходов", fact],
-    [
-      "Надбавка за стаж",
-      tenureStart ? `Начисляется с ${fullDate(tenureStart)} по шкале должности` : "Дата начала не назначена",
-    ],
+        </>
+      ),
+      action:
+        canConfigure && !employee.local_user_id ? (
+          <button type="button" className={link} onClick={() => onEdit("model")}>Изменить</button>
+        ) : canConfigure && employee.local_user_id && context === "payroll" ? (
+          <Link href={`/people/staff/${employee.local_user_id}`} className={link}>Изменить в карточке</Link>
+        ) : null,
+    },
+    {
+      label: "Учёт выходов",
+      value: fact,
+      note: factNote,
+      action:
+        canConfigure && !employee.casual ? (
+          <button type="button" className={link} onClick={() => onEdit("attendance")}>Изменить</button>
+        ) : null,
+    },
+    {
+      label: "Надбавка за стаж",
+      value: tenureStart ? `С ${fullDate(tenureStart)}` : "Дата начала не назначена",
+      note: "Сумма за выход — по шкале должности.",
+    },
   ];
-  if (employee.hired_on) rows.push(["Дата трудоустройства", fullDate(employee.hired_on)]);
+  if (employee.hired_on) rows.push({ label: "Дата приёма", value: fullDate(employee.hired_on) });
   return (
-    <dl className="grid gap-x-4 gap-y-3 sm:grid-cols-[minmax(140px,220px)_1fr]">
-      {rows.map(([label, value]) => (
-        <div key={label} className="contents">
-          <dt className="text-[13px] text-muted-foreground">{label}</dt>
-          <dd className="-mt-2 text-sm tabular-nums sm:mt-0">{value}</dd>
+    <dl className="flex flex-col">
+      {rows.map((row) => (
+        <div key={row.label} className="flex items-start gap-4 border-t py-3 first:border-t-0 first:pt-0 last:pb-0">
+          <dt className="w-36 shrink-0 text-[13px] text-muted-foreground">{row.label}</dt>
+          <dd className="min-w-0 flex-1 text-sm">
+            {row.value}
+            {row.note && <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{row.note}</span>}
+          </dd>
+          {row.action && <span className="shrink-0">{row.action}</span>}
         </div>
       ))}
     </dl>

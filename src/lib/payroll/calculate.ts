@@ -75,6 +75,12 @@ export function computeAccrual(input: {
   adjustments: Adjustment[];
   cleanerPresent: boolean;
   experienceStartsOn?: string | null;
+  /**
+   * Допродажи подразделения по чекам (с даты его перехода). `undefined` —
+   * прежний расчёт по названию должности; `null` — подразделение перешло,
+   * а сотруднику допродажи не положены.
+   */
+  extraShare?: { amount: number | null; divisor: number; department: string } | null;
 }) {
   const { employee: e, model: m, rule: r, date, roleCount, metrics } = input;
   const issues = [...input.attendanceIssues],
@@ -119,7 +125,20 @@ export function computeAccrual(input: {
     `${basis == null ? "—" : basis.toLocaleString("ru-RU")} ₽ × ${pct ?? "—"}% · ${m.basis === "hookah" ? "кальяны" : m.basis === "bar" ? "бар" : "оборот"}`,
     "Quick Resto · финансовая смена",
   );
-  if (m.extras_enabled !== false && ["Мастер", "Бармен"].includes(e.role_name)) {
+  if (input.extraShare !== undefined) {
+    const share = input.extraShare;
+    if (share) {
+      if (share.amount === null)
+        issues.push("Не посчитаны допродажи подразделения");
+      add(
+        "extra",
+        "Дополнительные продажи",
+        share.amount === null ? null : Math.round(share.amount / share.divisor),
+        `${share.amount === null ? "—" : share.amount.toLocaleString("ru-RU")} ₽ / ${share.divisor} сотрудников · ${share.department}`,
+        "Sheerly · чеки дня",
+      );
+    }
+  } else if (m.extras_enabled !== false && ["Мастер", "Бармен"].includes(e.role_name)) {
     if (input.extra === null)
       issues.push("Не получен отчёт дополнительных продаж");
     add(
@@ -432,6 +451,20 @@ export function shiftDutyRoleName(
     ? models.find((model) => model.role_id === shift.role_id && model.is_role_default)?.role_name ?? positionName
     : null;
   return duty ?? models.find((model) => model.id === modelId)?.role_name ?? fallback;
+}
+
+// Подразделение той же должности смены, что и shiftDutyRoleName: по нему
+// решается, чей фонд допродаж делит сотрудник.
+export function shiftDutyDepartment(
+  shift: Pick<Shift, "role_id" | "department_id" | "payroll_model_id">,
+  models: Pick<PayModel, "id" | "role_id">[],
+  modelId: string | null,
+  departmentsByRole: ReadonlyMap<string, string | null>,
+): string | null {
+  if (!shift.payroll_model_id && shift.role_id)
+    return departmentsByRole.get(shift.role_id) ?? shift.department_id ?? null;
+  const roleId = models.find((model) => model.id === modelId)?.role_id;
+  return roleId ? departmentsByRole.get(roleId) ?? null : null;
 }
 
 export function employeeAtDate(

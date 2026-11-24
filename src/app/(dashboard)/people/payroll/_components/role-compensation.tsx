@@ -11,6 +11,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import type { PayrollData, PayRule, Rates } from "@/lib/payroll/types";
 import { effectivePayModel, selectRule, hasShiftPay } from "@/lib/payroll/calculate";
+import { extrasEligible } from "@/lib/payroll/upsell-share";
 import { loadPayrollRules, saveRoleCompensation } from "../actions";
 import { PayrollDetailDialog } from "./payroll-detail-dialog";
 import { PayrollMonthPicker } from "./payroll-month-picker";
@@ -59,8 +60,10 @@ export function RoleCompensation({ roleId }: {
     const effective = effectivePayModel(model ?? null, current);
     const shiftEnabled = hasShiftPay(model ?? null, current);
     const source = effective?.basis ?? "none";
-    const canExtras = model && ["Мастер", "Бармен"].includes(model.role_name);
-    const extrasEnabled = Boolean(canExtras && effective?.extras_enabled !== false);
+    const departmentId = data.roles?.find(r => r.id === roleId)?.department_id ?? null;
+    const departmentUpsell = Boolean(departmentId && data.upsellDepartments?.includes(departmentId));
+    const canExtras = Boolean(model && (departmentUpsell || ["Мастер", "Бармен"].includes(model.role_name)));
+    const extrasEnabled = Boolean(canExtras && model && extrasEligible(effective, model.role_name));
     const defaultDraft = (): PayRule => ({ id: "", model_id: model?.id ?? "", employee_id: null, valid_from: today, created_at: "", rates: {}, experience_steps: {}, monthly_amount: 0, tenure_requires_exam: false, config: { basis: "none", tips: false, experience: false, shift_pay: false, extras_enabled: false, knowledge_amount: 0, food_amount: 0, cleaner_bonus: 0 } });
     const open = (next: Panel) => { setScaleError(""); setPanel(next); setViewed(null); setFrom(next === "salary" ? `${(latest && latest.valid_from > today ? latest.valid_from : today).slice(0, 7)}-01` : latest && latest.valid_from > today ? latest.valid_from : today); setReason(""); const base = latest ?? defaultDraft(); setDraft(structuredClone({ ...base, monthly_amount: base.monthly_amount ?? model?.monthly_amount ?? 0, config: { basis: model?.basis ?? "none", tips: model?.tips ?? false, experience: model?.experience ?? false, knowledge_amount: model?.knowledge_amount ?? 0, food_amount: model?.food_amount ?? 0, cleaner_bonus: model?.cleaner_bonus ?? 0, ...base.config } })); };
     const patchConfig = (patch: PayRule["config"]) => setDraft(d => d ? { ...d, config: { ...d.config, ...patch } } : d);
@@ -121,7 +124,7 @@ export function RoleCompensation({ roleId }: {
      <details className={s.weekdays}><summary>Ставки по дням недели</summary>{["1", "2"].map(count => <div key={count}><h4>{count === "1" ? "В одиночку" : "Вдвоём"}</h4>{weekdays.map((day, i) => <NumberField key={day} label={day} percent={panel === "percent"} value={draft.rates[count]?.[String(i + 1)]?.[panel] ?? null} onChange={v => setRate(count, String(i + 1), panel, v)}/>)}</div>)}</details>
      {Object.keys(draft.rates).some(c => !["1", "2"].includes(c)) && <p className={s.note}>Прежние ставки для команд другого размера сохраняются в этой версии.</p>}
     </>}
-    {panel === "extras" && <><label className={s.toggle}><span>Учитывать общие допродажи</span><Switch checked={draft.config.extras_enabled ?? extrasEnabled} onCheckedChange={v => patchConfig({ extras_enabled: v })}/></label><p className={s.note}>Сумма из отчёта продаж Quick Resto распределяется поровну между {model?.role_name === "Мастер" ? "мастерами" : "барменами"} за рабочий день.</p></>}
+    {panel === "extras" && <><label className={s.toggle}><span>Учитывать общие допродажи</span><Switch checked={draft.config.extras_enabled ?? extrasEnabled} onCheckedChange={v => patchConfig({ extras_enabled: v })}/></label><p className={s.note}>{departmentUpsell ? "Сумма допродаж подразделения делится поровну между сотрудниками смены, у которых они включены." : `Сумма из отчёта продаж Quick Resto распределяется поровну между ${model?.role_name === "Мастер" ? "мастерами" : "барменами"} за рабочий день.`}</p></>}
     {panel === "benefits" && <>
      <div className={s.grid}>{([['food_amount', 'Питание за выход, ₽'], ['cleaner_bonus', 'Если нет клиннера, ₽']] as const).map(([key, label]) => <NumberField key={key} label={label} value={draft.config[key] ?? 0} onChange={v => patchConfig({ [key]: v ?? 0 })}/>)}</div>
      <label className={s.toggle}><span>Распределять чаевые</span><Switch checked={draft.config.tips ?? false} onCheckedChange={v => patchConfig({ tips: v })}/></label>

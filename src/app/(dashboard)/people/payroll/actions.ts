@@ -265,7 +265,7 @@ async function loadPayrollData(
     s.client.from("roles").select("id,name").eq("venue_id", s.venueId).is("archived_at", null),
   ]);
   const managerRequest = manager
-    ? loadPayrollManagerData(s, overview || single, !single, !overview)
+    ? loadPayrollManagerData(s, overview || single, !single)
     : null;
 
   const [entries, employees, [hours, venue, roleRows], managerData] = await Promise.all([

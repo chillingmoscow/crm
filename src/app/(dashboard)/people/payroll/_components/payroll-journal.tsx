@@ -101,24 +101,26 @@ const bonusPoints = (n: number, signed = true) =>
   `${signed ? (n > 0 ? "+" : n < 0 ? "−" : "") : n < 0 ? "−" : ""}${formatQuantityAmount(Math.abs(n), 2)} б.`;
 const dateLabel = (d: string) => d.slice(0, 10).split("-").reverse().join(".");
 /** Статус записи в журнале: куда она ушла — в зарплату, в бонусы Quick Resto — и что с ней сейчас. */
-const entryStatus = (r: Adjustment): { label: string; tone: StatusTone } =>
+type EntryStatus = { label: string; tone: StatusTone; tip: string };
+/** Короткая метка — столбец узкий; пояснение — в подсказке при наведении. */
+const entryStatus = (r: Adjustment): EntryStatus =>
   r.deleted_at
-    ? { label: "Удалено", tone: "neutral" }
+    ? { label: "Удалено", tone: "neutral", tip: "Запись удалена и не учитывается" }
     : r.bonus_return === "review"
-      ? { label: "Сверка возврата", tone: "danger" }
+      ? { label: "Сверка", tone: "danger", tip: "Возврат бонусов не подтвердился. Нужна сверка с историей Quick Resto" }
       : r.bonus_return
-        ? { label: "Возвращаем бонусы", tone: "warning" }
+        ? { label: "Возврат", tone: "warning", tip: "Возвращаем бонусы в Quick Resto. Запись удалится после подтверждения" }
         : r.medium === "bonus"
           ? r.external_state === "done"
-            ? { label: "Учтено в бонусах", tone: "success" }
+            ? { label: "В бонусах", tone: "success", tip: "Бонусы проведены в Quick Resto" }
             : r.origin === "lateness" && r.external_state === "review"
-              ? { label: "Нужен бонусный баланс", tone: "warning" }
-              : { label: "Ждёт Quick Resto", tone: "info" }
+              ? { label: "Нет баланса", tone: "warning", tip: "Нужен бонусный баланс сотрудника" }
+              : { label: "В очереди", tone: "info", tip: "Бонусы ещё не отправлены в Quick Resto" }
           : r.kind === "warning"
-            ? { label: "Учтено", tone: "neutral" }
+            ? { label: "Учтено", tone: "neutral", tip: "Предупреждение учтено, без удержания" }
             : r.approved
-              ? { label: "Учтено в зарплате", tone: "success" }
-              : { label: "Прежняя запись", tone: "neutral" };
+              ? { label: "В зарплате", tone: "success", tip: "Учтено в расчёте зарплаты" }
+              : { label: "Прежняя", tone: "neutral", tip: "Запись из прежнего учёта" };
 /** Сумма записи со знаком; копейки — только в карточке записи (`fraction`). */
 const entryAmount = (r: Adjustment, fraction = false): ReactNode => {
   if (r.kind === "warning") return <Money value={null} />;
@@ -349,7 +351,7 @@ export function PayrollJournal({
             );
           if (id === "status") {
             const status = entryStatus(r);
-            return <StatusBadge tone={status.tone} className="whitespace-nowrap">{status.label}</StatusBadge>;
+            return <span className="inline-flex" data-tip={status.tip}><StatusBadge tone={status.tone} className="whitespace-nowrap">{status.label}</StatusBadge></span>;
           }
           if (r.deleted_at) return <span className="line-clamp-2 min-w-0 text-muted-foreground line-through" data-tip={r.reason}>{r.reason}</span>;
           return <span className="line-clamp-2" data-tip={r.reason}>{r.reason}</span>;

@@ -3,7 +3,7 @@ import { StaffDoorCode } from "@/components/people/staff-door-code";
 import { StaffTerminationStatus } from "../_components/staff-termination-status";
 import { StaffRestoreStatus } from "../_components/staff-restore-status";
 import { asLooseDb } from "@/lib/supabase/loose";
-import { businessDate } from "@/lib/sales/time";
+import { businessDate, zonedParts } from "@/lib/sales/time";
 import { redirect } from "next/navigation";
 import {
   createClient,
@@ -14,6 +14,8 @@ import { StaffDetailPage } from "./_components/staff-detail-page";
 import { listAuditEvents } from "@/lib/audit/list";
 import type { StaffProfile, StaffAccountDetails } from "../actions";
 import { staffProfileIdentitySchema } from "@/lib/people/staff-identity";
+import { getOfficialEmployment } from "../official-actions";
+import { getActiveAccountTimezone } from "@/lib/settings/account";
 
 export const metadata: Metadata = { title: "Сотрудник" };
 
@@ -306,6 +308,19 @@ export default async function StaffMemberPage({
     salesSettings?.timezone ?? "Europe/Moscow",
     salesSettings?.day_start_hour ?? 9,
   );
+  // Официальное трудоустройство — только с правом просмотра зарплаты.
+  const officialEmployment = can("payroll.view")
+    ? await getOfficialEmployment(userId)
+    : null;
+  // Окно «Уволить сотрудника» спрашивает дату официального увольнения, если
+  // человек оформлен официально в этом заведении. Увольнять может и тот, кто
+  // зарплату не видит (под RLS оформление ему не видно), поэтому читаем
+  // service-role, но только факт открытого оформления и его дату начала:
+  // заведение и сотрудник фиксированы, оклад и договор сюда не попадают.
+  const officialTermination =
+    canEdit && !isFired
+      ? await loadOpenOfficialStart(accountId, venueId, userId)
+      : null;
 
   return (
     <>
@@ -354,6 +369,8 @@ export default async function StaffMemberPage({
         needsPasswordSetup={needsPasswordSetup}
         canViewAudit={Boolean(canViewAudit)}
         canConfigurePayroll={can("payroll.configure")}
+        officialEmployment={officialEmployment}
+        officialTermination={officialTermination}
         canViewPay={can("payroll.view") || user.id === userId}
         initialTab={tab === "documents" || tab === "pay" ? tab : "main"}
         initialAuditEvents={auditResult.events}
@@ -365,4 +382,41 @@ export default async function StaffMemberPage({
       />
     </>
   );
+}
+
+/**
+ * Дата начала открытого официального оформления сотрудника в заведении (нет
+ * даты увольнения, не отменено) и «сегодня» по часовому поясу аккаунта, как в
+ * базе. null — оформления нет, дата официального увольнения не нужна.
+ */
+async function loadOpenOfficialStart(
+  accountId: string,
+  venueId: string,
+  userId: string,
+): Promise<{ startsOn: string; today: string } | null> {
+  const admin = asLooseDb(createAdminClient());
+  const employee = await admin
+    .from<{ id: string }>("payroll_employees")
+    .select("id")
+    .eq("account_id", accountId)
+    .eq("venue_id", venueId)
+    .eq("local_user_id", userId)
+    .maybeSingle();
+  if (employee.error) throw new Error("Не удалось загрузить данные карточки сотрудника");
+  if (!employee.data) return null;
+  const open = await admin
+    .from<{ starts_on: string }>("payroll_official_employments")
+    .select("starts_on")
+    .eq("account_id", accountId)
+    .eq("venue_id", venueId)
+    .eq("employee_id", employee.data.id)
+    .is("archived_at", null)
+    .is("ends_on", null)
+    .order("starts_on", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (open.error) throw new Error("Не удалось загрузить данные карточки сотрудника");
+  if (!open.data) return null;
+  const today = zonedParts(new Date(), await getActiveAccountTimezone()).date;
+  return { startsOn: open.data.starts_on, today };
 }

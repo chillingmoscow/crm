@@ -6,7 +6,7 @@ import {
   getCachedUser,
 } from "@/lib/supabase/server";
 import { StaffClient } from "./_components/staff-client";
-import { getStaff, getPendingInvitations, getFiredStaff } from "./actions";
+import { getStaff, getPendingInvitations, getFiredStaff, getOfficialStaffUserIds } from "./actions";
 import { getCasualStaff } from "@/lib/payroll/casual-list";
 
 export const metadata: Metadata = { title: "Сотрудники" };
@@ -58,6 +58,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     staff,
     invitations,
     firedStaff,
+    officialUserIds,
   ] = await Promise.all([
     supabase
       .from("roles")
@@ -78,6 +79,8 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     getStaff(venueId),
     getPendingInvitations(venueId),
     getFiredStaff(venueId),
+    // Без права просмотра зарплаты база отдаёт пустоту — метки и фильтра нет.
+    can("payroll.view") ? getOfficialStaffUserIds(venueId) : Promise.resolve<string[]>([]),
   ]);
 
   const activeRoleCode =
@@ -143,6 +146,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       canEditStaff={canEdit}
       canSeeStaffDetails={canSeeStaffDetails}
       casual={casual}
+      officialUserIds={officialUserIds}
       openAddCasual={(await searchParams).add === "casual" && canEdit && !!casual}
     />
   );

@@ -15,8 +15,14 @@ export type PaymentJournalRow = {
   status: string;
   posted: boolean;
   bonus?: boolean;
+  /** Официальная (бухгалтерская) выплата. */
+  official?: boolean;
   external?: boolean;
 };
+
+/** Строку можно выбрать для «Сменить счёт»: проведённая официальная выплата. */
+export const officialAccountSelectable = (row: PaymentJournalRow) =>
+  !!row.official && row.posted && !row.external;
 export function paymentJournalRows(
   data: PayrollData,
   payments: Payment[],
@@ -29,6 +35,7 @@ export function paymentJournalRows(
       date: payment.occurred_at,
       transactionId: payment.transaction_id,
       bonus: !!payment.bonus_adjustment_id,
+      official: !!payment.official_month,
       earningMonths: [
         ...new Set(
           data.allocations

@@ -34,7 +34,8 @@ const CATEGORY_SUFFIXES: Record<AuditActionCategory, string[]> = {
   // `stock.writeoffs.refresh_requested` (в LIKE `_` ловит и точку).
   created: [".created", ".sent", "_imported", "_requested"],
   // Приём в команду (сотрудник, кандидат) и увольнение с закрытием доступов.
-  staffing: [".hired", ".fired", ".access_removed"],
+  // `.ended` — официальное увольнение (`payroll.official_employment.ended`).
+  staffing: [".hired", ".fired", ".access_removed", ".ended"],
   changed: [
     ".edited",
     ".renamed",

@@ -62,7 +62,7 @@ type ColKey = "name" | "type" | "legalEntity" | "venue" | "group" | "balance";
 
 const labels: Record<ColKey, string> = {
   name: "Счёт",
-  type: "Вид",
+  type: "Тип",
   legalEntity: "Юрлицо",
   venue: "Заведение",
   group: "Группа",
@@ -648,10 +648,10 @@ export function AccountsList({
       >
         {(filtersOpen || !!typeFilter) && (
           <TableFilterChip
-            label="Вид"
+            label="Тип"
             value={typeFilter}
             onChange={setFilter(setTypeFilter)}
-            options={[{ value: "", label: "Все виды" }, ...BANK_ACCOUNT_TYPE_OPTIONS]}
+            options={[{ value: "", label: "Все типы" }, ...BANK_ACCOUNT_TYPE_OPTIONS]}
           />
         )}
         {(filtersOpen || !!legalEntityFilter) && filterOptions.legalEntities.length > 1 && (

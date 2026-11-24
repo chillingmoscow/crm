@@ -211,11 +211,12 @@ export function PayrollWorkspace({
         monthStart,
         data.transfers,
         data.settings?.starts_on,
+        data.officialExpected ?? [],
       ),
     [data, monthStart],
   );
   const active = rows.filter(
-    (r) => r.shifts || r.earned || r.paid || r.opening || r.transferredOut || r.tips,
+    (r) => r.shifts || r.earned || r.paid || r.opening || r.transferredOut || r.tips || r.officialExpected,
   );
   const total = rows.reduce((sum, r) => sum + r.earned, 0);
   // Пустой месяц (DS → «Состояния»): ни начислений, ни выплат, ни переносов —
@@ -234,7 +235,7 @@ export function PayrollWorkspace({
   ].sort();
   const visible = rows.filter(
     (r) =>
-      (r.shifts || r.earned || r.paid || r.opening || r.transferredOut || r.tips) &&
+      (r.shifts || r.earned || r.paid || r.opening || r.transferredOut || r.tips || r.officialExpected) &&
       (!role || r.employee.role_name === role) &&
       `${r.employee.name} ${r.employee.role_name}`
         .toLowerCase()
@@ -244,7 +245,7 @@ export function PayrollWorkspace({
     () =>
       rows.filter(
         (r) =>
-          (r.shifts || r.earned || r.paid || r.opening || r.transferredOut || r.tips) &&
+          (r.shifts || r.earned || r.paid || r.opening || r.transferredOut || r.tips || r.officialExpected) &&
           (!role || r.employee.role_name === role),
       ),
     [rows, role],
@@ -844,6 +845,7 @@ export function PayrollWorkspace({
                   tableId={`payroll.concept.payments.${data.venueId}`}
                   externalSearch={{ value: query, onChange: setQuery }}
                   filters={roleFilters}
+                  onChange={reload}
                   onCancel={async (id) => {
                     setCancelId(id);
                   }}

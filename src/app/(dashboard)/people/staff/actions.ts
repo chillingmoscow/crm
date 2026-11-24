@@ -14,8 +14,11 @@ import { hasCustomMailerConfig, sendInvitationEmail } from "@/lib/people/invitat
 import { revalidatePath } from "next/cache";
 import { processStaffTermination } from "@/lib/people/termination";
 import { processStaffRestore } from "@/lib/people/restore";
+import { terminationOfficialEndSchema } from "@/lib/people/official-employment";
 import { asLooseDb } from "@/lib/supabase/loose";
-import { validDate } from "@/lib/sales/time";
+import { validDate, zonedParts } from "@/lib/sales/time";
+import { getActiveAccountTimezone } from "@/lib/settings/account";
+import { chunk, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { assignPayrollPositionOnly, requeuePayrollFrom } from "@/app/(dashboard)/people/payroll/actions";
 
 export type PendingInvitation = {
@@ -125,6 +128,45 @@ export async function getStaff(venueId: string): Promise<StaffMember[]> {
   });
   if (error) return [];
   return (data ?? []) as StaffMember[];
+}
+
+/**
+ * Пользователи, у которых в заведении сегодня открыт период официального
+ * трудоустройства (метка «Офиц.» и фильтр в списке). Читается клиентом
+ * пользователя, под RLS: без права просмотра зарплаты база отдаёт пустоту, и
+ * метки нет. «Сегодня» — по поясу аккаунта, не по UTC.
+ */
+export async function getOfficialStaffUserIds(venueId: string): Promise<string[]> {
+  try {
+    const supabase = await createClient();
+    const db = asLooseDb(supabase);
+    const today = zonedParts(new Date(), await getActiveAccountTimezone()).date;
+    const periods = await fetchAllRows(() =>
+      db
+        .from<{ id: string; employee_id: string }[]>("payroll_official_employments")
+        .select("id,employee_id")
+        .eq("venue_id", venueId)
+        .is("archived_at", null)
+        .lte("starts_on", today)
+        .or(`ends_on.is.null,ends_on.gte.${today}`),
+    );
+    const employeeIds = [...new Set(periods.map((p) => p.employee_id))];
+    const userIds = new Set<string>();
+    for (const part of chunk(employeeIds, 200)) {
+      const { data, error } = await db
+        .from<{ local_user_id: string | null }[]>("payroll_employees")
+        .select("local_user_id")
+        .eq("venue_id", venueId)
+        .in("id", part);
+      if (error) throw new Error(error.message);
+      for (const row of data ?? []) if (row.local_user_id) userIds.add(row.local_user_id);
+    }
+    return [...userIds];
+  } catch (error) {
+    // Метка вторична: список сотрудников не должен падать из-за неё.
+    console.error("official staff unavailable:", error instanceof Error ? error.message : error);
+    return [];
+  }
 }
 
 export async function updateStaffProfile(
@@ -887,6 +929,7 @@ export async function updateStaffRole(
 export async function fireStaff(
   uvrId: string,
   reason: string,
+  officialEnd?: string | null,
 ): Promise<{ error: string | null }> {
   const trimmed = reason?.trim() ?? "";
   // Server-side guard: причина увольнения обязательна — UI-кнопка
@@ -895,8 +938,16 @@ export async function fireStaff(
   if (trimmed.length === 0) {
     return { error: "Укажите причину увольнения" };
   }
+  // Дата официального увольнения: обязательна, только если человек оформлен
+  // официально в этом заведении. Это и границу по дате оформления проверяет база.
+  const end = terminationOfficialEndSchema.safeParse(officialEnd);
+  if (!end.success) return { error: end.error.issues[0]?.message ?? "Проверьте дату официального увольнения" };
   const supabase = await createClient();
-  const { data, error } = await asLooseDb(supabase).rpc("staff_begin_termination", {p_uvr:uvrId,p_reason:trimmed});
+  const { data, error } = await supabase.rpc("staff_begin_termination", {
+    p_uvr: uvrId,
+    p_reason: trimmed,
+    ...(end.data ? { p_official_end: end.data } : {}),
+  });
   if (error) return { error: errorText(error, "Не удалось начать увольнение") };
   try {
     await processStaffTermination(String(data));

@@ -91,6 +91,8 @@ type Props = {
   canSeeStaffDetails: boolean;
   /** null when casual workers are unavailable (e.g. before the database update). */
   casual: { employees: CasualStaffRow[]; roles: { id: string; name: string }[] } | null;
+  /** Пользователи с открытым сегодня официальным трудоустройством; пусто без права просмотра зарплаты. */
+  officialUserIds: string[];
   /** Opened from the schedule: «Добавить → Разовый» is shown right away. */
   openAddCasual?: boolean;
 };
@@ -250,6 +252,7 @@ export function StaffClient({
   canEditStaff,
   canSeeStaffDetails,
   casual,
+  officialUserIds,
   openAddCasual = false,
 }: Props) {
   const [staff, setStaff] = useState(initialStaff);
@@ -337,6 +340,7 @@ export function StaffClient({
   };
 
   // ── Cell renderers ─────────────────────────────────────────
+  const officialSet = new Set(officialUserIds);
   const renderCell = (key: ColKey, member: StaffMember) => {
     const isMe = member.user_id === currentUserId;
 
@@ -395,6 +399,14 @@ export function StaffClient({
             >
               {nameLabel}
             </Link>
+            {officialSet.has(member.user_id) && (
+              <span
+                className="inline-flex shrink-0"
+                data-tip="Оформлен официально: период трудоустройства открыт."
+              >
+                <StatusBadge tone="info">Офиц.</StatusBadge>
+              </span>
+            )}
             {isPlaceholder && (
               <span
                 className="inline-flex shrink-0"
@@ -697,6 +709,7 @@ export function StaffClient({
         preferenceKey={`${venueId}.${currentUserId}`}
         staff={staff}
         casual={casual?.employees ?? []}
+        officialUserIds={officialUserIds}
         renderCasualCell={renderCasualCell}
         fired={fired}
         showFired={firedOpen}

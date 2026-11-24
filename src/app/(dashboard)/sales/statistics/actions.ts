@@ -6,6 +6,7 @@ import {
   getCachedActiveAccountId,
 } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { actionResult } from "@/lib/actions/result";
 import { loadSales } from "../shifts/actions";
 import type { SalesData } from "@/lib/sales/types";
 import type { StatisticsReport } from "@/lib/sales/statistics-reports";
@@ -16,7 +17,7 @@ export type StatisticsData = SalesData & {
   reportsConfigured: boolean;
   archives: StatisticsArchive[];
 };
-export async function loadStatistics(): Promise<StatisticsData> {
+async function loadStatisticsImpl(): Promise<StatisticsData> {
   const data = await loadSales();
   const db = asLooseDb(await createClient());
   const [reports, config, archive] = await Promise.all([
@@ -86,7 +87,7 @@ export async function loadStatistics(): Promise<StatisticsData> {
     archives,
   };
 }
-export async function requestStatisticsMonth(month: string, venueId: string) {
+async function requestStatisticsMonthImpl(month: string, venueId: string) {
   z.string().uuid().parse(venueId);
   z.string()
     .regex(/^20\d{2}-(0[1-9]|1[0-2])$/)
@@ -116,14 +117,32 @@ export async function requestStatisticsMonth(month: string, venueId: string) {
   return Number(r.data);
 }
 
-export async function exportStatistics(
+async function exportStatisticsImpl(
   venueId: string,
 ): Promise<StatisticsData> {
   z.string().uuid().parse(venueId);
   if (!(await getCachedPermissionChecker())("sales.export_shifts"))
     throw new Error("Нет доступа к экспорту статистики");
-  const data = await loadStatistics();
+  const data = await loadStatisticsImpl();
   if (data.venueId !== venueId)
     throw new Error("Заведение изменилось. Обновите страницу");
   return data;
+}
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js
+// заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function loadStatistics() {
+  return actionResult(() => loadStatisticsImpl(), "Не удалось загрузить статистику");
+}
+export async function requestStatisticsMonth(month: string, venueId: string) {
+  return actionResult(
+    () => requestStatisticsMonthImpl(month, venueId),
+    "Не удалось запросить отчёты",
+  );
+}
+export async function exportStatistics(venueId: string) {
+  return actionResult(
+    () => exportStatisticsImpl(venueId),
+    "Не удалось выгрузить статистику",
+  );
 }

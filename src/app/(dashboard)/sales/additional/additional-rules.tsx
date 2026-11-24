@@ -20,6 +20,7 @@ import {
   defaultAdditionalRules,
   type AdditionalKind,
 } from "@/lib/sales/additional";
+import { unwrapAction } from "@/lib/actions/result";
 import { saveAdditionalRules, type AdditionalData } from "./actions";
 
 /** Баллы и пороги — дробные числа без валюты: «1,5». */
@@ -104,13 +105,15 @@ export function AdditionalRulesEditor({
     }
     setBusy(true);
     try {
-      const next = await saveAdditionalRules({
-        venueId: data.venueId,
-        version: data.version,
-        from,
-        config,
-        reason: reason.trim(),
-      });
+      const next = unwrapAction(
+        await saveAdditionalRules({
+          venueId: data.venueId,
+          version: data.version,
+          from,
+          config,
+          reason: reason.trim(),
+        }),
+      );
       onSaved(next);
       toast.success("Новая версия правил сохранена");
       onClose();

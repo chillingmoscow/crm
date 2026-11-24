@@ -7,6 +7,7 @@ import {
   getCachedActiveAccountId,
 } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { actionResult } from "@/lib/actions/result";
 
 import type { DayArchive, DayReference } from "@/lib/sales/day-context";
 import {
@@ -56,7 +57,7 @@ export type AdditionalData = {
   days: DayReference[];
   dayArchives: DayArchive[];
 };
-export async function loadAdditional(
+async function loadAdditionalImpl(
   expectedVenue?: string,
 ): Promise<AdditionalData> {
   const s = await scope("sales.view_shifts", expectedVenue);
@@ -147,7 +148,7 @@ export async function loadAdditional(
     dayArchives,
   };
 }
-export async function requestAdditional(month: string, venueId: string) {
+async function requestAdditionalImpl(month: string, venueId: string) {
   z.string()
     .regex(/^20\d{2}-(0[1-9]|1[0-2])$/)
     .parse(month);
@@ -161,7 +162,7 @@ export async function requestAdditional(month: string, venueId: string) {
     throw new Error("Нет завершённых дней с настроенными правилами допродаж");
   return Number(r.data);
 }
-export async function saveAdditionalRules(input: {
+async function saveAdditionalRulesImpl(input: {
   venueId: string;
   version: number;
   from: string;
@@ -183,9 +184,9 @@ export async function saveAdditionalRules(input: {
     p_reason: input.reason,
   });
   if (r.error) throw new Error(r.error.message);
-  return loadAdditional(s.venueId);
+  return loadAdditionalImpl(s.venueId);
 }
-export async function loadAdditionalHistory(venueId: string, reportId: string) {
+async function loadAdditionalHistoryImpl(venueId: string, reportId: string) {
   const s = await scope("sales.view_shifts", venueId);
   z.string().uuid().parse(reportId);
   const result: {
@@ -208,7 +209,46 @@ export async function loadAdditionalHistory(venueId: string, reportId: string) {
   }
   throw new Error("Не удалось загрузить всю историю");
 }
-export async function exportAdditional(venueId: string) {
+async function exportAdditionalImpl(venueId: string) {
   await scope("sales.export_shifts", venueId);
-  return loadAdditional(venueId);
+  return loadAdditionalImpl(venueId);
+}
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js
+// заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function loadAdditional(expectedVenue?: string) {
+  return actionResult(
+    () => loadAdditionalImpl(expectedVenue),
+    "Не удалось загрузить допродажи",
+  );
+}
+export async function requestAdditional(month: string, venueId: string) {
+  return actionResult(
+    () => requestAdditionalImpl(month, venueId),
+    "Не удалось запросить отчёты",
+  );
+}
+export async function saveAdditionalRules(input: {
+  venueId: string;
+  version: number;
+  from: string;
+  config: AdditionalRules;
+  reason: string;
+}) {
+  return actionResult(
+    () => saveAdditionalRulesImpl(input),
+    "Не удалось сохранить правила",
+  );
+}
+export async function loadAdditionalHistory(venueId: string, reportId: string) {
+  return actionResult(
+    () => loadAdditionalHistoryImpl(venueId, reportId),
+    "Не удалось загрузить историю",
+  );
+}
+export async function exportAdditional(venueId: string) {
+  return actionResult(
+    () => exportAdditionalImpl(venueId),
+    "Не удалось выгрузить допродажи",
+  );
 }

@@ -154,7 +154,9 @@ export async function syncQuickRestoInventory(input?: {
     // обработчике): пишет только новое и изменённое, защищена от массовой
     // архивации, сохраняет итоги запуска и строку журнала. Склады и акты
     // загружаются параллельно с ней.
-    const [nomenclature, stores, loadedDocuments] = await Promise.all([
+    // allSettled, а не all: при сбое списка складов сверка не должна
+    // продолжать писать в базу в фоне, когда экшен уже вернул ошибку.
+    const settled = await Promise.allSettled([
       syncQuickRestoNomenclature({
         admin,
         accountId: ctx.accountId,
@@ -165,7 +167,16 @@ export async function syncQuickRestoInventory(input?: {
       }),
       listStores(auth),
       listInventoryDocuments(auth),
-    ]);
+    ] as const);
+    const failed = settled.find((result) => result.status === "rejected");
+    if (failed) throw failed.reason;
+    const [nomenclature, stores, loadedDocuments] = settled.map(
+      (result) => (result as PromiseFulfilledResult<unknown>).value,
+    ) as [
+      Awaited<ReturnType<typeof syncQuickRestoNomenclature>>,
+      Awaited<ReturnType<typeof listStores>>,
+      Awaited<ReturnType<typeof listInventoryDocuments>>,
+    ];
     documentList = loadedDocuments;
     summary.groups = nomenclature.totals.groups;
     summary.products = nomenclature.totals.products;

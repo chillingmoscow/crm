@@ -13,6 +13,7 @@ begin
  or not private.candidate_venue_permission(auth.uid(),u.venue_id,'people.edit_staff') then raise exception 'Нет права увольнять сотрудника';end if;
  if u.user_id=auth.uid() or exists(select 1 from public.accounts where id=a and owner_id=u.user_id) then raise exception 'Владельца и себя нельзя уволить';end if;
  perform pg_advisory_xact_lock(hashtextextended(a::text||u.user_id::text,0));
+ perform pg_advisory_xact_lock(hashtextextended('payroll_official:' || a::text, 0));
  select * into rs from public.staff_restorations where uvr_id=u.id and state not in ('complete','cancelled') order by created_at desc limit 1 for update;
  if found then
  -- A minute of grace past the lease: a worker that just overran it is still stopped by its own write guard.
@@ -75,7 +76,6 @@ begin
  update public.payroll_employees set active=false where account_id=a and venue_id=u.venue_id and local_user_id=u.user_id;
  -- Official employment: the dismissal date (account time zone) closes the person's open official periods,
  -- so the month goes to review instead of an automatic full payment. A date already set is never touched.
- perform pg_advisory_xact_lock(hashtextextended('payroll_official:' || a::text, 0));
  for ended in
  with closed as (
  update public.payroll_official_employments o

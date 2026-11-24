@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { OptionSelect } from "@/components/ui/option-select";
+import { CounterpartyGroupSelect } from "@/components/finance/counterparty-group-select";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { Textarea } from "@/components/ui/textarea";
 import { AddressInput } from "@/components/org/address-input";
@@ -312,14 +313,12 @@ export function CounterpartyRequisites({
         <div className="grid gap-4">
           <Field id="cp-group" label="Группа">
             {(control) => (
-              <OptionSelect
+              <CounterpartyGroupSelect
                 {...control}
                 value={form.group_id}
                 onValueChange={(value) => set("group_id", value)}
-                options={[
-                  { value: "", label: "Без группы" },
-                  ...groups.map((group) => ({ value: group.id, label: group.name })),
-                ]}
+                groups={groups}
+                canCreate={!readOnly}
                 disabled={readOnly}
               />
             )}

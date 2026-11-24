@@ -1,4 +1,4 @@
-import { Banknote, BriefcaseBusiness, Pencil, Trash2, UserMinus } from "lucide-react";
+import { ArrowRightLeft, Banknote, BriefcaseBusiness, CircleSlash, Pencil, Trash2, UserMinus } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { AuditEvent } from "@/lib/audit/list";
@@ -9,6 +9,9 @@ import { formatAuditDate as formatDate } from "./labels";
 // данных, оклад по договору, официальное увольнение, отмена. Пишет команда
 // базы payroll_official_command (миграция 383), увольнение в приложении —
 // staff_begin_termination (385, details.source = 'termination').
+// Официальные выплаты (384): ручное проведение, разбор и пропуск карточки
+// «На разбор», смена расчётного счёта; запуск крона — маршрут
+// /api/cron/payroll-official.
 
 const INFO = "text-brand bg-brand/10";
 const CREATED = "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
@@ -30,6 +33,43 @@ function contract(e: AuditEvent): string | null {
   const date = typeof e.details.contract_date === "string" ? e.details.contract_date : null;
   if (!number && !date) return null;
   return ["Договор", number ? `№ ${number}` : null, date ? `от ${formatDate(date)}` : null].filter(Boolean).join(" ");
+}
+
+const MONTHS = [
+  "январь", "февраль", "март", "апрель", "май", "июнь",
+  "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь",
+];
+
+/** «ноябрь 2026» из `2026-11-01`. */
+function monthName(value: unknown): string {
+  const text = typeof value === "string" ? value : "";
+  const m = /^(\d{4})-(\d{2})/.exec(text);
+  if (!m) return text;
+  return `${MONTHS[Number(m[2]) - 1] ?? m[2]} ${m[1]}`;
+}
+
+/** Почему месяц ушёл на разбор — как карточка «На разбор». */
+const REASONS: Record<string, string> = {
+  final_month: "окончательный расчёт",
+  no_bank_account: "не был выбран расчётный счёт",
+  no_category: "у должности не было статьи ФОТ",
+  inactive: "уволен без даты официального увольнения",
+  missed_month: "месяц не был проведён автоматически",
+};
+
+function Payment({ e }: { e: AuditEvent }) {
+  const reason = typeof e.details.reason === "string" ? REASONS[e.details.reason] : undefined;
+  return (
+    <div className="space-y-0.5 text-xs text-muted-foreground">
+      <p>
+        За {monthName(e.details.month)} · на руки {money(e.details.net)} · НДФЛ {money(e.details.tax)}
+      </p>
+      <p>
+        {e.details.bank_name ? `Счёт «${String(e.details.bank_name)}» · ` : ""}дата {formatDate(e.details.date)}
+      </p>
+      {reason && <p>Карточка: {reason}</p>}
+    </div>
+  );
 }
 
 const FIELDS: Record<string, string> = {
@@ -84,6 +124,55 @@ export const payrollOfficialAuditSpecs: Record<string, AuditEventSpec> = {
           {failed && <p className="text-destructive">Ошибка заведения: {failed}</p>}
           {errors > 0 && <p className="text-destructive">Ошибок по сотрудникам: {errors}</p>}
         </div>
+      );
+    },
+  },
+  "payroll.official_payment.created": {
+    icon: Banknote,
+    iconClass: CREATED,
+    buildHeadline: (e) => <>провёл(а) официальную выплату{employee(e)}</>,
+    buildDetails: (e) => <Payment e={e} />,
+  },
+  "payroll.official_month.resolved": {
+    icon: Banknote,
+    iconClass: CREATED,
+    buildHeadline: (e) => <>разобрал(а) официальную часть и провёл(а) выплату{employee(e)}</>,
+    buildDetails: (e) => <Payment e={e} />,
+  },
+  "payroll.official_month.skipped": {
+    icon: CircleSlash,
+    iconClass: NEUTRAL,
+    buildHeadline: (e) => <>пропустил(а) официальную выплату{employee(e)}</>,
+    buildDetails: (e) => {
+      const reason = typeof e.details.reason === "string" ? REASONS[e.details.reason] : undefined;
+      return (
+        <p className="text-xs text-muted-foreground">
+          За {monthName(e.details.month)}
+          {e.details.gross != null ? ` · оклад ${money(e.details.gross)}` : ""}
+          {reason ? ` · ${reason}` : ""}
+        </p>
+      );
+    },
+  },
+  "payroll.official_payment.account_changed": {
+    icon: ArrowRightLeft,
+    iconClass: INFO,
+    buildHeadline: (e) => (
+      <>
+        перенёс(ла) официальные выплаты на счёт «{String(e.details.bank_name ?? "")}»
+      </>
+    ),
+    buildDetails: (e) => {
+      const payments = Array.isArray(e.details.payments) ? (e.details.payments as Record<string, unknown>[]) : [];
+      if (!payments.length) return null;
+      return (
+        <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+          {payments.map((p, i) => (
+            <li key={`${String(p.payment_id ?? i)}`} className="leading-snug">
+              {String(p.employee_name ?? "Сотрудник")} · за {monthName(p.month)} · {money(p.amount)}
+            </li>
+          ))}
+        </ul>
       );
     },
   },

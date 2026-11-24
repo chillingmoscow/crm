@@ -15,6 +15,8 @@ export const AUDIT_SECTIONS: { id: string; name: string }[] = [
   { id: "payroll_automation_person", name: "Медкнижки и сведения для автоматизаций" },
   { id: "payroll_uniform", name: "Рабочая форма" },
   { id: "payroll_official_employment", name: "Официальное трудоустройство" },
+  { id: "payroll_official_month", name: "Официальные выплаты" },
+  { id: "payroll_official_run", name: "Автоматические официальные выплаты" },
   { id: "payroll_execution", name: "Режим автоматизаций" },
   { id: "payroll_bonus_operation", name: "Бонусные операции" },
   { id: "payroll_automation_run", name: "Расчёты автоматизаций" },

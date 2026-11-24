@@ -265,7 +265,7 @@ async function loadPayrollData(
     s.client.from("roles").select("id,name").eq("venue_id", s.venueId).is("archived_at", null),
   ]);
   const managerRequest = manager
-    ? loadPayrollManagerData(s, overview || single, !single)
+    ? loadPayrollManagerData(s, overview || single, !single, !overview)
     : null;
 
   const [entries, employees, [hours, venue, roleRows], managerData] = await Promise.all([
@@ -379,14 +379,16 @@ async function loadPayrollData(
     categories: managerData?.categories ?? [],
     staff: managerData?.staff ?? [],
     financeTransactions: managerData?.financeTransactions ?? [],
+    officialEmployments: managerData?.officialEmployments ?? [],
   };
 }
 async function loadPayrollManagerData(
   s: Awaited<ReturnType<typeof scope>>,
   overview: boolean,
   withFinance = true,
+  withOfficial = true,
 ) {
-  const [settings, sources, banks, categories, staff, financeTransactions] = await Promise.all([
+  const [settings, sources, banks, categories, staff, financeTransactions, officialEmployments] = await Promise.all([
     s.db.from<PaySettings>("payroll_settings").select("*").eq("venue_id", s.venueId).maybeSingle(),
     overview ? null : s.admin.from<PayrollData["sources"]>("payroll_source_days")
       .select("business_date,state,error,synced_at,missing_shifts:source->missing_shifts")
@@ -398,6 +400,7 @@ async function loadPayrollManagerData(
       .eq("account_id", s.accountId).eq("type", "expense").is("archived_at", null),
     !overview && s.permissions.includes("payroll.configure") ? loadPayrollStaff(s) : [],
     withFinance ? loadPayrollFinanceTransactions(s) : [],
+    withOfficial ? loadOfficialEmployments(s) : [],
   ]);
   for (const result of [settings, sources, banks, categories]) {
     if (result?.error) throw new Error(result.error.message);
@@ -409,7 +412,32 @@ async function loadPayrollManagerData(
     categories: categories?.data ?? [],
     staff,
     financeTransactions,
+    officialEmployments,
   };
+}
+
+/**
+ * Периоды официального оформления заведения — для «Официальная часть» в форме
+ * выплаты (в том числе повтор после удаления и месяцы до начала автоматических
+ * выплат, которых нет в ожидаемой части). Вторично: без них форма просто не
+ * предложит переключатель, поэтому ошибка чтения не роняет экран.
+ */
+async function loadOfficialEmployments(
+  s: Awaited<ReturnType<typeof scope>>,
+): Promise<NonNullable<PayrollData["officialEmployments"]>> {
+  const r = await s.db
+    .from<NonNullable<PayrollData["officialEmployments"]>>("payroll_official_employments")
+    .select("id,employee_id,starts_on,ends_on")
+    .eq("account_id", s.accountId)
+    .eq("venue_id", s.venueId)
+    .is("archived_at", null)
+    .order("starts_on")
+    .limit(1000);
+  if (r.error) {
+    console.error("official employments unavailable:", r.error.message);
+    return [];
+  }
+  return r.data ?? [];
 }
 
 async function loadPayrollStaff(s: Awaited<ReturnType<typeof scope>>): Promise<PayrollData["staff"]> {
@@ -810,6 +838,54 @@ async function recordIndividualPaymentsImpl(input: unknown) {
   if (result.error) throw new Error(result.error.message);
   return result.data;
 }
+const officialMoney = z
+  .number({ invalid_type_error: "Укажите сумму на руки и оклад с налогом" })
+  .positive("Укажите сумму на руки и оклад с налогом")
+  .max(1e9, "Слишком большая сумма")
+  .refine((v) => Math.abs(v * 100 - Math.round(v * 100)) < 0.00001, "Не больше двух знаков после запятой");
+const officialPaymentSchema = z
+  .object({
+    employment_id: z.string().uuid("Официальное оформление не найдено"),
+    month: z.string().regex(/^\d{4}-\d{2}-01$/, "Укажите месяц официальной выплаты"),
+    gross: officialMoney,
+    net: officialMoney,
+    bank_account_id: z.string().uuid("Выберите расчётный счёт"),
+    date: z.string().datetime({ offset: true, message: "Укажите дату выплаты" }),
+  })
+  .refine((v) => Math.round(v.net * 100) <= Math.round(v.gross * 100), "Сумма на руки больше оклада с налогом");
+/**
+ * Ручная официальная выплата: повтор после удаления или прошлые месяцы.
+ * Права (`payroll.pay` + `finance.create_transaction`), расчётный счёт и
+ * «одна выплата за месяц» проверяет база; журнал пишет она же.
+ */
+async function recordOfficialPaymentImpl(input: z.input<typeof officialPaymentSchema>) {
+  const s = await scope("payroll.pay");
+  if (!s.permissions.includes("finance.create_transaction")) throw new Error("Нет доступа к финансовым операциям");
+  const p = officialPaymentSchema.parse(input);
+  const r = await s.db.rpc("payroll_record_official_payment", { p_input: p });
+  if (r.error) throw new Error(r.error.message);
+  return r.data as string;
+}
+const changeOfficialAccountSchema = z.object({
+  paymentIds: z.array(z.string().uuid()).min(1, "Выберите официальные выплаты").max(500, "Не больше 500 выплат за раз"),
+  bankAccountId: z.string().uuid("Выберите расчётный счёт"),
+});
+/**
+ * Перенос официальных выплат на другой расчётный счёт: база удаляет прежнюю
+ * операцию и проводит ту же выплату с нового счёта, одной строкой журнала.
+ */
+async function changeOfficialPaymentsAccountImpl(input: z.input<typeof changeOfficialAccountSchema>) {
+  const s = await scope("payroll.pay");
+  if (!s.permissions.includes("finance.create_transaction")) throw new Error("Нет доступа к финансовым операциям");
+  if (!s.permissions.includes("finance.delete_transaction"))
+    throw new Error("Нет доступа к отмене финансовой операции");
+  const p = changeOfficialAccountSchema.parse(input);
+  const r = await s.db.rpc("payroll_official_change_account", {
+    p_input: { payment_ids: [...new Set(p.paymentIds)], bank_account_id: p.bankAccountId },
+  });
+  if (r.error) throw new Error(r.error.message);
+  return (r.data ?? []) as string[];
+}
 async function reconcileTipsImpl(
   date: string,
   bankId: string,
@@ -1178,6 +1254,12 @@ export async function reviewAttendanceDecisions(input: AttendanceDecisionInput) 
 }
 export async function recordIndividualPayments(input: unknown) {
   return actionResult(() => recordIndividualPaymentsImpl(input), "Не удалось провести выплату");
+}
+export async function recordOfficialPayment(input: z.input<typeof officialPaymentSchema>) {
+  return actionResult(() => recordOfficialPaymentImpl(input), "Не удалось провести официальную выплату");
+}
+export async function changeOfficialPaymentsAccount(input: z.input<typeof changeOfficialAccountSchema>) {
+  return actionResult(() => changeOfficialPaymentsAccountImpl(input), "Не удалось сменить счёт выплат");
 }
 export async function reconcileTips(date: string, bankId: string, categoryId: string, reason = "") {
   return actionResult(() => reconcileTipsImpl(date, bankId, categoryId, reason), "Не удалось сверить чаевые");

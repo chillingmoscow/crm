@@ -1,11 +1,14 @@
 "use client";
 import {
+  officialAccountSelectable,
   paymentJournalRows,
   type PaymentJournalRow,
 } from "@/lib/payroll/payment-journal";
+import { canChangeOfficialAccount, checkingBanks } from "@/lib/payroll/official-payment";
+import { countRu } from "@/lib/format/plural";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColumnDef, RowSelectionState } from "@tanstack/react-table";
 import type { AdeskSync, Payment, PayrollData } from "@/lib/payroll/types";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -16,6 +19,7 @@ import {
   MoreHorizontal,
   Trash2,
   ArrowUpRight,
+  Landmark,
 } from "lucide-react";
 import { PayrollDetailDialog } from "./payroll-detail-dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -26,7 +30,15 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import { loadPayrollTransactionDetails, retryPayrollAdeskSync } from "../actions";
+import {
+  changeOfficialPaymentsAccount,
+  loadPayrollTransactionDetails,
+  retryPayrollAdeskSync,
+} from "../actions";
+import { TableBulkBar } from "@/components/shared/table";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { OptionSelect } from "@/components/ui/option-select";
+import { Label } from "@/components/ui/label";
 import { unwrapAction } from "@/lib/actions/result";
 import { Money } from "@/components/shared/money";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -47,6 +59,7 @@ export function PayrollPaymentsTable({
   busy,
   actions,
   onCancel,
+  onChange,
   toolbarTargetId = "payroll-table-controls",
   tableId,
   externalSearch,
@@ -62,6 +75,8 @@ export function PayrollPaymentsTable({
   busy: boolean;
   actions: React.ReactNode;
   onCancel: (id: string) => Promise<void>;
+  /** Перечитать данные после массового действия («Сменить счёт»). */
+  onChange?: () => Promise<void>;
   toolbarTargetId?: string;
   tableId?: string;
   exportAction?: { label: string; onClick: () => void; loading?: boolean };
@@ -106,8 +121,14 @@ export function PayrollPaymentsTable({
                 />
               )}
             </span>
-          ) : id === "kind" && row.original.bonus ? (
-            <span>{row.original.kind} <small className="text-muted-foreground">· Премия</small></span>
+          ) : id === "kind" && (row.original.bonus || row.original.official) ? (
+            <span className="inline-flex items-center gap-2">
+              <span>
+                {row.original.kind}
+                {row.original.bonus && <small className="text-muted-foreground"> · Премия</small>}
+              </span>
+              {row.original.official && <StatusBadge tone="info">Официальная</StatusBadge>}
+            </span>
           ) : (
             row.original[id as "employee" | "kind" | "status"]
           ),
@@ -115,8 +136,17 @@ export function PayrollPaymentsTable({
     [data.timezone, data.adeskSync],
   );
   const selected = rows.find((row) => row.id === selectedId);
+  // «Сменить счёт»: выбор только проведённых официальных выплат и только с
+  // правами на проведение и удаление операций.
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [accountOpen, setAccountOpen] = useState(false);
+  const canChangeAccount = canChangeOfficialAccount(data.permissions);
+  const selectable = canChangeAccount && rows.some(officialAccountSelectable);
+  const selectedOfficial = selectable
+    ? rows.filter((row) => rowSelection[row.id] && officialAccountSelectable(row))
+    : [];
   return (
-    <>
+    <div className={selectedOfficial.length ? "min-w-0 pb-28 md:pb-24" : "min-w-0"}>
       <PayrollTable
         id={tableId ?? `payroll.payments.${data.venueId}`}
         label="Выплаты"
@@ -132,6 +162,18 @@ export function PayrollPaymentsTable({
         filters={filters}
         exportAction={exportAction}
         actions={actions}
+        selection={
+          selectable
+            ? {
+                value: rowSelection,
+                onChange: setRowSelection,
+                getRowId: (row) => row.id,
+                canSelect: officialAccountSelectable,
+                rowLabel: (row) => `Выбрать официальную выплату: ${row.employee}`,
+                pageLabel: "Выбрать все официальные выплаты на странице",
+              }
+            : undefined
+        }
         totals={(visible) => ({
           amount: (
             <Money
@@ -155,7 +197,98 @@ export function PayrollPaymentsTable({
           }}
         />
       )}
-    </>
+      {selectable && (
+        <TableBulkBar
+          floating
+          selectedCount={selectedOfficial.length}
+          onClear={() => setRowSelection({})}
+          actions={
+            <Button variant="outline" size="sm" onClick={() => setAccountOpen(true)}>
+              <Landmark className="mr-2 size-4" />
+              Сменить счёт
+            </Button>
+          }
+        />
+      )}
+      {accountOpen && (
+        <ChangeAccountDialog
+          data={data}
+          paymentIds={selectedOfficial.map((row) => row.id)}
+          onClose={() => setAccountOpen(false)}
+          onDone={async () => {
+            setAccountOpen(false);
+            setRowSelection({});
+            await onChange?.();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Перенос выбранных официальных выплат на другой расчётный счёт. */
+function ChangeAccountDialog({
+  data,
+  paymentIds,
+  onClose,
+  onDone,
+}: {
+  data: PayrollData;
+  paymentIds: string[];
+  onClose: () => void;
+  onDone: () => Promise<void>;
+}) {
+  const banks = checkingBanks(data.banks);
+  const [bank, setBank] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const count = countRu(paymentIds.length, "официальная выплата", "официальные выплаты", "официальных выплат");
+  return (
+    <ConfirmDialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !busy) onClose();
+      }}
+      title="Сменить счёт выплат"
+      description={`Выбрано: ${count}. Прежние операции в финансах удалятся, на выбранном счёте появятся такие же — с той же датой и суммой.`}
+      confirmLabel="Сменить счёт"
+      pendingLabel="Переносим…"
+      busy={busy}
+      confirmDisabled={!bank || !paymentIds.length}
+      restriction={banks.length ? undefined : "Нет расчётного счёта: официальные выплаты проводят только с него."}
+      error={error ?? undefined}
+      onConfirm={async () => {
+        setBusy(true);
+        setError(null);
+        try {
+          const moved = unwrapAction(
+            await changeOfficialPaymentsAccount({ paymentIds, bankAccountId: bank }),
+          );
+          toast.success(
+            `Счёт изменён: ${countRu(moved.length, "выплата", "выплаты", "выплат")}`,
+          );
+          await onDone();
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Не удалось сменить счёт выплат");
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      {banks.length ? (
+        <div className="space-y-2">
+          <Label htmlFor="payroll-official-account">Расчётный счёт</Label>
+          <OptionSelect
+            id="payroll-official-account"
+            value={bank}
+            onValueChange={setBank}
+            placeholder="Выберите счёт"
+            disabled={busy}
+            options={banks.map((b) => ({ value: b.id, label: b.name }))}
+          />
+        </div>
+      ) : null}
+    </ConfirmDialog>
   );
 }
 
@@ -274,7 +407,7 @@ function PaymentDetails({
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
-      title={row.bonus ? "Выплата премии" : "Выплата"}
+      title={row.bonus ? "Выплата премии" : row.official ? "Официальная выплата" : "Выплата"}
       description={
         row.earningMonths.length
           ? `За ${row.earningMonths.map((m) => new Date(`${m}T12:00:00Z`).toLocaleDateString("ru-RU", { month: "long", year: "numeric", timeZone: "UTC" }).replace(" г.", "")).join(", ")}`

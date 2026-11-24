@@ -179,6 +179,13 @@ export type OfficialExpected = {
   days_paid: number | null;
   days_in_month: number;
 };
+/** Период официального оформления — для выбора «Официальная часть» в форме выплаты. */
+export type OfficialEmploymentSpan = {
+  id: string;
+  employee_id: string;
+  starts_on: string;
+  ends_on: string | null;
+};
 /** Mirror of a payout in Adesk; only payouts made in the app are queued. */
 export type AdeskSync = {
   payment_id: string;
@@ -285,6 +292,8 @@ export type PayrollData = {
   transfers: PayrollTransfer[];
   /** Ожидаемые официальные части по месяцам; уменьшают «К выплате». */
   officialExpected?: OfficialExpected[];
+  /** Периоды официального оформления заведения (только у управляющего). */
+  officialEmployments?: OfficialEmploymentSpan[];
   venueId: string;
   /** Название заведения — для шапки выгрузки ведомости. */
   venueName?: string | null;

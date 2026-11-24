@@ -845,6 +845,7 @@ export function PayrollWorkspace({
                   tableId={`payroll.concept.payments.${data.venueId}`}
                   externalSearch={{ value: query, onChange: setQuery }}
                   filters={roleFilters}
+                  onChange={reload}
                   onCancel={async (id) => {
                     setCancelId(id);
                   }}

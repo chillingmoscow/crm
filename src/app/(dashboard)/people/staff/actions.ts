@@ -14,6 +14,7 @@ import { hasCustomMailerConfig, sendInvitationEmail } from "@/lib/people/invitat
 import { revalidatePath } from "next/cache";
 import { processStaffTermination } from "@/lib/people/termination";
 import { processStaffRestore } from "@/lib/people/restore";
+import { terminationOfficialEndSchema } from "@/lib/people/official-employment";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { validDate, zonedParts } from "@/lib/sales/time";
 import { getActiveAccountTimezone } from "@/lib/settings/account";
@@ -928,6 +929,7 @@ export async function updateStaffRole(
 export async function fireStaff(
   uvrId: string,
   reason: string,
+  officialEnd?: string | null,
 ): Promise<{ error: string | null }> {
   const trimmed = reason?.trim() ?? "";
   // Server-side guard: причина увольнения обязательна — UI-кнопка
@@ -936,8 +938,16 @@ export async function fireStaff(
   if (trimmed.length === 0) {
     return { error: "Укажите причину увольнения" };
   }
+  // Дата официального увольнения: обязательна, только если человек оформлен
+  // официально в этом заведении. Это и границу по дате оформления проверяет база.
+  const end = terminationOfficialEndSchema.safeParse(officialEnd);
+  if (!end.success) return { error: end.error.issues[0]?.message ?? "Проверьте дату официального увольнения" };
   const supabase = await createClient();
-  const { data, error } = await asLooseDb(supabase).rpc("staff_begin_termination", {p_uvr:uvrId,p_reason:trimmed});
+  const { data, error } = await supabase.rpc("staff_begin_termination", {
+    p_uvr: uvrId,
+    p_reason: trimmed,
+    ...(end.data ? { p_official_end: end.data } : {}),
+  });
   if (error) return { error: errorText(error, "Не удалось начать увольнение") };
   try {
     await processStaffTermination(String(data));

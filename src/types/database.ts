@@ -4206,6 +4206,10 @@ export type Database = {
         Args: { p_granted: boolean; p_permission_id: string; p_role_id: string }
         Returns: undefined
       }
+      staff_begin_termination: {
+        Args: { p_official_end?: string; p_reason: string; p_uvr: string }
+        Returns: string
+      }
     }
     Enums: {
       attachment_document_type_enum:

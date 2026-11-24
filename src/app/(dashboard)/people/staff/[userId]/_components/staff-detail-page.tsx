@@ -180,6 +180,10 @@ interface Props {
   canConfigurePayroll: boolean;
   /** Блок «Официальное трудоустройство»; null — нет права просмотра зарплаты. */
   officialEmployment: ActionResult<OfficialEmploymentData> | null;
+  /** Открытое официальное оформление в заведении: дата начала и «сегодня»
+   *  по поясу аккаунта. Есть — окно увольнения спрашивает дату официального
+   *  увольнения. Не зависит от права просмотра зарплаты. */
+  officialTermination?: { startsOn: string; today: string } | null;
   /** Показывать ли вкладку «Оплата»: право на зарплату или своя карточка. */
   canViewPay: boolean;
   initialTab?: "main" | "documents" | "pay";
@@ -241,6 +245,7 @@ export function StaffDetailPage({
   canViewAudit,
   canConfigurePayroll,
   officialEmployment,
+  officialTermination = null,
   canViewPay,
   initialTab = "main",
   initialAuditEvents,
@@ -276,6 +281,13 @@ export function StaffDetailPage({
   const [confirmFire, setConfirmFire] = useState(false);
   const [fireReason, setFireReason] = useState("");
   const [fireError, setFireError] = useState<string | null>(null);
+  // Дата официального увольнения: по умолчанию сегодня, но не раньше оформления.
+  const officialEndDefault = officialTermination
+    ? officialTermination.today < officialTermination.startsOn
+      ? officialTermination.startsOn
+      : officialTermination.today
+    : "";
+  const [officialEnd, setOfficialEnd] = useState(officialEndDefault);
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [confirmPhotoDelete, setConfirmPhotoDelete] = useState(false);
   const [deletingPhoto, setDeletingPhoto] = useState(false);
@@ -707,9 +719,13 @@ export function StaffDetailPage({
       toast.error("Укажите причину увольнения");
       return;
     }
+    if (officialTermination && !officialEnd) {
+      setFireError("Укажите дату официального увольнения");
+      return;
+    }
     setFireError(null);
     startTransition(async () => {
-      const result = await fireStaff(uvrId, reason);
+      const result = await fireStaff(uvrId, reason, officialTermination ? officialEnd : null);
       if (result.error) {
         setFireError(result.error);
         router.refresh();
@@ -1599,6 +1615,7 @@ export function StaffDetailPage({
           setConfirmFire(open);
           if (!open) {
             setFireReason("");
+            setOfficialEnd(officialEndDefault);
             setFireError(null);
           }
         }}
@@ -1608,7 +1625,9 @@ export function StaffDetailPage({
         pendingLabel="Увольняем…"
         destructive
         busy={isPending}
-        confirmDisabled={fireReason.trim().length === 0}
+        confirmDisabled={
+          fireReason.trim().length === 0 || (Boolean(officialTermination) && !officialEnd)
+        }
         error={fireError}
         onConfirm={handleFire}
       >
@@ -1629,6 +1648,25 @@ export function StaffDetailPage({
             Будет видна в списке уволенных и поможет вспомнить контекст
           </p>
         </div>
+        {officialTermination ? (
+          <Field
+            label="Дата официального увольнения"
+            required
+            hint="Сотрудник оформлен официально: оклад по договору начисляется по эту дату"
+          >
+            {(control) => (
+              <DatePicker
+                {...control}
+                aria-required
+                value={officialEnd}
+                onChange={setOfficialEnd}
+                clearable={false}
+                fromDate={new Date(`${officialTermination.startsOn}T00:00:00`)}
+                disabled={isPending}
+              />
+            )}
+          </Field>
+        ) : null}
       </ConfirmDialog>
 
       <ConfirmDialog

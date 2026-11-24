@@ -1,11 +1,16 @@
--- 385: увольнение в приложении ставит дату официального увольнения.
--- Тело — из 315:216 целиком; добавлены переменная ended и блок после «payroll_employees set active=false».
+-- 385: увольнение в приложении закрывает официальное трудоустройство датой, которую указал
+-- увольняющий (p_official_end). Без открытого официального периода дата не нужна и не используется.
+-- Тело — из 315:216 целиком; добавлены переменные ended/official_start, проверка даты после
+-- проверки причины и блок после «payroll_employees set active=false». Повтор («Повторить»,
+-- уже уволен) выходит раньше проверки и дату не трогает.
 begin;
 
-create or replace function public.staff_begin_termination(p_uvr uuid,p_reason text) returns uuid
+drop function if exists public.staff_begin_termination(uuid,text);
+
+create or replace function public.staff_begin_termination(p_uvr uuid,p_reason text,p_official_end date default null) returns uuid
 language plpgsql security definer set search_path=public,pg_catalog as $$
 declare u public.user_venue_roles;a uuid;job public.staff_terminations;e public.payroll_employees;
- employee bigint;guest bigint;bonus bigint;shared boolean;door boolean;ids bigint[];rs public.staff_restorations;abandoned boolean:=false;tg text;ended public.payroll_official_employments;
+ employee bigint;guest bigint;bonus bigint;shared boolean;door boolean;ids bigint[];rs public.staff_restorations;abandoned boolean:=false;tg text;ended public.payroll_official_employments;official_start date;
 begin
  select * into u from public.user_venue_roles where id=p_uvr for update;
  select account_id into a from public.venues where id=u.venue_id;
@@ -48,6 +53,20 @@ begin
  if found and job.state not in ('complete','cancelled') then raise exception 'Предыдущее увольнение ещё не завершено';end if;
  if u.status<>'active' and not (abandoned and u.status='fired') then raise exception 'Сотрудник уже уволен';end if;
  if length(trim(p_reason)) not between 1 and 2000 then raise exception 'Укажите причину увольнения (до 2000 символов)';end if;
+ -- Official employment: an open period (no end date) needs the dismissal date the user entered.
+ -- Same checks as payroll_official_command('end'); shrinking an open period never creates an overlap.
+ select max(o.starts_on) into official_start from public.payroll_official_employments o
+ where o.account_id=a and o.venue_id=u.venue_id and o.archived_at is null and o.ends_on is null
+ and o.employee_id in (select pe.id from public.payroll_employees pe where pe.account_id=a and pe.venue_id=u.venue_id and pe.local_user_id=u.user_id);
+ if official_start is not null then
+ if p_official_end is null then raise exception 'Укажите дату официального увольнения';end if;
+ if p_official_end<official_start then raise exception 'Дата официального увольнения раньше даты оформления';end if;
+ if exists(select 1 from public.payroll_official_months m join public.payroll_official_employments o on o.id=m.employment_id
+ where o.account_id=a and o.venue_id=u.venue_id and o.archived_at is null and o.ends_on is null
+ and o.employee_id in (select pe.id from public.payroll_employees pe where pe.account_id=a and pe.venue_id=u.venue_id and pe.local_user_id=u.user_id)
+ and m.month>p_official_end and m.status in ('posted','resolved')) then
+ raise exception 'После даты официального увольнения уже проведены официальные выплаты';end if;
+ end if;
  select * into e from public.payroll_employees where account_id=a and venue_id=u.venue_id and local_user_id=u.user_id;
  select array_agg(distinct ident) into ids from (
  select e.quickresto_id ident union all select external_id::bigint from public.external_entity_links
@@ -74,12 +93,12 @@ begin
  (select nullif(trim(p.telegram_id),'') from public.profiles p where p.id=u.user_id)) returning * into job;
  if u.status='active' then update public.user_venue_roles set status='fired',fired_at=now(),fired_reason=trim(p_reason) where id=u.id;end if;
  update public.payroll_employees set active=false where account_id=a and venue_id=u.venue_id and local_user_id=u.user_id;
- -- Official employment: the dismissal date (account time zone) closes the person's open official periods,
- -- so the month goes to review instead of an automatic full payment. A date already set is never touched.
+ -- Official employment: the entered official dismissal date (checked above) closes the person's open official
+ -- periods, so the month goes to review instead of an automatic full payment. A date already set is never touched.
  for ended in
  with closed as (
  update public.payroll_official_employments o
- set ends_on=greatest(private.finance_account_today(a),o.starts_on),updated_by=auth.uid(),updated_at=now()
+ set ends_on=p_official_end,updated_by=auth.uid(),updated_at=now()
  where o.account_id=a and o.venue_id=u.venue_id and o.archived_at is null and o.ends_on is null
  and o.employee_id in (select pe.id from public.payroll_employees pe where pe.account_id=a and pe.venue_id=u.venue_id and pe.local_user_id=u.user_id)
  returning o.*)
@@ -96,15 +115,19 @@ begin
  -- Keep number/hash reservations: an old physical code must never be reissued.
  return job.id;
 end $$;
-revoke all on function public.staff_begin_termination(uuid,text) from public,anon;
-grant execute on function public.staff_begin_termination(uuid,text) to authenticated;
+revoke all on function public.staff_begin_termination(uuid,text,date) from public,anon;
+grant execute on function public.staff_begin_termination(uuid,text,date) to authenticated;
 
 do $$
 begin
-  if has_function_privilege('anon', 'public.staff_begin_termination(uuid,text)', 'EXECUTE')
-    or not has_function_privilege('authenticated', 'public.staff_begin_termination(uuid,text)', 'EXECUTE') then
+  if to_regprocedure('public.staff_begin_termination(uuid,text)') is not null then
+    raise exception '385: прежняя staff_begin_termination(uuid,text) не удалена';
+  end if;
+  if has_function_privilege('anon', 'public.staff_begin_termination(uuid,text,date)', 'EXECUTE')
+    or not has_function_privilege('authenticated', 'public.staff_begin_termination(uuid,text,date)', 'EXECUTE') then
     raise exception '385: права на staff_begin_termination не сошлись';
   end if;
 end $$;
 
+notify pgrst,'reload schema';
 commit;

@@ -9,6 +9,7 @@ import {
   isIsoDate,
   officialSalaryOn,
   salaryDocumentName,
+  terminationOfficialEndSchema,
   updateOfficialEmploymentSchema,
 } from "./official-employment.ts";
 import { decodeStaffDocumentName, staffDocumentPath, staffDocumentProblem } from "./staff-document-name.ts";
@@ -107,4 +108,13 @@ test("файл в «Документах»: формат, размер, назв
   const match = /^venue\/user\/passport\/1700000000000__(hex-[0-9a-f]+)__n\.pdf$/.exec(path);
   assert.ok(match, path);
   assert.equal(decodeStaffDocumentName(match[1]), "Трудовой договор № 17");
+});
+
+test("увольнение: дата официального увольнения необязательна, но если есть, то настоящая", () => {
+  assert.equal(terminationOfficialEndSchema.parse(undefined), null);
+  assert.equal(terminationOfficialEndSchema.parse(null), null);
+  assert.equal(terminationOfficialEndSchema.parse("  "), null);
+  assert.equal(terminationOfficialEndSchema.parse(" 2026-11-24 "), "2026-11-24");
+  assert.equal(firstIssue(terminationOfficialEndSchema.safeParse("2026-02-30")), "Проверьте дату официального увольнения");
+  assert.equal(firstIssue(terminationOfficialEndSchema.safeParse("24.11.2026")), "Проверьте дату официального увольнения");
 });

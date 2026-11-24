@@ -90,6 +90,18 @@ export type EndOfficialEmploymentInput = z.input<typeof endOfficialEmploymentSch
 
 export const officialEmploymentIdSchema = id("Официальное оформление не найдено");
 
+/**
+ * Дата официального увольнения в окне «Уволить сотрудника». Нужна, только
+ * если человек оформлен официально (это проверяет база); без оформления
+ * поле не передаётся. Пустое значение — «не указана».
+ */
+export const terminationOfficialEndSchema = z
+  .string()
+  .nullable()
+  .optional()
+  .transform((v) => (v?.trim() ? v.trim() : null))
+  .refine((v) => v === null || isIsoDate(v), "Проверьте дату официального увольнения");
+
 /** Название файла договора в «Документах»: «Трудовой договор № 17 от 03.11.2026». */
 export function contractDocumentName(number: string | null | undefined, date: string | null | undefined): string {
   const n = number?.trim();

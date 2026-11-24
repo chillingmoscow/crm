@@ -75,6 +75,7 @@ begin
  update public.payroll_employees set active=false where account_id=a and venue_id=u.venue_id and local_user_id=u.user_id;
  -- Official employment: the dismissal date (account time zone) closes the person's open official periods,
  -- so the month goes to review instead of an automatic full payment. A date already set is never touched.
+ perform pg_advisory_xact_lock(hashtextextended('payroll_official:' || a::text, 0));
  for ended in
  with closed as (
  update public.payroll_official_employments o
@@ -97,5 +98,13 @@ begin
 end $$;
 revoke all on function public.staff_begin_termination(uuid,text) from public,anon;
 grant execute on function public.staff_begin_termination(uuid,text) to authenticated;
+
+do $$
+begin
+  if has_function_privilege('anon', 'public.staff_begin_termination(uuid,text)', 'EXECUTE')
+    or not has_function_privilege('authenticated', 'public.staff_begin_termination(uuid,text)', 'EXECUTE') then
+    raise exception '385: права на staff_begin_termination не сошлись';
+  end if;
+end $$;
 
 commit;

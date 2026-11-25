@@ -26,6 +26,7 @@ import type { CounterpartyRow } from "@/types/finance";
 import { CounterpartyDangerZone } from "./counterparty-danger-zone";
 import { CounterpartyDocuments, type CounterpartyDocument } from "./counterparty-documents";
 import { CounterpartyOperations } from "./counterparty-operations";
+import { CounterpartyPurchases, type CounterpartyPurchase } from "./counterparty-purchases";
 import { CounterpartyRequisites } from "./counterparty-requisites";
 
 export type CounterpartyOperation = {
@@ -38,7 +39,7 @@ export type CounterpartyOperation = {
   accountName: string | null;
 };
 
-type TabKey = "main" | "documents" | "operations" | "history" | "danger";
+type TabKey = "main" | "documents" | "purchases" | "operations" | "history" | "danger";
 
 /**
  * Карточка контрагента (docs/design-system.md § «Entity detail page»):
@@ -49,6 +50,7 @@ export function CounterpartyCard({
   row,
   groups,
   attachments,
+  purchases,
   operations,
   activity,
   canManage,
@@ -70,6 +72,8 @@ export function CounterpartyCard({
   row: CounterpartyRow;
   groups: { id: string; name: string }[];
   attachments: CounterpartyDocument[];
+  /** null — нет права смотреть номенклатуру: вкладки «Закупаем» нет. */
+  purchases: CounterpartyPurchase[] | null;
   operations: CounterpartyOperation[];
   /** `null` — нет права на операции или сбой подсчёта. */
   activity: CounterpartyActivity | null;
@@ -106,6 +110,7 @@ export function CounterpartyCard({
       ? "Менять данные могут те, кто управляет контрагентами"
       : null;
   const showDanger = isOwner && !archived;
+  const showPurchases = purchases !== null && (purchases.length > 0 || row.is_supplier);
   const groupName = row.group_id ? groups.find((group) => group.id === row.group_id)?.name ?? null : null;
 
   const context = [
@@ -190,6 +195,11 @@ export function CounterpartyCard({
               <TabsTrigger value="documents">
                 {attachments.length > 0 ? `Документы · ${attachments.length}` : "Документы"}
               </TabsTrigger>
+              {showPurchases && (
+                <TabsTrigger value="purchases">
+                  {purchases && purchases.length > 0 ? `Закупаем · ${purchases.length}` : "Закупаем"}
+                </TabsTrigger>
+              )}
               {canViewTransactions && <TabsTrigger value="operations">Операции</TabsTrigger>}
               {canViewAudit && <TabsTrigger value="history">Журнал</TabsTrigger>}
               {showDanger && <TabsTrigger value="danger">Опасная зона</TabsTrigger>}
@@ -228,6 +238,12 @@ export function CounterpartyCard({
                 />
               </ProfileSection>
             </TabsContent>
+
+            {showPurchases && purchases && (
+              <TabsContent value="purchases">
+                <CounterpartyPurchases purchases={purchases} />
+              </TabsContent>
+            )}
 
             {canViewTransactions && (
               <TabsContent value="operations">

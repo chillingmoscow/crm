@@ -56,8 +56,8 @@ function validate(form: Form): string | null {
   const step = (v: string) => /^\d+$/.test(v.trim()) && Number(v) >= 1 && Number(v) <= 100000;
   if (!money(form.minCash)) return "Укажите минимум в кэшбоксе в рублях";
   if (!form.bankId) return "Выберите кассу для выдачи наличными";
-  if (form.chatId.trim() && !/^-?\d+$/.test(form.chatId.trim())) return "ID чата — число, например -1001234567890";
-  if (!step(form.mainStep) || !step(form.transferStep)) return "Шаг округления — целое число от 1 до 100 000";
+  if (form.chatId.trim() && !/^-?\d+$/.test(form.chatId.trim())) return "ID чата: число, например -1001234567890";
+  if (!step(form.mainStep) || !step(form.transferStep)) return "Шаг округления: целое число от 1 до 100 000";
   if (!money(form.mainReserve) || !money(form.transferReserve)) return "Укажите запас в рублях";
   return null;
 }
@@ -219,7 +219,7 @@ function PayoutScheduleForm({ data, saved, onSaved }: { data: PayrollData; saved
         <div className="space-y-3">
           <h3 className="text-sm font-semibold">Основной · наличными</h3>
           <p className="text-[13px] text-muted-foreground">
-            Первая выплата с 25-го по 1-е число, вторая с 10-го по 16-е. Сумма — половина месяца с прогнозом
+            Первая выплата с 25-го по 1-е число, вторая с 10-го по 16-е. Сумма: половина месяца с прогнозом
             по оставшимся сменам, округлённая вниз.
           </p>
           <div className="grid gap-4 md:grid-cols-2">
@@ -231,7 +231,7 @@ function PayoutScheduleForm({ data, saved, onSaved }: { data: PayrollData; saved
         <div className="space-y-3">
           <h3 className="text-sm font-semibold">Переводом</h3>
           <p className="text-[13px] text-muted-foreground">
-            Те же дни, первая выплата — половина месяца. Деньги уходят, когда вы оплачиваете счёт сотрудника;
+            Те же дни, первая выплата: половина месяца. Деньги уходят, когда вы оплачиваете счёт сотрудника;
             в плане отмечаете «Выплачено». В Adesk такая выплата не отправляется: платёж по счёту приходит туда из банка.
           </p>
           <div className="grid gap-4 md:grid-cols-2">
@@ -254,7 +254,7 @@ function PayoutScheduleForm({ data, saved, onSaved }: { data: PayrollData; saved
 
         <div className="space-y-3">
           <h3 className="text-sm font-semibold">Сотрудники на особых графиках</h3>
-          <p className="text-[13px] text-muted-foreground">Остальные — на основном графике.</p>
+          <p className="text-[13px] text-muted-foreground">Остальные на основном графике.</p>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label>Клинер · первая выплата 18–22, вторая 3–7</Label>

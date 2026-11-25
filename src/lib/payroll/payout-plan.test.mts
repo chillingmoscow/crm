@@ -154,6 +154,20 @@ test("pending fine is subtracted from earned", () => {
   assert.equal(row.amount, 22000); // 44 700 / 2 = 22 350 → 22 000
 });
 
+test("official part expected this month lowers the ceiling", () => {
+  const base = salaryFixture({ monthly: 47700, schedule: "transfer" });
+  const [row] = planFirstPayout({
+    ...base,
+    data: {
+      ...base.data,
+      officialExpected: [{ employee_id: "tanya", employment_id: "o", month: MONTH, kind: "full", gross: 40000, days_paid: null, days_in_month: 30 }],
+    },
+  });
+  assert.equal(row.breakdown.official, 40000);
+  assert.equal(row.breakdown.ceiling, 7700);
+  assert.equal(row.amount, 7500);
+});
+
 test("only employees of the schedule, active, not casual", () => {
   const plan = planFirstPayout(input({
     employees: [

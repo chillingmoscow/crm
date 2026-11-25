@@ -371,7 +371,7 @@ async function buildPreview(s: PayrollScope, planId: string): Promise<IssuePrevi
   if (current.state !== "approved") throw new Error("Сначала утвердите план");
   const ctx = await context(s, current.month);
   const schedule = ctx.settings.schedules[current.schedule];
-  if (schedule.method !== "cash") throw new Error("Этот график выдаётся переводом — отмечайте «Выплачено» по строке");
+  if (schedule.method !== "cash") throw new Error("Этот график выдаётся переводом: отмечайте «Выплачено» по строке");
   const window = { from: current.window_from, to: current.window_to };
   const fresh = new Map(plan(ctx, current.schedule, current.month, window).map((r) => [r.employee_id, r.amount]));
   const rows = (await planRows(s, planId)).filter((row) => row.state !== "issued" && row.pay_date === ctx.today);
@@ -418,7 +418,7 @@ async function buildPreview(s: PayrollScope, planId: string): Promise<IssuePrevi
     short,
     message: lines.length ? payoutMessage(lines) : "",
     problem,
-    warning: ctx.settings.chat_id ? null : "Не указан чат менеджеров — сообщение придётся отправить вручную",
+    warning: ctx.settings.chat_id ? null : "Не указан чат менеджеров: сообщение придётся отправить вручную",
     ctx,
     plan: current,
   };
@@ -434,7 +434,7 @@ async function previewPayoutTodayImpl(planId: string): Promise<IssuePreview> {
 }
 
 type IssueRecord = { id: string; message: string | null; message_sent_at: string | null; message_error: string | null; total: number };
-const UNCERTAIN = "Telegram не подтвердил доставку — проверьте чат менеджеров";
+const UNCERTAIN = "Telegram не подтвердил доставку: проверьте чат менеджеров";
 
 /** Отправляет сообщение выдачи один раз: строку забирает тот, кто первым сменил её статус. */
 async function sendIssueMessage(s: PayrollScope, issueId: string, chatId: string | null): Promise<boolean> {
@@ -505,7 +505,7 @@ async function issuePayoutTodayImpl(planId: string, requestKey: string, expected
   const same =
     preview.lines.length === wanted.length &&
     [...preview.lines.map(key)].sort().join() === [...wanted.map(key)].sort().join();
-  if (!same) throw new Error("Наличные или суммы изменились — проверьте ещё раз");
+  if (!same) throw new Error("Наличные или суммы изменились, проверьте ещё раз");
 
   const r = await s.client.rpc("payroll_payout_issue", {
     p_input: {
@@ -536,6 +536,18 @@ async function issuePayoutTodayImpl(planId: string, requestKey: string, expected
     lines: preview.lines.map((l) => ({ employee_id: l.employee_id, amount: l.amount })),
     business_date: preview.ctx.today,
   });
+  // Кому сегодня не хватило совсем — переносим на следующую смену в окне.
+  for (const row of preview.short) {
+    if (preview.lines.some((l) => l.row_id === row.row_id) || !row.next_pay_date) continue;
+    const current = (await planRows(s, planId)).find((r) => r.id === row.row_id);
+    if (!current) continue;
+    const moved = await s.client.rpc("payroll_payout_row_update", {
+      p_row: row.row_id,
+      p_amount: current.amount,
+      p_pay_date: row.next_pay_date,
+    });
+    if (moved.error) console.error("[payroll-payout] день не перенесён", moved.error.message);
+  }
   const sent = await sendIssueMessage(s, issueId, preview.ctx.settings.chat_id);
   return { issueId, messageSent: sent, message: preview.message };
 }
@@ -604,6 +616,21 @@ export type PayoutSettingsInput = z.input<typeof settingsSchema>;
 async function savePayoutSettingsImpl(input: PayoutSettingsInput) {
   const value = settingsSchema.parse(input);
   const s = await payrollScope("payroll.configure");
+  const previous = await loadSettingsRow(s);
+  const chat = value.chat_id || null;
+  // В чат уходят имена и суммы: принимаем только чат, где состоит бот аккаунта.
+  if (chat && chat !== previous?.chat_id) {
+    const bot = await loadTelegramBot(s.admin, s.accountId);
+    if (!bot) throw new Error("Сначала подключите Telegram-бота в интеграциях");
+    let member = false;
+    try {
+      const own = await bot.getOwnMembership(chat);
+      member = own.ok && ["member", "administrator", "creator"].includes(own.result?.status ?? "");
+    } catch {
+      member = false;
+    }
+    if (!member) throw new Error("Бот не состоит в этом чате. Добавьте бота в чат менеджеров и сохраните снова");
+  }
   const r = await s.client.rpc("payroll_payout_save_settings", {
     p_input: { ...value, chat_id: value.chat_id || null },
   });
@@ -617,7 +644,8 @@ async function savePayoutSettingsImpl(input: PayoutSettingsInput) {
     entityId: s.venueId,
     details: {
       min_cash: value.min_cash,
-      chat_id: value.chat_id || null,
+      chat_id: chat,
+      previous_chat_id: previous?.chat_id ?? null,
       steps: Object.fromEntries(SCHEDULES.map((c) => [c, value.schedules[c].step])),
       reserves: Object.fromEntries(SCHEDULES.map((c) => [c, value.schedules[c].reserve])),
       assignments: value.assignments.length,

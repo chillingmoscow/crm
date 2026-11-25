@@ -467,16 +467,12 @@ export function DepartmentDetailPage({
                           key={`${h.venue_id}-${h.user_id}`}
                           className="flex min-w-0 items-center justify-between gap-3"
                         >
-                          <Link
+                          <EmployeeIdentity
+                            name={name}
+                            role={h.role_name}
+                            avatarUrl={h.avatar_url}
                             href={`/people/staff/${h.user_id}`}
-                            className="min-w-0 rounded-md hover:underline"
-                          >
-                            <EmployeeIdentity
-                              name={name}
-                              role={h.role_name}
-                              avatarUrl={h.avatar_url}
-                            />
-                          </Link>
+                          />
                           <span className="shrink-0 truncate text-[13px] text-muted-foreground">
                             {h.venue_name}
                           </span>
@@ -555,7 +551,7 @@ export function DepartmentDetailPage({
                         <RoleTile role={r} />
                         <Link
                           href={`/people/roles/${r.id}`}
-                          className="min-w-0 flex-1 truncate text-sm font-medium hover:underline"
+                          className="min-w-0 flex-1 truncate text-sm font-medium transition-colors duration-200 hover:text-brand"
                           data-tip={r.name}
                         >
                           {r.name}

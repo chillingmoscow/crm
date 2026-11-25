@@ -35,7 +35,6 @@ import {
   FileText,
   Loader2,
   Lock,
-  Plus,
   RotateCcw,
   Trash2,
   Upload,
@@ -70,7 +69,10 @@ import {
   PageHeaderActions,
 } from "@/components/shared/page-header-actions";
 import { ProfileHeader } from "@/components/shared/profile-header";
-import { ProfileSection as FormSection } from "@/components/shared/profile-section";
+import {
+  ProfileSection as FormSection,
+  ProfileSectionAddButton,
+} from "@/components/shared/profile-section";
 import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 import { createClient } from "@/lib/supabase/client";
 import { translateError } from "@/lib/i18n/translate-error";
@@ -894,7 +896,7 @@ export function StaffDetailPage({
                 {departmentId ? (
                   <Link
                     href={`/people/departments/${departmentId}`}
-                    className="hover:text-foreground hover:underline"
+                    className="transition-colors duration-200 hover:text-brand"
                   >
                     {departmentName}
                   </Link>
@@ -1460,10 +1462,7 @@ export function StaffDetailPage({
                     </p>
                   </div>
                   {canEdit && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
+                    <ProfileSectionAddButton
                       onClick={() => {
                         setDocName("");
                         setDocFile(null);
@@ -1471,9 +1470,8 @@ export function StaffDetailPage({
                       }}
                       className="shrink-0"
                     >
-                      <Plus className="w-3.5 h-3.5" />
-                      Добавить
-                    </Button>
+                      Добавить документ
+                    </ProfileSectionAddButton>
                   )}
                 </header>
 

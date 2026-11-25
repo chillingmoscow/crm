@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useState, type ReactNode } from "react";
 import { ChartNoAxesColumnIncreasing, ChevronDown } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -10,11 +10,17 @@ import { cn } from "@/lib/utils";
  * Открыт ли «Обзор» страницы (design-system, «Page header»): по умолчанию
  * открыт, выбор запоминается в браузере под ключом `storageKey`
  * («payroll.overview», «people.overview.staff»…).
+ *
+ * Выбор читается до первой отрисовки (layout-эффект), поэтому свёрнутый
+ * «Обзор» не мелькает открытым. Третье значение — `known`: выбор уже
+ * прочитан; пока его нет, данные обзора не запрашиваем.
  */
 export function useOverviewOpen(storageKey: string) {
   const [open, setOpenState] = useState(true);
-  useEffect(() => {
+  const [known, setKnown] = useState(false);
+  useLayoutEffect(() => {
     if (window.localStorage.getItem(storageKey) === "closed") setOpenState(false);
+    setKnown(true);
   }, [storageKey]);
   const setOpen = useCallback(
     (next: boolean | ((value: boolean) => boolean)) =>
@@ -25,7 +31,7 @@ export function useOverviewOpen(storageKey: string) {
       }),
     [storageKey],
   );
-  return [open, setOpen] as const;
+  return [open, setOpen, known] as const;
 }
 
 /**

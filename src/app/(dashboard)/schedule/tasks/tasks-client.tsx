@@ -10,7 +10,7 @@ import {
 } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Camera, ListChecks, Trash2, X } from "lucide-react";
+import { Camera, Check as CheckIcon, ListChecks, Loader2, Send, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fileLabelFocusClass } from "@/components/ui/field-styles";
 import { Input } from "@/components/ui/input";
@@ -77,6 +77,7 @@ import {
 } from "./actions";
 import { unwrapAction } from "@/lib/actions/result";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { Disclosure } from "@/components/shared/disclosure";
 
 const actionLabels: Record<string, string> = {
   "definition.created": "Создан шаблон задачи",
@@ -640,14 +641,14 @@ function DefinitionEditor({
                 disabled={!editable || busy}
             />
               {!value.instruction_page_id && value.instructions && (
-                <details>
-                  <summary className="cursor-pointer text-sm text-muted-foreground">
-                    Прежний текст инструкции
-                  </summary>
+                <Disclosure
+                  title="Прежний текст инструкции"
+                  triggerClassName="text-sm text-muted-foreground"
+                >
                   <p className="mt-3 whitespace-pre-wrap text-sm text-muted-foreground">
                     {value.instructions}
                   </p>
-                </details>
+                </Disclosure>
               )}
         </ProfileSection>
           </TabsContent>
@@ -1034,6 +1035,8 @@ export function TaskReport({
     [comment, setComment] = useState(o.review_comment),
     [correctUntil, setCorrectUntil] = useState(""),
     [busy, setBusy] = useState(false),
+    // Какое действие шапки выполняется — у его кнопки иконку сменяет Loader2.
+    [acting, setActing] = useState<string | null>(null),
     [dirty, setDirty] = useState(false),
     [urls, setUrls] = useState<Record<string, string>>({}),
     [history, setHistory] = useState<Extract<Awaited<ReturnType<typeof taskHistory>>, { ok: true }>["data"]>(
@@ -1104,6 +1107,7 @@ export function TaskReport({
       return;
     }
     setBusy(true);
+    setActing(action);
     try {
       const r = await taskRunCommand(action, {
         id: o.id,
@@ -1134,6 +1138,7 @@ export function TaskReport({
       toast.error("Не удалось сохранить отчёт");
     } finally {
       setBusy(false);
+      setActing(null);
     }
   }
   async function upload(id: string, file: File | undefined) {
@@ -1166,12 +1171,20 @@ export function TaskReport({
             <>
               <Button
                 variant="outline"
+                size="sm"
                 disabled={busy}
                 onClick={() => void act("run.save")}
               >
                 Сохранить
               </Button>
-              <Button disabled={busy} onClick={() => void act("run.submit")}>
+              <Button size="sm" disabled={busy} onClick={() => void act("run.submit")}>
+                {acting === "run.submit" ? (
+                  <Loader2 className="animate-spin" />
+                ) : o.snapshot.review_mode === "auto" ? (
+                  <CheckIcon />
+                ) : (
+                  <Send />
+                )}
                 {o.snapshot.review_mode === "auto"
                   ? "Завершить"
                   : "Сдать на проверку"}
@@ -1182,12 +1195,14 @@ export function TaskReport({
             <>
               <Button
                 variant="outline"
+                size="sm"
                 disabled={busy}
                 onClick={() => void act("run.return")}
               >
                 Вернуть
               </Button>
-              <Button disabled={busy} onClick={() => void act("run.approve")}>
+              <Button size="sm" disabled={busy} onClick={() => void act("run.approve")}>
+                {acting === "run.approve" ? <Loader2 className="animate-spin" /> : <CheckIcon />}
                 Принять
               </Button>
             </>
@@ -1223,21 +1238,19 @@ export function TaskReport({
           </p>
         )}
         {o.snapshot.instruction_snapshot ? (
-          <details open>
-            <summary className="cursor-pointer text-sm font-medium">
-              Инструкция: {o.snapshot.instruction_snapshot.title}
-            </summary>
+          <Disclosure
+            defaultOpen
+            title={`Инструкция: ${o.snapshot.instruction_snapshot.title}`}
+            triggerClassName="text-sm font-medium"
+          >
             <InstructionBody
               instruction={o.snapshot.instruction_snapshot}
               kbAccess={data.permissions.includes("kb.view_pages")}
             />
-          </details>
+          </Disclosure>
         ) : (
           (o.snapshot.instructions || o.snapshot.source_url) && (
-          <details>
-            <summary className="cursor-pointer text-sm font-medium">
-              Инструкция
-            </summary>
+          <Disclosure title="Инструкция" triggerClassName="text-sm font-medium">
             {o.snapshot.instructions && (
               <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
                 {o.snapshot.instructions}
@@ -1253,7 +1266,7 @@ export function TaskReport({
                 Исходная инструкция с иллюстрациями
               </a>
             )}
-          </details>
+          </Disclosure>
           )
         )}
         <ProfileSection title="Отчёт">
@@ -1360,10 +1373,7 @@ export function TaskReport({
           </div>
         )}
         {history.length > 0 && (
-          <details>
-            <summary className="cursor-pointer text-sm font-medium">
-              История
-            </summary>
+          <Disclosure title="История" triggerClassName="text-sm font-medium">
             <div className="mt-3 space-y-3">
               {history.map((h) => (
                 <div key={h.id} className="text-sm">
@@ -1377,7 +1387,7 @@ export function TaskReport({
                 </div>
               ))}
             </div>
-          </details>
+          </Disclosure>
         )}
       </div>
     </TaskScreen>

@@ -16,15 +16,30 @@ import { parsePeriod, periodParam, periodRange } from "@/lib/finance/period";
 import { listCounterpartyAttachments } from "@/lib/files/attachments";
 import { filePreviewKind } from "@/lib/files/file-name";
 import { mediaUrl } from "@/lib/storage/media";
+import { asLooseDb } from "@/lib/supabase/loose";
+import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { isDadataConfigured } from "@/lib/dadata/client";
 import { listAuditEvents } from "@/lib/audit/list";
 import { CounterpartyCard, type CounterpartyOperation } from "./_components/counterparty-card";
 import type { CounterpartyDocument } from "./_components/counterparty-documents";
+import type { CounterpartyPurchase } from "./_components/counterparty-purchases";
 
 export const metadata: Metadata = { title: "Контрагент" };
 
 /** Сколько последних операций показывает вкладка «Операции». */
 const RECENT_OPERATIONS = 20;
+
+type PurchaseRow = {
+  id: string;
+  ingredient_id: string;
+  supplier_article: string | null;
+  supplier_price: number | string | null;
+  is_preferred: boolean;
+  ingredient:
+    | { name: string; kind: string; archived_at: string | null }
+    | { name: string; kind: string; archived_at: string | null }[]
+    | null;
+};
 
 type AuditProfile = { id: string; first_name: string | null; last_name: string | null };
 
@@ -52,6 +67,7 @@ export default async function CounterpartyDetailPage({
   const canManage = Boolean(can("finance.manage_counterparties"));
   const canViewTransactions = Boolean(can("finance.view_transactions"));
   const canViewAudit = Boolean(can("org.view_audit"));
+  const canViewProducts = Boolean(can("inventory.view_products"));
 
   const { row, error } = await getCounterparty(id);
   if (error || !row) redirect("/finance/counterparties");
@@ -64,6 +80,7 @@ export default async function CounterpartyDetailPage({
     activity,
     recent,
     auditResult,
+    purchaseRows,
   ] = await Promise.all([
     // Архив, возврат и удаление проверяют владельца на сервере — им же гейтим.
     activeAccountId
@@ -90,6 +107,18 @@ export default async function CounterpartyDetailPage({
     canViewAudit
       ? listAuditEvents({ entityType: "counterparty", entityId: id })
       : Promise.resolve({ events: [], hasMore: false, error: null }),
+    // «Закупаем»: позиции номенклатуры, где контрагент — поставщик.
+    // Все страницы: у крупного поставщика позиций может быть больше тысячи.
+    canViewProducts
+      ? fetchAllRows<PurchaseRow>(() =>
+          asLooseDb(supabase)
+            .from<PurchaseRow[]>("ingredient_suppliers")
+            .select(
+              "id, ingredient_id, supplier_article, supplier_price, is_preferred, ingredient:ingredients!ingredient_suppliers_ingredient_fkey(name, kind, archived_at)",
+            )
+            .eq("counterparty_id", id),
+        ).catch(() => "failed" as const)
+      : Promise.resolve(null),
   ]);
 
   // Подписи операций: статьи и счета одним запросом каждые.
@@ -137,6 +166,28 @@ export default async function CounterpartyDetailPage({
     })
     .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
 
+  const collator = new Intl.Collator("ru", { sensitivity: "base" });
+  const purchasesFailed = purchaseRows === "failed";
+  const purchases: CounterpartyPurchase[] | null = purchaseRows === "failed"
+    ? []
+    : purchaseRows
+    ? purchaseRows
+        .map((r) => {
+          const ingredient = Array.isArray(r.ingredient) ? (r.ingredient[0] ?? null) : r.ingredient;
+          return {
+            id: r.id,
+            ingredientId: r.ingredient_id,
+            name: ingredient?.name ?? "Позиция",
+            kind: ingredient?.kind ?? "ingredient",
+            archived: Boolean(ingredient?.archived_at),
+            article: r.supplier_article,
+            price: r.supplier_price === null ? null : Number(r.supplier_price),
+            isPreferred: r.is_preferred,
+          };
+        })
+        .sort((a, b) => Number(a.archived) - Number(b.archived) || collator.compare(a.name, b.name))
+    : null;
+
   // Кто создал и менял — для «О контрагенте» в верхней панели.
   const auditIds = [row.created_by, row.updated_by].filter((v): v is string => Boolean(v));
   const { data: profiles } = auditIds.length
@@ -157,6 +208,8 @@ export default async function CounterpartyDetailPage({
       row={row}
       groups={groups.map((group) => ({ id: group.id, name: group.name }))}
       attachments={attachments}
+      purchases={purchases}
+      purchasesFailed={purchasesFailed}
       operations={operations}
       activity={
         activity

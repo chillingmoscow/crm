@@ -500,21 +500,27 @@ export type Database = {
           account_id: string
           address: string | null
           contact_person: string | null
+          contacts: Json
           created_at: string
           created_by: string | null
           dadata_synced_at: string | null
           deleted_at: string | null
           deleted_by: string | null
+          delivery_weekdays: number[]
           description: string | null
           email: string | null
           group_id: string | null
           id: string
           inn: string | null
           is_active: boolean
+          is_supplier: boolean
           kpp: string | null
           legal_form: Database["public"]["Enums"]["legal_form_enum"]
+          min_order_amount: number | null
           name: string
           ogrn: string | null
+          order_weekdays: number[]
+          payment_delay_days: number | null
           phone: string | null
           updated_at: string | null
           updated_by: string | null
@@ -523,21 +529,27 @@ export type Database = {
           account_id: string
           address?: string | null
           contact_person?: string | null
+          contacts?: Json
           created_at?: string
           created_by?: string | null
           dadata_synced_at?: string | null
           deleted_at?: string | null
           deleted_by?: string | null
+          delivery_weekdays?: number[]
           description?: string | null
           email?: string | null
           group_id?: string | null
           id?: string
           inn?: string | null
           is_active?: boolean
+          is_supplier?: boolean
           kpp?: string | null
           legal_form?: Database["public"]["Enums"]["legal_form_enum"]
+          min_order_amount?: number | null
           name: string
           ogrn?: string | null
+          order_weekdays?: number[]
+          payment_delay_days?: number | null
           phone?: string | null
           updated_at?: string | null
           updated_by?: string | null
@@ -546,21 +558,27 @@ export type Database = {
           account_id?: string
           address?: string | null
           contact_person?: string | null
+          contacts?: Json
           created_at?: string
           created_by?: string | null
           dadata_synced_at?: string | null
           deleted_at?: string | null
           deleted_by?: string | null
+          delivery_weekdays?: number[]
           description?: string | null
           email?: string | null
           group_id?: string | null
           id?: string
           inn?: string | null
           is_active?: boolean
+          is_supplier?: boolean
           kpp?: string | null
           legal_form?: Database["public"]["Enums"]["legal_form_enum"]
+          min_order_amount?: number | null
           name?: string
           ogrn?: string | null
+          order_weekdays?: number[]
+          payment_delay_days?: number | null
           phone?: string | null
           updated_at?: string | null
           updated_by?: string | null

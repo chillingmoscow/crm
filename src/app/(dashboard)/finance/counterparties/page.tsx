@@ -13,6 +13,7 @@ import {
 import { loadCounterpartyActivity } from "@/lib/finance/activity";
 import { parsePeriod, periodParam } from "@/lib/finance/period";
 import { isDadataConfigured } from "@/lib/dadata/client";
+import { contactsFromJson } from "@/lib/finance/counterparty-contacts";
 import {
   CounterpartiesClient,
   type CounterpartyListRow,
@@ -52,6 +53,8 @@ export default async function CounterpartiesPage({
 
   const list: CounterpartyListRow[] = rows.map((row) => {
     const stats = activity ? activity[row.id] : undefined;
+    const contacts = contactsFromJson(row.contacts);
+    const first = contacts[0] ?? null;
     return {
       id: row.id,
       name: row.name,
@@ -59,9 +62,15 @@ export default async function CounterpartiesPage({
       inn: row.inn,
       kpp: row.kpp,
       groupId: row.group_id,
-      contactPerson: row.contact_person,
-      phone: row.phone,
-      email: row.email,
+      contactPerson: first?.name ?? null,
+      phone: first?.phone ?? null,
+      email: first?.email ?? null,
+      contactsText: contacts
+        .flatMap((c) => [c.name, c.role, c.email, c.telegram ? `@${c.telegram}` : null])
+        .filter(Boolean)
+        .join(" "),
+      contactPhones: contacts.map((c) => c.phone).filter((p): p is string => Boolean(p)),
+      isSupplier: row.is_supplier,
       description: row.description,
       archivedAt: row.deleted_at,
       operations: activity ? (stats?.operations ?? 0) : null,

@@ -82,9 +82,15 @@ export type CounterpartyListRow = {
   inn: string | null;
   kpp: string | null;
   groupId: string | null;
+  /** Первый контакт — для столбца «Контакт». */
   contactPerson: string | null;
   phone: string | null;
   email: string | null;
+  /** Все контакты одной строкой (имена, роли, почта, Telegram) — для поиска. */
+  contactsText: string;
+  /** Телефоны всех контактов — для поиска по цифрам. */
+  contactPhones: string[];
+  isSupplier: boolean;
   description: string | null;
   archivedAt: string | null;
   /** Активность: `null` — данных нет (нет права на операции или сбой). */
@@ -180,6 +186,7 @@ export function CounterpartiesClient({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [groupFilter, setGroupFilter] = useState("");
   const [activityFilter, setActivityFilter] = useState("");
+  const [supplierFilter, setSupplierFilter] = useState("");
 
   const liveRows = useMemo(() => rows.filter((row) => !row.archivedAt), [rows]);
   const archivedRows = useMemo(() => rows.filter((row) => row.archivedAt), [rows]);
@@ -191,27 +198,30 @@ export function CounterpartiesClient({
     () =>
       modeRows.filter((row) => {
         if (q) {
-          const text = [row.name, row.contactPerson, row.email, row.description].some((value) =>
+          const text = [row.name, row.contactsText, row.description].some((value) =>
             value?.toLocaleLowerCase("ru").includes(q),
           );
           // ИНН и телефон — по цифрам: «ИНН 7707…» и «+7 (999)…» тоже находятся.
           const numbers =
             digits.length >= 3 &&
-            [row.inn, row.kpp, row.phone].some((value) => value?.replace(/\D/g, "").includes(digits));
+            [row.inn, row.kpp, ...row.contactPhones].some((value) => value?.replace(/\D/g, "").includes(digits));
           if (!text && !numbers) return false;
         }
         if (groupFilter === "none" && row.groupId) return false;
         if (groupFilter && groupFilter !== "none" && row.groupId !== groupFilter) return false;
+        if (supplierFilter === "suppliers" && !row.isSupplier) return false;
+        if (supplierFilter === "others" && row.isSupplier) return false;
         if (activityFilter === "with" && !row.operations) return false;
         if (activityFilter === "without" && row.operations) return false;
         return true;
       }),
-    [modeRows, q, digits, groupFilter, activityFilter],
+    [modeRows, q, digits, groupFilter, supplierFilter, activityFilter],
   );
-  const hasFilters = Boolean(groupFilter || activityFilter);
+  const hasFilters = Boolean(groupFilter || supplierFilter || activityFilter);
   const isFiltered = q.length > 0 || hasFilters;
   const resetConditions = () => {
     setGroupFilter("");
+    setSupplierFilter("");
     setActivityFilter("");
     st.setSearch("");
     st.setSorting([]);
@@ -350,7 +360,9 @@ export function CounterpartiesClient({
         const item = row.original;
         const second = item.archivedAt
           ? `В архиве с ${formatDateCell(item.archivedAt)}`
-          : [LEGAL_FORM_LABELS[item.legalForm], item.description?.trim() || null].filter(Boolean).join(" · ");
+          : [item.isSupplier ? "Поставщик" : null, LEGAL_FORM_LABELS[item.legalForm], item.description?.trim() || null]
+              .filter(Boolean)
+              .join(" · ");
         return (
           <div className="min-w-0">
             {/* Настоящая ссылка в первой ячейке: карточку можно открыть с клавиатуры. */}
@@ -743,6 +755,21 @@ export function CounterpartiesClient({
               firstPage();
             }}
             options={groupFilterOptions}
+          />
+        )}
+        {(filtersOpen || !!supplierFilter) && (
+          <TableFilterChip
+            label="Тип"
+            value={supplierFilter}
+            onChange={(value) => {
+              setSupplierFilter(value);
+              firstPage();
+            }}
+            options={[
+              { value: "", label: "Все контрагенты" },
+              { value: "suppliers", label: "Поставщики" },
+              { value: "others", label: "Не поставщики" },
+            ]}
           />
         )}
         {showActivity && (filtersOpen || !!activityFilter) && (

@@ -239,26 +239,7 @@ export function DayTeamPanel({
         </Button>
       </div>
     );
-  if (!data)
-    return (
-      <div role="status" aria-label="Загружаем команду" aria-busy className="space-y-4">
-        <Skeleton className="h-16 rounded-xl" />
-        <div className="divide-y">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="flex items-center justify-between gap-3 py-3">
-              <div className="flex items-center gap-3">
-                <Skeleton className="size-9 rounded-full" />
-                <div className="space-y-1.5">
-                  <Skeleton className="h-4 w-32" />
-                  <Skeleton className="h-3 w-20" />
-                </div>
-              </div>
-              <Skeleton className="h-4 w-16" />
-            </div>
-          ))}
-        </div>
-      </div>
-    );
+  if (!data) return <DayTeamSkeleton />;
   if (!data.allowed)
     return (
       <p className="py-4 text-sm text-muted-foreground">
@@ -271,6 +252,29 @@ export function DayTeamPanel({
   return (
     <div className="space-y-3">
       <DayTeamList date={date} members={members} source={source} showExtras={!!kind} />
+    </div>
+  );
+}
+
+/** Скелетон команды дня: итоги и три строки «аватар, имя, сумма». */
+export function DayTeamSkeleton({ label = "Загружаем команду" }: { label?: string }) {
+  return (
+    <div role="status" aria-label={label} aria-busy className="space-y-4">
+      <Skeleton className="h-16 rounded-xl" />
+      <div className="divide-y">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="flex items-center justify-between gap-3 py-3">
+            <div className="flex items-center gap-3">
+              <Skeleton className="size-9 rounded-full" />
+              <div className="space-y-1.5">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-3 w-20" />
+              </div>
+            </div>
+            <Skeleton className="h-4 w-16" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

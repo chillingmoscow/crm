@@ -114,6 +114,7 @@ export function DataTable<T>({
         >
           <ResizableTableHead
             table={table}
+            labels={labels}
             onResizeStart={onResizeStart}
             columnWidths={columnWidths}
             isControlColumn={(id) => controlColumns.includes(id)}
@@ -143,13 +144,17 @@ export function DataTable<T>({
             }}
           />
           <tbody>
-            {rows.map((row) => (
+            {rows.map((row, index) => (
               <tr
                 key={row.id}
                 className={cn(
+                  // Строка мягко проявляется при первом показе (дизайн-система, «Движение»);
+                  // при фоновом обновлении строка не пересоздаётся и не мигает.
+                  "table-row-in",
                   onRowClick && "cursor-pointer",
                   rowClassName?.(row),
                 )}
+                style={{ animationDelay: `${Math.min(index, 14) * 40}ms` }}
                 data-state={row.getIsSelected() ? "selected" : undefined}
                 onClick={
                   onRowClick

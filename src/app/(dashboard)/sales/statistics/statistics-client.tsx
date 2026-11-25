@@ -12,7 +12,6 @@ import { arrayMove } from "@dnd-kit/sortable";
 import {
   Archive,
   ChartNoAxesCombined,
-  ChevronDown,
   RefreshCw,
   SearchX,
 } from "lucide-react";
@@ -427,7 +426,6 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
               }
             />
             {reportBusy ? "Запрашиваем…" : "Обновить отчёты"}
-            <ChevronDown className="size-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="max-h-80 w-56 overflow-y-auto">

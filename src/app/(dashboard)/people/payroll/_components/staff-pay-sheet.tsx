@@ -252,7 +252,6 @@ export function StaffPaySheet({
         <Button className="h-9">
           <Plus />
           Добавить
-          <ChevronDown />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">{addItems}</DropdownMenuContent>

@@ -4503,6 +4503,140 @@ html.theme-transition *::after {
   transition-delay: 0s !important;
 }
 
+/* ──── Движение ─────────────────────────────────────────────────
+   Дизайн-система, «Движение». Одна кривая на всё — мягкий выход
+   (как системные анимации Apple): --ease-soft. */
+:root {
+  --ease-soft: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-draw: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+/* Строки при первом показе проявляются по очереди (задержка — inline style в DataTable). */
+@keyframes table-row-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+.table-row-in {
+  animation: table-row-in 480ms var(--ease-soft) both;
+}
+
+/* Блок, который сменился (итоги другой вкладки), мягко всплывает. */
+@keyframes motion-rise {
+  from { opacity: 0; transform: translateY(8px) scale(0.995); }
+  to   { opacity: 1; transform: none; }
+}
+.motion-rise {
+  animation: motion-rise 560ms var(--ease-soft) both;
+}
+
+/* Всплывающие окна (календарь, сортировка, столбцы, меню, выпадающие
+   списки) выезжают из своего угла — от кнопки, которая их открыла:
+   масштаб от 0.94 из точки привязки Radix, мягкая кривая; закрываются
+   быстрее. Классы tailwindcss-animate (animate-in, zoom-in-95…) в проекте
+   не подключены и ничего не делают — анимация задаётся здесь. */
+@keyframes popper-in {
+  from { opacity: 0; transform: scale(0.94) translateY(var(--popper-shift, -4px)); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes popper-out {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: scale(0.97); }
+}
+[data-radix-popper-content-wrapper] > [data-state="open"] {
+  transform-origin: var(--radix-popper-transform-origin);
+  animation: popper-in 320ms var(--ease-soft) both;
+}
+[data-radix-popper-content-wrapper] > [data-side="top"] { --popper-shift: 4px; }
+[data-radix-popper-content-wrapper] > [data-side="left"],
+[data-radix-popper-content-wrapper] > [data-side="right"] { --popper-shift: 0px; }
+[data-radix-popper-content-wrapper] > [data-state="closed"] {
+  transform-origin: var(--radix-popper-transform-origin);
+  animation: popper-out 160ms ease-in both;
+}
+
+/* Чипы, пины и кнопки в ряду условий: появляются, раздвигая соседей, и
+   уезжают вбок, сжимаясь (MotionPresence). */
+@keyframes chip-in {
+  from { opacity: 0; max-width: 0; transform: translateX(-8px) scale(0.92); }
+  60%  { opacity: 1; }
+  to   { opacity: 1; max-width: 360px; transform: none; }
+}
+@keyframes chip-out {
+  from { opacity: 1; max-width: 360px; transform: none; }
+  to   { opacity: 0; max-width: 0; transform: translateX(-10px) scale(0.92); }
+}
+.motion-chip {
+  display: inline-flex;
+  flex-shrink: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.motion-chip[data-state="open"] {
+  animation: chip-in 460ms var(--ease-soft) backwards;
+}
+.motion-chip[data-settled="true"] {
+  overflow: visible;
+}
+.motion-chip[data-state="closed"] {
+  animation: chip-out 260ms ease-in both;
+  pointer-events: none;
+}
+
+/* Раскрывающаяся панель («Обзор»): высота от нуля, содержимое проявляется. */
+.motion-expand {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition:
+    grid-template-rows 620ms var(--ease-soft),
+    opacity 420ms var(--ease-soft),
+    transform 620ms var(--ease-soft),
+    margin 620ms var(--ease-soft);
+}
+/* Свёрнутая панель не оставляет отступа от соседей (space-y-*). */
+.motion-expand:not([data-open="true"]) {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  pointer-events: none;
+}
+.motion-expand[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: none;
+}
+.motion-expand > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ──── Движение: отрисовка графиков ──────────────────────────────
+   Линия рисуется слева направо (pathLength="1" у линии), заливка
+   проявляется, полоски растут от левого края. */
+@keyframes chart-line-draw {
+  from { stroke-dashoffset: 1; }
+  to   { stroke-dashoffset: 0; }
+}
+.chart-line-draw {
+  stroke-dasharray: 1;
+  animation: chart-line-draw 1400ms var(--ease-draw) 120ms both;
+}
+@keyframes chart-fill-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.chart-fill-in {
+  animation: chart-fill-in 1100ms var(--ease-soft) 500ms both;
+}
+@keyframes chart-bar-grow-x {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+.chart-bar-grow-x {
+  transform-origin: left;
+  animation: chart-bar-grow-x 1000ms var(--ease-soft) both;
+}
+
 /* ──── prefers-reduced-motion ────────────────────────────────────
    Глобальный override: уважаем настройку OS «уменьшить движение».
    Затрагивает наши крупные анимации: sidebar collapse (300ms),

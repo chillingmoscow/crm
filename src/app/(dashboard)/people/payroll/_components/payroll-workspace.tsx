@@ -42,7 +42,8 @@ import {
 import { unwrapAction } from "@/lib/actions/result";
 import { PayrollJournal, PayrollEntryForm, PayrollEntryMenuItems } from "./payroll-journal";
 import { PayrollTransferDrawer } from "./payroll-transfer-drawer";
-import { PayoutPlan } from "./payout-plan";
+import { PayoutPlan, cachedPayoutPlan, prefetchPayoutPlan } from "./payout-plan";
+import type { PayoutPlanView } from "../payout-actions";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { PayrollLedger } from "./payroll-ledger";
 import { RefreshFailedNotice, useAutoRefresh } from "./auto-refresh";
@@ -157,6 +158,14 @@ export function PayrollWorkspace({
   };
   const [month, setMonth] = useState(initialMonth);
   const [tab, setTab] = useState("statement");
+  // План выплат грузится заранее, пока смотрят ведомость: вкладка открывается сразу.
+  const [planView, setPlanView] = useState<PayoutPlanView | null>(() => cachedPayoutPlan(initial.venueId));
+  useEffect(() => {
+    if (!initial.permissions.includes("payroll.view")) return;
+    let alive = true;
+    void prefetchPayoutPlan(initial.venueId).then((v) => { if (alive && v) setPlanView(v); });
+    return () => { alive = false; };
+  }, [initial.venueId, initial.permissions]);
   useEffect(() => {
     if (new URLSearchParams(window.location.search).has("entry"))
       setTab("journal");
@@ -509,6 +518,9 @@ export function PayrollWorkspace({
             {can("view") && (
               <AttendanceAttentionNotice className="mb-4" months={[monthStart.slice(0, 7)]} />
             )}
+            {tab === "plan" ? (
+              <PlanMetrics view={planView} />
+            ) : (
             <MetricStrip label="Итоги за месяц">
               <Metric
                 primary
@@ -542,6 +554,7 @@ export function PayrollWorkspace({
               />
               <Metric label="Чаевые" value={<Money value={tips} />} hint="Отдельно от зарплаты" />
             </MetricStrip>
+            )}
             {/* Вкладки представления: общий Tabs + workspace-tabs. Панель одна
                 на активную вкладку — как у Radix, неактивные не монтируются. */}
             <Tabs value={tab} onValueChange={changeTab} className={`${tabStyle.tabs} mt-6`}>
@@ -552,7 +565,9 @@ export function PayrollWorkspace({
                 {can("view") && <TabsTrigger value="plan">План выплат</TabsTrigger>}
               </TabsList>
             <TabsContent value={tab} className="!mt-0">
-            {tab === "plan" && <PayoutPlan onChanged={reload} />}
+            {tab === "plan" && (
+              <PayoutPlan venueId={data.venueId} view={planView} onView={setPlanView} onChanged={reload} />
+            )}
             {emptyMonth ? (
               <EmptyState
                 className="mt-6"
@@ -944,5 +959,48 @@ export function PayrollWorkspace({
         </PayrollDetailDialog>
       </div>
     </TooltipProvider>
+  );
+}
+
+const PLAN_MONTHS = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
+const dm = (d: string) => `${d.slice(8, 10)}.${d.slice(5, 7)}`;
+
+/** Итоги плана выплат вместо итогов месяца — пока открыта вкладка «План выплат». */
+function PlanMetrics({ view }: { view: PayoutPlanView | null }) {
+  const rows = (view?.rows ?? []).filter((r) => !r.outside);
+  const total = rows.reduce((sum, r) => sum + r.amount, 0);
+  const issued = rows.reduce((sum, r) => sum + r.issued, 0);
+  const people = rows.filter((r) => r.amount > 0);
+  const issuedPeople = people.filter((r) => r.issued >= r.amount).length;
+  const todayRows = people.filter((r) => r.pay_date === view?.today && r.issued < r.amount);
+  const todaySum = todayRows.reduce((sum, r) => sum + r.amount - r.issued, 0);
+  const window = view?.window;
+  const state = view?.plan?.state === "approved" ? "утверждён" : view?.plan?.state === "draft" ? "черновик" : "не сформирован";
+  const title = window ? `Первая выплата за ${PLAN_MONTHS[Number(window.month.slice(5, 7)) - 1]}` : "План выплат";
+  return (
+    <MetricStrip label="Итоги плана выплат">
+      <Metric
+        primary
+        label={title}
+        value={<Money value={view ? total : null} />}
+        hint={window ? `${dm(window.from)} – ${dm(window.to)} · ${state}` : "Окно первой выплаты — с 25-го по 1-е"}
+      />
+      <Metric
+        label="Выдано"
+        value={<Money value={view ? issued : null} />}
+        hint={view ? `${issuedPeople} из ${people.length} сотрудников` : undefined}
+      />
+      <Metric label="Осталось выдать" value={<Money value={view ? total - issued : null} />} />
+      <Metric
+        label="Сегодня по плану"
+        value={<Money value={view ? todaySum : null} />}
+        hint={
+          !view ? undefined
+          : view.plan?.state !== "approved" ? "после утверждения"
+          : view.settings.auto_issue ? `${countRu(todayRows.length, "сотрудник", "сотрудника", "сотрудников")} · автоматически в 14:00`
+          : `${countRu(todayRows.length, "сотрудник", "сотрудника", "сотрудников")} · кнопкой «Выдать сейчас»`
+        }
+      />
+    </MetricStrip>
   );
 }

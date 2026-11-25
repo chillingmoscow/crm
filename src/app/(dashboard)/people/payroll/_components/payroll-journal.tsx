@@ -337,7 +337,7 @@ export function PayrollJournal({
           if (id === "employee") {
             const e = data.employees.find((e) => e.id === r.employee_id);
             return (
-              <PayrollEmployeeCell name={e?.name ?? "Сотрудник"} role={e?.role_name} avatarUrl={e?.avatar_url} />
+              <PayrollEmployeeCell name={e?.name ?? "Сотрудник"} role={e?.role_name} avatarUrl={e?.avatar_url} href={e ? `/people/payroll/${e.id}?month=${month.slice(0, 7)}` : undefined} />
             );
           }
           if (id === "kind")
@@ -370,7 +370,7 @@ export function PayrollJournal({
           return <span className="line-clamp-2" data-tip={r.reason}>{r.reason}</span>;
         },
       })),
-    [data.employees, paidBonuses],
+    [data.employees, paidBonuses, month],
   );
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);

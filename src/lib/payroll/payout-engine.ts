@@ -72,6 +72,8 @@ export type SettingsRecord = {
   schedules: Partial<Record<PayoutScheduleCode, Partial<PayoutSchedule>>>;
 };
 export type PayoutSettingsView = {
+  /** Автовыдача в 14:00 включена. */
+  auto_issue: boolean;
   min_cash: number;
   chat_id: string | null;
   bank_account_id: string | null;
@@ -105,6 +107,7 @@ export function mergeSettings(row: SettingsRecord | null, data: Pick<PayrollData
     data.banks.find((b) => b.type === type && pattern.test(b.name))?.id ?? null;
   schedules.transfer = { ...DEFAULT_PAYOUT_SCHEDULES.transfer };
   return {
+    auto_issue: row?.auto_issue === true,
     min_cash: Number(row?.min_cash ?? 120000),
     chat_id: row?.chat_id ?? null,
     bank_account_id: row?.bank_account_id ?? byName("cash", /кэшбокс/i),

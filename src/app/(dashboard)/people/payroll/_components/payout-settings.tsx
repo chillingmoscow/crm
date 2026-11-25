@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { Loader2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { OptionSelect } from "@/components/ui/option-select";
@@ -21,9 +22,6 @@ type Form = {
   chatId: string;
   mainStep: string;
   mainReserve: string;
-  transferStep: string;
-  transferReserve: string;
-  transferBank: string;
   cleaner: string[];
   transfer: string[];
 };
@@ -41,9 +39,6 @@ function formFrom(data: PayrollData, saved: Saved): Form {
     chatId: row?.chat_id ?? "",
     mainStep: num(schedules.main?.step, DEFAULT_PAYOUT_SCHEDULES.main.step),
     mainReserve: num(schedules.main?.reserve, DEFAULT_PAYOUT_SCHEDULES.main.reserve),
-    transferStep: num(schedules.transfer?.step, DEFAULT_PAYOUT_SCHEDULES.transfer.step),
-    transferReserve: num(schedules.transfer?.reserve, DEFAULT_PAYOUT_SCHEDULES.transfer.reserve),
-    transferBank: schedules.transfer?.bank_account_id ?? byName("checking", /сбер\s*бизнес/i),
     cleaner: saved.employees.filter((e) => e.schedule === "cleaner").map((e) => e.id).sort(),
     transfer: saved.employees.filter((e) => e.schedule === "transfer").map((e) => e.id).sort(),
   };
@@ -57,8 +52,8 @@ function validate(form: Form): string | null {
   if (!money(form.minCash)) return "Укажите минимум в кэшбоксе в рублях";
   if (!form.bankId) return "Выберите кассу для выдачи наличными";
   if (form.chatId.trim() && !/^-?\d+$/.test(form.chatId.trim())) return "ID чата: число, например -1001234567890";
-  if (!step(form.mainStep) || !step(form.transferStep)) return "Шаг округления: целое число от 1 до 100 000";
-  if (!money(form.mainReserve) || !money(form.transferReserve)) return "Укажите запас в рублях";
+  if (!step(form.mainStep)) return "Шаг округления: целое число от 1 до 100 000";
+  if (!money(form.mainReserve)) return "Укажите запас в рублях";
   return null;
 }
 
@@ -112,7 +107,6 @@ function PayoutScheduleForm({ data, saved, onSaved }: { data: PayrollData; saved
   const blocked = validate(form);
   const set = (patch: Partial<Form>) => setForm((current) => ({ ...current, ...patch }));
   const cash = data.banks.filter((b) => b.type === "cash");
-  const checking = data.banks.filter((b) => b.type === "checking");
   const people = data.employees
     .filter((e) => e.active && !e.casual)
     .sort((a, b) => a.name.localeCompare(b.name, "ru"));
@@ -133,11 +127,6 @@ function PayoutScheduleForm({ data, saved, onSaved }: { data: PayrollData; saved
           schedules: {
             main: { step: Number(form.mainStep), reserve: Number(form.mainReserve) },
             cleaner: { step: DEFAULT_PAYOUT_SCHEDULES.cleaner.step, reserve: DEFAULT_PAYOUT_SCHEDULES.cleaner.reserve },
-            transfer: {
-              step: Number(form.transferStep),
-              reserve: Number(form.transferReserve),
-              bank_account_id: form.transferBank || null,
-            },
           },
           // Только те, у кого график меняется: остальных не трогаем.
           assignments: saved.employees
@@ -213,6 +202,12 @@ function PayoutScheduleForm({ data, saved, onSaved }: { data: PayrollData; saved
             <p className="text-[13px] text-muted-foreground">
               ID Telegram-чата, куда бот пишет, кому и сколько выдать. Бот должен состоять в этом чате.
             </p>
+            {busy && form.chatId.trim() && form.chatId.trim() !== initial.chatId && (
+              <p role="status" className="flex items-center gap-2 text-[13px] text-muted-foreground">
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                Проверяем в Telegram, что бот состоит в чате…
+              </p>
+            )}
           </div>
         </div>
 
@@ -229,27 +224,11 @@ function PayoutScheduleForm({ data, saved, onSaved }: { data: PayrollData; saved
         </div>
 
         <div className="space-y-3">
-          <h3 className="text-sm font-semibold">Переводом</h3>
+          <h3 className="text-sm font-semibold">Вне плана</h3>
           <p className="text-[13px] text-muted-foreground">
-            Те же дни, первая выплата: половина месяца. Деньги уходят, когда вы оплачиваете счёт сотрудника;
-            в плане отмечаете «Выплачено». В Adesk такая выплата не отправляется: платёж по счёту приходит туда из банка.
+            Сотрудники, которые сами выставляют счета (самозанятые), в план выплат не входят: их выплаты вносятся
+            вручную, как обычно.
           </p>
-          <div className="grid gap-4 md:grid-cols-2">
-            {field("payout-transfer-step", "Шаг округления, ₽", form.transferStep, (transferStep) => set({ transferStep }))}
-            {field("payout-transfer-reserve", "Запас, ₽", form.transferReserve, (transferReserve) => set({ transferReserve }))}
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="payout-transfer-bank">Расчётный счёт</Label>
-              <OptionSelect
-                id="payout-transfer-bank"
-                className={selectClass}
-                value={form.transferBank}
-                disabled={disabled}
-                onValueChange={(transferBank) => set({ transferBank })}
-                placeholder="Не выбран"
-                options={[{ value: "", label: "Не выбран" }, ...checking.map((b) => ({ value: b.id, label: b.name }))]}
-              />
-            </div>
-          </div>
         </div>
 
         <div className="space-y-3">
@@ -268,7 +247,7 @@ function PayoutScheduleForm({ data, saved, onSaved }: { data: PayrollData; saved
               <p className="text-[13px] text-muted-foreground">{names(form.cleaner) || "Никого"}</p>
             </div>
             <div className="space-y-2">
-              <Label>Переводом</Label>
+              <Label>Вне плана</Label>
               <PayrollEmployeePicker
                 multiple
                 employees={people}

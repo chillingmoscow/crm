@@ -272,6 +272,8 @@ export type CounterpartyArchiveImpact = {
   attachments: number;
   /** Связки «ингредиент ↔ поставщик» (CASCADE — удалятся). */
   ingredient_suppliers: number;
+  /** Сертификаты и лицензии (CASCADE — удалятся). */
+  certificates: number;
 };
 
 /**
@@ -312,17 +314,19 @@ export async function getCounterpartyArchiveImpact(
   const headOpts = { count: "exact" as const, head: true };
   const db = asLooseDb(supabase);
 
-  const [transactions, attachments, ingredient_suppliers] = await Promise.all([
+  const [transactions, attachments, ingredient_suppliers, certificates] = await Promise.all([
     supabase.from("transactions").select("id", headOpts).eq("counterparty_id", id),
     supabase.from("counterparty_attachments").select("id", headOpts).eq("counterparty_id", id),
     // ingredient_suppliers — миграция 185, ещё не в Database-типах
     db.from("ingredient_suppliers").select("id", headOpts).eq("counterparty_id", id),
+    db.from("counterparty_certificates").select("id", headOpts).eq("counterparty_id", id),
   ]);
 
   return {
     transactions: transactions.count ?? 0,
     attachments: attachments.count ?? 0,
     ingredient_suppliers: ingredient_suppliers.count ?? 0,
+    certificates: certificates.count ?? 0,
   };
 }
 

@@ -5,7 +5,7 @@ import { auditFieldLabel, auditFieldValueLabel, formatAuditDate as formatDate } 
 function formatFieldValue(field: string, value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
   if (
-    ["hired_on","birthday","examined_on","valid_until"].includes(field) ||
+    ["hired_on","birthday","examined_on","valid_until","valid_from"].includes(field) ||
     field === "birth_date" ||
     field === "employment_date" ||
     field === "medical_book_date" ||

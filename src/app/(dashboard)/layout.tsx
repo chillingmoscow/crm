@@ -17,6 +17,7 @@ import { ImpersonationBanner } from "@/components/shared/impersonation-banner";
 import { readActiveImpersonation } from "@/lib/impersonation/session";
 import { syncPendingInvitationsForUser } from "@/lib/people/invitations/sync-pending";
 import { countInbox } from "@/lib/finance/recurring";
+import { countCertificateAlerts } from "@/lib/finance/certificates-actions";
 
 export default async function DashboardLayout({
   children,
@@ -100,7 +101,7 @@ export default async function DashboardLayout({
   const supabaseUntyped = supabase as unknown as {
     rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown }>;
   };
-  const [accountId, userPermissions, attentionRes, candidateCountRes, inboxCount] = await Promise.all([
+  const [accountId, userPermissions, attentionRes, candidateCountRes, inboxCount, certificateAlertCount] = await Promise.all([
     getCachedActiveAccountId(),
     getCachedPermissions(),
     supabaseUntyped.rpc("count_venue_staff_attention", { p_venue_id: activeVenueId }),
@@ -110,6 +111,10 @@ export default async function DashboardLayout({
       codes.includes("finance.view_transactions") && codes.includes("finance.create_transaction")
         ? countInbox().catch(() => 0)
         : 0,
+    ),
+    // Бейдж «Контрагенты»: истекающие и просроченные сертификаты.
+    getCachedPermissions().then((codes) =>
+      codes.includes("finance.view_counterparties") ? countCertificateAlerts().catch(() => 0) : 0,
     ),
   ]);
   let accountName: string | null = null;
@@ -194,6 +199,7 @@ export default async function DashboardLayout({
         candidateAccountId={accountId}
         newCandidatesCount={typeof candidateCountRes?.data === "number" ? candidateCountRes.data : 0}
         inboxCount={inboxCount}
+        certificateAlertCount={certificateAlertCount}
         kbSidebarHidden={kbSidebarHidden}
         isImpersonating={Boolean(activeImpersonation)}
       />

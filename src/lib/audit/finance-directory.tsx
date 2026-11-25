@@ -1,4 +1,4 @@
-import { FilePen, FilePlus, FileX, FolderPen, FolderPlus, FolderX, Trash2, type LucideIcon } from "lucide-react";
+import { BadgeCheck, BadgeX, FilePen, FilePlus, FileX, FolderPen, FolderPlus, FolderX, Trash2, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { AuditEvent } from "@/lib/audit/list";
@@ -67,6 +67,19 @@ export const financeDirectoryAuditSpecs: Record<string, AuditEventSpec> = {
   }),
   "finance.counterparty_document.deleted": spec(FileX, DANGER, (e) => (
     <>удалил(а) документ {name(e, "файл")}</>
+  )),
+
+  "finance.counterparty_certificate.created": spec(BadgeCheck, CREATED, (e) => (
+    <>добавил(а) {name(e, "сертификат")}</>
+  )),
+  "finance.counterparty_certificate.updated": spec(
+    BadgeCheck,
+    INFO,
+    (e) => <>изменил(а) {name(e, "сертификат")}</>,
+    true,
+  ),
+  "finance.counterparty_certificate.deleted": spec(BadgeX, DANGER, (e) => (
+    <>удалил(а) {name(e, "сертификат")}</>
   )),
 
   "finance.counterparty_group.created": spec(FolderPlus, CREATED, (e) => (

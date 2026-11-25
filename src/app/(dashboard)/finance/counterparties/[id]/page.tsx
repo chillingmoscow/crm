@@ -14,6 +14,8 @@ import {
 import { loadCounterpartyActivity, operationDay } from "@/lib/finance/activity";
 import { parsePeriod, periodParam, periodRange } from "@/lib/finance/period";
 import { listCounterpartyAttachments } from "@/lib/files/attachments";
+import { listCounterpartyCertificates } from "@/lib/finance/certificates-actions";
+import { todayIso } from "@/lib/finance/today";
 import { filePreviewKind } from "@/lib/files/file-name";
 import { mediaUrl } from "@/lib/storage/media";
 import { asLooseDb } from "@/lib/supabase/loose";
@@ -48,7 +50,7 @@ export default async function CounterpartyDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ period?: string }>;
+  searchParams: Promise<{ period?: string; tab?: string }>;
 }) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
   // Период вкладки «Операции»: тот же `?period=`, что в списке; без него — всё время.
@@ -81,6 +83,7 @@ export default async function CounterpartyDetailPage({
     recent,
     auditResult,
     purchaseRows,
+    certificates,
   ] = await Promise.all([
     // Архив, возврат и удаление проверяют владельца на сервере — им же гейтим.
     activeAccountId
@@ -119,6 +122,7 @@ export default async function CounterpartyDetailPage({
             .eq("counterparty_id", id),
         ).catch(() => "failed" as const)
       : Promise.resolve(null),
+    listCounterpartyCertificates(id).catch(() => null),
   ]);
 
   // Подписи операций: статьи и счета одним запросом каждые.
@@ -208,6 +212,9 @@ export default async function CounterpartyDetailPage({
       row={row}
       groups={groups.map((group) => ({ id: group.id, name: group.name }))}
       attachments={attachments}
+      certificates={certificates ?? []}
+      certificatesFailed={certificates === null}
+      initialTab={query.tab ?? null}
       purchases={purchases}
       purchasesFailed={purchasesFailed}
       operations={operations}
@@ -231,7 +238,7 @@ export default async function CounterpartyDetailPage({
       archiveImpact={archiveImpact}
       dadataEnabled={isDadataConfigured()}
       period={periodParam(period)}
-      today={new Date().toISOString().slice(0, 10)}
+      today={await todayIso()}
       initialAuditEvents={auditResult.events}
       initialAuditHasMore={auditResult.hasMore}
       createdByName={profileName(row.created_by)}

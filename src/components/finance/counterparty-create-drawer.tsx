@@ -9,6 +9,7 @@ import { EditDrawer } from "@/components/ui/edit-drawer";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { OptionSelect } from "@/components/ui/option-select";
+import { CounterpartyGroupSelect } from "@/components/finance/counterparty-group-select";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { InnInput } from "@/components/org/inn-input";
 import type { ResolvedParty } from "@/lib/dadata/party";
@@ -200,14 +201,12 @@ export function CounterpartyCreateDrawer({
             {groups ? (
               <Field id="new-cp-group" label="Группа">
                 {(control) => (
-                  <OptionSelect
+                  <CounterpartyGroupSelect
                     {...control}
                     value={form.group_id}
                     onValueChange={(value) => set("group_id", value)}
-                    options={[
-                      { value: "", label: "Без группы" },
-                      ...groups.map((group) => ({ value: group.id, label: group.name })),
-                    ]}
+                    groups={groups}
+                    canCreate
                   />
                 )}
               </Field>

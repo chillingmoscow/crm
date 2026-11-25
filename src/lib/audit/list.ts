@@ -564,6 +564,20 @@ export async function listAuditEvents(input?: {
       }
     }
   }
+  // То же у контрагента: группа контрагентов вместо id.
+  const counterpartyGroupNames = new Map<string, string>();
+  const counterpartyGroupIds = [
+    ...new Set(
+      sliced.flatMap((r) => (r.entity_type === "counterparty" ? collectChangeIds(r.details, "group_id") : [])),
+    ),
+  ];
+  if (counterpartyGroupIds.length > 0) {
+    const { data: groupRows } = await supabase
+      .from("counterparty_groups")
+      .select("id, name")
+      .in("id", counterpartyGroupIds);
+    for (const g of groupRows ?? []) counterpartyGroupNames.set(g.id, g.name);
+  }
 
   const categoryIds = idsByType.get("finance_category");
   if (categoryIds && categoryIds.size > 0) {
@@ -768,7 +782,9 @@ export async function listAuditEvents(input?: {
       details:
         r.entity_type === "bank_account" && r.details
           ? resolveChangeIds(r.details, "group_id", groupNames, "удалённая группа")
-          : (r.details ?? {}),
+          : r.entity_type === "counterparty" && r.details
+            ? resolveChangeIds(r.details, "group_id", counterpartyGroupNames, "удалённая группа")
+            : (r.details ?? {}),
       created_at: r.created_at,
       actor: actorRaw
         ? {

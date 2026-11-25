@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { findPartyByInn } from "@/lib/dadata/party";
+import { errorText } from "@/lib/actions/error-text";
 import { writeAuditEvent } from "@/lib/audit/write";
 import type {
   CounterpartyFormInput,
@@ -536,7 +537,7 @@ export async function createCounterpartyGroup(
     .select("id")
     .single();
   if (error || !data) {
-    return { id: null, error: error?.message ?? "Не удалось создать группу" };
+    return { id: null, error: errorText(error, "Не удалось создать группу") };
   }
   await writeAuditEvent({
     accountId: accountId as unknown as string,
@@ -584,7 +585,7 @@ export async function updateCounterpartyGroup(
     .update(next)
     .eq("id", id)
     .select("id");
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось изменить группу") };
   // RLS не даёт ошибку, а молча не меняет строку: без прав — честный отказ.
   if (!changed?.length) return { error: NO_ROW_CHANGED };
   if (next.name !== undefined && next.name !== group.name) {
@@ -623,7 +624,7 @@ export async function deleteCounterpartyGroup(
     .delete()
     .eq("id", id)
     .select("id");
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось удалить группу") };
   // RLS не даёт ошибку, а молча не меняет строку: без прав — честный отказ.
   if (!changed?.length) return { error: NO_ROW_CHANGED };
   await writeAuditEvent({

@@ -1,4 +1,4 @@
-import { FolderPen, FolderPlus, FolderX, Trash2, type LucideIcon } from "lucide-react";
+import { FilePen, FilePlus, FileX, FolderPen, FolderPlus, FolderX, Trash2, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { AuditEvent } from "@/lib/audit/list";
@@ -6,8 +6,8 @@ import { ChangeLines } from "./change-lines";
 import type { AuditEventSpec } from "./format";
 
 // Справочники «Финансов»: удаление статьи и контрагента (пишет триггер базы,
-// миграции 199 и 202) и группы статей и контрагентов (пишут server actions
-// через writeAuditEvent).
+// миграции 199 и 202), группы статей и контрагентов и документы контрагента
+// (пишут server actions через writeAuditEvent).
 
 const INFO = "text-brand bg-brand/10";
 const DANGER = "text-destructive bg-destructive/10";
@@ -51,6 +51,22 @@ export const financeDirectoryAuditSpecs: Record<string, AuditEventSpec> = {
   ),
   "finance.category_group.deleted": spec(FolderX, DANGER, (e) => (
     <>удалил(а) группу статей {name(e, "группа")}</>
+  )),
+
+  "finance.counterparty_document.created": spec(FilePlus, CREATED, (e) => (
+    <>загрузил(а) документ {name(e, "файл")}</>
+  )),
+  "finance.counterparty_document.renamed": spec(FilePen, INFO, (e) => {
+    const previous = e.details.previous_name;
+    return (
+      <>
+        переименовал(а) документ
+        {typeof previous === "string" && previous ? <> «{previous}»</> : null} в {name(e, "файл")}
+      </>
+    );
+  }),
+  "finance.counterparty_document.deleted": spec(FileX, DANGER, (e) => (
+    <>удалил(а) документ {name(e, "файл")}</>
   )),
 
   "finance.counterparty_group.created": spec(FolderPlus, CREATED, (e) => (

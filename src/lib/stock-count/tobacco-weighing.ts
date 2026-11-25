@@ -64,9 +64,10 @@ export const countConfigSchema: z.ZodType<CountConfig> = z
 
 const batchSchema = z.object({
   id: z.string().uuid(),
-  grams: z.number().int().min(1),
+  // 0 — вес ещё не введён: такой черновик можно сохранить, но не сдать.
+  grams: z.number().int().min(0).max(1_000_000),
   tares: z.array(
-    z.object({ tareKey: z.string().min(1), count: z.number().int().min(0) }),
+    z.object({ tareKey: z.string().min(1), count: z.number().int().min(0).max(9999) }),
   ),
   photo: z.string().nullable(),
 });
@@ -75,7 +76,7 @@ export const weighingDraftSchema: z.ZodType<WeighingDraft> = z.object({
   startedAt: z.string().nullable(),
   sections: z.record(
     z.string(),
-    z.object({ empty: z.boolean(), batches: z.array(batchSchema) }),
+    z.object({ empty: z.boolean(), batches: z.array(batchSchema).max(200) }),
   ),
 });
 
@@ -137,6 +138,22 @@ export function weighingWarnings(
   return out;
 }
 
+/**
+ * Время начала взвешивания определяет сервер: сохранённое значение не меняется
+ * и не берётся от клиента; новое ставится при первой сохранённой партии.
+ */
+export function resolveStartedAt(
+  stored: string | null,
+  draft: WeighingDraft,
+  now: Date,
+): string | null {
+  if (stored) return stored;
+  const hasBatches = Object.values(draft.sections).some(
+    (s) => !s.empty && s.batches.length > 0,
+  );
+  return hasBatches ? now.toISOString() : null;
+}
+
 export function submitErrors(
   draft: WeighingDraft,
   config: CountConfig,
@@ -167,6 +184,7 @@ export function submitErrors(
       } else if (batchNetGrams(batch, section.tares) < 0) {
         out.push(`${label}: вес меньше тары`);
       }
+      if (batch.grams < 1) out.push(`${label}: введите вес`);
       if (!batch.photo) out.push(`${label}: нет фото`);
     });
   }

@@ -7,6 +7,7 @@ import {
   countConfigSchema,
   netKgBySection,
   parseGramsInput,
+  resolveStartedAt,
   sectionNetGrams,
   submitErrors,
   weighingDraftSchema,
@@ -181,4 +182,38 @@ test("submitErrors: неизвестная тара — ошибка, а не 0 
 test("submitErrors: черновик с партиями без startedAt — сначала сохранить", () => {
   const draft: WeighingDraft = { ...parfumDraft, startedAt: null };
   assert.deepEqual(submitErrors(draft, cfg), ["Сохраните взвешивание перед сдачей"]);
+});
+const NOW = new Date("2026-11-26T08:00:00.000Z");
+test("resolveStartedAt: сохранённое значение сильнее присланного клиентом", () => {
+  assert.equal(
+    resolveStartedAt("2026-11-25T10:00:00.000Z", { ...parfumDraft, startedAt: "2020-01-01T00:00:00.000Z" }, NOW),
+    "2026-11-25T10:00:00.000Z",
+  );
+});
+test("resolveStartedAt: нет сохранённого и есть партия — сейчас", () => {
+  assert.equal(resolveStartedAt(null, { ...parfumDraft, startedAt: "2020-01-01T00:00:00.000Z" }, NOW), NOW.toISOString());
+});
+test("resolveStartedAt: нет сохранённого и нет партий — null", () => {
+  assert.equal(
+    resolveStartedAt(null, { startedAt: "2020-01-01T00:00:00.000Z", sections: { standard: { empty: false, batches: [] } } }, NOW),
+    null,
+  );
+});
+test("submitErrors: партия без веса (0 г) — ошибка, но черновик с ней валиден", () => {
+  const draft: WeighingDraft = {
+    startedAt: "2026-11-25T10:00:00.000Z",
+    sections: { parfum: { empty: false, batches: [b(0, [])] } },
+  };
+  assert.equal(weighingDraftSchema.safeParse(draft).success, true);
+  assert.deepEqual(submitErrors(draft, { ...cfg, sections: [cfg.sections[2]!] }), ["Парфюм, партия 1: введите вес"]);
+});
+test("weighingDraftSchema: выход за границы отвергается", () => {
+  const mk = (batch: WeighingBatch, n = 1): WeighingDraft => ({
+    startedAt: null,
+    sections: { standard: { empty: false, batches: Array.from({ length: n }, () => batch) } },
+  });
+  assert.equal(weighingDraftSchema.safeParse(mk(b(1000, [["container", 1]]))).success, true);
+  assert.equal(weighingDraftSchema.safeParse(mk(b(1_000_001, []))).success, false);
+  assert.equal(weighingDraftSchema.safeParse(mk(b(1000, [["container", 10000]]))).success, false);
+  assert.equal(weighingDraftSchema.safeParse(mk(b(1000, []), 201)).success, false);
 });

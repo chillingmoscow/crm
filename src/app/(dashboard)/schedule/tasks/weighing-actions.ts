@@ -7,6 +7,7 @@ import { mediaUrl } from "@/lib/storage/media";
 import { actionResult } from "@/lib/actions/result";
 import {
   countConfigSchema,
+  resolveStartedAt,
   submitErrors,
   weighingDraftSchema,
   type CountConfig,
@@ -27,34 +28,33 @@ async function context() {
   return { db: asLooseDb(client), user };
 }
 
-/** Настройка взвешивания — из снимка задания в базе, не из присланного клиентом. */
+/** Настройка и сохранённое время начала — из базы, не из присланного клиентом. */
 async function readConfig(
   db: ReturnType<typeof asLooseDb>,
   occurrenceId: string,
-): Promise<CountConfig> {
+): Promise<{ config: CountConfig; storedStartedAt: string | null }> {
   const r = await db
-    .from<{ snapshot: { kind?: string; count_config?: unknown } }>("schedule_task_occurrences")
-    .select("snapshot")
+    .from<{ snapshot: { kind?: string; count_config?: unknown }; answers: { weighing?: { startedAt?: unknown } } | null }>(
+      "schedule_task_occurrences",
+    )
+    .select("snapshot,answers")
     .eq("id", occurrenceId)
     .maybeSingle();
   if (r.error || !r.data) throw new Error("Задание не найдено");
   if (r.data.snapshot?.kind !== "stock_count") throw new Error("Это задание не взвешивание");
   const config = countConfigSchema.safeParse(r.data.snapshot.count_config);
   if (!config.success) throw new Error("Настройка взвешивания повреждена. Обратитесь к управляющему");
-  return config.data;
+  const stored = r.data.answers?.weighing?.startedAt;
+  return { config: config.data, storedStartedAt: typeof stored === "string" && stored ? stored : null };
 }
 
 /** Только разделы из настройки; время начала ставит сервер при первой сохранённой партии. */
-function normalize(draft: WeighingDraft, config: CountConfig): WeighingDraft {
+function normalize(draft: WeighingDraft, config: CountConfig, storedStartedAt: string | null): WeighingDraft {
   const sections: WeighingDraft["sections"] = {};
   for (const section of config.sections) {
     sections[section.key] = draft.sections[section.key] ?? { empty: false, batches: [] };
   }
-  const hasBatches = Object.values(sections).some((s) => !s.empty && s.batches.length > 0);
-  return {
-    startedAt: draft.startedAt ?? (hasBatches ? new Date().toISOString() : null),
-    sections,
-  };
+  return { startedAt: resolveStartedAt(storedStartedAt, { ...draft, sections }, new Date()), sections };
 }
 
 async function command(
@@ -63,8 +63,8 @@ async function command(
 ): Promise<{ version: number; startedAt: string | null }> {
   const value = input.parse(raw);
   const { db } = await context();
-  const config = await readConfig(db, value.occurrenceId);
-  const draft = normalize(value.draft, config);
+  const { config, storedStartedAt } = await readConfig(db, value.occurrenceId);
+  const draft = normalize(value.draft, config, storedStartedAt);
   if (action === "run.submit") {
     const errors = submitErrors(draft, config);
     if (errors.length) throw new Error(errors[0]);

@@ -259,7 +259,7 @@ create policy stock_count_commits_read on public.stock_count_commits for select 
 create function public.stock_count_command(p_action text, p_input jsonb) returns jsonb
 language plpgsql security definer set search_path = public, pg_catalog as $$
 declare u uuid := auth.uid(); v uuid := public.get_active_venue_id(); a uuid := public.get_active_account_id();
- ident uuid := nullif(p_input->>'id', '')::uuid; o public.schedule_task_occurrences; ans jsonb; photo jsonb;
+ ident uuid := nullif(p_input->>'id', '')::uuid; o public.schedule_task_occurrences; ans jsonb; photo jsonb; started text;
 begin
  if u is null or v is null or a is null or not exists (select 1 from public.venues where id = v and account_id = a) then raise exception 'Выберите заведение'; end if;
  if p_action not in ('run.save', 'run.submit') then raise exception 'Неизвестное действие'; end if;
@@ -285,6 +285,19 @@ begin
    raise exception 'Фотография взвешивания не загружена';
   end if;
  end loop;
+ -- Время начала (от него зависит дата акта) задаёт только сервер: сохранённое не меняется,
+ -- первое ставится при первой партии, присланное клиентом игнорируется.
+ if ans ? 'weighing' then
+  started := nullif(o.answers#>>'{weighing,startedAt}', '');
+  if started is null and exists (
+   select 1 from jsonb_each(ans->'weighing'->'sections') e
+   where jsonb_typeof(e.value) = 'object' and e.value->'empty' is distinct from 'true'::jsonb
+     and jsonb_typeof(e.value->'batches') = 'array' and jsonb_array_length(e.value->'batches') > 0
+  ) then
+   started := to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"');
+  end if;
+  ans := jsonb_set(ans, '{weighing,startedAt}', coalesce(to_jsonb(started), 'null'::jsonb));
+ end if;
  -- Приёмки нет: сданное взвешивание сразу выполнено, проведение идёт очередью.
  update public.schedule_task_occurrences set answers = ans,
    status = case when p_action = 'run.submit' then 'completed' else 'in_progress' end,

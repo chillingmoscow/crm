@@ -175,7 +175,9 @@ export function WeighingReport({
       const s = draft.sections[section.key];
       if (!s || s.empty) continue;
       for (const [i, b] of s.batches.entries()) {
-        const p = parseGramsInput(texts[b.id] ?? "");
+        const raw = texts[b.id] ?? "";
+        if (raw.trim() === "") continue; // пустой вес сохраняется как 0, сдать с ним нельзя
+        const p = parseGramsInput(raw);
         if ("error" in p) return `${section.title}, партия ${i + 1}: ${p.error}`;
       }
     }
@@ -204,17 +206,17 @@ export function WeighingReport({
   }
 
   /** Черновик для сервера: граммы из полей. */
-  function payload(): WeighingDraft {
+  function payload(source: WeighingDraft = draft): WeighingDraft {
     return {
-      ...draft,
+      ...source,
       sections: Object.fromEntries(
-        Object.entries(draft.sections).map(([key, s]) => [
+        Object.entries(source.sections).map(([key, s]) => [
           key,
           {
             ...s,
             batches: s.batches.map((b) => {
               const p = parseGramsInput(texts[b.id] ?? "");
-              return { ...b, grams: "grams" in p ? p.grams : b.grams };
+              return { ...b, grams: "grams" in p ? p.grams : 0 };
             }),
           },
         ]),
@@ -222,14 +224,17 @@ export function WeighingReport({
     };
   }
 
-  async function save(): Promise<{ version: number; startedAt: string | null } | null> {
+  async function save(
+    source: WeighingDraft = draft,
+    silent = false,
+  ): Promise<{ version: number; startedAt: string | null } | null> {
     const problem = inputProblem();
     if (problem) {
-      toast.error(problem);
+      if (!silent) toast.error(problem);
       return null;
     }
     const saved = unwrapAction(
-      await saveWeighingDraft({ occurrenceId: o.id, version: o.version, draft: payload() }),
+      await saveWeighingDraft({ occurrenceId: o.id, version: o.version, draft: payload(source) }),
     );
     return saved;
   }
@@ -288,6 +293,28 @@ export function WeighingReport({
     }
   }
 
+  async function removeBatch(key: string, batchId: string) {
+    const s = draft.sections[key];
+    if (!s) return;
+    const next: WeighingDraft = {
+      ...draft,
+      sections: { ...draft.sections, [key]: { ...s, batches: s.batches.filter((b) => b.id !== batchId) } },
+    };
+    setDraft(next);
+    setDirty(true);
+    setBusy(true);
+    try {
+      if (await save(next, true)) {
+        setDirty(false);
+        await onSaved();
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось сохранить взвешивание");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function upload(key: string, batchId: string, file: File | undefined) {
     if (!file) return;
     setBusy(true);
@@ -298,6 +325,21 @@ export function WeighingReport({
       const r = unwrapAction(await uploadWeighingPhoto(form));
       setUrls((u) => ({ ...u, [r.path]: r.url }));
       patchBatch(key, batchId, (b) => ({ ...b, photo: r.path }));
+      // Фото уже в хранилище — сразу фиксируем его в черновике, чтобы оно не осиротело.
+      const s = draft.sections[key];
+      if (s) {
+        const next: WeighingDraft = {
+          ...draft,
+          sections: {
+            ...draft.sections,
+            [key]: { ...s, batches: s.batches.map((b) => (b.id === batchId ? { ...b, photo: r.path } : b)) },
+          },
+        };
+        if (await save(next, true)) {
+          setDirty(false);
+          await onSaved();
+        }
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Не удалось загрузить фото");
     } finally {
@@ -331,6 +373,11 @@ export function WeighingReport({
         ) : undefined
       }
     >
+      {editable && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {busy ? "Сохраняем…" : dirty ? "Есть несохранённые изменения" : "Сохранено"}
+        </p>
+      )}
       {line && (
         <p
           role="status"
@@ -388,12 +435,7 @@ export function WeighingReport({
                               size="icon"
                               aria-label={`Удалить партию ${i + 1}`}
                               disabled={busy}
-                              onClick={() =>
-                                patchSection(section.key, (x) => ({
-                                  ...x,
-                                  batches: x.batches.filter((y) => y.id !== b.id),
-                                }))
-                              }
+                              onClick={() => void removeBatch(section.key, b.id)}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>

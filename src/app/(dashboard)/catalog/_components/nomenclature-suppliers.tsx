@@ -10,6 +10,7 @@ import {
   MapPin,
   Pencil,
   Phone,
+  Send,
   Trash2,
   UserRound,
 } from "lucide-react";
@@ -38,6 +39,7 @@ import {
 } from "@/components/shared/profile-section";
 import { TableRowMenu } from "@/components/shared/table";
 import type { CounterpartyOption, IngredientSupplier } from "@/lib/inventory/ingredients";
+import { telegramUrl } from "@/lib/finance/counterparty-contacts";
 import {
   addIngredientSupplier,
   removeIngredientSupplier,
@@ -474,6 +476,22 @@ function SupplierView({ supplier }: { supplier: IngredientSupplier }) {
           value: (
             <a href={`mailto:${supplier.counterpartyEmail}`} className="hover:underline">
               {supplier.counterpartyEmail}
+            </a>
+          ),
+        }
+      : null,
+    supplier.counterpartyTelegram
+      ? {
+          icon: <Send />,
+          label: "Telegram",
+          value: (
+            <a
+              href={telegramUrl(supplier.counterpartyTelegram)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:underline"
+            >
+              @{supplier.counterpartyTelegram}
             </a>
           ),
         }

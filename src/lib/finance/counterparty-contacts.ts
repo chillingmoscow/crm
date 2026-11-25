@@ -64,6 +64,21 @@ export function normalizeContacts(input: unknown): { contacts: CounterpartyConta
   return { contacts, error: null };
 }
 
+/** Контакты из базы (jsonb) — без доверия к форме: чужие ключи отбрасываются. */
+export function contactsFromJson(value: unknown): CounterpartyContact[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+    .map((item) => ({
+      name: typeof item.name === "string" ? item.name : "",
+      role: typeof item.role === "string" ? item.role : null,
+      phone: typeof item.phone === "string" ? item.phone : null,
+      email: typeof item.email === "string" ? item.email : null,
+      telegram: typeof item.telegram === "string" ? item.telegram : null,
+    }))
+    .filter((contact) => contact.name);
+}
+
 /** Дни недели: 1 — понедельник … 7 — воскресенье. */
 export const WEEKDAYS: { value: number; short: string }[] = [
   { value: 1, short: "пн" },

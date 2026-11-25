@@ -23,12 +23,8 @@ import { LEGAL_FORM_OPTIONS } from "@/lib/org/legal-entity-labels";
 import { WEEKDAYS } from "@/lib/finance/counterparty-contacts";
 import type { CounterpartyFormInput, CounterpartyRow } from "@/types/finance";
 import type { LegalForm } from "@/types/database";
-import {
-  CounterpartyContactsEditor,
-  contactDraftFrom,
-  contactsFromJson,
-  type ContactDraft,
-} from "./counterparty-contacts-editor";
+import { contactsFromJson } from "@/lib/finance/counterparty-contacts";
+import { CounterpartyContactsEditor, contactDraftFrom, type ContactDraft } from "./counterparty-contacts-editor";
 
 type FormState = {
   name: string;

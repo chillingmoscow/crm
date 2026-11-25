@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { MAX_CONTACTS, telegramUrl, type CounterpartyContact } from "@/lib/finance/counterparty-contacts";
 
+
 /** Контакт в форме: все поля строками, «» — пусто. */
 export type ContactDraft = { name: string; role: string; phone: string; email: string; telegram: string };
 
@@ -21,21 +22,6 @@ export function contactDraftFrom(contact: CounterpartyContact): ContactDraft {
     email: contact.email ?? "",
     telegram: contact.telegram ? `@${contact.telegram}` : "",
   };
-}
-
-/** Контакты из базы (jsonb) — без доверия к форме: чужие ключи отбрасываются. */
-export function contactsFromJson(value: unknown): CounterpartyContact[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
-    .map((item) => ({
-      name: typeof item.name === "string" ? item.name : "",
-      role: typeof item.role === "string" ? item.role : null,
-      phone: typeof item.phone === "string" ? item.phone : null,
-      email: typeof item.email === "string" ? item.email : null,
-      telegram: typeof item.telegram === "string" ? item.telegram : null,
-    }))
-    .filter((contact) => contact.name);
 }
 
 /**

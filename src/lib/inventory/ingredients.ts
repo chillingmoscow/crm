@@ -1,5 +1,6 @@
 import "server-only";
 
+import { contactsFromJson } from "@/lib/finance/counterparty-contacts";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { mediaUrl } from "@/lib/storage/media";
@@ -53,6 +54,8 @@ export type IngredientSupplier = {
   counterpartyPhone: string | null;
   counterpartyEmail: string | null;
   counterpartyContactPerson: string | null;
+  /** Ник Telegram первого контакта, без «@». */
+  counterpartyTelegram: string | null;
   counterpartyAddress: string | null;
   counterpartyDescription: string | null;
   supplierArticle: string | null;
@@ -188,9 +191,7 @@ type CounterpartyJoin = {
   name: string;
   inn: string | null;
   kpp: string | null;
-  phone: string | null;
-  email: string | null;
-  contact_person: string | null;
+  contacts: unknown;
   address: string | null;
   description: string | null;
 };
@@ -218,7 +219,7 @@ export async function listIngredientSuppliers(
   const { data } = await admin
     .from<SupplierRow[]>("ingredient_suppliers")
     .select(
-      "id, counterparty_id, supplier_article, supplier_price, is_preferred, note, counterparties(name, inn, kpp, phone, email, contact_person, address, description)",
+      "id, counterparty_id, supplier_article, supplier_price, is_preferred, note, counterparties(name, inn, kpp, contacts, address, description)",
     )
     .eq("account_id", accountId)
     .eq("ingredient_id", ingredientId)
@@ -226,15 +227,18 @@ export async function listIngredientSuppliers(
 
   return (data ?? []).map((row) => {
     const cp = oneRelation(row.counterparties);
+    // Первый контакт контрагента — тот, кому звонят по закупке.
+    const contact = contactsFromJson(cp?.contacts)[0] ?? null;
     return {
       id: row.id,
       counterpartyId: row.counterparty_id,
       counterpartyName: cp?.name ?? "—",
       counterpartyInn: cp?.inn ?? null,
       counterpartyKpp: cp?.kpp ?? null,
-      counterpartyPhone: cp?.phone ?? null,
-      counterpartyEmail: cp?.email ?? null,
-      counterpartyContactPerson: cp?.contact_person ?? null,
+      counterpartyPhone: contact?.phone ?? null,
+      counterpartyEmail: contact?.email ?? null,
+      counterpartyContactPerson: contact?.name ?? null,
+      counterpartyTelegram: contact?.telegram ?? null,
       counterpartyAddress: cp?.address ?? null,
       counterpartyDescription: cp?.description ?? null,
       supplierArticle: row.supplier_article,

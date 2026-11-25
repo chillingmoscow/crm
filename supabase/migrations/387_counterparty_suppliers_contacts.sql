@@ -34,9 +34,8 @@ comment on column public.counterparties.is_supplier is
 comment on column public.counterparties.contacts is
   'Контакты: [{name, role, phone, email, telegram}], telegram — ник без @. Заменяет contact_person/phone/email.';
 
--- Отключаем журнал на время заполнения: это перенос, а не правка людьми.
-alter table public.counterparties disable trigger counterparties_audit;
-
+-- Заполнение. Журнал контрагента здесь молчит сам: у сессии миграции нет
+-- активного аккаунта, а триггер в этом случае ничего не пишет.
 update public.counterparties c
    set is_supplier = true
  where exists (
@@ -54,9 +53,10 @@ update public.counterparties
     or coalesce(btrim(phone), '') <> ''
     or coalesce(btrim(email), '') <> '';
 
-alter table public.counterparties enable trigger counterparties_audit;
-
--- Привязали контрагента поставщиком к позиции — он поставщик.
+-- Привязали контрагента поставщиком к позиции — он поставщик. SECURITY
+-- DEFINER намеренно: привязывает тот, у кого право на номенклатуру, а права
+-- на контрагентов у него может не быть; функция меняет только этот флаг и
+-- только у живого контрагента того же аккаунта.
 create or replace function public.ingredient_suppliers_mark_supplier()
 returns trigger
 language plpgsql
@@ -68,6 +68,7 @@ begin
      set is_supplier = true
    where account_id = NEW.account_id
      and id = NEW.counterparty_id
+     and deleted_at is null
      and not is_supplier;
   return NEW;
 end;

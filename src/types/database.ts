@@ -3274,6 +3274,83 @@ export type Database = {
           },
         ]
       }
+      stock_count_commits: {
+        Row: {
+          account_id: string
+          attempts: number
+          created_at: string
+          document_id: string | null
+          id: string
+          last_error: string | null
+          next_attempt_at: string
+          occurrence_id: string
+          qr_document_id: number | null
+          status: string
+          telegram_status: string
+          updated_at: string
+          venue_id: string
+        }
+        Insert: {
+          account_id: string
+          attempts?: number
+          created_at?: string
+          document_id?: string | null
+          id?: string
+          last_error?: string | null
+          next_attempt_at?: string
+          occurrence_id: string
+          qr_document_id?: number | null
+          status?: string
+          telegram_status?: string
+          updated_at?: string
+          venue_id: string
+        }
+        Update: {
+          account_id?: string
+          attempts?: number
+          created_at?: string
+          document_id?: string | null
+          id?: string
+          last_error?: string | null
+          next_attempt_at?: string
+          occurrence_id?: string
+          qr_document_id?: number | null
+          status?: string
+          telegram_status?: string
+          updated_at?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_count_commits_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_count_commits_account_id_document_id_fkey"
+            columns: ["account_id", "document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "stock_count_commits_occurrence_id_fkey"
+            columns: ["occurrence_id"]
+            isOneToOne: true
+            referencedRelation: "schedule_task_occurrences"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_count_commits_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       transaction_attachments: {
         Row: {
           document_type: Database["public"]["Enums"]["attachment_document_type_enum"]
@@ -4230,6 +4307,14 @@ export type Database = {
       staff_begin_termination: {
         Args: { p_official_end?: string; p_reason: string; p_uvr: string }
         Returns: string
+      }
+      stock_count_command: {
+        Args: { p_action: string; p_input: Json }
+        Returns: Json
+      }
+      stock_count_retry: {
+        Args: { p_commit: string }
+        Returns: undefined
       }
     }
     Enums: {

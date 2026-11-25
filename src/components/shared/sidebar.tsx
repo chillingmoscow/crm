@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useNewCandidateCount } from "@/lib/candidates/use-new-candidate-count";
 import { useInboxCount } from "@/lib/finance/use-inbox-count";
+import { useCertificateAlertCount } from "@/lib/finance/use-certificate-alert-count";
 import { useTheme } from "next-themes";
 import { applyTheme } from "@/lib/theme";
 import {
@@ -418,6 +419,8 @@ interface AppSidebarProps {
   newCandidatesCount?: number;
   /** Ожидаемые платежи на разбор (с сервера); дальше — `useInboxCount`. */
   inboxCount?: number;
+  /** Истекающие и просроченные сертификаты контрагентов (с сервера). */
+  certificateAlertCount?: number;
   /** SSR-полученное состояние KB-сайдбара из cookie `kb_sidebar_hidden`.
    *  Прокидывается дальше в `KbNavLink` как `initialHidden`, чтобы первый
    *  рендер иконки «База знаний» использовал правильный цвет (muted vs
@@ -483,6 +486,7 @@ function SidebarBody({
   candidateAccountId = null,
   newCandidatesCount = 0,
   inboxCount: initialInboxCount = 0,
+  certificateAlertCount: initialCertificateAlertCount = 0,
   kbSidebarHidden = false,
   isImpersonating = false,
 }: AppSidebarProps) {
@@ -616,6 +620,10 @@ function SidebarBody({
       userPermissionsSet.has("finance.create_transaction"),
     initialInboxCount,
   );
+  const certificateAlertCount = useCertificateAlertCount(
+    userPermissionsSet.has("finance.view_counterparties"),
+    initialCertificateAlertCount,
+  );
   const visibleSections = useMemo(
     () =>
       NAV_SECTIONS.map((s) => ({
@@ -628,7 +636,10 @@ function SidebarBody({
           item.href === "/people/staff" && staffAttentionCount > 0
             ? { ...item, badge: staffAttentionCount }
             : item.href === "/people/candidates" && candidateCount > 0 ? {...item,badge:candidateCount}
-            : item.href === "/finance/inbox" && inboxCount > 0 ? { ...item, badge: inboxCount } : item,
+            : item.href === "/finance/inbox" && inboxCount > 0 ? { ...item, badge: inboxCount }
+            : item.href === "/finance/counterparties" && certificateAlertCount > 0
+              ? { ...item, badge: certificateAlertCount }
+              : item,
         ),
       }))
         .filter(isSectionVisible)
@@ -638,7 +649,7 @@ function SidebarBody({
     // же массив, идентичность стабильна между рендерами с одним
     // userPermissions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [userPermissionsSet, activeRoleCode, staffAttentionCount, candidateCount, inboxCount],
+    [userPermissionsSet, activeRoleCode, staffAttentionCount, candidateCount, inboxCount, certificateAlertCount],
   );
 
   const [openSections, setOpenSections] = useState<Set<string>>(() => {

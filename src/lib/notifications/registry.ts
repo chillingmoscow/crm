@@ -5,6 +5,7 @@ import {
   Bell,
   BookOpen,
   Cake,
+  FileWarning,
   CheckCircle2,
   ClipboardCheck,
   ClipboardList,
@@ -96,6 +97,12 @@ const REGISTRY: Record<string, NotificationTypeSpec> = {
     verb: null,
   },
   "staff.medical_reminder": { category:"staff",icon:HeartPulse,iconColor:"text-rose-500",verb:null },
+  "finance.certificate_expiring": {
+    category: "finance",
+    icon: FileWarning,
+    iconColor: "text-amber-500",
+    verb: null,
+  },
   "staff.medical_book_expiring": {
     category: "staff",
     icon: HeartPulse,

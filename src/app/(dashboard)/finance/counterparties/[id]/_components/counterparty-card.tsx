@@ -19,11 +19,13 @@ import { ProfileSection } from "@/components/shared/profile-section";
 import { SaveBarScope } from "@/components/shared/save-bar";
 import type { AuditEvent } from "@/lib/audit/list";
 import type { CounterpartyActivity } from "@/lib/finance/activity";
+import type { CounterpartyCertificate } from "@/lib/finance/certificates-actions";
 import { restoreCounterparty, type CounterpartyArchiveImpact } from "@/lib/finance/counterparties";
 import { formatDateCell } from "@/lib/format/date";
 import { LEGAL_FORM_LABELS } from "@/lib/org/legal-entity-labels";
 import type { CounterpartyRow } from "@/types/finance";
 import { CounterpartyDangerZone } from "./counterparty-danger-zone";
+import { CounterpartyCertificates } from "./counterparty-certificates";
 import { CounterpartyDocuments, type CounterpartyDocument } from "./counterparty-documents";
 import { CounterpartyOperations } from "./counterparty-operations";
 import { CounterpartyPurchases, type CounterpartyPurchase } from "./counterparty-purchases";
@@ -50,6 +52,8 @@ export function CounterpartyCard({
   row,
   groups,
   attachments,
+  certificates,
+  initialTab,
   purchases,
   purchasesFailed,
   operations,
@@ -73,6 +77,9 @@ export function CounterpartyCard({
   row: CounterpartyRow;
   groups: { id: string; name: string }[];
   attachments: CounterpartyDocument[];
+  certificates: CounterpartyCertificate[];
+  /** Вкладка из адреса (`?tab=documents` — из уведомления о сертификате). */
+  initialTab: string | null;
   /** null — нет права смотреть номенклатуру: вкладки «Закупаем» нет. */
   purchases: CounterpartyPurchase[] | null;
   /** Позиции не загрузились: во вкладке — ошибка, а не «не привязаны». */
@@ -100,7 +107,7 @@ export function CounterpartyCard({
   today: string;
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<TabKey>("main");
+  const [tab, setTab] = useState<TabKey>(initialTab === "documents" ? "documents" : "main");
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [restoring, startRestore] = useTransition();
@@ -226,7 +233,15 @@ export function CounterpartyCard({
               />
             </TabsContent>
 
-            <TabsContent value="documents">
+            <TabsContent value="documents" className="flex flex-col gap-5">
+              <CounterpartyCertificates
+                counterpartyId={row.id}
+                certificates={certificates}
+                documents={attachments}
+                today={today}
+                readOnly={readOnly}
+                lockMessage={lockMessage}
+              />
               <ProfileSection
                 title="Документы"
                 description="Договоры, акты, счета, банковская карточка и другие файлы контрагента"

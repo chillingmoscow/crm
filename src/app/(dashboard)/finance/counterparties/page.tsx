@@ -14,6 +14,10 @@ import { loadCounterpartyActivity } from "@/lib/finance/activity";
 import { parsePeriod, periodParam } from "@/lib/finance/period";
 import { isDadataConfigured } from "@/lib/dadata/client";
 import { contactsFromJson } from "@/lib/finance/counterparty-contacts";
+import { CERTIFICATE_ALERT_DAYS } from "@/lib/finance/certificates";
+import { todayIso } from "@/lib/finance/certificates-actions";
+import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import { asLooseDb } from "@/lib/supabase/loose";
 import {
   CounterpartiesClient,
   type CounterpartyListRow,
@@ -45,11 +49,28 @@ export default async function CounterpartiesPage({
 
   // Архивные строки RLS отдаёт тем, кто управляет контрагентами, — но
   // показываем архив только владельцу: вернуть или удалить может только он.
-  const [{ rows }, { rows: groups }, activity] = await Promise.all([
+  // Сертификаты, которые истекают в ближайшие 30 дней или просрочены, — по
+  // контрагентам: пометка в строке и фильтр.
+  const today = await todayIso();
+  const alertLimit = new Date(Date.parse(`${today}T00:00:00Z`) + CERTIFICATE_ALERT_DAYS * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  const [{ rows }, { rows: groups }, activity, alertRows] = await Promise.all([
     listCounterparties({ include_deleted: Boolean(isOwner) }),
     listCounterpartyGroups(),
     canViewTransactions ? loadCounterpartyActivity(period) : Promise.resolve(null),
+    fetchAllRows<{ id: string; counterparty_id: string; valid_until: string }>(() =>
+      asLooseDb(supabase)
+        .from<{ id: string; counterparty_id: string; valid_until: string }[]>("counterparty_certificates")
+        .select("id, counterparty_id, valid_until")
+        .lte("valid_until", alertLimit),
+    ).catch(() => []),
   ]);
+  const certificateAlert = new Map<string, "expired" | "expiring">();
+  for (const cert of alertRows) {
+    const tone = cert.valid_until < today ? "expired" : "expiring";
+    if (certificateAlert.get(cert.counterparty_id) !== "expired") certificateAlert.set(cert.counterparty_id, tone);
+  }
 
   const list: CounterpartyListRow[] = rows.map((row) => {
     const stats = activity ? activity[row.id] : undefined;
@@ -71,6 +92,7 @@ export default async function CounterpartiesPage({
         .join(" "),
       contactPhones: contacts.map((c) => c.phone).filter((p): p is string => Boolean(p)),
       isSupplier: row.is_supplier,
+      certificateAlert: certificateAlert.get(row.id) ?? null,
       description: row.description,
       archivedAt: row.deleted_at,
       operations: activity ? (stats?.operations ?? 0) : null,

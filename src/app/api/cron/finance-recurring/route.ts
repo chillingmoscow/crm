@@ -21,6 +21,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * в 00:05 по Москве. Как crm-module-workers, он зовёт маршрут изнутри
  * контейнера: CRON_SECRET живёт только в окружении приложения.
  *
+ * Тем же ежедневным запуском — напоминания о сертификатах и лицензиях
+ * контрагентов (`enqueue_counterparty_certificate_notifications`, миграция
+ * 388): за 30 и за 7 дней до конца срока, каждое один раз на дату. Отдельный
+ * пункт cron на хосте для этого не нужен.
+ *
  * Auth: shared-secret из ENV — как medical-book-expiry-notifications.
  */
 export async function POST(request: Request) {
@@ -35,12 +40,24 @@ export async function POST(request: Request) {
 
   const supabase = createAdminClient();
   const { data, error } = await supabase.rpc("finance_recurring_materialize_all");
+  // Напоминания о сертификатах не зависят от повторяющихся платежей: сбой
+  // одного не отменяет другое.
+  const certificates = await (
+    supabase.rpc as unknown as (
+      fn: string,
+    ) => Promise<{ data: number | null; error: { message: string } | null }>
+  )("enqueue_counterparty_certificate_notifications");
+  if (certificates.error) {
+    console.error(`[cron] сертификаты: ${certificates.error.message}`);
+  }
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   return NextResponse.json({
     enqueued: Number(data ?? 0),
+    certificateNotifications: Number(certificates.data ?? 0),
+    certificatesError: certificates.error?.message ?? null,
     timestamp: new Date().toISOString(),
   });
 }

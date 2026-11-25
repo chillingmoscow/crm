@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
   Plus,
+  ChevronDown,
   Camera,
   MessageCircle,
   Trash2,
@@ -437,7 +438,7 @@ export function PayrollJournal({
           <>
             {actions}
             {canWrite && (
-              <DropdownMenu><DropdownMenuTrigger asChild><Button><Plus size={15}/>Добавить запись</Button></DropdownMenuTrigger><DropdownMenuContent align="end"><PayrollEntryMenuItems onSelect={(kind) => {setCreateKind(kind);setCreating(true);}}/></DropdownMenuContent></DropdownMenu>
+              <DropdownMenu><DropdownMenuTrigger asChild><Button size="sm"><Plus size={16}/>Добавить запись<ChevronDown size={14}/></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><PayrollEntryMenuItems onSelect={(kind) => {setCreateKind(kind);setCreating(true);}}/></DropdownMenuContent></DropdownMenu>
             )}
           </>
         }

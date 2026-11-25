@@ -59,6 +59,7 @@ import { Metric, MetricStrip } from "@/components/shared/metric-strip";
 import { EmptyState } from "@/components/ui/empty-state";
 import { TableFilterChip, TablePageHeader } from "@/components/shared/table";
 import { Money, formatRub } from "@/components/shared/money";
+import { AnimatedMoney } from "@/components/shared/animated-money";
 import { formatAmount, toKopecks } from "@/lib/format/amount";
 import { countRu } from "@/lib/format/plural";
 import { downloadBlob, xlsxBlob, type XlsxSheet } from "@/lib/export/xlsx";
@@ -373,7 +374,7 @@ export function PayrollWorkspace({
   const tableActions = tab === "statement" ? (
     (can("pay") || can("review") || canRecalculateShortage) && <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button className={s.actionButton} disabled={busy}><Plus size={16} />Добавить<ChevronDown size={14} /></Button>
+        <Button size="sm" disabled={busy}><Plus size={16} />Добавить<ChevronDown size={14} /></Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         {can("pay") && <DropdownMenuItem onSelect={() => setPayOpen(true)}>Выплата</DropdownMenuItem>}
@@ -387,7 +388,7 @@ export function PayrollWorkspace({
       </DropdownMenuContent>
     </DropdownMenu>
   ) : tab === "payments" && can("pay") ? (
-    <Button className={s.actionButton} onClick={() => setPayOpen(true)} disabled={busy}>
+    <Button size="sm" onClick={() => setPayOpen(true)} disabled={busy}>
       <Plus size={16} />Добавить выплату
     </Button>
   ) : null;
@@ -520,6 +521,10 @@ export function PayrollWorkspace({
             )}
             {tab === "plan" ? (
               <PlanMetrics view={planView} />
+            ) : tab === "payments" ? (
+              <PaymentsMetrics data={data} month={monthStart} />
+            ) : tab === "journal" ? (
+              <JournalMetrics data={data} month={monthStart} />
             ) : (
             <MetricStrip label="Итоги за месяц">
               <Metric
@@ -528,12 +533,12 @@ export function PayrollWorkspace({
                 icon={<ArrowUpRight size={15} />}
                 ariaLabel="Начислено команде: состав начислений"
                 onClick={() => setComposition(true)}
-                value={<Money value={total} />}
+                value={<AnimatedMoney value={total} />}
                 hint={`${staffCount(active.length)} · ${shiftCount(shifts)}`}
               />
               <Metric
                 label="Выплачено"
-                value={<Money value={historyPending ? null : paid} />}
+                value={<AnimatedMoney value={historyPending ? null : paid} />}
                 // Причина прочерка написана текстом: подсказку по наведению
                 // не увидеть с клавиатуры и с телефона.
                 hint={
@@ -552,7 +557,7 @@ export function PayrollWorkspace({
                 }
                 hint={knownBalance ? undefined : "Появится после сверки прежних выплат"}
               />
-              <Metric label="Чаевые" value={<Money value={tips} />} hint="Отдельно от зарплаты" />
+              <Metric label="Чаевые" value={<AnimatedMoney value={tips} />} hint="Отдельно от зарплаты" />
             </MetricStrip>
             )}
             {/* Вкладки представления: общий Tabs + workspace-tabs. Панель одна
@@ -648,6 +653,8 @@ export function PayrollWorkspace({
                       }}
                     >
                       <svg
+                        // Новый месяц — график рисуется заново (дизайн-система, «Движение»).
+                        key={monthStart}
                         viewBox="0 0 720 145"
                         preserveAspectRatio="none"
                         aria-hidden="true"
@@ -686,6 +693,7 @@ export function PayrollWorkspace({
                         <path
                           d={`M 0 135 ${daily.map((d, i) => `L ${(i / (days - 1)) * 720} ${135 - (d.value / dailyMax) * 122}`).join(" ")} L 720 135 Z`}
                           fill="url(#payroll-fill)"
+                          className="chart-fill-in"
                         />
                         <polyline
                           points={daily
@@ -698,6 +706,8 @@ export function PayrollWorkspace({
                           stroke="hsl(var(--brand))"
                           strokeWidth="2.3"
                           vectorEffect="non-scaling-stroke"
+                          pathLength={1}
+                          className="chart-line-draw"
                           strokeLinejoin="round"
                         />
                         {hoverDay !== null && (
@@ -763,7 +773,10 @@ export function PayrollWorkspace({
                         </div>
                         <div className={s.barTrack}>
                           <span
+                            key={monthStart}
+                            className="chart-bar-grow-x"
                             style={{
+                              animationDelay: `${i * 60}ms`,
                               width: `${total ? (r.value / total) * 100 : 0}%`,
                               background: colors[Math.min(i, colors.length - 1)],
                             }}
@@ -982,18 +995,18 @@ function PlanMetrics({ view }: { view: PayoutPlanView | null }) {
       <Metric
         primary
         label={title}
-        value={<Money value={view ? total : null} />}
+        value={<AnimatedMoney value={view ? total : null} />}
         hint={window ? `${dm(window.from)} – ${dm(window.to)} · ${state}` : "Окно первой выплаты — с 25-го по 1-е"}
       />
       <Metric
         label="Выдано"
-        value={<Money value={view ? issued : null} />}
+        value={<AnimatedMoney value={view ? issued : null} />}
         hint={view ? `${issuedPeople} из ${people.length} сотрудников` : undefined}
       />
-      <Metric label="Осталось выдать" value={<Money value={view ? total - issued : null} />} />
+      <Metric label="Осталось выдать" value={<AnimatedMoney value={view ? total - issued : null} />} />
       <Metric
         label="Сегодня по плану"
-        value={<Money value={view ? todaySum : null} />}
+        value={<AnimatedMoney value={view ? todaySum : null} />}
         hint={
           !view ? undefined
           : view.plan?.state !== "approved" ? "после утверждения"
@@ -1001,6 +1014,53 @@ function PlanMetrics({ view }: { view: PayoutPlanView | null }) {
           : `${countRu(todayRows.length, "сотрудник", "сотрудника", "сотрудников")} · кнопкой «Выдать сейчас»`
         }
       />
+    </MetricStrip>
+  );
+}
+
+/** Итоги вкладки «Выплаты»: что и как выплачено за месяц. */
+function PaymentsMetrics({ data, month }: { data: PayrollData; month: string }) {
+  const posted = new Map(data.payments.filter((p) => p.state === "posted").map((p) => [p.id, p]));
+  const lines = data.allocations.filter((a) => a.month === month && posted.has(a.payment_id));
+  const sum = (pick: (kind: string, official: boolean) => boolean) =>
+    lines
+      .filter((a) => {
+        const p = posted.get(a.payment_id)!;
+        return pick(p.kind, !!p.official_month);
+      })
+      .reduce((total, a) => total + Number(a.amount), 0);
+  const count = (pick: (kind: string) => boolean) =>
+    new Set(lines.filter((a) => pick(posted.get(a.payment_id)!.kind)).map((a) => a.payment_id)).size;
+  const salary = sum((kind) => kind !== "tips");
+  return (
+    <MetricStrip label="Итоги выплат за месяц">
+      <Metric
+        primary
+        label="Выплачено зарплаты"
+        value={<AnimatedMoney value={salary} />}
+        hint={countRu(count((kind) => kind !== "tips"), "операция", "операции", "операций")}
+      />
+      <Metric label="Наличными и переводом" value={<AnimatedMoney value={sum((kind, official) => kind !== "tips" && !official)} />} hint="Без официальной части" />
+      <Metric label="Официальная часть" value={<AnimatedMoney value={sum((kind, official) => kind !== "tips" && official)} />} hint="Переводит бухгалтерия" />
+      <Metric label="Чаевые выданы" value={<AnimatedMoney value={sum((kind) => kind === "tips")} />} hint={countRu(count((kind) => kind === "tips"), "выдача", "выдачи", "выдач")} />
+    </MetricStrip>
+  );
+}
+
+/** Итоги вкладки «Начисления и удержания»: премии, штрафы, надбавки за месяц. */
+function JournalMetrics({ data, month }: { data: PayrollData; month: string }) {
+  const rows = data.adjustments.filter((a) => !a.deleted_at && a.business_date.startsWith(month.slice(0, 7)));
+  const total = (pick: (a: (typeof rows)[number]) => boolean) => rows.filter(pick).reduce((s, a) => s + Number(a.amount), 0);
+  const bonuses = total((a) => a.kind !== "allowance" && Number(a.amount) > 0);
+  const fines = total((a) => Number(a.amount) < 0);
+  const allowances = total((a) => a.kind === "allowance");
+  const pending = rows.filter((a) => !a.approved);
+  return (
+    <MetricStrip label="Итоги начислений и удержаний за месяц">
+      <Metric primary label="Премии" value={<AnimatedMoney value={bonuses} signed />} hint={countRu(rows.filter((a) => a.kind !== "allowance" && Number(a.amount) > 0).length, "запись", "записи", "записей")} />
+      <Metric label="Штрафы и удержания" value={<AnimatedMoney value={fines} signed />} hint={countRu(rows.filter((a) => Number(a.amount) < 0).length, "запись", "записи", "записей")} />
+      <Metric label="Надбавки за месяц" value={<AnimatedMoney value={allowances} signed />} />
+      <Metric label="На подтверждении" value={<AnimatedMoney value={total((a) => !a.approved)} signed />} hint={countRu(pending.length, "запись", "записи", "записей")} />
     </MetricStrip>
   );
 }

@@ -642,6 +642,8 @@ async function loadPayoutAssignmentsImpl() {
   };
 }
 
+export type PayoutAssignments = Awaited<ReturnType<typeof loadPayoutAssignmentsImpl>>;
+
 // Действия возвращают ошибку текстом, а не исключением (см. lib/actions/result).
 export async function loadPayoutPlan(schedule: PayoutScheduleCode) {
   return actionResult(() => loadPayoutPlanImpl(schedule), "Не удалось загрузить план выплат");

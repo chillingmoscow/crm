@@ -76,7 +76,8 @@ export async function POST(request: NextRequest) {
       nomenclatureRuns = 0,
       nomenclatureErrors = 0,
       dishPhotoRuns = 0,
-      dishPhotoErrors = 0;
+      dishPhotoErrors = 0,
+      dishPhotosDownloaded = 0;
     try {
       await scheduleStatisticsReports();
     } catch {
@@ -170,6 +171,7 @@ export async function POST(request: NextRequest) {
         const r = await processDishPhotos();
         if (!r.idle) {
           dishPhotoRuns++;
+          dishPhotosDownloaded += r.downloaded;
           if (r.error) dishPhotoErrors++;
         }
       } catch (error) {
@@ -351,6 +353,7 @@ export async function POST(request: NextRequest) {
       nomenclatureErrors,
       dishPhotoRuns,
       dishPhotoErrors,
+      dishPhotosDownloaded,
     });
   } catch {
     return NextResponse.json(

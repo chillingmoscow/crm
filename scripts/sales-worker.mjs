@@ -39,7 +39,8 @@ while (!stopping) {
         (stats.guestSlices && !stats.guestErrors) ||
         ((stats.supplySlices || stats.supplyPending) && !stats.supplyErrors) ||
         // Тик сверки номенклатуры пропускает очереди — следующий сразу.
-        stats.nomenclatureRuns
+        stats.nomenclatureRuns ||
+        (stats.dishPhotoRuns && !stats.dishPhotoErrors)
       )
         delay = 500;
       if (stats.slices || stats.queued)
@@ -77,6 +78,10 @@ while (!stopping) {
       if (stats.nomenclatureRuns || stats.nomenclatureErrors)
         console.log(
           `Номенклатура: сверок ${stats.nomenclatureRuns}, ошибок ${stats.nomenclatureErrors}`,
+        );
+      if (stats.dishPhotoRuns || stats.dishPhotoErrors)
+        console.log(
+          `Фото блюд: ходов ${stats.dishPhotoRuns}, скачано ${stats.dishPhotosDownloaded ?? 0}, ошибок ${stats.dishPhotoErrors}`,
         );
       if (stats.guestSlices || stats.guestErrors)
         console.log(

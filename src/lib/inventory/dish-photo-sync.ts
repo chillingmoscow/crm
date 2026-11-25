@@ -9,6 +9,7 @@ import "server-only";
 import { writeAuditEvent } from "@/lib/audit/write";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
+import { removeQuickRestoPhotoFile } from "@/lib/inventory/dish-photo-files";
 import {
   isBackOfficeAuthError,
   isBackOfficePermissionError,
@@ -32,7 +33,7 @@ const BATCH = 20;
 const TURN_MS = 25_000;
 const AUTH_PAUSE_MS = 6 * 60 * 60 * 1000;
 const RATE_LIMIT_PAUSE_MS = 15 * 60 * 1000;
-/** Столько сбоев чтения подряд — похоже на сбой Quick Resto, ход прекращается. */
+/** Столько сбоев подряд (карточка или скачивание) — похоже на сбой Quick Resto, ход прекращается. */
 const MAX_FAILURES_IN_ROW = 3;
 const BUCKET = "account-attachments";
 
@@ -151,6 +152,9 @@ async function applyDownload(admin: LooseDb, dish: ClaimedDish, url: string): Pr
     return false;
   }
   await journal(admin, dish, false);
+  // Прежняя копия из Quick Resto больше не нужна. Ручное фото сюда не попадает:
+  // поверх него очередь фото не ставит.
+  if (dish.photo_source === "quickresto") await removeQuickRestoPhotoFile(admin, dish.account_id, dish.primary_image_file_id);
   return true;
 }
 
@@ -234,16 +238,15 @@ export async function processDishPhotos(input: { deadlineMs?: number } = {}): Pr
         pending.shift();
         console.error(`[dish-photos] блюдо ${dish.external_id}:`, error instanceof Error ? error.message : error);
         if (failuresInRow >= MAX_FAILURES_IN_ROW) {
-          turnError = "Quick Resto несколько раз подряд не отдал карточку блюда";
+          turnError = "Quick Resto несколько раз подряд не отдал карточку или фото блюда";
           break;
         }
         continue;
       }
-      failuresInRow = 0;
-
       if (reading.kind === "refused") {
         // Ссылка не из хранилища Quick Resto: не качаем, но и свою копию не снимаем.
         await markChecked(admin, dish, undefined);
+        failuresInRow = 0;
         pending.shift();
         continue;
       }
@@ -262,17 +265,26 @@ export async function processDishPhotos(input: { deadlineMs?: number } = {}): Pr
         } else if (decision.action === "clear") {
           if (await setQuickRestoPhoto(admin, dish, null)) {
             await journal(admin, dish, true);
+            await removeQuickRestoPhotoFile(admin, dish.account_id, dish.primary_image_file_id);
             counts.cleared++;
           }
         }
         await markChecked(admin, dish, decision.remember ? incoming : undefined);
+        failuresInRow = 0;
       } catch (error) {
         // Ссылку не запоминаем: иначе следующая проверка сочла бы фото уже скачанным.
         counts.failed++;
+        failuresInRow++;
         await markChecked(admin, dish, undefined);
         console.error(`[dish-photos] фото блюда ${dish.external_id}:`, error instanceof Error ? error.message : error);
       }
       pending.shift();
+      // Подряд не читаются карточки или не скачиваются фото — похоже на сбой
+      // Quick Resto или хранилища: не гоняем остаток пачки впустую.
+      if (failuresInRow >= MAX_FAILURES_IN_ROW) {
+        turnError = "Quick Resto несколько раз подряд не отдал карточку или фото блюда";
+        break;
+      }
     }
     // Ход дошёл до конца без сбоя входа — прежняя пауза больше не нужна.
     await setPause(admin, accountId, null);

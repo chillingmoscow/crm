@@ -1519,6 +1519,22 @@ export async function getResultDocumentForAction(input: {
   requireOpen?: boolean;
 }) {
   await assertDocumentVisible({ supabase: input.supabase, documentId: input.documentId });
+  return loadResultDocumentForAction(input);
+}
+
+/**
+ * Акт для действия над итогами — без проверки видимости пользователю.
+ *
+ * Читает admin-клиентом в пределах `accountId` и применяет те же запреты, что
+ * getResultDocumentForAction. Для серверных путей без сессии (воркер, импорт);
+ * из экшена, вызванного пользователем, — только после assertDocumentVisible.
+ */
+export async function loadResultDocumentForAction(input: {
+  admin: LooseDb;
+  accountId: string;
+  documentId: string;
+  requireOpen?: boolean;
+}) {
   const { data: document } = await input.admin
     .from<InventoryResultDocumentRow>("documents")
     .select(

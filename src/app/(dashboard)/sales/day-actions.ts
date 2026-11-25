@@ -152,6 +152,14 @@ async function loadDayTeamImpl(
         .select("id,avatar_url")
         .in("id", profileIds)
     : null;
+  // Имя в команде дня ведёт в карточку сотрудника — только тем, кому её
+  // можно открыть (страница карточки требует обоих прав).
+  const canOpenStaff =
+    s.permissions.includes("people.view_staff") &&
+    s.permissions.includes("people.view_staff_details");
+  const userIds = new Map(
+    (employees.data ?? []).map((e) => [e.id, e.local_user_id ?? undefined]),
+  );
   return {
     allowed: true,
     source,
@@ -159,7 +167,10 @@ async function loadDayTeamImpl(
       accruals,
       employees.data ?? [],
       Object.fromEntries((photos?.data ?? []).map((p) => [p.id, p.avatar_url])),
-    ),
+    ).map((m) => ({
+      ...m,
+      userId: canOpenStaff && m.employeeId ? userIds.get(m.employeeId) : undefined,
+    })),
   };
 }
 async function loadDayDiscussionImpl(

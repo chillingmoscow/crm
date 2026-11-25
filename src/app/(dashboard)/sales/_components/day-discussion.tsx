@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { ExpandPanel } from "@/components/shared/overview-toggle";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import { formatDayMonthTime } from "@/lib/format/date";
 import { unwrapAction } from "@/lib/actions/result";
 import { dayCommentCommand, loadDayDiscussion } from "../day-actions";
@@ -128,9 +131,16 @@ function Discussion({ venueId, date }: { venueId: string; date: string }) {
         </div>
       )}
       {!data && !error && (
-        <p role="status" className="text-sm text-muted-foreground">
-          Загружаем обсуждение…
-        </p>
+        <div role="status" aria-label="Загружаем обсуждение" aria-busy className="space-y-5">
+          {[0, 1].map((i) => (
+            <div key={i} className="space-y-2">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="mt-3 h-4 w-full" />
+              <Skeleton className="h-4 w-2/3" />
+            </div>
+          ))}
+        </div>
       )}
       {data && (
         <>
@@ -202,7 +212,7 @@ function Discussion({ venueId, date }: { venueId: string; date: string }) {
                     type="button"
                     aria-expanded={historyOpen === c.id}
                     aria-controls={`comment-history-${c.id}`}
-                    className="inline-flex items-center gap-1 hover:text-foreground"
+                    className="inline-flex items-center gap-1 transition-colors duration-200 hover:text-foreground"
                     onClick={() =>
                       setHistoryOpen(historyOpen === c.id ? null : c.id)
                     }
@@ -210,11 +220,15 @@ function Discussion({ venueId, date }: { venueId: string; date: string }) {
                     История
                     <ChevronDown
                       aria-hidden
-                      className={`size-3.5 transition-transform ${historyOpen === c.id ? "rotate-180" : ""}`}
+                      className={cn("motion-chevron size-3.5", historyOpen === c.id && "rotate-180")}
                     />
                   </button>
-                  {historyOpen === c.id && (
-                    <ol id={`comment-history-${c.id}`} className="mt-3 space-y-3 border-l pl-3">
+                  <ExpandPanel
+                    id={`comment-history-${c.id}`}
+                    open={historyOpen === c.id}
+                    className="mt-3"
+                  >
+                    <ol className="space-y-3 border-l pl-3">
                       <li><p>Создан · {c.author_name}</p><p className="mt-1">{stamp(c.created_at)}</p></li>
                       {data.history
                         .filter((h) => h.comment_id === c.id&&h.action!=="created")
@@ -242,7 +256,7 @@ function Discussion({ venueId, date }: { venueId: string; date: string }) {
                           </li>
                         ))}
                     </ol>
-                  )}
+                  </ExpandPanel>
                 </div>
               </li>
             ))}

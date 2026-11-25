@@ -4,7 +4,10 @@ import Link from "next/link";
 import { ChevronDown, HandCoins, Wallet } from "lucide-react";
 import { EmployeeIdentity } from "@/components/shared/employee-identity";
 import { Money } from "@/components/shared/money";
+import { ExpandPanel } from "@/components/shared/overview-toggle";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import { DrawerSummary, DrawerSummaryItem } from "@/components/ui/drawer-blocks";
 import {
   departmentMember,
@@ -49,17 +52,18 @@ export function DayTeamList({
           const panelId = `day-member-${m.id}`;
           return (
             <li key={m.id}>
-              <button
-                type="button"
-                aria-expanded={expanded}
-                aria-controls={panelId}
-                className="flex w-full items-center justify-between gap-3 rounded-md py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+              {/* Строка раскрывает расчёт, имя ведёт в карточку сотрудника и
+                  строку не раскрывает (DS «Кликабельное имя»). С клавиатуры
+                  раскрывает кнопка-шеврон. */}
+              <div
+                className="flex w-full cursor-pointer items-center justify-between gap-3 py-3 text-left"
                 onClick={() => setOpen(expanded ? null : m.id)}
               >
                 <EmployeeIdentity
                   name={m.name}
                   role={m.position ?? m.role}
                   avatarUrl={m.avatarUrl}
+                  href={m.userId ? `/people/staff/${m.userId}` : undefined}
                 />
                 <span className="flex shrink-0 items-center gap-2 text-right">
                   <span>
@@ -81,14 +85,26 @@ export function DayTeamList({
                           : "Начислено"}
                     </span>
                   </span>
-                  <ChevronDown
-                    aria-hidden
-                    className={`size-4 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
-                  />
+                  <button
+                    type="button"
+                    aria-expanded={expanded}
+                    aria-controls={panelId}
+                    aria-label={`Расчёт: ${m.name}`}
+                    className="flex size-7 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors duration-200 hover:text-foreground focus-visible:ring-2 focus-visible:ring-brand/30"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOpen(expanded ? null : m.id);
+                    }}
+                  >
+                    <ChevronDown
+                      aria-hidden
+                      className={cn("motion-chevron size-4", expanded && "rotate-180")}
+                    />
+                  </button>
                 </span>
-              </button>
-              {expanded && (
-                <div id={panelId} className="space-y-3 pb-4 text-sm">
+              </div>
+              <ExpandPanel id={panelId} open={expanded}>
+                <div className="space-y-3 pb-4 text-sm">
                   {m.issues.map((issue) => (
                     <p
                       key={issue}
@@ -159,7 +175,7 @@ export function DayTeamList({
                     )}
                   </div>
                 </div>
-              )}
+              </ExpandPanel>
             </li>
           );
         })}
@@ -225,9 +241,23 @@ export function DayTeamPanel({
     );
   if (!data)
     return (
-      <p role="status" className="py-4 text-sm text-muted-foreground">
-        Загружаем команду…
-      </p>
+      <div role="status" aria-label="Загружаем команду" aria-busy className="space-y-4">
+        <Skeleton className="h-16 rounded-xl" />
+        <div className="divide-y">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex items-center justify-between gap-3 py-3">
+              <div className="flex items-center gap-3">
+                <Skeleton className="size-9 rounded-full" />
+                <div className="space-y-1.5">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-3 w-20" />
+                </div>
+              </div>
+              <Skeleton className="h-4 w-16" />
+            </div>
+          ))}
+        </div>
+      </div>
     );
   if (!data.allowed)
     return (

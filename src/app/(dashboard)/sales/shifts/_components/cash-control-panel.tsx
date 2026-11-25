@@ -14,6 +14,7 @@ import {
   requestCashControl,
   type CashDayData,
 } from "../cash-control-actions";
+import { SectionRowsSkeleton } from "../../_components/section-skeleton";
 
 const states: Record<string, { label: string; tone: StatusTone }> = {
   unknown: { label: "Нет подтверждённых данных", tone: "neutral" },
@@ -90,7 +91,15 @@ export function CashControlPanel({
       setBusy(false);
     }
   };
-  if (!data && !error) return null;
+  if (!data && !error)
+    return (
+      <DrawerSection
+        title="Контроль кассы"
+        description="Расчётный и указанный кассиром остаток при открытии и закрытии"
+      >
+        <SectionRowsSkeleton label="Загружаем контроль кассы" rows={2} />
+      </DrawerSection>
+    );
   const jobError = salesErrorText(data?.job?.error);
   return (
     <DrawerSection

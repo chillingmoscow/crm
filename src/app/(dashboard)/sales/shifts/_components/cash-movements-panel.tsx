@@ -22,6 +22,7 @@ import { Money, formatRub } from "@/components/shared/money";
 import { formatDateCell, formatDayMonthTime } from "@/lib/format/date";
 import { countRu } from "@/lib/format/plural";
 import { salesErrorText } from "@/lib/sales/errors";
+import { SectionRowsSkeleton } from "../../_components/section-skeleton";
 export function CashMovementsPanel({
   venueId,
   date,
@@ -87,7 +88,15 @@ export function CashMovementsPanel({
       setBusy(false);
     }
   };
-  if (!data && !error) return null;
+  if (!data && !error)
+    return (
+      <DrawerSection
+        title="Инкассации и внесения"
+        description="Инкассации, такси и выдача чаевых по кассовой смене"
+      >
+        <SectionRowsSkeleton label="Загружаем инкассации и внесения" />
+      </DrawerSection>
+    );
   const problem =
     error ?? salesErrorText(data?.job?.error) ?? data?.problem ?? null;
   return (
@@ -290,6 +299,13 @@ export function CashMovementHistory({
       setBusy(false);
     }
   };
+  // Пока не знаем, доступна ли история, держим место секции; без доступа — убираем.
+  if (rows === null && !error)
+    return (
+      <DrawerSection title="Инкассации и внесения">
+        <SectionRowsSkeleton label="Загружаем историю инкассаций" rows={2} />
+      </DrawerSection>
+    );
   if (!allowed && !error) return null;
   return (
     <DrawerSection title="Инкассации и внесения">

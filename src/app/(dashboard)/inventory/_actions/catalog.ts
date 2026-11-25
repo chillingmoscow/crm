@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
 import { writeAuditEvent } from "@/lib/audit/write";
+import { removeQuickRestoPhotoFile } from "@/lib/inventory/dish-photo-files";
 import {
   getIngredientDetail,
   listIngredientHistory,
@@ -73,6 +74,10 @@ export async function uploadInventoryProductImage(formData: FormData): Promise<{
     .eq("id", productId)
     .eq("account_id", ctx.accountId);
   if (productError) return { error: productError.message };
+  // Своё фото заменило копию из Quick Resto — копию удаляем.
+  if (product.photo_source === "quickresto") {
+    await removeQuickRestoPhotoFile(admin, ctx.accountId, product.primary_image_file_id);
+  }
 
   const replaced = Boolean(product.primary_image_file_id);
   await writeIngredientJournal({
@@ -98,8 +103,9 @@ export async function uploadInventoryProductImage(formData: FormData): Promise<{
 }
 
 /**
- * Убрать фото позиции. Файл в хранилище остаётся (как и при замене фото):
- * на него может ссылаться история, а место он занимает копеечное.
+ * Убрать фото позиции. Файл ручного фото в хранилище остаётся (как и при
+ * замене фото): на него может ссылаться история, а место он занимает
+ * копеечное. Копия из Quick Resto удаляется — её можно скачать снова.
  */
 export async function removeInventoryProductImage(input: {
   productId: string;
@@ -121,6 +127,9 @@ export async function removeInventoryProductImage(input: {
     .eq("id", productId)
     .eq("account_id", ctx.accountId);
   if (error) return { error: error.message };
+  if (product.photo_source === "quickresto") {
+    await removeQuickRestoPhotoFile(admin, ctx.accountId, product.primary_image_file_id);
+  }
 
   await writeIngredientJournal({
     admin,
@@ -258,6 +267,7 @@ type IngredientRef = {
   kind: string | null;
   local_description: string | null;
   primary_image_file_id: string | null;
+  photo_source: "manual" | "quickresto" | null;
 };
 
 /** Позиция номенклатуры этого аккаунта (или null): проверка владения и
@@ -269,7 +279,7 @@ async function loadIngredientRef(
 ): Promise<IngredientRef | null> {
   const { data } = await admin
     .from<IngredientRef>("ingredients")
-    .select("id, name, kind, local_description, primary_image_file_id")
+    .select("id, name, kind, local_description, primary_image_file_id, photo_source")
     .eq("id", ingredientId)
     .eq("account_id", accountId)
     .maybeSingle();

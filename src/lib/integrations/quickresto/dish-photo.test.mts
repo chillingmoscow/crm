@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   DISH_PHOTO_MAX_BYTES,
   decideDishPhoto,
+  downloadDishPhoto,
   isAllowedDishPhotoUrl,
   pickDishPhotoUrl,
 } from "./dish-photo.ts";
@@ -97,4 +98,54 @@ test("decideDishPhoto: в Quick Resto фото убрали — снимаем �
     "clear",
   );
   assert.equal(decideDishPhoto(none, null), "skip");
+});
+
+const fakeFetch =
+  (body: BodyInit | null, headers: Record<string, string>, status = 200, seen: string[] = []) =>
+  (async (input: string | URL | Request) => {
+    seen.push(String(input));
+    return new Response(body, { status, headers });
+  }) as typeof fetch;
+
+test("downloadDishPhoto скачивает картинку и определяет расширение", async () => {
+  const photo = await downloadDishPhoto(url("a"), fakeFetch(new Uint8Array([1, 2, 3]), { "content-type": "image/jpeg" }));
+  assert.equal(photo.ext, "jpg");
+  assert.equal(photo.contentType, "image/jpeg");
+  assert.deepEqual([...photo.bytes], [1, 2, 3]);
+});
+
+test("downloadDishPhoto не ходит по чужому адресу", async () => {
+  const seen: string[] = [];
+  await assert.rejects(
+    downloadDishPhoto("https://evil.example/quickrestobase/a.jpg", fakeFetch(new Uint8Array([1]), { "content-type": "image/jpeg" }, 200, seen)),
+    /не из хранилища/,
+  );
+  assert.equal(seen.length, 0);
+});
+
+test("downloadDishPhoto отказывает не картинке", async () => {
+  await assert.rejects(
+    downloadDishPhoto(url("a"), fakeFetch("<html></html>", { "content-type": "text/html; charset=utf-8" })),
+    /не картинка/,
+  );
+  await assert.rejects(
+    downloadDishPhoto(url("a"), fakeFetch("<svg/>", { "content-type": "image/svg+xml" })),
+    /не картинка/,
+  );
+});
+
+test("downloadDishPhoto отказывает файлу больше 10 МБ — по заголовку и по факту", async () => {
+  await assert.rejects(
+    downloadDishPhoto(url("a"), fakeFetch(new Uint8Array([1]), { "content-type": "image/png", "content-length": String(DISH_PHOTO_MAX_BYTES + 1) })),
+    /больше 10 МБ/,
+  );
+  await assert.rejects(
+    downloadDishPhoto(url("a"), fakeFetch(new Uint8Array(DISH_PHOTO_MAX_BYTES + 1), { "content-type": "image/png" })),
+    /больше 10 МБ/,
+  );
+});
+
+test("downloadDishPhoto: ошибка хранилища и пустой файл", async () => {
+  await assert.rejects(downloadDishPhoto(url("a"), fakeFetch(null, {}, 404)), /не скачалось \(404\)/);
+  await assert.rejects(downloadDishPhoto(url("a"), fakeFetch(new Uint8Array(0), { "content-type": "image/jpeg" })), /Пустой файл/);
 });

@@ -35,6 +35,7 @@ import {
 import { scheduleGuestReads, processGuestRead } from "@/lib/guests/sync";
 import { scheduleSupplies, processSupplyRead } from "@/lib/supplies/sync";
 import { processDueQuickRestoSync } from "@/lib/inventory/quickresto-sync";
+import { processDishPhotos } from "@/lib/inventory/dish-photo-sync";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -73,7 +74,9 @@ export async function POST(request: NextRequest) {
       supplyErrors = 0,
       supplyPending = 0,
       nomenclatureRuns = 0,
-      nomenclatureErrors = 0;
+      nomenclatureErrors = 0,
+      dishPhotoRuns = 0,
+      dishPhotoErrors = 0;
     try {
       await scheduleStatisticsReports();
     } catch {
@@ -155,13 +158,28 @@ export async function POST(request: NextRequest) {
         rotation.error ||
         !Number.isInteger(rotation.data) ||
         Number(rotation.data) < 0 ||
-        Number(rotation.data) > 9
+        Number(rotation.data) > 10
       )
         throw new Error("Не удалось выбрать очередь");
       lane = Number(rotation.data);
     }
     const started = Date.now();
-    if (lane === 9) {
+    if (lane === 10) {
+      // Фото блюд из Quick Resto: один ход до ~25 секунд (dish-photo-sync.ts).
+      try {
+        const r = await processDishPhotos();
+        if (!r.idle) {
+          dishPhotoRuns++;
+          if (r.error) dishPhotoErrors++;
+        }
+      } catch (error) {
+        dishPhotoErrors++;
+        console.error(
+          "[dish-photos] ход очереди:",
+          error instanceof Error ? error.message : error,
+        );
+      }
+    } else if (lane === 9) {
       while (Date.now() - started < 25000 && supplySlices < 100) {
         try {
           const r = await processSupplyRead();
@@ -293,6 +311,7 @@ export async function POST(request: NextRequest) {
       nativeFinanceSlices, nativeFinanceErrors,
       guestSlices, guestErrors,
       supplySlices, supplyErrors,
+      dishPhotoRuns, dishPhotoErrors,
     ].some(Boolean);
     if (!nomenclatureBusy && (lane === 0 || !otherWork)) {
       while (Date.now() - started < 25000 && slices < 100) {
@@ -330,6 +349,8 @@ export async function POST(request: NextRequest) {
       supplyPending,
       nomenclatureRuns,
       nomenclatureErrors,
+      dishPhotoRuns,
+      dishPhotoErrors,
     });
   } catch {
     return NextResponse.json(

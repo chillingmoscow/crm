@@ -69,7 +69,7 @@ export async function uploadInventoryProductImage(formData: FormData): Promise<{
 
   const { error: productError } = await admin
     .from("ingredients")
-    .update({ primary_image_file_id: fileRow.id })
+    .update({ primary_image_file_id: fileRow.id, photo_source: "manual" })
     .eq("id", productId)
     .eq("account_id", ctx.accountId);
   if (productError) return { error: productError.message };
@@ -117,7 +117,7 @@ export async function removeInventoryProductImage(input: {
 
   const { error } = await admin
     .from("ingredients")
-    .update({ primary_image_file_id: null })
+    .update({ primary_image_file_id: null, photo_source: null })
     .eq("id", productId)
     .eq("account_id", ctx.accountId);
   if (error) return { error: error.message };

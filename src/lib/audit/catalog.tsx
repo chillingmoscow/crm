@@ -112,6 +112,13 @@ export const catalogAuditSpecs: Record<string, AuditEventSpec> = {
       удалил(а) фото {kindOf(e).gen} <ItemName event={e} />
     </>
   )),
+  // Пишет фоновая очередь фото блюд (dish-photo-sync.ts), автор — система.
+  "catalog.dish_photos.synced": spec(ImagePlus, INFO, (e) => (
+    <>
+      обновила фото блюд из Quick Resto: добавлено {Number(e.details.downloaded ?? 0)}, убрано{" "}
+      {Number(e.details.cleared ?? 0)}
+    </>
+  )),
   "catalog.ingredient_group.photo_updated": spec(ImagePlus, INFO, (e) => (
     <>
       {e.details.replaced ? "заменил(а) фото" : "добавил(а) фото"} группы{" "}

@@ -43,7 +43,7 @@ export type Database = {
           size_bytes: number
           storage_path: string
           uploaded_at: string
-          uploaded_by: string
+          uploaded_by: string | null
         }
         Insert: {
           account_id: string
@@ -53,7 +53,7 @@ export type Database = {
           size_bytes: number
           storage_path: string
           uploaded_at?: string
-          uploaded_by: string
+          uploaded_by?: string | null
         }
         Update: {
           account_id?: string
@@ -63,7 +63,7 @@ export type Database = {
           size_bytes?: number
           storage_path?: string
           uploaded_at?: string
-          uploaded_by?: string
+          uploaded_by?: string | null
         }
         Relationships: [
           {
@@ -1290,6 +1290,7 @@ export type Database = {
           backoffice_cookie_tag: string | null
           backoffice_last_tested_at: string | null
           backoffice_login: string | null
+          dish_photos_paused_until: string | null
           backoffice_password_encrypted: string | null
           backoffice_password_iv: string | null
           backoffice_password_tag: string | null
@@ -1316,6 +1317,7 @@ export type Database = {
           backoffice_cookie_tag?: string | null
           backoffice_last_tested_at?: string | null
           backoffice_login?: string | null
+          dish_photos_paused_until?: string | null
           backoffice_password_encrypted?: string | null
           backoffice_password_iv?: string | null
           backoffice_password_tag?: string | null
@@ -1342,6 +1344,7 @@ export type Database = {
           backoffice_cookie_tag?: string | null
           backoffice_last_tested_at?: string | null
           backoffice_login?: string | null
+          dish_photos_paused_until?: string | null
           backoffice_password_encrypted?: string | null
           backoffice_password_iv?: string | null
           backoffice_password_tag?: string | null

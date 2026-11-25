@@ -602,6 +602,27 @@ export async function callQuickRestoBackOfficeData<T>(input: {
   }
 }
 
+/**
+ * Карточка блюда из бэк-офиса — с фото. Публичный API и чтение без className
+ * фото не отдают: поля `images` и `wlcrmMedia` приходят, только когда класс
+ * указан явно (проверено на проде 25.11.2026, блюдо 2867).
+ */
+export function readDishBackOffice(input: {
+  layerName: string;
+  baseUrl?: string | null;
+  /** Authorization-заголовок сессии: «Bearer <access_token>». */
+  authorization: string;
+  id: number;
+}): Promise<unknown> {
+  return callQuickRestoBackOfficeData<unknown>({
+    layerName: input.layerName,
+    baseUrl: input.baseUrl,
+    authorization: input.authorization,
+    path: `${DISH_MODULE}/read`,
+    query: { id: input.id, className: DISH_CLASS },
+  });
+}
+
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }

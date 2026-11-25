@@ -551,7 +551,7 @@ export function StoresClient({
             {/* Настоящая кнопка в первой ячейке: строку можно открыть и с клавиатуры. */}
             <button
               type="button"
-              className="block max-w-full truncate text-left font-medium hover:underline"
+              className="block max-w-full truncate text-left font-medium transition-colors duration-200 hover:text-brand"
               data-tip={store.title}
               onClick={() => setOpenStoreId(store.id)}
             >
@@ -675,7 +675,7 @@ export function StoresClient({
         return canViewDocuments ? (
           <Link
             href={`/documents/inventory?store=${store.id}`}
-            className="tabular-nums hover:underline"
+            className="tabular-nums transition-colors duration-200 hover:text-brand"
             data-tip={tip}
             data-tip-sub="Открыть акты склада"
           >

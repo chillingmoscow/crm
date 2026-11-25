@@ -7,6 +7,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition 
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  Check,
   Eye,
   Loader2,
   Lock,
@@ -1036,7 +1037,7 @@ export function InventoryDocumentEditor({
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
             <div
-              className="h-full rounded-full bg-brand transition-all"
+              className="h-full rounded-full bg-brand transition-[width] duration-500 ease-[var(--ease-soft)]"
               style={{ width: `${progressPct}%` }}
             />
           </div>
@@ -1103,7 +1104,7 @@ export function InventoryDocumentEditor({
               disabled={isPending || !loaded || hasUnfilled}
               onClick={submit}
             >
-              {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               {isPending
                 ? "Отправляем…"
                 : isRecountPending

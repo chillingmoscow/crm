@@ -173,14 +173,17 @@ export function PersonChip({
   const inner = (
     <>
       <AssigneeAvatar name={person.name} muted />
-      <span className="truncate">{person.name}</span>
+      {/* Кликабельное имя (DS → «Аватары и цвет»): синеет только имя, чип не меняется. */}
+      <span className={cn("truncate", href && "transition-colors duration-200 group-hover:text-brand group-focus-visible:text-brand")}>
+        {person.name}
+      </span>
     </>
   );
   return href ? (
     <Link
       href={href}
       data-tip={`Открыть профиль · ${person.name}`}
-      className={cn(baseClass, "transition-colors hover:bg-muted hover:text-foreground")}
+      className={cn(baseClass, "group")}
     >
       {inner}
     </Link>

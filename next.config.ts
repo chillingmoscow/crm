@@ -87,6 +87,8 @@ const nextConfig: NextConfig = {
       { source: "/knowledge/audit",              destination: "/org/audit?types=kb_page",      permanent: true },
       // Рабочий экран «Зарплаты» жил под адресом прототипа. Query (?month,
       // ?entry из уведомлений) переносится автоматически.
+      // Правила допродаж переехали вкладкой в карточку подразделения.
+      { source: "/sales/additional/rules",   destination: "/people/departments", permanent: true },
       { source: "/payroll-concept",          destination: "/people/payroll", permanent: true },
       { source: "/staff",                    destination: "/people/staff",  permanent: true },
       { source: "/staff/:path*",             destination: "/people/staff/:path*", permanent: true },

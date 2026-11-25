@@ -455,6 +455,14 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
   const tabs = useMemo(() => additionalTabs(data), [data]);
   const tab = tabs.find((t) => t.id === tabId) ?? tabs[0] ?? null;
   const kind = tab?.legacyKind ?? null;
+  // Правила живут вкладкой карточки подразделения; карточка требует
+  // просмотра должностей. Вкладка без подразделения ведёт к их списку.
+  const rulesHref =
+    can("configure") && data.permissions.includes("people.view_roles")
+      ? tab && !tab.id.startsWith("legacy:")
+        ? `/people/departments/${tab.id}?tab=upsell`
+        : "/people/departments"
+      : null;
   const picker = useMemo<PickerByKey>(
     () => new Map(data.picker.map((p) => [p.key, p])),
     [data.picker],
@@ -990,10 +998,14 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
               ),
             }}
             secondaryActions={
-              data.departments.length > 0 && can("configure") ? (
+              rulesHref ? (
                 <TableIconButton
-                  label="Правила допродаж"
-                  onClick={() => router.push("/sales/additional/rules")}
+                  label={
+                    tab && !tab.id.startsWith("legacy:")
+                      ? `Правила допродаж: ${tab.name}`
+                      : "Правила допродаж"
+                  }
+                  onClick={() => router.push(rulesHref)}
                 >
                   <Settings />
                 </TableIconButton>
@@ -1064,8 +1076,8 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
           icon={ChartNoAxesCombined}
           title="Допродажи не настроены"
           description={
-            can("configure") && data.departments.length > 0
-              ? "Задайте правила подразделения кнопкой «Правила допродаж»"
+            rulesHref
+              ? "Правила допродаж задаются в карточке подразделения: Люди → Подразделения, вкладка «Допродажи»"
               : "Правила допродаж задаёт управляющий"
           }
         />

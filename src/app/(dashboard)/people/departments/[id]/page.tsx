@@ -12,16 +12,22 @@ import {
   loadStockRules,
   type StockRuleData,
 } from "@/app/(dashboard)/documents/writeoffs/rule-actions";
+import {
+  loadUpsellEditor,
+  type UpsellEditorData,
+} from "@/app/(dashboard)/sales/additional/actions";
 import { DepartmentDetailPage } from "./_components/department-detail-page";
 
 export const metadata: Metadata = { title: "Подразделение" };
 
 export default async function DepartmentDetailServerPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }) {
-  const { id } = await params;
+  const [{ id }, { tab }] = await Promise.all([params, searchParams]);
   const [user, supabase] = await Promise.all([getCachedUser(), createClient()]);
   if (!user) redirect("/login");
 
@@ -96,6 +102,16 @@ export default async function DepartmentDetailServerPage({
     }
   }
 
+  // Правила допродаж подразделения — для тех, кто настраивает продажи.
+  let upsellEditor: UpsellEditorData | null = null;
+  if (can("sales.view_shifts") && can("sales.configure_shifts")) {
+    try {
+      upsellEditor = unwrapAction(await loadUpsellEditor(department.id));
+    } catch {
+      upsellEditor = null;
+    }
+  }
+
   return (
     <DepartmentDetailPage
       department={department}
@@ -109,6 +125,8 @@ export default async function DepartmentDetailServerPage({
       createdByName={formatProfile(department.created_by)}
       updatedByName={formatProfile(department.updated_by)}
       stockRules={stockRules}
+      upsellEditor={upsellEditor}
+      initialTab={tab === "upsell" && upsellEditor ? "upsell" : "main"}
     />
   );
 }

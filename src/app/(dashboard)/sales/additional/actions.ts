@@ -315,6 +315,63 @@ async function saveAdditionalRulesImpl(input: {
   if (r.error) throw new Error(r.error.message);
   return loadAdditionalImpl(s.venueId);
 }
+/** Что нужно вкладке «Допродажи» карточки подразделения. */
+export type UpsellEditorData = {
+  venueId: string;
+  timezone: string;
+  /** Первый день, с которого можно сохранить версию. */
+  nextFrom: string;
+  department: UpsellDepartment;
+  /** Прежние правила заведения — для первой версии бара и кальянов. */
+  rules: AdditionalRuleVersion[];
+  /** Версии правил подразделения, `valid_from desc, created_at desc`. */
+  upsellRules: UpsellRuleVersion[];
+  picker: UpsellPickerItem[];
+};
+async function loadUpsellEditorImpl(
+  departmentId: string,
+  expectedVenue?: string,
+): Promise<UpsellEditorData> {
+  z.string().uuid().parse(departmentId);
+  const s = await scope("sales.configure_shifts", expectedVenue);
+  const [upsell, rules, versions, settings] = await Promise.all([
+    loadUpsellScope(s),
+    s.db
+      .from<AdditionalRuleVersion[]>("sales_additional_rules")
+      .select("id,valid_from,config,reason,created_at,created_by")
+      .eq("venue_id", s.venueId)
+      .order("valid_from", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(1000),
+    s.db
+      .from<UpsellRuleVersion[]>("sales_upsell_rules")
+      .select("id,department_id,valid_from,lines,reason,created_at,created_by")
+      .eq("venue_id", s.venueId)
+      .eq("department_id", departmentId)
+      .order("valid_from", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(1000),
+    s.db
+      .from<{ timezone: string; day_start_hour: number }>("sales_settings")
+      .select("timezone,day_start_hour")
+      .eq("venue_id", s.venueId)
+      .maybeSingle(),
+  ]);
+  if (rules.error || versions.error || settings.error)
+    throw new Error("Не удалось загрузить правила допродаж");
+  const department = upsell.departments.find((d) => d.id === departmentId);
+  if (!department) throw new Error("Подразделение не найдено в этом заведении");
+  const timezone = settings.data?.timezone ?? "Europe/Moscow";
+  return {
+    venueId: s.venueId,
+    timezone,
+    nextFrom: addDays(businessDate(new Date(), timezone, settings.data?.day_start_hour ?? 9), 1),
+    department,
+    rules: rules.data ?? [],
+    upsellRules: versions.data ?? [],
+    picker: upsell.picker,
+  };
+}
 async function saveUpsellRulesImpl(input: {
   venueId: string;
   departmentId: string;
@@ -353,7 +410,7 @@ async function saveUpsellRulesImpl(input: {
     p_reason: input.reason.trim(),
   });
   if (r.error) throw new Error(r.error.message);
-  return loadAdditionalImpl(s.venueId);
+  return loadUpsellEditorImpl(input.departmentId, s.venueId);
 }
 async function loadAdditionalHistoryImpl(venueId: string, reportId: string) {
   const s = await scope("sales.view_shifts", venueId);
@@ -401,6 +458,12 @@ export async function saveAdditionalRules(input: Parameters<typeof saveAdditiona
   return actionResult(
     () => saveAdditionalRulesImpl(input),
     "Не удалось сохранить правила",
+  );
+}
+export async function loadUpsellEditor(departmentId: string) {
+  return actionResult(
+    () => loadUpsellEditorImpl(departmentId),
+    "Не удалось загрузить правила допродаж",
   );
 }
 export async function saveUpsellRules(input: Parameters<typeof saveUpsellRulesImpl>[0]) {

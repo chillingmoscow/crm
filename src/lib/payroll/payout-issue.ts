@@ -124,3 +124,22 @@ export function payoutMessage(lines: { name: string; amount: number }[]): string
     `Итого ${formatPayoutAmount(total)} — одним изъятием, в комментарии «ЗП»`,
   ].join("\n");
 }
+
+export const NOBODY_DUE = "Сегодня по плану выдавать некому";
+
+/** Автовыдача: некому — молча пропускаем; другая причина — сообщаем; иначе выдаём. */
+export function autoIssueDecision(preview: { problem: string | null }): "skip" | "report" | "issue" {
+  if (!preview.problem) return "issue";
+  return preview.problem === NOBODY_DUE ? "skip" : "report";
+}
+
+/** Сообщение в чат отчётов, если автовыдача не прошла. */
+export function autoReportText(venue: string, day: string, reason: string, waiting: string[]): string {
+  return [
+    `Зарплата ${day.slice(8, 10)}.${day.slice(5, 7)}, ${venue}: выдача по плану не проведена. ${reason}.`,
+    waiting.length ? `Ждут выдачи: ${waiting.join(", ")}.` : null,
+    "Выдайте вручную: Зарплата → План выплат → «Выдать сейчас».",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}

@@ -161,7 +161,7 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
             return <span className="text-muted-foreground">—</span>;
           if (id === "status") return rowStatus(r, today);
           if (id === "forecast")
-            return r.breakdown.averageShift === null
+            return r.breakdown.averageShift == null
               ? <span className="text-muted-foreground">—</span>
               : <span data-tip={`${countRu(r.breakdown.forecastShifts, "смена", "смены", "смен")} × ${formatRub(r.breakdown.averageShift)}`}><Money value={r.breakdown.forecast} /></span>;
           if (id === "official")
@@ -362,8 +362,8 @@ function PayoutRowDrawer({
           {line("Начислено за месяц", <Money value={b.earned} />, b.pendingFines ? `без штрафов на подтверждении: ${formatRub(b.pendingFines)}` : undefined)}
           {line(
             "Прогноз до конца месяца",
-            b.averageShift === null ? "—" : <Money value={b.forecast} />,
-            b.averageShift === null ? "мало смен для прогноза" : `${countRu(b.forecastShifts, "смена", "смены", "смен")} × ${formatRub(b.averageShift)}`,
+            b.averageShift == null ? "—" : <Money value={b.forecast} />,
+            b.averageShift == null ? "мало смен для прогноза" : `${countRu(b.forecastShifts, "смена", "смены", "смен")} × ${formatRub(b.averageShift)}`,
           )}
           {line("Запас", <Money value={-b.reserve} signed />)}
           {line("Половина месяца", <Money value={b.half} />)}

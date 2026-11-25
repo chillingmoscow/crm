@@ -99,8 +99,33 @@ export const payrollPayoutAuditSpecs: Record<string, AuditEventSpec> = {
   "payroll.payout_plan.issued": {
     icon: Banknote,
     iconClass: CREATED,
-    buildHeadline: (e) => <>{e.details.method === "transfer" ? "отметил(а) выплату по счёту" : "выдал(а) зарплату по плану"}</>,
+    buildHeadline: (e) => (
+      <>
+        {e.details.method === "transfer"
+          ? "отметил(а) выплату по счёту"
+          : e.details.automatic
+            ? "выдана зарплата по плану автоматически"
+            : "выдал(а) зарплату по плану"}
+      </>
+    ),
     buildDetails: (e) => <Issue e={e} />,
+  },
+  "payroll.payout_plan.auto_failed": {
+    icon: CircleSlash,
+    iconClass: NEUTRAL,
+    buildHeadline: () => <>автовыдача по плану не проведена</>,
+    buildDetails: (e) => {
+      const waiting = Array.isArray(e.details.waiting) ? (e.details.waiting as string[]) : [];
+      return (
+        <div className="space-y-0.5 text-xs text-muted-foreground">
+          <p>
+            {e.details.business_date ? <>{formatDate(e.details.business_date)} · </> : null}
+            {String(e.details.reason ?? "")}
+          </p>
+          {waiting.length > 0 && <p>Ждут выдачи: {waiting.join(", ")}</p>}
+        </div>
+      );
+    },
   },
   "payroll.payout_settings.updated": {
     icon: Settings2,

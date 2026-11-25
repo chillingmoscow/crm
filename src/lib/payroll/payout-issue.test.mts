@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { CashControlReport } from "../sales/cash-control.ts";
 import {
+  autoIssueDecision,
+  autoReportText,
   cashAvailable,
   distributeCash,
   payoutMessage,
@@ -113,4 +115,20 @@ test("distributeCash: a capped row given its whole due closes the row", () => {
   assert.deepEqual(lines.map((l) => [l.name, l.amount, l.close]), [["Гамлет", 10000, true], ["Филипп", 20000, false]]);
   // Частичная выдача урезанной строки её не закрывает.
   assert.equal(distributeCash([{ ...due("g", "Гамлет", 10000), capped: true }], 5000, 5000).lines[0].close, false);
+});
+
+test("autoIssueDecision: nobody due today is skipped silently, other problems are reported", () => {
+  assert.equal(autoIssueDecision({ problem: "Сегодня по плану выдавать некому" }), "skip");
+  assert.equal(autoIssueDecision({ problem: "Нет данных о наличных в кассах" }), "report");
+  assert.equal(autoIssueDecision({ problem: "В кассах меньше минимума" }), "report");
+  assert.equal(autoIssueDecision({ problem: null }), "issue");
+});
+
+test("autoReportText names the day, the reason and what to do", () => {
+  assert.equal(
+    autoReportText("CHILLING MOSCOW", "2026-11-25", "Нет данных о наличных в кассах", ["Филипп Смирнов", "Никита Волков"]),
+    "Зарплата 25.11, CHILLING MOSCOW: выдача по плану не проведена. Нет данных о наличных в кассах.\n" +
+      "Ждут выдачи: Филипп Смирнов, Никита Волков.\n" +
+      "Выдайте вручную: Зарплата → План выплат → «Выдать сейчас».",
+  );
 });

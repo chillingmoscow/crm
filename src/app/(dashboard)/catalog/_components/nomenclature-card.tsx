@@ -44,6 +44,9 @@ function journalLabel(entry: IngredientJournalEntry): string {
     case "description_updated":
       return "Изменено описание";
     case "photo_updated":
+      if (entry.payload.source === "quickresto") {
+        return entry.payload.removed ? "Фото из Quick Resto убрано" : "Фото из Quick Resto";
+      }
       return entry.payload.removed ? "Удалено фото" : "Обновлено фото";
     case "supplier_added":
       return "Добавлен поставщик";

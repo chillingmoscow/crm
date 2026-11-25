@@ -5,6 +5,7 @@ import { AUDIT_MODULES, auditModuleOf, modulesToLikePatterns } from "./modules.t
 
 test("раздел события определяется по префиксу кода", () => {
   assert.equal(auditModuleOf("catalog.ingredient.photo_updated"), "stock");
+  assert.equal(auditModuleOf("catalog.dish_photos.synced"), "stock");
   assert.equal(auditModuleOf("inventory.document_deleted"), "stock");
   assert.equal(auditModuleOf("cash.control.synced"), "finance");
   assert.equal(auditModuleOf("candidate.hired"), "candidates");

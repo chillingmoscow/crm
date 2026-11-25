@@ -85,6 +85,8 @@ const nextConfig: NextConfig = {
       { source: "/knowledge/analytics/:slug*",   destination: "/knowledge/dashboard/:slug*",   permanent: true },
       // KB: отдельный журнал убран — общий журнал с фильтром раздела.
       { source: "/knowledge/audit",              destination: "/org/audit?types=kb_page",      permanent: true },
+      // Правила допродаж переехали вкладкой в карточку подразделения.
+      { source: "/sales/additional/rules",   destination: "/people/departments", permanent: true },
       // Рабочий экран «Зарплаты» жил под адресом прототипа. Query (?month,
       // ?entry из уведомлений) переносится автоматически.
       { source: "/payroll-concept",          destination: "/people/payroll", permanent: true },

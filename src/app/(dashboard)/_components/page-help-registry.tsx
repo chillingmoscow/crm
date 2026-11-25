@@ -103,8 +103,7 @@ export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
     Content: SalesStatisticsHelp,
   },
   {
-    // Правила допродаж открываются из «Допродаж» и делят их справку.
-    match: (p) => p === "/sales/additional" || p === "/sales/additional/rules",
+    match: (p) => p === "/sales/additional",
     title: "Допродажи",
     Content: SalesAdditionalHelp,
   },

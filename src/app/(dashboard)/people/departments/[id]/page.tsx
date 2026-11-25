@@ -12,16 +12,22 @@ import {
   loadStockRules,
   type StockRuleData,
 } from "@/app/(dashboard)/documents/writeoffs/rule-actions";
+import {
+  loadUpsellEditor,
+  type UpsellEditorData,
+} from "@/app/(dashboard)/sales/additional/actions";
 import { DepartmentDetailPage } from "./_components/department-detail-page";
 
 export const metadata: Metadata = { title: "Подразделение" };
 
 export default async function DepartmentDetailServerPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }) {
-  const { id } = await params;
+  const [{ id }, { tab }] = await Promise.all([params, searchParams]);
   const [user, supabase] = await Promise.all([getCachedUser(), createClient()]);
   if (!user) redirect("/login");
 
@@ -86,15 +92,21 @@ export default async function DepartmentDetailServerPage({
     ? await listAuditEvents({ entityType: "department", entityId: id })
     : { events: [], hasMore: false, error: null };
 
-  // Нет права просмотра результатов или правила не загрузились — блок «Недостача» просто скрыт.
-  let stockRules: StockRuleData | null = null;
-  if (can("inventory.view_results")) {
-    try {
-      stockRules = unwrapAction(await loadStockRules(department.venue_id));
-    } catch {
-      stockRules = null;
-    }
-  }
+  // Нет права или данные не загрузились — блок «Недостача» и вкладка
+  // «Допродажи» просто скрыты. Грузятся параллельно.
+  const [stockRules, upsellEditor] = await Promise.all([
+    can("inventory.view_results")
+      ? loadStockRules(department.venue_id)
+          .then((r): StockRuleData | null => unwrapAction(r))
+          .catch(() => null)
+      : Promise.resolve(null),
+    // Правила допродаж — для тех, кто настраивает продажи.
+    can("sales.view_shifts") && can("sales.configure_shifts")
+      ? loadUpsellEditor(department.id)
+          .then((r): UpsellEditorData | null => unwrapAction(r))
+          .catch(() => null)
+      : Promise.resolve(null),
+  ]);
 
   return (
     <DepartmentDetailPage
@@ -109,6 +121,8 @@ export default async function DepartmentDetailServerPage({
       createdByName={formatProfile(department.created_by)}
       updatedByName={formatProfile(department.updated_by)}
       stockRules={stockRules}
+      upsellEditor={upsellEditor}
+      initialTab={tab === "upsell" && upsellEditor ? "upsell" : "main"}
     />
   );
 }

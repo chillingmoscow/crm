@@ -22,8 +22,6 @@ import {
   type AdditionalDay,
   type AdditionalArchive,
   type AdditionalRuleVersion,
-  type AdditionalRules,
-  validateAdditionalRules,
 } from "@/lib/sales/additional";
 
 async function scope(permission = "sales.view_shifts", expectedVenue?: string) {
@@ -291,29 +289,62 @@ async function requestAdditionalImpl(month: string, venueId: string) {
     throw new Error("Нет завершённых дней с настроенными правилами допродаж");
   return Number(r.data);
 }
-async function saveAdditionalRulesImpl(input: {
+/** Что нужно вкладке «Допродажи» карточки подразделения. */
+export type UpsellEditorData = {
   venueId: string;
-  version: number;
-  from: string;
-  config: AdditionalRules;
-  reason: string;
-}) {
-  const s = await scope("sales.configure_shifts", input.venueId);
-  z.number().int().positive().parse(input.version);
-  z.string()
-    .regex(/^20\d{2}-\d{2}-\d{2}$/)
-    .parse(input.from);
-  z.string().trim().min(3).max(1000).parse(input.reason);
-  validateAdditionalRules(input.config);
-  const r = await s.db.rpc("sales_save_additional_rules", {
-    p_expected_venue: s.venueId,
-    p_version: input.version,
-    p_from: input.from,
-    p_config: input.config,
-    p_reason: input.reason,
-  });
-  if (r.error) throw new Error(r.error.message);
-  return loadAdditionalImpl(s.venueId);
+  timezone: string;
+  /** Первый день, с которого можно сохранить версию. */
+  nextFrom: string;
+  department: UpsellDepartment;
+  /** Прежние правила заведения — для первой версии бара и кальянов. */
+  rules: AdditionalRuleVersion[];
+  /** Версии правил подразделения, `valid_from desc, created_at desc`. */
+  upsellRules: UpsellRuleVersion[];
+  picker: UpsellPickerItem[];
+};
+async function loadUpsellEditorImpl(
+  departmentId: string,
+  expectedVenue?: string,
+): Promise<UpsellEditorData> {
+  z.string().uuid().parse(departmentId);
+  const s = await scope("sales.configure_shifts", expectedVenue);
+  const [upsell, rules, versions, settings] = await Promise.all([
+    loadUpsellScope(s),
+    s.db
+      .from<AdditionalRuleVersion[]>("sales_additional_rules")
+      .select("id,valid_from,config,reason,created_at,created_by")
+      .eq("venue_id", s.venueId)
+      .order("valid_from", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(1000),
+    s.db
+      .from<UpsellRuleVersion[]>("sales_upsell_rules")
+      .select("id,department_id,valid_from,lines,reason,created_at,created_by")
+      .eq("venue_id", s.venueId)
+      .eq("department_id", departmentId)
+      .order("valid_from", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(1000),
+    s.db
+      .from<{ timezone: string; day_start_hour: number }>("sales_settings")
+      .select("timezone,day_start_hour")
+      .eq("venue_id", s.venueId)
+      .maybeSingle(),
+  ]);
+  if (rules.error || versions.error || settings.error)
+    throw new Error("Не удалось загрузить правила допродаж");
+  const department = upsell.departments.find((d) => d.id === departmentId);
+  if (!department) throw new Error("Подразделение не найдено в этом заведении");
+  const timezone = settings.data?.timezone ?? "Europe/Moscow";
+  return {
+    venueId: s.venueId,
+    timezone,
+    nextFrom: addDays(businessDate(new Date(), timezone, settings.data?.day_start_hour ?? 9), 1),
+    department,
+    rules: rules.data ?? [],
+    upsellRules: versions.data ?? [],
+    picker: upsell.picker,
+  };
 }
 async function saveUpsellRulesImpl(input: {
   venueId: string;
@@ -353,7 +384,7 @@ async function saveUpsellRulesImpl(input: {
     p_reason: input.reason.trim(),
   });
   if (r.error) throw new Error(r.error.message);
-  return loadAdditionalImpl(s.venueId);
+  return loadUpsellEditorImpl(input.departmentId, s.venueId);
 }
 async function loadAdditionalHistoryImpl(venueId: string, reportId: string) {
   const s = await scope("sales.view_shifts", venueId);
@@ -397,10 +428,10 @@ export async function requestAdditional(month: string, venueId: string) {
     "Не удалось запросить отчёты",
   );
 }
-export async function saveAdditionalRules(input: Parameters<typeof saveAdditionalRulesImpl>[0]) {
+export async function loadUpsellEditor(departmentId: string) {
   return actionResult(
-    () => saveAdditionalRulesImpl(input),
-    "Не удалось сохранить правила",
+    () => loadUpsellEditorImpl(departmentId),
+    "Не удалось загрузить правила допродаж",
   );
 }
 export async function saveUpsellRules(input: Parameters<typeof saveUpsellRulesImpl>[0]) {

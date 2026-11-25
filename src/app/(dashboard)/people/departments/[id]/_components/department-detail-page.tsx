@@ -25,6 +25,8 @@ import { PageHeaderActions } from "@/components/shared/page-header-actions";
 import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 import { EmployeeIdentity } from "@/components/shared/employee-identity";
 import type { StockRuleData } from "@/app/(dashboard)/documents/writeoffs/rule-actions";
+import type { UpsellEditorData } from "@/app/(dashboard)/sales/additional/actions";
+import { UpsellRulesTab } from "@/app/(dashboard)/sales/additional/upsell-rules-tab";
 
 import { ICON_REGISTRY, iconForRole } from "../../../roles/_components/role-icons";
 import { DepartmentIconPicker } from "../../_components/department-icon-picker";
@@ -59,7 +61,7 @@ type AllRole = {
   department_id: string | null;
 };
 
-type TabKey = "main" | "roles" | "history" | "danger";
+type TabKey = "main" | "roles" | "upsell" | "history" | "danger";
 
 const READ_ONLY_MESSAGE =
   "Менять подразделение могут те, кто управляет должностями";
@@ -93,6 +95,9 @@ interface Props {
   updatedByName: string | null;
   /** Правила недостачи заведения; null — нет доступа или не загрузились. */
   stockRules: StockRuleData | null;
+  /** Правила допродаж подразделения; null — нет права настраивать продажи. */
+  upsellEditor: UpsellEditorData | null;
+  initialTab: "main" | "upsell";
 }
 
 export function DepartmentDetailPage({
@@ -107,13 +112,15 @@ export function DepartmentDetailPage({
   createdByName,
   updatedByName,
   stockRules,
+  upsellEditor,
+  initialTab,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   // Обновление данных после сохранения — отдельный переход: общий
   // isPending занят и переключением прав, и откреплением должностей.
   const [refreshing, startRefresh] = useTransition();
-  const [activeTab, setActiveTab] = useState<TabKey>("main");
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   // Почему удалить нельзя (например, на подразделение разнесены акты списания):
@@ -335,6 +342,7 @@ export function DepartmentDetailPage({
           <ProfileTabsList>
             <TabsTrigger value="main">Основное</TabsTrigger>
             <TabsTrigger value="roles">Должности</TabsTrigger>
+            {upsellEditor && <TabsTrigger value="upsell">Допродажи</TabsTrigger>}
             {canViewAudit && (
               <TabsTrigger value="history">Журнал</TabsTrigger>
             )}
@@ -577,6 +585,19 @@ export function DepartmentDetailPage({
               )}
             </ProfileSection>
           </TabsContent>
+
+          {/* ── Допродажи ────────────────────────────────────── */}
+          {/* Смонтирована всегда, как «Основное»: черновик правил не теряется
+              при переходе на другую вкладку и сохраняется общей полосой. */}
+          {upsellEditor && (
+            <TabsContent
+              value="upsell"
+              forceMount
+              className="data-[state=inactive]:hidden"
+            >
+              <UpsellRulesTab initial={upsellEditor} />
+            </TabsContent>
+          )}
 
           {/* ── Журнал ──────────────────────────────────────── */}
           {canViewAudit && (

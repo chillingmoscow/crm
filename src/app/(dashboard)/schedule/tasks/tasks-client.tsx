@@ -10,7 +10,7 @@ import {
 } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Camera, ListChecks, Trash2, X } from "lucide-react";
+import { Camera, ListChecks, Scale, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fileLabelFocusClass } from "@/components/ui/field-styles";
 import { Input } from "@/components/ui/input";
@@ -46,6 +46,7 @@ import {
   TaskHeaderActions,
   TaskPageTitle,
 } from "../_components/task-header-actions";
+import { CountConfigEditor, countConfigProblem } from "./count-config-editor";
 import { InstructionPagePicker, InstructionBody } from "./instruction-page";
 import { TaskList } from "./task-list";
 import { DeleteTaskDialog } from "./delete-task-dialog";
@@ -478,6 +479,8 @@ function DefinitionEditor({
             template_id: null,
             review_mode: "manager",
             items: [],
+            kind: "checklist",
+            count_config: null,
             recurrence: { unit: "week", interval: 1, anchor: data.today },
             starts_on: data.today,
             enabled: false,
@@ -512,8 +515,23 @@ function DefinitionEditor({
       "items",
       value.items.map((x, i) => (i === index ? { ...x, ...patch } : x)),
     );
+  const counting = value.kind === "stock_count";
   async function submit() {
-    if (
+    if (counting) {
+      if (value.enabled && (!value.template_id || !value.recurrence)) {
+        toast.error("Для включения задачи укажите смену и повтор");
+        return;
+      }
+      if (value.enabled && !value.count_config) {
+        toast.error("Для включения задачи укажите склад и позиции взвешивания");
+        return;
+      }
+      const problem = value.count_config && countConfigProblem(value.count_config);
+      if (problem) {
+        toast.error(problem);
+        return;
+      }
+    } else if (
       value.enabled &&
       (!value.template_id || !value.recurrence || !value.items.length)
     ) {
@@ -538,7 +556,12 @@ function DefinitionEditor({
     }
     setBusy(true);
     try {
-      const r = await saveTask({ ...value, equipment_groups: equipmentGroups });
+      const r = await saveTask({
+        ...value,
+        // Взвешивание принимается автоматически и не имеет пунктов чек-листа.
+        ...(counting ? { review_mode: "auto", items: [] } : {}),
+        equipment_groups: equipmentGroups,
+      });
       if (r.error) toast.error(r.error);
       else {
         toast.success(
@@ -584,7 +607,7 @@ function DefinitionEditor({
             aria-hidden
             className="flex size-14 items-center justify-center rounded-[14px] bg-muted text-muted-foreground"
           >
-            <ListChecks className="size-7" />
+            {counting ? <Scale className="size-7" /> : <ListChecks className="size-7" />}
           </div>
         }
       >
@@ -604,7 +627,9 @@ function DefinitionEditor({
       <Tabs defaultValue="main" className="w-full">
         <ProfileTabsList>
           <TabsTrigger value="main">Основное</TabsTrigger>
-          <TabsTrigger value="checklist">Чек-лист</TabsTrigger>
+          <TabsTrigger value="checklist">
+            {counting ? "Взвешивание" : "Чек-лист"}
+          </TabsTrigger>
           <TabsTrigger value="settings">Настройки</TabsTrigger>
           {editable && task !== "new" && (
             <TabsTrigger value="danger">Опасная зона</TabsTrigger>
@@ -625,6 +650,34 @@ function DefinitionEditor({
         <fieldset disabled={!editable || busy} className="min-w-0">
           <TabsContent value="main" className="space-y-5">
         <ProfileSection title="Основное">
+          <Field label="Вид задачи">
+            {task === "new" ? (
+              <TaskSelect
+                value={value.kind}
+                onChange={(kind) => {
+                  if (kind !== "checklist" && kind !== "stock_count") return;
+                  setDirty(true);
+                  setValue((s) => ({
+                    ...s,
+                    kind,
+                    // Вид задаёт приёмку: взвешивание принимается автоматически.
+                    review_mode: kind === "stock_count" ? "auto" : "manager",
+                  }));
+                }}
+                options={[
+                  { value: "checklist", label: "Чек-лист" },
+                  ...(data.permissions.includes("inventory.finalize_results")
+                    ? [{ value: "stock_count", label: "Взвешивание табака" }]
+                    : []),
+                ]}
+              />
+            ) : (
+              <Input
+                readOnly
+                value={counting ? "Взвешивание табака" : "Чек-лист"}
+              />
+            )}
+          </Field>
           <Field label="Название">
             <Input
               value={value.name}
@@ -652,6 +705,14 @@ function DefinitionEditor({
         </ProfileSection>
           </TabsContent>
           <TabsContent value="checklist" className="space-y-5">
+        {counting ? (
+          <CountConfigEditor
+            value={value.count_config}
+            onChange={(config) => set("count_config", config)}
+            disabled={!editable || busy}
+          />
+        ) : (
+          <>
         <ProfileSection
           title="Чек-лист"
           description={
@@ -821,6 +882,8 @@ function DefinitionEditor({
             ))}
           </div>
         </ProfileSection>
+          </>
+        )}
           </TabsContent>
           <TabsContent value="settings" className="space-y-5">
         <ProfileSection title="Выполнение">
@@ -842,15 +905,22 @@ function DefinitionEditor({
                 Задачу получит сотрудник, назначенный на этот шаблон в
                 расписании.
           </p>
-          <SwitchRow
-            label="Требуется приёмка"
-            description="Выполнение засчитывается после проверки управляющим. Без приёмки — сразу после сдачи отчёта."
-            checked={value.review_mode === "manager"}
-            onChange={(required) =>
-              set("review_mode", required ? "manager" : "auto")
-            }
-            disabled={!editable || busy}
-          />
+          {counting ? (
+            <p className="text-[13px] leading-snug text-muted-foreground">
+              Взвешивание принимается автоматически: после сдачи результат сразу
+              проводится в учёте.
+            </p>
+          ) : (
+            <SwitchRow
+              label="Требуется приёмка"
+              description="Выполнение засчитывается после проверки управляющим. Без приёмки — сразу после сдачи отчёта."
+              checked={value.review_mode === "manager"}
+              onChange={(required) =>
+                set("review_mode", required ? "manager" : "auto")
+              }
+              disabled={!editable || busy}
+            />
+          )}
         </ProfileSection>
 
         <ProfileSection title="Повторение">

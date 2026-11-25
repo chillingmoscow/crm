@@ -1,5 +1,5 @@
 "use server";
-import { createClient, getCachedPermissions, getCachedUser } from "@/lib/supabase/server";
+import { createClient, getCachedActiveAccountId, getCachedPermissions, getCachedUser } from "@/lib/supabase/server";
 import { listKbPageTreeRows } from "@/lib/knowledge/pages";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { shiftTemplateLabel } from "@/lib/schedule/types";
@@ -224,6 +224,59 @@ export async function deleteTask(input: { id: string; version: number }) {
       error: actionErrorMessage(error, "Не удалось удалить задачу"),
     };
   }
+}
+export type CountOptions = {
+  stores: { id: string; title: string }[];
+  chats: { chatId: string; title: string }[];
+  products: { id: string; name: string }[];
+};
+
+/** Склады заведения, чаты Telegram и названия уже выбранных позиций для настройки взвешивания. */
+async function loadCountOptionsImpl(productIds: string[]): Promise<CountOptions> {
+  const ids = z.array(z.string().uuid()).max(20).parse(productIds);
+  const { venueId } = await context();
+  const [permissions, accountId] = await Promise.all([getCachedPermissions(), getCachedActiveAccountId()]);
+  if (!permissions.includes("inventory.finalize_results") || !accountId)
+    throw new Error("Нет доступа к настройке взвешиваний");
+  // Склады, чаты и каталог читаются сервисным ключом после проверки права:
+  // у настраивающего взвешивание может не быть прав на просмотр каталога.
+  const admin = asLooseDb(createAdminClient());
+  const [stores, chats, products] = await Promise.all([
+    admin.from<{ id: string; title: string }[]>("stores").select("id,title")
+      .eq("account_id", accountId).eq("local_venue_id", venueId).is("archived_at", null).order("title"),
+    admin.from<{ chat_id: string; title: string }[]>("telegram_chats").select("chat_id,title")
+      .eq("account_id", accountId).is("archived_at", null).order("title"),
+    ids.length
+      ? admin.from<{ id: string; name: string }[]>("ingredients").select("id,name")
+        .eq("account_id", accountId).in("id", ids)
+      : Promise.resolve({ data: [] as { id: string; name: string }[], error: null }),
+  ]);
+  for (const r of [stores, chats, products])
+    if (r.error) throw new Error("Не удалось загрузить склады и позиции");
+  return {
+    stores: stores.data ?? [],
+    chats: (chats.data ?? []).map((c) => ({ chatId: c.chat_id, title: c.title || c.chat_id })),
+    products: products.data ?? [],
+  };
+}
+async function searchCountProductsImpl(query: string): Promise<{ id: string; name: string }[]> {
+  const q = z.string().trim().min(1).max(100).parse(query).replace(/[%_\\,()]/g, " ").trim();
+  const [permissions, accountId] = await Promise.all([getCachedPermissions(), getCachedActiveAccountId()]);
+  if (!permissions.includes("inventory.finalize_results") || !accountId)
+    throw new Error("Нет доступа к настройке взвешиваний");
+  if (!q) return [];
+  const r = await asLooseDb(createAdminClient())
+    .from<{ id: string; name: string }[]>("ingredients").select("id,name")
+    .eq("account_id", accountId).eq("kind", "ingredient").is("archived_at", null)
+    .ilike("name", `%${q}%`).order("name").limit(20);
+  if (r.error) throw new Error("Не удалось найти позиции");
+  return r.data ?? [];
+}
+export async function loadCountOptions(productIds: string[]) {
+  return actionResult(() => loadCountOptionsImpl(productIds), "Не удалось загрузить склады и позиции");
+}
+export async function searchCountProducts(query: string) {
+  return actionResult(() => searchCountProductsImpl(query), "Не удалось найти позиции");
 }
 export async function saveTask(input: unknown) {
   try {

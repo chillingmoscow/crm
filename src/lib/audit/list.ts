@@ -312,6 +312,19 @@ export async function listAuditEvents(input?: {
       `and(entity_type.eq.transaction,entity_id.eq.${input.entityId}),` +
         `and(action_code.eq.finance.transaction.bulk_updated,details->ids.cs.["${input.entityId}"])`,
     );
+  } else if (
+    input?.entityType === "department" &&
+    input.entityId &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      input.entityId,
+    )
+  ) {
+    // Правила допродаж настраиваются в карточке подразделения, но событие
+    // пишется на версию правил (миграция 380) с department_id в details.
+    query = query.or(
+      `and(entity_type.eq.department,entity_id.eq.${input.entityId}),` +
+        `and(action_code.eq.sales.additional_rules.updated,details->>department_id.eq.${input.entityId})`,
+    );
   } else {
     if (input?.entityType) query = query.eq("entity_type", input.entityType);
     if (input?.entityId) query = query.eq("entity_id", input.entityId);

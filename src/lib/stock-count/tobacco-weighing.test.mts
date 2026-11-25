@@ -153,3 +153,17 @@ test("DEFAULT_TOBACCO_SECTIONS: три раздела с нужной тарой
   );
   assert.equal(DEFAULT_TOBACCO_SECTIONS[1]!.tares.length, 8);
 });
+test("submitErrors: неизвестная тара — ошибка, а не 0 г", () => {
+  const draft: WeighingDraft = {
+    startedAt: null,
+    sections: {
+      standard: {
+        empty: false,
+        batches: [b(1000, [["container", 1]]), b(1000, [["ghost", 2]])],
+      },
+      premium: { empty: true, batches: [] },
+      parfum: { empty: true, batches: [] },
+    },
+  };
+  assert.deepEqual(submitErrors(draft, cfg), ["Стандарт, партия 2: неизвестная тара"]);
+});

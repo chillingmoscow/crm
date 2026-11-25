@@ -150,7 +150,10 @@ export function submitErrors(
     }
     s.batches.forEach((batch, i) => {
       const label = `${section.title}, партия ${i + 1}`;
-      if (batchNetGrams(batch, section.tares) < 0) {
+      const known = new Set(section.tares.map((t) => t.key));
+      if (batch.tares.some((t) => !known.has(t.tareKey))) {
+        out.push(`${label}: неизвестная тара`);
+      } else if (batchNetGrams(batch, section.tares) < 0) {
         out.push(`${label}: вес меньше тары`);
       }
       if (!batch.photo) out.push(`${label}: нет фото`);

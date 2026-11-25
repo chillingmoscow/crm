@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
-import { KeyRound, Pencil } from "lucide-react";
+import { KeyRound, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -85,7 +85,7 @@ export function TildaSettings({ initial, recent, notifyChat, siteUrl }: { initia
         <Step n={4} title="Подключите приёмщик к форме" hint="В настройках блока формы отметьте этот приёмщик и опубликуйте страницу. Если раньше был другой приёмщик, отключите его у этой формы" />
       </ol>
     </IntegrationSection> : <IntegrationSection title="Форма не подключена" description="Укажите форму сайта, с которой принимать анкеты"
-      actions={<Button size="sm" onClick={openDrawer}>Подключить форму</Button>}>
+      actions={<Button size="sm" onClick={openDrawer}><Plus className="size-4" />Подключить форму</Button>}>
       <p className="text-[13px] text-muted-foreground">После подключения здесь появятся адрес приёмщика и ключ доступа для настроек Tilda</p>
     </IntegrationSection>}
 

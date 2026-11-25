@@ -30,13 +30,13 @@ export function KbAnalyticsTopPages({
         <li key={row.page_id}>
           <Link
             href={`/knowledge/dashboard/${row.slug}?p=${period}`}
-            className="flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent transition-colors"
+            className="group/title flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent transition-colors"
           >
             <span className="w-5 text-right text-xs font-mono tabular-nums text-muted-foreground">
               {idx + 1}.
             </span>
             <KbPageIcon icon={row.icon} color={row.icon_color} size={18} />
-            <span className="flex-1 truncate text-sm font-medium">
+            <span className="flex-1 truncate text-sm font-medium transition-colors duration-200 group-hover/title:text-brand">
               {row.title || "Без названия"}
             </span>
             <span className="hidden md:inline text-xs text-muted-foreground tabular-nums">

@@ -44,7 +44,7 @@ export function EmployeeIdentity({
           <Link
             href={href}
             onClick={(e) => e.stopPropagation()}
-            className="truncate text-[13px] font-medium leading-5 transition-colors hover:text-brand focus-visible:text-brand focus-visible:outline-none"
+            className="truncate text-[13px] font-medium leading-5 transition-colors duration-200 hover:text-brand focus-visible:text-brand focus-visible:outline-none"
           >
             {name}
           </Link>

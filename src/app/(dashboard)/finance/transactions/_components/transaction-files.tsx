@@ -5,6 +5,7 @@ import { FileText, Loader2, Trash2, Upload, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { DrawerSection } from "@/components/ui/drawer-blocks";
+import { Skeleton } from "@/components/ui/skeleton";
 import { fileLabelFocusClass } from "@/components/ui/field-styles";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import {
@@ -149,10 +150,17 @@ export function TransactionFiles({
       ) : null}
 
       {loading ? (
-        <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground" role="status">
-          <Loader2 className="size-4 animate-spin" />
-          Загружаем файлы…
-        </div>
+        <ul className="space-y-2" role="status" aria-label="Загружаем файлы">
+          {[0, 1].map((i) => (
+            <li key={i} className="flex items-center gap-3 rounded-lg border px-3 py-2">
+              <Skeleton className="size-10 shrink-0 rounded-md" />
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <Skeleton className="h-4 w-2/3" />
+                <Skeleton className="h-3 w-1/3" />
+              </div>
+            </li>
+          ))}
+        </ul>
       ) : null}
 
       {saved.length > 0 || pending.length > 0 || uploading.length > 0 ? (
@@ -324,7 +332,7 @@ function FileRow({
             href={href}
             target="_blank"
             rel="noopener noreferrer"
-            className="block truncate text-sm font-medium hover:underline"
+            className="block truncate text-sm font-medium transition-colors duration-200 hover:text-brand"
             data-tip={name}
           >
             {name}

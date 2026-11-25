@@ -17,6 +17,7 @@ import {
   ExternalLink,
   FolderTree,
   ListFilter,
+  Plus,
   SearchX,
   Trash2,
   Users,
@@ -379,7 +380,7 @@ export function CounterpartiesClient({
             {/* Настоящая ссылка в первой ячейке: карточку можно открыть с клавиатуры. */}
             <Link
               href={cardHref(item.id)}
-              className="block max-w-full truncate font-medium hover:underline"
+              className="block max-w-full truncate font-medium transition-colors duration-200 hover:text-brand"
               data-tip={item.name}
               onClick={(event) => event.stopPropagation()}
             >
@@ -744,7 +745,14 @@ export function CounterpartiesClient({
                 ) : null}
               </>
             }
-            primaryActions={canManage ? <Button onClick={() => setCreateOpen(true)}>Новый контрагент</Button> : null}
+            primaryActions={
+              canManage ? (
+                <Button size="sm" onClick={() => setCreateOpen(true)}>
+                  <Plus className="size-4" />
+                  Новый контрагент
+                </Button>
+              ) : null
+            }
           />
         }
       />

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ProfileTabsList, Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs";
 import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
+import { AnimatedNumber } from "@/components/shared/animated-money";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
@@ -154,7 +155,7 @@ export function BankAccountDetail({
             avatar={<BankAccountIcon type={row.type} size="header" />}
             actions={
               isArchived && isOwner ? (
-                <Button variant="outline" className="gap-2" onClick={() => setRestoreOpen(true)}>
+                <Button variant="outline" size="sm" onClick={() => setRestoreOpen(true)}>
                   <RotateCcw className="size-4" />
                   Вернуть из архива
                 </Button>
@@ -196,18 +197,21 @@ export function BankAccountDetail({
                 }
               >
                 <div className="flex flex-col gap-1">
-                  <span
+                  <AnimatedNumber
+                    value={Number(row.balance)}
+                    digits={amountRoundingScale}
+                    format={(value) =>
+                      formatBalance(value, row.currency, (abs, currency) =>
+                        formatMoney(abs, currency, amountRoundingScale),
+                      )
+                    }
                     className={cn(
-                      "text-[28px] font-semibold leading-tight tabular-nums",
+                      "text-[28px] font-semibold leading-tight",
                       Number(row.balance) < 0
                         ? signedAmountClass(Number(row.balance))
                         : Number(row.balance) === 0 && "text-muted-foreground",
                     )}
-                  >
-                    {formatBalance(Number(row.balance), row.currency, (abs, currency) =>
-                      formatMoney(abs, currency, amountRoundingScale),
-                    )}
-                  </span>
+                  />
                   <span className="text-[13px] text-muted-foreground">
                     {archiveImpact.transactions > 0
                       ? countRu(archiveImpact.transactions, "операция", "операции", "операций")

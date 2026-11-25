@@ -153,7 +153,6 @@ export function DashboardShell({
             <Button
               variant="ghost"
               size="sm"
-              className="h-9"
               disabled={isCurrent}
               onClick={() => navigate({ period: defaultPeriod(today) })}
             >
@@ -283,7 +282,7 @@ function CreateMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button className="h-9 gap-1.5">
+        <Button size="sm">
           <Plus className="size-4" />
           <span className="sm:hidden">Добавить</span>
           <span className="hidden sm:inline">Добавить операцию</span>

@@ -137,8 +137,8 @@ export default async function KnowledgeLandingPage() {
                 aria-valuemax={100}
               >
                 <div
-                  className="h-full rounded-full bg-brand transition-all"
-                  style={{ width: `${progressPct}%` }}
+                  className="chart-bar-grow-x h-full rounded-full bg-brand"
+                  style={{ width: `${progressPct}%`, animationDelay: "200ms" }}
                 />
               </div>
               {requiredUnread.length > 0 ? (
@@ -147,14 +147,14 @@ export default async function KnowledgeLandingPage() {
                     <li key={row.id}>
                       <Link
                         href={`/knowledge/${row.slug}`}
-                        className="flex items-center gap-3 rounded-lg border border-brand/20 bg-background px-4 py-3 transition-colors hover:border-brand/40"
+                        className="group/title flex items-center gap-3 rounded-lg border border-brand/20 bg-background px-4 py-3 transition-colors hover:border-brand/40"
                       >
                         <KbPageIcon
                           icon={row.icon}
                           color={row.icon_color}
                           size={18}
                         />
-                        <span className="flex-1 truncate text-sm font-medium">
+                        <span className="flex-1 truncate text-sm font-medium transition-colors duration-200 group-hover/title:text-brand">
                           {row.title || "Без названия"}
                         </span>
                         <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
@@ -183,14 +183,14 @@ export default async function KnowledgeLandingPage() {
                     <Link
                       key={row.id}
                       href={`/knowledge/${row.slug}`}
-                      className="flex flex-col gap-3 rounded-xl border bg-card p-4 transition-colors hover:border-foreground/20 hover:bg-accent/40"
+                      className="group/title flex flex-col gap-3 rounded-xl border bg-card p-4 transition-colors hover:border-foreground/20 hover:bg-accent/40"
                     >
                       <KbPageIcon
                         icon={row.icon}
                         color={row.icon_color}
                         size={22}
                       />
-                      <span className="line-clamp-2 text-sm font-medium leading-snug">
+                      <span className="line-clamp-2 text-sm font-medium leading-snug transition-colors duration-200 group-hover/title:text-brand">
                         {row.title || "Без названия"}
                       </span>
                       <span className="mt-auto text-xs text-muted-foreground tabular-nums">

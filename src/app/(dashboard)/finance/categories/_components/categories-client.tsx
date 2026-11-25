@@ -17,6 +17,7 @@ import {
   FolderTree,
   ListFilter,
   Pencil,
+  Plus,
   SearchX,
   Tags,
   Trash2,
@@ -407,7 +408,7 @@ export function CategoriesClient({
           {/* Настоящая кнопка в первой ячейке: статью можно открыть с клавиатуры. */}
           <button
             type="button"
-            className="block max-w-full truncate text-left font-medium hover:underline"
+            className="block max-w-full truncate text-left font-medium transition-colors duration-200 hover:text-brand"
             data-tip={category.name}
             onClick={(event) => {
               event.stopPropagation();
@@ -726,7 +727,8 @@ export function CategoriesClient({
             }
             primaryActions={
               canManage ? (
-                <Button onClick={() => setDrawer({ id: null, createType: typeFilter || "expense" })}>
+                <Button size="sm" onClick={() => setDrawer({ id: null, createType: typeFilter || "expense" })}>
+                  <Plus className="size-4" />
                   Новая статья
                 </Button>
               ) : null

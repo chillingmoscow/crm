@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Check, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import type { IntegrationVenue } from "@/lib/integrations/settings";
 import { Button } from "@/components/ui/button";
@@ -59,7 +59,7 @@ export function DoorCodesSettings({ venues, activeVenue, initialPool }: { venues
         <Button size="sm" disabled={busy} onClick={() => start(async () => {
           setError(""); try { unwrapAction(await saveDoorPool(venue, { codes: "", confirm_empty_pool: false, use_existing_pool: true })); setReady(true); toast.success("Учёт кодов включён для заведения"); }
           catch (e) { setError(candidateError(e, "Не удалось включить учёт кодов")); }
-        })}>{busy ? "Сохраняем…" : "Использовать резерв"}</Button>
+        })}>{busy ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}{busy ? "Сохраняем…" : "Использовать резерв"}</Button>
       </div> : null}
       {error ? <div role="alert" className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-destructive">{error}</p>{!loaded ? <Button size="sm" variant="outline" onClick={() => setAttempt(v => v + 1)}>Повторить</Button> : null}</div> : null}
       <IntegrationNotice>Резерв общий для организации. Номер и код сотрудника видны владельцу в карточке сотрудника</IntegrationNotice>

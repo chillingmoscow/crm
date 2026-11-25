@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { CalendarClock } from "lucide-react";
+import { Banknote, CalendarClock, Loader2 } from "lucide-react";
 import { ru } from "date-fns/locale/ru";
 
 import { Button } from "@/components/ui/button";
@@ -333,6 +333,7 @@ export function OccurrenceCard({
       {canResolve ? (
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => void post()} disabled={busy !== null} className="min-w-32">
+            {busy === "post" ? <Loader2 className="size-4 animate-spin" /> : <Banknote className="size-4" />}
             {busy === "post" ? "Проводим…" : "Провести"}
           </Button>
           <Button

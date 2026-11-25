@@ -12,6 +12,7 @@ import { formatDayMonth, formatDayMonthTime } from "@/lib/format/date";
 
 import { getCachedStoreTitle, getCachedVenueTimezone } from "../layout";
 import { ActCommentEditor } from "../_components/act-comment-editor";
+import { WeighingBlock } from "../_components/weighing-block";
 
 type DocumentOverviewRow = {
   id: string;
@@ -46,6 +47,8 @@ export default async function InventoryDocumentOverviewPage({
   ]);
   const canManage = can("inventory.manage_documents");
   const canRecount = can("inventory.recount_documents");
+  // «Повторить» проведение взвешивания — те же права, что у stock_count_retry.
+  const canRetryWeighing = can("schedule.review") || can("inventory.finalize_results");
   if (!user) redirect("/login");
   if (!accountId) redirect("/dashboard");
 
@@ -91,6 +94,13 @@ export default async function InventoryDocumentOverviewPage({
           ) : null}
         </dl>
       </ProfileSection>
+
+      <WeighingBlock
+        documentId={document.id}
+        accountId={accountId as string}
+        canRetry={canRetryWeighing}
+        timeZone={timeZone}
+      />
 
       <ProfileSection title="Для команды">
         <ActCommentEditor documentId={document.id} note={document.note} canEdit={canEdit} />

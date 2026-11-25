@@ -500,6 +500,34 @@ const SPECS: Record<string, AuditEventSpec> = {
       );
     },
   },
+  // Разовая загрузка проведённых актов склада из Quick Resto
+  // (/dev/import-store-acts): одна строка на запуск.
+  "inventory.store_acts.imported": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: (e) => (
+      <>
+        загрузил(а) проведённые акты склада из Quick Resto
+        {typeof e.details.store_title === "string" ? <>: {e.details.store_title}</> : null}
+      </>
+    ),
+    buildDetails: (e) => {
+      const documents = Array.isArray(e.details.documents)
+        ? e.details.documents
+            .map((row) => (row && typeof row === "object" ? (row as { number?: unknown }).number : null))
+            .filter((value): value is string => typeof value === "string")
+        : [];
+      const failed = Number(e.details.failed ?? 0);
+      return (
+        <div className="text-xs text-muted-foreground">
+          <p>
+            С {formatDate(e.details.from)} · загружено: {Number(e.details.imported ?? 0)}
+            {failed > 0 ? <> · не загружено: {failed}</> : null}
+          </p>
+          {documents.length > 0 ? <p>{documents.join(", ")}</p> : null}
+        </div>
+      );
+    },
+  },
   "stock.writeoffs.archive_imported": {
     icon: FilePlus2, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>перенёс(ла) архив списаний</>,

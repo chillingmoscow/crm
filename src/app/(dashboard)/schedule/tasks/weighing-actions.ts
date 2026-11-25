@@ -156,3 +156,35 @@ export async function weighingPhotoUrls(occurrenceId: string, paths: string[]) {
     return out;
   }, "Не удалось загрузить фотографии");
 }
+
+/**
+ * «Повторить» упавшее проведение взвешивания. Права и состояние очереди
+ * проверяет stock_count_retry (schedule.review или inventory.finalize_results,
+ * только строка в статусе failed). Сразу после ответа — одна попытка, как при
+ * сдаче; дальше очередь в фоновом обработчике.
+ */
+export async function retryStockCountCommit(commitId: string) {
+  return actionResult(async () => {
+    const id = uuid.parse(commitId);
+    const { db } = await context();
+    const r = await db.rpc("stock_count_retry", { p_commit: id });
+    if (r.error) throw new Error(r.error.message);
+    const { data } = await db
+      .from<{ occurrence_id: string }>("stock_count_commits")
+      .select("occurrence_id")
+      .eq("id", id)
+      .maybeSingle();
+    const occurrenceId = data?.occurrence_id;
+    if (occurrenceId) {
+      after(async () => {
+        try {
+          await processStockCountCommit(occurrenceId);
+        } catch (error) {
+          console.error("[retryStockCountCommit] проведение не удалось", error instanceof Error ? error.message : error);
+        }
+      });
+    }
+    revalidatePath("/schedule");
+    revalidatePath("/documents/inventory", "layout");
+  }, "Не удалось повторить проведение");
+}

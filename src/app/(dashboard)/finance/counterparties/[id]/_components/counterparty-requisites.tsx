@@ -10,8 +10,9 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { OptionSelect } from "@/components/ui/option-select";
 import { CounterpartyGroupSelect } from "@/components/finance/counterparty-group-select";
-import { PhoneInput } from "@/components/ui/phone-input";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { AmountInput } from "@/components/finance/amount-input";
 import { AddressInput } from "@/components/org/address-input";
 import { InnInput } from "@/components/org/inn-input";
 import { ProfileSection } from "@/components/shared/profile-section";
@@ -19,8 +20,15 @@ import { SaveBarSection } from "@/components/shared/save-bar";
 import { formatDayMonth } from "@/lib/format/date";
 import { syncCounterpartyFromDadata, updateCounterparty } from "@/lib/finance/counterparties";
 import { LEGAL_FORM_OPTIONS } from "@/lib/org/legal-entity-labels";
+import { WEEKDAYS } from "@/lib/finance/counterparty-contacts";
 import type { CounterpartyFormInput, CounterpartyRow } from "@/types/finance";
 import type { LegalForm } from "@/types/database";
+import {
+  CounterpartyContactsEditor,
+  contactDraftFrom,
+  contactsFromJson,
+  type ContactDraft,
+} from "./counterparty-contacts-editor";
 
 type FormState = {
   name: string;
@@ -29,11 +37,14 @@ type FormState = {
   kpp: string;
   ogrn: string;
   address: string;
-  contact_person: string;
-  phone: string;
-  email: string;
   group_id: string;
   description: string;
+  is_supplier: boolean;
+  payment_delay_days: string;
+  min_order_amount: number | null;
+  order_weekdays: number[];
+  delivery_weekdays: number[];
+  contacts: ContactDraft[];
 };
 
 function fromRow(row: CounterpartyRow): FormState {
@@ -44,12 +55,15 @@ function fromRow(row: CounterpartyRow): FormState {
     kpp: row.kpp ?? "",
     ogrn: row.ogrn ?? "",
     address: row.address ?? "",
-    contact_person: row.contact_person ?? "",
-    phone: row.phone ?? "",
-    email: row.email ?? "",
     // "" — без группы (контракт OptionSelect).
     group_id: row.group_id ?? "",
     description: row.description ?? "",
+    is_supplier: row.is_supplier,
+    payment_delay_days: row.payment_delay_days === null ? "" : String(row.payment_delay_days),
+    min_order_amount: row.min_order_amount === null ? null : Number(row.min_order_amount),
+    order_weekdays: row.order_weekdays ?? [],
+    delivery_weekdays: row.delivery_weekdays ?? [],
+    contacts: contactsFromJson(row.contacts).map(contactDraftFrom),
   };
 }
 
@@ -63,22 +77,41 @@ function toPatch(form: FormState): CounterpartyFormInput {
     kpp: text(form.kpp),
     ogrn: text(form.ogrn),
     address: text(form.address),
-    contact_person: text(form.contact_person),
-    phone: text(form.phone),
-    email: text(form.email),
     group_id: form.group_id || null,
     description: text(form.description),
+    is_supplier: form.is_supplier,
+    payment_delay_days: form.payment_delay_days.trim() === "" ? null : Number(form.payment_delay_days),
+    min_order_amount: form.min_order_amount,
+    order_weekdays: form.order_weekdays,
+    delivery_weekdays: form.delivery_weekdays,
+    contacts: form.contacts,
   };
 }
 
 /** Поле, к которому относится ошибка проверки на сервере: её показываем у поля. */
-function errorField(error: string | null): "inn" | "kpp" | "ogrn" | "email" | null {
+function errorField(
+  error: string | null,
+): "inn" | "kpp" | "ogrn" | "contacts" | "payment_delay_days" | "min_order_amount" | null {
   if (!error) return null;
   if (error.startsWith("ИНН") || error.startsWith("Контрагент с ИНН")) return "inn";
   if (error.startsWith("КПП")) return "kpp";
   if (error.startsWith("ОГРН")) return "ogrn";
-  if (error.startsWith("Проверьте адрес почты")) return "email";
+  if (error.startsWith("Отсрочка")) return "payment_delay_days";
+  if (error.startsWith("Минимальный заказ")) return "min_order_amount";
+  if (
+    error.startsWith("Проверьте адрес почты") ||
+    error.startsWith("Укажите имя контакта") ||
+    error.startsWith("Telegram") ||
+    error.startsWith("Не больше 10 контактов")
+  ) {
+    return "contacts";
+  }
   return null;
+}
+
+/** Состояние формы для сравнения «есть ли правки»: без пробелов по краям. */
+function snapshot(form: FormState): string {
+  return JSON.stringify(form, (_key, value) => (typeof value === "string" ? value.trim() : value));
 }
 
 /**
@@ -108,9 +141,7 @@ export function CounterpartyRequisites({
   const [syncing, setSyncing] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
-  const dirty = (Object.keys(initial) as (keyof FormState)[]).some(
-    (key) => form[key].trim() !== initial[key].trim(),
-  );
+  const dirty = snapshot(form) !== snapshot(initial);
   const nameMissing = !form.name.trim();
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
@@ -163,7 +194,7 @@ export function CounterpartyRequisites({
   const locked = lockMessage ? { tone: "locked" as const, message: lockMessage } : undefined;
   const syncedAt = formatDayMonth(row.dadata_synced_at);
   const text = (
-    key: "name" | "kpp" | "ogrn" | "contact_person" | "email",
+    key: "name" | "kpp" | "ogrn",
     label: string,
     opts: { required?: boolean; placeholder?: string; inputMode?: "numeric" | "email"; maxLength?: number; error?: string | null } = {},
   ) => (
@@ -290,23 +321,17 @@ export function CounterpartyRequisites({
         </div>
       </ProfileSection>
 
-      <ProfileSection title="Контакты" locked={locked}>
-        <div className="grid items-start gap-4 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            {text("contact_person", "Контактное лицо", { placeholder: "Имя менеджера", maxLength: 200 })}
-          </div>
-          <Field id="cp-phone" label="Телефон">
-            {(control) => (
-              <PhoneInput
-                {...control}
-                value={form.phone}
-                onChange={(value) => set("phone", value)}
-                disabled={readOnly}
-              />
-            )}
-          </Field>
-          {text("email", "Почта", { inputMode: "email", placeholder: "info@example.ru", maxLength: 200 })}
-        </div>
+      <ProfileSection
+        title="Контакты"
+        description="Менеджер, бухгалтер, экспедитор — с кем и как связываться"
+        locked={locked}
+      >
+        <CounterpartyContactsEditor
+          contacts={form.contacts}
+          onChange={(contacts) => set("contacts", contacts)}
+          readOnly={readOnly}
+          error={errorOf("contacts")}
+        />
       </ProfileSection>
 
       <ProfileSection title="Учёт" description="Как контрагент выглядит в списке" locked={locked}>
@@ -323,6 +348,20 @@ export function CounterpartyRequisites({
               />
             )}
           </Field>
+          <label htmlFor="cp-supplier" className="flex items-start justify-between gap-4">
+            <span className="grid gap-1">
+              <span className="text-sm font-medium">Поставщик</span>
+              <span className="text-sm text-muted-foreground">
+                Ставится сама, когда контрагента добавляют поставщиком к позиции номенклатуры
+              </span>
+            </span>
+            <Switch
+              id="cp-supplier"
+              checked={form.is_supplier}
+              onCheckedChange={(checked) => set("is_supplier", checked)}
+              disabled={readOnly}
+            />
+          </label>
           <Field id="cp-description" label="Заметка">
             {(control) => (
               <Textarea
@@ -338,6 +377,90 @@ export function CounterpartyRequisites({
           </Field>
         </div>
       </ProfileSection>
+
+      {form.is_supplier ? (
+        <ProfileSection
+          title="Условия поставок"
+          description="Необязательно: чтобы не держать в голове, когда заказывать и сколько"
+          locked={locked}
+        >
+          <div className="grid items-start gap-4 sm:grid-cols-2">
+            <Field id="cp-payment-delay" label="Отсрочка платежа, дней" error={errorOf("payment_delay_days")}>
+              {(control) => (
+                <Input
+                  {...control}
+                  value={form.payment_delay_days}
+                  onChange={(event) => set("payment_delay_days", event.target.value.replace(/\D/g, "").slice(0, 3))}
+                  inputMode="numeric"
+                  placeholder="0"
+                  disabled={readOnly}
+                />
+              )}
+            </Field>
+            <Field id="cp-min-order" label="Минимальный заказ, ₽" error={errorOf("min_order_amount")}>
+              {(control) => (
+                <AmountInput
+                  {...control}
+                  value={form.min_order_amount}
+                  onChange={(value) => set("min_order_amount", value)}
+                  disabled={readOnly}
+                />
+              )}
+            </Field>
+            <WeekdayField
+              label="Дни заказа"
+              value={form.order_weekdays}
+              onChange={(days) => set("order_weekdays", days)}
+              disabled={readOnly}
+            />
+            <WeekdayField
+              label="Дни доставки"
+              value={form.delivery_weekdays}
+              onChange={(days) => set("delivery_weekdays", days)}
+              disabled={readOnly}
+            />
+          </div>
+        </ProfileSection>
+      ) : null}
     </form>
+  );
+}
+
+function WeekdayField({
+  label,
+  value,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  value: number[];
+  onChange: (days: number[]) => void;
+  disabled: boolean;
+}) {
+  const toggle = (day: number) =>
+    onChange(value.includes(day) ? value.filter((d) => d !== day) : [...value, day].sort((a, b) => a - b));
+  return (
+    <div className="grid gap-2" role="group" aria-label={label}>
+      <span className="text-sm font-medium">{label}</span>
+      <div className="flex flex-wrap gap-1">
+        {WEEKDAYS.map((day) => {
+          const on = value.includes(day.value);
+          return (
+            <Button
+              key={day.value}
+              type="button"
+              size="sm"
+              variant={on ? "default" : "outline"}
+              aria-pressed={on}
+              disabled={disabled}
+              onClick={() => toggle(day.value)}
+              className="touch-target h-8 min-w-9 px-2 text-xs"
+            >
+              {day.short}
+            </Button>
+          );
+        })}
+      </div>
+    </div>
   );
 }

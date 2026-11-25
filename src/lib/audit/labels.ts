@@ -179,6 +179,12 @@ const FIELD_LABELS: Record<string, string> = {
   contact_person: "контактное лицо",
   email: "email",
   address: "адрес",
+  is_supplier: "поставщик",
+  payment_delay_days: "отсрочка платежа, дней",
+  min_order_amount: "минимальный заказ",
+  order_weekdays: "дни заказа",
+  delivery_weekdays: "дни доставки",
+  contacts: "контакты",
   // category
   color: "цвет",
   icon: "иконка",

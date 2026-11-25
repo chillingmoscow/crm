@@ -7,8 +7,16 @@
 --   только service_role.
 -- * public.payroll_official_expected_for — ожидаемая официальная часть
 --   заведения для сервера (в 383 она читается только от пользователя).
+-- * payroll_payout_settings.auto_issue + payroll_payout_set_auto — выключатель
+--   автовыдачи (по умолчанию выключено); payroll_payout_issues.moves —
+--   применённые переносы дня (в журнал пишем только сделанное).
 
 begin;
+
+-- Выключатель автовыдачи заведения: по умолчанию выключено, включает настройщик.
+alter table public.payroll_payout_settings add column auto_issue boolean not null default false;
+-- Какие переносы дня применились при выдаче — для журнала (пишем только сделанное).
+alter table public.payroll_payout_issues add column moves jsonb not null default '[]'::jsonb;
 
 -- Последнее тело выдачи — 391_payroll_payout_plan.sql (public.payroll_payout_issue).
 create or replace function private.payroll_payout_issue_core(p_input jsonb, a uuid, v uuid, u uuid)
@@ -28,6 +36,7 @@ declare
   v_business date := (p_input->>'business_date')::date;
   item jsonb; v_amount numeric; next_date date; category uuid; payment uuid;
   stored jsonb := '[]'::jsonb; total numeric := 0; issue uuid;
+  applied jsonb := '[]'::jsonb; moved public.payroll_payout_rows;
 begin
   if a is null or v is null then raise exception 'Выберите заведение'; end if;
   perform pg_advisory_xact_lock(hashtextextended(v::text, 0));
@@ -149,15 +158,23 @@ begin
       if next_date is null or next_date < plan.window_from or next_date > plan.window_to then
         raise exception 'День выплаты вне окна';
       end if;
-      update public.payroll_payout_rows
-         set pay_date = next_date, updated_by = u, updated_at = now()
-       where id = (item->>'row_id')::uuid and plan_id = plan.id and state <> 'issued';
+      select * into moved from public.payroll_payout_rows
+       where id = (item->>'row_id')::uuid and plan_id = plan.id and state <> 'issued' for update;
+      if moved.id is null then continue; end if;  -- строку успели выдать — переносить нечего
+      update public.payroll_payout_rows set pay_date = next_date, updated_by = u, updated_at = now() where id = moved.id;
+      applied := applied || jsonb_build_array(jsonb_build_object(
+        'row_id', moved.id, 'employee_id', moved.employee_id,
+        'name', (select name from public.payroll_employees where id = moved.employee_id),
+        'from', moved.pay_date, 'to', next_date));
+      insert into public.payroll_events(account_id, venue_id, employee_id, entity_id, actor_id, action, details)
+      values (a, v, moved.employee_id, plan.id, u, 'payout_row', jsonb_build_object('row_id', moved.id,
+        'reason', 'move', 'pay_date', next_date, 'previous_pay_date', moved.pay_date));
     end loop;
   end if;
 
   insert into public.payroll_payout_issues(account_id, venue_id, plan_id, business_date, method, request_key,
-    bank_account_id, total, lines, cash, input_snapshot, message, created_by)
-  values (a, v, plan.id, v_business, v_method, v_key, bank.id, total, stored,
+    bank_account_id, total, lines, moves, cash, input_snapshot, message, created_by)
+  values (a, v, plan.id, v_business, v_method, v_key, bank.id, total, stored, applied,
     case when jsonb_typeof(p_input->'cash') = 'object' then p_input->'cash' end, p_input,
     nullif(p_input->>'message', ''), u)
   returning id into issue;
@@ -192,6 +209,9 @@ begin
   if not exists (select 1 from public.venues where id = p_venue and account_id = p_account) then
     raise exception 'Заведение не принадлежит аккаунту';
   end if;
+  if exists (select 1 from public.venues where id = p_venue and archived_at is not null) then
+    raise exception 'Заведение в архиве';
+  end if;
   return private.payroll_payout_issue_core(p_input, p_account, p_venue, null);
 end $function$;
 
@@ -224,6 +244,24 @@ as $$
   order by oe.employee_id, g.m
 $$;
 
+create or replace function public.payroll_payout_set_auto(p_enabled boolean)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $function$
+declare a uuid; v uuid; u uuid; x text;
+begin
+  select s.a, s.v, s.u into a, v, u from private.payroll_scope('payroll.configure') s;
+  if a is null or v is null then raise exception 'Выберите заведение'; end if;
+  if p_enabled is null then raise exception 'Укажите, включить ли автовыдачу'; end if;
+  update public.payroll_payout_settings set auto_issue = p_enabled, updated_by = u, updated_at = now()
+   where account_id = a and venue_id = v returning venue_id::text into x;
+  if x is null then raise exception 'Сначала сохраните график выплат'; end if;
+  insert into public.payroll_events(account_id, venue_id, entity_id, actor_id, action, details)
+  values (a, v, v, u, 'payout_auto', jsonb_build_object('enabled', p_enabled));
+end $function$;
+
 revoke all on function private.payroll_payout_issue_core(jsonb, uuid, uuid, uuid) from public, anon, authenticated;
 revoke all on function public.payroll_payout_issue(jsonb) from public, anon;
 grant execute on function public.payroll_payout_issue(jsonb) to authenticated;
@@ -231,6 +269,8 @@ revoke all on function public.payroll_payout_issue_system(uuid, uuid, jsonb) fro
 grant execute on function public.payroll_payout_issue_system(uuid, uuid, jsonb) to service_role;
 revoke all on function public.payroll_official_expected_for(uuid, uuid, date, date) from public, anon, authenticated;
 grant execute on function public.payroll_official_expected_for(uuid, uuid, date, date) to service_role;
+revoke all on function public.payroll_payout_set_auto(boolean) from public, anon;
+grant execute on function public.payroll_payout_set_auto(boolean) to authenticated;
 
 do $$
 begin
@@ -241,7 +281,10 @@ begin
      or has_function_privilege('authenticated', 'public.payroll_payout_issue_system(uuid, uuid, jsonb)', 'execute')
      or not has_function_privilege('service_role', 'public.payroll_payout_issue_system(uuid, uuid, jsonb)', 'execute')
      or has_function_privilege('anon', 'public.payroll_official_expected_for(uuid, uuid, date, date)', 'execute')
-     or has_function_privilege('authenticated', 'public.payroll_official_expected_for(uuid, uuid, date, date)', 'execute') then
+     or has_function_privilege('authenticated', 'public.payroll_official_expected_for(uuid, uuid, date, date)', 'execute')
+     or not has_function_privilege('service_role', 'public.payroll_official_expected_for(uuid, uuid, date, date)', 'execute')
+     or has_function_privilege('anon', 'public.payroll_payout_set_auto(boolean)', 'execute')
+     or not has_function_privilege('authenticated', 'public.payroll_payout_set_auto(boolean)', 'execute') then
     raise exception 'Права на функции выдачи по плану выставлены неверно';
   end if;
 end $$;

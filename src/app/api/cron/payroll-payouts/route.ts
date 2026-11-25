@@ -7,13 +7,12 @@ import { runPayoutAuto } from "@/lib/payroll/payout-auto";
  * POST /api/cron/payroll-payouts
  *
  * Автовыдача зарплаты по утверждённому плану выплат: раз в день в 14:00 по
- * Москве (`scripts/crm-payroll-payouts.sh`). Для каждого заведения с
- * настройками графика выплат — строки плана на сегодня: кассы Quick Resto,
+ * Москве (`scripts/crm-payroll-payouts.sh`). Для заведений, где автовыдача
+ * включена в «Графике выплат», — строки плана на сегодня: кассы Quick Resto,
  * распределение, проведение с кэшбокса, сообщение в чат менеджеров.
  *
- * Идемпотентность: ключ выдачи — план + день; повторный запуск в тот же день
- * вернёт ту же выдачу (payroll_payout_issue_system, миграция 392), а строки,
- * уже выданные целиком, в выдачу не попадают.
+ * Идемпотентность: ключ выдачи — план + день. Повторный запуск в тот же день
+ * находит выдачу по ключу и только досылает сообщение, если оно не ушло.
  *
  * Auth: shared-secret из ENV, как у остальных cron-маршрутов.
  */
@@ -30,8 +29,11 @@ export async function POST(request: Request) {
   }
   try {
     const results = await runPayoutAuto();
-    const failed = results.some((r) => r.outcome === "error");
-    return NextResponse.json({ results, timestamp: new Date().toISOString() }, { status: failed ? 500 : 200 });
+    // 500 — что-то требует человека, а отчёт до чата отчётов не дошёл, или запуск упал:
+    // лог хоста и мониторинг должны это заметить.
+    const unseen = results.some((r) => r.outcome === "error" || (r.attention && r.reportSent === false));
+    if (unseen) console.error("[payroll-payouts] требуется внимание:", JSON.stringify(results));
+    return NextResponse.json({ results, timestamp: new Date().toISOString() }, { status: unseen ? 500 : 200 });
   } catch (e) {
     const message = e instanceof Error ? e.message : "unknown";
     console.error(`[payroll-payouts] ${message}`);

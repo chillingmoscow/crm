@@ -42,6 +42,8 @@ function Plan({ e }: { e: AuditEvent }) {
 
 function Issue({ e }: { e: AuditEvent }) {
   const lines = Array.isArray(e.details.lines) ? (e.details.lines as { name?: string; amount?: number }[]) : [];
+  const moves = Array.isArray(e.details.moves) ? (e.details.moves as { name?: string; to?: string }[]) : [];
+  const notMoved = Array.isArray(e.details.not_moved) ? (e.details.not_moved as string[]) : [];
   const transfer = e.details.method === "transfer";
   return (
     <div className="space-y-0.5 text-xs text-muted-foreground">
@@ -50,6 +52,10 @@ function Issue({ e }: { e: AuditEvent }) {
         {e.details.business_date ? <> · {formatDate(e.details.business_date)}</> : null}
       </p>
       {lines.length > 0 && <p>{lines.map((l) => `${l.name ?? "Сотрудник"} ${money(l.amount)}`).join(", ")}</p>}
+      {moves.length > 0 && (
+        <p>Перенесено на следующую смену: {moves.map((m) => `${m.name ?? "Сотрудник"} → ${m.to ? formatDate(m.to) : "?"}`).join(", ")}</p>
+      )}
+      {notMoved.length > 0 && <p>Выбрать день вручную: {notMoved.join(", ")}</p>}
       {!transfer && e.details.message_sent != null && (
         <p>{e.details.message_sent ? "Сообщение менеджерам отправлено" : "Сообщение менеджерам не отправлено"}</p>
       )}
@@ -133,7 +139,9 @@ export const payrollPayoutAuditSpecs: Record<string, AuditEventSpec> = {
     buildHeadline: () => <>изменил(а) график выплат</>,
     buildDetails: (e) => (
       <p className="text-xs text-muted-foreground">
-        Минимум в кэшбоксе {money(e.details.min_cash)}
+        {typeof e.details.auto_issue === "boolean"
+          ? (e.details.auto_issue ? "Автовыдача в 14:00 включена" : "Автовыдача в 14:00 выключена")
+          : <>Минимум в кэшбоксе {money(e.details.min_cash)}</>}
         {e.details.chat_id !== e.details.previous_chat_id && <> · чат менеджеров изменён</>}
         {Number(e.details.assignments) > 0 && <> · графиков сотрудников изменено: {Number(e.details.assignments)}</>}
       </p>

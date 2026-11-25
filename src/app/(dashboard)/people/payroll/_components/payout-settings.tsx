@@ -11,12 +11,14 @@ import { useSaveSection } from "@/components/shared/save-bar";
 import { unwrapAction } from "@/lib/actions/result";
 import { DEFAULT_PAYOUT_SCHEDULES, type PayoutScheduleCode } from "@/lib/payroll/payout-plan";
 import type { PayrollData } from "@/lib/payroll/types";
-import { loadPayoutAssignments, savePayoutSettings, type PayoutAssignments } from "../payout-actions";
+import { loadPayoutAssignments, savePayoutSettings, setPayoutAuto, type PayoutAssignments } from "../payout-actions";
+import { Switch } from "@/components/ui/switch";
 import { PayrollEmployeePicker } from "./payroll-employee-picker";
 import { selectClass } from "./select-class";
 
 type Saved = PayoutAssignments;
 type Form = {
+  auto: boolean;
   minCash: string;
   bankId: string;
   chatId: string;
@@ -34,6 +36,7 @@ function formFrom(data: PayrollData, saved: Saved): Form {
     data.banks.find((b) => b.type === type && pattern.test(b.name))?.id ?? "";
   const schedules = (row?.schedules ?? {}) as Partial<Record<PayoutScheduleCode, { step?: number; reserve?: number; bank_account_id?: string | null }>>;
   return {
+    auto: row?.auto_issue === true,
     minCash: num(row?.min_cash, 120000),
     bankId: row?.bank_account_id ?? byName("cash", /кэшбокс/i),
     chatId: row?.chat_id ?? "",
@@ -134,6 +137,7 @@ function PayoutScheduleForm({ data, saved, onSaved }: { data: PayrollData; saved
             .map((e) => ({ employee_id: e.id, schedule: scheduleOf(e.id) })),
         }),
       );
+      if (form.auto !== initial.auto) unwrapAction(await setPayoutAuto(form.auto));
       await onSaved();
       toast.success("График выплат сохранён");
       return true;
@@ -173,6 +177,16 @@ function PayoutScheduleForm({ data, saved, onSaved }: { data: PayrollData; saved
         }}
       >
         <button type="submit" className="sr-only" tabIndex={-1} aria-hidden="true" />
+        <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+          <div className="space-y-1">
+            <Label htmlFor="payout-auto">Выдавать автоматически в 14:00</Label>
+            <p className="text-[13px] text-muted-foreground">
+              В день выплаты по утверждённому плану приложение само проверяет кассы, проводит выплаты и пишет менеджерам.
+              Если выдать нельзя, придёт сообщение в чат отчётов. Выключено — выдача только кнопкой «Выдать сейчас».
+            </p>
+          </div>
+          <Switch id="payout-auto" checked={form.auto} disabled={disabled} onCheckedChange={(auto) => set({ auto })} />
+        </div>
         <div className="grid gap-4 md:grid-cols-2">
           {field("payout-min-cash", "Минимум в кэшбоксе после выдачи, ₽", form.minCash, (minCash) => set({ minCash }),
             "Столько наличных останется в кассах после выдачи зарплаты.")}

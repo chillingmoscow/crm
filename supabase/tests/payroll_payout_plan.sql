@@ -337,12 +337,29 @@ begin
     'system issue posts without an author');
   perform pg_temp.check((select pay_date from public.payroll_payout_rows where id = pg_temp.fx('filipp_row')) = '2026-11-28',
     'moves shift the day of rows that got nothing');
+  perform pg_temp.check(
+    (select moves from public.payroll_payout_issues where id = issue)
+      = jsonb_build_array(jsonb_build_object('row_id', pg_temp.fx('filipp_row'), 'employee_id', pg_temp.fx('filipp'),
+          'name', 'Филипп Тестовый', 'from', '2026-11-27', 'to', '2026-11-28'))
+    and exists (select 1 from public.payroll_events where entity_id = pg_temp.fx('main_plan') and action = 'payout_row'
+                and details->>'reason' = 'move' and details->>'row_id' = pg_temp.fx('filipp_row')::text),
+    'applied moves are stored on the issue and logged');
   perform pg_temp.expect_error(
     format('select public.payroll_payout_issue_system(%L, %L, %L)', gen_random_uuid(), pg_temp.fx('v'), '{}'),
     '%не принадлежит аккаунту%', 'system issue checks venue ownership');
+  -- Выключатель автовыдачи: по умолчанию выключено, включает настройщик.
+  perform pg_temp.act_as(pg_temp.fx('owner'));
+  perform pg_temp.check((select auto_issue from public.payroll_payout_settings where venue_id = pg_temp.fx('v')) = false,
+    'auto issue is off by default');
+  perform public.payroll_payout_set_auto(true);
+  perform pg_temp.check((select auto_issue from public.payroll_payout_settings where venue_id = pg_temp.fx('v')) = true,
+    'auto issue can be switched on');
+  perform pg_temp.act_as(null);
   perform pg_temp.check(not has_function_privilege('authenticated', 'public.payroll_payout_issue_system(uuid, uuid, jsonb)', 'execute')
     and has_function_privilege('service_role', 'public.payroll_payout_issue_system(uuid, uuid, jsonb)', 'execute')
-    and not has_function_privilege('authenticated', 'public.payroll_official_expected_for(uuid, uuid, date, date)', 'execute'),
+    and not has_function_privilege('authenticated', 'public.payroll_official_expected_for(uuid, uuid, date, date)', 'execute')
+    and has_function_privilege('service_role', 'public.payroll_official_expected_for(uuid, uuid, date, date)', 'execute')
+    and not has_function_privilege('anon', 'public.payroll_payout_set_auto(boolean)', 'execute'),
     'system functions are server-only');
   perform pg_temp.act_as(pg_temp.fx('owner'));
 end $$;

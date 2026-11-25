@@ -380,6 +380,22 @@ async function loadPayoutAssignmentsImpl() {
   };
 }
 
+async function setPayoutAutoImpl(enabled: boolean) {
+  z.boolean().parse(enabled);
+  const s = await payrollScope("payroll.configure");
+  const r = await s.db.rpc("payroll_payout_set_auto", { p_enabled: enabled });
+  if (r.error) throw new Error(r.error.message);
+  await writeAuditEvent({
+    accountId: s.accountId,
+    venueId: s.venueId,
+    userId: s.user.id,
+    actionCode: "payroll.payout_settings.updated",
+    entityType: "payroll_payout_settings",
+    entityId: s.venueId,
+    details: { auto_issue: enabled },
+  });
+}
+
 export type PayoutAssignments = Awaited<ReturnType<typeof loadPayoutAssignmentsImpl>>;
 
 // Действия возвращают ошибку текстом, а не исключением (см. lib/actions/result).
@@ -403,6 +419,9 @@ export async function issuePayoutToday(planId: string, requestKey: string, expec
 }
 export async function savePayoutSettings(input: PayoutSettingsInput) {
   return actionResult(() => savePayoutSettingsImpl(input), "Не удалось сохранить график выплат");
+}
+export async function setPayoutAuto(enabled: boolean) {
+  return actionResult(() => setPayoutAutoImpl(enabled), "Не удалось переключить автовыдачу");
 }
 export async function loadPayoutAssignments() {
   return actionResult(() => loadPayoutAssignmentsImpl(), "Не удалось загрузить график выплат");

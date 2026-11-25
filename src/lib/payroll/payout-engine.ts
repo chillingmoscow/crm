@@ -16,6 +16,7 @@ import {
 import {
   NOBODY_DUE,
   cashAvailable,
+  splitShortfall,
   distributeCash,
   payoutMessage,
   type DueRow,
@@ -64,6 +65,7 @@ export type RowRecord = {
   breakdown: PlannedRow["breakdown"];
 };
 export type SettingsRecord = {
+  auto_issue?: boolean;
   min_cash: number;
   chat_id: string | null;
   bank_account_id: string | null;
@@ -90,6 +92,8 @@ export type IssuePreview = {
   problem: string | null;
   /** Выдать можно, но сообщение само не уйдёт. */
   warning: string | null;
+  /** Переведены на другой график после утверждения — по этому плану не выдаём. */
+  movedSchedule: string[];
 };
 
 export function mergeSettings(row: SettingsRecord | null, data: Pick<PayrollData, "banks">): PayoutSettingsView {
@@ -112,7 +116,7 @@ export function mergeSettings(row: SettingsRecord | null, data: Pick<PayrollData
 export async function loadSettingsRow(s: VenueHandle): Promise<SettingsRecord | null> {
   const r = await s.db
     .from<SettingsRecord>("payroll_payout_settings")
-    .select("min_cash,chat_id,bank_account_id,schedules")
+    .select("auto_issue,min_cash,chat_id,bank_account_id,schedules")
     .eq("account_id", s.accountId)
     .eq("venue_id", s.venueId)
     .maybeSingle();
@@ -279,6 +283,7 @@ export async function buildPreview(
         ? `На другом графике выплат, по этому плану не выдаём: ${moved.map((r) => employeeOf(r.employee_id)?.name ?? "Сотрудник").join(", ")}`
         : null,
     ].filter(Boolean).join(". ") || null,
+    movedSchedule: moved.map((r) => employeeOf(r.employee_id)?.name ?? "Сотрудник"),
     ctx,
     plan: current,
   };
@@ -350,8 +355,11 @@ export function payoutAudit(
 
 /**
  * Проводит выдачу по готовому предпросмотру: строки дня, перенос дня тем, кому
- * не досталось ничего, журнал, сообщение менеджерам. `call` — RPC от
- * пользователя (payroll_payout_issue) или от сервера (payroll_payout_issue_system).
+ * не досталось ничего (в той же транзакции), журнал, сообщение менеджерам.
+ * `call` — RPC от пользователя (payroll_payout_issue) или от сервера
+ * (payroll_payout_issue_system). Ошибка `call` — ничего не проведено. После
+ * него деньги уже записаны: сбои сообщения и журнала не бросаются, а
+ * возвращаются как messageState "failed".
  */
 export async function executeCashIssue(
   s: VenueHandle,
@@ -360,10 +368,7 @@ export async function executeCashIssue(
   userId: string | null,
   call: (input: Record<string, unknown>) => Promise<string>,
 ): Promise<{ issueId: string; messageState: MessageState; notMoved: string[] }> {
-  const nothing = preview.short.filter((row) => !preview.lines.some((l) => l.row_id === row.row_id));
-  const moves = nothing.filter((row) => row.next_pay_date);
-  const notMoved = nothing.filter((row) => !row.next_pay_date).map((row) => row.name);
-  const before = new Map((await planRows(s, preview.plan.id)).map((r) => [r.id, r]));
+  const { moves, notMoved } = splitShortfall(preview.lines, preview.short);
   const issueId = await call({
     request_key: requestKey,
     plan_id: preview.plan.id,
@@ -381,27 +386,33 @@ export async function executeCashIssue(
     lines: preview.lines.map((l) => ({ row_id: l.row_id, amount: l.amount, next_pay_date: l.next_pay_date, close: l.close })),
     moves: moves.map((row) => ({ row_id: row.row_id, pay_date: row.next_pay_date })),
   });
-  for (const row of moves) {
-    await payoutAudit(s, userId, "payroll.payout_plan.row_changed", preview.plan.id, {
-      employee_id: row.employee_id,
-      employee_name: row.name,
-      amount: before.get(row.row_id)?.amount ?? null,
-      previous_amount: before.get(row.row_id)?.amount ?? null,
-      pay_date: row.next_pay_date,
-      previous_pay_date: before.get(row.row_id)?.pay_date ?? null,
-      reason: "Не хватило наличных: перенесено на следующую смену",
-    });
+  let messageState: MessageState = "failed";
+  try {
+    messageState = await sendIssueMessage(s, issueId, preview.ctx.settings.chat_id);
+  } catch (e) {
+    console.error("[payroll-payout] сообщение после выдачи не отправлено", e);
   }
-  const messageState = await sendIssueMessage(s, issueId, preview.ctx.settings.chat_id);
-  await payoutAudit(s, userId, "payroll.payout_plan.issued", preview.plan.id, {
-    month: preview.plan.month,
-    schedule: preview.plan.schedule,
-    method: "cash",
-    total: money(preview.lines.reduce((sum, l) => sum + l.amount, 0)),
-    lines: preview.lines.map((l) => ({ employee_id: l.employee_id, name: l.name, amount: l.amount })),
-    business_date: preview.ctx.today,
-    message_sent: messageState === "sent",
-    automatic: userId === null,
-  });
+  try {
+    // В журнал — одной строкой на выдачу, с переносами, которые правда применились.
+    const stored = await s.admin
+      .from<{ moves: { name: string; from: string | null; to: string }[] }>("payroll_payout_issues")
+      .select("moves")
+      .eq("id", issueId)
+      .single();
+    await payoutAudit(s, userId, "payroll.payout_plan.issued", preview.plan.id, {
+      month: preview.plan.month,
+      schedule: preview.plan.schedule,
+      method: "cash",
+      total: money(preview.lines.reduce((sum, l) => sum + l.amount, 0)),
+      lines: preview.lines.map((l) => ({ employee_id: l.employee_id, name: l.name, amount: l.amount })),
+      moves: stored.data?.moves ?? [],
+      not_moved: notMoved,
+      business_date: preview.ctx.today,
+      message_sent: messageState === "sent",
+      automatic: userId === null,
+    });
+  } catch (e) {
+    console.error("[payroll-payout] журнал выдачи не записан", e);
+  }
   return { issueId, messageState, notMoved };
 }

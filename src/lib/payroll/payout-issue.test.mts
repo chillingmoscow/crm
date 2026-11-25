@@ -6,7 +6,6 @@ import {
   distributeCash,
   payoutMessage,
   registerCash,
-  shortNames,
   type DueRow,
 } from "./payout-issue.ts";
 
@@ -78,6 +77,11 @@ test("distributeCash: smallest first, full while fits, next partial by step, res
   assert.deepEqual(short.map((r) => r.name), ["Гамлет", "Ян"]);
 });
 
+test("fully issued line keeps no next day; only a partial line moves on", () => {
+  const { lines } = distributeCash([due("c", "Кристина", 30000, "2026-11-28"), due("g", "Гамлет", 65000, "2026-11-27")], 50000, 5000);
+  assert.deepEqual(lines.map((l) => [l.name, l.amount, l.next_pay_date]), [["Кристина", 30000, null], ["Гамлет", 20000, "2026-11-27"]]);
+});
+
 test("partial keeps remainder: line amount < due and next_pay_date carried", () => {
   const { lines, short } = distributeCash([due("g", "Гамлет", 65000, "2026-11-27")], 27000, 5000);
   assert.equal(lines[0].amount, 25000);
@@ -92,23 +96,10 @@ test("distributeCash with available ≤ 0 → no lines", () => {
   assert.deepEqual(distributeCash([due("g", "Гамлет", 65000)], 4000, 5000).lines, []);
 });
 
-test("shortNames disambiguates: two «Никита» → «Никита В.», «Никита С.»", () => {
-  const names = shortNames([
-    { id: "1", name: "Никита Волков" },
-    { id: "2", name: "Никита Смирнов" },
-    { id: "3", name: "Гамлет Геворкян" },
-    { id: "4", name: "Хасият" },
-  ]);
-  assert.equal(names.get("1"), "Никита В.");
-  assert.equal(names.get("2"), "Никита С.");
-  assert.equal(names.get("3"), "Гамлет");
-  assert.equal(names.get("4"), "Хасият");
-});
-
 test("payoutMessage", () => {
   assert.equal(
-    payoutMessage([{ name: "Гамлет", amount: 65000 }, { name: "Хасият", amount: 7500 }]),
-    "Выдайте плиз и проведите:\nГамлет — 65К\nХасият — 7 500\nИтого 72 500 — одним изъятием, в комментарии «ЗП»",
+    payoutMessage([{ name: "Гамлет Геворкян", amount: 65000 }, { name: "Хасият Алиева", amount: 7500 }]),
+    "Выдайте плиз и проведите:\nГамлет Геворкян — 65К\nХасият Алиева — 7 500\nИтого 72 500 — одним изъятием, в комментарии «ЗП»",
   );
   assert.equal(
     payoutMessage([{ name: "Гамлет", amount: 65000 }, { name: "Филипп", amount: 45000 }]),

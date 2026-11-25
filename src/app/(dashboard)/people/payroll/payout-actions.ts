@@ -19,7 +19,6 @@ import {
   cashAvailable,
   distributeCash,
   payoutMessage,
-  shortNames,
   type DueRow,
   type IssueLine,
   type RegisterCash,
@@ -91,6 +90,8 @@ export type PayoutPlanView = {
   banks: { id: string; name: string; type: string }[];
   canPay: boolean;
   canIssue: boolean;
+  /** Нет доступа к графику работы всей команды: дни и прогноз по сменам недоступны. */
+  shiftsHidden: boolean;
 };
 export type IssuePreview = {
   requestKey: string;
@@ -259,7 +260,18 @@ async function loadPayoutPlanImpl(schedule: PayoutScheduleCode): Promise<PayoutP
     banks: ctx.data.banks.filter((b) => b.type === "cash" || b.type === "checking").map((b) => ({ id: b.id, name: b.name, type: b.type })),
     canPay: s.permissions.includes("payroll.pay"),
     canIssue: s.permissions.includes("payroll.pay") && s.permissions.includes("finance.create_transaction"),
+    shiftsHidden: !s.permissions.includes("schedule.view_all"),
   };
+}
+
+/**
+ * Выплаты по плану: право на выплаты и на просмотр зарплаты. Без просмотра
+ * выплаты и строки плана скрыты политиками, и расчёт увидел бы «выплачено 0».
+ */
+async function payScope() {
+  const s = await payrollScope("payroll.pay");
+  if (!s.permissions.includes("payroll.view")) throw new Error("Нужен доступ к просмотру зарплаты");
+  return s;
 }
 
 async function employeeName(s: PayrollScope, id: string): Promise<string> {
@@ -281,7 +293,7 @@ function audit(s: PayrollScope, actionCode: string, entityId: string | null, det
 
 async function savePayoutPlanImpl(schedule: PayoutScheduleCode): Promise<string> {
   scheduleSchema.parse(schedule);
-  const s = await payrollScope("payroll.pay");
+  const s = await payScope();
   const ctx = await context(s, null);
   const window = firstPayoutWindow(ctx.today);
   if (!window) throw new Error("Сейчас не окно первой выплаты: оно с 25-го по 1-е число");
@@ -321,7 +333,7 @@ const rowUpdateSchema = z.object({
 });
 async function updatePayoutRowImpl(rowId: string, amount: number, payDate: string | null) {
   const input = rowUpdateSchema.parse({ rowId, amount, payDate });
-  const s = await payrollScope("payroll.pay");
+  const s = await payScope();
   const before = await s.db
     .from<RowRecord & { amount: number }>("payroll_payout_rows")
     .select("id,plan_id,employee_id,amount,pay_date")
@@ -349,7 +361,7 @@ async function updatePayoutRowImpl(rowId: string, amount: number, payDate: strin
 async function setPayoutPlanStateImpl(planId: string, state: "approved" | "cancelled") {
   z.string().uuid().parse(planId);
   z.enum(["approved", "cancelled"]).parse(state);
-  const s = await payrollScope("payroll.pay");
+  const s = await payScope();
   const current = await planById(s, planId);
   const r = await s.client.rpc("payroll_payout_plan_state", { p_plan: planId, p_state: state });
   if (r.error) throw new Error(r.error.message);
@@ -382,10 +394,13 @@ async function buildPreview(s: PayrollScope, planId: string): Promise<IssuePrevi
   const window = { from: current.window_from, to: current.window_to };
   // Свежий потолок: ручные выплаты и штрафы после утверждения. Саму сумму плана не пересчитываем.
   const ceilings = new Map(plan(ctx, current.schedule, current.month, window).map((r) => [r.employee_id, r.breakdown.ceiling]));
-  const rows = (await planRows(s, planId)).filter((row) => row.state !== "issued" && row.pay_date === ctx.today);
-  const names = shortNames(
-    rows.map((row) => ({ id: row.employee_id, name: ctx.data.employees.find((e) => e.id === row.employee_id)?.name ?? "Сотрудник" })),
-  );
+  const todays = (await planRows(s, planId)).filter((row) => row.state !== "issued" && row.pay_date === ctx.today);
+  const employeeOf = (id: string) => ctx.data.employees.find((e) => e.id === id);
+  // Сотрудника перевели на другой график после утверждения — по этому плану не выдаём.
+  const moved = todays.filter((row) => (employeeOf(row.employee_id)?.payout_schedule ?? "main") !== current.schedule);
+  const rows = todays.filter((row) => !moved.includes(row));
+  // В сообщении — имя и фамилия, как в карточке сотрудника.
+  const names = new Map(rows.map((row) => [row.employee_id, employeeOf(row.employee_id)?.name ?? "Сотрудник"]));
   const due: DueRow[] = rows
     .map((row) => {
       const nextShift = ctx.shifts
@@ -428,7 +443,12 @@ async function buildPreview(s: PayrollScope, planId: string): Promise<IssuePrevi
     short,
     message: lines.length ? payoutMessage(lines) : "",
     problem,
-    warning: ctx.settings.chat_id ? null : "Не указан чат менеджеров: сообщение придётся отправить вручную",
+    warning: [
+      ctx.settings.chat_id ? null : "Не указан чат менеджеров: сообщение придётся отправить вручную",
+      moved.length
+        ? `На другом графике выплат, по этому плану не выдаём: ${moved.map((r) => employeeOf(r.employee_id)?.name ?? "Сотрудник").join(", ")}`
+        : null,
+    ].filter(Boolean).join(". ") || null,
     ctx,
     plan: current,
   };
@@ -436,7 +456,7 @@ async function buildPreview(s: PayrollScope, planId: string): Promise<IssuePrevi
 
 async function previewPayoutTodayImpl(planId: string): Promise<IssuePreview> {
   z.string().uuid().parse(planId);
-  const s = await payrollScope("payroll.pay");
+  const s = await payScope();
   const { ctx: _ctx, plan: _plan, ...preview } = await buildPreview(s, planId);
   void _ctx;
   void _plan;
@@ -447,7 +467,10 @@ type IssueRecord = { id: string; message: string | null; message_sent_at: string
 const UNCERTAIN = "Telegram не подтвердил доставку: проверьте чат менеджеров";
 
 /** Отправляет сообщение выдачи один раз: строку забирает тот, кто первым сменил её статус. */
-async function sendIssueMessage(s: PayrollScope, issueId: string, chatId: string | null): Promise<boolean> {
+/** sent — отправлено; sending — отправляет параллельный запрос; failed — отправить вручную. */
+export type MessageState = "sent" | "sending" | "failed";
+
+async function sendIssueMessage(s: PayrollScope, issueId: string, chatId: string | null): Promise<MessageState> {
   const read = await s.admin
     .from<IssueRecord>("payroll_payout_issues")
     .select("id,message,message_sent_at,message_error,total")
@@ -456,13 +479,15 @@ async function sendIssueMessage(s: PayrollScope, issueId: string, chatId: string
     .single();
   if (read.error || !read.data) throw new Error("Выдача не найдена");
   const issue = read.data;
-  if (issue.message_sent_at) return true;
-  if (!issue.message || !chatId) return false;
-  if (issue.message_error === "sending" || issue.message_error === UNCERTAIN) return false;
+  if (issue.message_sent_at) return "sent";
+  if (!issue.message || !chatId) return "failed";
+  // Сообщение отправляет первый запрос (повтор пришёл, пока он работал).
+  if (issue.message_error === "sending") return "sending";
+  if (issue.message_error === UNCERTAIN) return "failed";
   let claim = s.admin.from<{ id: string }[]>("payroll_payout_issues").update({ message_error: "sending" }).eq("id", issueId).is("message_sent_at", null);
   claim = issue.message_error === null ? claim.is("message_error", null) : claim.eq("message_error", issue.message_error);
   const claimed = await claim.select("id");
-  if (claimed.error || !claimed.data?.length) return false;
+  if (claimed.error || !claimed.data?.length) return "sending";
   let error: string | null = null;
   try {
     const bot = await loadTelegramBot(s.admin, s.accountId);
@@ -479,7 +504,7 @@ async function sendIssueMessage(s: PayrollScope, issueId: string, chatId: string
     .update(error ? { message_error: error } : { message_sent_at: new Date().toISOString(), message_error: null })
     .eq("id", issueId);
   if (done.error) console.error("[payroll-payout] статус сообщения не записан", done.error.message);
-  return !error;
+  return error ? "failed" : "sent";
 }
 
 const lineSchema = z.object({
@@ -494,7 +519,7 @@ async function issuePayoutTodayImpl(planId: string, requestKey: string, expected
   z.string().uuid().parse(planId);
   z.string().uuid().parse(requestKey);
   const wanted = z.array(lineSchema).min(1).max(500).parse(expected);
-  const s = await payrollScope("payroll.pay");
+  const s = await payScope();
   if (!s.permissions.includes("finance.create_transaction")) throw new Error("Нет доступа к финансовым операциям");
 
   // Повтор после обрыва связи: выдача по этому ключу уже проведена — только сообщение.
@@ -507,7 +532,7 @@ async function issuePayoutTodayImpl(planId: string, requestKey: string, expected
   if (existing.error) throw new Error(existing.error.message);
   if (existing.data) {
     const sent = await sendIssueMessage(s, existing.data.id, (await loadSettingsRow(s))?.chat_id ?? null);
-    return { issueId: existing.data.id, messageSent: sent, message: existing.data.message ?? "" };
+    return { issueId: existing.data.id, messageState: sent, message: existing.data.message ?? "", notMoved: [] as string[] };
   }
 
   const preview = await buildPreview(s, planId);
@@ -540,16 +565,36 @@ async function issuePayoutTodayImpl(planId: string, requestKey: string, expected
   const issueId = r.data as string;
   const total = money(preview.lines.reduce((sum, l) => sum + l.amount, 0));
   // Кому сегодня не хватило совсем — переносим на следующую смену в окне.
+  // Перенос пишется в журнал; не вышло — говорим, у кого выбрать день вручную.
+  const notMoved: string[] = [];
+  const after = await planRows(s, planId);
   for (const row of preview.short) {
-    if (preview.lines.some((l) => l.row_id === row.row_id) || !row.next_pay_date) continue;
-    const current = (await planRows(s, planId)).find((r) => r.id === row.row_id);
+    if (preview.lines.some((l) => l.row_id === row.row_id)) continue;
+    const current = after.find((r) => r.id === row.row_id);
     if (!current) continue;
+    if (!row.next_pay_date) {
+      notMoved.push(row.name);
+      continue;
+    }
     const moved = await s.client.rpc("payroll_payout_row_update", {
       p_row: row.row_id,
       p_amount: current.amount,
       p_pay_date: row.next_pay_date,
     });
-    if (moved.error) console.error("[payroll-payout] день не перенесён", moved.error.message);
+    if (moved.error) {
+      console.error("[payroll-payout] день не перенесён", moved.error.message);
+      notMoved.push(row.name);
+      continue;
+    }
+    await audit(s, "payroll.payout_plan.row_changed", planId, {
+      employee_id: row.employee_id,
+      employee_name: row.name,
+      amount: current.amount,
+      previous_amount: current.amount,
+      pay_date: row.next_pay_date,
+      previous_pay_date: current.pay_date,
+      reason: "Не хватило наличных: перенесено на следующую смену",
+    });
   }
   const sent = await sendIssueMessage(s, issueId, preview.ctx.settings.chat_id);
   await audit(s, "payroll.payout_plan.issued", planId, {
@@ -559,9 +604,9 @@ async function issuePayoutTodayImpl(planId: string, requestKey: string, expected
     total,
     lines: preview.lines.map((l) => ({ employee_id: l.employee_id, name: l.name, amount: l.amount })),
     business_date: preview.ctx.today,
-    message_sent: sent,
+    message_sent: sent === "sent",
   });
-  return { issueId, messageSent: sent, message: preview.message };
+  return { issueId, messageState: sent, message: preview.message, notMoved };
 }
 
 const transferSchema = z.object({
@@ -573,7 +618,7 @@ const transferSchema = z.object({
 async function markTransferPaidImpl(rowId: string, input: z.input<typeof transferSchema>) {
   z.string().uuid().parse(rowId);
   const value = transferSchema.parse(input);
-  const s = await payrollScope("payroll.pay");
+  const s = await payScope();
   if (!s.permissions.includes("finance.create_transaction")) throw new Error("Нет доступа к финансовым операциям");
   const row = await s.db
     .from<RowRecord>("payroll_payout_rows")
@@ -585,6 +630,19 @@ async function markTransferPaidImpl(rowId: string, input: z.input<typeof transfe
   if (!row.data) throw new Error("Строка плана недоступна");
   const current = await planById(s, row.data.plan_id);
   if (current.schedule !== "transfer") throw new Error("Эта строка выдаётся наличными");
+  const data = unwrapAction(await loadPayrollOverview());
+  const today = businessDate(new Date(), data.timezone, data.dayStartHour);
+  if (value.date > today) throw new Error("Дата оплаты не может быть в будущем");
+  if (value.date < current.month) throw new Error("Дата оплаты раньше месяца плана");
+  // Повтор после обрыва: выдача по этому ключу уже записана — второй раз в журнал не пишем.
+  const existing = await s.db
+    .from<{ id: string }>("payroll_payout_issues")
+    .select("id")
+    .eq("venue_id", s.venueId)
+    .eq("request_key", value.requestKey)
+    .maybeSingle();
+  if (existing.error) throw new Error(existing.error.message);
+  if (existing.data) return;
   const r = await s.client.rpc("payroll_payout_issue", {
     p_input: {
       request_key: value.requestKey,

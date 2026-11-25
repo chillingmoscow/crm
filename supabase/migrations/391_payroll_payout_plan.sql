@@ -21,7 +21,7 @@ create table public.payroll_payout_settings (
   venue_id uuid not null,
   min_cash numeric(15,2) not null default 120000 check (min_cash >= 0 and min_cash <= 1000000000),
   chat_id text check (chat_id ~ '^-?\d+$'),
-  bank_account_id uuid references public.bank_accounts(id),
+  bank_account_id uuid,
   schedules jsonb not null default '{
     "main":     {"method":"cash",    "first":[25,1],  "second":[10,16], "step":5000, "reserve":5000},
     "cleaner":  {"method":"cash",    "first":[18,22], "second":[3,7],   "step":5000, "reserve":0},
@@ -30,9 +30,10 @@ create table public.payroll_payout_settings (
   updated_by uuid references public.profiles(id),
   updated_at timestamptz not null default now(),
   primary key (account_id, venue_id),
-  foreign key (account_id, venue_id) references public.payroll_settings(account_id, venue_id)
+  foreign key (account_id, venue_id) references public.payroll_settings(account_id, venue_id),
+  foreign key (account_id, bank_account_id) references public.bank_accounts(account_id, id)
 );
-create index payroll_payout_settings_bank on public.payroll_payout_settings(bank_account_id);
+create index payroll_payout_settings_bank on public.payroll_payout_settings(account_id, bank_account_id);
 
 alter table public.payroll_employees
   add column payout_schedule text not null default 'main'
@@ -92,7 +93,7 @@ create table public.payroll_payout_issues (
   business_date date not null,
   method text not null check (method in ('cash', 'transfer')),
   request_key uuid not null,
-  bank_account_id uuid not null references public.bank_accounts(id),
+  bank_account_id uuid not null,
   total numeric(15,2) not null check (total >= 0),
   lines jsonb not null,
   cash jsonb,
@@ -103,11 +104,12 @@ create table public.payroll_payout_issues (
   created_by uuid references public.profiles(id),
   created_at timestamptz not null default now(),
   unique (venue_id, request_key),
-  foreign key (account_id, plan_id) references public.payroll_payout_plans(account_id, id)
+  foreign key (account_id, plan_id) references public.payroll_payout_plans(account_id, id),
+  foreign key (account_id, bank_account_id) references public.bank_accounts(account_id, id)
 );
 create index payroll_payout_issues_plan on public.payroll_payout_issues(account_id, plan_id);
 create index payroll_payout_issues_day on public.payroll_payout_issues(venue_id, business_date);
-create index payroll_payout_issues_bank on public.payroll_payout_issues(bank_account_id);
+create index payroll_payout_issues_bank on public.payroll_payout_issues(account_id, bank_account_id);
 
 -- Читают те, кто видит зарплату заведения; пишут только функции ниже и сервер
 -- (статус сообщения в чат — admin-клиентом).
@@ -399,8 +401,16 @@ begin
   if v_key is null then raise exception 'Нет ключа выдачи'; end if;
 
   select * into prev from public.payroll_payout_issues where venue_id = v and request_key = v_key;
+  -- Повтор той же выдачи (обрыв связи, второй запрос, пока шёл первый): отметка
+  -- времени и наличные в нём другие, а план, способ и строки — те же.
   if prev.id is not null then
-    if prev.account_id <> a or prev.input_snapshot is distinct from p_input then
+    if prev.account_id <> a or prev.plan_id is distinct from (p_input->>'plan_id')::uuid
+       or prev.method is distinct from v_method
+       or (select coalesce(jsonb_agg(jsonb_build_array(x->>'row_id', (x->>'amount')::numeric) order by x->>'row_id'), '[]')
+             from jsonb_array_elements(prev.input_snapshot->'lines') x)
+          is distinct from
+          (select coalesce(jsonb_agg(jsonb_build_array(x->>'row_id', (x->>'amount')::numeric) order by x->>'row_id'), '[]')
+             from jsonb_array_elements(p_input->'lines') x) then
       raise exception 'Ключ уже использован для другой выдачи';
     end if;
     return prev.id;
@@ -446,7 +456,14 @@ begin
     select * into emp from public.payroll_employees where id = r.employee_id;
     v_amount := private.payroll_payout_money(item->'amount', emp.name);
     if v_amount <= 0 then raise exception 'Некорректная сумма: %', emp.name; end if;
-    if v_amount > r.amount - r.issued then raise exception 'Больше, чем осталось выдать: %', emp.name; end if;
+    if emp.payout_schedule <> plan.schedule then
+      raise exception 'Сотрудник % перешёл на другой график выплат: поправьте план', emp.name;
+    end if;
+    -- Наличные — не больше строки плана. Переводом — по сумме счёта, она может
+    -- быть больше плана; потолок тогда — только заработанное (проверка ниже).
+    if v_method = 'cash' and v_amount > r.amount - r.issued then
+      raise exception 'Больше, чем осталось выдать: %', emp.name;
+    end if;
     perform private.payroll_payout_guard(emp.id, plan.month, v_amount);
     next_date := nullif(item->>'next_pay_date', '')::date;
     if next_date is not null and (next_date < plan.window_from or next_date > plan.window_to) then
@@ -478,9 +495,10 @@ begin
 
     -- close: сумму урезал потолок (ручная выплата, штраф) — строка закрывается на выданном.
     update public.payroll_payout_rows
-       set amount = case when coalesce((item->>'close')::boolean, false) then issued + v_amount else amount end,
+       set amount = case when coalesce((item->>'close')::boolean, false) then issued + v_amount
+                         else greatest(amount, issued + v_amount) end,
            issued = issued + v_amount,
-           state = case when issued + v_amount = r.amount or coalesce((item->>'close')::boolean, false)
+           state = case when issued + v_amount >= r.amount or coalesce((item->>'close')::boolean, false)
                         then 'issued' else 'partial' end,
            pay_date = coalesce(next_date, pay_date),
            updated_by = u, updated_at = now()

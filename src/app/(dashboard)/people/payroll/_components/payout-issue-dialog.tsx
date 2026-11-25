@@ -44,8 +44,14 @@ export function PayoutIssueDialog({ planId, onClose, onDone }: { planId: string;
     try {
       const result = unwrapAction(await issuePayoutToday(planId, preview.requestKey, preview.lines));
       await onDone();
-      if (result.messageSent) {
-        toast.success(`Выдача проведена: ${formatRub(preview.lines.reduce((s, l) => s + l.amount, 0))}. Сообщение отправлено`);
+      const sum = formatRub(preview.lines.reduce((s, l) => s + l.amount, 0));
+      if (result.notMoved.length)
+        toast.warning(`Выберите новый день в плане: ${result.notMoved.join(", ")}`);
+      if (result.messageState === "sent") {
+        toast.success(`Выдача проведена: ${sum}. Сообщение отправлено`);
+        onClose();
+      } else if (result.messageState === "sending") {
+        toast.success(`Выдача проведена: ${sum}. Сообщение отправляется`);
         onClose();
       } else {
         toast.success("Выдача проведена");
@@ -140,6 +146,10 @@ export function PayoutIssueDialog({ planId, onClose, onDone }: { planId: string;
               </div>
             )}
 
+            {preview.warning && (
+              <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">{preview.warning}</p>
+            )}
+
             {preview.lines.length > 0 && (
               <div className="space-y-2">
                 <p className="text-sm font-medium">Выдаём</p>
@@ -181,7 +191,6 @@ export function PayoutIssueDialog({ planId, onClose, onDone }: { planId: string;
               <div className="space-y-1">
                 <p className="text-sm font-medium">Сообщение менеджерам</p>
                 <pre className="whitespace-pre-wrap rounded-lg border bg-muted/40 p-3 font-sans text-sm">{preview.message}</pre>
-                {preview.warning && <p className="text-[13px] text-muted-foreground">{preview.warning}</p>}
               </div>
             )}
           </>

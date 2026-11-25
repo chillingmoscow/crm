@@ -94,7 +94,7 @@ export function distributeCash(
   for (const row of sorted) {
     if (row.due <= 0) continue;
     if (row.due <= left) {
-      lines.push(line(row, row.due, row.capped === true));
+      lines.push({ ...line(row, row.due, row.capped === true), next_pay_date: null });
       left -= row.due;
       continue;
     }
@@ -108,19 +108,6 @@ export function distributeCash(
 const line = (row: DueRow, amount: number, close: boolean): IssueLine => ({
   row_id: row.row_id, employee_id: row.employee_id, name: row.name, amount, next_pay_date: row.next_pay_date, close,
 });
-
-/** Имя для сообщения: только имя, а при совпадении — с первой буквой фамилии. */
-export function shortNames(names: { id: string; name: string }[]): Map<string, string> {
-  const parts = names.map((n) => ({ id: n.id, words: n.name.trim().split(/\s+/) }));
-  const count = new Map<string, number>();
-  for (const p of parts) count.set(p.words[0], (count.get(p.words[0]) ?? 0) + 1);
-  return new Map(
-    parts.map((p) => [
-      p.id,
-      (count.get(p.words[0]) ?? 0) > 1 && p.words[1] ? `${p.words[0]} ${p.words[1][0]}.` : p.words[0],
-    ]),
-  );
-}
 
 /** 65 000 → «65К», 7 500 → «7 500». */
 export function formatPayoutAmount(amount: number): string {

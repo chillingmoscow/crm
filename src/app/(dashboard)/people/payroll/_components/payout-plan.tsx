@@ -254,6 +254,11 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
           Сотрудник выставляет счёт, вы его оплачиваете и отмечаете «Выплачено». В Adesk такая выплата не отправляется.
         </p>
       )}
+      {view?.shiftsHidden && !transfer && (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+          Нет доступа к графику работы всей команды: дни выплаты и прогноз по сменам не видны. Нужно право планировать график.
+        </p>
+      )}
       {error && (
         <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm">
           <span>{error}</span>

@@ -92,6 +92,7 @@ export const payrollPayoutAuditSpecs: Record<string, AuditEventSpec> = {
         {e.details.pay_date !== e.details.previous_pay_date && (
           <> · день {e.details.previous_pay_date ? formatDate(e.details.previous_pay_date) : "не выбран"} → {e.details.pay_date ? formatDate(e.details.pay_date) : "не выбран"}</>
         )}
+        {typeof e.details.reason === "string" && <span className="block">{e.details.reason}</span>}
       </p>
     ),
   },

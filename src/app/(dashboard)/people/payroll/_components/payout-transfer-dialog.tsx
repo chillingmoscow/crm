@@ -39,7 +39,7 @@ export function PayoutTransferDialog({
   // Ключ живёт, пока открыта панель: повторное нажатие после сбоя не создаст вторую выплату.
   const key = useRef(crypto.randomUUID());
   const parsed = Number(amount.replace(",", ".").replace(/\s/g, ""));
-  const valid = Number.isFinite(parsed) && parsed > 0 && parsed <= left && /^\d{4}-\d{2}-\d{2}$/.test(date) && !!bank;
+  const valid = Number.isFinite(parsed) && parsed > 0 && /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= view.today && !!bank;
 
   const submit = async () => {
     setBusy(true);
@@ -82,12 +82,15 @@ export function PayoutTransferDialog({
           <Label htmlFor="transfer-amount">Сумма по счёту, ₽</Label>
           <Input id="transfer-amount" inputMode="decimal" value={amount} disabled={busy} onChange={(e) => setAmount(e.target.value)} />
           {Number.isFinite(parsed) && parsed > left && (
-            <p className="text-[13px] text-destructive">Больше, чем по плану. Сначала поправьте сумму в строке плана.</p>
+            <p className="text-[13px] text-muted-foreground">
+              Больше плана: строка плана увеличится до суммы счёта. Больше заработанного записать нельзя.
+            </p>
           )}
         </div>
         <div className="space-y-2">
           <Label htmlFor="transfer-date">Дата оплаты</Label>
           <DatePicker id="transfer-date" value={date} onChange={setDate} clearable={false} disabled={busy} />
+          {date > view.today && <p className="text-[13px] text-destructive">Дата оплаты не может быть в будущем</p>}
         </div>
         <div className="space-y-2">
           <Label htmlFor="transfer-bank">Счёт</Label>

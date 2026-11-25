@@ -184,6 +184,13 @@ begin
   select count(*) into payments from public.payroll_payments p join public.payroll_allocations x on x.payment_id = p.id
    where x.employee_id = pg_temp.fx('filipp') and p.state = 'posted';
   perform pg_temp.check(first = again and payments = 1, 'same request_key returns same issue');
+  -- Повтор, пока первый запрос ещё шёл: другая отметка времени и наличные, те же строки.
+  again := public.payroll_payout_issue(jsonb_build_object(
+    'request_key', pg_temp.fx('key1'), 'plan_id', pg_temp.fx('main_plan'), 'method', 'cash',
+    'bank_account_id', pg_temp.fx('cashbox'), 'date', '2026-11-25T12:00:07+03:00', 'business_date', '2026-11-25',
+    'cash', jsonb_build_object('available', 170000, 'issued_today', 20000),
+    'lines', jsonb_build_array(jsonb_build_object('row_id', pg_temp.fx('filipp_row'), 'amount', 20000, 'next_pay_date', '2026-11-27'))));
+  perform pg_temp.check(first = again, 'retry with another timestamp returns the same issue');
   perform pg_temp.check(
     (select issued from public.payroll_payout_rows where id = pg_temp.fx('filipp_row')) = 20000
     and (select state from public.payroll_payout_rows where id = pg_temp.fx('filipp_row')) = 'partial'
@@ -243,6 +250,16 @@ begin
     format('select pg_temp.issue(%L, %L, %L, %L, %L)', 'key4', 'transfer_plan', 'cash', 'cashbox',
       jsonb_build_array(jsonb_build_object('row_id', row_id, 'amount', 23500))),
     '%Способ выдачи не совпадает%', 'transfer plan is not issued in cash');
+  -- Сотрудника перевели на основной график после утверждения: по плану «Переводом» не платим.
+  perform public.payroll_payout_save_settings(jsonb_build_object('bank_account_id', pg_temp.fx('cashbox'),
+    'assignments', jsonb_build_array(jsonb_build_object('employee_id', pg_temp.fx('tanya'), 'schedule', 'main'))));
+  perform pg_temp.expect_error(
+    format('select pg_temp.issue(%L, %L, %L, %L, %L)', 'key5', 'transfer_plan', 'transfer', 'checking',
+      jsonb_build_array(jsonb_build_object('row_id', row_id, 'amount', 20000))),
+    '%другой график выплат%', 'employee moved off the schedule is not paid by the old plan');
+  perform public.payroll_payout_save_settings(jsonb_build_object('bank_account_id', pg_temp.fx('cashbox'),
+    'schedules', jsonb_build_object('transfer', jsonb_build_object('bank_account_id', pg_temp.fx('checking'))),
+    'assignments', jsonb_build_array(jsonb_build_object('employee_id', pg_temp.fx('tanya'), 'schedule', 'transfer'))));
   -- Сумма урезана потолком: строка закрывается на выданном.
   issue := pg_temp.issue('key5', 'transfer_plan', 'transfer', 'checking',
     jsonb_build_array(jsonb_build_object('row_id', row_id, 'amount', 20000, 'close', true)));
@@ -274,10 +291,18 @@ begin
     (select total from public.payroll_payout_issues where plan_id = pg_temp.fx('transfer_plan')) = 0,
     'deleted payout no longer counts in the issue total');
   -- Строку снова можно выдать.
+  -- Счёт пришёл на 23 700 при плане 20 000: переводом можно больше плана, в пределах заработанного.
   perform pg_temp.issue('key6', 'transfer_plan', 'transfer', 'checking',
-    jsonb_build_array(jsonb_build_object('row_id', pg_temp.fx('tanya_row'), 'amount', 20000)));
-  perform pg_temp.check((select state from public.payroll_payout_rows where id = pg_temp.fx('tanya_row')) = 'issued',
-    'reopened row can be issued again');
+    jsonb_build_array(jsonb_build_object('row_id', pg_temp.fx('tanya_row'), 'amount', 23700)));
+  perform pg_temp.check((select state from public.payroll_payout_rows where id = pg_temp.fx('tanya_row')) = 'issued'
+    and (select amount from public.payroll_payout_rows where id = pg_temp.fx('tanya_row')) = 23700,
+    'reopened row can be issued again, transfer may exceed the plan');
+  perform pg_temp.check((
+      select count(*) filter (where cardinality(c.conkey) = 2) = 2 and count(*) = 2
+        from pg_constraint c
+       where c.contype = 'f' and c.confrelid = 'public.bank_accounts'::regclass
+         and c.conrelid in ('public.payroll_payout_settings'::regclass, 'public.payroll_payout_issues'::regclass)),
+    'bank account FKs are composite (account_id, bank_account_id)');
 end $$;
 
 -- ── 6. Права ───────────────────────────────────────────────

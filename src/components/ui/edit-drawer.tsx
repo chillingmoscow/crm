@@ -23,7 +23,7 @@ import {
   SheetClose,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import { overlayClass, overlayContentTiming } from "@/lib/overlay-classes";
+import { overlayClass } from "@/lib/overlay-classes";
 import { focusOverlayContent } from "@/lib/overlay-focus";
 
 interface EditDrawerProps {
@@ -63,9 +63,8 @@ export function EditDrawer({
           {...(!description ? { "aria-describedby": undefined } : {})}
           onOpenAutoFocus={focusContentOnOpen ? focusOverlayContent : undefined}
           className={cn(
-            "fixed inset-y-0 right-0 z-50 h-full bg-background shadow-lg outline-none transition",
-            "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right",
-            overlayContentTiming,
+            // Выезд справа — .motion-sheet (globals.css, docs/motion.md).
+            "fixed inset-y-0 right-0 z-50 h-full bg-background shadow-lg outline-none motion-sheet",
             "border-l flex flex-col w-full sm:max-w-[520px]",
             className,
           )}

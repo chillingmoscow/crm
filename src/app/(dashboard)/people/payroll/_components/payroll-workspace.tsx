@@ -10,12 +10,9 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useRouter } from "next/navigation";
-import { cn } from "@/lib/utils";
-import { ChartNoAxesColumnIncreasing } from "lucide-react";
 import {
   ArrowUpRight,
   CalendarX2,
-  ChevronDown,
   Users,
   Plus,
 } from "lucide-react";
@@ -62,6 +59,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { TableFilterChip, TablePageHeader } from "@/components/shared/table";
 import { Money, formatRub } from "@/components/shared/money";
 import { AnimatedMoney } from "@/components/shared/animated-money";
+import { ExpandPanel, OverviewToggle, TabsRow, useOverviewOpen } from "@/components/shared/overview-toggle";
 import { formatAmount, toKopecks } from "@/lib/format/amount";
 import { countRu } from "@/lib/format/plural";
 import { downloadBlob, xlsxBlob, type XlsxSheet } from "@/lib/export/xlsx";
@@ -163,16 +161,7 @@ export function PayrollWorkspace({
   const [tab, setTab] = useState("statement");
   // «Обзор» (график и стоимость команды) по умолчанию открыт; если его закрыть,
   // это запоминается в браузере.
-  const [overviewOpen, setOverviewOpenState] = useState(true);
-  useEffect(() => {
-    if (window.localStorage.getItem("payroll.overview") === "closed") setOverviewOpenState(false);
-  }, []);
-  const setOverviewOpen = (next: boolean | ((v: boolean) => boolean)) =>
-    setOverviewOpenState((v) => {
-      const value = typeof next === "function" ? next(v) : next;
-      window.localStorage.setItem("payroll.overview", value ? "open" : "closed");
-      return value;
-    });
+  const [overviewOpen, setOverviewOpen] = useOverviewOpen("payroll.overview");
   // План выплат грузится заранее, пока смотрят ведомость: вкладка открывается сразу.
   const [planView, setPlanView] = useState<PayoutPlanView | null>(() => cachedPayoutPlan(initial.venueId));
   useEffect(() => {
@@ -536,29 +525,18 @@ export function PayrollWorkspace({
             {/* Вкладки — сразу под шапкой: при переключении меняется всё ниже,
                 и итоги тоже. «Обзор» (график и стоимость команды) — справа в
                 строке вкладок, только на «Ведомости». */}
-            <div className="mb-5 flex items-end justify-between gap-3">
-                {tabsList}
-                {tab === "statement" && !emptyMonth && (
-                  <button
-                    type="button"
-                    aria-expanded={overviewOpen}
-                    aria-label="Обзор: график и стоимость команды"
-                    data-tip={overviewOpen ? "Скрыть обзор" : "Показать обзор"}
-                    onClick={() => setOverviewOpen((v) => !v)}
-                    className={cn(
-                      "touch-target mb-1.5 inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[13px] font-medium transition-colors duration-300",
-                      overviewOpen ? "text-brand" : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    <ChartNoAxesColumnIncreasing className="size-4" />
-                    {/* На телефоне — только иконка: место нужно вкладкам. */}
-                    <span className="hidden sm:inline">Обзор</span>
-                    <ChevronDown
-                      className={cn("size-3.5 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]", overviewOpen && "rotate-180")}
-                    />
-                  </button>
-                )}
-            </div>
+            <TabsRow
+              tabs={tabsList}
+              aside={
+                tab === "statement" && !emptyMonth && (
+                  <OverviewToggle
+                    open={overviewOpen}
+                    onOpenChange={setOverviewOpen}
+                    ariaLabel="Обзор: график и стоимость команды"
+                  />
+                )
+              }
+            />
             {autoRefresh.failed && (
               <RefreshFailedNotice className="mb-4" {...autoRefresh} />
             )}
@@ -626,7 +604,7 @@ export function PayrollWorkspace({
             ) : null}
             {tab === "statement" && !emptyMonth && (
               // Ключ — чтобы при раскрытии график рисовался заново, а не уже нарисованным.
-              <div className="motion-expand" data-open={overviewOpen}><div key={String(overviewOpen)}>
+              <ExpandPanel open={overviewOpen} replayOnOpen>
               <section className={s.analytics}>
                 <div className={s.timeline}>
                   <div className={s.sectionTitle}>
@@ -870,7 +848,7 @@ export function PayrollWorkspace({
                   </div>
                 </div>
               </section>
-              </div></div>
+              </ExpandPanel>
             )}
             {!emptyMonth && !planTab && <section className={`${s.ledger} ${s.functionalTable}`}>
               {role && (

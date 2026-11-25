@@ -179,7 +179,7 @@ export function GlobalTooltip() {
         pointerEvents: "none",
         maxWidth: 280,
       }}
-      className="rounded-md bg-neutral-900 px-3 py-1.5 shadow-lg animate-in fade-in-0 zoom-in-95"
+      className="rounded-md bg-neutral-900 px-3 py-1.5 shadow-lg motion-popper-in"
     >
       <span className="block text-xs font-semibold leading-tight text-neutral-50">
         {tip.label}

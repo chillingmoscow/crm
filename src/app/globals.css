@@ -1304,7 +1304,7 @@ input:-webkit-autofill {
   box-shadow:
     0 12px 32px rgb(0 0 0 / 0.18),
     0 2px 6px rgb(0 0 0 / 0.06);
-  animation: kb-mobile-sheet-in 140ms ease-out;
+  animation: kb-mobile-sheet-in 400ms var(--ease-soft);
 }
 @keyframes kb-mobile-sheet-in {
   from { opacity: 0; transform: translateY(6px); }
@@ -1406,7 +1406,7 @@ input:-webkit-autofill {
   display: flex;
   flex-direction: column;
   background-color: hsl(var(--background));
-  animation: kb-mobile-fullsheet-in 160ms ease-out;
+  animation: kb-mobile-fullsheet-in 400ms var(--ease-soft);
   /* Скролл не должен «протекать» на страницу под листом. */
   overscroll-behavior: contain;
   touch-action: pan-y;
@@ -4542,10 +4542,48 @@ html.theme-transition *::after {
   from { opacity: 1; transform: none; }
   to   { opacity: 0; transform: scale(0.97); }
 }
-[data-radix-popper-content-wrapper] > [data-state="open"] {
+[data-radix-popper-content-wrapper] > [data-state="open"],
+/* У подсказки Radix своё состояние: delayed-open — после задержки
+   (проявляется), instant-open — при переходе с соседней (сразу). */
+[data-radix-popper-content-wrapper] > [data-state="delayed-open"] {
   transform-origin: var(--radix-popper-transform-origin);
   animation: popper-in 320ms var(--ease-soft) both;
 }
+/* Общая подсказка data-tip (свой портал, не Radix). */
+.motion-popper-in {
+  animation: popper-in 240ms var(--ease-soft) both;
+}
+
+/* Затемнение, окна и боковые панели (docs/motion.md). Масштаб и сдвиг —
+   отдельными свойствами scale/translate, чтобы не перебить transform,
+   которым окно центрируется. Radix ждёт конца анимации закрытия и
+   только потом убирает элемент. */
+@keyframes overlay-in  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes overlay-out { from { opacity: 1; } to { opacity: 0; } }
+.motion-overlay[data-state="open"]   { animation: overlay-in 300ms var(--ease-soft) both; }
+.motion-overlay[data-state="closed"] { animation: overlay-out 160ms ease-in both; }
+
+@keyframes dialog-in  { from { opacity: 0; scale: 0.96; translate: 0 8px; } to { opacity: 1; scale: 1; translate: 0 0; } }
+@keyframes dialog-out { from { opacity: 1; scale: 1; } to { opacity: 0; scale: 0.97; } }
+.motion-dialog[data-state="open"]   { animation: dialog-in 320ms var(--ease-soft) both; }
+.motion-dialog[data-state="closed"] { animation: dialog-out 160ms ease-in both; }
+
+@keyframes sheet-in  { from { translate: var(--sheet-from); } to { translate: 0 0; } }
+@keyframes sheet-out { from { translate: 0 0; } to { translate: var(--sheet-from); } }
+.motion-sheet { --sheet-from: 100% 0; }
+.motion-sheet[data-side="left"]   { --sheet-from: -100% 0; }
+.motion-sheet[data-side="top"]    { --sheet-from: 0 -100%; }
+.motion-sheet[data-side="bottom"] { --sheet-from: 0 100%; }
+.motion-sheet[data-state="open"]   { animation: sheet-in 400ms var(--ease-soft) both; }
+.motion-sheet[data-state="closed"] { animation: sheet-out 180ms ease-in both; }
+
+/* Плавающая плашка снизу (зона удаления при перетаскивании) и выезжающая
+   сбоку панель (предпросмотр дерева KB). Через translate — не мешает
+   transform, которым элемент центрирован. */
+@keyframes float-up { from { opacity: 0; translate: 0 16px; } to { opacity: 1; translate: 0 0; } }
+.motion-float-up { animation: float-up 360ms var(--ease-soft) both; }
+@keyframes slide-in-left { from { opacity: 0; translate: -8px 0; } to { opacity: 1; translate: 0 0; } }
+.motion-slide-in-left { animation: slide-in-left 320ms var(--ease-soft) both; }
 [data-radix-popper-content-wrapper] > [data-side="top"] { --popper-shift: 4px; }
 [data-radix-popper-content-wrapper] > [data-side="left"],
 [data-radix-popper-content-wrapper] > [data-side="right"] { --popper-shift: 0px; }
@@ -4578,7 +4616,7 @@ html.theme-transition *::after {
   overflow: visible;
 }
 .motion-chip[data-state="closed"] {
-  animation: chip-out 260ms ease-in both;
+  animation: chip-out 200ms ease-in both;
   pointer-events: none;
 }
 
@@ -4635,6 +4673,20 @@ html.theme-transition *::after {
 .chart-bar-grow-x {
   transform-origin: left;
   animation: chart-bar-grow-x 1000ms var(--ease-soft) both;
+}
+/* Вертикальные столбики растут от нижнего края (шаг — animationDelay). */
+@keyframes chart-bar-grow-y {
+  from { transform: scaleY(0); }
+  to   { transform: scaleY(1); }
+}
+.chart-bar-grow-y {
+  transform-origin: bottom;
+  animation: chart-bar-grow-y 1000ms var(--ease-soft) both;
+}
+
+/* Шеврон раскрытия поворачивается плавно (rotate-180 / rotate-90 — классом). */
+.motion-chevron {
+  transition: transform 500ms var(--ease-soft);
 }
 
 /* ──── prefers-reduced-motion ────────────────────────────────────

@@ -2411,7 +2411,7 @@ export function ScheduleClient({
             void deleteDropped(shift);
           }}
           className={cn(
-            "fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border-2 border-dashed px-5 py-3 text-sm font-medium shadow-lg transition-all animate-in fade-in-0 slide-in-from-bottom-4",
+            "fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border-2 border-dashed px-5 py-3 text-sm font-medium shadow-lg motion-float-up transition-[transform,background-color,border-color,color] duration-300 ease-[var(--ease-soft)]",
             overTrash
               ? "scale-105 border-destructive bg-destructive text-destructive-foreground"
               : "border-destructive/40 bg-background text-destructive",

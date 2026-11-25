@@ -1576,6 +1576,8 @@ export async function writeInventoryResultEvent(input: {
   accountId: string;
   /** null — событие из синка по расписанию, автора нет. */
   userId: string | null;
+  /** Автор строки общего журнала, если он не совпадает с `created_by` события (null — «Система»). */
+  auditUserId?: string | null;
   documentId: string;
   documentItemId?: string | null;
   resortId?: string | null;
@@ -1594,10 +1596,14 @@ export async function writeInventoryResultEvent(input: {
     payload,
     created_by: input.userId,
   });
-  await writeInventoryAudit(input, payload, {
-    message: input.message,
-    itemIds: [input.documentItemId ?? null, ...payloadItemIds(payload)],
-  });
+  await writeInventoryAudit(
+    "auditUserId" in input ? { ...input, userId: input.auditUserId ?? null } : input,
+    payload,
+    {
+      message: input.message,
+      itemIds: [input.documentItemId ?? null, ...payloadItemIds(payload)],
+    },
+  );
 }
 
 /** id строк акта, которых касается событие: одиночный itemId и пачки. */

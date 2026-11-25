@@ -463,10 +463,22 @@ export async function finalizeInventoryDocumentCore(input: {
       });
     }
 
+    // Автоматическая фиксация (взвешивание, загрузка актов) в журнале от имени системы:
+    // мастер/загрузивший назван в подписи, а не выдаётся за того, кто «подвёл итоги».
+    let automaticActor: string | null = null;
+    if (source !== "manual") {
+      const { data: profile } = await admin
+        .from<{ first_name: string | null; last_name: string | null }>("profiles")
+        .select("first_name, last_name")
+        .eq("id", actorUserId)
+        .maybeSingle();
+      automaticActor = [profile?.first_name, profile?.last_name].filter(Boolean).join(" ").trim() || null;
+    }
     await writeInventoryResultEvent({
       admin,
       accountId,
       userId: actorUserId,
+      ...(source !== "manual" ? { auditUserId: null } : {}),
       documentId: document.id,
       eventType: "results_finalized",
       message: alreadyProcessedInQr
@@ -481,6 +493,7 @@ export async function finalizeInventoryDocumentCore(input: {
         ...(overriddenStatus ? { overriddenStatus } : {}),
         ...(skipDriftCheck ? { driftCheckSkipped: true } : {}),
         source,
+        ...(automaticActor ? { actorName: automaticActor } : {}),
       },
     });
 

@@ -1508,6 +1508,15 @@ const INVENTORY_EVENT_SPECS: Array<[string, string, LucideIcon, string]> = [
   ["supplier_removed", "удалил(а) поставщика ингредиента", Trash2, "text-destructive bg-destructive/10"],
 ];
 
+/** Подпись автоматической фиксации итогов: взвешивание или загрузка проведённых актов. */
+export function automaticFinalizeTail(details: Record<string, unknown>): string | null {
+  const who =
+    typeof details.actorName === "string" && details.actorName.trim() ? ` (${details.actorName.trim()})` : "";
+  if (details.source === "weighing") return `автоматически по взвешиванию${who}`;
+  if (details.source === "import") return `при загрузке проведённых актов${who}`;
+  return null;
+}
+
 const INVENTORY_SPECS: Record<string, AuditEventSpec> = Object.fromEntries(
   INVENTORY_EVENT_SPECS.map(([type, phrase, icon, iconClass]) => [
     `inventory.${type}`,
@@ -1524,6 +1533,22 @@ const INVENTORY_SPECS: Record<string, AuditEventSpec> = Object.fromEntries(
     } satisfies AuditEventSpec,
   ]),
 );
+{
+  const base = INVENTORY_SPECS["inventory.results_finalized"];
+  INVENTORY_SPECS["inventory.results_finalized"] = {
+    ...base,
+    buildHeadline: (e) => {
+      const tail = automaticFinalizeTail(e.details);
+      if (!tail) return base.buildHeadline(e);
+      return (
+        <>
+          зафиксировал(а) итоги акта
+          <InventoryDocumentRef event={e} /> {tail}
+        </>
+      );
+    },
+  };
+}
 
 /**
  * Подробности события акта: позиции, кого назначили, причина, комментарий.

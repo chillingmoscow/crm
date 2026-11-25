@@ -93,7 +93,7 @@ create table public.payroll_payout_issues (
   method text not null check (method in ('cash', 'transfer')),
   request_key uuid not null,
   bank_account_id uuid not null references public.bank_accounts(id),
-  total numeric(15,2) not null check (total > 0),
+  total numeric(15,2) not null check (total >= 0),
   lines jsonb not null,
   cash jsonb,
   input_snapshot jsonb not null,
@@ -429,6 +429,15 @@ begin
   if exists (select 1 from jsonb_array_elements(p_input->'lines') x group by x->>'row_id' having count(*) > 1) then
     raise exception 'Строка указана дважды';
   end if;
+  -- Наличные: предпросмотр видел «уже выдано сегодня». Если с тех пор выдал
+  -- кто-то ещё (вторая вкладка, другой человек), минимум в кассе мог нарушиться.
+  if v_method = 'cash' and (
+       jsonb_typeof(p_input->'cash'->'issued_today') is distinct from 'number'
+       or (p_input->'cash'->>'issued_today')::numeric <> (
+         select coalesce(sum(i.total), 0) from public.payroll_payout_issues i
+          where i.venue_id = v and i.business_date = v_business and i.method = 'cash')) then
+    raise exception 'Наличные изменились, проверьте ещё раз';
+  end if;
 
   for item in select * from jsonb_array_elements(p_input->'lines') loop
     select * into r from public.payroll_payout_rows
@@ -467,9 +476,12 @@ begin
       delete from public.payroll_adesk_sync where account_id = a and payment_id = payment;
     end if;
 
+    -- close: сумму урезал потолок (ручная выплата, штраф) — строка закрывается на выданном.
     update public.payroll_payout_rows
-       set issued = issued + v_amount,
-           state = case when issued + v_amount = r.amount then 'issued' else 'partial' end,
+       set amount = case when coalesce((item->>'close')::boolean, false) then issued + v_amount else amount end,
+           issued = issued + v_amount,
+           state = case when issued + v_amount = r.amount or coalesce((item->>'close')::boolean, false)
+                        then 'issued' else 'partial' end,
            pay_date = coalesce(next_date, pay_date),
            updated_by = u, updated_at = now()
      where id = r.id;
@@ -492,9 +504,42 @@ begin
   return issue;
 end $function$;
 
+-- ── Удалённая выплата возвращает строку плана ──────────────
+-- Выплату плана исправляют удалением (payroll_cancel_payment). Тогда выданное по
+-- строке и итог выдачи уменьшаются, строку снова можно выдать или поправить.
+create or replace function private.payroll_payout_payment_cancelled()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $function$
+declare hit record;
+begin
+  if old.state = 'posted' and new.state = 'cancelled' then
+    for hit in
+      select i.id as issue_id, (l->>'row_id')::uuid as row_id, (l->>'amount')::numeric as amount
+        from public.payroll_payout_issues i, jsonb_array_elements(i.lines) l
+       where i.account_id = new.account_id and i.venue_id = new.venue_id
+         and l->>'payment_id' = new.id::text
+    loop
+      update public.payroll_payout_rows
+         set issued = greatest(0, issued - hit.amount),
+             state = case when greatest(0, issued - hit.amount) = 0 then 'planned' else 'partial' end,
+             updated_at = now()
+       where id = hit.row_id;
+      update public.payroll_payout_issues set total = greatest(0, total - hit.amount) where id = hit.issue_id;
+    end loop;
+  end if;
+  return null;
+end $function$;
+create trigger payroll_payout_payment_cancelled
+  after update of state on public.payroll_payments
+  for each row execute function private.payroll_payout_payment_cancelled();
+
 -- ── Права ───────────────────────────────────────────────────
 revoke all on function private.payroll_payout_guard(uuid, date, numeric) from public, anon, authenticated;
 revoke all on function private.payroll_payout_money(jsonb, text) from public, anon, authenticated;
+revoke all on function private.payroll_payout_payment_cancelled() from public, anon, authenticated;
 revoke all on function public.payroll_payout_save_settings(jsonb) from public, anon;
 revoke all on function public.payroll_payout_plan_save(jsonb) from public, anon;
 revoke all on function public.payroll_payout_row_update(uuid, numeric, date) from public, anon;
@@ -520,7 +565,7 @@ begin
       raise exception 'Права на % выставлены неверно', f;
     end if;
   end loop;
-  foreach f in array array['private.payroll_payout_guard(uuid, date, numeric)', 'private.payroll_payout_money(jsonb, text)'] loop
+  foreach f in array array['private.payroll_payout_guard(uuid, date, numeric)', 'private.payroll_payout_money(jsonb, text)', 'private.payroll_payout_payment_cancelled()'] loop
     if has_function_privilege('anon', f, 'execute') or has_function_privilege('authenticated', f, 'execute') then
       raise exception 'Права на % выставлены неверно', f;
     end if;

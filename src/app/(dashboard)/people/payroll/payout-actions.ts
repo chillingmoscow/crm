@@ -10,6 +10,7 @@ import {
   PAYOUT_SCHEDULE_LABELS,
   firstPayoutWindow,
   planFirstPayout,
+  recheckDue,
   type PayoutSchedule,
   type PayoutScheduleCode,
   type PlannedRow,
@@ -379,7 +380,8 @@ async function buildPreview(s: PayrollScope, planId: string): Promise<IssuePrevi
   const schedule = ctx.settings.schedules[current.schedule];
   if (schedule.method !== "cash") throw new Error("Этот график выдаётся переводом: отмечайте «Выплачено» по строке");
   const window = { from: current.window_from, to: current.window_to };
-  const fresh = new Map(plan(ctx, current.schedule, current.month, window).map((r) => [r.employee_id, r.amount]));
+  // Свежий потолок: ручные выплаты и штрафы после утверждения. Саму сумму плана не пересчитываем.
+  const ceilings = new Map(plan(ctx, current.schedule, current.month, window).map((r) => [r.employee_id, r.breakdown.ceiling]));
   const rows = (await planRows(s, planId)).filter((row) => row.state !== "issued" && row.pay_date === ctx.today);
   const names = shortNames(
     rows.map((row) => ({ id: row.employee_id, name: ctx.data.employees.find((e) => e.id === row.employee_id)?.name ?? "Сотрудник" })),
@@ -390,12 +392,14 @@ async function buildPreview(s: PayrollScope, planId: string): Promise<IssuePrevi
         .filter((x) => x.employee_id === row.employee_id && x.business_date > ctx.today && x.business_date <= window.to)
         .map((x) => x.business_date)
         .sort()[0];
+      // Сумма только уменьшается: новые ручные выплаты и штрафы снижают потолок.
+      const { due, capped } = recheckDue(row, ceilings.get(row.employee_id) ?? 0, schedule.step);
       return {
         row_id: row.id,
         employee_id: row.employee_id,
         name: names.get(row.employee_id) ?? "Сотрудник",
-        // Сумма только уменьшается: новые ручные выплаты и штрафы снижают потолок.
-        due: money(Math.min(row.amount - row.issued, fresh.get(row.employee_id) ?? 0)),
+        due: money(due),
+        capped,
         next_pay_date: nextShift ?? null,
       };
     })
@@ -484,6 +488,7 @@ const lineSchema = z.object({
   name: z.string(),
   amount: z.number().positive(),
   next_pay_date: z.string().nullable(),
+  close: z.boolean(),
 });
 async function issuePayoutTodayImpl(planId: string, requestKey: string, expected: IssueLine[]) {
   z.string().uuid().parse(planId);
@@ -528,7 +533,7 @@ async function issuePayoutTodayImpl(planId: string, requestKey: string, expected
         issued_today: preview.issuedToday,
         available: preview.available,
       },
-      lines: preview.lines.map((l) => ({ row_id: l.row_id, amount: l.amount, next_pay_date: l.next_pay_date })),
+      lines: preview.lines.map((l) => ({ row_id: l.row_id, amount: l.amount, next_pay_date: l.next_pay_date, close: l.close })),
     },
   });
   if (r.error) throw new Error(r.error.message);

@@ -59,8 +59,24 @@ export function cashAvailable(registers: RegisterCash[], minimum: number, issued
   return Math.max(0, Math.round((total - minimum - issuedToday) * 100) / 100);
 }
 
-export type DueRow = { row_id: string; employee_id: string; name: string; due: number; next_pay_date: string | null };
-export type IssueLine = { row_id: string; employee_id: string; name: string; amount: number; next_pay_date: string | null };
+export type DueRow = {
+  row_id: string;
+  employee_id: string;
+  name: string;
+  due: number;
+  next_pay_date: string | null;
+  /** Сумма срезана потолком: выдав её целиком, строку закрываем. */
+  capped?: boolean;
+};
+export type IssueLine = {
+  row_id: string;
+  employee_id: string;
+  name: string;
+  amount: number;
+  next_pay_date: string | null;
+  /** Закрыть строку на выданной сумме (урезанная потолком). */
+  close: boolean;
+};
 
 /**
  * От меньших сумм к большим: целиком, пока хватает; следующей — сколько
@@ -78,19 +94,19 @@ export function distributeCash(
   for (const row of sorted) {
     if (row.due <= 0) continue;
     if (row.due <= left) {
-      lines.push(line(row, row.due));
+      lines.push(line(row, row.due, row.capped === true));
       left -= row.due;
       continue;
     }
     const part = floorStep(left, step);
-    if (part > 0) lines.push(line(row, part));
+    if (part > 0) lines.push(line(row, part, false));
     left = 0;
     short.push(row);
   }
   return { lines, short };
 }
-const line = (row: DueRow, amount: number): IssueLine => ({
-  row_id: row.row_id, employee_id: row.employee_id, name: row.name, amount, next_pay_date: row.next_pay_date,
+const line = (row: DueRow, amount: number, close: boolean): IssueLine => ({
+  row_id: row.row_id, employee_id: row.employee_id, name: row.name, amount, next_pay_date: row.next_pay_date, close,
 });
 
 /** Имя для сообщения: только имя, а при совпадении — с первой буквой фамилии. */

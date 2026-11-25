@@ -50,12 +50,16 @@ $$;
 create or replace function pg_temp.fx(p_key text)
 returns uuid language sql as $$ select id from fx where key = p_key $$;
 
-create or replace function pg_temp.issue(p_key text, p_plan text, p_method text, p_bank text, p_lines jsonb)
+-- issued_today по умолчанию — сколько наличными уже выдано за день (как читает предпросмотр).
+create or replace function pg_temp.issue(p_key text, p_plan text, p_method text, p_bank text, p_lines jsonb, p_issued numeric default null)
 returns uuid language sql as $$
   select public.payroll_payout_issue(jsonb_build_object(
     'request_key', pg_temp.fx(p_key), 'plan_id', pg_temp.fx(p_plan), 'method', p_method,
     'bank_account_id', pg_temp.fx(p_bank), 'date', '2026-11-25T12:00:00+03:00', 'business_date', '2026-11-25',
-    'cash', jsonb_build_object('available', 190000), 'lines', p_lines))
+    'cash', case when p_method = 'cash' then jsonb_build_object('available', 190000, 'issued_today',
+      coalesce(p_issued, (select coalesce(sum(total), 0) from public.payroll_payout_issues
+        where venue_id = pg_temp.fx('v') and business_date = '2026-11-25' and method = 'cash'))) end,
+    'lines', p_lines))
 $$;
 
 -- ── Фикстуры ───────────────────────────────────────────────
@@ -71,7 +75,7 @@ begin
   if a is null or v is null then raise exception 'У владельца нет активного заведения'; end if;
   insert into fx values ('owner', owner), ('a', a), ('v', v),
     ('key1', gen_random_uuid()), ('key2', gen_random_uuid()), ('key3', gen_random_uuid()),
-    ('key4', gen_random_uuid()), ('key5', gen_random_uuid()), ('manual', gen_random_uuid());
+    ('key4', gen_random_uuid()), ('key5', gen_random_uuid()), ('key6', gen_random_uuid()), ('manual', gen_random_uuid());
 
   insert into public.legal_entities(account_id, name, legal_form)
   values (a, 'План выплат тест', 'OTHER') returning id into le;
@@ -174,9 +178,9 @@ do $$
 declare first uuid; again uuid; payments int;
 begin
   first := pg_temp.issue('key1', 'main_plan', 'cash', 'cashbox',
-    jsonb_build_array(jsonb_build_object('row_id', pg_temp.fx('filipp_row'), 'amount', 20000, 'next_pay_date', '2026-11-27')));
+    jsonb_build_array(jsonb_build_object('row_id', pg_temp.fx('filipp_row'), 'amount', 20000, 'next_pay_date', '2026-11-27')), 0);
   again := pg_temp.issue('key1', 'main_plan', 'cash', 'cashbox',
-    jsonb_build_array(jsonb_build_object('row_id', pg_temp.fx('filipp_row'), 'amount', 20000, 'next_pay_date', '2026-11-27')));
+    jsonb_build_array(jsonb_build_object('row_id', pg_temp.fx('filipp_row'), 'amount', 20000, 'next_pay_date', '2026-11-27')), 0);
   select count(*) into payments from public.payroll_payments p join public.payroll_allocations x on x.payment_id = p.id
    where x.employee_id = pg_temp.fx('filipp') and p.state = 'posted';
   perform pg_temp.check(first = again and payments = 1, 'same request_key returns same issue');
@@ -193,6 +197,10 @@ begin
     format('select pg_temp.issue(%L, %L, %L, %L, %L)', 'key1', 'main_plan', 'cash', 'cashbox',
       jsonb_build_array(jsonb_build_object('row_id', pg_temp.fx('filipp_row'), 'amount', 5000))),
     '%Ключ уже использован для другой выдачи%', 'key reused for other input');
+  perform pg_temp.expect_error(
+    format('select pg_temp.issue(%L, %L, %L, %L, %L, 0)', 'key2', 'main_plan', 'cash', 'cashbox',
+      jsonb_build_array(jsonb_build_object('row_id', pg_temp.fx('filipp_row'), 'amount', 5000))),
+    '%Наличные изменились%', 'stale cash snapshot rejected (two people issuing at once)');
   perform pg_temp.expect_error(
     format('select pg_temp.issue(%L, %L, %L, %L, %L)', 'key2', 'main_plan', 'cash', 'cashbox',
       jsonb_build_array(jsonb_build_object('row_id', pg_temp.fx('filipp_row'), 'amount', 10000))),
@@ -235,19 +243,41 @@ begin
     format('select pg_temp.issue(%L, %L, %L, %L, %L)', 'key4', 'transfer_plan', 'cash', 'cashbox',
       jsonb_build_array(jsonb_build_object('row_id', row_id, 'amount', 23500))),
     '%Способ выдачи не совпадает%', 'transfer plan is not issued in cash');
+  -- Сумма урезана потолком: строка закрывается на выданном.
   issue := pg_temp.issue('key5', 'transfer_plan', 'transfer', 'checking',
-    jsonb_build_array(jsonb_build_object('row_id', row_id, 'amount', 23500)));
+    jsonb_build_array(jsonb_build_object('row_id', row_id, 'amount', 20000, 'close', true)));
   payment := ((select lines from public.payroll_payout_issues where id = issue)->0->>'payment_id')::uuid;
+  insert into fx values ('tanya_payment', payment);
   perform pg_temp.check(payment is not null
     and not exists (select 1 from public.payroll_adesk_sync where payment_id = payment)
     and (select state from public.payroll_payout_rows where id = row_id) = 'issued',
     'transfer not queued to Adesk');
+  perform pg_temp.check((select amount from public.payroll_payout_rows where id = row_id) = 20000,
+    'capped line closes the row at the issued amount');
   perform pg_temp.check(
     (select t.bank_account_id from public.payroll_payments p join public.transactions t on t.id = p.transaction_id where p.id = payment) = pg_temp.fx('checking'),
     'transfer posted from the checking account');
   perform pg_temp.expect_error(
     format('select public.payroll_payout_row_update(%L, 23500, null)', row_id),
     '%Строка уже выдана%', 'issued row is locked');
+end $$;
+
+-- ── 5б. Удалённая выплата возвращает строку плана ──────────
+do $$
+begin
+  perform public.payroll_cancel_payment(pg_temp.fx('tanya_payment'));
+  perform pg_temp.check(
+    (select issued from public.payroll_payout_rows where id = pg_temp.fx('tanya_row')) = 0
+    and (select state from public.payroll_payout_rows where id = pg_temp.fx('tanya_row')) = 'planned',
+    'deleted payout reopens the plan row');
+  perform pg_temp.check(
+    (select total from public.payroll_payout_issues where plan_id = pg_temp.fx('transfer_plan')) = 0,
+    'deleted payout no longer counts in the issue total');
+  -- Строку снова можно выдать.
+  perform pg_temp.issue('key6', 'transfer_plan', 'transfer', 'checking',
+    jsonb_build_array(jsonb_build_object('row_id', pg_temp.fx('tanya_row'), 'amount', 20000)));
+  perform pg_temp.check((select state from public.payroll_payout_rows where id = pg_temp.fx('tanya_row')) = 'issued',
+    'reopened row can be issued again');
 end $$;
 
 -- ── 6. Права ───────────────────────────────────────────────

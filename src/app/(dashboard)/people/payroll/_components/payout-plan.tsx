@@ -15,7 +15,7 @@ import { unwrapAction } from "@/lib/actions/result";
 import { formatDateCell, formatDayMonth } from "@/lib/format/date";
 import { countRu } from "@/lib/format/plural";
 import { addDays } from "@/lib/sales/time";
-import type { PayoutScheduleCode } from "@/lib/payroll/payout-plan";
+import { payoutRowState, type PayoutRowState, type PayoutScheduleCode } from "@/lib/payroll/payout-plan";
 import { CalendarClock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -61,12 +61,18 @@ const monthTitle = (month: string) => {
 };
 const shortDate = (d: string) => `${d.slice(8, 10)}.${d.slice(5, 7)}`;
 
-function rowStatus(row: PayoutRowView, transfer: boolean) {
-  if (row.state === "issued") return <StatusBadge tone="success">Выдано</StatusBadge>;
-  if (row.state === "partial") return <StatusBadge tone="warning">Выдано частично</StatusBadge>;
-  if (row.amount <= 0) return <StatusBadge tone="neutral">Не выдаём</StatusBadge>;
-  if (transfer) return <StatusBadge tone="info">Ждёт оплаты счёта</StatusBadge>;
-  return row.pay_date ? <StatusBadge tone="info">Ждёт дня</StatusBadge> : <StatusBadge tone="warning">Нет дня</StatusBadge>;
+const STATUS: Record<PayoutRowState, { tone: "success" | "warning" | "neutral" | "info" | "danger"; text: string }> = {
+  issued: { tone: "success", text: "Выдано" },
+  partial: { tone: "warning", text: "Выдано частично" },
+  none: { tone: "neutral", text: "Не выдаём" },
+  invoice: { tone: "info", text: "Ждёт оплаты счёта" },
+  waiting: { tone: "info", text: "Ждёт дня" },
+  missed: { tone: "danger", text: "День пропущен" },
+  no_day: { tone: "warning", text: "Нет дня" },
+};
+function rowStatus(row: PayoutRowView, transfer: boolean, today: string) {
+  const state = STATUS[payoutRowState(row, today, transfer ? "transfer" : "cash")];
+  return <StatusBadge tone={state.tone}>{state.text}</StatusBadge>;
 }
 
 export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
@@ -138,7 +144,7 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
         cell: ({ row }) => {
           const r = row.original;
           if (id === "employee") return <PayrollEmployeeCell name={r.name} role={r.role} avatarUrl={r.avatarUrl} />;
-          if (id === "status") return rowStatus(r, transfer);
+          if (id === "status") return rowStatus(r, transfer, today);
           if (id === "day") return transfer ? <span className="text-muted-foreground">по счёту</span> : r.pay_date ? formatDateCell(r.pay_date) : "—";
           if (id === "forecast")
             return transfer || r.breakdown.averageShift === null
@@ -157,7 +163,7 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
           return <Money value={value} />;
         },
       })),
-    [transfer, plan],
+    [transfer, plan, today],
   );
 
   const byDay = useMemo(() => {
@@ -388,7 +394,7 @@ function PayoutRowDrawer({
       employee={{ name: row.name, role: row.role, avatarUrl: row.avatarUrl }}
       amount={<Money value={row.amount} />}
       amountLabel="К выплате"
-      status={rowStatus(row, transfer)}
+      status={rowStatus(row, transfer, view.today)}
       footer={
         <>
           <Button variant="outline" disabled={busy} onClick={onClose}>Закрыть</Button>
@@ -420,6 +426,11 @@ function PayoutRowDrawer({
           {line("К выплате", <strong><Money value={row.amount} /></strong>, "вниз до шага округления")}
           {row.issued > 0 && line("Выдано", <Money value={row.issued} />)}
         </ul>
+        {payoutRowState(row, view.today, transfer ? "transfer" : "cash") === "missed" && (
+          <p role="alert" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+            День выплаты прошёл, а выдано не всё. Выберите другой день в окне.
+          </p>
+        )}
         {b.flags.length > 0 && (
           <ul className="space-y-1 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
             {b.flags.map((f) => <li key={f}>{FLAG_TEXT[f] ?? f}</li>)}

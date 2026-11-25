@@ -219,3 +219,36 @@ export function planFirstPayout(input: {
     };
   });
 }
+
+/**
+ * Сколько выдать по утверждённой строке сейчас. Сумма плана не пересчитывается
+ * (ручные правки остаются): её режет только свежий потолок, если после
+ * утверждения появились выплаты или штрафы. `capped` — срезано потолком: такая
+ * строка после выдачи закрывается, остатка по ней нет.
+ */
+export function recheckDue(
+  row: { amount: number; issued: number },
+  ceilingNow: number,
+  step: number,
+): { due: number; capped: boolean } {
+  const left = round(row.amount - row.issued);
+  const cap = Math.max(0, round(ceilingNow));
+  if (left <= cap) return { due: Math.max(0, left), capped: false };
+  return { due: Math.max(0, floorStep(cap, step)), capped: true };
+}
+
+export type PayoutRowState = "issued" | "partial" | "none" | "invoice" | "waiting" | "missed" | "no_day";
+
+/** Что показать в строке плана: выдано, ждёт дня, день пропущен, ждёт счёта. */
+export function payoutRowState(
+  row: { amount: number; issued: number; pay_date: string | null },
+  today: string,
+  method: "cash" | "transfer",
+): PayoutRowState {
+  if (row.issued > 0 && row.issued >= row.amount) return "issued";
+  if (row.amount <= 0) return "none";
+  if (method === "transfer") return row.issued > 0 ? "partial" : "invoice";
+  if (!row.pay_date) return "no_day";
+  if (row.pay_date < today) return "missed";
+  return row.issued > 0 ? "partial" : "waiting";
+}

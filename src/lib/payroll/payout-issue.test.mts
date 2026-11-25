@@ -115,3 +115,11 @@ test("payoutMessage", () => {
     "Выдайте плиз и проведите:\nГамлет — 65К\nФилипп — 45К\nИтого 110К — одним изъятием, в комментарии «ЗП»",
   );
 });
+
+test("distributeCash: a capped row given its whole due closes the row", () => {
+  const capped = { ...due("g", "Гамлет", 10000), capped: true };
+  const { lines } = distributeCash([capped, due("f", "Филипп", 20000)], 100000, 5000);
+  assert.deepEqual(lines.map((l) => [l.name, l.amount, l.close]), [["Гамлет", 10000, true], ["Филипп", 20000, false]]);
+  // Частичная выдача урезанной строки её не закрывает.
+  assert.equal(distributeCash([{ ...due("g", "Гамлет", 10000), capped: true }], 5000, 5000).lines[0].close, false);
+});

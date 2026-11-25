@@ -4,7 +4,9 @@ import {
   DEFAULT_PAYOUT_SCHEDULES,
   firstPayoutWindow,
   floorStep,
+  payoutRowState,
   planFirstPayout,
+  recheckDue,
 } from "./payout-plan.ts";
 import type { Accrual, Adjustment, Allocation, PayEmployee, Payment } from "./types.ts";
 
@@ -209,4 +211,28 @@ test("unpaid balance of previous month that was not moved → flag unmoved_balan
   }));
   assert.ok(row.breakdown.flags.includes("unmoved_balance"));
   assert.equal(row.breakdown.carried, 0); // непереносённый остаток в сумму не входит
+});
+
+test("recheckDue: only the ceiling cuts, the planned amount is not recomputed", () => {
+  // План 30 000, свежий потолок 40 000 (свежий пересчёт формулы дал бы 25 000) — выдаём 30 000.
+  assert.deepEqual(recheckDue({ amount: 30000, issued: 0 }, 40000, 5000), { due: 30000, capped: false });
+  // Ручная правка не по шагу (47 500) сохраняется.
+  assert.deepEqual(recheckDue({ amount: 47500, issued: 0 }, 60000, 5000), { due: 47500, capped: false });
+  // Ручная выплата после утверждения: потолок 12 300 — выдаём 10 000, строка закрывается.
+  assert.deepEqual(recheckDue({ amount: 20000, issued: 0 }, 12300, 5000), { due: 10000, capped: true });
+  // Уже выдана часть: сравнивается остаток строки.
+  assert.deepEqual(recheckDue({ amount: 45000, issued: 20000 }, 25000, 5000), { due: 25000, capped: false });
+  assert.deepEqual(recheckDue({ amount: 45000, issued: 20000 }, -100, 5000), { due: 0, capped: true });
+});
+
+test("payoutRowState: missed day is visible", () => {
+  const row = { amount: 30000, issued: 0, pay_date: "2026-11-26" };
+  assert.equal(payoutRowState(row, "2026-11-26", "cash"), "waiting");
+  assert.equal(payoutRowState(row, "2026-11-27", "cash"), "missed");
+  assert.equal(payoutRowState({ ...row, pay_date: null }, "2026-11-27", "cash"), "no_day");
+  assert.equal(payoutRowState({ ...row, issued: 10000 }, "2026-11-27", "cash"), "missed");
+  assert.equal(payoutRowState({ ...row, issued: 10000, pay_date: "2026-11-28" }, "2026-11-27", "cash"), "partial");
+  assert.equal(payoutRowState({ ...row, issued: 30000 }, "2026-11-27", "cash"), "issued");
+  assert.equal(payoutRowState({ ...row, amount: 0 }, "2026-11-27", "cash"), "none");
+  assert.equal(payoutRowState({ ...row, pay_date: null }, "2026-11-27", "transfer"), "invoice");
 });

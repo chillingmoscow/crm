@@ -14,7 +14,8 @@ import {
 import { loadCounterpartyActivity, operationDay } from "@/lib/finance/activity";
 import { parsePeriod, periodParam, periodRange } from "@/lib/finance/period";
 import { listCounterpartyAttachments } from "@/lib/files/attachments";
-import { listCounterpartyCertificates, todayIso } from "@/lib/finance/certificates-actions";
+import { listCounterpartyCertificates } from "@/lib/finance/certificates-actions";
+import { todayIso } from "@/lib/finance/today";
 import { filePreviewKind } from "@/lib/files/file-name";
 import { mediaUrl } from "@/lib/storage/media";
 import { asLooseDb } from "@/lib/supabase/loose";

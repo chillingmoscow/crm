@@ -83,7 +83,7 @@ export function CounterpartyDangerZone({
         <ProfileDangerAction
           icon={Trash2}
           title="Удалить навсегда"
-          description="Для контрагента, заведённого по ошибке. Документы и связи с номенклатурой удалятся, операции останутся без контрагента. В остальных случаях отправьте его в архив"
+          description="Для контрагента, заведённого по ошибке. Документы, сертификаты и связи с номенклатурой удалятся, операции останутся без контрагента. В остальных случаях отправьте его в архив"
           actionLabel="Удалить"
           onAction={() => setDeleteOpen(true)}
         />
@@ -97,6 +97,7 @@ export function CounterpartyDangerZone({
         impact={[
           { label: "Операции", count: impact.transactions },
           { label: "Документы", count: impact.attachments },
+          { label: "Сертификаты и лицензии", count: impact.certificates },
           { label: "Связи с номенклатурой", count: impact.ingredient_suppliers },
         ]}
         description="Это не удаление: контрагент пропадёт из выбора, а операции, документы и связи с номенклатурой сохранятся. Вернуть можно из архива контрагентов в любой момент"

@@ -84,6 +84,7 @@ as $$
      where ca.file_id = p_file_id
        and ca.counterparty_id = p_counterparty_id
        and c.account_id = public.get_active_account_id()
+       and public.has_permission('finance.manage_counterparties')
   )
 $$;
 
@@ -176,6 +177,8 @@ begin
        where c.valid_until is not null
          and cp.deleted_at is null
          and c.valid_until <= t.today + 30
+         -- Давно истёкшие записи (внесли «для истории») рассылку не запускают.
+         and c.valid_until >= t.today - 7
          and (
            c.notified_30_for is distinct from c.valid_until
            or (c.valid_until <= t.today + 7 and c.notified_7_for is distinct from c.valid_until)

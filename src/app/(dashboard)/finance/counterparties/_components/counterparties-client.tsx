@@ -907,6 +907,7 @@ export function counterpartyDeleteImpact(impact: CounterpartyArchiveImpact | nul
   if (!impact) return [];
   return [
     { label: "Документы", count: impact.attachments, tone: "cascade" },
+    { label: "Сертификаты и лицензии", count: impact.certificates, tone: "cascade" },
     { label: "Связи с номенклатурой", count: impact.ingredient_suppliers, tone: "cascade" },
     { label: "Операции останутся без контрагента", count: impact.transactions, tone: "unbind" },
   ];

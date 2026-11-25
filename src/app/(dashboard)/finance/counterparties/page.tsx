@@ -15,7 +15,7 @@ import { parsePeriod, periodParam } from "@/lib/finance/period";
 import { isDadataConfigured } from "@/lib/dadata/client";
 import { contactsFromJson } from "@/lib/finance/counterparty-contacts";
 import { CERTIFICATE_ALERT_DAYS } from "@/lib/finance/certificates";
-import { todayIso } from "@/lib/finance/certificates-actions";
+import { todayIso } from "@/lib/finance/today";
 import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { asLooseDb } from "@/lib/supabase/loose";
 import {

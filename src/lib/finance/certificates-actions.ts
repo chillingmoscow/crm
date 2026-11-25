@@ -12,6 +12,7 @@ import {
 } from "@/lib/finance/certificates";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { createClient, getCachedActiveAccountId, getCachedUser } from "@/lib/supabase/server";
+import { todayIso } from "@/lib/finance/today";
 
 export type CounterpartyCertificate = {
   id: string;
@@ -40,33 +41,6 @@ type CertificateRow = {
 const NO_ROW = "Не удалось сохранить: нет прав или запись уже удалена. Обновите страницу";
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-/**
- * Сегодня (`ГГГГ-ММ-ДД`) в поясе аккаунта — как у напоминаний в базе
- * (`private.finance_account_today`). Без пояса — Москва.
- */
-export async function todayIso(): Promise<string> {
-  let timeZone = "Europe/Moscow";
-  try {
-    const accountId = await getCachedActiveAccountId();
-    if (accountId) {
-      const supabase = asLooseDb(await createClient());
-      const { data } = await supabase
-        .from<{ timezone: string | null }>("accounts")
-        .select("timezone")
-        .eq("id", accountId)
-        .maybeSingle();
-      if (data?.timezone) timeZone = data.timezone;
-    }
-  } catch {
-    /* пояс по умолчанию */
-  }
-  try {
-    return new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date());
-  } catch {
-    return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Moscow" }).format(new Date());
-  }
-}
-
 function fromRow(row: CertificateRow): CounterpartyCertificate {
   return {
     id: row.id,
@@ -85,14 +59,17 @@ function journalName(kind: string, number: string | null): string {
   return `${certificateKindLabel(kind)}${number ? ` № ${number}` : ""}`;
 }
 
-export async function listCounterpartyCertificates(counterpartyId: string): Promise<CounterpartyCertificate[]> {
+/** null — не удалось загрузить (карточка покажет ошибку, а не «пока нет»). */
+export async function listCounterpartyCertificates(
+  counterpartyId: string,
+): Promise<CounterpartyCertificate[] | null> {
   const supabase = asLooseDb(await createClient());
   const { data, error } = await supabase
     .from<CertificateRow[]>("counterparty_certificates")
     .select("id, account_id, counterparty_id, kind, number, product, valid_from, valid_until, file_id, note")
     .eq("counterparty_id", counterpartyId)
     .order("valid_until", { ascending: true, nullsFirst: false });
-  if (error) throw new Error(errorText(error, "Не удалось загрузить сертификаты"));
+  if (error) return null;
   return (data ?? []).map(fromRow);
 }
 
@@ -116,7 +93,10 @@ const text = (value: unknown, max: number): string | null => {
 };
 const date = (value: unknown): string | null | "invalid" => {
   if (value === null || value === undefined || value === "") return null;
-  return typeof value === "string" && ISO_DATE.test(value) && !Number.isNaN(Date.parse(value)) ? value : "invalid";
+  if (typeof value !== "string" || !ISO_DATE.test(value)) return "invalid";
+  // «2026-02-31» Date.parse принимает — сверяем с разбором обратно.
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value ? value : "invalid";
 };
 
 export async function saveCertificate(input: CertificateInput): Promise<{ error: string | null }> {

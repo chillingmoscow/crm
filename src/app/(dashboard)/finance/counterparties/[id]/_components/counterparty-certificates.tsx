@@ -336,7 +336,11 @@ export function CounterpartyCertificates({
             <Field
               id="cert-file"
               label="Скан"
-              hint={documents.length === 0 ? "Сначала загрузите файл в «Документы» ниже" : "Один из документов контрагента"}
+              hint={
+                documents.length === 0
+                  ? "Скан выбирают из документов контрагента ниже — сейчас там нет доступных вам файлов"
+                  : "Один из документов контрагента"
+              }
             >
               {(control) => (
                 <OptionSelect

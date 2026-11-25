@@ -92,6 +92,8 @@ export type PayoutPlanView = {
   canIssue: boolean;
   /** Нет доступа к графику работы всей команды: дни и прогноз по сменам недоступны. */
   shiftsHidden: boolean;
+  /** Сотрудники вне плана (график «Переводом»): платят себе по счетам, выплаты вносят вручную. */
+  outside: string[];
 };
 export type IssuePreview = {
   requestKey: string;
@@ -261,6 +263,10 @@ async function loadPayoutPlanImpl(schedule: PayoutScheduleCode): Promise<PayoutP
     canPay: s.permissions.includes("payroll.pay"),
     canIssue: s.permissions.includes("payroll.pay") && s.permissions.includes("finance.create_transaction"),
     shiftsHidden: !s.permissions.includes("schedule.view_all"),
+    outside: ctx.data.employees
+      .filter((e) => e.active && !e.casual && e.payout_schedule === "transfer")
+      .map((e) => e.name)
+      .sort((a, b) => a.localeCompare(b, "ru")),
   };
 }
 
@@ -609,64 +615,6 @@ async function issuePayoutTodayImpl(planId: string, requestKey: string, expected
   return { issueId, messageState: sent, message: preview.message, notMoved };
 }
 
-const transferSchema = z.object({
-  amount: z.number().positive("Укажите сумму").max(1_000_000_000),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Укажите дату"),
-  bankAccountId: z.string().uuid("Выберите счёт"),
-  requestKey: z.string().uuid(),
-});
-async function markTransferPaidImpl(rowId: string, input: z.input<typeof transferSchema>) {
-  z.string().uuid().parse(rowId);
-  const value = transferSchema.parse(input);
-  const s = await payScope();
-  if (!s.permissions.includes("finance.create_transaction")) throw new Error("Нет доступа к финансовым операциям");
-  const row = await s.db
-    .from<RowRecord>("payroll_payout_rows")
-    .select("id,plan_id,employee_id,amount,issued")
-    .eq("venue_id", s.venueId)
-    .eq("id", rowId)
-    .maybeSingle();
-  if (row.error) throw new Error(row.error.message);
-  if (!row.data) throw new Error("Строка плана недоступна");
-  const current = await planById(s, row.data.plan_id);
-  if (current.schedule !== "transfer") throw new Error("Эта строка выдаётся наличными");
-  const data = unwrapAction(await loadPayrollOverview());
-  const today = businessDate(new Date(), data.timezone, data.dayStartHour);
-  if (value.date > today) throw new Error("Дата оплаты не может быть в будущем");
-  if (value.date < current.month) throw new Error("Дата оплаты раньше месяца плана");
-  // Повтор после обрыва: выдача по этому ключу уже записана — второй раз в журнал не пишем.
-  const existing = await s.db
-    .from<{ id: string }>("payroll_payout_issues")
-    .select("id")
-    .eq("venue_id", s.venueId)
-    .eq("request_key", value.requestKey)
-    .maybeSingle();
-  if (existing.error) throw new Error(existing.error.message);
-  if (existing.data) return;
-  const r = await s.client.rpc("payroll_payout_issue", {
-    p_input: {
-      request_key: value.requestKey,
-      plan_id: current.id,
-      method: "transfer",
-      bank_account_id: value.bankAccountId,
-      // Полдень по Москве: дата операции не съезжает на соседний день.
-      date: `${value.date}T12:00:00+03:00`,
-      business_date: value.date,
-      cash: null,
-      lines: [{ row_id: rowId, amount: money(value.amount), next_pay_date: null }],
-    },
-  });
-  if (r.error) throw new Error(r.error.message);
-  await audit(s, "payroll.payout_plan.issued", current.id, {
-    month: current.month,
-    schedule: current.schedule,
-    method: "transfer",
-    total: money(value.amount),
-    lines: [{ employee_id: row.data.employee_id, name: await employeeName(s, row.data.employee_id), amount: money(value.amount) }],
-    business_date: value.date,
-  });
-}
-
 const settingsSchema = z.object({
   min_cash: z.number().min(0, "Минимум не может быть отрицательным").max(1_000_000_000),
   chat_id: z.string().trim().regex(/^(-?\d+)?$/, "Укажите числовой ID чата"),
@@ -766,9 +714,6 @@ export async function previewPayoutToday(planId: string) {
 }
 export async function issuePayoutToday(planId: string, requestKey: string, expected: IssueLine[]) {
   return actionResult(() => issuePayoutTodayImpl(planId, requestKey, expected), "Не удалось провести выдачу");
-}
-export async function markTransferPaid(rowId: string, input: z.input<typeof transferSchema>) {
-  return actionResult(() => markTransferPaidImpl(rowId, input), "Не удалось отметить выплату");
 }
 export async function savePayoutSettings(input: PayoutSettingsInput) {
   return actionResult(() => savePayoutSettingsImpl(input), "Не удалось сохранить график выплат");

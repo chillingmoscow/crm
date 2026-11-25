@@ -224,11 +224,10 @@ function PayoutScheduleForm({ data, saved, onSaved }: { data: PayrollData; saved
         </div>
 
         <div className="space-y-3">
-          <h3 className="text-sm font-semibold">Переводом</h3>
+          <h3 className="text-sm font-semibold">Вне плана</h3>
           <p className="text-[13px] text-muted-foreground">
-            Те же дни, первая выплата: ровно половина месяца, без округления и запаса. Деньги уходят, когда вы
-            оплачиваете счёт сотрудника; в плане отмечаете «Выплачено» и выбираете счёт, с которого платили. В Adesk
-            такая выплата не отправляется: платёж по счёту приходит туда из банка.
+            Сотрудники, которые сами выставляют счета (самозанятые), в план выплат не входят: их выплаты вносятся
+            вручную, как обычно.
           </p>
         </div>
 
@@ -248,7 +247,7 @@ function PayoutScheduleForm({ data, saved, onSaved }: { data: PayrollData; saved
               <p className="text-[13px] text-muted-foreground">{names(form.cleaner) || "Никого"}</p>
             </div>
             <div className="space-y-2">
-              <Label>Переводом</Label>
+              <Label>Вне плана</Label>
               <PayrollEmployeePicker
                 multiple
                 employees={people}

@@ -17,7 +17,6 @@ import { countRu } from "@/lib/format/plural";
 import { addDays } from "@/lib/sales/time";
 import { payoutRowState, type PayoutRowState, type PayoutScheduleCode } from "@/lib/payroll/payout-plan";
 import { CalendarClock } from "lucide-react";
-import { cn } from "@/lib/utils";
 import {
   loadPayoutPlan,
   savePayoutPlan,
@@ -30,14 +29,9 @@ import { PayrollTable } from "./payroll-table";
 import { PayrollEmployeeCell } from "./payroll-employee-cell";
 import { PayrollDetailDialog } from "./payroll-detail-dialog";
 import { PayoutIssueDialog } from "./payout-issue-dialog";
-import { PayoutTransferDialog } from "./payout-transfer-dialog";
 import { selectClass } from "./select-class";
 import formStyle from "./payroll-payment-form.module.css";
 
-const SCHEDULE_OPTIONS: { value: PayoutScheduleCode; label: string }[] = [
-  { value: "main", label: "Основной" },
-  { value: "transfer", label: "Переводом" },
-];
 const labels = {
   employee: "Сотрудник",
   day: "День выплаты",
@@ -45,11 +39,12 @@ const labels = {
   forecast: "Прогноз",
   reserve: "Запас",
   paid: "Уже выплачено",
+  official: "Официальная часть",
   amount: "К выплате",
   issued: "Выдано",
   status: "Статус",
 };
-const numeric = ["earned", "forecast", "reserve", "paid", "amount", "issued"];
+const numeric = ["earned", "forecast", "reserve", "paid", "official", "amount", "issued"];
 const FLAG_TEXT: Record<string, string> = {
   few_shifts: "Мало смен для прогноза",
   no_shift: "Нет смены в окне выплаты: выберите день сами",
@@ -70,18 +65,19 @@ const STATUS: Record<PayoutRowState, { tone: "success" | "warning" | "neutral" |
   missed: { tone: "danger", text: "День пропущен" },
   no_day: { tone: "warning", text: "Нет дня" },
 };
-function rowStatus(row: PayoutRowView, transfer: boolean, today: string) {
-  const state = STATUS[payoutRowState(row, today, transfer ? "transfer" : "cash")];
+function rowStatus(row: PayoutRowView, today: string) {
+  const state = STATUS[payoutRowState(row, today, "cash")];
   return <StatusBadge tone={state.tone}>{state.text}</StatusBadge>;
 }
 
 export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
-  const [schedule, setSchedule] = useState<PayoutScheduleCode>("main");
+  // План — для наличных. Сотрудники на графике «Переводом» в план не входят:
+  // им платят по их счетам, выплаты вносят вручную (Павел, 25.11).
+  const schedule: PayoutScheduleCode = "main";
   const [view, setView] = useState<PayoutPlanView | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [openRow, setOpenRow] = useState<PayoutRowView | null>(null);
-  const [transferRow, setTransferRow] = useState<PayoutRowView | null>(null);
   const [issueOpen, setIssueOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
 
@@ -117,11 +113,10 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
     }
   };
 
-  const transfer = schedule === "transfer";
   const plan = view?.plan ?? null;
   const rows = useMemo(() => view?.rows ?? [], [view]);
   const today = view?.today ?? "";
-  const dueToday = !transfer && plan?.state === "approved"
+  const dueToday = plan?.state === "approved"
     && rows.some((r) => r.state !== "issued" && r.pay_date === today && r.amount > r.issued);
 
   const columns = useMemo<ColumnDef<PayoutRowView>[]>(
@@ -138,18 +133,25 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
           : id === "forecast" ? row.breakdown.forecast
           : id === "reserve" ? row.breakdown.reserve
           : id === "paid" ? row.breakdown.paid
+          : id === "official" ? row.breakdown.official
           : id === "amount" ? row.amount
           : id === "issued" ? row.issued
           : row.state,
         cell: ({ row }) => {
           const r = row.original;
           if (id === "employee") return <PayrollEmployeeCell name={r.name} role={r.role} avatarUrl={r.avatarUrl} />;
-          if (id === "status") return rowStatus(r, transfer, today);
-          if (id === "day") return transfer ? <span className="text-muted-foreground">по счёту</span> : r.pay_date ? formatDateCell(r.pay_date) : "—";
+          if (id === "status") return rowStatus(r, today);
+          if (id === "day") return r.pay_date ? formatDateCell(r.pay_date) : "—";
           if (id === "forecast")
-            return transfer || r.breakdown.averageShift === null
+            return r.breakdown.averageShift === null
               ? <span className="text-muted-foreground">—</span>
               : <span data-tip={`${countRu(r.breakdown.forecastShifts, "смена", "смены", "смен")} × ${formatRub(r.breakdown.averageShift)}`}><Money value={r.breakdown.forecast} /></span>;
+          if (id === "official")
+            return r.breakdown.official ? (
+              <span data-tip="Выплатит бухгалтерия; идёт в счёт первой половины месяца">
+                <Money value={-r.breakdown.official} signed />
+              </span>
+            ) : <span className="text-muted-foreground">—</span>;
           if (id === "amount")
             return (
               <span className="inline-flex flex-col items-end">
@@ -163,7 +165,7 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
           return <Money value={value} />;
         },
       })),
-    [transfer, plan, today],
+    [plan, today],
   );
 
   const byDay = useMemo(() => {
@@ -205,26 +207,6 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
     </>
   ) : null;
 
-  const scheduleSwitch = (
-    <div role="radiogroup" aria-label="График выплат" className="inline-flex h-9 items-center gap-1 rounded-md bg-muted p-1">
-      {SCHEDULE_OPTIONS.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          role="radio"
-          aria-checked={schedule === o.value}
-          onClick={() => setSchedule(o.value)}
-          className={cn(
-            "inline-flex h-7 items-center rounded-md px-3 text-sm font-medium transition-colors",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30",
-            schedule === o.value ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
 
   const heading = view?.window ? (
     <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -240,21 +222,20 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
   return (
     <div className="mt-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        {scheduleSwitch}
         {heading}
       </div>
-      {view && !transfer && view.window && (
+      {view && view.window && (
         <p className="text-[13px] text-muted-foreground">
           Наличные выдают менеджеры. В день выплаты нажмите «Выдать сегодня»: приложение проверит кассы, проведёт выплаты
           с «Кэшбокса» и напишет в чат менеджеров.
         </p>
       )}
-      {view && transfer && (
+      {view && view.outside.length > 0 && (
         <p className="text-[13px] text-muted-foreground">
-          Сотрудник выставляет счёт, вы его оплачиваете и отмечаете «Выплачено». В Adesk такая выплата не отправляется.
+          Вне плана (платят себе по счетам, выплаты вносятся вручную): {view.outside.join(", ")}
         </p>
       )}
-      {view?.shiftsHidden && !transfer && (
+      {view?.shiftsHidden && (
         <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
           Нет доступа к графику работы всей команды: дни выплаты и прогноз по сменам не видны. Нужно право планировать график.
         </p>
@@ -275,14 +256,12 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
       )}
       {view && (view.window || plan) && (
         <PayrollTable
-          key={schedule}
           id={`payroll.payout-plan.${schedule}`}
           label="План выплат"
           rows={rows}
           columns={columns}
           labels={labels}
           numeric={numeric}
-          hiddenColumns={transfer ? ["forecast", "reserve", "day"] : []}
           searchText={(r) => `${r.name} ${r.role}`}
           onRow={(r) => setOpenRow(r)}
           actions={actions}
@@ -293,7 +272,7 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
           })}
         />
       )}
-      {!transfer && byDay.length > 0 && (
+      {byDay.length > 0 && (
         <div className="rounded-lg border p-3 text-sm">
           <p className="mb-2 font-medium">По дням</p>
           <ul className="space-y-1">
@@ -311,7 +290,6 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
         <PayoutRowDrawer
           row={openRow}
           view={view}
-          transfer={transfer}
           busy={busy}
           onClose={() => setOpenRow(null)}
           onSave={async (amount, day) => {
@@ -319,18 +297,6 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
             const ok = await run(async () => unwrapAction(await updatePayoutRow(openRow.id!, amount, day)), "Строка сохранена");
             if (ok) setOpenRow(null);
           }}
-          onPaid={() => {
-            setTransferRow(openRow);
-            setOpenRow(null);
-          }}
-        />
-      )}
-      {transferRow && view && plan && (
-        <PayoutTransferDialog
-          row={transferRow}
-          view={view}
-          onClose={() => setTransferRow(null)}
-          onDone={refresh}
         />
       )}
       {issueOpen && plan && (
@@ -357,19 +323,15 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
 function PayoutRowDrawer({
   row,
   view,
-  transfer,
   busy,
   onClose,
   onSave,
-  onPaid,
 }: {
   row: PayoutRowView;
   view: PayoutPlanView;
-  transfer: boolean;
   busy: boolean;
   onClose: () => void;
   onSave: (amount: number, day: string | null) => Promise<void>;
-  onPaid: () => void;
 }) {
   const [amount, setAmount] = useState(String(row.amount));
   const [day, setDay] = useState(row.pay_date ?? "");
@@ -399,15 +361,12 @@ function PayoutRowDrawer({
       employee={{ name: row.name, role: row.role, avatarUrl: row.avatarUrl }}
       amount={<Money value={row.amount} />}
       amountLabel="К выплате"
-      status={rowStatus(row, transfer, view.today)}
+      status={rowStatus(row, view.today)}
       footer={
         <>
           <Button variant="outline" disabled={busy} onClick={onClose}>Закрыть</Button>
-          {transfer && editable && row.amount > row.issued && view.canIssue && plan?.state === "approved" && (
-            <Button variant="outline" disabled={busy} onClick={onPaid}>Выплачено</Button>
-          )}
           {editable && (
-            <Button disabled={busy || !changed} onClick={() => void onSave(Math.round(parsed * 100) / 100, transfer ? null : day || null)}>
+            <Button disabled={busy || !changed} onClick={() => void onSave(Math.round(parsed * 100) / 100, day || null)}>
               {busy ? "Сохраняем…" : "Сохранить"}
             </Button>
           )}
@@ -418,7 +377,7 @@ function PayoutRowDrawer({
         <ul className="divide-y rounded-xl border px-3 text-sm">
           {b.carried !== 0 && line("Перенесено из прошлого месяца", <Money value={b.carried} signed />)}
           {line("Начислено за месяц", <Money value={b.earned} />, b.pendingFines ? `без штрафов на подтверждении: ${formatRub(b.pendingFines)}` : undefined)}
-          {!transfer && line(
+          {line(
             "Прогноз до конца месяца",
             b.averageShift === null ? "—" : <Money value={b.forecast} />,
             b.averageShift === null ? "мало смен для прогноза" : `${countRu(b.forecastShifts, "смена", "смены", "смен")} × ${formatRub(b.averageShift)}`,
@@ -426,12 +385,12 @@ function PayoutRowDrawer({
           {line("Запас", <Money value={-b.reserve} signed />)}
           {line("Половина месяца", <Money value={b.half} />)}
           {line("Уже выплачено за месяц", <Money value={-b.paid} signed />)}
-          {b.official > 0 && line("Официальная часть", <Money value={-b.official} signed />, "выплатит бухгалтерия, в наличные не входит")}
+          {b.official > 0 && line("Официальная часть", <Money value={-b.official} signed />, "выплатит бухгалтерия; идёт в счёт первой половины месяца")}
           {line("Больше не выдаём", <Money value={Math.max(0, b.ceiling)} />, b.official > 0 ? "начислено минус выплаченное, запас и официальная часть" : "начислено минус выплаченное и запас")}
           {line("К выплате", <strong><Money value={row.amount} /></strong>, "вниз до шага округления")}
           {row.issued > 0 && line("Выдано", <Money value={row.issued} />)}
         </ul>
-        {payoutRowState(row, view.today, transfer ? "transfer" : "cash") === "missed" && (
+        {payoutRowState(row, view.today, "cash") === "missed" && (
           <p role="alert" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
             День выплаты прошёл, а выдано не всё. Выберите другой день в окне.
           </p>
@@ -448,8 +407,7 @@ function PayoutRowDrawer({
               <Input id="payout-row-amount" inputMode="decimal" value={amount} disabled={busy} onChange={(e) => setAmount(e.target.value)} />
               {row.issued > 0 && <p className="text-[13px] text-muted-foreground">Не меньше выданного: {formatRub(row.issued)}</p>}
             </div>
-            {!transfer && (
-              <div className="space-y-2">
+            <div className="space-y-2">
                 <Label htmlFor="payout-row-day">День выплаты</Label>
                 <OptionSelect
                   id="payout-row-day"
@@ -460,8 +418,7 @@ function PayoutRowDrawer({
                   placeholder="Не выбран"
                   options={[{ value: "", label: "Не выбран" }, ...days.map((d) => ({ value: d, label: formatDayMonth(d) ?? d }))]}
                 />
-              </div>
-            )}
+            </div>
           </div>
         )}
       </div>

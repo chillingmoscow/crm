@@ -1,12 +1,11 @@
 -- ============================================================
--- payroll_payout_plan.sql — план выплат (391, 392): защита от переплаты,
+-- payroll_payout_plan.sql — план выплат (391): защита от переплаты,
 -- повтор выдачи по тому же ключу, частичная выдача, «Выплачено» переводом
 -- без отправки в Adesk, права.
 --
 -- Прогон внутри одной откатываемой транзакции (reset базы не нужен):
 --   cat <(echo 'begin;') \
 --       <(sed -E '/^[[:space:]]*(begin|commit);[[:space:]]*$/d' supabase/migrations/391_payroll_payout_plan.sql) \
---       <(sed -E '/^[[:space:]]*(begin|commit);[[:space:]]*$/d' supabase/migrations/392_payroll_payout_transfer_exact.sql) \
 --       <(sed -E '/^[[:space:]]*begin;[[:space:]]*$/d' supabase/tests/payroll_payout_plan.sql) \
 --     | docker exec -i supabase_db_crm psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f -
 --
@@ -125,9 +124,7 @@ begin
     'assignments', jsonb_build_array(jsonb_build_object('employee_id', pg_temp.fx('tanya'), 'schedule', 'transfer'))));
   perform pg_temp.check(
     (select payout_schedule from public.payroll_employees where id = pg_temp.fx('tanya')) = 'transfer'
-    -- 392: «Переводом» без шага, запаса и счёта, что бы ни прислали.
-    and (select schedules->'transfer' from public.payroll_payout_settings where venue_id = pg_temp.fx('v'))
-        = '{"method":"transfer","first":[25,1],"second":[10,16],"step":0,"reserve":0,"bank_account_id":null}'::jsonb
+    and (select schedules->'transfer'->>'bank_account_id' from public.payroll_payout_settings where venue_id = pg_temp.fx('v'))::uuid = pg_temp.fx('checking')
     and (select (schedules->'main'->>'step')::numeric from public.payroll_payout_settings where venue_id = pg_temp.fx('v')) = 5000,
     'settings saved with defaults and assignment');
   perform pg_temp.expect_error(

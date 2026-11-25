@@ -77,7 +77,7 @@ export type PayoutBreakdown = {
   paid: number;
   /** Половина месяца: (C + E + F − R) / 2. */
   half: number;
-  /** half − P, до округления. */
+  /** half − P − официальная часть, до округления. */
   target: number;
   /** Ожидаемая официальная часть месяца: её выплатит бухгалтерия. */
   official: number;
@@ -195,7 +195,9 @@ export function planFirstPayout(input: {
     const reserve = config.reserve;
     const official = row.officialExpected?.amount ?? 0;
     const half = round((carried + earned + forecast - reserve) / 2);
-    const target = round(half - paid);
+    // Официальная часть идёт в счёт первой половины месяца (Павел, 25.11): её
+    // платим и при увольнении, поэтому подстраховываемся на первой выплате.
+    const target = round(half - paid - official);
     const ceiling = round(carried + earned - paid - reserve - official);
     const amount = Math.max(0, floorStep(Math.max(0, Math.min(target, ceiling)), config.step));
 

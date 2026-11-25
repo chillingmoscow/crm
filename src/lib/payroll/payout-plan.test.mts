@@ -157,18 +157,18 @@ test("pending fine is subtracted from earned", () => {
   assert.equal(row.amount, 22350); // 44 700 / 2, переводом без округления
 });
 
-test("official part expected this month lowers the ceiling", () => {
-  const base = salaryFixture({ monthly: 47700, schedule: "transfer" });
-  const [row] = planFirstPayout({
-    ...base,
-    data: {
-      ...base.data,
-      officialExpected: [{ employee_id: "tanya", employment_id: "o", month: MONTH, kind: "full", gross: 40000, days_paid: null, days_in_month: 30 }],
-    },
-  });
-  assert.equal(row.breakdown.official, 40000);
-  assert.equal(row.breakdown.ceiling, 7700);
-  assert.equal(row.amount, 7700);
+test("official part counts toward the first half of the month", () => {
+  // Начислено 100 000, прогноза нет, запас 5 000: половина 47 500; официальная часть 30 000
+  // идёт в счёт первой половины — наличными 17 500 → 15 000.
+  const base = input({ employees: [employee("o")], accruals: [accrual("o", "2026-11-10", 100000, "monthly", 100000)] });
+  const official = (gross: number) => [{ employee_id: "o", employment_id: "x", month: MONTH, kind: "full" as const, gross, days_paid: null, days_in_month: 30 }];
+  const [row] = planFirstPayout({ ...base, data: { ...base.data, officialExpected: official(30000) } });
+  assert.equal(row.breakdown.official, 30000);
+  assert.equal(row.breakdown.target, 17500);
+  assert.equal(row.amount, 15000);
+  // Официальная часть больше половины месяца (Павлов: 74 667 при половине ~65 000) — наличными 0.
+  const [big] = planFirstPayout({ ...base, data: { ...base.data, officialExpected: official(60000) } });
+  assert.equal(big.amount, 0);
 });
 
 test("only employees of the schedule, active, not casual", () => {

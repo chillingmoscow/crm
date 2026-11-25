@@ -519,6 +519,8 @@ export function PayrollWorkspace({
             {can("view") && (
               <AttendanceAttentionNotice className="mb-4" months={[monthStart.slice(0, 7)]} />
             )}
+            {/* Итоги вкладки мягко всплывают и досчитываются заново при её смене. */}
+            <div key={tab} className="motion-rise">
             {tab === "plan" ? (
               <PlanMetrics view={planView} />
             ) : tab === "payments" ? (
@@ -560,6 +562,7 @@ export function PayrollWorkspace({
               <Metric label="Чаевые" value={<AnimatedMoney value={tips} />} hint="Отдельно от зарплаты" />
             </MetricStrip>
             )}
+            </div>
             {/* Вкладки представления: общий Tabs + workspace-tabs. Панель одна
                 на активную вкладку — как у Radix, неактивные не монтируются. */}
             <Tabs value={tab} onValueChange={changeTab} className={`${tabStyle.tabs} mt-6`}>
@@ -776,7 +779,7 @@ export function PayrollWorkspace({
                             key={monthStart}
                             className="chart-bar-grow-x"
                             style={{
-                              animationDelay: `${i * 60}ms`,
+                              animationDelay: `${200 + i * 90}ms`,
                               width: `${total ? (r.value / total) * 100 : 0}%`,
                               background: colors[Math.min(i, colors.length - 1)],
                             }}

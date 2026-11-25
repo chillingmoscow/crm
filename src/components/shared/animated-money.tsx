@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from "react";
 
 import { Money } from "./money";
 
-const DURATION = 500;
-const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
+// Мягкий досчёт: быстро трогается и долго, плавно доходит до значения
+// (expo-out), как числа в интерфейсах Apple.
+const DURATION = 1200;
+const easeOut = (t: number) => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * t));
 
 /**
  * Сумма, которая «досчитывается» до значения: при первом показе — от нуля,

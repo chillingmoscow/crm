@@ -153,7 +153,7 @@ export function DataTable<T>({
                   onRowClick && "cursor-pointer",
                   rowClassName?.(row),
                 )}
-                style={{ animationDelay: `${Math.min(index, 12) * 25}ms` }}
+                style={{ animationDelay: `${Math.min(index, 14) * 40}ms` }}
                 data-state={row.getIsSelected() ? "selected" : undefined}
                 onClick={
                   onRowClick

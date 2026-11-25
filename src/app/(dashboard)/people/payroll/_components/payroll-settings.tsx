@@ -17,6 +17,7 @@ import { unwrapAction } from "@/lib/actions/result";
 import { selectClass } from "./select-class";
 import { PayrollSetup } from "./payroll-setup";
 import { PayrollInitialData } from "./payroll-initial-data";
+import { PayoutScheduleSettings } from "./payout-settings";
 import { Input } from "@/components/ui/input";
 import {
   officialMonthOptions,
@@ -133,6 +134,7 @@ function PayrollSettingsSections({ venueId }: { venueId: string }) {
       </ProfileSection>
       <TipSettings data={data} onSaved={reload} />
       <OfficialSalarySettings data={data} onSaved={reload} />
+      <PayoutScheduleSettings data={data} onSaved={reload} />
       <PayrollInitialData venueId={venueId} />
     </div>
   );

@@ -42,6 +42,7 @@ import {
 import { unwrapAction } from "@/lib/actions/result";
 import { PayrollJournal, PayrollEntryForm, PayrollEntryMenuItems } from "./payroll-journal";
 import { PayrollTransferDrawer } from "./payroll-transfer-drawer";
+import { PayoutPlan } from "./payout-plan";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { PayrollLedger } from "./payroll-ledger";
 import { RefreshFailedNotice, useAutoRefresh } from "./auto-refresh";
@@ -218,6 +219,7 @@ export function PayrollWorkspace({
   // Пустой месяц (DS → «Состояния»): ни начислений, ни выплат, ни переносов —
   // вместо нулевого графика и пустой ведомости одно пустое состояние.
   const emptyMonth = tab === "statement" && active.length === 0;
+  const planTab = tab === "plan";
   const paid = rows.reduce((sum, r) => sum + r.paid, 0);
   const tips = rows.reduce((sum, r) => sum + r.tips, 0);
   const shifts = rows.reduce((sum, r) => sum + r.shifts, 0);
@@ -547,8 +549,10 @@ export function PayrollWorkspace({
                 <TabsTrigger value="statement">Ведомость · {active.length}</TabsTrigger>
                 <TabsTrigger value="payments">Выплаты</TabsTrigger>
                 <TabsTrigger value="journal">Начисления и удержания</TabsTrigger>
+                {can("view") && <TabsTrigger value="plan">План выплат</TabsTrigger>}
               </TabsList>
             <TabsContent value={tab} className="!mt-0">
+            {tab === "plan" && <PayoutPlan onChanged={reload} />}
             {emptyMonth ? (
               <EmptyState
                 className="mt-6"
@@ -795,7 +799,7 @@ export function PayrollWorkspace({
                 </div>
               </section>
             )}
-            {!emptyMonth && <section className={`${s.ledger} ${s.functionalTable}`}>
+            {!emptyMonth && !planTab && <section className={`${s.ledger} ${s.functionalTable}`}>
               {role && (
                 <div className={s.ledgerHeading}>
                   <button

@@ -73,12 +73,21 @@ create policy "counterparty_certificates_select"
     and (select public.has_permission('finance.view_counterparties'))
   );
 
+-- Скан — только документ этого же контрагента (не чужой файл по id).
 create policy "counterparty_certificates_insert"
   on public.counterparty_certificates for insert
   to authenticated
   with check (
     account_id = (select public.get_active_account_id())
     and (select public.has_permission('finance.manage_counterparties'))
+    and (
+      file_id is null
+      or exists (
+        select 1 from public.counterparty_attachments ca
+         where ca.file_id = counterparty_certificates.file_id
+           and ca.counterparty_id = counterparty_certificates.counterparty_id
+      )
+    )
   );
 
 create policy "counterparty_certificates_update"
@@ -91,6 +100,14 @@ create policy "counterparty_certificates_update"
   with check (
     account_id = (select public.get_active_account_id())
     and (select public.has_permission('finance.manage_counterparties'))
+    and (
+      file_id is null
+      or exists (
+        select 1 from public.counterparty_attachments ca
+         where ca.file_id = counterparty_certificates.file_id
+           and ca.counterparty_id = counterparty_certificates.counterparty_id
+      )
+    )
   );
 
 create policy "counterparty_certificates_delete"

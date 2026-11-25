@@ -6,6 +6,8 @@ import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { findPartyByInn } from "@/lib/dadata/party";
+import { errorText } from "@/lib/actions/error-text";
+import { cleanText, contactsFromJson, normalizeContacts, normalizeWeekdays } from "@/lib/finance/counterparty-contacts";
 import { writeAuditEvent } from "@/lib/audit/write";
 import type {
   CounterpartyFormInput,
@@ -98,32 +100,62 @@ async function validateCounterparty(
   if (kpp && !/^\d{4}[\dA-Z]{2}\d{3}$/.test(kpp)) return "КПП: 9 знаков";
   const ogrn = input.ogrn?.trim();
   if (ogrn && !/^\d{13}$|^\d{15}$/.test(ogrn)) return "ОГРН: 13 цифр, ОГРНИП: 15";
-  const email = input.email?.trim();
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "Проверьте адрес почты";
   return null;
 }
 
-/** Пустые строки уходят в базу как null, текст — без пробелов по краям. */
-function normalize(input: Partial<CounterpartyFormInput>): Partial<CounterpartyFormInput> {
-  // Только поля формы: аккаунт, архив, авторство и сверку с ЕГРЮЛ из запроса
-  // не принимаем, даже если их прислали в обход интерфейса.
-  const out: Partial<CounterpartyFormInput> = {};
+type CounterpartyWrite = Omit<Partial<CounterpartyFormInput>, "contacts"> & {
+  contacts?: ReturnType<typeof normalizeContacts>["contacts"];
+};
+
+/** Целое неотрицательное число дней или null. */
+function dayCount(value: unknown): number | null | "invalid" {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 && n <= 365 ? n : "invalid";
+}
+
+/** Сумма ≥ 0 с копейками или null. */
+function amount(value: unknown): number | null | "invalid" {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 && n < 1e12 ? Math.round(n * 100) / 100 : "invalid";
+}
+
+/**
+ * Пустые строки уходят в базу как null, текст — без пробелов по краям.
+ * Только поля формы: аккаунт, архив, авторство и сверку с ЕГРЮЛ из запроса
+ * не принимаем, даже если их прислали в обход интерфейса.
+ */
+function normalize(
+  input: Partial<CounterpartyFormInput>,
+  opts: { trustedEmails?: Set<string> } = {},
+): { out: CounterpartyWrite; error: string | null } {
+  const out: CounterpartyWrite = {};
   if (input.name !== undefined) out.name = String(input.name).trim();
   if (input.legal_form !== undefined) out.legal_form = input.legal_form;
   if (input.group_id !== undefined) out.group_id = input.group_id || null;
-  for (const key of [
-    "inn",
-    "kpp",
-    "ogrn",
-    "contact_person",
-    "phone",
-    "email",
-    "address",
-    "description",
-  ] as const) {
+  for (const key of ["inn", "kpp", "ogrn", "address", "description"] as const) {
     if (input[key] !== undefined) out[key] = input[key] ? String(input[key]).trim() || null : null;
   }
-  return out;
+  if (input.is_supplier !== undefined) out.is_supplier = Boolean(input.is_supplier);
+  if (input.payment_delay_days !== undefined) {
+    const days = dayCount(input.payment_delay_days);
+    if (days === "invalid") return { out, error: "Отсрочка платежа: целое число дней от 0 до 365" };
+    out.payment_delay_days = days;
+  }
+  if (input.min_order_amount !== undefined) {
+    const sum = amount(input.min_order_amount);
+    if (sum === "invalid") return { out, error: "Минимальный заказ: сумма не меньше нуля" };
+    out.min_order_amount = sum;
+  }
+  if (input.order_weekdays !== undefined) out.order_weekdays = normalizeWeekdays(input.order_weekdays);
+  if (input.delivery_weekdays !== undefined) out.delivery_weekdays = normalizeWeekdays(input.delivery_weekdays);
+  if (input.contacts !== undefined) {
+    const { contacts, error } = normalizeContacts(input.contacts, opts);
+    if (error) return { out, error };
+    out.contacts = contacts;
+  }
+  return { out, error: null };
 }
 
 export async function createCounterparty(
@@ -142,7 +174,9 @@ export async function createCounterparty(
     return { id: null, error: "Не удалось определить активный аккаунт" };
   }
 
-  const clean = normalize(input) as CounterpartyFormInput;
+  const normalized = normalize(input);
+  if (normalized.error) return { id: null, error: normalized.error };
+  const clean = normalized.out as CounterpartyWrite & { name: string };
   const invalid = await validateCounterparty(supabase, clean);
   if (invalid) return { id: null, error: invalid };
 
@@ -156,12 +190,11 @@ export async function createCounterparty(
       inn:            clean.inn ?? null,
       kpp:            clean.kpp ?? null,
       ogrn:           clean.ogrn ?? null,
-      contact_person: clean.contact_person ?? null,
-      phone:          clean.phone ?? null,
-      email:          clean.email ?? null,
       address:        clean.address ?? null,
       description:    clean.description ?? null,
       group_id:       clean.group_id ?? null,
+      is_supplier:    clean.is_supplier ?? false,
+      contacts:       clean.contacts ?? [],
     })
     .select("id")
     .single();
@@ -184,16 +217,26 @@ export async function updateCounterparty(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
 
-  const clean = normalize(patch);
   // Проверяем только изменённые реквизиты: старые записи (импорт, ручной
-  // ввод до проверок) не должны мешать поправить, например, телефон.
+  // ввод до проверок) не должны мешать поправить, например, название.
   const { data: current } = await supabase
     .from("counterparties")
-    .select("inn, kpp, ogrn, email")
+    .select("inn, kpp, ogrn, contacts")
     .eq("id", id)
     .maybeSingle();
+  const trustedEmails = new Set(
+    // В том же виде, что и ввод формы (пробелы схлопнуты), иначе старая
+    // почта с переводом строки перестаёт совпадать.
+    contactsFromJson(current?.contacts).flatMap((c) => {
+      const email = cleanText(c.email, 200);
+      return email ? [email] : [];
+    }),
+  );
+  const normalized = normalize(patch, { trustedEmails });
+  if (normalized.error) return { error: normalized.error };
+  const clean = normalized.out;
   const toValidate: Partial<CounterpartyFormInput> = { name: clean.name };
-  for (const key of ["inn", "kpp", "ogrn", "email"] as const) {
+  for (const key of ["inn", "kpp", "ogrn"] as const) {
     if (clean[key] !== undefined && (clean[key] ?? null) !== (current?.[key] ?? null)) {
       toValidate[key] = clean[key];
     }
@@ -229,6 +272,8 @@ export type CounterpartyArchiveImpact = {
   attachments: number;
   /** Связки «ингредиент ↔ поставщик» (CASCADE — удалятся). */
   ingredient_suppliers: number;
+  /** Сертификаты и лицензии (CASCADE — удалятся). */
+  certificates: number;
 };
 
 /**
@@ -269,17 +314,19 @@ export async function getCounterpartyArchiveImpact(
   const headOpts = { count: "exact" as const, head: true };
   const db = asLooseDb(supabase);
 
-  const [transactions, attachments, ingredient_suppliers] = await Promise.all([
+  const [transactions, attachments, ingredient_suppliers, certificates] = await Promise.all([
     supabase.from("transactions").select("id", headOpts).eq("counterparty_id", id),
     supabase.from("counterparty_attachments").select("id", headOpts).eq("counterparty_id", id),
     // ingredient_suppliers — миграция 185, ещё не в Database-типах
     db.from("ingredient_suppliers").select("id", headOpts).eq("counterparty_id", id),
+    db.from("counterparty_certificates").select("id", headOpts).eq("counterparty_id", id),
   ]);
 
   return {
     transactions: transactions.count ?? 0,
     attachments: attachments.count ?? 0,
     ingredient_suppliers: ingredient_suppliers.count ?? 0,
+    certificates: certificates.count ?? 0,
   };
 }
 
@@ -536,7 +583,7 @@ export async function createCounterpartyGroup(
     .select("id")
     .single();
   if (error || !data) {
-    return { id: null, error: error?.message ?? "Не удалось создать группу" };
+    return { id: null, error: errorText(error, "Не удалось создать группу") };
   }
   await writeAuditEvent({
     accountId: accountId as unknown as string,
@@ -584,7 +631,7 @@ export async function updateCounterpartyGroup(
     .update(next)
     .eq("id", id)
     .select("id");
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось изменить группу") };
   // RLS не даёт ошибку, а молча не меняет строку: без прав — честный отказ.
   if (!changed?.length) return { error: NO_ROW_CHANGED };
   if (next.name !== undefined && next.name !== group.name) {
@@ -623,7 +670,7 @@ export async function deleteCounterpartyGroup(
     .delete()
     .eq("id", id)
     .select("id");
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось удалить группу") };
   // RLS не даёт ошибку, а молча не меняет строку: без прав — честный отказ.
   if (!changed?.length) return { error: NO_ROW_CHANGED };
   await writeAuditEvent({

@@ -187,6 +187,13 @@ const SEMIPRODUCT_CLASS =
   "ru.edgex.quickresto.modules.warehouse.nomenclature.semiproduct.SemiProduct";
 const SEMIPRODUCT_MODULE = "warehouse.nomenclature.semiproduct";
 
+// Модификаторы блюд: отдельный модуль номенклатуры, иерархия как у блюд —
+// группа модификаторов (ModifierGroup) и модификатор (Modifier) внутри неё.
+const MODIFIER_CLASS = "ru.edgex.quickresto.modules.warehouse.nomenclature.mods.Modifier";
+const MODIFIER_GROUP_CLASS =
+  "ru.edgex.quickresto.modules.warehouse.nomenclature.mods.ModifierGroup";
+const MODIFIER_MODULE = "warehouse.nomenclature.mods";
+
 // Классы категорий. Подтверждены пробой на живом подключении: плоский list по
 // модулю блюд вернул 12 объектов класса DishCategory, по модулю полуфабрикатов
 // — 4 объекта SemiCategory. То есть иерархия здесь ровно как у ингредиентов:
@@ -593,6 +600,27 @@ export async function callQuickRestoBackOfficeData<T>(input: {
   } catch {
     return text as T;
   }
+}
+
+/**
+ * Карточка блюда из бэк-офиса — с фото. Публичный API и чтение без className
+ * фото не отдают: поля `images` и `wlcrmMedia` приходят, только когда класс
+ * указан явно (проверено на проде 25.11.2026, блюдо 2867).
+ */
+export function readDishBackOffice(input: {
+  layerName: string;
+  baseUrl?: string | null;
+  /** Authorization-заголовок сессии: «Bearer <access_token>». */
+  authorization: string;
+  id: number;
+}): Promise<unknown> {
+  return callQuickRestoBackOfficeData<unknown>({
+    layerName: input.layerName,
+    baseUrl: input.baseUrl,
+    authorization: input.authorization,
+    path: `${DISH_MODULE}/read`,
+    query: { id: input.id, className: DISH_CLASS },
+  });
 }
 
 function cloneJson<T>(value: T): T {
@@ -1296,11 +1324,24 @@ export async function listSemiProductTreeItems(input: {
   });
 }
 
+export async function listModifierTreeItems(input: {
+  layerName: string;
+  login: string;
+  password: string;
+}) {
+  return listNomenclatureTreeItems({
+    ...input,
+    moduleName: MODIFIER_MODULE,
+    className: MODIFIER_CLASS,
+  });
+}
+
 /** Классы категорий — чтобы вызывающая сторона отличала категорию от товара. */
 export const QUICK_RESTO_CATEGORY_CLASSES = {
   ingredient: SINGLE_CATEGORY_CLASS,
   dish: DISH_CATEGORY_CLASS,
   semi_finished: SEMIPRODUCT_CATEGORY_CLASS,
+  modifier: MODIFIER_GROUP_CLASS,
 } as const;
 
 export async function listStores(input: {

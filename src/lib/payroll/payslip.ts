@@ -2,6 +2,7 @@
 // Pure: the same numbers as the «Оплата» tab, arranged so an employee can follow them.
 import { statementRows } from "./calculate.ts";
 import { paySheetPayments } from "./pay-sheet.ts";
+import type { OfficialExpectedView } from "./official.ts";
 import type { Accrual, PayEmployee, PayrollData } from "./types.ts";
 
 export type PayslipShift = {
@@ -42,6 +43,8 @@ export type Payslip = {
   opening: number;
   transferredOut: number;
   paid: number;
+  /** Ожидаемая, ещё не проведённая официальная часть; уже вычтена из remaining. */
+  officialExpected: OfficialExpectedView | null;
   remaining: number;
   /** Остаток нельзя назвать, пока прежние выплаты месяца не сверены. */
   remainingKnown: boolean;
@@ -168,6 +171,7 @@ export function buildPayslip(
     month,
     data.transfers,
     data.settings?.starts_on,
+    data.officialExpected ?? [],
   )[0];
   const legacyPending = data.legacyPayments.some(
     (p) => p.employee_id === employee.id && p.month.slice(0, 7) === ym && p.state === "review",
@@ -191,6 +195,7 @@ export function buildPayslip(
     opening: row?.opening ?? 0,
     transferredOut: row?.transferredOut ?? 0,
     paid: row?.paid ?? 0,
+    officialExpected: row?.officialExpected ?? null,
     remaining: row?.remaining ?? 0,
     remainingKnown: !legacyPending,
     payments,

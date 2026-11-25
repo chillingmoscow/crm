@@ -25,6 +25,7 @@ import {
 } from "@/lib/people/overview";
 import { cn } from "@/lib/utils";
 import styles from "./people-overview.module.css";
+import { unwrapAction } from "@/lib/actions/result";
 
 type Series = { label: string; count: number; color: string };
 type Column = { label: string; description: string; values: Series[] };
@@ -367,6 +368,7 @@ export function usePeopleOverview(
     setBusy(true);
     setError(false);
     getPeopleOverview({ kind, scopeId, month: period })
+      .then(unwrapAction)
       .then((next) => {
         if (!cancelled) setData(next);
       })

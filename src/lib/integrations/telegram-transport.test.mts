@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   TELEGRAM_NO_ANSWER,
+  TELEGRAM_RETRY_DELAYS_MS,
   TELEGRAM_UNREACHABLE,
   TelegramNetworkError,
   fetchTelegram,
@@ -61,7 +62,7 @@ test("fetchTelegram: после всех попыток — «не удалос�
     }, { sleep: noSleep }),
     (e: unknown) => e instanceof TelegramNetworkError && e.delivery === "not_sent" && e.message === TELEGRAM_UNREACHABLE,
   );
-  assert.equal(calls, 3);
+  assert.equal(calls, TELEGRAM_RETRY_DELAYS_MS.length + 1);
 });
 
 test("fetchTelegram: ошибку после соединения не повторяет — иначе возможен дубль сообщения", async () => {

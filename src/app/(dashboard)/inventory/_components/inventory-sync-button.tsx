@@ -45,9 +45,15 @@ export function InventorySyncButton({ canSync, lastSyncedAt, layout = "stacked" 
           result.summary.relinked > 0
             ? `${base}. Восстановлено связей в актах: ${result.summary.relinked}`
             : base;
-        // Сбойные акты не роняют проход, но и молчать о них нельзя.
-        if (result.summary.failedDocuments > 0) {
-          toast.warning(`${withRelinked}. Не удалось обработать актов: ${result.summary.failedDocuments}`);
+        // Сбойные акты и пропущенные виды не роняют проход, но и молчать о них нельзя.
+        const problems = [
+          ...(result.summary.failedDocuments > 0
+            ? [`Не удалось обработать актов: ${result.summary.failedDocuments}`]
+            : []),
+          ...result.summary.warnings,
+        ];
+        if (problems.length > 0) {
+          toast.warning([withRelinked, ...problems].join(". "));
         } else {
           toast.success(withRelinked);
         }

@@ -5,6 +5,7 @@ import { PageFrame } from "@/components/shared/page-frame";
 import { TablePageHeader } from "@/components/shared/table";
 import { AttendanceReview } from "@/app/(dashboard)/people/payroll/_components/attendance-review";
 import { loadPayroll } from "@/app/(dashboard)/people/payroll/actions";
+import { unwrapAction } from "@/lib/actions/result";
 import type { PayrollData } from "@/lib/payroll/types";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 
@@ -32,7 +33,7 @@ export function ScheduleAttendanceClient({ initial, month, date }: {
         data={data}
         month={month}
         date={date}
-        onRefresh={async () => setData(await loadPayroll())}
+        onRefresh={async () => setData(unwrapAction(await loadPayroll()))}
         toolbarTargetId="schedule-attendance-controls"
       />
     </PageFrame>

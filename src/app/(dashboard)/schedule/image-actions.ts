@@ -12,6 +12,7 @@ import {
 } from "@/lib/schedule/schedule-image-data";
 import { renderScheduleImagePng } from "@/lib/schedule/schedule-image-render";
 import { scheduleImageCaption, scheduleImageFileName } from "@/lib/schedule/schedule-image";
+import { actionErrorMessage } from "@/lib/actions/result";
 
 /**
  * Картинка расписания в Telegram. Сама картинка — `GET /api/schedule/image`,
@@ -32,7 +33,7 @@ const EMPTY_MESSAGE = "На этой неделе нет опубликован�
 const UNCERTAIN_MESSAGE = "Telegram не подтвердил отправку. Проверьте чат, прежде чем отправлять ещё раз";
 const isEmpty = (image: { parts: { rows: unknown[] }[] }) => image.parts.every((p) => !p.rows.length);
 const message = (e: unknown, fallback: string) =>
-  e instanceof z.ZodError ? "Некорректная неделя" : e instanceof Error ? e.message : fallback;
+  e instanceof z.ZodError ? "Некорректная неделя" : actionErrorMessage(e, fallback);
 
 async function telegramTargets(accountId: string, venueId: string) {
   // Чаты и бот — служебные таблицы интеграции, читаются сервисным ключом

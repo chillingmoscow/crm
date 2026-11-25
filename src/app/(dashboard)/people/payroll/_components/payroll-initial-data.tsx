@@ -6,6 +6,7 @@ import { ProfileSection } from "@/components/shared/profile-section";
 import type { PayrollData } from "@/lib/payroll/types";
 import { DateRangeFilter } from "@/components/shared/date-range-filter";
 import { loadPayroll } from "../actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { LegacyPayments } from "./legacy-payments";
 
 export function PayrollInitialData({ venueId }: { venueId: string }) {
@@ -16,7 +17,7 @@ export function PayrollInitialData({ venueId }: { venueId: string }) {
   const reload = async () => {
     setLoading(true);
     try {
-      const next = await loadPayroll();
+      const next = unwrapAction(await loadPayroll());
       if (next.venueId !== venueId)
         throw new Error("Выберите это заведение в переключателе");
       if (!next.permissions.includes("payroll.view"))

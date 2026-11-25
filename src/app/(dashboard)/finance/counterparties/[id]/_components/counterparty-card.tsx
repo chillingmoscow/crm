@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Building2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ProfileTabsList, Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs";
 import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
-import { AttachmentUploader, type AttachmentRowDisplay } from "@/components/shared/attachment-uploader";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
@@ -20,12 +19,16 @@ import { ProfileSection } from "@/components/shared/profile-section";
 import { SaveBarScope } from "@/components/shared/save-bar";
 import type { AuditEvent } from "@/lib/audit/list";
 import type { CounterpartyActivity } from "@/lib/finance/activity";
+import type { CounterpartyCertificate } from "@/lib/finance/certificates-actions";
 import { restoreCounterparty, type CounterpartyArchiveImpact } from "@/lib/finance/counterparties";
 import { formatDateCell } from "@/lib/format/date";
 import { LEGAL_FORM_LABELS } from "@/lib/org/legal-entity-labels";
 import type { CounterpartyRow } from "@/types/finance";
 import { CounterpartyDangerZone } from "./counterparty-danger-zone";
+import { CounterpartyCertificates } from "./counterparty-certificates";
+import { CounterpartyDocuments, type CounterpartyDocument } from "./counterparty-documents";
 import { CounterpartyOperations } from "./counterparty-operations";
+import { CounterpartyPurchases, type CounterpartyPurchase } from "./counterparty-purchases";
 import { CounterpartyRequisites } from "./counterparty-requisites";
 
 export type CounterpartyOperation = {
@@ -38,7 +41,7 @@ export type CounterpartyOperation = {
   accountName: string | null;
 };
 
-type TabKey = "main" | "documents" | "operations" | "history" | "danger";
+type TabKey = "main" | "documents" | "purchases" | "operations" | "history" | "danger";
 
 /**
  * Карточка контрагента (docs/design-system.md § «Entity detail page»):
@@ -49,6 +52,11 @@ export function CounterpartyCard({
   row,
   groups,
   attachments,
+  certificates,
+  certificatesFailed,
+  initialTab,
+  purchases,
+  purchasesFailed,
   operations,
   activity,
   canManage,
@@ -69,7 +77,16 @@ export function CounterpartyCard({
 }: {
   row: CounterpartyRow;
   groups: { id: string; name: string }[];
-  attachments: AttachmentRowDisplay[];
+  attachments: CounterpartyDocument[];
+  certificates: CounterpartyCertificate[];
+  /** Сертификаты не загрузились: в блоке — ошибка, а не «пока нет». */
+  certificatesFailed: boolean;
+  /** Вкладка из адреса (`?tab=documents` — из уведомления о сертификате). */
+  initialTab: string | null;
+  /** null — нет права смотреть номенклатуру: вкладки «Закупаем» нет. */
+  purchases: CounterpartyPurchase[] | null;
+  /** Позиции не загрузились: во вкладке — ошибка, а не «не привязаны». */
+  purchasesFailed: boolean;
   operations: CounterpartyOperation[];
   /** `null` — нет права на операции или сбой подсчёта. */
   activity: CounterpartyActivity | null;
@@ -93,7 +110,11 @@ export function CounterpartyCard({
   today: string;
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<TabKey>("main");
+  const [tab, setTab] = useState<TabKey>(initialTab === "documents" ? "documents" : "main");
+  // Переход по уведомлению на уже открытую карточку меняет только адрес.
+  useEffect(() => {
+    if (initialTab === "documents") setTab("documents");
+  }, [initialTab]);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [restoring, startRestore] = useTransition();
@@ -106,6 +127,7 @@ export function CounterpartyCard({
       ? "Менять данные могут те, кто управляет контрагентами"
       : null;
   const showDanger = isOwner && !archived;
+  const showPurchases = purchases !== null && (purchasesFailed || purchases.length > 0 || row.is_supplier);
   const groupName = row.group_id ? groups.find((group) => group.id === row.group_id)?.name ?? null : null;
 
   const context = [
@@ -190,6 +212,11 @@ export function CounterpartyCard({
               <TabsTrigger value="documents">
                 {attachments.length > 0 ? `Документы · ${attachments.length}` : "Документы"}
               </TabsTrigger>
+              {showPurchases && (
+                <TabsTrigger value="purchases">
+                  {purchases && purchases.length > 0 ? `Закупаем · ${purchases.length}` : "Закупаем"}
+                </TabsTrigger>
+              )}
               {canViewTransactions && <TabsTrigger value="operations">Операции</TabsTrigger>}
               {canViewAudit && <TabsTrigger value="history">Журнал</TabsTrigger>}
               {showDanger && <TabsTrigger value="danger">Опасная зона</TabsTrigger>}
@@ -213,23 +240,36 @@ export function CounterpartyCard({
               />
             </TabsContent>
 
-            <TabsContent value="documents">
+            <TabsContent value="documents" className="flex flex-col gap-5">
+              <CounterpartyCertificates
+                counterpartyId={row.id}
+                certificates={certificates}
+                failed={certificatesFailed}
+                documents={attachments}
+                today={today}
+                readOnly={readOnly}
+                lockMessage={lockMessage}
+              />
               <ProfileSection
                 title="Документы"
-                description="Договоры, акты, счета и учредительные документы контрагента"
+                description="Договоры, акты, счета, банковская карточка и другие файлы контрагента"
                 locked={readOnly && lockMessage ? { tone: "locked", message: lockMessage } : undefined}
               >
-                <AttachmentUploader
-                  parent={{ kind: "counterparty", id: row.id }}
-                  attachments={attachments}
-                  defaultDocumentType="contract"
+                <CounterpartyDocuments
+                  counterpartyId={row.id}
+                  documents={attachments}
                   readOnly={readOnly}
                   canUpload={canUploadAttachments}
-                  canDetach={canDeleteAttachments}
-                  canHardDelete={canDeleteAttachments}
+                  canDelete={canDeleteAttachments}
                 />
               </ProfileSection>
             </TabsContent>
+
+            {showPurchases && purchases && (
+              <TabsContent value="purchases">
+                <CounterpartyPurchases purchases={purchases} failed={purchasesFailed} />
+              </TabsContent>
+            )}
 
             {canViewTransactions && (
               <TabsContent value="operations">

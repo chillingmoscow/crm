@@ -2,10 +2,11 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { loadEmployeePayroll, loadPayroll, reconcileTips } from "../actions";
+import { unwrapAction } from "@/lib/actions/result";
 import type { PayrollData } from "@/lib/payroll/types";
 import { Money } from "@/components/shared/money";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { selectClass } from "./employee-pay";
+import { selectClass } from "./select-class";
 import { StaffPaySheet } from "./staff-pay-sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -23,7 +24,7 @@ export function StaffPayPanel({ userId }: { userId: string }) {
   // Только зарплата этого сотрудника: полную ведомость заведения ради одной
   // вкладки не читаем.
   const reload = useCallback(async () => {
-    setData(await loadEmployeePayroll(userId));
+    setData(unwrapAction(await loadEmployeePayroll(userId)));
   }, [userId]);
   const load = useCallback(() => {
     setError("");
@@ -113,7 +114,7 @@ export function PayrollDayPanel({ date }: { date: string }) {
     [reason, setReason] = useState(""),
     [busy, setBusy] = useState(false);
   const reload = async () => {
-    const d = await loadPayroll();
+    const d = unwrapAction(await loadPayroll());
     if (!d.permissions.includes("payroll.view"))
       throw new Error(
         "Начисления команды доступны при наличии права просмотра зарплаты",
@@ -221,7 +222,7 @@ export function PayrollDayPanel({ date }: { date: string }) {
                   onClick={async () => {
                     setBusy(true);
                     try {
-                      await reconcileTips(date, bank, category, reason);
+                      unwrapAction(await reconcileTips(date, bank, category, reason));
                       await reload();
                       toast.success("Выдача чаевых учтена в финансах");
                     } catch (e) {

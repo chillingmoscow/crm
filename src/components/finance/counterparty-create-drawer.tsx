@@ -9,7 +9,9 @@ import { EditDrawer } from "@/components/ui/edit-drawer";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { OptionSelect } from "@/components/ui/option-select";
+import { CounterpartyGroupSelect } from "@/components/finance/counterparty-group-select";
 import { PhoneInput } from "@/components/ui/phone-input";
+import { Switch } from "@/components/ui/switch";
 import { InnInput } from "@/components/org/inn-input";
 import type { ResolvedParty } from "@/lib/dadata/party";
 import { createCounterparty } from "@/lib/finance/counterparties";
@@ -22,9 +24,11 @@ type Form = {
   name: string;
   legal_form: LegalForm;
   group_id: string;
+  is_supplier: boolean;
   contact_person: string;
   phone: string;
   email: string;
+  telegram: string;
   // Пришло из DaData — сохраняем сразу, чтобы не вводить второй раз в карточке.
   kpp: string | null;
   ogrn: string | null;
@@ -36,9 +40,11 @@ const EMPTY: Form = {
   name: "",
   legal_form: "OOO",
   group_id: "",
+  is_supplier: false,
   contact_person: "",
   phone: "",
   email: "",
+  telegram: "",
   kpp: null,
   ogrn: null,
   address: null,
@@ -110,10 +116,10 @@ export function CounterpartyCreateDrawer({
       kpp: form.kpp,
       ogrn: form.ogrn,
       address: form.address,
-      contact_person: form.contact_person,
-      phone: form.phone,
-      email: form.email,
       group_id: form.group_id || null,
+      is_supplier: form.is_supplier,
+      // Один контакт из панели; остальные добавляют в карточке.
+      contacts: [{ name: form.contact_person, phone: form.phone, email: form.email, telegram: form.telegram }],
     };
     try {
       const { id, error } = await createCounterparty(input);
@@ -200,29 +206,35 @@ export function CounterpartyCreateDrawer({
             {groups ? (
               <Field id="new-cp-group" label="Группа">
                 {(control) => (
-                  <OptionSelect
+                  <CounterpartyGroupSelect
                     {...control}
                     value={form.group_id}
                     onValueChange={(value) => set("group_id", value)}
-                    options={[
-                      { value: "", label: "Без группы" },
-                      ...groups.map((group) => ({ value: group.id, label: group.name })),
-                    ]}
+                    groups={groups}
+                    canCreate
                   />
                 )}
               </Field>
             ) : null}
           </div>
+          <label htmlFor="new-cp-supplier" className="flex items-center justify-between gap-4">
+            <span className="text-sm font-medium">Поставщик</span>
+            <Switch
+              id="new-cp-supplier"
+              checked={form.is_supplier}
+              onCheckedChange={(checked) => set("is_supplier", checked)}
+            />
+          </label>
         </DrawerSection>
 
         <DrawerSection title="Контакт">
-          <Field id="new-cp-contact" label="Контактное лицо">
+          <Field id="new-cp-contact" label="Имя">
             {(control) => (
               <Input
                 {...control}
                 value={form.contact_person}
                 maxLength={200}
-                placeholder="Имя менеджера"
+                placeholder="Иван Петров, менеджер"
                 onChange={(event) => set("contact_person", event.target.value)}
               />
             )}
@@ -247,6 +259,17 @@ export function CounterpartyCreateDrawer({
               )}
             </Field>
           </div>
+          <Field id="new-cp-telegram" label="Telegram">
+            {(control) => (
+              <Input
+                {...control}
+                value={form.telegram}
+                maxLength={100}
+                placeholder="@ник или ссылка t.me"
+                onChange={(event) => set("telegram", event.target.value)}
+              />
+            )}
+          </Field>
         </DrawerSection>
 
         {serverError ? (

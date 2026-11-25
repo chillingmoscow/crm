@@ -9,13 +9,8 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
-import {
-  Archive,
-  ChartNoAxesCombined,
-  RefreshCw,
-  SearchX,
-  Settings2,
-} from "lucide-react";
+import { ChartNoAxesCombined, RefreshCw, SearchX, Settings } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -49,17 +44,19 @@ import {
   useTableState,
 } from "@/components/shared/table";
 import {
-  additionalRows,
+  additionalTabs,
   additionalValue,
   additionalTotal,
   additionalCoverage,
   additionalNeedsRefresh,
+  departmentRows,
+  readyUpsellResult,
+  upsellUnknown,
   type AdditionalRow,
 } from "@/lib/sales/additional-view";
-import {
-  defaultAdditionalRules,
-  type AdditionalKind,
-} from "@/lib/sales/additional";
+import { defaultAdditionalRules } from "@/lib/sales/additional";
+import { lineKey, type UpsellTarget } from "@/lib/sales/upsell";
+import type { UpsellPickerItem } from "@/lib/sales/upsell-prefill";
 import { dayLabel, formatQuantity, weekdayLabel } from "@/lib/sales/format";
 import { addDays, businessDate } from "@/lib/sales/time";
 import { csvCell } from "@/lib/sales/csv";
@@ -68,6 +65,7 @@ import { formatDateCell, formatDayMonth, formatDayMonthTime } from "@/lib/format
 import { countRu } from "@/lib/format/plural";
 import { DayTeamPanel } from "../_components/day-team";
 import { DayDiscussionPanel } from "../_components/day-discussion";
+import { unwrapAction } from "@/lib/actions/result";
 import {
   loadAdditional,
   requestAdditional,
@@ -75,7 +73,7 @@ import {
   loadAdditionalHistory,
   type AdditionalData,
 } from "./actions";
-import { AdditionalRulesEditor } from "./additional-rules";
+import { TARGET_LABEL } from "./upsell-labels";
 
 const baseLabels: Record<string, string> = {
   date: "Дата",
@@ -85,10 +83,6 @@ const baseLabels: Record<string, string> = {
   bonus: "Общая прибавка",
   points: "Баллы",
 };
-const kindLabels: Record<AdditionalKind, string> = {
-  bar: "Бар",
-  masters: "Кальяны",
-};
 const stateLabels = {
   ready: "Обновлено",
   pending: "Ожидает обновления",
@@ -97,6 +91,92 @@ const stateLabels = {
 };
 const moneyKeys = new Set(["turnover", "revenue", "primeCost", "bonus"]);
 const MIN_MONTH = "2000-01";
+const NAMES_SHOWN = 8;
+const baseIds = new Set(["date", "bonus", "revenue", "primeCost", "turnover", "points"]);
+
+type PickerByKey = Map<string, UpsellPickerItem>;
+
+/** Состояние строки: отчёт старой очереди или расчёт дня по чекам. */
+function rowState(r: AdditionalRow) {
+  return r.upsell ? (r.upsell.day?.state ?? "pending") : r.native?.state;
+}
+
+/** «Негрони, код 2041 и ещё 3»: позиции чеков не из номенклатуры. */
+function unknownNames(list: { key: string }[], picker: PickerByKey) {
+  const shown = list
+    .slice(0, NAMES_SHOWN)
+    .map((u) => picker.get(u.key)?.name ?? `код ${u.key.slice(u.key.indexOf(":") + 1)}`);
+  const rest = list.length - shown.length;
+  return shown.join(", ") + (rest > 0 ? ` и ещё ${rest}` : "");
+}
+
+/** Строки правил дня новой схемы: цель, продано, ставка, сумма и итог. */
+function UpsellSales({ row, picker }: { row: AdditionalRow; picker: PickerByKey }) {
+  const u = row.upsell!;
+  const result = readyUpsellResult(u.day);
+  const sold = new Map((result?.lines ?? []).map((l) => [l.key, l]));
+  const own = new Set(u.lines.map(lineKey));
+  const items = [
+    ...u.lines.map((l) => ({
+      key: lineKey(l),
+      target: l.target,
+      name: l.name,
+      rate: l.rate as number | null,
+    })),
+    // Строка расчёта без строки в версии (версию на эту дату заменили):
+    // показываем, чтобы итог сходился со строками.
+    ...(result?.lines ?? [])
+      .filter((l) => !own.has(l.key))
+      .map((l) => ({
+        key: l.key,
+        target: l.key.slice(0, l.key.indexOf(":")) as UpsellTarget,
+        name: picker.get(l.key)?.name ?? l.key,
+        rate: l.quantity ? Math.round((l.amount / l.quantity) * 100) / 100 : null,
+      })),
+  ];
+  return (
+    <DrawerSection title="Продажи по правилам">
+      {items.length === 0 ? (
+        <p className="text-sm text-muted-foreground">В правилах нет позиций</p>
+      ) : (
+        <dl className="divide-y">
+          {items.map((it) => {
+            const line = sold.get(it.key),
+              item = picker.get(it.key);
+            return (
+              <div key={it.key} className="flex justify-between gap-4 py-2.5 text-sm">
+                <dt className="min-w-0">
+                  <span className="break-words">{item?.name ?? it.name}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {TARGET_LABEL[it.target] ?? "Позиция"}
+                    {item?.path && ` · ${item.path}`}
+                  </span>
+                  {it.rate !== null && (
+                    <span className="block text-xs text-muted-foreground">
+                      {formatRub(it.rate, { fraction: "auto" })} за штуку
+                    </span>
+                  )}
+                </dt>
+                <dd className="shrink-0 text-right tabular-nums">
+                  {line ? formatRub(line.amount, { fraction: "auto" }) : "—"}
+                  <span className="block text-xs text-muted-foreground">
+                    Продано {formatQuantity(line ? line.quantity : null)}
+                  </span>
+                </dd>
+              </div>
+            );
+          })}
+          <div className="flex justify-between gap-4 py-2.5 text-sm font-medium">
+            <dt>Итого</dt>
+            <dd className="tabular-nums">
+              <Money value={result ? result.bonus : null} />
+            </dd>
+          </div>
+        </dl>
+      )}
+    </DrawerSection>
+  );
+}
 
 function shiftMonth(month: string, delta: number): string {
   const [y, m] = month.split("-").map(Number);
@@ -111,20 +191,27 @@ function Value({ id, value }: { id: string; value: number | null }) {
 function Detail({
   row,
   data,
+  name,
+  picker,
   onClose,
 }: {
   row: AdditionalRow;
   data: AdditionalData;
+  /** Название подразделения (вкладки). */
+  name: string;
+  picker: PickerByKey;
   onClose: () => void;
 }) {
-  const [history, setHistory] = useState<Awaited<
-      ReturnType<typeof loadAdditionalHistory>
-    > | null>(null),
+  const [history, setHistory] = useState<
+      | (Awaited<ReturnType<typeof loadAdditionalHistory>> & { ok: true })["data"]
+      | null
+    >(null),
     [error, setError] = useState(false);
   useEffect(() => {
     let active = true;
     if (row.native)
       void loadAdditionalHistory(data.venueId, row.id)
+        .then(unwrapAction)
         .then((r) => active && setHistory(r))
         .catch(() => active && setError(true));
     return () => {
@@ -132,14 +219,22 @@ function Detail({
     };
   }, [data.venueId, row.id, row.native]);
   const weekday = weekdayLabel(row.date);
-  const state = row.native?.state;
+  const state = rowState(row);
   const stateTone =
     state === "error" ? "danger" : state === "ready" ? "success" : "info";
+  const day = row.upsell?.day ?? null;
+  const bonus = additionalValue(row, "bonus");
+  const unknown = row.upsell ? (readyUpsellResult(day)?.unknown ?? []) : [];
+  const updated = row.native?.synced_at
+    ? ` · обновлено ${formatDayMonthTime(row.native.synced_at, new Date(), data.timezone)}`
+    : day?.computed_at && state === "ready"
+      ? ` · посчитано ${formatDayMonthTime(day.computed_at, new Date(), data.timezone)}`
+      : "";
   return (
     <EditDrawer
       open
       onOpenChange={(v) => !v && onClose()}
-      title={`${kindLabels[row.kind]} · ${formatDayMonth(row.date) ?? ""}`}
+      title={`${name} · ${formatDayMonth(row.date) ?? ""}`}
       titleAccessory={
         row.archive ? (
           <DrawerStatus label="Архив Glide" tone="neutral" />
@@ -147,11 +242,7 @@ function Detail({
           <DrawerStatus label={stateLabels[state]} tone={stateTone} />
         ) : undefined
       }
-      description={`${weekday.charAt(0).toUpperCase()}${weekday.slice(1)}${
-        row.native?.synced_at
-          ? ` · обновлено ${formatDayMonthTime(row.native.synced_at, new Date(), data.timezone)}`
-          : ""
-      }`}
+      description={`${weekday.charAt(0).toUpperCase()}${weekday.slice(1)}${updated}`}
       footer={
         <Button variant="outline" asChild>
           <Link
@@ -168,10 +259,14 @@ function Detail({
           hint={
             row.archive
               ? "Сумма из архива, без пересчёта"
-              : "Делится между сотрудниками смены"
+              : bonus === null && row.upsell
+                ? state === "error"
+                  ? "Нет данных: день не удалось посчитать"
+                  : "Нет данных: день ещё не посчитан"
+                : "Делится между сотрудниками смены"
           }
         >
-          <Money value={row.metrics?.bonus ?? null} />
+          <Money value={bonus} />
         </DrawerSummaryTotal>
       </DrawerSummary>
       <Tabs defaultValue="details" className={tabStyle.tabs}>
@@ -179,19 +274,39 @@ function Detail({
           <TabsTrigger value="details">Продажи</TabsTrigger>
           <TabsTrigger value="team">Команда</TabsTrigger>
           <TabsTrigger value="comments">Комментарии</TabsTrigger>
-          <TabsTrigger value="history">История</TabsTrigger>
+          {!row.upsell && <TabsTrigger value="history">История</TabsTrigger>}
         </TabsList>
         <TabsContent value="details" className="space-y-9">
-          {row.native && row.native.state !== "ready" && (
+          {row.upsell
+            ? state !== "ready" && (
+                <p
+                  role={state === "error" ? "alert" : "status"}
+                  className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm"
+                >
+                  {day ? stateLabels[day.state] : "Расчёт по чекам ещё не готов"}
+                  {day?.last_error ? `. ${salesErrorText(day.last_error)}` : ""}
+                </p>
+              )
+            : row.native &&
+              row.native.state !== "ready" && (
+                <p
+                  role={row.native.state === "error" ? "alert" : "status"}
+                  className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm"
+                >
+                  {stateLabels[row.native.state]}
+                  {row.native.last_error
+                    ? `. ${salesErrorText(row.native.last_error)}`
+                    : ""}
+                  {row.metrics ? ". Показаны последние сохранённые данные" : ""}
+                </p>
+              )}
+          {unknown.length > 0 && (
             <p
-              role={row.native.state === "error" ? "alert" : "status"}
+              role="status"
               className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm"
             >
-              {stateLabels[row.native.state]}
-              {row.native.last_error
-                ? `. ${salesErrorText(row.native.last_error)}`
-                : ""}
-              {row.metrics ? ". Показаны последние сохранённые данные" : ""}
+              В чеках есть позиции не из номенклатуры: {unknownNames(unknown, picker)}.
+              День посчитан по известным позициям
             </p>
           )}
           <dl className="divide-y">
@@ -199,7 +314,7 @@ function Detail({
               "turnover",
               "revenue",
               "primeCost",
-              ...(row.kind === "masters" ? ["points"] : []),
+              ...(row.kind === "masters" && !row.upsell ? ["points"] : []),
             ].map((key) => (
               <div key={key} className="flex justify-between gap-3 py-2.5 text-sm">
                 <dt className="text-muted-foreground">{baseLabels[key]}</dt>
@@ -209,27 +324,33 @@ function Detail({
               </div>
             ))}
           </dl>
-          <DrawerSection title="Продажи по категориям">
-            <dl className="divide-y">
-              {row.rules[row.kind].map((g) => (
-                <div key={g.id} className="flex justify-between gap-4 py-2.5 text-sm">
-                  <dt className="min-w-0">
-                    <span className="break-words">{g.label}</span>
-                    {row.native && (
-                      <span className="block text-xs text-muted-foreground">
-                        {row.kind === "bar"
-                          ? `${formatRub(g.rate, { fraction: "auto" })} за продажу`
-                          : `${formatQuantity(g.rate)} б. за продажу`}
-                      </span>
-                    )}
-                  </dt>
-                  <dd className="tabular-nums">
-                    {formatQuantity(row.metrics?.quantities[g.id] ?? null)}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </DrawerSection>
+          {row.upsell ? (
+            <UpsellSales row={row} picker={picker} />
+          ) : (
+            row.kind && (
+              <DrawerSection title="Продажи по категориям">
+                <dl className="divide-y">
+                  {row.rules[row.kind].map((g) => (
+                    <div key={g.id} className="flex justify-between gap-4 py-2.5 text-sm">
+                      <dt className="min-w-0">
+                        <span className="break-words">{g.label}</span>
+                        {row.native && (
+                          <span className="block text-xs text-muted-foreground">
+                            {row.kind === "bar"
+                              ? `${formatRub(g.rate, { fraction: "auto" })} за продажу`
+                              : `${formatQuantity(g.rate)} б. за продажу`}
+                          </span>
+                        )}
+                      </dt>
+                      <dd className="tabular-nums">
+                        {formatQuantity(row.metrics?.quantities[g.id] ?? null)}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </DrawerSection>
+            )
+          )}
           {row.kind === "masters" && row.native && (
             <DrawerSection title="Шкала прибавки">
               <ul className="space-y-1 text-sm">
@@ -253,7 +374,7 @@ function Detail({
             date={row.date}
             source={row.archive ? "archive" : "native"}
             archiveId={row.context?.archiveId}
-            kind={row.kind}
+            kind={row.kind ?? undefined}
           />
         </TabsContent>
         <TabsContent value="comments">
@@ -313,19 +434,14 @@ function Detail({
 }
 
 export function AdditionalClient({ initial }: { initial: AdditionalData }) {
+  const router = useRouter();
   const [data, setData] = useState(initial),
-    [kind, setKind] = useState<AdditionalKind>("bar"),
-    [source, setSource] = useState<"native" | "archive">(
-      initial.reports.some((r) => r.metrics)
-        ? "native"
-        : initial.archives.length
-          ? "archive"
-          : "native",
-    );
+    [tabId, setTabId] = useState<string | null>(null);
   const latestMonth = (
     [
       ...initial.reports.map((r) => r.business_date),
       ...initial.archives.map((r) => r.business_date),
+      ...initial.upsellDays.map((r) => r.business_date),
     ]
       .sort()
       .at(-1) ?? initial.nextFrom
@@ -334,19 +450,53 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
   const [month, setMonth] = useState(latestMonth);
   const [busy, setBusy] = useState(false),
     [exporting, setExporting] = useState(false),
-    [rulesOpen, setRulesOpen] = useState(false),
     [detail, setDetail] = useState<AdditionalRow | null>(null);
   const can = (p: string) => data.permissions.includes(`sales.${p}_shifts`);
-  const allRows = useMemo(
-    () => additionalRows(data.reports, data.archives, source, kind, data),
-    [data, source, kind],
+  const tabs = useMemo(() => additionalTabs(data), [data]);
+  const tab = tabs.find((t) => t.id === tabId) ?? tabs[0] ?? null;
+  const kind = tab?.legacyKind ?? null;
+  // Правила живут вкладкой карточки подразделения; карточка требует
+  // просмотра должностей. Вкладка старого вида без подразделения ведёт к их списку.
+  const ruleDepartment = tab ? (data.departments.find((d) => d.id === tab.id) ?? null) : null;
+  const rulesHref =
+    can("configure") && data.permissions.includes("people.view_roles")
+      ? ruleDepartment
+        ? `/people/departments/${ruleDepartment.id}?tab=upsell`
+        : "/people/departments"
+      : null;
+  const picker = useMemo<PickerByKey>(
+    () => new Map(data.picker.map((p) => [p.key, p])),
+    [data.picker],
   );
-  const groups = useMemo(() => {
+  const allRows = useMemo(
+    () => (tab ? departmentRows(data, tab.id) : []),
+    [data, tab],
+  );
+  const hasLegacyRows = allRows.some((r) => !r.upsell);
+  /** Колонки старых категорий — пока у подразделения есть дни до перехода. */
+  const legacyGroups = useMemo(() => {
+    if (!kind || !hasLegacyRows) return [];
     const map = new Map(defaultAdditionalRules[kind].map((g) => [g.id, g]));
     for (const r of [...allRows].reverse())
-      for (const g of r.rules[kind]) map.set(g.id, g);
-    return [...map.values()];
-  }, [allRows, kind]);
+      if (!r.upsell) for (const g of r.rules[kind]) map.set(g.id, g);
+    return [...map.values()].map((g) => ({ id: g.id, label: g.label }));
+  }, [allRows, kind, hasLegacyRows]);
+  /** Колонки строк правил: порядок и названия — из новейшей версии. */
+  const upsellGroups = useMemo(() => {
+    const map = new Map<string, string>();
+    if (tab)
+      for (const v of data.upsellRules)
+        if (v.department_id === tab.id)
+          for (const l of v.lines) if (!map.has(lineKey(l))) map.set(lineKey(l), l.name);
+    return [...map.entries()].map(([id, name]) => ({
+      id,
+      label: picker.get(id)?.name ?? name,
+    }));
+  }, [data.upsellRules, tab, picker]);
+  const groups = useMemo(
+    () => [...legacyGroups, ...upsellGroups],
+    [legacyGroups, upsellGroups],
+  );
   const labels = useMemo(
     () => ({
       ...baseLabels,
@@ -354,6 +504,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
     }),
     [groups],
   );
+  const hasPoints = kind === "masters" && hasLegacyRows;
   const cols = useMemo(
     () =>
       [
@@ -362,23 +513,50 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
         "revenue",
         "primeCost",
         "turnover",
-        ...(kind === "masters" ? ["points"] : []),
+        ...(hasPoints ? ["points"] : []),
         ...groups.map((g) => g.id),
       ].map((id) => ({
         id,
         defaultSize: id === "date" ? 170 : 160,
         defaultVisible: ["date", "bonus", "revenue", "primeCost", "points"].includes(id),
       })),
-    [groups, kind],
+    [groups, hasPoints],
   );
   const st = useTableState({
-    tableId: `sales-additional.v2.${data.venueId}.${kind}`,
+    // У «Бара» и «Кальянов» ключ прежний: сохранённые столбцы не теряются.
+    tableId: `sales-additional.v2.${data.venueId}.${kind && !tab?.id.startsWith("legacy:") ? kind : (tab?.id ?? "none")}`,
     columns: cols,
   });
   const query = st.search.toLowerCase().trim();
   const monthRows = useMemo(
     () => allRows.filter((r) => r.date.startsWith(month)),
     [allRows, month],
+  );
+  /**
+   * Столбцы месяца: старые категории и баллы — только если в месяце есть
+   * дни до перехода, строки правил — только версий, действующих в месяце.
+   */
+  const monthIds = useMemo(() => {
+    const legacy = monthRows.filter((r) => !r.upsell);
+    const keys = new Set(
+      monthRows.flatMap((r) => r.upsell?.lines.map(lineKey) ?? []),
+    );
+    const legacyIds = new Set(legacyGroups.map((g) => g.id));
+    return new Set(
+      cols
+        .map((c) => c.id)
+        .filter((id) =>
+          id === "points"
+            ? legacy.length > 0
+            : legacyIds.has(id)
+              ? legacy.length > 0 || !monthRows.length
+              : baseIds.has(id) || keys.has(id),
+        ),
+    );
+  }, [cols, monthRows, legacyGroups]);
+  const monthCols = useMemo(
+    () => cols.filter((c) => monthIds.has(c.id)),
+    [cols, monthIds],
   );
   const rows = useMemo(
     () =>
@@ -391,17 +569,25 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
       ),
     [monthRows, query],
   );
+  // Первый день с данными: архив Glide раньше расчёта Sheerly.
+  const firstDay =
+    [
+      ...(kind
+        ? [
+            data.rules.at(-1)?.valid_from,
+            ...data.archives.filter((a) => a.kind === kind).map((a) => a.business_date),
+          ]
+        : [tab?.switchDate ?? undefined]),
+    ]
+      .filter((d): d is string => !!d)
+      .sort()[0];
   const expectedDays = query
     ? rows.length
-    : additionalCoverage(
-        `${month}-01`,
-        addDays(data.nextFrom, -2),
-        source === "native" ? data.rules.at(-1)?.valid_from : undefined,
-      );
-  const valueIds = cols.map((c) => c.id).filter((id) => id !== "date");
+    : additionalCoverage(`${month}-01`, addDays(data.nextFrom, -2), firstDay);
+  const valueIds = monthCols.map((c) => c.id).filter((id) => id !== "date");
   const columns = useMemo<ColumnDef<AdditionalRow>[]>(
     () =>
-      cols.map(({ id, defaultSize }) => ({
+      monthCols.map(({ id, defaultSize }) => ({
         id,
         header: labels[id],
         size: defaultSize,
@@ -410,8 +596,11 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
         accessorFn: (r) =>
           id === "date" ? r.date : (additionalValue(r, id) ?? undefined),
         sortUndefined: "last",
-        cell: ({ row }) =>
-          id === "date" ? (
+        cell: ({ row }) => {
+          if (id !== "date")
+            return <Value id={id} value={additionalValue(row.original, id)} />;
+          const state = rowState(row.original);
+          return (
             <div className="min-w-0">
               <button
                 className="block text-left font-medium tabular-nums hover:underline"
@@ -421,23 +610,29 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
                 {formatDateCell(row.original.date)}
               </button>
               <span className="block truncate text-xs text-muted-foreground first-letter:uppercase">
-                {row.original.native && row.original.native.state !== "ready"
-                  ? stateLabels[row.original.native.state]
+                {state && state !== "ready"
+                  ? stateLabels[state]
                   : weekdayLabel(row.original.date)}
               </span>
             </div>
-          ) : (
-            <Value id={id} value={additionalValue(row.original, id)} />
-          ),
+          );
+        },
       })),
-    [cols, labels],
+    [monthCols, labels],
+  );
+  const monthSorting = useMemo(
+    () => st.sorting.filter((x) => monthIds.has(x.id)),
+    [st.sorting, monthIds],
   );
   const table = useReactTable({
     data: rows,
     columns,
     getRowId: (r) => r.id,
     state: {
-      sorting: st.sorting,
+      // Состояние таблицы знает столбцы всех версий правил, а в таблице —
+      // только столбцы месяца: сортировка по отсутствующему столбцу заставила бы
+      // TanStack искать его и ругаться в консоль на каждом рендере.
+      sorting: monthSorting,
       columnOrder: st.columnOrder,
       columnVisibility: st.columnVisibility,
       columnSizing: st.columnSizing,
@@ -450,6 +645,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
     getSortedRowModel: getSortedRowModel(),
     columnResizeMode: "onChange",
   });
+  const sortFields = monthCols.map((c) => c.id);
   const changeSorting = (next: SortingState) => st.setSorting(next);
   const resetConditions = () => {
     st.setSearch("");
@@ -459,10 +655,9 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
   async function refresh() {
     setBusy(true);
     try {
-      await requestAdditional(month, data.venueId);
-      setData(await loadAdditional(data.venueId));
-      setSource("native");
-      toast.success("Отчёты запрошены, они появятся автоматически");
+      unwrapAction(await requestAdditional(month, data.venueId));
+      setData(unwrapAction(await loadAdditional(data.venueId)));
+      toast.success("Пересчёт месяца запущен, дни обновятся автоматически");
     } catch (e) {
       toast.error(
         salesErrorText(e instanceof Error ? e.message : null, "Не удалось запросить отчёты"),
@@ -472,15 +667,19 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
     }
   }
   const pending =
-    data.configured &&
-    source === "native" &&
-    additionalNeedsRefresh(data.reports, `${month}-01`);
+    ((data.configured && additionalNeedsRefresh(data.reports, `${month}-01`)) ||
+      data.upsellDays.some(
+        (d) =>
+          d.business_date.startsWith(month) &&
+          (d.state === "pending" || d.state === "running"),
+      ));
   useEffect(() => {
     if (!pending) return;
     let active = true;
     const timer = setInterval(() => {
       if (document.visibilityState !== "visible") return;
       void loadAdditional(initial.venueId)
+        .then(unwrapAction)
         .then((d) => {
           if (active) setData(d);
         })
@@ -492,16 +691,11 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
     };
   }, [pending, initial.venueId]);
   async function download() {
+    if (!tab) return;
     setExporting(true);
     try {
-      const snapshot = await exportAdditional(data.venueId);
-      const fresh = additionalRows(
-        snapshot.reports,
-        snapshot.archives,
-        source,
-        kind,
-        snapshot,
-      );
+      const snapshot = unwrapAction(await exportAdditional(data.venueId));
+      const fresh = departmentRows(snapshot, tab.id);
       const byDate = new Map(fresh.map((r) => [r.date, r]));
       const visible = table.getVisibleLeafColumns();
       const lines: unknown[][] = [
@@ -515,14 +709,16 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
       ];
       for (const old of table.getSortedRowModel().rows) {
         const r = byDate.get(old.original.date);
-        if (!r) throw new Error("Данные изменились. Обновите страницу");
+        if (!r || !!r.upsell !== !!old.original.upsell)
+          throw new Error("Данные изменились. Обновите страницу");
+        const state = rowState(r);
         lines.push([
           ...visible.map((c) =>
             c.id === "date" ? formatDateCell(r.date) : additionalValue(r, c.id),
           ),
-          r.archive ? "Архив Glide" : "Sheerly",
-          r.archive?.captured_at ?? r.native?.synced_at ?? null,
-          r.native ? stateLabels[r.native.state] : "Архив",
+          r.archive ? "Архив Glide" : r.upsell ? "Sheerly, по чекам" : "Sheerly",
+          r.archive?.captured_at ?? r.native?.synced_at ?? r.upsell?.day?.computed_at ?? null,
+          state ? stateLabels[state] : "Архив",
           r.archive?.origin.ranges.join(", ") ?? null,
         ]);
       }
@@ -534,7 +730,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
       );
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Допродажи-${kindLabels[kind]}-${source === "archive" ? "архив-Glide-" : ""}${month}.csv`;
+      a.download = `Допродажи-${tab.name}-${month}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -569,7 +765,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
       },
     ]),
   );
-  if (kind === "masters")
+  if (hasPoints)
     series.points = {
       label: "Баллы за месяц",
       unit: "б.",
@@ -582,18 +778,20 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
         ).value,
       })),
     };
-  const chartSeries =
-    kind === "masters"
-      ? {
-          points: series.points,
-          ...Object.fromEntries(
-            Object.entries(series).filter(([k]) => k !== "points"),
-          ),
-        }
-      : series;
-  const nativeStart = data.rules.at(-1)?.valid_from;
-  const workedDays = rows.filter((r) => r.metrics).length;
+  const chartSeries = hasPoints
+    ? {
+        points: series.points,
+        ...Object.fromEntries(
+          Object.entries(series).filter(([k]) => k !== "points"),
+        ),
+      }
+    : series;
+  const switchDate = tab?.switchDate ?? null;
+  const workedDays = rows.filter((r) => additionalValue(r, "bonus") !== null).length;
   const stripKeys = ["bonus", "revenue", "primeCost"];
+  const monthPoints = monthIds.has("points");
+  const unknown = upsellUnknown(monthRows);
+  const archiveDays = monthRows.filter((r) => r.archive).map((r) => r.date).sort();
   const hintFor = (key: string) => {
     const sum = additionalTotal(rows, key);
     return sum.value === null
@@ -605,29 +803,41 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
 
   const body = (
     <div className="flex min-w-0 flex-col gap-4">
-      {source === "archive" ? (
-        <p role="status" className="text-sm text-muted-foreground">
-          Допродажи из архива Glide, без пересчёта
+      {archiveDays.length > 0 && (
+        <p className="text-sm text-muted-foreground">
+          {archiveDays.length === monthRows.length
+            ? "Допродажи этого месяца — из архива Glide, без пересчёта"
+            : `Дни по ${formatDayMonth(archiveDays.at(-1)!)} — из архива Glide, без пересчёта`}
         </p>
-      ) : (
-        nativeStart &&
-        nativeStart.slice(0, 7) === month &&
-        nativeStart.slice(8) !== "01" && (
-          <p className="text-sm text-muted-foreground">
-            Расчёт Sheerly ведётся с {formatDayMonth(nativeStart)}. Более
-            ранние дни есть в архиве Glide
-          </p>
-        )
+      )}
+      {switchDate && switchDate.slice(0, 7) === month ? (
+        <p className="text-sm text-muted-foreground">
+          С {formatDayMonth(switchDate)} прибавка считается по чекам по правилам
+          подразделения
+          {kind && switchDate.slice(8) !== "01"
+            ? ". Более ранние дни посчитаны по отчётам Quick Resto"
+            : ""}
+        </p>
+      ) : null}
+      {unknown.length > 0 && (
+        <p
+          role="status"
+          className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm"
+        >
+          В чеках есть позиции не из номенклатуры: {unknownNames(unknown, picker)}.
+          Дни посчитаны по известным позициям и пересчитаются после обновления
+          номенклатуры
+        </p>
       )}
       {!monthRows.length ? (
         <EmptyState
           icon={ChartNoAxesCombined}
           title="За этот месяц данных нет"
           description={
-            source === "archive"
-              ? "Выберите другой месяц или вернитесь к расчёту Sheerly"
+            switchDate
+              ? "Дни появятся после загрузки чеков в «Сменах»"
               : data.configured
-                ? "Запросите отчёты завершённых рабочих дней кнопкой «Обновить отчёты»"
+                ? "Посчитайте завершённые рабочие дни кнопкой «Пересчитать месяц»"
                 : "Источники допродаж пока не подключены"
           }
         />
@@ -654,7 +864,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
                 hint={hintFor(key)}
               />
             ))}
-            {kind === "masters" ? (
+            {monthPoints ? (
               <Metric
                 label={labels.points}
                 value={formatQuantity(additionalTotal(rows, "points").value)}
@@ -674,12 +884,12 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
           </MetricStrip>
           <DataTable
             table={table}
-            label={`Допродажи: ${kindLabels[kind]}`}
+            label={`Допродажи: ${tab?.name ?? ""}`}
             labels={labels}
             onColumnSizingChange={st.setColumnSizing}
             sorting={st.sorting}
             onSortingChange={changeSorting}
-            sortable={cols.map((c) => c.id)}
+            sortable={sortFields}
             numeric={valueIds}
             onRowClick={(row) => setDetail(row.original)}
             empty={null}
@@ -695,9 +905,9 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
           />
         </>
       )}
-      {allRows.length > 0 && (
+      {allRows.length > 0 && groups.length > 0 && (
         <SalesTrend
-          key={`${source}-${kind}`}
+          key={tab?.id}
           series={chartSeries}
           title="Среднее количество в день с данными"
         />
@@ -756,7 +966,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
                 <TableSortPicker
                   sorting={st.sorting}
                   onChange={changeSorting}
-                  fields={cols.map((c) => c.id)}
+                  fields={sortFields}
                   labels={labels}
                 />
               ),
@@ -764,15 +974,18 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
             columns={{
               content: (
                 <TableColumnManager
-                  columns={st.columnOrder.map((id) => {
-                    const c = table.getColumn(id)!;
-                    return {
-                      id,
-                      label: labels[id],
-                      visible: c.getIsVisible(),
-                      canHide: c.getCanHide(),
-                    };
-                  })}
+                  columns={st.columnOrder
+                    // Только столбцы месяца: getColumn на чужой id пишет ошибку в консоль.
+                    .filter((id) => monthIds.has(id))
+                    .map((id) => {
+                      const c = table.getColumn(id)!;
+                      return {
+                        id,
+                        label: labels[id],
+                        visible: c.getIsVisible(),
+                        canHide: c.getCanHide(),
+                      };
+                    })}
                   onVisibilityChange={(id, v) =>
                     table.getColumn(id)?.toggleVisibility(v)
                   }
@@ -786,33 +999,18 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
               ),
             }}
             secondaryActions={
-              <>
-                {data.archives.length > 0 && (
-                  <TableIconButton
-                    label={
-                      source === "archive"
-                        ? "Вернуться к расчёту Sheerly"
-                        : "Архив Glide"
-                    }
-                    active={source === "archive"}
-                    pressed={source === "archive"}
-                    onClick={() => {
-                      setSource(source === "archive" ? "native" : "archive");
-                      setDetail(null);
-                    }}
-                  >
-                    <Archive />
-                  </TableIconButton>
-                )}
-                {data.configured && can("configure") && (
-                  <TableIconButton
-                    label="Правила расчёта"
-                    onClick={() => setRulesOpen(true)}
-                  >
-                    <Settings2 />
-                  </TableIconButton>
-                )}
-              </>
+              rulesHref ? (
+                <TableIconButton
+                  label={
+                    ruleDepartment
+                      ? `Правила допродаж: ${ruleDepartment.name}`
+                      : "Правила допродаж"
+                  }
+                  onClick={() => router.push(rulesHref)}
+                >
+                  <Settings />
+                </TableIconButton>
+              ) : undefined
             }
             exportAction={
               can("export")
@@ -825,7 +1023,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
                 : undefined
             }
             primaryActions={
-              data.configured && can("sync") && source === "native" ? (
+              data.configured && can("sync") ? (
                 <Button
                   size="sm"
                   className="h-9 gap-2"
@@ -837,7 +1035,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
                       busy ? "size-4 animate-spin motion-reduce:animate-none" : "size-4"
                     }
                   />
-                  {busy ? "Запрашиваем…" : "Обновить отчёты"}
+                  {busy ? "Запускаем…" : "Пересчитать месяц"}
                 </Button>
               ) : undefined
             }
@@ -850,39 +1048,49 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
         hasFilters={false}
         sorting={st.sorting}
         onSortingChange={changeSorting}
-        sortFields={cols.map((c) => c.id)}
+        sortFields={sortFields}
         sortLabels={labels}
         search={st.search}
         onSearchClear={() => st.setSearch("")}
         onReset={resetConditions}
       />
-      <Tabs
-        value={kind}
-        onValueChange={(v) => {
-          setKind(v as AdditionalKind);
-          setDetail(null);
-        }}
-        className={tabStyle.tabs}
-      >
-        <TabsList aria-label="Вид допродаж">
-          <TabsTrigger value="bar">{kindLabels.bar}</TabsTrigger>
-          <TabsTrigger value="masters">{kindLabels.masters}</TabsTrigger>
-        </TabsList>
-        <TabsContent value={kind}>{body}</TabsContent>
-      </Tabs>
-      {detail && (
+      {tab ? (
+        <Tabs
+          value={tab.id}
+          onValueChange={(v) => {
+            setTabId(v);
+            setDetail(null);
+          }}
+          className={tabStyle.tabs}
+        >
+          <TabsList aria-label="Подразделение">
+            {tabs.map((t) => (
+              <TabsTrigger key={t.id} value={t.id}>
+                {t.name}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          <TabsContent value={tab.id}>{body}</TabsContent>
+        </Tabs>
+      ) : (
+        <EmptyState
+          icon={ChartNoAxesCombined}
+          title="Допродажи не настроены"
+          description={
+            rulesHref
+              ? "Правила допродаж задаются в карточке подразделения: Люди → Подразделения, вкладка «Допродажи»"
+              : "Правила допродаж задаёт управляющий"
+          }
+        />
+      )}
+      {detail && tab && (
         <Detail
           key={detail.id}
           row={detail}
           data={data}
+          name={tab.name}
+          picker={picker}
           onClose={() => setDetail(null)}
-        />
-      )}
-      {rulesOpen && (
-        <AdditionalRulesEditor
-          data={data}
-          onClose={() => setRulesOpen(false)}
-          onSaved={setData}
         />
       )}
     </PageFrame>

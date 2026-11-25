@@ -1,6 +1,7 @@
 "use server";
 
 import { z } from "zod";
+import { actionResult } from "@/lib/actions/result";
 import { createClient, getCachedPermissions } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import {
@@ -30,7 +31,7 @@ async function scope(venueId: string) {
   return asLooseDb(client);
 }
 
-export async function loadAutomationSettings(venueId: string) {
+async function loadAutomationSettingsImpl(venueId: string) {
   const db = await scope(venueId);
   const [current, history] = await Promise.all([
     db
@@ -62,7 +63,7 @@ export async function loadAutomationSettings(venueId: string) {
   };
 }
 
-export async function saveAutomationSettings(input: {
+async function saveAutomationSettingsImpl(input: {
   venueId: string;
   version: number;
   config: unknown;
@@ -81,4 +82,13 @@ export async function saveAutomationSettings(input: {
     p_config: value.config,
   });
   if (result.error) throw new Error(result.error.message);
+}
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js
+// заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function loadAutomationSettings(venueId: string) {
+  return actionResult(() => loadAutomationSettingsImpl(venueId), "Не удалось загрузить настройки автоматизаций");
+}
+export async function saveAutomationSettings(input: Parameters<typeof saveAutomationSettingsImpl>[0]) {
+  return actionResult(() => saveAutomationSettingsImpl(input), "Не удалось сохранить настройки автоматизаций");
 }

@@ -1,9 +1,11 @@
 "use server";
 
+import { errorText } from "@/lib/actions/error-text";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { countRu } from "@/lib/format/plural";
+import { UPSELL_DEPARTMENT_DELETE_BLOCK, isUpsellDepartmentFkError } from "@/lib/people/department-delete";
 import { revalidatePath } from "next/cache";
 
 export type DepartmentSummary = {
@@ -137,7 +139,7 @@ export async function createDepartment(input: {
     .select("id")
     .single();
 
-  if (error) return { id: null, error: error.message };
+  if (error) return { id: null, error: errorText(error, "Не удалось создать подразделение") };
 
   revalidatePath("/people/departments");
   return { id: data.id, error: null };
@@ -191,7 +193,7 @@ export async function updateDepartment(
     .update(update)
     .eq("id", id);
 
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось сохранить подразделение") };
 
   revalidatePath("/people/departments");
   revalidatePath(`/people/departments/${id}`);
@@ -278,7 +280,7 @@ export async function archiveDepartment(
     .from("departments")
     .update({ archived_at: new Date().toISOString(), archived_by: user.id })
     .eq("id", id);
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось перенести подразделение в архив") };
 
   revalidatePath("/people/departments");
   revalidatePath("/people/departments/archive");
@@ -307,7 +309,7 @@ export async function restoreDepartment(
     .from("departments")
     .update({ archived_at: null, archived_by: null })
     .eq("id", id);
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось восстановить подразделение") };
 
   revalidatePath("/people/departments");
   revalidatePath("/people/departments/archive");
@@ -334,6 +336,29 @@ function writeoffActsBlock(count: number): string {
   return `На подразделение разнесено ${countRu(count, "акт", "акта", "актов")} списания. Перенесите их на другого плательщика в «Документы» → «Списания», затем удалите подразделение.`;
 }
 
+/**
+ * Участвует ли подразделение в допродажах (миграция 380). Версии правил и
+ * посчитанные дни нужны зарплате, поэтому база такое удаление не пропускает.
+ * Серверный клиент - по той же причине, что и для
+ * актов: владелец удаляет подразделение любого своего заведения.
+ */
+async function departmentInUpsell(departmentId: string): Promise<boolean> {
+  const { count, error } = await createAdminClient()
+    .from("sales_upsell_departments")
+    .select("department_id", { count: "exact", head: true })
+    .eq("department_id", departmentId);
+  if (error) throw new Error("Не удалось проверить участие в допродажах");
+  return (count ?? 0) > 0;
+}
+
+/** Почему подразделение нельзя удалить; `null` - можно. */
+async function departmentDeleteBlock(departmentId: string): Promise<string | null> {
+  const acts = await departmentWriteoffActs(departmentId);
+  if (acts > 0) return writeoffActsBlock(acts);
+  if (await departmentInUpsell(departmentId)) return UPSELL_DEPARTMENT_DELETE_BLOCK;
+  return null;
+}
+
 /** Почему подразделение сейчас нельзя удалить; `null` - можно. Для диалога удаления. */
 export async function getDepartmentDeleteRestriction(
   id: string,
@@ -346,10 +371,9 @@ export async function getDepartmentDeleteRestriction(
   const ownerCheck = await assertDepartmentOwner(supabase, id, user.id);
   if (!ownerCheck.ok) return { restriction: null, error: ownerCheck.error };
   try {
-    const acts = await departmentWriteoffActs(id);
-    return { restriction: acts > 0 ? writeoffActsBlock(acts) : null, error: null };
+    return { restriction: await departmentDeleteBlock(id), error: null };
   } catch (e) {
-    return { restriction: null, error: e instanceof Error ? e.message : "Не удалось проверить подразделение" };
+    return { restriction: null, error: errorText(e, "Не удалось проверить подразделение") };
   }
 }
 
@@ -371,12 +395,13 @@ export async function deleteDepartment(
   }
 
   // Разнесённые на подразделение акты списания не стираем молча (раньше их
-  // снимал каскад): сначала их переносят на другого плательщика.
+  // снимал каскад): сначала их переносят на другого плательщика. Подразделение
+  // из допродаж не удаляется вовсе.
   try {
-    const acts = await departmentWriteoffActs(id);
-    if (acts > 0) return { error: writeoffActsBlock(acts) };
+    const block = await departmentDeleteBlock(id);
+    if (block) return { error: block };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "Не удалось проверить подразделение" };
+    return { error: errorText(e, "Не удалось проверить подразделение") };
   }
 
   // `on delete set null` на roles.department_id обнулит привязки автоматически.
@@ -384,11 +409,14 @@ export async function deleteDepartment(
   if (error) {
     // Акт разнесли на подразделение между проверкой и удалением: база (FK, 368)
     // удаление не пропустила - объясняем тем же текстом.
+    // То же для участия в допродажах - узнаём по имени ограничения, остальные
+    // нарушения FK показываем как есть.
+    if (isUpsellDepartmentFkError(error)) return { error: UPSELL_DEPARTMENT_DELETE_BLOCK };
     if ((error as { code?: string }).code === "23503") {
       const acts = await departmentWriteoffActs(id).catch(() => 0);
       if (acts > 0) return { error: writeoffActsBlock(acts) };
     }
-    return { error: error.message };
+    return { error: errorText(error, "Не удалось удалить подразделение") };
   }
 
   revalidatePath("/people/departments");
@@ -435,7 +463,7 @@ export async function setRoleDepartment(
     p_department_id: departmentId,
   });
 
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось привязать должность к подразделению") };
 
   revalidatePath("/people/roles");
   revalidatePath("/people/departments");

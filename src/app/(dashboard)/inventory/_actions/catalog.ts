@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
 import { writeAuditEvent } from "@/lib/audit/write";
+import { removeQuickRestoPhotoFile } from "@/lib/inventory/dish-photo-files";
 import {
   getIngredientDetail,
   listIngredientHistory,
@@ -69,10 +70,14 @@ export async function uploadInventoryProductImage(formData: FormData): Promise<{
 
   const { error: productError } = await admin
     .from("ingredients")
-    .update({ primary_image_file_id: fileRow.id })
+    .update({ primary_image_file_id: fileRow.id, photo_source: "manual" })
     .eq("id", productId)
     .eq("account_id", ctx.accountId);
   if (productError) return { error: productError.message };
+  // Своё фото заменило копию из Quick Resto — копию удаляем.
+  if (product.photo_source === "quickresto") {
+    await removeQuickRestoPhotoFile(admin, ctx.accountId, product.primary_image_file_id);
+  }
 
   const replaced = Boolean(product.primary_image_file_id);
   await writeIngredientJournal({
@@ -98,8 +103,9 @@ export async function uploadInventoryProductImage(formData: FormData): Promise<{
 }
 
 /**
- * Убрать фото позиции. Файл в хранилище остаётся (как и при замене фото):
- * на него может ссылаться история, а место он занимает копеечное.
+ * Убрать фото позиции. Файл ручного фото в хранилище остаётся (как и при
+ * замене фото): на него может ссылаться история, а место он занимает
+ * копеечное. Копия из Quick Resto удаляется — её можно скачать снова.
  */
 export async function removeInventoryProductImage(input: {
   productId: string;
@@ -117,10 +123,13 @@ export async function removeInventoryProductImage(input: {
 
   const { error } = await admin
     .from("ingredients")
-    .update({ primary_image_file_id: null })
+    .update({ primary_image_file_id: null, photo_source: null })
     .eq("id", productId)
     .eq("account_id", ctx.accountId);
   if (error) return { error: error.message };
+  if (product.photo_source === "quickresto") {
+    await removeQuickRestoPhotoFile(admin, ctx.accountId, product.primary_image_file_id);
+  }
 
   await writeIngredientJournal({
     admin,
@@ -258,6 +267,7 @@ type IngredientRef = {
   kind: string | null;
   local_description: string | null;
   primary_image_file_id: string | null;
+  photo_source: "manual" | "quickresto" | null;
 };
 
 /** Позиция номенклатуры этого аккаунта (или null): проверка владения и
@@ -269,7 +279,7 @@ async function loadIngredientRef(
 ): Promise<IngredientRef | null> {
   const { data } = await admin
     .from<IngredientRef>("ingredients")
-    .select("id, name, kind, local_description, primary_image_file_id")
+    .select("id, name, kind, local_description, primary_image_file_id, photo_source")
     .eq("id", ingredientId)
     .eq("account_id", accountId)
     .maybeSingle();
@@ -429,6 +439,14 @@ export async function addIngredientSupplier(input: {
   if (!(await assertOwnedCounterparty(admin, ctx.accountId, counterpartyId))) {
     return { error: "Контрагент не найден" };
   }
+  // Привязка ставит контрагенту отметку «Поставщик» (триггер миграции 387).
+  // Триггер журнала контрагента под служебным клиентом молчит — пишем сами.
+  const { data: before } = await admin
+    .from<{ is_supplier: boolean; name: string; deleted_at: string | null }>("counterparties")
+    .select("is_supplier, name, deleted_at")
+    .eq("id", counterpartyId)
+    .eq("account_id", ctx.accountId)
+    .maybeSingle();
 
   const { error } = await admin.from("ingredient_suppliers").insert({
     account_id: ctx.accountId,
@@ -469,8 +487,23 @@ export async function addIngredientSupplier(input: {
       counterparty_name: await counterpartyName(admin, ctx.accountId, counterpartyId),
     },
   });
+  if (before && !before.is_supplier && !before.deleted_at) {
+    await writeAuditEvent({
+      accountId: ctx.accountId,
+      userId: ctx.user.id,
+      actionCode: "finance.counterparty.updated",
+      entityType: "counterparty",
+      entityId: counterpartyId,
+      details: {
+        name: before.name,
+        changes: [{ field: "is_supplier", old: false, new: true }],
+        reason: `поставщик позиции «${ingredient.name}»`,
+      },
+    });
+  }
 
   revalidateCatalog();
+  revalidatePath(`/finance/counterparties/${counterpartyId}`);
   return { error: null };
 }
 

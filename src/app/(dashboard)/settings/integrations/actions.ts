@@ -3,6 +3,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { actionResult } from "@/lib/actions/result";
 import { checked, integrationInput, integrationScope, requireIntegrationVenue, readEmploymentSettings } from "@/lib/integrations/settings";
 import type { ConnectionView } from "@/lib/candidates/types";
 import { getConnection, withBackOfficeSession } from "@/app/(dashboard)/inventory/actions-shared";
@@ -12,7 +13,7 @@ import { telegramDestination } from "@/lib/integrations/telegram-destination";
 const uuid = z.string().uuid();
 function refreshSettings() { revalidatePath("/settings/integrations", "layout"); }
 
-export async function readTildaConnection(): Promise<ConnectionView> {
+async function readTildaConnectionImpl(): Promise<ConnectionView> {
   const s = await integrationScope();
   const row = checked(await s.db.from<NonNullable<ConnectionView>>("candidate_connections")
     .select("id,enabled,form_id,telegram_chat_id,last_received_at").eq("account_id", s.accountId).maybeSingle());
@@ -23,7 +24,7 @@ export async function readTildaConnection(): Promise<ConnectionView> {
   return { ...row, telegram_configured: false, pending_jobs: jobs.filter(j => j.state !== "error").length, failed_jobs: jobs.filter(j => j.state === "error").length };
 }
 
-export async function saveTildaConnection(input: unknown) {
+async function saveTildaConnectionImpl(input: unknown) {
   const s = await integrationScope();
   const value = integrationInput(z.object({ enabled: z.boolean(), form_id: z.string().trim().regex(/^form\d+$/, "Укажите ID формы, например form356864639"), rotate: z.boolean().optional() }), input);
   const old = checked(await s.db.from<{ id: string; telegram_secret: unknown; telegram_chat_id: string | null }>("candidate_connections")
@@ -41,9 +42,9 @@ export async function saveTildaConnection(input: unknown) {
   return { id: row.id, secret };
 }
 
-export async function getEmploymentSettings(venueId: string) { return readEmploymentSettings(uuid.parse(venueId)); }
+async function getEmploymentSettingsImpl(venueId: string) { return readEmploymentSettings(uuid.parse(venueId)); }
 
-export async function saveHiringSettings(venueId: string, input: unknown) {
+async function saveHiringSettingsImpl(venueId: string, input: unknown) {
   const s = await integrationScope(true);
   uuid.parse(venueId); await requireIntegrationVenue(venueId);
   const value = integrationInput(z.object({ store_ids: z.array(z.number().int().positive()).min(1, "Выберите хотя бы один склад").max(30),
@@ -54,7 +55,7 @@ export async function saveHiringSettings(venueId: string, input: unknown) {
   refreshSettings();
 }
 
-export async function readDoorPool() {
+async function readDoorPoolImpl() {
   const s = await integrationScope(true);
   const [numbers, passwords, issued] = await Promise.all([
     s.db.from("staff_door_reserved").select("kind", { count: "exact", head: true }).eq("account_id", s.accountId).eq("kind", "user"),
@@ -65,7 +66,7 @@ export async function readDoorPool() {
   return { reservedNumbers: numbers.count ?? 0, reservedPasswords: passwords.count ?? 0, issued: issued.count ?? 0 };
 }
 
-export async function saveDoorPool(venueId: string, input: unknown) {
+async function saveDoorPoolImpl(venueId: string, input: unknown) {
   const s = await integrationScope(true);
   uuid.parse(venueId); await requireIntegrationVenue(venueId);
   const value = integrationInput(z.object({ codes: z.string().max(150000), confirm_empty_pool: z.boolean(), use_existing_pool: z.boolean().optional() }), input);
@@ -93,7 +94,7 @@ export async function saveDoorPool(venueId: string, input: unknown) {
   return { imported: lines.length };
 }
 
-export async function getHiringDictionaries() {
+async function getHiringDictionariesImpl() {
   const s = await integrationScope();
   const connection = await getConnection(s.accountId);
   if (!connection) throw new Error("Сначала подключите Quick Resto");
@@ -113,4 +114,31 @@ export async function getHiringDictionaries() {
   };
   // Read sequentially: the connection serializes back-office authorization.
   return { stores: await read("warehouse.store/select"), groups: await read("crm.customer.group/select"), accountTypes: await read("crm.accounting.account.type/select") };
+}
+
+export type DoorPool = Awaited<ReturnType<typeof readDoorPoolImpl>>;
+export type HiringDictionaries = Awaited<ReturnType<typeof getHiringDictionariesImpl>>;
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js
+// заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function readTildaConnection() {
+  return actionResult(() => readTildaConnectionImpl(), "Не удалось загрузить подключение Tilda");
+}
+export async function saveTildaConnection(input: unknown) {
+  return actionResult(() => saveTildaConnectionImpl(input), "Не удалось сохранить подключение Tilda");
+}
+export async function getEmploymentSettings(venueId: string) {
+  return actionResult(() => getEmploymentSettingsImpl(venueId), "Не удалось загрузить настройки сотрудников");
+}
+export async function saveHiringSettings(venueId: string, input: unknown) {
+  return actionResult(() => saveHiringSettingsImpl(venueId, input), "Не удалось сохранить настройки сотрудников");
+}
+export async function readDoorPool() {
+  return actionResult(() => readDoorPoolImpl(), "Не удалось загрузить резерв кодов");
+}
+export async function saveDoorPool(venueId: string, input: unknown) {
+  return actionResult(() => saveDoorPoolImpl(venueId, input), "Не удалось сохранить коды");
+}
+export async function getHiringDictionaries() {
+  return actionResult(() => getHiringDictionariesImpl(), "Не удалось получить справочники Quick Resto");
 }

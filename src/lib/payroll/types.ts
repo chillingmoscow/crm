@@ -35,6 +35,8 @@ export type PayEmployee = {
   /** PIN кассы разового, выданный при заведении в Quick Resto. */
   quickresto_pin?: string | null;
   attendance_source?: "quickresto" | "schedule" | "excluded";
+  /** График выплат (план выплат); по умолчанию «Основной». */
+  payout_schedule?: "main" | "cleaner" | "transfer";
   active: boolean;
   opening_balance: number;
   opening_confirmed: boolean;
@@ -126,6 +128,8 @@ export type Adjustment = {
   created_by?: string | null;
   origin?: string;
   external_state?: "not_required" | "pending" | "done" | "review";
+  /** Возврат бонусов Quick Resto, поставленный при удалении записи и ещё не законченный. */
+  bonus_return?: "pending" | "review";
   id: string;
   employee_id: string;
   business_date: string;
@@ -159,6 +163,30 @@ export type Payment = {
   note: string;
   occurred_at: string;
   created_at: string;
+  /** Месяц официальной (бухгалтерской) выплаты, YYYY-MM-01; null — обычная выплата. */
+  official_month?: string | null;
+};
+/**
+ * Ожидаемая, ещё не проведённая официальная часть за месяц
+ * (`payroll_official_expected`). `gross` null — сумма месяца увольнения
+ * уточняется вручную.
+ */
+export type OfficialExpected = {
+  employee_id: string;
+  employment_id: string;
+  /** YYYY-MM-01 */
+  month: string;
+  kind: "full" | "first" | "final";
+  gross: number | null;
+  days_paid: number | null;
+  days_in_month: number;
+};
+/** Период официального оформления — для выбора «Официальная часть» в форме выплаты. */
+export type OfficialEmploymentSpan = {
+  id: string;
+  employee_id: string;
+  starts_on: string;
+  ends_on: string | null;
 };
 /** Mirror of a payout in Adesk; only payouts made in the app are queued. */
 export type AdeskSync = {
@@ -192,6 +220,10 @@ export type PaySettings = {
   cashbox_accounts: Record<string, string>;
   salary_category_id: string | null;
   tip_category_id: string | null;
+  /** Первый месяц официальных выплат (1-е число); null — выключено. */
+  official_from?: string | null;
+  official_pay_day?: number;
+  official_bank_account_id?: string | null;
   enabled: boolean;
   benefits_mode: "review" | "disabled" | "active";
 };
@@ -256,8 +288,14 @@ export type PayrollData = {
   asOfDate?: string;
   experienceStartsOn?: string | null;
   attendanceRules?: AttendanceRule[];
-  roles?: {id:string;name:string}[];
+  roles?: {id:string;name:string;department_id?:string|null}[];
+  /** Подразделения заведения, участвующие в допродажах по правилам. */
+  upsellDepartments?: string[];
   transfers: PayrollTransfer[];
+  /** Ожидаемые официальные части по месяцам; уменьшают «К выплате». */
+  officialExpected?: OfficialExpected[];
+  /** Периоды официального оформления заведения (только у управляющего). */
+  officialEmployments?: OfficialEmploymentSpan[];
   venueId: string;
   /** Название заведения — для шапки выгрузки ведомости. */
   venueName?: string | null;
@@ -288,7 +326,7 @@ export type PayrollData = {
   adeskSync?: AdeskSync[];
   allocations: Allocation[];
   sources: SourceDay[];
-  banks: { id: string; name: string; legal_entity_id: string }[];
+  banks: { id: string; name: string; legal_entity_id: string; type: "checking" | "debit_card" | "cash" | "fund" | "safe" }[];
   categories: { id: string; name: string }[];
   financeTransactions?: {
     id: string;

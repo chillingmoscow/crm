@@ -211,10 +211,20 @@ export function statementWorkbook(input: StatementExportInput): XlsxSheet[] {
     columns.push({ title: "Перенос с прошлых месяцев", width: 15, style: "money", value: (r) => r.opening });
   if (any((r) => r.transferredOut))
     columns.push({ title: "Перенесено далее", width: 14, style: "money", value: (r) => r.transferredOut });
-  columns.push(
-    { title: "Выплачено", width: 15, style: "money", value: (r) => (known ? r.paid : null) },
-    { title: "К выплате", width: 15, style: "money", value: (r) => (known ? r.remaining : null) },
-  );
+  columns.push({ title: "Выплачено", width: 15, style: "money", value: (r) => (known ? r.paid : null) });
+  // Ещё не проведённая официальная часть: уже вычтена из «К выплате».
+  // Сумма месяца увольнения неизвестна — текст, в итог не входит.
+  const official = input.rows.some((r) => r.officialExpected);
+  if (official)
+    columns.push({
+      title: "Официальная часть (ожидается)",
+      width: 16,
+      style: "money",
+      blankZero: true,
+      value: (r) =>
+        !r.officialExpected ? 0 : r.officialExpected.amount ?? "уточняется",
+    });
+  columns.push({ title: "К выплате", width: 15, style: "money", value: (r) => (known ? r.remaining : null) });
   if (any((r) => r.tips || r.tipPaid)) {
     columns.push(
       { title: "Чаевые", width: 13, style: "money", value: (r) => r.tips },
@@ -247,6 +257,8 @@ export function statementWorkbook(input: StatementExportInput): XlsxSheet[] {
       columns.map((c) => {
         const v = c.value(r, e);
         if (v === null) return { v: "—", s: "muted" };
+        // Текст в денежном столбце — пояснение вместо суммы («уточняется»).
+        if (typeof v === "string" && c.style !== "text") return { v, s: "muted" };
         return c.blankZero && v === 0 ? null : { v, s: c.style };
       }),
     );
@@ -263,7 +275,7 @@ export function statementWorkbook(input: StatementExportInput): XlsxSheet[] {
       if (values.some((v) => v === null)) return { v: "—", s: "totalText" };
       const sum =
         c.style === "money"
-          ? fromCents(values.reduce<number>((s, v) => s + cents(Number(v)), 0))
+          ? fromCents(values.reduce<number>((s, v) => s + (typeof v === "number" ? cents(v) : 0), 0))
           : Math.round(values.reduce<number>((s, v) => s + Number(v), 0) * 10) / 10;
       const style: XlsxStyle =
         c.style === "money" ? "totalMoney" : c.style === "hours" ? "totalHours" : "totalInt";
@@ -274,7 +286,12 @@ export function statementWorkbook(input: StatementExportInput): XlsxSheet[] {
   );
   const notes = [
     "Начислено — сумма составляющих слева, удержания со знаком минус. Чаевые учитываются отдельно от зарплаты.",
-    "К выплате = перенос с прошлых месяцев + начислено − выплачено − перенесено далее. Отрицательная сумма — переплата.",
+    official
+      ? "К выплате = перенос с прошлых месяцев + начислено − выплачено − перенесено далее − официальная часть (ожидается). Отрицательная сумма — переплата."
+      : "К выплате = перенос с прошлых месяцев + начислено − выплачено − перенесено далее. Отрицательная сумма — переплата.",
+    official
+      ? "Официальная часть (ожидается) — оклад по договору до вычета НДФЛ. Его выплатит бухгалтерия; после проведения сумма войдёт в «Выплачено»."
+      : null,
     known ? null : "Выплачено и К выплате появятся после сверки прежних выплат за месяц.",
   ].filter((n): n is string => !!n);
   rows.push(pad([]));

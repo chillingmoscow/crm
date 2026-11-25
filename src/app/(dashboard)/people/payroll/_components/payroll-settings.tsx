@@ -13,9 +13,18 @@ import { SaveBarScope, useSaveSection } from "@/components/shared/save-bar";
 import { PayrollExperiencePolicy } from "./payroll-experience-policy";
 import type { PayrollData } from "@/lib/payroll/types";
 import { loadPayrollRules, payrollCommand } from "../actions";
-import { selectClass } from "./employee-pay";
+import { unwrapAction } from "@/lib/actions/result";
+import { selectClass } from "./select-class";
 import { PayrollSetup } from "./payroll-setup";
 import { PayrollInitialData } from "./payroll-initial-data";
+import { PayoutScheduleSettings } from "./payout-settings";
+import { Input } from "@/components/ui/input";
+import {
+  officialMonthOptions,
+  sameOfficialForm,
+  validateOfficialForm,
+  type OfficialSettingsForm,
+} from "@/lib/payroll/official-settings";
 
 /** Значения формы «Выдача чаевых и финансы» — для сравнения с сохранёнными. */
 type TipForm = {
@@ -68,7 +77,7 @@ function PayrollSettingsSections({ venueId }: { venueId: string }) {
   const [data, setData] = useState<PayrollData | null>(null),
     [error, setError] = useState("");
   const reload = useCallback(async () => {
-    const d = await loadPayrollRules();
+    const d = unwrapAction(await loadPayrollRules());
     if (d.venueId !== venueId)
       throw new Error(
         "Выберите это заведение в переключателе, чтобы изменить его условия оплаты",
@@ -124,6 +133,8 @@ function PayrollSettingsSections({ venueId }: { venueId: string }) {
         )}
       </ProfileSection>
       <TipSettings data={data} onSaved={reload} />
+      <OfficialSalarySettings data={data} onSaved={reload} />
+      <PayoutScheduleSettings data={data} onSaved={reload} />
       <PayrollInitialData venueId={venueId} />
     </div>
   );
@@ -158,7 +169,7 @@ function TipSettings({
     if (!canPay || blocked) return false;
     setBusy(true);
     try {
-      await payrollCommand("settings", {
+      unwrapAction(await payrollCommand("settings", {
         tip_comments: form.comments
           .split("\n")
           .map((s) => s.trim())
@@ -168,7 +179,7 @@ function TipSettings({
         cashbox_accounts: Object.fromEntries(
           Object.entries(form.cashAccounts).filter(([, value]) => value),
         ),
-      });
+      }));
       await onSaved();
       toast.success("Настройки сохранены");
       return true;
@@ -277,6 +288,146 @@ function TipSettings({
                 ...data.categories.map((c) => ({ value: c.id, label: c.name })),
               ]}
             />
+          </div>
+        </div>
+        {saveBar}
+      </form>
+    </ProfileSection>
+  );
+}
+
+const officialForm = (d: PayrollData): OfficialSettingsForm => ({
+  from: d.settings?.official_from ?? "",
+  payDay: String(d.settings?.official_pay_day ?? 5),
+  bankId: d.settings?.official_bank_account_id ?? "",
+});
+
+function OfficialSalarySettings({
+  data,
+  onSaved,
+}: {
+  data: PayrollData;
+  onSaved: () => Promise<void>;
+}) {
+  const saved = officialForm(data);
+  const [form, setForm] = useState<OfficialSettingsForm>(saved);
+  const [busy, setBusy] = useState(false);
+  const savedKey = JSON.stringify(saved);
+  useEffect(() => {
+    setForm(JSON.parse(savedKey) as OfficialSettingsForm);
+  }, [savedKey]);
+  const canPay =
+    data.permissions.includes("payroll.pay") &&
+    data.permissions.includes("finance.create_transaction");
+  const startsOn = data.settings?.starts_on ?? "";
+  const checking = data.banks.filter((b) => b.type === "checking");
+  const dirty = canPay && !sameOfficialForm(form, saved);
+  const blocked = validateOfficialForm(
+    form,
+    startsOn,
+    // Сохранённый счёт, который больше не расчётный, остаётся допустимым значением формы только без правок.
+    checking.map((b) => b.id),
+  );
+  const set = (patch: Partial<OfficialSettingsForm>) =>
+    setForm((current) => ({ ...current, ...patch }));
+  const save = async () => {
+    if (!canPay || blocked) return false;
+    setBusy(true);
+    try {
+      unwrapAction(
+        await payrollCommand("settings", {
+          official_from: form.from || null,
+          official_pay_day: Number(form.payDay),
+          official_bank_account_id: form.bankId || null,
+        }),
+      );
+      await onSaved();
+      toast.success("Настройки сохранены");
+      return true;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось сохранить");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+  const saveBar = useSaveSection({
+    dirty,
+    saving: busy,
+    blocked: dirty ? blocked : null,
+    save,
+    reset: () => setForm(saved),
+  });
+  const disabled = !canPay || busy;
+  const today = new Date().toISOString().slice(0, 10);
+  return (
+    <ProfileSection
+      title="Официальная зарплата"
+      description="В указанный день месяца приложение само проводит официальную часть за прошлый месяц сотрудникам, оформленным официально: сумма на руки уходит с расчётного счёта и записывается в финансы."
+    >
+      <form
+        className="flex flex-col gap-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (dirty && !blocked && !busy) void save();
+        }}
+      >
+        <button type="submit" className="sr-only" tabIndex={-1} aria-hidden="true" />
+        {!canPay && (
+          <p className="text-[13px] text-muted-foreground">
+            Менять эти настройки могут те, у кого есть права на выплаты и
+            операции в финансах.
+          </p>
+        )}
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="official-from">Учитывать с месяца</Label>
+            <OptionSelect
+              id="official-from"
+              className={selectClass}
+              value={form.from}
+              disabled={disabled}
+              onValueChange={(from) => set({ from })}
+              placeholder="Не проводить автоматически"
+              options={officialMonthOptions(startsOn || today, saved.from, today)}
+            />
+            <p className="text-[13px] text-muted-foreground">
+              За более ранние месяцы выплаты автоматически не создаются.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="official-pay-day">День проведения</Label>
+            <Input
+              id="official-pay-day"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={28}
+              value={form.payDay}
+              disabled={disabled}
+              onChange={(e) => set({ payDay: e.target.value })}
+            />
+            <p className="text-[13px] text-muted-foreground">
+              Число от 1 до 28. Выплата проводится этим числом следующего месяца.
+            </p>
+          </div>
+          <div className="space-y-2 md:col-span-2">
+            <Label htmlFor="official-bank">Расчётный счёт по умолчанию</Label>
+            <OptionSelect
+              id="official-bank"
+              className={selectClass}
+              value={form.bankId}
+              disabled={disabled}
+              onValueChange={(bankId) => set({ bankId })}
+              placeholder="Не выбран"
+              options={[
+                { value: "", label: "Не выбран" },
+                ...checking.map((b) => ({ value: b.id, label: b.name })),
+              ]}
+            />
+            <p className="text-[13px] text-muted-foreground">
+              Только расчётные счета. Пока счёт не выбран, выплаты не проводятся, а в «На разбор» появляется напоминание.
+            </p>
           </div>
         </div>
         {saveBar}

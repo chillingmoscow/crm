@@ -6,6 +6,7 @@ import { candidateError } from "@/lib/candidates/errors";
 import { getCandidateAppointments } from "../actions";
 import { CandidateAppointmentDrawer } from "./candidate-appointment-drawer";
 import type { CandidateStatusUpdate } from "./candidate-status-cell";
+import { unwrapAction } from "@/lib/actions/result";
 
 export function CandidateStatusAppointment({ candidate, kind, options, onClose, onSaved }: {
   candidate: Candidate;
@@ -20,7 +21,7 @@ export function CandidateStatusAppointment({ candidate, kind, options, onClose, 
   useEffect(() => {
     let active = true;
     setError("");
-    getCandidateAppointments(candidate.id).then((rows) => {
+    getCandidateAppointments(candidate.id).then(unwrapAction).then((rows) => {
       if (active) setAppointments(rows);
     }).catch((reason) => {
       if (active) setError(candidateError(reason, "Не удалось загрузить коммуникацию"));

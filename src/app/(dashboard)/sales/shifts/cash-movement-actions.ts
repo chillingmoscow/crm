@@ -18,6 +18,7 @@ import {
 } from "@/lib/sales/cash-movements";
 import { validDate } from "@/lib/sales/time";
 import { loadSettlementConfiguration } from "./settlement-actions";
+import { unwrapAction } from "@/lib/actions/result";
 export type MovementRuleVersion = {
   id: string;
   version: number;
@@ -106,7 +107,7 @@ export async function loadMovementConfiguration(
   const preset = imported.data
     ? cashMovementOverridesSchema.parse(imported.data.payload.overrides)
     : [];
-  const options = await loadSettlementConfiguration(venueId),
+  const options = unwrapAction(await loadSettlementConfiguration(venueId)),
     versions: MovementRuleVersion[] = [];
   for (let start = 0; start < 10000; start += 500) {
     const r = await s.db

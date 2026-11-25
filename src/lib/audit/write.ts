@@ -20,7 +20,8 @@ import { asLooseDb } from "@/lib/supabase/loose";
 export type AuditEventInput = {
   accountId: string;
   venueId?: string | null;
-  userId: string;
+  /** null — действие фонового обработчика без автора (в ленте «Система»). */
+  userId: string | null;
   actionCode: string;
   entityType: string;
   entityId: string | null;

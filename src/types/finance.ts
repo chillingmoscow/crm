@@ -74,12 +74,18 @@ export type CounterpartyFormInput = {
   inn?: string | null;
   kpp?: string | null;
   ogrn?: string | null;
-  contact_person?: string | null;
-  phone?: string | null;
-  email?: string | null;
   address?: string | null;
   description?: string | null;
   group_id?: string | null;
+  /** Поставщик (ставится и сам при привязке к позиции номенклатуры). */
+  is_supplier?: boolean;
+  payment_delay_days?: number | null;
+  min_order_amount?: number | null;
+  /** Дни недели 1–7 (пн–вс). */
+  order_weekdays?: number[];
+  delivery_weekdays?: number[];
+  /** Сырые контакты из формы: сервер проверяет и приводит к виду базы. */
+  contacts?: unknown;
 };
 
 export type CounterpartyGroupFormInput = {

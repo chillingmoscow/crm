@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { Plus, Trash2, Clock3 } from "lucide-react";
 import { toast } from "sonner";
+import { unwrapAction } from "@/lib/actions/result";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -58,6 +59,7 @@ export function DisciplineSettings() {
   useEffect(() => {
     let alive = true;
     loadDisciplineSettings()
+      .then(unwrapAction)
       .then((value) => {
         if (!alive) return;
         if (!value) {
@@ -80,8 +82,8 @@ export function DisciplineSettings() {
     if (!data || invalid) return false;
     setBusy(true);
     try {
-      await saveDisciplineSettings(data);
-      const next = await loadDisciplineSettings();
+      unwrapAction(await saveDisciplineSettings(data));
+      const next = unwrapAction(await loadDisciplineSettings());
       if (!next) throw new Error("Не удалось прочитать сохранённые правила");
       setData(next);
       setSaved(next);

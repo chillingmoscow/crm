@@ -1,5 +1,6 @@
 "use server";
 
+import { errorText } from "@/lib/actions/error-text";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -33,14 +34,44 @@ export async function getFileSignedUrl(
     .select("storage_path")
     .eq("id", fileId)
     .maybeSingle();
-  if (fetchErr) return { url: null, error: fetchErr.message };
+  if (fetchErr) return { url: null, error: errorText(fetchErr, "Не удалось открыть файл") };
   if (!row) return { url: null, error: "Файл не найден или доступ закрыт" };
 
   const { data, error } = await supabase.storage
     .from("account-attachments")
     .createSignedUrl(row.storage_path, expiresInSeconds);
   if (error || !data) {
-    return { url: null, error: error?.message ?? "Не удалось получить ссылку" };
+    return { url: null, error: errorText(error, "Не удалось открыть файл") };
+  }
+  return { url: data.signedUrl, error: null };
+}
+
+/**
+ * Ссылка на скачивание: браузер сохранит файл под его текущим названием
+ * (после переименования оно расходится с хвостом пути в хранилище).
+ */
+export async function getFileDownloadUrl(
+  fileId: string
+): Promise<{ url: string | null; error: string | null }> {
+  const supabase = await createClient();
+
+  const { data: row, error: fetchErr } = await supabase
+    .from("account_files")
+    .select("storage_path, name")
+    .eq("id", fileId)
+    .maybeSingle();
+  if (fetchErr) return { url: null, error: errorText(fetchErr, "Не удалось скачать файл") };
+  if (!row) return { url: null, error: "Файл не найден или доступ закрыт" };
+
+  const { data, error } = await supabase.storage
+    .from("account-attachments")
+    .createSignedUrl(row.storage_path, DEFAULT_TTL_SECONDS, {
+      // Имя уходит в заголовок Content-Disposition: без кавычек, обратных
+      // слэшей и служебных символов (у загруженных файлов имя не проверялось).
+      download: row.name.replace(/[\p{Cc}\p{Cf}"\\]/gu, "_") || "file",
+    });
+  if (error || !data) {
+    return { url: null, error: errorText(error, "Не удалось скачать файл") };
   }
   return { url: data.signedUrl, error: null };
 }

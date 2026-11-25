@@ -19,6 +19,7 @@ import {
 } from "@/lib/schedule/tasks";
 import { mediaUrl } from "@/lib/storage/media";
 import { getKbAttachmentSignedUrl } from "@/lib/knowledge/attachments";
+import { actionErrorMessage, actionResult } from "@/lib/actions/result";
 
 async function context() {
   const client = await createClient();
@@ -40,7 +41,7 @@ const taskDate = z.string().refine((value) => {
 const taskWeek = z.object({ from: taskDate, to: taskDate })
   .refine(({ from, to }) => to >= from && to <= addDays(from, 31));
 
-export async function loadCalendarTasks(range?: { from: string; to: string }): Promise<CalendarTaskData> {
+async function loadCalendarTasksImpl(range?: { from: string; to: string }): Promise<CalendarTaskData> {
   const period = range ? taskWeek.parse(range) : null;
   const [{ db, user, venueId }, permissions] = await Promise.all([context(), getCachedPermissions()]);
   const venue = await db.from<{ timezone: string }>("venues").select("timezone").eq("id", venueId).single();
@@ -71,7 +72,7 @@ export async function loadCalendarTasks(range?: { from: string; to: string }): P
   };
 }
 
-export async function loadTasks(): Promise<TaskData> {
+async function loadTasksImpl(): Promise<TaskData> {
   const { db, user, venueId } = await context();
   const [venue, permissions] = await Promise.all([
     db.from<{ timezone: string }>("venues")
@@ -129,7 +130,7 @@ export async function loadTasks(): Promise<TaskData> {
   };
 }
 
-export async function loadTaskInstructionPages() {
+async function loadTaskInstructionPagesImpl() {
   const permissions = await getCachedPermissions();
   if (
     !permissions.includes("kb.view_pages") ||
@@ -146,7 +147,7 @@ export async function loadTaskInstructionPages() {
   }));
 }
 /** Задачи для быстрого назначения из графика: только названия. */
-export async function loadTaskChoices(): Promise<{
+async function loadTaskChoicesImpl(): Promise<{
   tasks: { id: string; name: string }[];
 }> {
   const { db, venueId } = await context();
@@ -199,12 +200,7 @@ export async function assignTaskOnce(input: {
     return { ok: true as const };
   } catch (e) {
     return {
-      error:
-        e instanceof z.ZodError
-          ? (e.issues[0]?.message ?? "Проверьте поля")
-          : e instanceof Error
-            ? e.message
-            : "Не удалось назначить задачу",
+      error: actionErrorMessage(e, "Не удалось назначить задачу"),
     };
   }
 }
@@ -225,8 +221,7 @@ export async function deleteTask(input: { id: string; version: number }) {
     return { ok: true };
   } catch (error) {
     return {
-      error:
-        error instanceof Error ? error.message : "Не удалось удалить задачу",
+      error: actionErrorMessage(error, "Не удалось удалить задачу"),
     };
   }
 }
@@ -246,12 +241,7 @@ export async function saveTask(input: unknown) {
     };
   } catch (e) {
     return {
-      error:
-        e instanceof z.ZodError
-          ? e.issues[0]?.message
-          : e instanceof Error
-            ? e.message
-            : "Не удалось сохранить задачу",
+      error: actionErrorMessage(e, "Не удалось сохранить задачу"),
     };
   }
 }
@@ -291,9 +281,7 @@ export async function taskRunCommand(action: string, input: unknown) {
       error:
         e instanceof z.ZodError
           ? "Проверьте ответы"
-          : e instanceof Error
-            ? e.message
-            : "Не удалось сохранить отчёт",
+          : actionErrorMessage(e, "Не удалось сохранить отчёт"),
     };
   }
 }
@@ -328,7 +316,7 @@ export async function uploadTaskPhoto(
     return { path };
   } catch (e) {
     return {
-      error: e instanceof Error ? e.message : "Не удалось загрузить фотографию",
+      error: actionErrorMessage(e, "Не удалось загрузить фотографию"),
     };
   }
 }
@@ -337,15 +325,19 @@ export async function taskPhotoUrl(path: string) {
     !/^[0-9a-f-]{36}\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.(jpg|png|webp)$/.test(path)
   )
     return { error: "Неверная фотография" };
-  const { db } = await context();
-  // Короткая подпись — только проверка доступа; показываем постоянным
-  // адресом, чтобы браузер держал фото месяц.
-  const r = await db.storage.from("task-evidence").createSignedUrl(path, 60);
-  return r.error
-    ? { error: "Фотография недоступна" }
-    : { url: mediaUrl("task-evidence", path) };
+  try {
+    const { db } = await context();
+    // Короткая подпись — только проверка доступа; показываем постоянным
+    // адресом, чтобы браузер держал фото месяц.
+    const r = await db.storage.from("task-evidence").createSignedUrl(path, 60);
+    return r.error
+      ? { error: "Фотография недоступна" }
+      : { url: mediaUrl("task-evidence", path) };
+  } catch (e) {
+    return { error: actionErrorMessage(e, "Фотография недоступна") };
+  }
 }
-export async function taskHistory(id: string) {
+async function taskHistoryImpl(id: string) {
   z.string().uuid().parse(id);
   const { db } = await context();
   const r = await db
@@ -366,7 +358,7 @@ export async function taskHistory(id: string) {
 export async function previewTasks(from: string, to: string) {
   const { db } = await context();
   const r = await db.rpc("schedule_task_preview", { p_from: from, p_to: to });
-  if (r.error) return { error: r.error.message };
+  if (r.error) return { error: actionErrorMessage(r.error, "Не удалось подготовить задачи") };
   return { rows: r.data as TaskPreview[] };
 }
 export async function retryTaskMessage(id: string, evidence: string) {
@@ -382,12 +374,19 @@ export async function retryTaskMessage(id: string, evidence: string) {
     return { ok: true };
   } catch (e) {
     return {
-      error: e instanceof Error ? e.message : "Не удалось повторить отправку",
+      error: actionErrorMessage(e, "Не удалось повторить отправку"),
     };
   }
 }
 
 export async function loadTaskInstructionPage(id: string) {
+  try {
+    return await loadTaskInstructionPageImpl(id);
+  } catch (e) {
+    return { error: actionErrorMessage(e, "Страница инструкции недоступна") };
+  }
+}
+async function loadTaskInstructionPageImpl(id: string) {
   const { db } = await context();
   const page = await db
     .from<{
@@ -406,10 +405,30 @@ export async function loadTaskInstructionPage(id: string) {
     return { error: "Страница инструкции недоступна" };
   return { instruction: { ...page.data, page_id: page.data.id, files: [] } };
 }
-export async function taskInstructionFileUrl(url: string) {
+async function taskInstructionFileUrlImpl(url: string) {
   if (!url.startsWith("kbfile://")) return url;
   await context();
   // Тот же путь, что у страницы базы знаний: картинки — постоянным адресом,
   // остальные файлы — подписанной ссылкой.
   return (await getKbAttachmentSignedUrl(url.slice("kbfile://".length))).url ?? "";
+}
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function loadCalendarTasks(range?: { from: string; to: string }) {
+  return actionResult(() => loadCalendarTasksImpl(range), "Не удалось загрузить задачи");
+}
+export async function loadTasks() {
+  return actionResult(() => loadTasksImpl(), "Не удалось загрузить задачи");
+}
+export async function loadTaskInstructionPages() {
+  return actionResult(() => loadTaskInstructionPagesImpl(), "Не удалось загрузить список инструкций");
+}
+export async function loadTaskChoices() {
+  return actionResult(() => loadTaskChoicesImpl(), "Не удалось загрузить список задач");
+}
+export async function taskHistory(id: string) {
+  return actionResult(() => taskHistoryImpl(id), "Не удалось загрузить историю задачи");
+}
+export async function taskInstructionFileUrl(url: string) {
+  return actionResult(() => taskInstructionFileUrlImpl(url), "Не удалось открыть файл инструкции");
 }

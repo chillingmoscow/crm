@@ -121,6 +121,18 @@ test("начальный остаток больше не скрывает ос�
   assert.equal(p.remainingKnown, true);
 });
 
+test("ожидаемая официальная часть — отдельной строкой и в остатке", () => {
+  const official = [
+    { employee_id: "e1", employment_id: "oe1", month: "2026-10-01", kind: "full" as const, gross: 20000, days_paid: null, days_in_month: 31 },
+  ];
+  const p = buildPayslip(data(october, { officialExpected: official }), employee, "2026-10-01", () => "Бармен");
+  assert.deepEqual(p.officialExpected, { amount: 20000, kind: "full", days_paid: null, days_in_month: 31 });
+  assert.equal(p.remaining, p.earned - 20000);
+  const none = buildPayslip(data(october), employee, "2026-10-01", () => "Бармен");
+  assert.equal(none.officialExpected, null);
+  assert.equal(none.remaining, none.earned);
+});
+
 test("имя файла", () => {
   assert.equal(payslipFileName({ employee: "Иван Петров", month: "2026-10-01" }), "Расчётный лист — Иван Петров — октябрь 2026.pdf");
 });

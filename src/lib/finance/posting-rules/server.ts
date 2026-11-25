@@ -1,5 +1,6 @@
 "use server";
 
+import { errorText } from "@/lib/actions/error-text";
 import { revalidatePath } from "next/cache";
 
 import { writeAuditEvent } from "@/lib/audit/write";
@@ -237,7 +238,7 @@ async function loadNames(
         .select(columns)
         .eq("account_id", accountId)
         .in("id", ids);
-      if (error) return { error: error.message };
+      if (error) return { error: errorText(error, "Не удалось проверить статьи и счета правила") };
       const rows = data ?? [];
       if (rejectArchived && rows.length !== ids.length) return { error: spec.missing };
       for (const row of rows) {
@@ -319,7 +320,7 @@ export async function createPostingRule(
     })
     .select("id")
     .single();
-  if (error || !data) return { id: null, error: error?.message ?? "Не удалось создать правило" };
+  if (error || !data) return { id: null, error: errorText(error, "Не удалось создать правило") };
 
   await writeAuditEvent({
     accountId: session.accountId,
@@ -346,7 +347,7 @@ export async function updatePostingRule(id: string, raw: unknown): Promise<{ err
     .eq("id", id)
     .eq("account_id", session.accountId)
     .select("id");
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось сохранить правило") };
   if (!data || data.length === 0) return { error: "Правило не найдено" };
 
   await writeAuditEvent({
@@ -374,7 +375,7 @@ export async function setPostingRuleEnabled(
     .eq("id", id)
     .eq("account_id", session.accountId)
     .select("id, name");
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось изменить правило") };
   if (!data || data.length === 0) return { error: "Правило не найдено" };
 
   await writeAuditEvent({
@@ -399,7 +400,7 @@ export async function deletePostingRule(id: string): Promise<{ error: string | n
     .eq("id", id)
     .eq("account_id", session.accountId)
     .select(RULE_COLUMNS);
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось удалить правило") };
   if (!data || data.length === 0) return { error: "Правило не найдено" };
 
   // Фраза — чтобы в журнале было видно, что за правило удалили, даже без названия.
@@ -424,7 +425,7 @@ export async function reorderPostingRules(ids: string[]): Promise<{ error: strin
   if (typeof session === "string") return { error: session };
   const supabase = await createClient();
   const { error } = await supabase.rpc("finance_posting_rules_reorder", { p_ids: ids });
-  if (error) return { error: error.message };
+  if (error) return { error: errorText(error, "Не удалось изменить порядок правил") };
 
   await writeAuditEvent({
     accountId: session.accountId,

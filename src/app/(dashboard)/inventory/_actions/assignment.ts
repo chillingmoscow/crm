@@ -106,7 +106,7 @@ export async function assignInventoryReviewer(input: {
       .maybeSingle();
     if (beforeError) {
       console.error("[assignInventoryReviewer] before query failed:", beforeError);
-      return { error: beforeError.message };
+      return { error: actionErrorMessage(beforeError, "Не удалось прочитать акт. Попробуйте ещё раз") };
     }
     if (!before) return { error: "Акт не найден" };
 
@@ -140,7 +140,7 @@ export async function assignInventoryReviewer(input: {
     const { data: updatedRows, error } = await update.select("id");
     if (error) {
       console.error("[assignInventoryReviewer] update failed:", error);
-      return { error: error.message };
+      return { error: actionErrorMessage(error, "Не удалось назначить проверяющего. Попробуйте ещё раз") };
     }
     if ((updatedRows ?? []).length === 0) return { error: DOCUMENT_CHANGED_ERROR };
 
@@ -178,12 +178,7 @@ export async function assignInventoryReviewer(input: {
     return { error: null };
   } catch (e) {
     console.error("[assignInventoryReviewer] unhandled error:", e);
-    return {
-      error:
-        e instanceof Error && e.message
-          ? e.message
-          : "Не удалось назначить проверяющего. Подробности в логах.",
-    };
+    return { error: actionErrorMessage(e, "Не удалось назначить проверяющего. Подробности в логах.") };
   }
 }
 
@@ -326,12 +321,7 @@ export async function assignInventoryDocument(input: {
     // Любая необработанная ошибка → пользователь видит понятный текст
     // вместо «An unexpected response was received from the server».
     console.error("[assignInventoryDocument] unhandled error:", e);
-    return {
-      error:
-        e instanceof Error && e.message
-          ? e.message
-          : "Не удалось назначить акт. Подробности в логах.",
-    };
+    return { error: actionErrorMessage(e, "Не удалось назначить акт. Подробности в логах.") };
   }
 }
 

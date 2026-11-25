@@ -281,6 +281,22 @@ export async function listAuditEvents(input?: {
         parts.push(
           `and(entity_type.eq.payroll_uniform,entity_id.in.(${issues.data.map((i) => i.id).join(",")}))`,
         );
+      // Официальное трудоустройство, включая отменённые периоды. Без права
+      // просмотра зарплаты RLS вернёт пусто, и этих событий в ленте не будет.
+      // Ошибка (например, код выкачен раньше миграций 383–385) убирает только
+      // эту часть: остальной журнал сотрудника должен загрузиться.
+      const official = await asLooseDb(supabase)
+        .from<{ id: string }[]>("payroll_official_employments")
+        .select("id")
+        .eq("venue_id", venue.data)
+        .in("employee_id", ids)
+        .limit(100);
+      if (official.error)
+        console.error("Журнал сотрудника: официальное трудоустройство не загружено", official.error);
+      else if (official.data?.length)
+        parts.push(
+          `and(entity_type.eq.payroll_official_employment,entity_id.in.(${official.data.map((o) => o.id).join(",")}))`,
+        );
     }
     query = query.or(parts.join(","));
   } else if (
@@ -548,6 +564,20 @@ export async function listAuditEvents(input?: {
       }
     }
   }
+  // То же у контрагента: группа контрагентов вместо id.
+  const counterpartyGroupNames = new Map<string, string>();
+  const counterpartyGroupIds = [
+    ...new Set(
+      sliced.flatMap((r) => (r.entity_type === "counterparty" ? collectChangeIds(r.details, "group_id") : [])),
+    ),
+  ];
+  if (counterpartyGroupIds.length > 0) {
+    const { data: groupRows } = await supabase
+      .from("counterparty_groups")
+      .select("id, name")
+      .in("id", counterpartyGroupIds);
+    for (const g of groupRows ?? []) counterpartyGroupNames.set(g.id, g.name);
+  }
 
   const categoryIds = idsByType.get("finance_category");
   if (categoryIds && categoryIds.size > 0) {
@@ -752,7 +782,9 @@ export async function listAuditEvents(input?: {
       details:
         r.entity_type === "bank_account" && r.details
           ? resolveChangeIds(r.details, "group_id", groupNames, "удалённая группа")
-          : (r.details ?? {}),
+          : r.entity_type === "counterparty" && r.details
+            ? resolveChangeIds(r.details, "group_id", counterpartyGroupNames, "удалённая группа")
+            : (r.details ?? {}),
       created_at: r.created_at,
       actor: actorRaw
         ? {

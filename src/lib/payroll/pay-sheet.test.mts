@@ -135,8 +135,21 @@ test("paySheetPayments takes only this employee's share for the month", () => {
     { employee_id: "e1", payment_id: "p3", accrual_id: null, month: "2026-09-01", amount: 5000, settled_amount: 5000 },
   ];
   assert.deepEqual(paySheetPayments(payments, allocations, "e1", "2026-10-01"), [
-    { id: "p2", date: "2026-10-25T10:00:00Z", kind: "advance", posted: false, amount: 20000 },
-    { id: "p1", date: "2026-10-15T10:00:00Z", kind: "salary", posted: true, amount: 46000 },
+    { id: "p2", date: "2026-10-25T10:00:00Z", kind: "advance", posted: false, amount: 20000, official: false, tax: 0 },
+    // Налог группы на нескольких сотрудников не приписывается одному.
+    { id: "p1", date: "2026-10-15T10:00:00Z", kind: "salary", posted: true, amount: 46000, official: false, tax: 0 },
+  ]);
+});
+
+test("paySheetPayments: официальная выплата закрывает оклад, налог — разница", () => {
+  const payments: Payment[] = [
+    { id: "o1", transaction_id: null, cashbox_id: null, kind: "salary", amount: 69600, state: "posted", note: "", occurred_at: "2026-12-05T09:00:00Z", created_at: "", official_month: "2026-11-01" },
+  ];
+  const allocations: Allocation[] = [
+    { employee_id: "e1", payment_id: "o1", accrual_id: null, month: "2026-11-01", amount: 69600, settled_amount: 80000 },
+  ];
+  assert.deepEqual(paySheetPayments(payments, allocations, "e1", "2026-11-01"), [
+    { id: "o1", date: "2026-12-05T09:00:00Z", kind: "salary", posted: true, amount: 80000, official: true, tax: 10400 },
   ]);
 });
 

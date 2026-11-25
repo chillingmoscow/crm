@@ -62,6 +62,7 @@ import {
   type StatisticsRow,
   type StatisticsValue,
 } from "@/lib/sales/statistics-view";
+import { unwrapAction } from "@/lib/actions/result";
 import {
   loadStatistics,
   exportStatistics,
@@ -302,7 +303,7 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
   async function refresh() {
     setBusy(true);
     try {
-      const next = await loadStatistics();
+      const next = unwrapAction(await loadStatistics());
       if (next.venueId !== initial.venueId)
         throw new Error("Заведение изменилось. Обновите страницу");
       setData(next);
@@ -315,8 +316,8 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
   async function requestReports(month: string) {
     setReportBusy(true);
     try {
-      await requestStatisticsMonth(month, initial.venueId);
-      const next = await loadStatistics();
+      unwrapAction(await requestStatisticsMonth(month, initial.venueId));
+      const next = unwrapAction(await loadStatistics());
       setData(next);
       toast.success(`Отчёты за ${monthLabel(month)} запрошены`);
     } catch (e) {
@@ -328,7 +329,7 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
   async function download() {
     setExporting(true);
     try {
-      const snapshot = await exportStatistics(initial.venueId);
+      const snapshot = unwrapAction(await exportStatistics(initial.venueId));
       const fresh = new Map(
         sourceRows(snapshot, source).map((r) => [r.month, r]),
       );

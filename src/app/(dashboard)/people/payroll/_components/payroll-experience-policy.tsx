@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { PaySettings } from "@/lib/payroll/types";
 import { saveExperienceStart } from "../actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { PayrollDetailDialog } from "./payroll-detail-dialog";
 import form from "@/app/(dashboard)/people/payroll/_components/payroll-payment-form.module.css";
 
@@ -25,8 +26,8 @@ export function PayrollExperiencePolicy({ settings, onChange }: {
     if (!settings) return;
     setBusy(true);
     try {
-      await saveExperienceStart({ startsOn: date, version: settings.experience_policy_version ?? 0,
-        requestKey, reason, venueId: settings.venue_id });
+      unwrapAction(await saveExperienceStart({ startsOn: date, version: settings.experience_policy_version ?? 0,
+        requestKey, reason, venueId: settings.venue_id }));
       await onChange();
       setOpen(false);
       toast.success("Дата начала начисления сохранена");

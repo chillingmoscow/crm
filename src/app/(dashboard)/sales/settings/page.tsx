@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { Lock, Settings2 } from "lucide-react";
+import { Lock, Settings } from "lucide-react";
 import { z } from "zod";
 import {
   createClient,
@@ -45,7 +45,7 @@ export default async function SalesSettingsPage({
     venueId = typeof active.data === "string" ? active.data : null;
   }
   const configuration = venueId
-    ? await loadSalesConfiguration(venueId).catch(() => null)
+    ? await loadSalesConfiguration(venueId).then((r) => (r.ok ? r.data : null))
     : null;
   if (!configuration)
     return (
@@ -68,7 +68,7 @@ export default async function SalesSettingsPage({
             aria-hidden
             className="flex size-14 items-center justify-center rounded-[14px] bg-muted text-muted-foreground"
           >
-            <Settings2 className="size-7" />
+            <Settings className="size-7" />
           </div>
         }
       >

@@ -1,4 +1,5 @@
 "use client";
+import { unwrapAction } from "@/lib/actions/result";
 import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -43,7 +44,7 @@ export function CashControlPanel({
       if (fetching) return;
       fetching = true;
       try {
-        const d = await loadCashControl(venueId, date);
+        const d = unwrapAction(await loadCashControl(venueId, date));
         if (live) {
           setData(d);
           setError(null);
@@ -75,8 +76,8 @@ export function CashControlPanel({
   const request = async () => {
     setBusy(true);
     try {
-      await requestCashControl(venueId, date);
-      setData(await loadCashControl(venueId, date));
+      unwrapAction(await requestCashControl(venueId, date));
+      setData(unwrapAction(await loadCashControl(venueId, date)));
       toast.success("Проверка кассы запущена");
     } catch (e) {
       toast.error(

@@ -1,5 +1,6 @@
 "use server";
 import { z } from "zod";
+import { actionResult } from "@/lib/actions/result";
 import {
   createClient,
   getCachedUser,
@@ -30,7 +31,7 @@ export type CashHistoryEntry = {
   actor_name: string;
   created_at: string;
 };
-export async function loadCashHistory(
+async function loadCashHistoryImpl(
   venueId: string,
   date: string,
   beforeVersion?: number,
@@ -104,7 +105,7 @@ async function scope(venueId: string) {
   if (active.data !== venueId) return null;
   return { db, accountId, canManage: owner.data?.owner_id === user.id };
 }
-export async function loadCashConfiguration(
+async function loadCashConfigurationImpl(
   venueId: string,
 ): Promise<CashConfiguration> {
   const s = await scope(venueId);
@@ -125,7 +126,7 @@ export async function loadCashConfiguration(
   }
   throw new Error("Не удалось загрузить всю историю правил");
 }
-export async function saveCashConfiguration(input: {
+async function saveCashConfigurationImpl(input: {
   venueId: string;
   version: number;
   config: CashControlRules;
@@ -144,9 +145,9 @@ export async function saveCashConfiguration(input: {
     p_reason: input.reason,
   });
   if (r.error) throw new Error(r.error.message);
-  return loadCashConfiguration(input.venueId);
+  return loadCashConfigurationImpl(input.venueId);
 }
-export async function requestCashControl(venueId: string, date: string) {
+async function requestCashControlImpl(venueId: string, date: string) {
   const s = await scope(venueId);
   if (!s?.canManage) throw new Error("Проверку кассы запускает владелец");
   if (!validDate(date)) throw new Error("Выберите рабочий день");
@@ -156,7 +157,7 @@ export async function requestCashControl(venueId: string, date: string) {
   });
   if (r.error) throw new Error(r.error.message);
 }
-export async function loadCashControl(
+async function loadCashControlImpl(
   venueId: string,
   date: string,
 ): Promise<CashDayData | null> {
@@ -213,4 +214,42 @@ export async function loadCashControl(
     problem,
     job: job.data as CashDayData["job"],
   };
+}
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function loadCashHistory(
+  venueId: string,
+  date: string,
+  beforeVersion?: number,
+) {
+  return actionResult(
+    () => loadCashHistoryImpl(venueId, date, beforeVersion),
+    "Не удалось загрузить историю кассы",
+  );
+}
+export async function loadCashConfiguration(venueId: string) {
+  return actionResult(
+    () => loadCashConfigurationImpl(venueId),
+    "Не удалось загрузить правила контроля кассы",
+  );
+}
+export async function saveCashConfiguration(
+  input: Parameters<typeof saveCashConfigurationImpl>[0],
+) {
+  return actionResult(
+    () => saveCashConfigurationImpl(input),
+    "Не удалось сохранить правила контроля кассы",
+  );
+}
+export async function requestCashControl(venueId: string, date: string) {
+  return actionResult(
+    () => requestCashControlImpl(venueId, date),
+    "Не удалось запустить проверку кассы",
+  );
+}
+export async function loadCashControl(venueId: string, date: string) {
+  return actionResult(
+    () => loadCashControlImpl(venueId, date),
+    "Не удалось загрузить контроль кассы",
+  );
 }

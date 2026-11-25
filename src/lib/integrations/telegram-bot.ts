@@ -1,12 +1,17 @@
 import "server-only";
 import { decryptSecret } from "@/lib/integrations/crypto";
 import type { LooseDb } from "@/lib/supabase/loose";
+import { Agent, fetch as undiciFetch, type BodyInit as UndiciBody } from "undici";
 import {
   readTelegramResponse,
   type TelegramApiResult,
 } from "./telegram-response";
 export type { TelegramApiResult } from "./telegram-response";
 import { fetchTelegram } from "./telegram-transport";
+
+// Соединение с Telegram с прод-сервера часто не устанавливается: ждём его
+// 2,5 с вместо 10 и пробуем снова (см. telegram-transport).
+const telegramAgent = new Agent({ connect: { timeout: 2500 } });
 
 // Bot API client for one organization. The token lives only inside this closure:
 // it is never returned, logged or put into error messages (fetch errors may carry the URL).
@@ -91,25 +96,28 @@ export async function loadTelegramBot(
     method: string,
     payload: Record<string, unknown>,
   ): Promise<TelegramApiResult<T>> => {
-    const response = await fetchTelegram(() =>
-      fetch(`https://api.telegram.org/bot${token}/${method}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        cache: "no-store",
-        signal: AbortSignal.timeout(12000),
-      }),
+    const response = await fetchTelegram(
+      async () =>
+        (await undiciFetch(`https://api.telegram.org/bot${token}/${method}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          dispatcher: telegramAgent,
+          signal: AbortSignal.timeout(12000),
+        })) as unknown as Response,
     );
     return readTelegramResponse<T>(response);
   };
   const upload = async <T>(method: string, form: FormData): Promise<TelegramApiResult<T>> => {
-    const response = await fetchTelegram(() =>
-      fetch(`https://api.telegram.org/bot${token}/${method}`, {
-        method: "POST",
-        body: form,
-        cache: "no-store",
-        signal: AbortSignal.timeout(30000),
-      }),
+    // undici принимает FormData из глобального fetch (проверено на 6.29).
+    const response = await fetchTelegram(
+      async () =>
+        (await undiciFetch(`https://api.telegram.org/bot${token}/${method}`, {
+          method: "POST",
+          body: form as unknown as UndiciBody,
+          dispatcher: telegramAgent,
+          signal: AbortSignal.timeout(30000),
+        })) as unknown as Response,
     );
     return readTelegramResponse<T>(response);
   };

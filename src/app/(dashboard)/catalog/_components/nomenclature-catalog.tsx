@@ -11,6 +11,7 @@ import {
 import { asLooseDb } from "@/lib/supabase/loose";
 import { chunk, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { mediaUrl } from "@/lib/storage/media";
+import { getNomenclatureSyncState } from "@/lib/inventory/nomenclature-sync";
 import { CatalogTable } from "./catalog-table";
 import type { CatalogGroup, CatalogProduct } from "./catalog-tree";
 
@@ -107,19 +108,13 @@ export async function NomenclatureCatalog({
   if (!accountId) redirect("/dashboard");
 
   // Всё, что не зависит друг от друга, — одним заходом: заведения аккаунта,
-  // время последней синхронизации, категории и позиции раздела.
+  // состояние последней сверки, категории и позиции раздела.
   // Категории и позиции читаем постранично: PostgREST отдаёт не больше 1000
   // строк, а в справочнике ингредиентов их бывает больше.
-  const [{ data: accountVenues }, { data: lastSynced }, groups, products] =
+  const [{ data: accountVenues }, syncState, groups, products] =
     await Promise.all([
       db.from<Array<{ id: string }>>("venues").select("id").eq("account_id", accountId),
-      db
-        .from<Array<{ synced_at: string | null }>>("ingredients")
-        .select("synced_at")
-        .eq("account_id", accountId)
-        .eq("kind", config.kind)
-        .order("synced_at", { ascending: false })
-        .range(0, 0),
+      getNomenclatureSyncState(accountId),
       fetchAllRows(() =>
         db
           .from<GroupRow[]>("ingredient_groups")
@@ -136,7 +131,18 @@ export async function NomenclatureCatalog({
           .eq("kind", config.kind),
       ),
     ]);
-  const lastSyncedAt = lastSynced?.[0]?.synced_at ?? null;
+  // Время последней сверки — из состояния подключения: сверка не
+  // переписывает неизменённые позиции, и их synced_at больше не двигается.
+  const lastSyncedAt = syncState.syncedAt;
+  // Что пошло не так в последнем запуске (ручном или по расписанию).
+  const lastRun = syncState.result;
+  const syncMessages = !lastRun
+    ? []
+    : lastRun.ok
+      ? lastRun.warnings
+      : [`Не удалась: ${lastRun.error ?? "неизвестная ошибка"}. Каталог остался прежним`];
+  const syncNotice =
+    lastRun && syncMessages.length > 0 ? { at: lastRun.finishedAt, messages: syncMessages } : null;
 
   // Сколько venue в аккаунте: при единственном venue переключатель бессмыслен
   // (фильтр «этого заведения» совпадает с «весь каталог») — скрываем его и
@@ -248,6 +254,7 @@ export async function NomenclatureCatalog({
       canManage={canManage}
       canSync={canSync}
       lastSyncedAt={lastSyncedAt}
+      syncNotice={syncNotice}
       scope={multiVenue ? (venueScoped ? "venue" : "all") : null}
       scopeNotice={scopeNotice}
     />

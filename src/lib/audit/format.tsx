@@ -48,6 +48,8 @@ import { financeDirectoryAuditSpecs } from "./finance-directory";
 import { financeRecurringAuditSpecs } from "./finance-recurring";
 import { bankReconciliationAuditSpecs } from "./bank-reconciliation";
 import { writeoffAuditSpecs } from "./writeoffs";
+import { payrollOfficialAuditSpecs } from "./payroll-official";
+import { payrollPayoutAuditSpecs } from "./payroll-payout";
 import { ChangeLines } from "./change-lines";
 import { countRu } from "@/lib/format/plural";
 
@@ -315,6 +317,8 @@ const SPECS: Record<string, AuditEventSpec> = {
   ...financeRecurringAuditSpecs,
   ...bankReconciliationAuditSpecs,
   ...writeoffAuditSpecs,
+  ...payrollOfficialAuditSpecs,
+  ...payrollPayoutAuditSpecs,
   "integration.updated": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => <>изменил(а) настройки интеграции{e.details.provider === "quickresto" ? " Quick Resto" : e.details.provider === "adesk" ? " Adesk" : e.details.provider === "telegram" ? " Telegram" : e.details.provider === "office_codes" ? " «Коды замка»" : ""}</>,
@@ -478,6 +482,26 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline: () => <>обновил(а) журнал списаний из Quick Resto</>,
     buildDetails: e => <p className="text-xs text-muted-foreground">Актов: {Number(e.details.documents ?? 0)} · изменений: {Number(e.details.changed ?? 0)}</p>,
   },
+  // Сверка номенклатуры с Quick Resto: кнопка «Синхронизировать» или фоновый
+  // обработчик раз в несколько часов (тогда автора нет — «Система»). Пишется,
+  // только когда позиции появились, ушли в архив или вернулись из него.
+  "inventory.nomenclature.synced": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: (e) => <>{e.details.trigger === "schedule" ? "обновила номенклатуру из Quick Resto по расписанию" : "обновил(а) номенклатуру из Quick Resto"}</>,
+    buildDetails: (e) => {
+      const warnings = Array.isArray(e.details.warnings)
+        ? e.details.warnings.filter((v): v is string => typeof v === "string")
+        : [];
+      return (
+        <div className="text-xs text-muted-foreground">
+          <p>Добавлено: {Number(e.details.added ?? 0)} · в архив: {Number(e.details.archived ?? 0)} · из архива: {Number(e.details.restored ?? 0)}</p>
+          {warnings.map((warning) => (
+            <p key={warning} className="text-amber-700 dark:text-amber-400">{warning}</p>
+          ))}
+        </div>
+      );
+    },
+  },
   "stock.writeoffs.archive_imported": {
     icon: FilePlus2, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>перенёс(ла) архив списаний</>,
@@ -485,8 +509,14 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
   "sales.additional_rules.updated": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
-    buildHeadline: () => <>изменил(а) правила допродаж</>,
-    buildDetails: e => <div className="text-xs text-muted-foreground"><p>Действует с {formatDate(e.details.valid_from)}</p><p>{String(e.details.reason ?? "")}</p></div>,
+    buildHeadline: e => <>изменил(а) правила допродаж{e.details.department_name ? <>: {String(e.details.department_name)}</> : null}</>,
+    buildDetails: e => (
+      <div className="text-xs text-muted-foreground">
+        <p>Действует с {formatDate(e.details.valid_from)}</p>
+        <p>{String(e.details.reason ?? "")}</p>
+        {Array.isArray(e.details.lines) && <p>Строк: {e.details.lines.length}</p>}
+      </div>
+    ),
   },
   "sales.additional.refresh_requested": {
     icon: RotateCcw, iconClass: "text-brand bg-brand/10",

@@ -9,13 +9,11 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
-  ArrowLeft,
   ArrowUpRight,
   CalendarX2,
   ChevronDown,
-  ChevronRight,
   Users,
   Plus,
 } from "lucide-react";
@@ -41,8 +39,10 @@ import {
   loadStatementExportData,
   cancelPayrollPayment,
 } from "@/app/(dashboard)/people/payroll/actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { PayrollJournal, PayrollEntryForm, PayrollEntryMenuItems } from "./payroll-journal";
 import { PayrollTransferDrawer } from "./payroll-transfer-drawer";
+import { PayoutPlan } from "./payout-plan";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { PayrollLedger } from "./payroll-ledger";
 import { RefreshFailedNotice, useAutoRefresh } from "./auto-refresh";
@@ -62,7 +62,6 @@ import { formatAmount, toKopecks } from "@/lib/format/amount";
 import { countRu } from "@/lib/format/plural";
 import { downloadBlob, xlsxBlob, type XlsxSheet } from "@/lib/export/xlsx";
 
-type Row = ReturnType<typeof statementRows>[number];
 const short = (n: number) =>
   n >= 1000 ? `${formatAmount(n / 1000, 0)} тыс.` : formatAmount(n, 0);
 const shiftCount = (n: number) => countRu(n, "смена", "смены", "смен");
@@ -131,12 +130,12 @@ export function PayrollWorkspace({
   const [entryOpen, setEntryOpen] = useState(false);
   const [entryKind, setEntryKind] = useState<"deduction" | "allowance">("deduction");
   const [transferOpen, setTransferOpen] = useState(false);
-  const [transferEmployee, setTransferEmployee] = useState<string | undefined>();
+  const router = useRouter();
   const [cancelId, setCancelId] = useState<string | null>(null);
   const can = (action: string) =>
     data.permissions.includes(`payroll.${action}`);
   const reload = useCallback(async () => {
-    const next = await loadPayrollOverview();
+    const next = unwrapAction(await loadPayrollOverview());
     if (next.venueId === initial.venueId) setData(next);
   }, [initial.venueId]);
   const autoRefresh = useAutoRefresh(reload, 15000);
@@ -165,16 +164,15 @@ export function PayrollWorkspace({
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("transfer");
     const transfer = initial.transfers.find((t) => t.id === id);
-    if (transfer) { setTransferEmployee(transfer.employee_id); setTransferOpen(true); }
-  }, [initial.transfers]);
+    // Ссылка из журнала событий: перенос виден и отменяется в расчёте сотрудника.
+    if (transfer)
+      router.replace(`/people/payroll/${transfer.employee_id}?month=${transfer.from_month.slice(0, 7)}`);
+  }, [initial.transfers, router]);
   const [query, setQuery] = useState("");
   const [role, setRole] = useState("");
   // «Стоимость команды» показывает четыре крупнейшие должности; остальные
   // сворачиваются в строку «Ещё N», а не пропадают молча.
   const [allRoles, setAllRoles] = useState(false);
-  const [selected, setSelected] = useState<Row | null>(null);
-  const [day, setDay] = useState<Accrual | null>(null);
-  const [employeeTab, setEmployeeTab] = useState("summary");
   const [composition, setComposition] = useState(false);
   const [hoverDay, setHoverDay] = useState<number | null>(null);
   const monthStart = `${month}-01`;
@@ -210,16 +208,18 @@ export function PayrollWorkspace({
         monthStart,
         data.transfers,
         data.settings?.starts_on,
+        data.officialExpected ?? [],
       ),
     [data, monthStart],
   );
   const active = rows.filter(
-    (r) => r.shifts || r.earned || r.paid || r.opening || r.transferredOut || r.tips,
+    (r) => r.shifts || r.earned || r.paid || r.opening || r.transferredOut || r.tips || r.officialExpected,
   );
   const total = rows.reduce((sum, r) => sum + r.earned, 0);
   // Пустой месяц (DS → «Состояния»): ни начислений, ни выплат, ни переносов —
   // вместо нулевого графика и пустой ведомости одно пустое состояние.
   const emptyMonth = tab === "statement" && active.length === 0;
+  const planTab = tab === "plan";
   const paid = rows.reduce((sum, r) => sum + r.paid, 0);
   const tips = rows.reduce((sum, r) => sum + r.tips, 0);
   const shifts = rows.reduce((sum, r) => sum + r.shifts, 0);
@@ -233,7 +233,7 @@ export function PayrollWorkspace({
   ].sort();
   const visible = rows.filter(
     (r) =>
-      (r.shifts || r.earned || r.paid || r.opening || r.transferredOut || r.tips) &&
+      (r.shifts || r.earned || r.paid || r.opening || r.transferredOut || r.tips || r.officialExpected) &&
       (!role || r.employee.role_name === role) &&
       `${r.employee.name} ${r.employee.role_name}`
         .toLowerCase()
@@ -243,7 +243,7 @@ export function PayrollWorkspace({
     () =>
       rows.filter(
         (r) =>
-          (r.shifts || r.earned || r.paid || r.opening || r.transferredOut || r.tips) &&
+          (r.shifts || r.earned || r.paid || r.opening || r.transferredOut || r.tips || r.officialExpected) &&
           (!role || r.employee.role_name === role),
       ),
     [rows, role],
@@ -273,11 +273,6 @@ export function PayrollWorkspace({
       .reduce((sum, a) => sum + Number(a.salary), 0),
   }));
   const dailyMax = Math.max(...daily.map((d) => d.value), 1);
-  const selectedDays = selected
-    ? current
-        .filter((a) => a.employee_id === selected.employee.id)
-        .sort((a, b) => b.business_date.localeCompare(a.business_date))
-    : [];
   const payments = data.payments.filter((p) =>
     data.allocations.some(
       (a) => a.payment_id === p.id && a.month === monthStart,
@@ -334,7 +329,7 @@ export function PayrollWorkspace({
     event.preventDefault();
     setHoverDay(Math.min(days - 1, Math.max(0, next)));
   };
-  const groups = componentGroups(selected ? selectedDays : current);
+  const groups = componentGroups(current);
 
   const roleFilters = {
     active: Boolean(role),
@@ -375,7 +370,7 @@ export function PayrollWorkspace({
         {can("pay") && <DropdownMenuItem onSelect={() => setPayOpen(true)}>Выплата</DropdownMenuItem>}
         {can("review") && <PayrollEntryMenuItems onSelect={(kind) => {setEntryKind(kind);setEntryOpen(true);}}/>}
         {can("review") && <><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => {
-          setTransferEmployee(undefined); setTransferOpen(true);
+          setTransferOpen(true);
         }}>Перенести остаток</DropdownMenuItem></>}
         {canRecalculateShortage && <><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => void recalculateShortage()}>
           Пересчитать недостачу за месяц
@@ -435,7 +430,7 @@ export function PayrollWorkspace({
       // и должности в смене дочитываем их за месяц только при выгрузке.
       const [{ statementWorkbook, statementFileName }, extra] = await Promise.all([
         import("@/lib/payroll/statement-export"),
-        loadStatementExportData(monthStart),
+        loadStatementExportData(monthStart).then(unwrapAction),
       ]);
       return {
         sheets: statementWorkbook({
@@ -520,10 +515,7 @@ export function PayrollWorkspace({
                 label="Начислено команде"
                 icon={<ArrowUpRight size={15} />}
                 ariaLabel="Начислено команде: состав начислений"
-                onClick={() => {
-                  setSelected(null);
-                  setComposition(true);
-                }}
+                onClick={() => setComposition(true)}
                 value={<Money value={total} />}
                 hint={`${staffCount(active.length)} · ${shiftCount(shifts)}`}
               />
@@ -557,8 +549,10 @@ export function PayrollWorkspace({
                 <TabsTrigger value="statement">Ведомость · {active.length}</TabsTrigger>
                 <TabsTrigger value="payments">Выплаты</TabsTrigger>
                 <TabsTrigger value="journal">Начисления и удержания</TabsTrigger>
+                {can("view") && <TabsTrigger value="plan">План выплат</TabsTrigger>}
               </TabsList>
             <TabsContent value={tab} className="!mt-0">
+            {tab === "plan" && <PayoutPlan onChanged={reload} />}
             {emptyMonth ? (
               <EmptyState
                 className="mt-6"
@@ -805,7 +799,7 @@ export function PayrollWorkspace({
                 </div>
               </section>
             )}
-            {!emptyMonth && <section className={`${s.ledger} ${s.functionalTable}`}>
+            {!emptyMonth && !planTab && <section className={`${s.ledger} ${s.functionalTable}`}>
               {role && (
                 <div className={s.ledgerHeading}>
                   <button
@@ -843,6 +837,7 @@ export function PayrollWorkspace({
                   tableId={`payroll.concept.payments.${data.venueId}`}
                   externalSearch={{ value: query, onChange: setQuery }}
                   filters={roleFilters}
+                  onChange={reload}
                   onCancel={async (id) => {
                     setCancelId(id);
                   }}
@@ -856,11 +851,9 @@ export function PayrollWorkspace({
                   onQuery={setQuery}
                   onExport={() => void exportRows()}
                   exporting={exporting}
-                  onEmployee={(row) => {
-                    setSelected(row);
-                    setDay(null);
-                    setEmployeeTab("summary");
-                  }}
+                  onEmployee={(row) =>
+                    router.push(`/people/payroll/${row.employee.id}?month=${month}`)
+                  }
                   actions={tableActions}
                   filters={roleFilters}
                 />
@@ -872,17 +865,11 @@ export function PayrollWorkspace({
         </div>
         <PayrollEntryForm initialKind={entryKind} open={entryOpen} onOpenChange={setEntryOpen} data={data} month={monthStart}
           onCreated={async () => { await reload(); changeTab("journal"); }} />
-        {transferOpen && <PayrollTransferDrawer data={data} month={monthStart} employeeId={transferEmployee}
+        {transferOpen && <PayrollTransferDrawer data={data} month={monthStart}
           onClose={() => setTransferOpen(false)} onChange={reload} />}
         <Dialog
-          open={Boolean(selected) || composition}
-          onOpenChange={(open) => {
-            if (!open) {
-              setSelected(null);
-              setComposition(false);
-              setDay(null);
-            }
-          }}
+          open={composition}
+          onOpenChange={setComposition}
         >
           <DialogContent
             className={s.dialog}
@@ -898,130 +885,20 @@ export function PayrollWorkspace({
             }}
           >
             <DialogTitle className={s.dialogTitle}>
-              {selected ? selected.employee.name : "Состав начислений"}
+              Состав начислений
             </DialogTitle>
             <DialogDescription className={s.dialogDescription}>
-              {selected
-                ? `${selected.employee.role_name} · ${title}`
-                : `Команда заведения · ${title}`}
+              {`Команда заведения · ${title}`}
             </DialogDescription>
             <div className={s.dialogBody}>
               <div className={s.employeeTotal}>
                 <span>Начислено за месяц</span>
-                <strong><Money value={selected ? selected.earned : total} /></strong>
+                <strong><Money value={total} /></strong>
                 <small>
-                  {selected
-                    ? `${shiftCount(selected.shifts)} · чаевые ${formatRub(selected.tips)} отдельно`
-                    : `${staffCount(active.length)} · ${shiftCount(shifts)}`}
+                  {`${staffCount(active.length)} · ${shiftCount(shifts)}`}
                 </small>
               </div>
-              {selected ? (
-                <Tabs
-                  value={employeeTab}
-                  onValueChange={(value) => {
-                    setEmployeeTab(value);
-                    setDay(null);
-                  }}
-                  className={`${tabStyle.tabs} mt-6`}
-                >
-                  <TabsList aria-label="Расчёт сотрудника">
-                    <TabsTrigger value="summary">Состав зарплаты</TabsTrigger>
-                    <TabsTrigger value="shifts">
-                      Смены · {selectedDays.length}
-                    </TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="summary" className="!mt-0">
-                    <CompositionList groups={groups} />
-                  </TabsContent>
-                  <TabsContent value="shifts" className="!mt-0">
-                    {day ? (
-                      <div className={s.shiftInspector}>
-                        <button
-                          className={s.shiftBack}
-                          onClick={() => setDay(null)}
-                        >
-                          <ArrowLeft size={13} /> Все смены
-                        </button>
-                        <div className={s.shiftHeading}>
-                          <span>
-                            {day.calculation_snapshot.kind === "monthly"
-                              ? "Оклад за месяц"
-                              : new Date(
-                                  `${day.business_date}T12:00:00Z`,
-                                ).toLocaleDateString("ru-RU", {
-                                  day: "numeric",
-                                  month: "long",
-                                  timeZone: "UTC",
-                                })}
-                          </span>
-                          <strong>
-                            <Money value={Number(day.salary)} />
-                          </strong>
-                        </div>
-                        <div className={s.dayDetail}>
-                          {day.components.map((c, i) => (
-                            <div key={i}>
-                              <span>
-                                {c.label === "Выход" ? "Ставка за смену" : c.label}
-                                <small>{c.basis}</small>
-                              </span>
-                              <strong>
-                                {c.amount === null
-                                  ? "Нет данных"
-                                  : <Money value={Number(c.amount)} />}
-                              </strong>
-                            </div>
-                          ))}
-                        </div>
-                        {day.issues.length > 0 && (
-                          <details className={s.issueDetails}>
-                            <summary>
-                              Замечания к расчёту · {day.issues.length}
-                            </summary>
-                            {day.issues.map((issue) => (
-                              <p key={issue}>{issue}</p>
-                            ))}
-                          </details>
-                        )}
-                      </div>
-                    ) : (
-                      <div className={s.dayList}>
-                        {selectedDays.map((a) => (
-                          <div key={a.id}>
-                            <button onClick={() => setDay(a)}>
-                              <span>
-                                {a.calculation_snapshot.kind === "monthly"
-                                  ? "Оклад за месяц"
-                                  : new Date(
-                                      `${a.business_date}T12:00:00Z`,
-                                    ).toLocaleDateString("ru-RU", {
-                                      day: "numeric",
-                                      month: "long",
-                                      timeZone: "UTC",
-                                    })}
-                              </span>
-                              <strong>
-                                <Money value={Number(a.salary)} />
-                              </strong>
-                              <ChevronRight size={15} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </TabsContent>
-                </Tabs>
-              ) : (
-                <CompositionList groups={groups} />
-              )}
-              {selected && (
-                <Link
-                  className={s.fullDetailLink}
-                  href={`/people/payroll/${selected.employee.id}?month=${month}`}
-                >
-                  Полная карточка сотрудника <ArrowUpRight size={15} />
-                </Link>
-              )}
+              <CompositionList groups={groups} />
             </div>
           </DialogContent>
         </Dialog>
@@ -1039,7 +916,7 @@ export function PayrollWorkspace({
           onConfirm={() => {
             if (cancelId)
               void run(async () => {
-                await cancelPayrollPayment(cancelId);
+                unwrapAction(await cancelPayrollPayment(cancelId));
                 setCancelId(null);
               }, "Выплата удалена");
           }}

@@ -7,6 +7,7 @@ import {
   scheduleAdditionalReports,
   processAdditionalReport,
 } from "@/lib/sales/additional-sync";
+import { scheduleUpsellDays, processUpsellDay } from "@/lib/sales/upsell-sync";
 import {
   scheduleStatisticsReports,
   processStatisticsReport,
@@ -33,6 +34,8 @@ import {
 } from "@/lib/finance/native-sync";
 import { scheduleGuestReads, processGuestRead } from "@/lib/guests/sync";
 import { scheduleSupplies, processSupplyRead } from "@/lib/supplies/sync";
+import { processDueQuickRestoSync } from "@/lib/inventory/quickresto-sync";
+import { processDishPhotos } from "@/lib/inventory/dish-photo-sync";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -69,7 +72,12 @@ export async function POST(request: NextRequest) {
       guestErrors = 0,
       supplySlices = 0,
       supplyErrors = 0,
-      supplyPending = 0;
+      supplyPending = 0,
+      nomenclatureRuns = 0,
+      nomenclatureErrors = 0,
+      dishPhotoRuns = 0,
+      dishPhotoErrors = 0,
+      dishPhotosDownloaded = 0;
     try {
       await scheduleStatisticsReports();
     } catch {
@@ -77,6 +85,11 @@ export async function POST(request: NextRequest) {
     }
     try {
       await scheduleAdditionalReports();
+    } catch {
+      additionalErrors++;
+    }
+    try {
+      await scheduleUpsellDays();
     } catch {
       additionalErrors++;
     }
@@ -115,21 +128,60 @@ export async function POST(request: NextRequest) {
     } catch {
       supplyErrors++;
     }
+    // The full Quick Resto sync (nomenclature, stores, open inventory acts —
+    // the same as the «Синхронизировать» button) runs once per account every
+    // few hours (see NOMENCLATURE_SYNC_INTERVAL_MS). A tick that ran it is its provider
+    // workload: the lanes below wait for the next tick, and the rotation is
+    // not advanced, so no queue loses its turn.
+    let nomenclatureBusy = false;
+    try {
+      const r = await processDueQuickRestoSync();
+      if (!r.idle) {
+        nomenclatureBusy = true;
+        nomenclatureRuns++;
+        if (r.error) nomenclatureErrors++;
+      }
+    } catch (error) {
+      nomenclatureErrors++;
+      console.error(
+        "[quickresto-sync] выбор подключения:",
+        error instanceof Error ? error.message : error,
+      );
+    }
     // Give each queue its scheduled turn, with at most one active provider
     // workload per tick. Shifts can use a turn whose assigned queue is idle.
-    const rotation = await asLooseDb(createAdminClient()).rpc(
-      "sales_next_worker_lane",
-    );
-    if (
-      rotation.error ||
-      !Number.isInteger(rotation.data) ||
-      Number(rotation.data) < 0 ||
-      Number(rotation.data) > 9
-    )
-      throw new Error("Не удалось выбрать очередь");
-    const lane = Number(rotation.data);
+    let lane = -1;
+    if (!nomenclatureBusy) {
+      const rotation = await asLooseDb(createAdminClient()).rpc(
+        "sales_next_worker_lane",
+      );
+      if (
+        rotation.error ||
+        !Number.isInteger(rotation.data) ||
+        Number(rotation.data) < 0 ||
+        Number(rotation.data) > 10
+      )
+        throw new Error("Не удалось выбрать очередь");
+      lane = Number(rotation.data);
+    }
     const started = Date.now();
-    if (lane === 9) {
+    if (lane === 10) {
+      // Фото блюд из Quick Resto: один ход до ~25 секунд (dish-photo-sync.ts).
+      try {
+        const r = await processDishPhotos();
+        if (!r.idle) {
+          dishPhotoRuns++;
+          dishPhotosDownloaded += r.downloaded;
+          if (r.error) dishPhotoErrors++;
+        }
+      } catch (error) {
+        dishPhotoErrors++;
+        console.error(
+          "[dish-photos] ход очереди:",
+          error instanceof Error ? error.message : error,
+        );
+      }
+    } else if (lane === 9) {
       while (Date.now() - started < 25000 && supplySlices < 100) {
         try {
           const r = await processSupplyRead();
@@ -235,6 +287,13 @@ export async function POST(request: NextRequest) {
       } catch {
         additionalErrors++;
       }
+      try {
+        const r = await processUpsellDay();
+        if (!r.idle) additionalReports++;
+        if (r.error) additionalErrors++;
+      } catch {
+        additionalErrors++;
+      }
     } else if (lane === 1) {
       try {
         const r = await processStatisticsReport();
@@ -254,8 +313,9 @@ export async function POST(request: NextRequest) {
       nativeFinanceSlices, nativeFinanceErrors,
       guestSlices, guestErrors,
       supplySlices, supplyErrors,
+      dishPhotoRuns, dishPhotoErrors,
     ].some(Boolean);
-    if (lane === 0 || !otherWork) {
+    if (!nomenclatureBusy && (lane === 0 || !otherWork)) {
       while (Date.now() - started < 25000 && slices < 100) {
         const r = await runOneSlice();
         if (r.idle) break;
@@ -289,6 +349,11 @@ export async function POST(request: NextRequest) {
       supplySlices,
       supplyErrors,
       supplyPending,
+      nomenclatureRuns,
+      nomenclatureErrors,
+      dishPhotoRuns,
+      dishPhotoErrors,
+      dishPhotosDownloaded,
     });
   } catch {
     return NextResponse.json(

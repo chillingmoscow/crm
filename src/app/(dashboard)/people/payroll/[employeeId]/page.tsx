@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { loadPayroll } from "../actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { validDate } from "@/lib/sales/time";
 import { EmployeePayrollPage } from "../_components/employee-payroll-page";
 
@@ -16,7 +17,7 @@ export default async function EmployeeSalaryPage({
   const [{ employeeId }, query, data] = await Promise.all([
     params,
     searchParams,
-    loadPayroll(),
+    loadPayroll().then(unwrapAction),
   ]);
   // The loader applies venue and own-salary access rules before this lookup.
   if (!data.employees.some((employee) => employee.id === employeeId))
@@ -30,6 +31,6 @@ export default async function EmployeeSalaryPage({
         // а не месяц начала учёта.
         `${(data.asOfDate ?? new Date().toISOString()).slice(0, 7)}-01`;
   return (
-    <EmployeePayrollPage initial={data} employeeId={employeeId} month={month} initialTab={query.tab} />
+    <EmployeePayrollPage initial={data} employeeId={employeeId} month={month}/>
   );
 }

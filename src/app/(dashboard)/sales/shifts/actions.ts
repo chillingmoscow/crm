@@ -1,4 +1,5 @@
 "use server";
+import { actionResult } from "@/lib/actions/result";
 import { writeAuditEvent } from "@/lib/audit/write";
 import {
   createClient,
@@ -62,7 +63,7 @@ async function scope(permission = "sales.view_shifts", targetVenueId?: string) {
     permissions,
   };
 }
-export async function loadSalesConfiguration(
+async function loadSalesConfigurationImpl(
   venueId: string,
 ): Promise<SalesConfiguration> {
   const s = await scope("sales.configure_shifts", venueId);
@@ -108,7 +109,7 @@ export async function loadSalesConfiguration(
     pending: pending.count ?? 0,
   };
 }
-export async function recalculateSalesHistory(input: {
+async function recalculateSalesHistoryImpl(input: {
   venueId: string;
   from: string;
   to: string;
@@ -118,7 +119,7 @@ export async function recalculateSalesHistory(input: {
     throw new Error("Нет доступа к настройкам смен");
   if (!validDate(input.from) || !validDate(input.to) || input.from > input.to)
     throw new Error("Выберите корректный период");
-  const config = await loadSalesConfiguration(s.venueId);
+  const config = await loadSalesConfigurationImpl(s.venueId);
   if (!config.settings || !config.connected)
     throw new Error(
       "Сначала подключите Quick Resto и сохраните параметры расчёта",
@@ -143,7 +144,7 @@ export async function recalculateSalesHistory(input: {
  * всю историю на каждом обновлении незачем. Без `month` — вся история
  * (статистика по месяцам).
  */
-export async function loadSales(
+async function loadSalesImpl(
   requested?: string | "current",
 ): Promise<SalesData> {
   if (requested !== undefined && requested !== "current")
@@ -244,7 +245,7 @@ export async function loadSales(
     jobs: jobs.data ?? [],
   };
 }
-export async function adjustSales(input: {
+async function adjustSalesImpl(input: {
   id: string;
   version: number;
   changes: Partial<Metrics>;
@@ -279,7 +280,7 @@ export async function adjustSales(input: {
   if (r.error) throw new Error(r.error.message);
   return r.data as SalesDay;
 }
-export async function salesHistory(id: string) {
+async function salesHistoryImpl(id: string) {
   const s = await scope();
   z.string().uuid().parse(id);
   const r = await s.db
@@ -291,7 +292,7 @@ export async function salesHistory(id: string) {
   if (r.error) throw new Error(r.error.message);
   return r.data ?? [];
 }
-export async function requestSalesSync(dates: string[]) {
+async function requestSalesSyncImpl(dates: string[]) {
   const s = await scope("sales.sync_shifts");
   if (!dates.length || dates.length > 31 || dates.some((d) => !validDate(d)))
     throw new Error("Выберите от 1 до 31 даты");
@@ -348,7 +349,7 @@ const settingsSchema = z.object({
   deposit_products: mapping,
   parking_product_ids: z.array(z.number().int().positive()).max(100),
 });
-export async function saveSalesSettings(
+async function saveSalesSettingsImpl(
   input: z.infer<typeof settingsSchema>,
   venueId: string,
 ) {
@@ -406,7 +407,7 @@ export async function saveSalesSettings(
       10,
     );
 }
-export async function exportSalesRows(ids: string[]) {
+async function exportSalesRowsImpl(ids: string[]) {
   const s = await scope("sales.export_shifts");
   if (
     ids.length > 20000 ||
@@ -458,4 +459,68 @@ async function logSalesSettingsChange(
       other_fields: changed.filter((key) => !shown.includes(key)).length,
     },
   });
+}
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function loadSalesConfiguration(venueId: string) {
+  return actionResult(
+    () => loadSalesConfigurationImpl(venueId),
+    "Не удалось загрузить настройки смен",
+  );
+}
+export async function recalculateSalesHistory(
+  input: Parameters<typeof recalculateSalesHistoryImpl>[0],
+) {
+  return actionResult(
+    () => recalculateSalesHistoryImpl(input),
+    "Не удалось запустить пересчёт",
+  );
+}
+/** Для сервера (страница, статистика): данные или исключение. */
+export async function loadSales(
+  requested?: string | "current",
+): Promise<SalesData> {
+  return loadSalesImpl(requested);
+}
+/** Для браузера: обновление экрана «Смен». */
+export async function loadSalesForClient(requested?: string | "current") {
+  return actionResult(
+    () => loadSalesImpl(requested),
+    "Не удалось загрузить смены",
+  );
+}
+export async function adjustSales(
+  input: Parameters<typeof adjustSalesImpl>[0],
+) {
+  return actionResult(
+    () => adjustSalesImpl(input),
+    "Не удалось сохранить исправления",
+  );
+}
+export async function salesHistory(id: string) {
+  return actionResult(
+    () => salesHistoryImpl(id),
+    "Не удалось загрузить историю смены",
+  );
+}
+export async function requestSalesSync(dates: string[]) {
+  return actionResult(
+    () => requestSalesSyncImpl(dates),
+    "Не удалось запустить обновление",
+  );
+}
+export async function saveSalesSettings(
+  input: z.infer<typeof settingsSchema>,
+  venueId: string,
+) {
+  return actionResult(
+    () => saveSalesSettingsImpl(input, venueId),
+    "Не удалось сохранить настройки смен",
+  );
+}
+export async function exportSalesRows(ids: string[]) {
+  return actionResult(
+    () => exportSalesRowsImpl(ids),
+    "Не удалось выгрузить смены",
+  );
 }

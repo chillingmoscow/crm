@@ -43,7 +43,7 @@ export type Database = {
           size_bytes: number
           storage_path: string
           uploaded_at: string
-          uploaded_by: string
+          uploaded_by: string | null
         }
         Insert: {
           account_id: string
@@ -53,7 +53,7 @@ export type Database = {
           size_bytes: number
           storage_path: string
           uploaded_at?: string
-          uploaded_by: string
+          uploaded_by?: string | null
         }
         Update: {
           account_id?: string
@@ -63,7 +63,7 @@ export type Database = {
           size_bytes?: number
           storage_path?: string
           uploaded_at?: string
-          uploaded_by?: string
+          uploaded_by?: string | null
         }
         Relationships: [
           {
@@ -500,21 +500,27 @@ export type Database = {
           account_id: string
           address: string | null
           contact_person: string | null
+          contacts: Json
           created_at: string
           created_by: string | null
           dadata_synced_at: string | null
           deleted_at: string | null
           deleted_by: string | null
+          delivery_weekdays: number[]
           description: string | null
           email: string | null
           group_id: string | null
           id: string
           inn: string | null
           is_active: boolean
+          is_supplier: boolean
           kpp: string | null
           legal_form: Database["public"]["Enums"]["legal_form_enum"]
+          min_order_amount: number | null
           name: string
           ogrn: string | null
+          order_weekdays: number[]
+          payment_delay_days: number | null
           phone: string | null
           updated_at: string | null
           updated_by: string | null
@@ -523,21 +529,27 @@ export type Database = {
           account_id: string
           address?: string | null
           contact_person?: string | null
+          contacts?: Json
           created_at?: string
           created_by?: string | null
           dadata_synced_at?: string | null
           deleted_at?: string | null
           deleted_by?: string | null
+          delivery_weekdays?: number[]
           description?: string | null
           email?: string | null
           group_id?: string | null
           id?: string
           inn?: string | null
           is_active?: boolean
+          is_supplier?: boolean
           kpp?: string | null
           legal_form?: Database["public"]["Enums"]["legal_form_enum"]
+          min_order_amount?: number | null
           name: string
           ogrn?: string | null
+          order_weekdays?: number[]
+          payment_delay_days?: number | null
           phone?: string | null
           updated_at?: string | null
           updated_by?: string | null
@@ -546,21 +558,27 @@ export type Database = {
           account_id?: string
           address?: string | null
           contact_person?: string | null
+          contacts?: Json
           created_at?: string
           created_by?: string | null
           dadata_synced_at?: string | null
           deleted_at?: string | null
           deleted_by?: string | null
+          delivery_weekdays?: number[]
           description?: string | null
           email?: string | null
           group_id?: string | null
           id?: string
           inn?: string | null
           is_active?: boolean
+          is_supplier?: boolean
           kpp?: string | null
           legal_form?: Database["public"]["Enums"]["legal_form_enum"]
+          min_order_amount?: number | null
           name?: string
           ogrn?: string | null
+          order_weekdays?: number[]
+          payment_delay_days?: number | null
           phone?: string | null
           updated_at?: string | null
           updated_by?: string | null
@@ -1272,6 +1290,7 @@ export type Database = {
           backoffice_cookie_tag: string | null
           backoffice_last_tested_at: string | null
           backoffice_login: string | null
+          dish_photos_paused_until: string | null
           backoffice_password_encrypted: string | null
           backoffice_password_iv: string | null
           backoffice_password_tag: string | null
@@ -1298,6 +1317,7 @@ export type Database = {
           backoffice_cookie_tag?: string | null
           backoffice_last_tested_at?: string | null
           backoffice_login?: string | null
+          dish_photos_paused_until?: string | null
           backoffice_password_encrypted?: string | null
           backoffice_password_iv?: string | null
           backoffice_password_tag?: string | null
@@ -1324,6 +1344,7 @@ export type Database = {
           backoffice_cookie_tag?: string | null
           backoffice_last_tested_at?: string | null
           backoffice_login?: string | null
+          dish_photos_paused_until?: string | null
           backoffice_password_encrypted?: string | null
           backoffice_password_iv?: string | null
           backoffice_password_tag?: string | null
@@ -2619,6 +2640,397 @@ export type Database = {
         }
         Relationships: []
       }
+      payroll_official_employments: {
+        Row: {
+          account_id: string
+          archived_at: string | null
+          archived_by: string | null
+          contract_date: string | null
+          contract_number: string | null
+          contract_path: string | null
+          created_at: string
+          created_by: string | null
+          employee_id: string
+          ends_on: string | null
+          id: string
+          position: string
+          starts_on: string
+          updated_at: string
+          updated_by: string | null
+          venue_id: string
+        }
+        Insert: {
+          account_id: string
+          archived_at?: string | null
+          archived_by?: string | null
+          contract_date?: string | null
+          contract_number?: string | null
+          contract_path?: string | null
+          created_at?: string
+          created_by?: string | null
+          employee_id: string
+          ends_on?: string | null
+          id?: string
+          position: string
+          starts_on: string
+          updated_at?: string
+          updated_by?: string | null
+          venue_id: string
+        }
+        Update: {
+          account_id?: string
+          archived_at?: string | null
+          archived_by?: string | null
+          contract_date?: string | null
+          contract_number?: string | null
+          contract_path?: string | null
+          created_at?: string
+          created_by?: string | null
+          employee_id?: string
+          ends_on?: string | null
+          id?: string
+          position?: string
+          starts_on?: string
+          updated_at?: string
+          updated_by?: string | null
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payroll_official_employments_archived_by_fkey"
+            columns: ["archived_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payroll_official_employments_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payroll_official_employments_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payroll_official_months: {
+        Row: {
+          account_id: string
+          created_at: string
+          employee_id: string
+          employment_id: string
+          gross: number | null
+          id: string
+          kind: string
+          month: string
+          payment_id: string | null
+          reason: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          status: string
+          venue_id: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          employee_id: string
+          employment_id: string
+          gross?: number | null
+          id?: string
+          kind: string
+          month: string
+          payment_id?: string | null
+          reason?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status: string
+          venue_id: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          employee_id?: string
+          employment_id?: string
+          gross?: number | null
+          id?: string
+          kind?: string
+          month?: string
+          payment_id?: string | null
+          reason?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payroll_official_months_employment_fkey"
+            columns: ["account_id", "venue_id", "employment_id"]
+            isOneToOne: false
+            referencedRelation: "payroll_official_employments"
+            referencedColumns: ["account_id", "venue_id", "id"]
+          },
+          {
+            foreignKeyName: "payroll_official_months_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payroll_official_salaries: {
+        Row: {
+          account_id: string
+          created_at: string
+          created_by: string | null
+          document_path: string | null
+          employment_id: string
+          gross: number
+          id: string
+          valid_from: string
+          venue_id: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          created_by?: string | null
+          document_path?: string | null
+          employment_id: string
+          gross: number
+          id?: string
+          valid_from: string
+          venue_id: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          created_by?: string | null
+          document_path?: string | null
+          employment_id?: string
+          gross?: number
+          id?: string
+          valid_from?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payroll_official_salaries_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payroll_official_salaries_employment_fkey"
+            columns: ["account_id", "venue_id", "employment_id"]
+            isOneToOne: false
+            referencedRelation: "payroll_official_employments"
+            referencedColumns: ["account_id", "venue_id", "id"]
+          },
+        ]
+      }
+      payroll_payout_issues: {
+        Row: {
+          account_id: string
+          bank_account_id: string
+          business_date: string
+          cash: Json | null
+          created_at: string
+          created_by: string | null
+          id: string
+          input_snapshot: Json
+          lines: Json
+          message: string | null
+          message_error: string | null
+          message_sent_at: string | null
+          method: string
+          plan_id: string
+          request_key: string
+          total: number
+          venue_id: string
+        }
+        Insert: {
+          account_id: string
+          bank_account_id: string
+          business_date: string
+          cash?: Json | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          input_snapshot: Json
+          lines: Json
+          message?: string | null
+          message_error?: string | null
+          message_sent_at?: string | null
+          method: string
+          plan_id: string
+          request_key: string
+          total: number
+          venue_id: string
+        }
+        Update: {
+          account_id?: string
+          bank_account_id?: string
+          business_date?: string
+          cash?: Json | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          input_snapshot?: Json
+          lines?: Json
+          message?: string | null
+          message_error?: string | null
+          message_sent_at?: string | null
+          method?: string
+          plan_id?: string
+          request_key?: string
+          total?: number
+          venue_id?: string
+        }
+        Relationships: []
+      }
+      payroll_payout_plans: {
+        Row: {
+          account_id: string
+          approved_at: string | null
+          approved_by: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          month: string
+          payout_no: number
+          schedule: string
+          state: string
+          venue_id: string
+          version: number
+          window_from: string
+          window_to: string
+        }
+        Insert: {
+          account_id: string
+          approved_at?: string | null
+          approved_by?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          month: string
+          payout_no: number
+          schedule: string
+          state?: string
+          venue_id: string
+          version?: number
+          window_from: string
+          window_to: string
+        }
+        Update: {
+          account_id?: string
+          approved_at?: string | null
+          approved_by?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          month?: string
+          payout_no?: number
+          schedule?: string
+          state?: string
+          venue_id?: string
+          version?: number
+          window_from?: string
+          window_to?: string
+        }
+        Relationships: []
+      }
+      payroll_payout_rows: {
+        Row: {
+          account_id: string
+          amount: number
+          breakdown: Json
+          employee_id: string
+          id: string
+          issued: number
+          pay_date: string | null
+          plan_id: string
+          state: string
+          updated_at: string
+          updated_by: string | null
+          venue_id: string
+        }
+        Insert: {
+          account_id: string
+          amount: number
+          breakdown?: Json
+          employee_id: string
+          id?: string
+          issued?: number
+          pay_date?: string | null
+          plan_id: string
+          state?: string
+          updated_at?: string
+          updated_by?: string | null
+          venue_id: string
+        }
+        Update: {
+          account_id?: string
+          amount?: number
+          breakdown?: Json
+          employee_id?: string
+          id?: string
+          issued?: number
+          pay_date?: string | null
+          plan_id?: string
+          state?: string
+          updated_at?: string
+          updated_by?: string | null
+          venue_id?: string
+        }
+        Relationships: []
+      }
+      payroll_payout_settings: {
+        Row: {
+          account_id: string
+          bank_account_id: string | null
+          chat_id: string | null
+          min_cash: number
+          schedules: Json
+          updated_at: string
+          updated_by: string | null
+          venue_id: string
+        }
+        Insert: {
+          account_id: string
+          bank_account_id?: string | null
+          chat_id?: string | null
+          min_cash?: number
+          schedules?: Json
+          updated_at?: string
+          updated_by?: string | null
+          venue_id: string
+        }
+        Update: {
+          account_id?: string
+          bank_account_id?: string | null
+          chat_id?: string | null
+          min_cash?: number
+          schedules?: Json
+          updated_at?: string
+          updated_by?: string | null
+          venue_id?: string
+        }
+        Relationships: []
+      }
       permissions: {
         Row: {
           code: string
@@ -2886,6 +3298,171 @@ export type Database = {
           {
             foreignKeyName: "roles_updated_by_fkey"
             columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sales_upsell_days: {
+        Row: {
+          account_id: string
+          attempts: number
+          business_date: string
+          catalog_at: string | null
+          claimed_at: string | null
+          computed_at: string | null
+          department_id: string
+          id: string
+          job_id: string | null
+          last_error: string | null
+          lease_token: string | null
+          next_retry_at: string
+          result: Json | null
+          rule_id: string
+          state: string
+          venue_id: string
+        }
+        Insert: {
+          account_id: string
+          attempts?: number
+          business_date: string
+          catalog_at?: string | null
+          claimed_at?: string | null
+          computed_at?: string | null
+          department_id: string
+          id?: string
+          job_id?: string | null
+          last_error?: string | null
+          lease_token?: string | null
+          next_retry_at?: string
+          result?: Json | null
+          rule_id: string
+          state?: string
+          venue_id: string
+        }
+        Update: {
+          account_id?: string
+          attempts?: number
+          business_date?: string
+          catalog_at?: string | null
+          claimed_at?: string | null
+          computed_at?: string | null
+          department_id?: string
+          id?: string
+          job_id?: string | null
+          last_error?: string | null
+          lease_token?: string | null
+          next_retry_at?: string
+          result?: Json | null
+          rule_id?: string
+          state?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_upsell_days_account_id_venue_id_department_id_fkey"
+            columns: ["account_id", "venue_id", "department_id"]
+            isOneToOne: false
+            referencedRelation: "sales_upsell_departments"
+            referencedColumns: ["account_id", "venue_id", "department_id"]
+          },
+          {
+            foreignKeyName: "sales_upsell_days_department_id_rule_id_fkey"
+            columns: ["department_id", "rule_id"]
+            isOneToOne: false
+            referencedRelation: "sales_upsell_rules"
+            referencedColumns: ["department_id", "id"]
+          },
+        ]
+      }
+      sales_upsell_departments: {
+        Row: {
+          account_id: string
+          created_at: string
+          department_id: string
+          legacy_kind: string | null
+          venue_id: string
+          version: number
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          department_id: string
+          legacy_kind?: string | null
+          venue_id: string
+          version?: number
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          department_id?: string
+          legacy_kind?: string | null
+          venue_id?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_upsell_departments_account_id_venue_id_fkey"
+            columns: ["account_id", "venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "sales_upsell_departments_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: true
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sales_upsell_rules: {
+        Row: {
+          account_id: string
+          created_at: string
+          created_by: string | null
+          department_id: string
+          id: string
+          lines: Json
+          reason: string
+          valid_from: string
+          venue_id: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          created_by?: string | null
+          department_id: string
+          id?: string
+          lines: Json
+          reason: string
+          valid_from: string
+          venue_id: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          created_by?: string | null
+          department_id?: string
+          id?: string
+          lines?: Json
+          reason?: string
+          valid_from?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_upsell_rules_account_id_venue_id_department_id_fkey"
+            columns: ["account_id", "venue_id", "department_id"]
+            isOneToOne: false
+            referencedRelation: "sales_upsell_departments"
+            referencedColumns: ["account_id", "venue_id", "department_id"]
+          },
+          {
+            foreignKeyName: "sales_upsell_rules_created_by_fkey"
+            columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -3799,6 +4376,46 @@ export type Database = {
         }
         Returns: undefined
       }
+      payroll_official_command: {
+        Args: { p_action: string; p_input: Json }
+        Returns: string
+      }
+      payroll_official_expected: {
+        Args: { p_from: string; p_to: string }
+        Returns: {
+          days_in_month: number
+          days_paid: number | null
+          employee_id: string
+          employment_id: string
+          gross: number | null
+          kind: string
+          month: string
+        }[]
+      }
+      payroll_official_change_account: {
+        Args: { p_input: Json }
+        Returns: string[]
+      }
+      payroll_official_run: {
+        Args: { p_now?: string }
+        Returns: Json
+      }
+      payroll_official_skip: { Args: { p_id: string }; Returns: undefined }
+      payroll_payout_issue: { Args: { p_input: Json }; Returns: string }
+      payroll_payout_plan_save: { Args: { p_input: Json }; Returns: string }
+      payroll_payout_plan_state: {
+        Args: { p_plan: string; p_state: string }
+        Returns: undefined
+      }
+      payroll_payout_row_update: {
+        Args: { p_amount: number; p_pay_date: string | null; p_row: string }
+        Returns: undefined
+      }
+      payroll_payout_save_settings: { Args: { p_input: Json }; Returns: undefined }
+      payroll_record_official_payment: {
+        Args: { p_input: Json }
+        Returns: string
+      }
       payroll_save_fines_chat: {
         Args: { p_chat_id: string | null; p_enabled: boolean }
         Returns: undefined
@@ -3815,6 +4432,10 @@ export type Database = {
       set_effective_role_permission: {
         Args: { p_granted: boolean; p_permission_id: string; p_role_id: string }
         Returns: undefined
+      }
+      staff_begin_termination: {
+        Args: { p_official_end?: string; p_reason: string; p_uvr: string }
+        Returns: string
       }
     }
     Enums: {

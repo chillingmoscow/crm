@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { loadPayrollOverview } from "@/app/(dashboard)/people/payroll/actions";
+import { unwrapAction } from "@/lib/actions/result";
 import { validDate } from "@/lib/sales/time";
 import { PayrollWorkspace } from "@/app/(dashboard)/people/payroll/_components/payroll-workspace";
 
@@ -23,7 +24,7 @@ export default async function PayrollPage({
   if (query.tab === "attendance") redirect(`/schedule?date=${month}-01`);
   // Название заведения (для шапки выгрузки ведомости) приходит в том же
   // запросе к venues, что и часовой пояс, — без отдельного шага после обзора.
-  const data = await loadPayrollOverview();
+  const data = unwrapAction(await loadPayrollOverview());
   return (
     <PayrollWorkspace
       key={`${data.venueId}:${month}`}

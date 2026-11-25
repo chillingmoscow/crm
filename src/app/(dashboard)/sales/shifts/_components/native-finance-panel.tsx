@@ -1,4 +1,5 @@
 "use client";
+import { unwrapAction } from "@/lib/actions/result";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,6 +14,7 @@ import { salesErrorText } from "@/lib/sales/errors";
 import {
   loadFinanceExecutionDay,
   retryNativeFinance,
+  type FinanceExecutionDay,
   type FinanceExecutionRun,
 } from "../native-finance-actions";
 import type { NativeFinanceKind } from "@/lib/finance/native-plan";
@@ -54,7 +56,7 @@ export function NativeFinancePanel({
   const key = venueId + date;
   const [data, setData] = useState<{
     key: string;
-    value: NonNullable<Awaited<ReturnType<typeof loadFinanceExecutionDay>>>;
+    value: FinanceExecutionDay;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -66,7 +68,7 @@ export function NativeFinancePanel({
     const read = async () => {
       let pending = false;
       try {
-        const v = await loadFinanceExecutionDay(venueId, date);
+        const v = unwrapAction(await loadFinanceExecutionDay(venueId, date));
         if (live) {
           setData(v ? { key, value: v } : null);
           setError(null);
@@ -103,8 +105,8 @@ export function NativeFinancePanel({
   const retry = async (kind: NativeFinanceKind) => {
     setBusy(true);
     try {
-      await retryNativeFinance(venueId, date, kind);
-      const v = await loadFinanceExecutionDay(venueId, date);
+      unwrapAction(await retryNativeFinance(venueId, date, kind));
+      const v = unwrapAction(await loadFinanceExecutionDay(venueId, date));
       if (v) setData({ key, value: v });
       setError(null);
     } catch (e) {
@@ -122,10 +124,12 @@ export function NativeFinancePanel({
     if (!current?.runs.length) return;
     setBusy(true);
     try {
-      const v = await loadFinanceExecutionDay(
-        venueId,
-        date,
-        current.runs[current.runs.length - 1].id,
+      const v = unwrapAction(
+        await loadFinanceExecutionDay(
+          venueId,
+          date,
+          current.runs[current.runs.length - 1].id,
+        ),
       );
       if (v)
         setData({ key, value: { ...v, runs: [...current.runs, ...v.runs] } });

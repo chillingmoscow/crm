@@ -10,6 +10,7 @@ import {
 } from "./statement-export.ts";
 import { columnName, sheetName, xlsxParts } from "../export/xlsx.ts";
 import type { Accrual, Attendance, Component, PayEmployee } from "./types.ts";
+import type { statementRows } from "./calculate.ts";
 
 const component = (kind: string, amount: number | null, label = kind): Component => ({
   kind,
@@ -73,6 +74,7 @@ const baseRow = (e: PayEmployee) => ({
   remaining: 2150.5,
   transferredIn: 0,
   transferredOut: 0,
+  officialExpected: null as ReturnType<typeof statementRows>[number]["officialExpected"],
   bonuses: 500,
   deductions: 300,
   issues: 0,
@@ -208,6 +210,29 @@ test("unknown paid amounts are dashes, not zeros, and explained", () => {
   assert.ok(
     statement.rows.some((r) => String(texts(r)[0]).startsWith("Выплачено и К выплате появятся")),
   );
+});
+
+test("ожидаемая официальная часть — отдельный столбец, неизвестная сумма текстом", () => {
+  const boris = employee("e2", "Борис Петров", "Кассир");
+  const [statement] = statementWorkbook(
+    input({
+      rows: [
+        row(anna, { remaining: -77849.5, officialExpected: { amount: 80000, kind: "full", days_paid: null, days_in_month: 30 } }),
+        row(boris, { officialExpected: { amount: null, kind: "final", days_paid: null, days_in_month: 30 } }),
+      ],
+    }),
+  );
+  const header = texts(statement.rows[4]);
+  const col = header.indexOf("Официальная часть (ожидается)");
+  assert.ok(col > header.indexOf("Выплачено") && col < header.indexOf("К выплате"));
+  assert.equal(texts(statement.rows[5])[col], 80000);
+  assert.deepEqual(statement.rows[6][col], { v: "уточняется", s: "muted" });
+  // Неизвестная сумма в итог не входит — как и в «К выплате».
+  assert.equal((statement.rows[7][col] as { v: number }).v, 80000);
+  assert.ok(statement.rows.some((r) => String(texts(r)[0]).includes("− официальная часть")));
+  // Без официально оформленных столбца нет.
+  const [plain] = statementWorkbook(input());
+  assert.equal(texts(plain.rows[4]).includes("Официальная часть (ожидается)"), false);
 });
 
 test("xlsx parts: inline strings are escaped and never formulas", () => {

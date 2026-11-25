@@ -36,6 +36,7 @@ import {
   type WriteoffData,
   type WriteoffHistory,
 } from "./actions";
+import { unwrapAction } from "@/lib/actions/result";
 import {
   writeoffQuantity,
   writeoffStamp,
@@ -77,6 +78,7 @@ export function WriteoffDrawer({
     let active = true;
     if (row.native)
       void loadWriteoffHistory(data.venueId, row.id)
+        .then(unwrapAction)
         .then((h) => active && setHistory(h))
         .catch(() => active && setError(true));
     return () => {

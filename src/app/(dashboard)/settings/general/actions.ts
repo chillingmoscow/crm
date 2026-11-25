@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { actionResult } from "@/lib/actions/result";
 import { normalizeAmountRoundingScale } from "@/lib/format/amount";
 import { TIMEZONES } from "@/lib/constants";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -12,7 +13,7 @@ import {
   getCachedPermissionChecker,
 } from "@/lib/supabase/server";
 
-export async function updateGeneralSettings(formData: FormData) {
+async function updateGeneralSettingsImpl(formData: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -43,7 +44,7 @@ export async function updateGeneralSettings(formData: FormData) {
     })
     .eq("id", accountId);
 
-  if (error) throw new Error(error.message);
+  if (error) throw error;
   revalidatePath("/settings/general");
   revalidatePath("/finance");
   revalidatePath("/finance/transactions");
@@ -53,4 +54,10 @@ export async function updateGeneralSettings(formData: FormData) {
   revalidatePath("/catalog/ingredients");
   revalidatePath("/documents/inventory");
   revalidatePath("/documents/inventory/[id]/results", "page");
+}
+
+// Действие возвращает ошибку текстом, а не исключением: в рабочей сборке Next.js
+// заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function updateGeneralSettings(formData: FormData) {
+  return actionResult(() => updateGeneralSettingsImpl(formData), "Не удалось сохранить настройки");
 }

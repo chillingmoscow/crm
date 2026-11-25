@@ -32,9 +32,11 @@ export const AUDIT_ACTION_CATEGORIES: {
 const CATEGORY_SUFFIXES: Record<AuditActionCategory, string[]> = {
   // `_imported`, `_requested`: `stock.writeoffs.archive_imported`,
   // `stock.writeoffs.refresh_requested` (в LIKE `_` ловит и точку).
-  created: [".created", ".sent", "_imported", "_requested"],
+  // `.issued` — выдача зарплаты по плану выплат (`payroll.payout_plan.issued`).
+  created: [".created", ".sent", "_imported", "_requested", ".issued"],
   // Приём в команду (сотрудник, кандидат) и увольнение с закрытием доступов.
-  staffing: [".hired", ".fired", ".access_removed"],
+  // `.ended` — официальное увольнение (`payroll.official_employment.ended`).
+  staffing: [".hired", ".fired", ".access_removed", ".ended"],
   changed: [
     ".edited",
     ".renamed",
@@ -77,6 +79,8 @@ const CATEGORY_SUFFIXES: Record<AuditActionCategory, string[]> = {
     ".posted",
     ".skipped",
     ".postponed",
+    // План выплат: пересчёт черновика.
+    ".recalculated",
   ],
   deleted: [".deleted", ".archived", ".cancelled"],
   restored: [".restored"],

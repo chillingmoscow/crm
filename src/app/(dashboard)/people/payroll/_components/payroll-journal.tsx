@@ -1,5 +1,6 @@
 "use client";
 
+import { Combobox } from "@/components/finance/combobox";
 import { PayrollEmployeePicker } from "@/app/(dashboard)/people/payroll/_components/payroll-employee-picker";
 
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
@@ -55,7 +56,8 @@ import { runWithConcurrency } from "@/lib/run-with-concurrency";
 import { zonedParts } from "@/lib/sales/time";
 import { formatQuantityAmount, signedAmountClass } from "@/lib/format/amount";
 import { Money, formatRub } from "@/components/shared/money";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { unwrapAction } from "@/lib/actions/result";
 import style from "./payroll-journal.module.css";
 import formStyle from "./payroll-payment-form.module.css";
 
@@ -92,26 +94,34 @@ const labels = {
   employee: "Сотрудник",
   kind: "Тип",
   reason: "Основание",
+  status: "Статус",
   amount: "Сумма",
 };
 /** Бонусы Quick Resto — баллы, не рубли: «+150 б.», «−20 б.». */
 const bonusPoints = (n: number, signed = true) =>
   `${signed ? (n > 0 ? "+" : n < 0 ? "−" : "") : n < 0 ? "−" : ""}${formatQuantityAmount(Math.abs(n), 2)} б.`;
 const dateLabel = (d: string) => d.slice(0, 10).split("-").reverse().join(".");
-const statusLabel = (r: Adjustment) =>
+/** Статус записи в журнале: куда она ушла — в зарплату, в бонусы Quick Resto — и что с ней сейчас. */
+type EntryStatus = { label: string; tone: StatusTone; tip: string };
+/** Короткая метка — столбец узкий; пояснение — в подсказке при наведении. */
+const entryStatus = (r: Adjustment): EntryStatus =>
   r.deleted_at
-    ? "Удалено"
-    : r.medium === "bonus"
-      ? r.external_state === "done"
-        ? "Учтено в бонусах"
-        : r.origin === "lateness" && r.external_state === "review"
-          ? "Нужен бонусный баланс"
-          : "Рассчитано · бонусы"
-      : r.kind === "warning"
-        ? "Учтено"
-        : r.approved
-          ? "Учтено в зарплате"
-          : "Прежняя запись";
+    ? { label: "Удалено", tone: "neutral", tip: "Запись удалена и не учитывается" }
+    : r.bonus_return === "review"
+      ? { label: "Сверка", tone: "danger", tip: "Возврат бонусов не подтвердился. Нужна сверка с историей Quick Resto" }
+      : r.bonus_return
+        ? { label: "Возврат", tone: "warning", tip: "Возвращаем бонусы в Quick Resto. Запись удалится после подтверждения" }
+        : r.medium === "bonus"
+          ? r.external_state === "done"
+            ? { label: "В бонусах", tone: "success", tip: "Бонусы проведены в Quick Resto" }
+            : r.origin === "lateness" && r.external_state === "review"
+              ? { label: "Нет баланса", tone: "warning", tip: "Нужен бонусный баланс сотрудника" }
+              : { label: "В очереди", tone: "info", tip: "Бонусы ещё не отправлены в Quick Resto" }
+          : r.kind === "warning"
+            ? { label: "Учтено", tone: "neutral", tip: "Предупреждение учтено, без удержания" }
+            : r.approved
+              ? { label: "В зарплате", tone: "success", tip: "Учтено в расчёте зарплаты" }
+              : { label: "Прежняя", tone: "neutral", tip: "Запись из прежнего учёта" };
 /** Сумма записи со знаком; копейки — только в карточке записи (`fraction`). */
 const entryAmount = (r: Adjustment, fraction = false): ReactNode => {
   if (r.kind === "warning") return <Money value={null} />;
@@ -146,22 +156,33 @@ export function PayrollJournal({
   actions,
   toolbarTargetId = "payroll-workspace-controls",
   employeeId,
+  drawerOnly = false,
+  openId,
+  onOpenIdChange,
 }: {
   data: PayrollData;
   month: string;
-  query: string;
-  onQuery: (q: string) => void;
+  query?: string;
+  onQuery?: (q: string) => void;
   onChange: () => Promise<void>;
   actions?: ReactNode;
   toolbarTargetId?: string;
   employeeId?: string;
+  /** Только панель записи, без таблицы: её открывает расчётный лист сотрудника. */
+  drawerOnly?: boolean;
+  /** Открытая запись, когда ею управляет родитель. */
+  openId?: string | null;
+  onOpenIdChange?: (id: string | null) => void;
 }) {
   const [kind, setKind] = useState("all"),
     [employee, setEmployee] = useState("all"),
     [showDeleted, setShowDeleted] = useState(false);
   const [createKind, setCreateKind] = useState<"deduction" | "allowance">("deduction");
   const [creating, setCreating] = useState(false),
-    [selectedId, setSelectedId] = useState<string | null>(null);
+    [ownSelectedId, setOwnSelectedId] = useState<string | null>(null);
+  const selectedId = openId !== undefined ? openId : ownSelectedId;
+  const setSelectedId = (id: string | null) =>
+    onOpenIdChange ? onOpenIdChange(id) : setOwnSelectedId(id);
   const [detail, setDetail] = useState<PayrollEntryDetail | null>(null),
     [error, setError] = useState("");
   const [busy, setBusy] = useState(false),
@@ -190,7 +211,15 @@ export function PayrollJournal({
   const canWrite = data.permissions.includes("payroll.review");
   const entryLive = canWrite && !!selected && !selected.deleted_at;
   const canEditSelected = entryLive && Object.hasOwn(editTitles, selected.kind);
-  const canDeleteSelected = entryLive && !selectedPaid;
+  /** Запись проведена бонусами Quick Resto: удаление сначала возвращает бонусы. */
+  const selectedBonusDone =
+    !!selected && selected.medium === "bonus" && selected.external_state === "done";
+  // Возврат бонусов, поставленный при удалении, ещё не закончен.
+  const bonusReturn =
+    selected && !selected.deleted_at && detail?.bonusReturn && !["done", "cancelled"].includes(detail.bonusReturn.state)
+      ? detail.bonusReturn
+      : null;
+  const canDeleteSelected = entryLive && !selectedPaid && !bonusReturn;
   const editAmountLocked =
     !!selected &&
     (selectedPaid ||
@@ -213,13 +242,13 @@ export function PayrollJournal({
     setBusy(true);
     setEditError("");
     try {
-      await updatePayrollEntry({
+      unwrapAction(await updatePayrollEntry({
         id: selected.id,
         amount: selected.kind === "warning" ? 0 : (editAmount ?? 0),
         reason: editReason,
         expected_amount: editExpected.amount,
         expected_reason: editExpected.reason,
-      });
+      }));
     } catch (e) {
       // Ошибка сохранения остаётся в панели, ввод не теряется.
       setEditError(e instanceof Error ? e.message : "Не удалось сохранить");
@@ -240,7 +269,7 @@ export function PayrollJournal({
   };
   const reloadDetail = async () => {
     if (!selectedId) return;
-    const next = await loadPayrollEntry(selectedId);
+    const next = unwrapAction(await loadPayrollEntry(selectedId));
     if (selection.current === selectedId) setDetail(next);
   };
   useEffect(() => {
@@ -254,6 +283,7 @@ export function PayrollJournal({
     let live = true;
     const load = () =>
       loadPayrollEntry(selectedId)
+        .then(unwrapAction)
         .then((d) => {
           if (live) {
             setDetail(d);
@@ -273,9 +303,10 @@ export function PayrollJournal({
     };
   }, [selectedId]);
   useEffect(() => {
+    if (drawerOnly) return;
     const id = new URLSearchParams(window.location.search).get("entry");
-    if (id && data.adjustments.some((a) => a.id === id)) setSelectedId(id);
-  }, [data.adjustments]);
+    if (id && data.adjustments.some((a) => a.id === id)) setOwnSelectedId(id);
+  }, [data.adjustments, drawerOnly]);
   const rows = data.adjustments.filter(
     (a) =>
       a.business_date.startsWith(month.slice(0, 7)) &&
@@ -298,7 +329,7 @@ export function PayrollJournal({
               : id === "kind"
                 ? (kindLabels[r.kind] ?? r.kind)
                 : id === "status"
-                  ? statusLabel(r)
+                  ? entryStatus(r).label
                   : r[id as "amount" | "reason"],
         cell: ({ row }) => {
           const r = row.original;
@@ -331,7 +362,11 @@ export function PayrollJournal({
             ) : (
               entryAmount(r)
             );
-          if (r.deleted_at) return <span className="flex min-w-0 items-center gap-2"><span className="line-clamp-2 min-w-0 text-muted-foreground line-through" data-tip={r.reason}>{r.reason}</span><StatusBadge className="shrink-0">Удалено</StatusBadge></span>;
+          if (id === "status") {
+            const status = entryStatus(r);
+            return <span className="inline-flex" data-tip={status.tip}><StatusBadge tone={status.tone} className="whitespace-nowrap">{status.label}</StatusBadge></span>;
+          }
+          if (r.deleted_at) return <span className="line-clamp-2 min-w-0 text-muted-foreground line-through" data-tip={r.reason}>{r.reason}</span>;
           return <span className="line-clamp-2" data-tip={r.reason}>{r.reason}</span>;
         },
       })),
@@ -353,15 +388,18 @@ export function PayrollJournal({
     if (!selected) return;
     setBusy(true);
     setDeleteError("");
+    let queued = false;
     try {
-      await deletePayrollEntry(selected.id, deleteReason);
+      queued = unwrapAction(await deletePayrollEntry(selected.id, deleteReason)).bonusReturnQueued;
     } catch (e) {
       setDeleteError(e instanceof Error ? e.message : "Не удалось удалить запись");
       setBusy(false);
       return;
     }
     setDeleting(false);
-    toast.success("Запись удалена");
+    toast.success(queued
+      ? "Возврат бонусов отправлен в Quick Resto. Запись удалится, когда Quick Resto его подтвердит"
+      : "Запись удалена");
     try {
       await onChange();
       await reloadDetail();
@@ -373,6 +411,7 @@ export function PayrollJournal({
   };
   return (
     <>
+      {!drawerOnly && <>
       <PayrollTable
         // Ключ сохранённых настроек столбцов: остался от прежнего названия
         // экрана, менять нельзя — у всех сбросятся порядок и ширина столбцов.
@@ -389,7 +428,7 @@ export function PayrollJournal({
         defaultSort="date"
         defaultSortDesc
         toolbarTargetId={toolbarTargetId}
-        externalSearch={{ value: query, onChange: onQuery }}
+        externalSearch={{ value: query ?? "", onChange: onQuery ?? (() => {}) }}
         searchText={(r) =>
           `${data.employees.find((e) => e.id === r.employee_id)?.name} ${r.reason} ${kindLabels[r.kind]}`
         }
@@ -459,6 +498,7 @@ export function PayrollJournal({
           if (ids.length === 1) setSelectedId(ids[0]);
         }}
       />
+      </>}
       <PayrollDetailDialog
         open={Boolean(selected)}
         onOpenChange={(open) => { if (!open && !busy) setSelectedId(null); }}
@@ -467,8 +507,11 @@ export function PayrollJournal({
         employee={selected ? (() => { const e = data.employees.find((e) => e.id === selected.employee_id); return {name:e?.name ?? "Сотрудник", role:e?.role_name, avatarUrl:e?.avatar_url}; })() : undefined}
         amount={selected && !editing ? entryAmount(selected, true) : undefined}
         amountLabel={selected?.kind === "warning" ? "Без денежного удержания" : selected?.kind === "allowance" ? "Надбавка за месяц" : selected?.kind === "bonus" ? "Сумма премии" : selected?.kind === "correction" ? "Сумма корректировки" : "Сумма удержания"}
-        status={selected && (selected.deleted_at || selectedPaid || detail?.notification) ? <span className="flex flex-wrap items-center justify-end gap-2">
+        status={selected && (selected.deleted_at || selectedPaid || detail?.notification || bonusReturn) ? <span className="flex flex-wrap items-center justify-end gap-2">
           {selected.deleted_at && <StatusBadge>Удалено</StatusBadge>}
+          {bonusReturn && <span className="inline-flex" data-tip={bonusReturn.message ?? undefined}>
+            <StatusBadge tone="warning">{bonusReturn.state === "review" ? "Сверка возврата" : "Возвращаем бонусы"}</StatusBadge>
+          </span>}
           {selectedPaid && <StatusBadge tone="success">Выплачена</StatusBadge>}
           {!selected.deleted_at && detail?.notification && <span
             className="inline-flex"
@@ -611,7 +654,7 @@ export function PayrollJournal({
                           void run(async () => {
                             const form = new FormData();
                             form.set("file", f);
-                            await uploadPayrollPhoto(selected.id, form);
+                            unwrapAction(await uploadPayrollPhoto(selected.id, form));
                             await reloadDetail();
                           });
                         e.target.value = "";
@@ -639,6 +682,7 @@ export function PayrollJournal({
                           bonus_operation: "Обработка бонусной операции",
                         }[h.action] ?? h.action}
                       </p>
+                      {h.action === "bonus_operation" && h.details.operation === "reverse" && <p className="text-muted-foreground">Возврат бонусов при удалении</p>}
                       {h.action === "bonus_operation" && <p className="text-muted-foreground">{({pending:"В очереди",reading:"Проверка баланса",sending:"Отправлена в Quick Resto",done:"Проведена",review:"Нужна сверка",cancelled:"Отменена",money:"Удержано деньгами"} as Record<string,string>)[String(h.details.state)]??"Нужна сверка"}{h.details.message?` · ${String(h.details.message)}`:""}</p>}
                       {h.action === "updated" && h.details.previous_amount != null && Number(h.details.previous_amount) !== Number(h.details.amount) && <p className="text-muted-foreground">Сумма: {h.details.medium === "bonus" ? `${bonusPoints(Number(h.details.previous_amount), false)} → ${bonusPoints(Number(h.details.amount), false)}` : `${formatRub(Number(h.details.previous_amount), { fraction: true })} → ${formatRub(Number(h.details.amount), { fraction: true })}`}</p>}
                       {h.action === "updated" && typeof h.details.previous_reason === "string" && h.details.previous_reason !== h.details.reason && <p className="text-muted-foreground">Основание: {h.details.previous_reason} → {String(h.details.reason)}</p>}
@@ -689,11 +733,11 @@ export function PayrollJournal({
                       disabled={busy || !comment.trim()}
                       onClick={() =>
                         void run(async () => {
-                          await commentPayrollEntry(
+                          unwrapAction(await commentPayrollEntry(
                             selected.id,
                             comment,
                             crypto.randomUUID(),
-                          );
+                          ));
                           setComment("");
                           await reloadDetail();
                         })
@@ -714,7 +758,9 @@ export function PayrollJournal({
         open={deleting && Boolean(selected)}
         onOpenChange={(open) => { if (!open) setDeleting(false); }}
         title={`Удалить ${deleteObject}?`}
-        description="Запись перестанет учитываться и останется в журнале с отметкой «Удалено»: её видно с фильтром «Показывать удалённые». Причина сохранится в истории записи."
+        description={selectedBonusDone
+          ? `Бонусы по этой записи уже проведены в Quick Resto. Sheerly отправит обратную операцию — ${Number(selected?.amount) < 0 ? "вернёт списанные бонусы" : "спишет начисленные бонусы"}, — и запись удалится, когда Quick Resto её подтвердит. Обычно это занимает несколько минут. Причина сохранится в истории записи.`
+          : "Запись перестанет учитываться и останется в журнале с отметкой «Удалено»: её видно с фильтром «Показывать удалённые». Причина сохранится в истории записи."}
         confirmLabel={`Удалить ${deleteObject}`}
         pendingLabel="Удаляем…"
         destructive
@@ -836,14 +882,14 @@ export function PayrollEntryForm({
         request.current = { key: crypto.randomUUID(), payload };
       const key = request.current.key;
       const ids = isBonus
-        ? await recordPayrollBonuses({ ...bonus, request_key: key })
-        : [await createPayrollEntry({ ...single, id: key, request_key: key })];
+        ? unwrapAction(await recordPayrollBonuses({ ...bonus, request_key: key }))
+        : [unwrapAction(await createPayrollEntry({ ...single, id: key, request_key: key }))];
       let photoError = false;
       await runWithConcurrency(ids.flatMap((id) => files.map((file) => ({ id, file }))), 3, async ({ id, file }) => {
         try {
           const f = new FormData();
           f.set("file", file);
-          await uploadPayrollPhoto(id, f);
+          unwrapAction(await uploadPayrollPhoto(id, f));
         } catch {
           photoError = true;
         }
@@ -987,12 +1033,17 @@ export function PayrollEntryForm({
               <div className={formStyle.fields}>
                 <div>
                   <Label htmlFor="entry-bank">Счёт списания</Label>
-                  <Select value={bank} onValueChange={setBank} disabled={busy}>
-                    <SelectTrigger id="entry-bank" className={formStyle.select}><SelectValue placeholder="Выберите счёт" /></SelectTrigger>
-                    <SelectContent>
-                      {data.banks.map((account) => <SelectItem key={account.id} value={account.id}>{account.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <Combobox
+                    id="entry-bank"
+                    value={bank || null}
+                    onChange={(v) => v && setBank(v)}
+                    options={data.banks.map((account) => ({ value: account.id, label: account.name }))}
+                    placeholder="Выберите счёт"
+                    searchPlaceholder="Найти счёт"
+                    emptyText="Счёт не найден"
+                    disabled={busy}
+                    triggerClassName={formStyle.select}
+                  />
                   {!data.banks.length && <p className="text-xs text-muted-foreground">Нет доступных счетов</p>}
                 </div>
                 <div>

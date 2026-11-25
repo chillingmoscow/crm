@@ -12,7 +12,8 @@ import { EditDrawer } from "@/components/ui/edit-drawer";
 import { ProfileSection } from "@/components/shared/profile-section";
 import type { PayrollData } from "@/lib/payroll/types";
 import { payrollCommand } from "../actions";
-import { selectClass } from "./employee-pay";
+import { unwrapAction } from "@/lib/actions/result";
+import { selectClass } from "./select-class";
 export function PayrollSetup({
   data,
   onChange,
@@ -34,7 +35,7 @@ export function PayrollSetup({
   const run = async (action: string, input: Record<string, unknown>) => {
     setBusy(true);
     try {
-      await payrollCommand(action, input);
+      unwrapAction(await payrollCommand(action, input));
       await onChange();
       setOpen(null);
       toast.success("Сохранено");

@@ -1,8 +1,15 @@
+import { paymentSettlement } from "./payment-journal.ts";
 import type { Accrual, Allocation, Payment } from "./types";
 
 /** Одна строка внутри раскрытой статьи расчётного листа. */
 export type PaySheetItem = {
   key: string;
+  /** Начисление, из которого взята строка: по нему открывается расчёт дня. */
+  accrualId: string;
+  /** Вид составляющей (`base`, `bonus`, `deduction`…). */
+  kind: string;
+  /** Сумму ввёл человек (премия, штраф, надбавка): строка ведёт к записи. */
+  manual: boolean;
   date: string;
   title: string;
   note: string;
@@ -37,6 +44,10 @@ export type PaySheetPayment = {
   posted: boolean;
   /** Сколько долга закрыла выплата за этот месяц (с налогом, если он был). */
   amount: number;
+  /** Официальная (бухгалтерская) выплата за месяц. */
+  official: boolean;
+  /** Удержанный налог; 0 — без налога или выплата делится с другими. */
+  tax: number;
 };
 
 const GROUPS: { id: string; label: string; kinds: string[] }[] = [
@@ -89,6 +100,9 @@ export function buildPaySheet(
       const manual = MANUAL.has(c.kind);
       const item: PaySheetItem = {
         key: `${accrual.id}.${index}`,
+        accrualId: accrual.id,
+        kind: c.kind,
+        manual,
         date: accrual.business_date,
         title: c.kind === "base" ? roleOf(accrual) : manual ? c.label : c.basis || c.label,
         note: c.kind === "base" ? c.basis : "",
@@ -152,13 +166,20 @@ export function paySheetPayments(
   }
   return payments
     .filter((p) => byPayment.has(p.id))
-    .map((p) => ({
-      id: p.id,
-      date: p.occurred_at,
-      kind: p.kind,
-      posted: p.state === "posted",
-      amount: (byPayment.get(p.id) ?? 0) / 100,
-    }))
+    .map((p) => {
+      // Налог выплаты целиком — только когда она вся про этого сотрудника и месяц.
+      const own = allocations.filter((a) => a.payment_id === p.id);
+      const whole = own.every((a) => a.employee_id === employeeId && monthKey(a.month) === ym);
+      return {
+        id: p.id,
+        date: p.occurred_at,
+        kind: p.kind,
+        posted: p.state === "posted",
+        amount: (byPayment.get(p.id) ?? 0) / 100,
+        official: !!p.official_month,
+        tax: whole ? (paymentSettlement(own, Number(p.amount)).taxAmount ?? 0) : 0,
+      };
+    })
     .sort((a, b) => b.date.localeCompare(a.date));
 }
 

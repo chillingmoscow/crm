@@ -19,11 +19,17 @@ import type {
 import { CANDIDATE_SORT_FIELDS } from "@/lib/candidates/types";
 import { provisionCandidateHire } from "@/lib/candidates/provision";
 import { transferCandidateFile } from "@/lib/candidates/jobs";
+import { actionResult } from "@/lib/actions/result";
 const result = <T>(r: {
   data: T | null;
   error: { message: string } | null;
 }) => {
-  if (r.error) throw new Error(r.error.message);
+  if (r.error)
+    throw new Error(
+      r.error.message.includes("candidate_appointments_one_interview")
+        ? "Собеседование уже назначено. Измените его в разделе «Коммуникация»"
+        : r.error.message,
+    );
   return r.data;
 };
 const listingFilters = z.object({
@@ -51,23 +57,23 @@ const listingFilters = z.object({
     )
     .optional(),
 });
-export async function listCandidates(filters: ListFilters) {
+async function listCandidatesImpl(filters: ListFilters) {
   return candidateList(listingFilters.parse(filters));
 }
-export async function countNewCandidates() {
+async function countNewCandidatesImpl() {
   const db = asLooseDb(await createClient());
   const count = result(await db.rpc("candidate_new_count", {}));
   return typeof count === "number" ? count : 0;
 }
-export async function getCandidate(id: string) {
+async function getCandidateImpl(id: string) {
   const detail = await candidateDetail(uuid.parse(id));
   if (!detail) throw new Error("Анкета не найдена");
   return detail;
 }
-export async function getCandidateOptions() {
+async function getCandidateOptionsImpl() {
   return candidateOptions();
 }
-export async function getCandidateAppointments(id: string) {
+async function getCandidateAppointmentsImpl(id: string) {
   return candidateAppointments(uuid.parse(id));
 }
 async function command(action: string, id: string | null, input: unknown) {
@@ -88,10 +94,10 @@ async function command(action: string, id: string | null, input: unknown) {
   if (action !== "comment") revalidatePath("/schedule");
   return data;
 }
-export async function updateCandidate(id: string, input: unknown) {
+async function updateCandidateImpl(id: string, input: unknown) {
   return command("update", uuid.parse(id), candidateUpdate.parse(input));
 }
-export async function commentCandidate(
+async function commentCandidateImpl(
   id: string,
   body: string,
   requestKey: string,
@@ -116,7 +122,7 @@ async function appointmentCommand(id: string, mode: "schedule" | "result", input
   revalidatePath("/schedule");
   return data;
 }
-export async function saveCandidateAppointment(id: string, input: unknown) {
+async function saveCandidateAppointmentImpl(id: string, input: unknown) {
   return appointmentCommand(id, "schedule", z.object({
     id: uuid.optional(),
     revision: z.number().int().positive().optional(),
@@ -136,7 +142,7 @@ export async function saveCandidateAppointment(id: string, input: unknown) {
       context.addIssue({ code: "custom", path: ["location"], message: "Выберите заведение или добавьте ссылку на собеседование" });
   }).parse(input));
 }
-export async function saveCandidateAppointmentResult(id: string, input: unknown) {
+async function saveCandidateAppointmentResultImpl(id: string, input: unknown) {
   return appointmentCommand(id, "result", z.object({
     id: uuid,
     revision: z.number().int().positive(),
@@ -145,7 +151,7 @@ export async function saveCandidateAppointmentResult(id: string, input: unknown)
     interview_feedback: interviewFeedback,
   }).parse(input));
 }
-export async function editCandidateComment(candidateId: string, commentId: string, revision: number, body: string | null, remove = false) {
+async function editCandidateCommentImpl(candidateId: string, commentId: string, revision: number, body: string | null, remove = false) {
   const scope = await candidateScope();
   result(await scope.db.rpc("candidate_edit_comment", {
     p_candidate: uuid.parse(candidateId), p_comment: uuid.parse(commentId),
@@ -154,10 +160,10 @@ export async function editCandidateComment(candidateId: string, commentId: strin
   }));
   revalidatePath("/people/candidates", "layout");
 }
-export async function deleteCandidate(id: string) {
+async function deleteCandidateImpl(id: string) {
   return command("delete", uuid.parse(id), {});
 }
-export async function deleteCandidates(ids: string[]) {
+async function deleteCandidatesImpl(ids: string[]) {
   const selected = z.array(uuid).min(1).max(100).parse(ids);
   const scope = await candidateScope();
   if (!scope.permissions.owner) throw new Error("Доступно только владельцу аккаунта");
@@ -166,7 +172,7 @@ export async function deleteCandidates(ids: string[]) {
   revalidatePath("/schedule");
   return deleted;
 }
-export async function uploadCandidateFile(id: string, form: FormData) {
+async function uploadCandidateFileImpl(id: string, form: FormData) {
   const s = await candidateScope();
   uuid.parse(id);
   result(
@@ -251,7 +257,7 @@ async function candidateFileRow(candidateId: string, fileId: string) {
   return { s, file };
 }
 /** «Повторить» у файла, который очередь не смогла перенести. */
-export async function retryCandidateFile(candidateId: string, fileId: string) {
+async function retryCandidateFileImpl(candidateId: string, fileId: string) {
   const { s, file } = await candidateFileRow(candidateId, fileId);
   if (file.state !== "error") throw new Error("Файл уже не ждёт повтора. Обновите страницу");
   const outcome = await transferCandidateFile(s.admin, createAdminClient(), file);
@@ -259,7 +265,7 @@ export async function retryCandidateFile(candidateId: string, fileId: string) {
   return outcome;
 }
 /** «Убрать» запись о файле, который так и не попал в хранилище. */
-export async function removeCandidateFile(candidateId: string, fileId: string) {
+async function removeCandidateFileImpl(candidateId: string, fileId: string) {
   const { s, file } = await candidateFileRow(candidateId, fileId);
   if (file.state !== "error" && file.state !== "missing")
     throw new Error("Убрать можно только файл, который не удалось перенести");
@@ -287,7 +293,7 @@ export async function removeCandidateFile(candidateId: string, fileId: string) {
   );
   revalidatePath("/people/candidates", "layout");
 }
-export async function hireCandidate(id: string, input: unknown) {
+async function hireCandidateImpl(id: string, input: unknown) {
   const s = await candidateScope();
   if (!s.permissions.hire) throw new Error("Нет права принимать кандидатов");
   const payload = hireInput.parse(input);
@@ -331,7 +337,7 @@ export async function hireCandidate(id: string, input: unknown) {
   revalidatePath("/schedule");
   return { user_id: hire.target_user_id };
 }
-export async function createCandidateRole(venueId: string, input: unknown) {
+async function createCandidateRoleImpl(venueId: string, input: unknown) {
   const s = await candidateScope();
   const money = z.number().finite().min(0).max(1000000000);
   const rate = z.object({
@@ -362,7 +368,7 @@ export async function createCandidateRole(venueId: string, input: unknown) {
   revalidatePath("/people/roles");
   return String(id);
 }
-export async function getCandidateDoorCode(userId: string) {
+async function getCandidateDoorCodeImpl(userId: string) {
   const s = await candidateScope();
   if (!s.permissions.owner) throw new Error("Коды замка доступны владельцу");
   const { decryptSecret } = await import("@/lib/integrations/crypto");
@@ -383,4 +389,64 @@ export async function getCandidateDoorCode(userId: string) {
     user_number: row.user_number,
     password: decryptSecret(row.password_secret),
   };
+}
+
+// Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js
+// заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
+export async function listCandidates(filters: ListFilters) {
+  return actionResult(() => listCandidatesImpl(filters), "Не удалось загрузить кандидатов");
+}
+export async function countNewCandidates() {
+  return actionResult(() => countNewCandidatesImpl(), "Не удалось посчитать новых кандидатов");
+}
+export async function getCandidate(id: string) {
+  return actionResult(() => getCandidateImpl(id), "Не удалось загрузить анкету");
+}
+export async function getCandidateOptions() {
+  return actionResult(() => getCandidateOptionsImpl(), "Не удалось загрузить справочники");
+}
+export async function getCandidateAppointments(id: string) {
+  return actionResult(() => getCandidateAppointmentsImpl(id), "Не удалось загрузить встречи");
+}
+export async function updateCandidate(id: string, input: unknown) {
+  return actionResult(() => updateCandidateImpl(id, input), "Не удалось сохранить анкету");
+}
+export async function commentCandidate(id: string, body: string, requestKey: string) {
+  return actionResult(() => commentCandidateImpl(id, body, requestKey), "Не удалось отправить комментарий");
+}
+export async function saveCandidateAppointment(id: string, input: unknown) {
+  return actionResult(() => saveCandidateAppointmentImpl(id, input), "Не удалось сохранить встречу");
+}
+export async function saveCandidateAppointmentResult(id: string, input: unknown) {
+  return actionResult(() => saveCandidateAppointmentResultImpl(id, input), "Не удалось сохранить итог встречи");
+}
+export async function editCandidateComment(candidateId: string, commentId: string, revision: number, body: string | null, remove = false) {
+  return actionResult(
+    () => editCandidateCommentImpl(candidateId, commentId, revision, body, remove),
+    remove ? "Не удалось удалить комментарий" : "Не удалось сохранить комментарий",
+  );
+}
+export async function deleteCandidate(id: string) {
+  return actionResult(() => deleteCandidateImpl(id), "Не удалось удалить анкету");
+}
+export async function deleteCandidates(ids: string[]) {
+  return actionResult(() => deleteCandidatesImpl(ids), "Не удалось удалить анкеты");
+}
+export async function uploadCandidateFile(id: string, form: FormData) {
+  return actionResult(() => uploadCandidateFileImpl(id, form), "Не удалось загрузить файл");
+}
+export async function retryCandidateFile(candidateId: string, fileId: string) {
+  return actionResult(() => retryCandidateFileImpl(candidateId, fileId), "Не удалось повторить перенос файла");
+}
+export async function removeCandidateFile(candidateId: string, fileId: string) {
+  return actionResult(() => removeCandidateFileImpl(candidateId, fileId), "Не удалось убрать файл");
+}
+export async function hireCandidate(id: string, input: unknown) {
+  return actionResult(() => hireCandidateImpl(id, input), "Не удалось принять кандидата");
+}
+export async function createCandidateRole(venueId: string, input: unknown) {
+  return actionResult(() => createCandidateRoleImpl(venueId, input), "Не удалось создать должность");
+}
+export async function getCandidateDoorCode(userId: string) {
+  return actionResult(() => getCandidateDoorCodeImpl(userId), "Не удалось получить код замка");
 }

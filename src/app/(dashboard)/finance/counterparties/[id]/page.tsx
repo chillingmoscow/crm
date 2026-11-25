@@ -14,25 +14,34 @@ import {
 import { loadCounterpartyActivity, operationDay } from "@/lib/finance/activity";
 import { parsePeriod, periodParam, periodRange } from "@/lib/finance/period";
 import { listCounterpartyAttachments } from "@/lib/files/attachments";
+import { listCounterpartyCertificates } from "@/lib/finance/certificates-actions";
+import { todayIso } from "@/lib/finance/today";
+import { filePreviewKind } from "@/lib/files/file-name";
+import { mediaUrl } from "@/lib/storage/media";
+import { asLooseDb } from "@/lib/supabase/loose";
+import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { isDadataConfigured } from "@/lib/dadata/client";
 import { listAuditEvents } from "@/lib/audit/list";
 import { CounterpartyCard, type CounterpartyOperation } from "./_components/counterparty-card";
+import type { CounterpartyDocument } from "./_components/counterparty-documents";
+import type { CounterpartyPurchase } from "./_components/counterparty-purchases";
 
 export const metadata: Metadata = { title: "Контрагент" };
 
-const DOC_TYPE_LABELS: Record<string, string> = {
-  receipt:          "Чек",
-  contract:         "Договор",
-  act:              "Акт",
-  invoice:          "Счёт",
-  waybill:          "Накладная",
-  tax_document:     "Налоговый документ",
-  registration_doc: "Учредительный",
-  other:            "Прочее",
-};
-
 /** Сколько последних операций показывает вкладка «Операции». */
 const RECENT_OPERATIONS = 20;
+
+type PurchaseRow = {
+  id: string;
+  ingredient_id: string;
+  supplier_article: string | null;
+  supplier_price: number | string | null;
+  is_preferred: boolean;
+  ingredient:
+    | { name: string; kind: string; archived_at: string | null }
+    | { name: string; kind: string; archived_at: string | null }[]
+    | null;
+};
 
 type AuditProfile = { id: string; first_name: string | null; last_name: string | null };
 
@@ -41,7 +50,7 @@ export default async function CounterpartyDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ period?: string }>;
+  searchParams: Promise<{ period?: string; tab?: string }>;
 }) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
   // Период вкладки «Операции»: тот же `?period=`, что в списке; без него — всё время.
@@ -60,6 +69,7 @@ export default async function CounterpartyDetailPage({
   const canManage = Boolean(can("finance.manage_counterparties"));
   const canViewTransactions = Boolean(can("finance.view_transactions"));
   const canViewAudit = Boolean(can("org.view_audit"));
+  const canViewProducts = Boolean(can("inventory.view_products"));
 
   const { row, error } = await getCounterparty(id);
   if (error || !row) redirect("/finance/counterparties");
@@ -72,6 +82,8 @@ export default async function CounterpartyDetailPage({
     activity,
     recent,
     auditResult,
+    purchaseRows,
+    certificates,
   ] = await Promise.all([
     // Архив, возврат и удаление проверяют владельца на сервере — им же гейтим.
     activeAccountId
@@ -98,6 +110,19 @@ export default async function CounterpartyDetailPage({
     canViewAudit
       ? listAuditEvents({ entityType: "counterparty", entityId: id })
       : Promise.resolve({ events: [], hasMore: false, error: null }),
+    // «Закупаем»: позиции номенклатуры, где контрагент — поставщик.
+    // Все страницы: у крупного поставщика позиций может быть больше тысячи.
+    canViewProducts
+      ? fetchAllRows<PurchaseRow>(() =>
+          asLooseDb(supabase)
+            .from<PurchaseRow[]>("ingredient_suppliers")
+            .select(
+              "id, ingredient_id, supplier_article, supplier_price, is_preferred, ingredient:ingredients!ingredient_suppliers_ingredient_fkey(name, kind, archived_at)",
+            )
+            .eq("counterparty_id", id),
+        ).catch(() => "failed" as const)
+      : Promise.resolve(null),
+    listCounterpartyCertificates(id).catch(() => null),
   ]);
 
   // Подписи операций: статьи и счета одним запросом каждые.
@@ -124,18 +149,48 @@ export default async function CounterpartyDetailPage({
     accountName: accountName.get(tx.bank_account_id) ?? null,
   }));
 
-  // Вложения — в вид общего AttachmentUploader. Подпись типа документа
-  // собирается здесь, чтобы клиент не нёс словарь типов.
-  const attachments = attachmentRows.map((att) => ({
-    fileId:     att.file.id,
-    name:       att.file.name,
-    mime_type:  att.file.mime_type,
-    size_bytes: att.file.size_bytes,
-    document_type_label:
-      [DOC_TYPE_LABELS[att.document_type] ?? att.document_type, att.document_number, att.document_date]
-        .filter(Boolean)
-        .join(" · ") || null,
-  }));
+  // Документы: новые сверху; у картинок — постоянные адреса миниатюры и
+  // крупного вида (кэш браузера на месяц, см. lib/storage/media.ts).
+  const attachments: CounterpartyDocument[] = attachmentRows
+    .map(({ file }) => {
+      const isImage = filePreviewKind(file.mime_type) === "image";
+      return {
+        fileId:     file.id,
+        name:       file.name,
+        mimeType:   file.mime_type,
+        sizeBytes:  file.size_bytes,
+        uploadedAt: file.uploaded_at,
+        thumbUrl: isImage
+          ? mediaUrl("account-attachments", file.storage_path, { transform: { width: 80, height: 80, resize: "cover" } })
+          : null,
+        imageUrl: isImage
+          ? mediaUrl("account-attachments", file.storage_path, { transform: { width: 1600, resize: "contain" } })
+          : null,
+      };
+    })
+    .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
+
+  const collator = new Intl.Collator("ru", { sensitivity: "base" });
+  const purchasesFailed = purchaseRows === "failed";
+  const purchases: CounterpartyPurchase[] | null = purchaseRows === "failed"
+    ? []
+    : purchaseRows
+    ? purchaseRows
+        .map((r) => {
+          const ingredient = Array.isArray(r.ingredient) ? (r.ingredient[0] ?? null) : r.ingredient;
+          return {
+            id: r.id,
+            ingredientId: r.ingredient_id,
+            name: ingredient?.name ?? "Позиция",
+            kind: ingredient?.kind ?? "ingredient",
+            archived: Boolean(ingredient?.archived_at),
+            article: r.supplier_article,
+            price: r.supplier_price === null ? null : Number(r.supplier_price),
+            isPreferred: r.is_preferred,
+          };
+        })
+        .sort((a, b) => Number(a.archived) - Number(b.archived) || collator.compare(a.name, b.name))
+    : null;
 
   // Кто создал и менял — для «О контрагенте» в верхней панели.
   const auditIds = [row.created_by, row.updated_by].filter((v): v is string => Boolean(v));
@@ -157,6 +212,11 @@ export default async function CounterpartyDetailPage({
       row={row}
       groups={groups.map((group) => ({ id: group.id, name: group.name }))}
       attachments={attachments}
+      certificates={certificates ?? []}
+      certificatesFailed={certificates === null}
+      initialTab={query.tab ?? null}
+      purchases={purchases}
+      purchasesFailed={purchasesFailed}
       operations={operations}
       activity={
         activity
@@ -178,7 +238,7 @@ export default async function CounterpartyDetailPage({
       archiveImpact={archiveImpact}
       dadataEnabled={isDadataConfigured()}
       period={periodParam(period)}
-      today={new Date().toISOString().slice(0, 10)}
+      today={await todayIso()}
       initialAuditEvents={auditResult.events}
       initialAuditHasMore={auditResult.hasMore}
       createdByName={profileName(row.created_by)}

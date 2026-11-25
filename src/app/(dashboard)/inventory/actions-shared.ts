@@ -5,6 +5,7 @@
 import "server-only";
 
 import { revalidatePath } from "next/cache";
+import { actionErrorMessage as userFacingErrorMessage } from "@/lib/actions/result";
 import { writeAuditEvent } from "@/lib/audit/write";
 
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -15,6 +16,7 @@ import {
   getCachedUser,
 } from "@/lib/supabase/server";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
+import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { calculateResortAllocation } from "@/lib/inventory/results";
 import {
   buildExclusionMatcher,
@@ -76,6 +78,8 @@ export type InventorySyncSummary = {
   failedDocuments: number;
   /** Строки актов, которым синк восстановил связь с каталогом (см. relink). */
   relinked: number;
+  /** Что синк пропустил, не прерывая прохода (например, модификаторы). Текст для пользователя. */
+  warnings: string[];
 };
 
 export type InventoryProductLookup = {
@@ -86,6 +90,24 @@ export type InventoryProductLookup = {
   article?: string | null;
   barcode?: string | null;
 };
+
+/**
+ * Позиции каталога для привязки строк актов: все, кроме модификаторов
+ * (модификатор складской позицией не бывает). Постранично — в каталоге
+ * больше тысячи позиций, а PostgREST молча обрезает ответ до 1000 строк.
+ */
+export async function listStockProductLookups(
+  admin: LooseDb,
+  accountId: string,
+): Promise<InventoryProductLookup[]> {
+  return fetchAllRows<InventoryProductLookup>(() =>
+    admin
+      .from<InventoryProductLookup[]>("ingredients")
+      .select("id, external_id, article, barcode, kind")
+      .eq("account_id", accountId)
+      .neq("kind", "modifier"),
+  );
+}
 
 export type InventoryStoreLookup = {
   id: string;
@@ -331,9 +353,24 @@ export function buildStoragePath(accountId: string, originalName: string): strin
   return `${accountId}/${yyyy}/${mm}/${uuid}-${safe}`;
 }
 
+/**
+ * Текст ошибки для пользователя. Русский текст (наш или из базы) проходит как
+ * есть, английский технический — ошибки PostgREST, Quick Resto, zod —
+ * заменяется на `fallback`: иначе пользователь видел «permission denied…»
+ * (см. lib/actions/result). Ошибка PostgREST может прийти объектом с
+ * `message`, а не экземпляром Error.
+ */
 export function actionErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error && error.message.trim()) return error.message;
-  return fallback;
+  const normalized =
+    error &&
+    typeof error === "object" &&
+    !(error instanceof Error) &&
+    !("issues" in error) &&
+    "message" in error &&
+    typeof error.message === "string"
+      ? new Error(error.message)
+      : error;
+  return userFacingErrorMessage(normalized, fallback);
 }
 
 export async function getActiveContext(permission?: string | string[]) {
@@ -1236,12 +1273,9 @@ export async function refreshLocalInventoryDocumentFromPayload(input: {
     .eq("id", input.documentId)
     .eq("account_id", input.accountId)
     .maybeSingle();
-  const productRows = await input.admin
-    .from<InventoryProductLookup[]>("ingredients")
-    .select("id, external_id, article, barcode, kind")
-    .eq("account_id", input.accountId);
+  const productRows = await listStockProductLookups(input.admin, input.accountId);
   const productByExternalId = new Map(
-    ((productRows.data ?? []) as InventoryProductLookup[]).map((row) => [
+    productRows.map((row) => [
       catalogKey(row.kind ?? "ingredient", String(row.external_id)),
       row,
     ])
@@ -1520,10 +1554,12 @@ export async function getResultDocumentForAction(input: {
 }
 
 export async function writeInventoryResultEvent(input: {
-  supabase: Awaited<ReturnType<typeof createClient>>;
+  /** Не используется: событие пишет admin-клиент. Оставлен для старых вызовов. */
+  supabase?: Awaited<ReturnType<typeof createClient>>;
   admin: LooseDb;
   accountId: string;
-  userId: string;
+  /** null — событие из синка по расписанию, автора нет. */
+  userId: string | null;
   documentId: string;
   documentItemId?: string | null;
   resortId?: string | null;
@@ -1616,7 +1652,7 @@ async function writeInventoryAudit(
   input: {
     admin: LooseDb;
     accountId: string;
-    userId: string;
+    userId: string | null;
     documentId: string;
     eventType: string;
   },

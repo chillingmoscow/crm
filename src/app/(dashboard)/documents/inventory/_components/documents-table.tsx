@@ -762,9 +762,15 @@ export function DocumentsTable({
           scope === "documents"
             ? `Синхронизировано: ${countRu(result.summary.documents, "акт", "акта", "актов")}`
             : `Синхронизировано: ${countRu(result.summary.products, "позиция", "позиции", "позиций")}, ${countRu(result.summary.documents, "акт", "акта", "актов")}`;
-        // Сбойные акты не роняют проход, но и молчать о них нельзя.
-        if (result.summary.failedDocuments > 0) {
-          toast.warning(`${base}. Не удалось обработать: ${countRu(result.summary.failedDocuments, "акт", "акта", "актов")}`);
+        // Сбойные акты и пропущенные виды не роняют проход, но и молчать о них нельзя.
+        const problems = [
+          ...(result.summary.failedDocuments > 0
+            ? [`Не удалось обработать: ${countRu(result.summary.failedDocuments, "акт", "акта", "актов")}`]
+            : []),
+          ...result.summary.warnings,
+        ];
+        if (problems.length > 0) {
+          toast.warning([base, ...problems].join(". "));
         } else {
           toast.success(base);
         }

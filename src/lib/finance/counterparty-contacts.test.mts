@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeContacts, normalizeTelegram, normalizeWeekdays, telegramUrl } from "./counterparty-contacts.ts";
+import { cleanText, normalizeContacts, normalizeTelegram, normalizeWeekdays, telegramUrl } from "./counterparty-contacts.ts";
 
 const TG_ERROR = "Telegram: ник из 5–32 латинских букв, цифр и _";
 
@@ -40,10 +40,10 @@ test("normalizeContacts: старая почта из базы не мешает
   assert.equal(normalizeContacts([{ name: "Иван", email: "c@" }], { trustedEmails: trusted }).error, "Проверьте адрес почты");
 });
 test("normalizeContacts: длинные поля обрезаются", () => {
-  const [c] = normalizeContacts([{ name: "я".repeat(300), role: "р".repeat(300), phone: "1".repeat(80) }]).contacts;
+  const [c] = normalizeContacts([{ name: "я".repeat(300), role: "р".repeat(300), phone: "1".repeat(150) }]).contacts;
   assert.equal(c.name.length, 200);
   assert.equal(c.role?.length, 100);
-  assert.equal(c.phone?.length, 30);
+  assert.equal(c.phone?.length, 100);
 });
 test("normalizeContacts: плохая почта, плохой Telegram, больше 10", () => {
   assert.equal(normalizeContacts([{ name: "Иван", email: "ivan@" }]).error, "Проверьте адрес почты");
@@ -57,4 +57,13 @@ test("normalizeContacts: плохая почта, плохой Telegram, бол�
 test("normalizeWeekdays", () => {
   assert.deepEqual(normalizeWeekdays([3, 1, 3, 9, "2", 0]), [1, 3]);
   assert.deepEqual(normalizeWeekdays(null), []);
+});
+test("старый телефон с двумя номерами не обрезается", () => {
+  const phone = "+7 (495) 123-45-67, +7 (916) 000-00-00";
+  assert.equal(normalizeContacts([{ name: "Иван", phone }]).contacts[0].phone, phone);
+});
+test("доверенная почта сравнивается в том же виде, что и ввод", () => {
+  const stored = "a@x.ru,\n  b@y.ru";
+  const trusted = new Set([cleanText(stored, 200)].filter((v): v is string => Boolean(v)));
+  assert.equal(normalizeContacts([{ name: "Иван", email: stored }], { trustedEmails: trusted }).error, null);
 });

@@ -33,11 +33,13 @@ export function telegramUrl(nick: string): string {
   return `https://t.me/${nick}`;
 }
 
-const text = (value: unknown, max: number): string | null => {
+/** Текст поля контакта в том виде, в каком он ложится в базу. */
+export function cleanText(value: unknown, max: number): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.replace(/\s+/g, " ").trim().slice(0, max).trim();
   return trimmed || null;
-};
+}
+const text = cleanText;
 
 /** Имя контакта, когда его не вписали (так же переносились старые контакты). */
 export const UNNAMED_CONTACT = "Контакт";
@@ -58,7 +60,8 @@ export function normalizeContacts(
     const raw = (item && typeof item === "object" ? item : {}) as Record<string, unknown>;
     const name = text(raw.name, 200);
     const role = text(raw.role, 100);
-    const phone = text(raw.phone, 30);
+    // 100, а не 30: в старых записях бывает несколько номеров через запятую.
+    const phone = text(raw.phone, 100);
     const email = text(raw.email, 200);
     const telegramRaw = typeof raw.telegram === "string" ? raw.telegram : "";
     if (!name && !role && !phone && !email && !telegramRaw.trim()) continue;

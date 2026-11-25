@@ -96,7 +96,6 @@ function errorField(
   if (error.startsWith("Минимальный заказ")) return "min_order_amount";
   if (
     error.startsWith("Проверьте адрес почты") ||
-    error.startsWith("Укажите имя контакта") ||
     error.startsWith("Telegram") ||
     error.startsWith("Не больше 10 контактов")
   ) {

@@ -7,7 +7,7 @@ import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { findPartyByInn } from "@/lib/dadata/party";
 import { errorText } from "@/lib/actions/error-text";
-import { contactsFromJson, normalizeContacts, normalizeWeekdays } from "@/lib/finance/counterparty-contacts";
+import { cleanText, contactsFromJson, normalizeContacts, normalizeWeekdays } from "@/lib/finance/counterparty-contacts";
 import { writeAuditEvent } from "@/lib/audit/write";
 import type {
   CounterpartyFormInput,
@@ -225,7 +225,12 @@ export async function updateCounterparty(
     .eq("id", id)
     .maybeSingle();
   const trustedEmails = new Set(
-    contactsFromJson(current?.contacts).flatMap((c) => (c.email ? [c.email] : [])),
+    // В том же виде, что и ввод формы (пробелы схлопнуты), иначе старая
+    // почта с переводом строки перестаёт совпадать.
+    contactsFromJson(current?.contacts).flatMap((c) => {
+      const email = cleanText(c.email, 200);
+      return email ? [email] : [];
+    }),
   );
   const normalized = normalize(patch, { trustedEmails });
   if (normalized.error) return { error: normalized.error };

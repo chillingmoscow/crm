@@ -83,7 +83,14 @@ async function context(s: PayrollScope, month: string | null): Promise<Context> 
 async function loadPayoutPlanImpl(schedule: PayoutScheduleCode): Promise<PayoutPlanView> {
   scheduleSchema.parse(schedule);
   const s = await payrollScope("payroll.view");
-  const firstCtx = await context(s, null);
+  return planView(s, schedule, await context(s, null));
+}
+
+/**
+ * План для экрана из уже прочитанных данных: действия плана отдают его сразу,
+ * без второй загрузки всей зарплаты (раньше «Сформировать план» грузил её трижды).
+ */
+async function planView(s: PayrollScope, schedule: PayoutScheduleCode, firstCtx: Context): Promise<PayoutPlanView> {
   const window = firstPayoutWindow(firstCtx.today);
   // Вне окна показываем последний план графика, если он есть.
   const saved = await findPlan(s, schedule, window?.month ?? null);
@@ -166,7 +173,7 @@ function audit(s: PayrollScope, actionCode: string, entityId: string | null, det
   });
 }
 
-async function savePayoutPlanImpl(schedule: PayoutScheduleCode): Promise<string> {
+async function savePayoutPlanImpl(schedule: PayoutScheduleCode): Promise<PayoutPlanView> {
   scheduleSchema.parse(schedule);
   const s = await payScope();
   const ctx = await context(s, null);
@@ -198,7 +205,7 @@ async function savePayoutPlanImpl(schedule: PayoutScheduleCode): Promise<string>
     rows: rows.length,
     total: money(rows.reduce((sum, row) => sum + row.amount, 0)),
   });
-  return id;
+  return planView(s, schedule, ctx);
 }
 
 const rowUpdateSchema = z.object({
@@ -206,7 +213,7 @@ const rowUpdateSchema = z.object({
   amount: z.number().min(0, "Сумма не может быть отрицательной").max(1_000_000_000),
   payDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
 });
-async function updatePayoutRowImpl(rowId: string, amount: number, payDate: string | null) {
+async function updatePayoutRowImpl(rowId: string, amount: number, payDate: string | null): Promise<PayoutPlanView> {
   const input = rowUpdateSchema.parse({ rowId, amount, payDate });
   const s = await payScope();
   const before = await s.db
@@ -231,9 +238,10 @@ async function updatePayoutRowImpl(rowId: string, amount: number, payDate: strin
     pay_date: input.payDate,
     previous_pay_date: before.data.pay_date,
   });
+  return planView(s, "main", await context(s, null));
 }
 
-async function setPayoutPlanStateImpl(planId: string, state: "approved" | "cancelled") {
+async function setPayoutPlanStateImpl(planId: string, state: "approved" | "cancelled"): Promise<PayoutPlanView> {
   z.string().uuid().parse(planId);
   z.enum(["approved", "cancelled"]).parse(state);
   const s = await payScope();
@@ -247,6 +255,7 @@ async function setPayoutPlanStateImpl(planId: string, state: "approved" | "cance
     schedule_label: PAYOUT_SCHEDULE_LABELS[current.schedule],
     total: money(rows.reduce((sum, row) => sum + row.amount, 0)),
   });
+  return planView(s, current.schedule, await context(s, null));
 }
 
 async function previewPayoutTodayImpl(planId: string): Promise<IssuePreview> {

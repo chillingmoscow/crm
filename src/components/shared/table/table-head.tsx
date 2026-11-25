@@ -30,7 +30,10 @@ export function ResizableTableHead<TData>({
   renderControlHeader,
   onResizeStart,
   columnWidths,
+  labels,
 }: {
+  /** Названия столбцов — для подсказки на заголовке (полное имя и сортировка). */
+  labels?: Record<string, string>;
   table: TanStackTable<TData>;
   /** Pixel widths resolved against the scroll container, respecting header minima. */
   columnWidths?: Record<string, number>;
@@ -75,6 +78,15 @@ export function ResizableTableHead<TData>({
               const columnId = header.column.id;
               const isControl = isControlColumn(columnId);
               const isSortable = !isControl && sortableColumnIds.has(columnId);
+              const def = header.column.columnDef.header;
+              const title = labels?.[columnId] ?? (typeof def === "string" ? def : undefined);
+              const sort = headerAriaSort(columnId);
+              // Правило «Заголовок столбца»: подсказка с полным названием; у
+              // сортируемого — второй строкой, что сделает нажатие.
+              const sortHint =
+                sort === "ascending" ? "Нажмите — по убыванию"
+                : sort === "descending" ? "Нажмите — снять сортировку"
+                : "Нажмите — сортировать по возрастанию";
               return (
                 <th
                   key={header.id}
@@ -95,6 +107,8 @@ export function ResizableTableHead<TData>({
                           "ml-auto justify-end text-right",
                       )}
                       onClick={(event) => onSort(columnId, event)}
+                      data-tip={title}
+                      data-tip-sub={title ? sortHint : undefined}
                     >
                       {isRightAligned?.(columnId) && headerIndicator(columnId)}
                       <span className="truncate">
@@ -106,7 +120,7 @@ export function ResizableTableHead<TData>({
                       {!isRightAligned?.(columnId) && headerIndicator(columnId)}
                     </button>
                   ) : (
-                    <span className="truncate">
+                    <span className="block truncate" data-tip={title} data-tip-overflow>
                       {flexRender(
                         header.column.columnDef.header,
                         header.getContext(),

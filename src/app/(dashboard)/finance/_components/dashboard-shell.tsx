@@ -287,7 +287,6 @@ function CreateMenu() {
           <Plus className="size-4" />
           <span className="sm:hidden">Добавить</span>
           <span className="hidden sm:inline">Добавить операцию</span>
-          <ChevronDown className="size-4 opacity-80" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">

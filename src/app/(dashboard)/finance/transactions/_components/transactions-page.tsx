@@ -11,7 +11,6 @@ import {
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
-  ChevronDown,
   Copy,
   Download,
   Loader2,
@@ -957,7 +956,6 @@ export function TransactionsPage({
         <Button className="h-8 gap-1.5 px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm">
           <Plus className="size-4" />
           Добавить операцию
-          <ChevronDown className="size-4 opacity-80" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">

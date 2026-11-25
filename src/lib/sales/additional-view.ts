@@ -27,6 +27,8 @@ export type UpsellViewDay = {
   result: UpsellDayResult | null;
   last_error: string | null;
   computed_at: string | null;
+  /** Посчитан по загрузке до конца дня: смена ещё идёт, сумма обновится. */
+  provisional: boolean;
 };
 export type AdditionalRow = {
   id: string;
@@ -142,9 +144,14 @@ function upsellLinesFor(
   return best?.lines ?? [];
 }
 
-/** Результат дня, которому можно верить: пересчитываемый день — «нет данных». */
+/**
+ * Результат дня, которому можно верить: пересчитываемый день — «нет данных».
+ * Предварительный день показывает последний расчёт и во время пересчёта —
+ * иначе сумма мигала бы на каждой загрузке чеков.
+ */
 export function readyUpsellResult(day: UpsellViewDay | null | undefined) {
-  return day?.state === "ready" ? day.result : null;
+  if (!day) return null;
+  return day.state === "ready" || day.provisional ? day.result : null;
 }
 
 /**

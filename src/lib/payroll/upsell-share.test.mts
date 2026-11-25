@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { departmentShares, extrasEligible, staleUpsellPayrollDays } from "./upsell-share.ts";
+import { departmentShares, extrasEligible, readyUpsellBonus, staleUpsellPayrollDays } from "./upsell-share.ts";
 import { computeAccrual, shiftDutyDepartment } from "./calculate.ts";
 import type { PayEmployee, PayModel, PayRule } from "./types.ts";
 
@@ -224,4 +224,11 @@ test("shiftDutyDepartment: подразделение должности сме�
     shiftDutyDepartment({ role_id: "role-x", department_id: "dep-shift", payroll_model_id: null }, models, null, roles),
     "dep-shift",
   );
+});
+
+test("предварительный день допродаж в зарплату не попадает", () => {
+  const result = { bonus: 900, lines: [], paid: {}, unknown: [] };
+  assert.equal(readyUpsellBonus({ state: "ready", result, provisional: true }), null);
+  assert.equal(readyUpsellBonus({ state: "ready", result, provisional: false }), 900);
+  assert.equal(readyUpsellBonus({ state: "ready", result }), 900);
 });

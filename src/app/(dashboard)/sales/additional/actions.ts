@@ -92,6 +92,7 @@ export type UpsellDay = {
   result: UpsellDayResult | null;
   last_error: string | null;
   computed_at: string | null;
+  provisional: boolean;
 };
 
 /**
@@ -239,7 +240,7 @@ async function loadAdditionalImpl(
       ),
       rows<UpsellDay>(
         "sales_upsell_days",
-        "id,department_id,business_date,state,result,last_error,computed_at",
+        "id,department_id,business_date,state,result,last_error,computed_at,provisional",
         "business_date",
       ),
       loadUpsellScope(s),

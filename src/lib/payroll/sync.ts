@@ -184,8 +184,8 @@ export async function processPayrollDay() {
         .select("department_id,legacy_kind").eq("account_id", accountId).eq("venue_id", venueId),
       admin.from<{ department_id: string; valid_from: string }[]>("sales_upsell_rules")
         .select("department_id,valid_from").eq("account_id", accountId).eq("venue_id", venueId),
-      admin.from<{ department_id: string; state: string; result: unknown; computed_at: string | null }[]>("sales_upsell_days")
-        .select("department_id,state,result,computed_at").eq("account_id", accountId).eq("venue_id", venueId).eq("business_date", date),
+      admin.from<{ department_id: string; state: string; result: unknown; computed_at: string | null; provisional: boolean }[]>("sales_upsell_days")
+        .select("department_id,state,result,computed_at,provisional").eq("account_id", accountId).eq("venue_id", venueId).eq("business_date", date),
       admin.from<{ id: string; name: string }[]>("departments").select("id,name").eq("venue_id", venueId),
     ]);
     for (const r of [upsellDepartments, upsellRules, upsellDays, departmentRows])
@@ -211,7 +211,7 @@ export async function processPayrollDay() {
     const upsellUsed = Object.fromEntries(
       switchedDepartments.map((id) => {
         const row = upsellRow(id);
-        return [id, row?.state === "ready" ? row.computed_at : null];
+        return [id, row?.state === "ready" && !row.provisional ? row.computed_at : null];
       }),
     );
     const upsellAmounts = new Map(switchedDepartments.map((id) => [id, readyUpsellBonus(upsellRow(id))]));
@@ -709,6 +709,7 @@ export async function processPayrollDay() {
           .eq("venue_id", venueId)
           .eq("business_date", date)
           .eq("state", "ready")
+          .eq("provisional", false)
           .in("department_id", switchedDepartments);
         if (!after.error && (after.data ?? []).some((d) => d.computed_at !== upsellUsed[d.department_id]))
           await queuePayroll(accountId, venueId, [date]);
@@ -868,6 +869,7 @@ export async function schedulePayroll() {
         .eq("account_id", s.account_id)
         .eq("venue_id", s.venue_id)
         .eq("state", "ready")
+        .eq("provisional", false)
         .gte("business_date", previousMonth),
       admin
         .from<{ business_date: string; state: string; synced_at: string | null }[]>("payroll_source_days")

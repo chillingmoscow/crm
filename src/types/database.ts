@@ -3317,6 +3317,7 @@ export type Database = {
           job_id: string | null
           last_error: string | null
           lease_token: string | null
+          provisional: boolean
           next_retry_at: string
           result: Json | null
           rule_id: string
@@ -3335,6 +3336,7 @@ export type Database = {
           job_id?: string | null
           last_error?: string | null
           lease_token?: string | null
+          provisional?: boolean
           next_retry_at?: string
           result?: Json | null
           rule_id: string
@@ -3353,6 +3355,7 @@ export type Database = {
           job_id?: string | null
           last_error?: string | null
           lease_token?: string | null
+          provisional?: boolean
           next_retry_at?: string
           result?: Json | null
           rule_id?: string

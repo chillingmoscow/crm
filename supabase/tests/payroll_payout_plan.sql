@@ -1,11 +1,12 @@
 -- ============================================================
--- payroll_payout_plan.sql — план выплат (391): защита от переплаты,
+-- payroll_payout_plan.sql — план выплат (391, 392): защита от переплаты,
 -- повтор выдачи по тому же ключу, частичная выдача, «Выплачено» переводом
 -- без отправки в Adesk, права.
 --
 -- Прогон внутри одной откатываемой транзакции (reset базы не нужен):
 --   cat <(echo 'begin;') \
 --       <(sed -E '/^[[:space:]]*(begin|commit);[[:space:]]*$/d' supabase/migrations/391_payroll_payout_plan.sql) \
+--       <(sed -E '/^[[:space:]]*(begin|commit);[[:space:]]*$/d' supabase/migrations/392_payroll_payout_auto.sql) \
 --       <(sed -E '/^[[:space:]]*begin;[[:space:]]*$/d' supabase/tests/payroll_payout_plan.sql) \
 --     | docker exec -i supabase_db_crm psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f -
 --
@@ -109,6 +110,12 @@ begin
   values (a, v, e, '2026-11-10', p, 30000, 'ready'), (a, v, e, '2026-11-11', p, 20000, 'ready');
 
   insert into public.payroll_employees(account_id, venue_id, name, role_name, role_id)
+  values (a, v, 'Гамлет Тестовый', 'Менеджер', r) returning id into e;
+  insert into fx values ('gamlet', e);
+  insert into public.payroll_accruals(account_id, venue_id, employee_id, business_date, period_id, salary, status)
+  values (a, v, e, '2026-11-12', p, 40000, 'ready');
+
+  insert into public.payroll_employees(account_id, venue_id, name, role_name, role_id)
   values (a, v, 'Татьяна Тестовая', 'Бухгалтер', r) returning id into e;
   insert into fx values ('tanya', e);
   insert into public.payroll_accruals(account_id, venue_id, employee_id, business_date, period_id, salary, status, calculation_snapshot)
@@ -149,17 +156,20 @@ begin
 
   plan := public.payroll_payout_plan_save(jsonb_build_object(
     'schedule', 'main', 'month', '2026-11-01', 'payout_no', 1, 'window_from', '2026-11-25', 'window_to', '2026-12-01',
-    'rows', jsonb_build_array(jsonb_build_object('employee_id', pg_temp.fx('filipp'), 'amount', 25000,
+    'rows', jsonb_build_array(jsonb_build_object('employee_id', pg_temp.fx('gamlet'), 'amount', 10000, 'pay_date', '2026-11-25'),
+      jsonb_build_object('employee_id', pg_temp.fx('filipp'), 'amount', 25000,
       'pay_date', '2026-11-25', 'breakdown', jsonb_build_object('earned', 50000)))));
   insert into fx values ('main_plan', plan);
-  insert into fx select 'filipp_row', id from public.payroll_payout_rows where plan_id = plan;
+  insert into fx select 'filipp_row', id from public.payroll_payout_rows where plan_id = plan and employee_id = pg_temp.fx('filipp');
   -- Повторное сохранение черновика заменяет строки и поднимает версию.
   again := public.payroll_payout_plan_save(jsonb_build_object(
     'schedule', 'main', 'month', '2026-11-01', 'payout_no', 1, 'window_from', '2026-11-25', 'window_to', '2026-12-01',
-    'rows', jsonb_build_array(jsonb_build_object('employee_id', pg_temp.fx('filipp'), 'amount', 25000, 'pay_date', '2026-11-25'))));
+    'rows', jsonb_build_array(jsonb_build_object('employee_id', pg_temp.fx('gamlet'), 'amount', 10000, 'pay_date', '2026-11-25'),
+      jsonb_build_object('employee_id', pg_temp.fx('filipp'), 'amount', 25000, 'pay_date', '2026-11-25'))));
   perform pg_temp.check(again = plan and (select version from public.payroll_payout_plans where id = plan) = 2,
     'draft re-save keeps plan, bumps version');
-  update fx set id = (select id from public.payroll_payout_rows where plan_id = plan) where key = 'filipp_row';
+  update fx set id = (select id from public.payroll_payout_rows where plan_id = plan and employee_id = pg_temp.fx('filipp')) where key = 'filipp_row';
+  insert into fx select 'gamlet_row', id from public.payroll_payout_rows where plan_id = plan and employee_id = pg_temp.fx('gamlet');
 
   perform pg_temp.expect_error(
     format('select pg_temp.issue(%L, %L, %L, %L, %L)', 'key1', 'main_plan', 'cash', 'cashbox',
@@ -303,6 +313,55 @@ begin
        where c.contype = 'f' and c.confrelid = 'public.bank_accounts'::regclass
          and c.conrelid in ('public.payroll_payout_settings'::regclass, 'public.payroll_payout_issues'::regclass)),
     'bank account FKs are composite (account_id, bank_account_id)');
+end $$;
+
+-- ── 5в. Автовыдача сервером (392): без автора, перенос дня ──
+do $$
+declare issue uuid; payment uuid; already numeric;
+begin
+  perform pg_temp.act_as(null);
+  select coalesce(sum(total), 0) into already from public.payroll_payout_issues
+   where venue_id = pg_temp.fx('v') and business_date = '2026-11-25' and method = 'cash';
+  issue := public.payroll_payout_issue_system(pg_temp.fx('a'), pg_temp.fx('v'), jsonb_build_object(
+    'request_key', gen_random_uuid(), 'plan_id', pg_temp.fx('main_plan'), 'method', 'cash',
+    'bank_account_id', pg_temp.fx('cashbox'), 'date', '2026-11-25T14:00:00+03:00', 'business_date', '2026-11-25',
+    'cash', jsonb_build_object('available', 100000, 'issued_today', already),
+    'lines', jsonb_build_array(jsonb_build_object('row_id', pg_temp.fx('gamlet_row'), 'amount', 5000, 'next_pay_date', '2026-11-27')),
+    'moves', jsonb_build_array(jsonb_build_object('row_id', pg_temp.fx('filipp_row'), 'pay_date', '2026-11-28'))));
+  payment := ((select lines from public.payroll_payout_issues where id = issue)->0->>'payment_id')::uuid;
+  perform pg_temp.check(
+    (select created_by from public.payroll_payout_issues where id = issue) is null
+    and (select created_by from public.payroll_payments where id = payment) is null
+    and (select issued from public.payroll_payout_rows where id = pg_temp.fx('gamlet_row')) = 5000
+    and (select pay_date from public.payroll_payout_rows where id = pg_temp.fx('gamlet_row')) = '2026-11-27',
+    'system issue posts without an author');
+  perform pg_temp.check((select pay_date from public.payroll_payout_rows where id = pg_temp.fx('filipp_row')) = '2026-11-28',
+    'moves shift the day of rows that got nothing');
+  perform pg_temp.check(
+    (select moves from public.payroll_payout_issues where id = issue)
+      = jsonb_build_array(jsonb_build_object('row_id', pg_temp.fx('filipp_row'), 'employee_id', pg_temp.fx('filipp'),
+          'name', 'Филипп Тестовый', 'from', '2026-11-27', 'to', '2026-11-28'))
+    and exists (select 1 from public.payroll_events where entity_id = pg_temp.fx('main_plan') and action = 'payout_row'
+                and details->>'reason' = 'move' and details->>'row_id' = pg_temp.fx('filipp_row')::text),
+    'applied moves are stored on the issue and logged');
+  perform pg_temp.expect_error(
+    format('select public.payroll_payout_issue_system(%L, %L, %L)', gen_random_uuid(), pg_temp.fx('v'), '{}'),
+    '%не принадлежит аккаунту%', 'system issue checks venue ownership');
+  -- Выключатель автовыдачи: по умолчанию выключено, включает настройщик.
+  perform pg_temp.act_as(pg_temp.fx('owner'));
+  perform pg_temp.check((select auto_issue from public.payroll_payout_settings where venue_id = pg_temp.fx('v')) = false,
+    'auto issue is off by default');
+  perform public.payroll_payout_set_auto(true);
+  perform pg_temp.check((select auto_issue from public.payroll_payout_settings where venue_id = pg_temp.fx('v')) = true,
+    'auto issue can be switched on');
+  perform pg_temp.act_as(null);
+  perform pg_temp.check(not has_function_privilege('authenticated', 'public.payroll_payout_issue_system(uuid, uuid, jsonb)', 'execute')
+    and has_function_privilege('service_role', 'public.payroll_payout_issue_system(uuid, uuid, jsonb)', 'execute')
+    and not has_function_privilege('authenticated', 'public.payroll_official_expected_for(uuid, uuid, date, date)', 'execute')
+    and has_function_privilege('service_role', 'public.payroll_official_expected_for(uuid, uuid, date, date)', 'execute')
+    and not has_function_privilege('anon', 'public.payroll_payout_set_auto(boolean)', 'execute'),
+    'system functions are server-only');
+  perform pg_temp.act_as(pg_temp.fx('owner'));
 end $$;
 
 -- ── 6. Права ───────────────────────────────────────────────

@@ -79,8 +79,9 @@ const CATEGORY_SUFFIXES: Record<AuditActionCategory, string[]> = {
     ".posted",
     ".skipped",
     ".postponed",
-    // План выплат: пересчёт черновика.
+    // План выплат: пересчёт черновика; автовыдача, которая не прошла.
     ".recalculated",
+    ".auto_failed",
   ],
   deleted: [".deleted", ".archived", ".cancelled"],
   restored: [".restored"],

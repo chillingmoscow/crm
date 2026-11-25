@@ -412,7 +412,7 @@ function OfficialSalarySettings({
             </p>
           </div>
           <div className="space-y-2 md:col-span-2">
-            <Label htmlFor="official-bank">Расчётный счёт по умолчанию</Label>
+            <Label htmlFor="official-bank">Счёт для автоматической записи</Label>
             <OptionSelect
               id="official-bank"
               className={selectClass}
@@ -426,7 +426,9 @@ function OfficialSalarySettings({
               ]}
             />
             <p className="text-[13px] text-muted-foreground">
-              Только расчётные счета. Пока счёт не выбран, выплаты не проводятся, а в «На разбор» появляется напоминание.
+              Деньги этот счёт не отправляет: он нужен, чтобы записать официальную выплату в финансы. Если в каком-то
+              месяце платили с другого счёта, отметьте выплаты в «Выплатах» и нажмите «Сменить счёт». Пока счёт не
+              выбран, выплаты не записываются, а в «На разбор» появляется напоминание.
             </p>
           </div>
         </div>

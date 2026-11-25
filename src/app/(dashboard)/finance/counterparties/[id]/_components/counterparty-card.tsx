@@ -51,6 +51,7 @@ export function CounterpartyCard({
   groups,
   attachments,
   purchases,
+  purchasesFailed,
   operations,
   activity,
   canManage,
@@ -74,6 +75,8 @@ export function CounterpartyCard({
   attachments: CounterpartyDocument[];
   /** null — нет права смотреть номенклатуру: вкладки «Закупаем» нет. */
   purchases: CounterpartyPurchase[] | null;
+  /** Позиции не загрузились: во вкладке — ошибка, а не «не привязаны». */
+  purchasesFailed: boolean;
   operations: CounterpartyOperation[];
   /** `null` — нет права на операции или сбой подсчёта. */
   activity: CounterpartyActivity | null;
@@ -110,7 +113,7 @@ export function CounterpartyCard({
       ? "Менять данные могут те, кто управляет контрагентами"
       : null;
   const showDanger = isOwner && !archived;
-  const showPurchases = purchases !== null && (purchases.length > 0 || row.is_supplier);
+  const showPurchases = purchases !== null && (purchasesFailed || purchases.length > 0 || row.is_supplier);
   const groupName = row.group_id ? groups.find((group) => group.id === row.group_id)?.name ?? null : null;
 
   const context = [
@@ -241,7 +244,7 @@ export function CounterpartyCard({
 
             {showPurchases && purchases && (
               <TabsContent value="purchases">
-                <CounterpartyPurchases purchases={purchases} />
+                <CounterpartyPurchases purchases={purchases} failed={purchasesFailed} />
               </TabsContent>
             )}
 

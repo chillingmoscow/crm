@@ -28,8 +28,24 @@ test("normalizeContacts отбрасывает пустые и чистит по
     error: null,
   });
 });
-test("normalizeContacts: без имени, плохая почта, плохой Telegram, больше 10", () => {
-  assert.equal(normalizeContacts([{ name: "", phone: "+79990000000" }]).error, "Укажите имя контакта");
+test("normalizeContacts: контакт без имени получает имя «Контакт»", () => {
+  assert.deepEqual(normalizeContacts([{ name: "", phone: "+79990000000" }]), {
+    contacts: [{ name: "Контакт", role: null, phone: "+79990000000", email: null, telegram: null }],
+    error: null,
+  });
+});
+test("normalizeContacts: старая почта из базы не мешает сохранить", () => {
+  const trusted = new Set(["a@x.ru, b@y.ru"]);
+  assert.equal(normalizeContacts([{ name: "Иван", email: "a@x.ru, b@y.ru" }], { trustedEmails: trusted }).error, null);
+  assert.equal(normalizeContacts([{ name: "Иван", email: "c@" }], { trustedEmails: trusted }).error, "Проверьте адрес почты");
+});
+test("normalizeContacts: длинные поля обрезаются", () => {
+  const [c] = normalizeContacts([{ name: "я".repeat(300), role: "р".repeat(300), phone: "1".repeat(80) }]).contacts;
+  assert.equal(c.name.length, 200);
+  assert.equal(c.role?.length, 100);
+  assert.equal(c.phone?.length, 30);
+});
+test("normalizeContacts: плохая почта, плохой Telegram, больше 10", () => {
   assert.equal(normalizeContacts([{ name: "Иван", email: "ivan@" }]).error, "Проверьте адрес почты");
   assert.equal(normalizeContacts([{ name: "Иван", telegram: "иван" }]).error, TG_ERROR);
   assert.equal(

@@ -22,13 +22,23 @@ const isCatalogKind = (kind: string): kind is CatalogKind => kind in CATALOG_KIN
  * Вкладка «Закупаем»: позиции номенклатуры, к которым контрагент привязан
  * поставщиком. Только просмотр — поставщика добавляют в карточке позиции.
  */
-export function CounterpartyPurchases({ purchases }: { purchases: CounterpartyPurchase[] }) {
+export function CounterpartyPurchases({
+  purchases,
+  failed = false,
+}: {
+  purchases: CounterpartyPurchase[];
+  failed?: boolean;
+}) {
   return (
     <ProfileSection
       title="Закупаем"
       description="Позиции номенклатуры, которые берём у этого контрагента"
     >
-      {purchases.length === 0 ? (
+      {failed ? (
+        <p role="alert" className="text-sm text-destructive">
+          Не удалось загрузить позиции номенклатуры. Обновите страницу
+        </p>
+      ) : purchases.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           Позиции номенклатуры к этому поставщику не привязаны. Поставщика добавляют в карточке позиции, вкладка
           «Поставщики»

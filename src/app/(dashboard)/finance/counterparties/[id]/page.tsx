@@ -17,6 +17,7 @@ import { listCounterpartyAttachments } from "@/lib/files/attachments";
 import { filePreviewKind } from "@/lib/files/file-name";
 import { mediaUrl } from "@/lib/storage/media";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { isDadataConfigured } from "@/lib/dadata/client";
 import { listAuditEvents } from "@/lib/audit/list";
 import { CounterpartyCard, type CounterpartyOperation } from "./_components/counterparty-card";
@@ -107,14 +108,16 @@ export default async function CounterpartyDetailPage({
       ? listAuditEvents({ entityType: "counterparty", entityId: id })
       : Promise.resolve({ events: [], hasMore: false, error: null }),
     // «Закупаем»: позиции номенклатуры, где контрагент — поставщик.
+    // Все страницы: у крупного поставщика позиций может быть больше тысячи.
     canViewProducts
-      ? asLooseDb(supabase)
-          .from<PurchaseRow[]>("ingredient_suppliers")
-          .select(
-            "id, ingredient_id, supplier_article, supplier_price, is_preferred, ingredient:ingredients!ingredient_suppliers_ingredient_fkey(name, kind, archived_at)",
-          )
-          .eq("counterparty_id", id)
-          .then(({ data }) => (data ?? []) as PurchaseRow[])
+      ? fetchAllRows<PurchaseRow>(() =>
+          asLooseDb(supabase)
+            .from<PurchaseRow[]>("ingredient_suppliers")
+            .select(
+              "id, ingredient_id, supplier_article, supplier_price, is_preferred, ingredient:ingredients!ingredient_suppliers_ingredient_fkey(name, kind, archived_at)",
+            )
+            .eq("counterparty_id", id),
+        ).catch(() => "failed" as const)
       : Promise.resolve(null),
   ]);
 
@@ -164,7 +167,10 @@ export default async function CounterpartyDetailPage({
     .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
 
   const collator = new Intl.Collator("ru", { sensitivity: "base" });
-  const purchases: CounterpartyPurchase[] | null = purchaseRows
+  const purchasesFailed = purchaseRows === "failed";
+  const purchases: CounterpartyPurchase[] | null = purchaseRows === "failed"
+    ? []
+    : purchaseRows
     ? purchaseRows
         .map((r) => {
           const ingredient = Array.isArray(r.ingredient) ? (r.ingredient[0] ?? null) : r.ingredient;
@@ -203,6 +209,7 @@ export default async function CounterpartyDetailPage({
       groups={groups.map((group) => ({ id: group.id, name: group.name }))}
       attachments={attachments}
       purchases={purchases}
+      purchasesFailed={purchasesFailed}
       operations={operations}
       activity={
         activity

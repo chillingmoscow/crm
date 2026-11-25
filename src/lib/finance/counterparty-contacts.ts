@@ -33,32 +33,41 @@ export function telegramUrl(nick: string): string {
   return `https://t.me/${nick}`;
 }
 
-const text = (value: unknown): string | null => {
+const text = (value: unknown, max: number): string | null => {
   if (typeof value !== "string") return null;
-  const trimmed = value.replace(/\s+/g, " ").trim();
+  const trimmed = value.replace(/\s+/g, " ").trim().slice(0, max).trim();
   return trimmed || null;
 };
 
+/** Имя контакта, когда его не вписали (так же переносились старые контакты). */
+export const UNNAMED_CONTACT = "Контакт";
+
 /**
- * Список контактов из формы: полностью пустые карточки отбрасываются,
- * у остальных обязательно имя, почта и Telegram проверяются.
+ * Список контактов из формы: полностью пустые карточки отбрасываются, без
+ * имени — «Контакт», почта и Telegram проверяются. Почту, которая уже лежит в
+ * базе (`trustedEmails`), не перепроверяем: старая запись вроде «a@x.ru,
+ * b@y.ru» не должна мешать сохранить карточку.
  */
-export function normalizeContacts(input: unknown): { contacts: CounterpartyContact[]; error: string | null } {
+export function normalizeContacts(
+  input: unknown,
+  opts: { trustedEmails?: Set<string> } = {},
+): { contacts: CounterpartyContact[]; error: string | null } {
   if (!Array.isArray(input)) return { contacts: [], error: null };
   const contacts: CounterpartyContact[] = [];
   for (const item of input) {
     const raw = (item && typeof item === "object" ? item : {}) as Record<string, unknown>;
-    const name = text(raw.name);
-    const role = text(raw.role);
-    const phone = text(raw.phone);
-    const email = text(raw.email);
+    const name = text(raw.name, 200);
+    const role = text(raw.role, 100);
+    const phone = text(raw.phone, 30);
+    const email = text(raw.email, 200);
     const telegramRaw = typeof raw.telegram === "string" ? raw.telegram : "";
     if (!name && !role && !phone && !email && !telegramRaw.trim()) continue;
-    if (!name) return { contacts: [], error: "Укажите имя контакта" };
-    if (email && !EMAIL.test(email)) return { contacts: [], error: "Проверьте адрес почты" };
+    if (email && !EMAIL.test(email) && !opts.trustedEmails?.has(email)) {
+      return { contacts: [], error: "Проверьте адрес почты" };
+    }
     const telegram = normalizeTelegram(telegramRaw);
     if (telegram.error) return { contacts: [], error: telegram.error };
-    contacts.push({ name, role, phone, email, telegram: telegram.value });
+    contacts.push({ name: name ?? UNNAMED_CONTACT, role, phone, email, telegram: telegram.value });
   }
   if (contacts.length > MAX_CONTACTS) return { contacts: [], error: "Не больше 10 контактов" };
   return { contacts, error: null };

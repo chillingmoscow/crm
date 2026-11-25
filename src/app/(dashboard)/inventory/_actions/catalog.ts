@@ -429,6 +429,14 @@ export async function addIngredientSupplier(input: {
   if (!(await assertOwnedCounterparty(admin, ctx.accountId, counterpartyId))) {
     return { error: "Контрагент не найден" };
   }
+  // Привязка ставит контрагенту отметку «Поставщик» (триггер миграции 387).
+  // Триггер журнала контрагента под служебным клиентом молчит — пишем сами.
+  const { data: before } = await admin
+    .from<{ is_supplier: boolean; name: string; deleted_at: string | null }>("counterparties")
+    .select("is_supplier, name, deleted_at")
+    .eq("id", counterpartyId)
+    .eq("account_id", ctx.accountId)
+    .maybeSingle();
 
   const { error } = await admin.from("ingredient_suppliers").insert({
     account_id: ctx.accountId,
@@ -469,8 +477,23 @@ export async function addIngredientSupplier(input: {
       counterparty_name: await counterpartyName(admin, ctx.accountId, counterpartyId),
     },
   });
+  if (before && !before.is_supplier && !before.deleted_at) {
+    await writeAuditEvent({
+      accountId: ctx.accountId,
+      userId: ctx.user.id,
+      actionCode: "finance.counterparty.updated",
+      entityType: "counterparty",
+      entityId: counterpartyId,
+      details: {
+        name: before.name,
+        changes: [{ field: "is_supplier", old: false, new: true }],
+        reason: `поставщик позиции «${ingredient.name}»`,
+      },
+    });
+  }
 
   revalidateCatalog();
+  revalidatePath(`/finance/counterparties/${counterpartyId}`);
   return { error: null };
 }
 

@@ -185,7 +185,10 @@ export function CounterpartyRequisites({
     }
   }
 
-  const fieldError = errorField(serverError);
+  // Ошибка условий поставок, когда блок скрыт (отметку сняли), — общей строкой.
+  const rawField = errorField(serverError);
+  const fieldError =
+    !form.is_supplier && (rawField === "payment_delay_days" || rawField === "min_order_amount") ? null : rawField;
   const errorOf = (key: string) => (fieldError === key ? serverError : null);
   const locked = lockMessage ? { tone: "locked" as const, message: lockMessage } : undefined;
   const syncedAt = formatDayMonth(row.dadata_synced_at);

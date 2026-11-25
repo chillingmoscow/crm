@@ -76,10 +76,34 @@ $$;
 
 revoke all on function public.ingredient_suppliers_mark_supplier() from public, anon, authenticated;
 
+do $$
+begin
+  if has_function_privilege('anon', 'public.ingredient_suppliers_mark_supplier()', 'EXECUTE')
+    or has_function_privilege('authenticated', 'public.ingredient_suppliers_mark_supplier()', 'EXECUTE')
+  then
+    raise exception 'Права на функцию отметки поставщика не сняты: применяйте миграцию от владельца (supabase_admin)';
+  end if;
+end
+$$;
+
 create trigger ingredient_suppliers_mark_supplier
   after insert on public.ingredient_suppliers
   for each row
   execute function public.ingredient_suppliers_mark_supplier();
+
+-- «Иван Петров +79990000000 @ivan; Мария» для журнала: видно, что поменялось
+-- у контакта, а не только имена.
+create or replace function public.contacts_summary(p_contacts jsonb)
+returns text
+language sql
+immutable
+set search_path = public, pg_catalog
+as $$
+  select nullif(string_agg(concat_ws(' ',
+    c->>'name', c->>'role', c->>'phone', c->>'email', '@' || (c->>'telegram')
+  ), '; '), '')
+  from jsonb_array_elements(coalesce(p_contacts, '[]'::jsonb)) c
+$$;
 
 -- «пн, ср» для журнала.
 create or replace function public.weekday_names(p_days smallint[])
@@ -241,8 +265,8 @@ begin
     if OLD.contacts is distinct from NEW.contacts then
       v_changes := v_changes || jsonb_build_array(jsonb_build_object(
         'field', 'contacts',
-        'old', (select string_agg(c->>'name', ', ') from jsonb_array_elements(OLD.contacts) c),
-        'new', (select string_agg(c->>'name', ', ') from jsonb_array_elements(NEW.contacts) c)
+        'old', public.contacts_summary(OLD.contacts),
+        'new', public.contacts_summary(NEW.contacts)
       ));
     end if;
 

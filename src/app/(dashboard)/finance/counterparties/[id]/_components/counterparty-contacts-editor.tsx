@@ -1,13 +1,17 @@
 "use client";
 
-import { Mail, Phone, Plus, Send, Trash2 } from "lucide-react";
+import { ArrowUp, Mail, Phone, Plus, Send, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { PhoneInput } from "@/components/ui/phone-input";
-import { MAX_CONTACTS, telegramUrl, type CounterpartyContact } from "@/lib/finance/counterparty-contacts";
-
+import {
+  MAX_CONTACTS,
+  normalizeTelegram,
+  telegramUrl,
+  type CounterpartyContact,
+} from "@/lib/finance/counterparty-contacts";
 
 /** Контакт в форме: все поля строками, «» — пусто. */
 export type ContactDraft = { name: string; role: string; phone: string; email: string; telegram: string };
@@ -64,7 +68,7 @@ export function CounterpartyContactsEditor({
     <div className="flex flex-col gap-3">
       {contacts.map((contact, index) => (
         <div key={index} className="grid gap-3 rounded-lg border p-3 sm:grid-cols-2">
-          <Field id={`cp-contact-${index}-name`} label="Имя" required>
+          <Field id={`cp-contact-${index}-name`} label="Имя">
             {(control) => (
               <Input
                 {...control}
@@ -114,16 +118,36 @@ export function CounterpartyContactsEditor({
               />
             )}
           </Field>
-          <div className="flex items-end justify-end">
-            <Button
-              type="button"
-              variant="ghost"
-              className="gap-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-              onClick={() => onChange(contacts.filter((_, i) => i !== index))}
-            >
-              <Trash2 className="size-4" />
-              Убрать контакт
-            </Button>
+          <div className="flex flex-wrap items-end justify-between gap-2 sm:col-span-2">
+            {/* Ссылки и тем, кто правит: позвонить или написать прямо из карточки. */}
+            <ContactLinks contact={contact} />
+            <span className="flex gap-1">
+              {index > 0 ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="gap-2 text-muted-foreground"
+                  data-tip="Первый контакт виден в списке и в карточке позиции номенклатуры"
+                  onClick={() => {
+                    const next = [...contacts];
+                    [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                    onChange(next);
+                  }}
+                >
+                  <ArrowUp className="size-4" />
+                  Выше
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="ghost"
+                className="gap-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => onChange(contacts.filter((_, i) => i !== index))}
+              >
+                <Trash2 className="size-4" />
+                Убрать контакт
+              </Button>
+            </span>
           </div>
         </div>
       ))}
@@ -145,13 +169,14 @@ export function CounterpartyContactsEditor({
 }
 
 function ContactLinks({ contact }: { contact: ContactDraft }) {
-  const nick = contact.telegram.replace(/^@/, "");
+  // Пока ник вводят, ссылку показываем только для правильного.
+  const nick = normalizeTelegram(contact.telegram).value;
   const links = [
     contact.phone ? { href: `tel:${contact.phone.replace(/[^\d+]/g, "")}`, icon: Phone, label: contact.phone } : null,
     contact.email ? { href: `mailto:${contact.email}`, icon: Mail, label: contact.email } : null,
     nick ? { href: telegramUrl(nick), icon: Send, label: `@${nick}`, external: true } : null,
   ].filter((link): link is NonNullable<typeof link> => link !== null);
-  if (links.length === 0) return null;
+  if (links.length === 0) return <span />;
   return (
     <span className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
       {links.map((link) => (

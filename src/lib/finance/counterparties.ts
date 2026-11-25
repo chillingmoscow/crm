@@ -7,7 +7,7 @@ import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { findPartyByInn } from "@/lib/dadata/party";
 import { errorText } from "@/lib/actions/error-text";
-import { normalizeContacts, normalizeWeekdays } from "@/lib/finance/counterparty-contacts";
+import { contactsFromJson, normalizeContacts, normalizeWeekdays } from "@/lib/finance/counterparty-contacts";
 import { writeAuditEvent } from "@/lib/audit/write";
 import type {
   CounterpartyFormInput,
@@ -126,7 +126,10 @@ function amount(value: unknown): number | null | "invalid" {
  * Только поля формы: аккаунт, архив, авторство и сверку с ЕГРЮЛ из запроса
  * не принимаем, даже если их прислали в обход интерфейса.
  */
-function normalize(input: Partial<CounterpartyFormInput>): { out: CounterpartyWrite; error: string | null } {
+function normalize(
+  input: Partial<CounterpartyFormInput>,
+  opts: { trustedEmails?: Set<string> } = {},
+): { out: CounterpartyWrite; error: string | null } {
   const out: CounterpartyWrite = {};
   if (input.name !== undefined) out.name = String(input.name).trim();
   if (input.legal_form !== undefined) out.legal_form = input.legal_form;
@@ -148,7 +151,7 @@ function normalize(input: Partial<CounterpartyFormInput>): { out: CounterpartyWr
   if (input.order_weekdays !== undefined) out.order_weekdays = normalizeWeekdays(input.order_weekdays);
   if (input.delivery_weekdays !== undefined) out.delivery_weekdays = normalizeWeekdays(input.delivery_weekdays);
   if (input.contacts !== undefined) {
-    const { contacts, error } = normalizeContacts(input.contacts);
+    const { contacts, error } = normalizeContacts(input.contacts, opts);
     if (error) return { out, error };
     out.contacts = contacts;
   }
@@ -214,16 +217,19 @@ export async function updateCounterparty(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
 
-  const normalized = normalize(patch);
-  if (normalized.error) return { error: normalized.error };
-  const clean = normalized.out;
   // Проверяем только изменённые реквизиты: старые записи (импорт, ручной
-  // ввод до проверок) не должны мешать поправить, например, телефон.
+  // ввод до проверок) не должны мешать поправить, например, название.
   const { data: current } = await supabase
     .from("counterparties")
-    .select("inn, kpp, ogrn")
+    .select("inn, kpp, ogrn, contacts")
     .eq("id", id)
     .maybeSingle();
+  const trustedEmails = new Set(
+    contactsFromJson(current?.contacts).flatMap((c) => (c.email ? [c.email] : [])),
+  );
+  const normalized = normalize(patch, { trustedEmails });
+  if (normalized.error) return { error: normalized.error };
+  const clean = normalized.out;
   const toValidate: Partial<CounterpartyFormInput> = { name: clean.name };
   for (const key of ["inn", "kpp", "ogrn"] as const) {
     if (clean[key] !== undefined && (clean[key] ?? null) !== (current?.[key] ?? null)) {

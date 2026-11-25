@@ -44,18 +44,22 @@ export function dayKey(planId: string, day: string): string {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
 }
 
+/**
+ * Отчёт в чат отчётов. В лог сервера пишем только заведение и причину сбоя
+ * доставки: имена и суммы остаются в Telegram, не в логах.
+ */
 async function report(s: VenueHandle, text: string): Promise<boolean> {
   try {
     const bot = await loadTelegramBot(s.admin, s.accountId);
     if (!bot?.reportsChatId) {
-      console.error(`[payroll-payout-auto] ${s.venueId}: не настроен чат отчётов, отчёт не отправлен:\n${text}`);
+      console.error(`[payroll-payout-auto] ${s.venueId}: не настроен чат отчётов, отчёт не отправлен`);
       return false;
     }
     const sent = await bot.sendMessage(bot.reportsChatId, text);
-    if (!sent.ok) console.error(`[payroll-payout-auto] ${s.venueId}: отчёт не дошёл (${sent.description ?? "Telegram"}):\n${text}`);
+    if (!sent.ok) console.error(`[payroll-payout-auto] ${s.venueId}: отчёт не дошёл (${sent.description ?? "Telegram"})`);
     return sent.ok;
-  } catch (e) {
-    console.error(`[payroll-payout-auto] ${s.venueId}: отчёт не отправлен:\n${text}`, e);
+  } catch {
+    console.error(`[payroll-payout-auto] ${s.venueId}: отчёт не отправлен (Telegram не ответил)`);
     return false;
   }
 }

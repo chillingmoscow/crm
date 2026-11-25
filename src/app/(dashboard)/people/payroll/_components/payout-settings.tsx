@@ -106,6 +106,7 @@ function PayoutScheduleForm({ data, saved, onSaved }: { data: PayrollData; saved
     setForm(JSON.parse(initialKey) as Form);
   }, [initialKey]);
   const canConfigure = data.permissions.includes("payroll.configure");
+  const canIssue = data.permissions.includes("payroll.pay") && data.permissions.includes("finance.create_transaction");
   const dirty = canConfigure && !sameForm(form, initial);
   const blocked = validate(form);
   const set = (patch: Partial<Form>) => setForm((current) => ({ ...current, ...patch }));
@@ -184,8 +185,19 @@ function PayoutScheduleForm({ data, saved, onSaved }: { data: PayrollData; saved
               В день выплаты по утверждённому плану приложение само проверяет кассы, проводит выплаты и пишет менеджерам.
               Если выдать нельзя, придёт сообщение в чат отчётов. Выключено — выдача только кнопкой «Выдать сейчас».
             </p>
+            {!canIssue && (
+              <p className="text-[13px] text-muted-foreground">
+                Включить могут те, у кого есть права на выплаты и операции в финансах.
+              </p>
+            )}
           </div>
-          <Switch id="payout-auto" checked={form.auto} disabled={disabled} onCheckedChange={(auto) => set({ auto })} />
+          <Switch
+            id="payout-auto"
+            checked={form.auto}
+            // Включить — только с правами на выплаты; выключить может и настройщик.
+            disabled={disabled || (!form.auto && !canIssue)}
+            onCheckedChange={(auto) => set({ auto })}
+          />
         </div>
         <div className="grid gap-4 md:grid-cols-2">
           {field("payout-min-cash", "Минимум в кэшбоксе после выдачи, ₽", form.minCash, (minCash) => set({ minCash }),

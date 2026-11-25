@@ -383,6 +383,9 @@ async function loadPayoutAssignmentsImpl() {
 async function setPayoutAutoImpl(enabled: boolean) {
   z.boolean().parse(enabled);
   const s = await payrollScope("payroll.configure");
+  // Автовыдача проводит деньги: включает только тот, кто может выдавать сам.
+  if (enabled && !(s.permissions.includes("payroll.pay") && s.permissions.includes("finance.create_transaction")))
+    throw new Error("Включить автовыдачу могут те, у кого есть права на выплаты и операции в финансах");
   const r = await s.db.rpc("payroll_payout_set_auto", { p_enabled: enabled });
   if (r.error) throw new Error(r.error.message);
   await writeAuditEvent({

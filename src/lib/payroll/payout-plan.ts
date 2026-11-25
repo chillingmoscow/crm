@@ -23,7 +23,8 @@ export type PayoutSchedule = {
 export const DEFAULT_PAYOUT_SCHEDULES: Record<PayoutScheduleCode, PayoutSchedule> = {
   main: { method: "cash", first: [25, 1], second: [10, 16], step: 5000, reserve: 5000 },
   cleaner: { method: "cash", first: [18, 22], second: [3, 7], step: 5000, reserve: 0 },
-  transfer: { method: "transfer", first: [25, 1], second: [10, 16], step: 500, reserve: 0, bank_account_id: null },
+  // Переводом — ровно половина месяца: без округления и запаса, счёт выбирают при каждой оплате.
+  transfer: { method: "transfer", first: [25, 1], second: [10, 16], step: 0, reserve: 0, bank_account_id: null },
 };
 
 export const PAYOUT_SCHEDULE_LABELS: Record<PayoutScheduleCode, string> = {
@@ -110,7 +111,11 @@ export function planFirstPayout(input: {
   shifts: { employee_id: string; business_date: string }[];
 }): PlannedRow[] {
   const { data, month, today, window } = input;
-  const config = input.schedules[input.schedule];
+  // Переводом сумма — ровно половина месяца, сохранённые шаг и запас не действуют.
+  const config =
+    input.schedule === "transfer"
+      ? { ...input.schedules.transfer, step: 0, reserve: 0 }
+      : input.schedules[input.schedule];
   const until = shiftMonth(month, 1);
   const startsOn = data.settings?.starts_on ?? "2026-09-01";
   const employees = data.employees.filter(

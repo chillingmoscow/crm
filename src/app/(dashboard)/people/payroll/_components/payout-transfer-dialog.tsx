@@ -33,7 +33,8 @@ export function PayoutTransferDialog({
   const checking = view.banks.filter((b) => b.type === "checking");
   const [amount, setAmount] = useState(String(left));
   const [date, setDate] = useState(view.today);
-  const [bank, setBank] = useState(view.settings.schedules.transfer.bank_account_id ?? checking[0]?.id ?? "");
+  // Счетов несколько и платят с разных — счёт выбирают каждый раз.
+  const [bank, setBank] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   // Ключ живёт, пока открыта панель: повторное нажатие после сбоя не создаст вторую выплату.
@@ -93,7 +94,7 @@ export function PayoutTransferDialog({
           {date > view.today && <p className="text-[13px] text-destructive">Дата оплаты не может быть в будущем</p>}
         </div>
         <div className="space-y-2">
-          <Label htmlFor="transfer-bank">Счёт</Label>
+          <Label htmlFor="transfer-bank">С какого счёта оплачен</Label>
           <OptionSelect
             id="transfer-bank"
             className={selectClass}

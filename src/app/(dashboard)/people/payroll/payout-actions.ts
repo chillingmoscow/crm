@@ -117,7 +117,7 @@ function mergeSettings(row: SettingsRecord | null, data: PayrollData): PayoutSet
   // До первой настройки — счета, с которых платили и раньше.
   const byName = (type: string, pattern: RegExp) =>
     data.banks.find((b) => b.type === type && pattern.test(b.name))?.id ?? null;
-  if (!schedules.transfer.bank_account_id) schedules.transfer.bank_account_id = byName("checking", /сбер\s*бизнес/i);
+  schedules.transfer = { ...DEFAULT_PAYOUT_SCHEDULES.transfer };
   return {
     min_cash: Number(row?.min_cash ?? 120000),
     chat_id: row?.chat_id ?? null,
@@ -674,11 +674,8 @@ const settingsSchema = z.object({
   schedules: z.object({
     main: z.object({ step: z.number().int().min(1).max(100000), reserve: z.number().min(0).max(1_000_000) }),
     cleaner: z.object({ step: z.number().int().min(1).max(100000), reserve: z.number().min(0).max(1_000_000) }),
-    transfer: z.object({
-      step: z.number().int().min(1).max(100000),
-      reserve: z.number().min(0).max(1_000_000),
-      bank_account_id: z.string().uuid().nullable(),
-    }),
+    // Переводом: без шага, запаса и счёта по умолчанию — счёт выбирают при оплате.
+    transfer: z.object({}).optional(),
   }),
   assignments: z.array(z.object({ employee_id: z.string().uuid(), schedule: scheduleSchema })).max(1000),
 });
@@ -692,14 +689,23 @@ async function savePayoutSettingsImpl(input: PayoutSettingsInput) {
   if (chat && chat !== previous?.chat_id) {
     const bot = await loadTelegramBot(s.admin, s.accountId);
     if (!bot) throw new Error("Сначала подключите Telegram-бота в интеграциях");
-    let member = false;
+    let own;
     try {
-      const own = await bot.getOwnMembership(chat);
-      member = own.ok && ["member", "administrator", "creator"].includes(own.result?.status ?? "");
+      own = await bot.getOwnMembership(chat);
     } catch {
-      member = false;
+      throw new Error("Telegram не ответил, чат не проверен. Сохраните ещё раз через минуту");
     }
-    if (!member) throw new Error("Бот не состоит в этом чате. Добавьте бота в чат менеджеров и сохраните снова");
+    if (own.uncertain) throw new Error("Telegram не ответил, чат не проверен. Сохраните ещё раз через минуту");
+    if (!own.ok) {
+      throw new Error(
+        /chat not found/i.test(own.description ?? "")
+          ? "Telegram не нашёл чат с таким ID. Проверьте ID: у групп он начинается с -100"
+          : `Telegram не дал проверить чат: ${own.description ?? "неизвестная ошибка"}`,
+      );
+    }
+    if (!["member", "administrator", "creator"].includes(own.result?.status ?? "")) {
+      throw new Error("Бот не состоит в этом чате. Добавьте бота в чат менеджеров и сохраните снова");
+    }
   }
   const r = await s.client.rpc("payroll_payout_save_settings", {
     p_input: { ...value, chat_id: value.chat_id || null },
@@ -716,8 +722,8 @@ async function savePayoutSettingsImpl(input: PayoutSettingsInput) {
       min_cash: value.min_cash,
       chat_id: chat,
       previous_chat_id: previous?.chat_id ?? null,
-      steps: Object.fromEntries(SCHEDULES.map((c) => [c, value.schedules[c].step])),
-      reserves: Object.fromEntries(SCHEDULES.map((c) => [c, value.schedules[c].reserve])),
+      steps: { main: value.schedules.main.step, cleaner: value.schedules.cleaner.step },
+      reserves: { main: value.schedules.main.reserve, cleaner: value.schedules.cleaner.reserve },
       assignments: value.assignments.length,
     },
   });

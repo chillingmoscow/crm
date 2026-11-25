@@ -347,6 +347,7 @@ async function importOne(ctx: Ctx, candidate: Candidate, allowed: Set<number>): 
   }
 
   let documentId = existing?.id ?? null;
+  const createdHere = !documentId;
   if (!documentId) {
     const { data: created, error } = await admin
       .from<{ id: string }>("documents")
@@ -380,46 +381,76 @@ async function importOne(ctx: Ctx, candidate: Candidate, allowed: Set<number>): 
     }
     documentId = created.id;
   }
-  await upsertExternalLink({
-    admin,
-    accountId,
-    entityType: "inventory_document",
-    externalId,
-    localTable: "documents",
-    localId: documentId,
-  });
-
-  // Фиксация без сверки строки не перечитывает — загружаем их здесь. Факт —
-  // количество из Quick Resto: подсчёт вели там.
-  const refreshed = await refreshLocalInventoryDocumentFromPayload({
-    admin,
-    accountId,
-    documentId,
-    document: { ...fullDoc, effectedItems: items },
-    keepStatus: true,
-    submittedAmounts: readActualAmountsByExternalItemId(items),
-  });
-  if (refreshed.skippedEmptyPayload || refreshed.count === 0) {
-    throw new Error("Quick Resto не вернул позиции акта");
-  }
-  if (!refreshed.resultsFound) {
-    throw new Error("Quick Resto не вернул расчёт по строкам акта — повторите загрузку позже");
-  }
-
-  const core = await finalizeInventoryDocumentCore({
-    admin,
-    accountId,
-    documentId,
-    actorUserId: ctx.userId,
-    source: "import",
-  });
-  if (core.error) throw new Error(core.error);
   try {
-    revalidateInventoryResultPages(documentId);
-  } catch {
-    // Обновление страниц — не часть загрузки.
+    await upsertExternalLink({
+      admin,
+      accountId,
+      entityType: "inventory_document",
+      externalId,
+      localTable: "documents",
+      localId: documentId,
+    });
+
+    // Фиксация без сверки строки не перечитывает — загружаем их здесь. Факт —
+    // количество из Quick Resto: подсчёт вели там.
+    const refreshed = await refreshLocalInventoryDocumentFromPayload({
+      admin,
+      accountId,
+      documentId,
+      document: { ...fullDoc, effectedItems: items },
+      keepStatus: true,
+      submittedAmounts: readActualAmountsByExternalItemId(items),
+    });
+    if (refreshed.skippedEmptyPayload || refreshed.count === 0) {
+      throw new Error("Quick Resto не вернул позиции акта");
+    }
+    if (!refreshed.resultsFound) {
+      throw new Error("Quick Resto не вернул расчёт по строкам акта — повторите загрузку позже");
+    }
+
+    const core = await finalizeInventoryDocumentCore({
+      admin,
+      accountId,
+      documentId,
+      actorUserId: ctx.userId,
+      source: "import",
+    });
+    if (core.error) throw new Error(core.error);
+    try {
+      revalidateInventoryResultPages(documentId);
+    } catch {
+      // Обновление страниц — не часть загрузки.
+    }
+  } catch (error) {
+    // Строка создана этим запуском и осталась без итогов: «проведённый» акт без строк
+    // закрыл бы месяц и не дал бы загрузить его заново. Возобновляемую строку не трогаем.
+    if (createdHere) await discardHalfImported(admin, accountId, documentId, externalId);
+    throw error;
   }
   return documentId;
+}
+
+/** Убирает документ, созданный загрузкой и не доведённый до итогов (только строки и ссылка этого запуска). */
+async function discardHalfImported(admin: LooseDb, accountId: string, documentId: string, externalId: string) {
+  try {
+    const items = await admin.from("document_items").delete().eq("account_id", accountId).eq("document_id", documentId);
+    const link = await admin
+      .from("external_entity_links")
+      .delete()
+      .eq("account_id", accountId)
+      .eq("provider", "quickresto")
+      .eq("entity_type", "inventory_document")
+      .eq("external_id", externalId)
+      .eq("local_id", documentId);
+    const doc = await admin.from("documents").delete().eq("account_id", accountId).eq("id", documentId);
+    const failure = items.error ?? link.error ?? doc.error;
+    if (failure) throw new Error(failure.message);
+  } catch (error) {
+    console.error("[import-store-acts] не удалось убрать недогруженный акт", {
+      documentId,
+      error: error instanceof Error ? error.message : error,
+    });
+  }
 }
 
 /**

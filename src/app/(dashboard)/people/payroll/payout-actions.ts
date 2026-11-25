@@ -79,6 +79,10 @@ export type PayoutRowView = PlannedRow & {
   state: "planned" | "partial" | "issued";
   /** Сколько вышло бы сейчас, с учётом новых выплат и штрафов; null — строка уже выдана. */
   fresh: number | null;
+  /** Выплачено за месяц на сейчас: ручные выплаты, авансы и выданное по плану. */
+  paidNow: number;
+  /** Вне плана (график «Переводом»): платят себе по счетам, выплаты вносят вручную. */
+  outside: boolean;
 };
 export type PayoutPlanView = {
   schedule: PayoutScheduleCode;
@@ -92,8 +96,6 @@ export type PayoutPlanView = {
   canIssue: boolean;
   /** Нет доступа к графику работы всей команды: дни и прогноз по сменам недоступны. */
   shiftsHidden: boolean;
-  /** Сотрудники вне плана (график «Переводом»): платят себе по счетам, выплаты вносят вручную. */
-  outside: string[];
 };
 export type IssuePreview = {
   requestKey: string;
@@ -249,9 +251,23 @@ async function loadPayoutPlanImpl(schedule: PayoutScheduleCode): Promise<PayoutP
         issued: row.issued,
         state: row.state,
         fresh: row.state === "issued" ? null : money((freshBy.get(row.employee_id)?.amount ?? 0) + row.issued),
+        paidNow: freshBy.get(row.employee_id)?.breakdown.paid ?? row.breakdown.paid,
+        outside: false,
       }))
-    : fresh.map((row) => ({ ...row, id: null, ...person(row.employee_id), issued: 0, state: "planned", fresh: row.amount }));
+    : fresh.map((row) => ({
+        ...row, id: null, ...person(row.employee_id), issued: 0, state: "planned" as const, fresh: row.amount,
+        paidNow: row.breakdown.paid, outside: false,
+      }));
+  // Вне плана — строками со статусом, без сумм к выплате.
+  const outside: PayoutRowView[] =
+    month && span
+      ? plan(ctx, "transfer", month, span).map((row) => ({
+          ...row, amount: 0, pay_date: null, id: null, ...person(row.employee_id), issued: 0, state: "planned" as const,
+          fresh: null, paidNow: row.breakdown.paid, outside: true,
+        }))
+      : [];
   rows.sort((a, b) => a.name.localeCompare(b.name, "ru"));
+  rows.push(...outside.sort((a, b) => a.name.localeCompare(b.name, "ru")));
   return {
     schedule,
     today: ctx.today,
@@ -263,10 +279,6 @@ async function loadPayoutPlanImpl(schedule: PayoutScheduleCode): Promise<PayoutP
     canPay: s.permissions.includes("payroll.pay"),
     canIssue: s.permissions.includes("payroll.pay") && s.permissions.includes("finance.create_transaction"),
     shiftsHidden: !s.permissions.includes("schedule.view_all"),
-    outside: ctx.data.employees
-      .filter((e) => e.active && !e.casual && e.payout_schedule === "transfer")
-      .map((e) => e.name)
-      .sort((a, b) => a.localeCompare(b, "ru")),
   };
 }
 

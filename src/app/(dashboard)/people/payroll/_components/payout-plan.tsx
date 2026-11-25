@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { toast } from "sonner";
@@ -12,7 +13,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Money, formatRub } from "@/components/shared/money";
 import { unwrapAction } from "@/lib/actions/result";
-import { formatDateCell, formatDayMonth } from "@/lib/format/date";
+import { formatDayMonth } from "@/lib/format/date";
 import { countRu } from "@/lib/format/plural";
 import { addDays } from "@/lib/sales/time";
 import { payoutRowState, type PayoutRowState, type PayoutScheduleCode } from "@/lib/payroll/payout-plan";
@@ -34,17 +35,15 @@ import formStyle from "./payroll-payment-form.module.css";
 
 const labels = {
   employee: "Сотрудник",
-  day: "День выплаты",
   earned: "Начислено",
   forecast: "Прогноз",
   reserve: "Запас",
-  paid: "Уже выплачено",
   official: "Официальная часть",
+  paid: "Выплачено",
   amount: "К выплате",
-  issued: "Выдано",
   status: "Статус",
 };
-const numeric = ["earned", "forecast", "reserve", "paid", "official", "amount", "issued"];
+const numeric = ["earned", "forecast", "reserve", "official", "paid", "amount"];
 const FLAG_TEXT: Record<string, string> = {
   few_shifts: "Мало смен для прогноза",
   no_shift: "Нет смены в окне выплаты: выберите день сами",
@@ -56,18 +55,28 @@ const monthTitle = (month: string) => {
 };
 const shortDate = (d: string) => `${d.slice(8, 10)}.${d.slice(5, 7)}`;
 
-const STATUS: Record<PayoutRowState, { tone: "success" | "warning" | "neutral" | "info" | "danger"; text: string }> = {
-  issued: { tone: "success", text: "Выдано" },
-  partial: { tone: "warning", text: "Выдано частично" },
-  none: { tone: "neutral", text: "Не выдаём" },
-  invoice: { tone: "info", text: "Ждёт оплаты счёта" },
-  waiting: { tone: "info", text: "Ждёт дня" },
-  missed: { tone: "danger", text: "День пропущен" },
-  no_day: { tone: "warning", text: "Нет дня" },
+const TONE: Record<PayoutRowState, "success" | "warning" | "neutral" | "info" | "danger"> = {
+  issued: "success",
+  partial: "warning",
+  none: "neutral",
+  invoice: "neutral",
+  waiting: "info",
+  missed: "danger",
+  no_day: "warning",
 };
+const dayText = (d: string | null) => (d ? (formatDayMonth(d) ?? d) : "");
+/** Статус строки с датой: «В плане на 25 ноября», «Пропущено 25 ноября». */
 function rowStatus(row: PayoutRowView, today: string) {
-  const state = STATUS[payoutRowState(row, today, "cash")];
-  return <StatusBadge tone={state.tone}>{state.text}</StatusBadge>;
+  if (row.outside) return <StatusBadge tone="neutral">Вне плана</StatusBadge>;
+  const state = payoutRowState(row, today, "cash");
+  const text =
+    state === "issued" ? "Выдано"
+    : state === "partial" ? `Выдано частично, остаток ${dayText(row.pay_date)}`
+    : state === "none" ? "Не выдаём"
+    : state === "waiting" ? `В плане на ${dayText(row.pay_date)}`
+    : state === "missed" ? `Пропущено ${dayText(row.pay_date)}`
+    : "Нет дня";
+  return <StatusBadge tone={TONE[state]}>{text}</StatusBadge>;
 }
 
 export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
@@ -128,20 +137,29 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
         minSize: id === "employee" ? 200 : label.length * 8 + 32,
         accessorFn: (row) =>
           id === "employee" ? row.name
-          : id === "day" ? (row.pay_date ?? "")
           : id === "earned" ? row.breakdown.earned
           : id === "forecast" ? row.breakdown.forecast
           : id === "reserve" ? row.breakdown.reserve
-          : id === "paid" ? row.breakdown.paid
+          : id === "paid" ? row.paidNow
           : id === "official" ? row.breakdown.official
           : id === "amount" ? row.amount
-          : id === "issued" ? row.issued
-          : row.state,
+          : (row.outside ? "~" : row.pay_date ?? ""),
         cell: ({ row }) => {
           const r = row.original;
-          if (id === "employee") return <PayrollEmployeeCell name={r.name} role={r.role} avatarUrl={r.avatarUrl} />;
+          if (id === "employee")
+            return (
+              // Имя ведёт в расчёт сотрудника за месяц плана; остальная строка открывает расшифровку.
+              <Link
+                href={`/people/payroll/${r.employee_id}${plan || view?.window ? `?month=${(plan?.month ?? view?.window?.month ?? "").slice(0, 7)}` : ""}`}
+                onClick={(e) => e.stopPropagation()}
+                className="block rounded-md hover:opacity-80"
+              >
+                <PayrollEmployeeCell name={r.name} role={r.role} avatarUrl={r.avatarUrl} />
+              </Link>
+            );
+          if (r.outside && id !== "status" && id !== "earned" && id !== "paid" && id !== "official")
+            return <span className="text-muted-foreground">—</span>;
           if (id === "status") return rowStatus(r, today);
-          if (id === "day") return r.pay_date ? formatDateCell(r.pay_date) : "—";
           if (id === "forecast")
             return r.breakdown.averageShift === null
               ? <span className="text-muted-foreground">—</span>
@@ -161,24 +179,13 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
                 )}
               </span>
             );
-          const value = id === "earned" ? r.breakdown.earned : id === "reserve" ? r.breakdown.reserve : id === "paid" ? r.breakdown.paid : r.issued;
+          const value = id === "earned" ? r.breakdown.earned : id === "reserve" ? r.breakdown.reserve : r.paidNow;
           return <Money value={value} />;
         },
       })),
-    [plan, today],
+    [plan, today, view],
   );
 
-  const byDay = useMemo(() => {
-    const map = new Map<string, { total: number; count: number }>();
-    for (const r of rows) {
-      if (!r.pay_date || r.amount - r.issued <= 0) continue;
-      const day = map.get(r.pay_date) ?? { total: 0, count: 0 };
-      day.total += r.amount - r.issued;
-      day.count += 1;
-      map.set(r.pay_date, day);
-    }
-    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [rows]);
 
   const canPay = view?.canPay ?? false;
   const actions = view && canPay ? (
@@ -202,7 +209,7 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
         <Button size="sm" variant="outline" disabled={busy} onClick={() => setCancelOpen(true)}>Отменить план</Button>
       )}
       {dueToday && view.canIssue && (
-        <Button size="sm" disabled={busy} onClick={() => setIssueOpen(true)}>Выдать сегодня</Button>
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => setIssueOpen(true)}>Выдать сейчас</Button>
       )}
     </>
   ) : null;
@@ -224,17 +231,6 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         {heading}
       </div>
-      {view && view.window && (
-        <p className="text-[13px] text-muted-foreground">
-          Наличные выдают менеджеры. В день выплаты нажмите «Выдать сегодня»: приложение проверит кассы, проведёт выплаты
-          с «Кэшбокса» и напишет в чат менеджеров.
-        </p>
-      )}
-      {view && view.outside.length > 0 && (
-        <p className="text-[13px] text-muted-foreground">
-          Вне плана (платят себе по счетам, выплаты вносятся вручную): {view.outside.join(", ")}
-        </p>
-      )}
       {view?.shiftsHidden && (
         <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
           Нет доступа к графику работы всей команды: дни выплаты и прогноз по сменам не видны. Нужно право планировать график.
@@ -263,27 +259,14 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
           labels={labels}
           numeric={numeric}
           searchText={(r) => `${r.name} ${r.role}`}
-          onRow={(r) => setOpenRow(r)}
+          onRow={(r) => { if (!r.outside) setOpenRow(r); }}
           actions={actions}
           emptyText="В этом графике нет сотрудников"
           totals={(visible) => ({
             amount: <Money value={visible.reduce((s, r) => s + r.amount, 0)} className="font-semibold" />,
-            issued: <Money value={visible.reduce((s, r) => s + r.issued, 0)} />,
+            paid: <Money value={visible.reduce((s, r) => s + r.paidNow, 0)} />,
           })}
         />
-      )}
-      {byDay.length > 0 && (
-        <div className="rounded-lg border p-3 text-sm">
-          <p className="mb-2 font-medium">По дням</p>
-          <ul className="space-y-1">
-            {byDay.map(([day, v]) => (
-              <li key={day} className="flex justify-between gap-3 tabular-nums">
-                <span>{formatDayMonth(day)} · {countRu(v.count, "сотрудник", "сотрудника", "сотрудников")}</span>
-                <Money value={v.total} />
-              </li>
-            ))}
-          </ul>
-        </div>
       )}
 
       {openRow && view && (

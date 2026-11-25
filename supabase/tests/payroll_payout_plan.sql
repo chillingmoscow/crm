@@ -1,5 +1,5 @@
 -- ============================================================
--- payroll_payout_plan.sql — план выплат (391, 392): защита от переплаты,
+-- payroll_payout_plan.sql — план выплат (391–393): защита от переплаты,
 -- повтор выдачи по тому же ключу, частичная выдача, «Выплачено» переводом
 -- без отправки в Adesk, права.
 --
@@ -7,6 +7,7 @@
 --   cat <(echo 'begin;') \
 --       <(sed -E '/^[[:space:]]*(begin|commit);[[:space:]]*$/d' supabase/migrations/391_payroll_payout_plan.sql) \
 --       <(sed -E '/^[[:space:]]*(begin|commit);[[:space:]]*$/d' supabase/migrations/392_payroll_payout_auto.sql) \
+--       <(sed -E '/^[[:space:]]*(begin|commit);[[:space:]]*$/d' supabase/migrations/393_payroll_payout_auto_perms.sql) \
 --       <(sed -E '/^[[:space:]]*begin;[[:space:]]*$/d' supabase/tests/payroll_payout_plan.sql) \
 --     | docker exec -i supabase_db_crm psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f -
 --
@@ -351,6 +352,18 @@ begin
   perform pg_temp.act_as(pg_temp.fx('owner'));
   perform pg_temp.check((select auto_issue from public.payroll_payout_settings where venue_id = pg_temp.fx('v')) = false,
     'auto issue is off by default');
+  -- 393: без права проводить выплаты включить нельзя, выключить — можно.
+  update public.role_permissions rp set granted = false
+    from public.permissions p, public.user_venue_roles uvr
+   where p.id = rp.permission_id and p.code = 'payroll.pay'
+     and uvr.role_id = rp.role_id and uvr.user_id = pg_temp.fx('owner') and uvr.venue_id = pg_temp.fx('v');
+  perform pg_temp.expect_error('select public.payroll_payout_set_auto(true)',
+    '%права на выплаты%', 'enabling auto issue needs payout rights');
+  perform public.payroll_payout_set_auto(false);
+  update public.role_permissions rp set granted = true
+    from public.permissions p, public.user_venue_roles uvr
+   where p.id = rp.permission_id and p.code = 'payroll.pay'
+     and uvr.role_id = rp.role_id and uvr.user_id = pg_temp.fx('owner') and uvr.venue_id = pg_temp.fx('v');
   perform public.payroll_payout_set_auto(true);
   perform pg_temp.check((select auto_issue from public.payroll_payout_settings where venue_id = pg_temp.fx('v')) = true,
     'auto issue can be switched on');

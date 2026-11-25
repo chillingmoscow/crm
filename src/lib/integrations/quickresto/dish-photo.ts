@@ -32,36 +32,38 @@ export function isAllowedDishPhotoUrl(url: string): boolean {
 const record = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 
-const allowedUrl = (value: unknown): string | null =>
-  typeof value === "string" && isAllowedDishPhotoUrl(value) ? value : null;
+export type DishPhotoReading =
+  /** Ответ не похож на карточку этого блюда: пустой, не JSON, чужой id. Сбой чтения. */
+  | { kind: "invalid" }
+  /** Карточка прочитана, фото в ней нет. */
+  | { kind: "none" }
+  /** Фото есть, но ни одна ссылка не из хранилища Quick Resto — не качаем и ничего не снимаем. */
+  | { kind: "refused" }
+  | { kind: "photo"; url: string };
 
 /**
- * Ссылка на фото блюда: «Терминал», иначе первое другое место показа, иначе
- * первое фото доставки. Неразрешённые ссылки пропускаются.
+ * Фото из карточки блюда: «Терминал», иначе первое другое место показа, иначе
+ * первое фото доставки; неразрешённые ссылки пропускаются. Пустой ответ
+ * бэк-офиса (на проде бывает) — не «фото убрали», а сбой чтения.
  */
-export function pickDishPhotoUrl(dish: unknown): string | null {
+export function readDishPhoto(dish: unknown, expectedId: number): DishPhotoReading {
   const data = record(dish);
-  if (!data) return null;
+  if (!data || data.id !== expectedId) return { kind: "invalid" };
 
-  const places = Array.isArray(record(data.images)?.viewPlaces)
-    ? (record(data.images)?.viewPlaces as unknown[]).map(record).filter((p): p is Record<string, unknown> => p !== null)
+  const rawPlaces = record(data.images)?.viewPlaces;
+  const places = Array.isArray(rawPlaces)
+    ? rawPlaces.map(record).filter((p): p is Record<string, unknown> => p !== null)
     : [];
-  const placeUrl = (place: Record<string, unknown>) => allowedUrl(record(place.image)?.fullUrl);
-  const terminal = places.find((place) => place.id === "FO");
-  const fromTerminal = terminal ? placeUrl(terminal) : null;
-  if (fromTerminal) return fromTerminal;
-  for (const place of places) {
-    const found = placeUrl(place);
-    if (found) return found;
-  }
-
-  if (Array.isArray(data.wlcrmMedia)) {
-    for (const media of data.wlcrmMedia) {
-      const found = allowedUrl(record(media)?.fullUrl);
-      if (found) return found;
-    }
-  }
-  return null;
+  const placeUrl = (place: Record<string, unknown>) => record(place.image)?.fullUrl;
+  const candidates: unknown[] = [
+    ...places.filter((place) => place.id === "FO").map(placeUrl),
+    ...places.filter((place) => place.id !== "FO").map(placeUrl),
+    ...(Array.isArray(data.wlcrmMedia) ? data.wlcrmMedia.map((media) => record(media)?.fullUrl) : []),
+  ];
+  const links = candidates.filter((value): value is string => typeof value === "string" && value.trim() !== "");
+  const allowed = links.find(isAllowedDishPhotoUrl);
+  if (allowed) return { kind: "photo", url: allowed };
+  return links.length > 0 ? { kind: "refused" } : { kind: "none" };
 }
 
 export type DishPhotoState = {
@@ -71,16 +73,22 @@ export type DishPhotoState = {
   quickrestoPhotoUrl: string | null;
 };
 
-/**
- * Что сделать с фото позиции. После любого решения воркер запоминает
- * `incoming` как последнюю ссылку Quick Resto — поэтому снятое руками фото
- * не возвращается, пока в Quick Resto его не заменят.
- */
-export function decideDishPhoto(state: DishPhotoState, incoming: string | null): "download" | "clear" | "skip" {
-  if (incoming === null) return state.photoSource === "quickresto" ? "clear" : "skip";
-  if (incoming === state.quickrestoPhotoUrl) return "skip";
-  if (state.photoSource === "manual") return "skip";
-  return "download";
+export type DishPhotoDecision = {
+  action: "download" | "clear" | "skip";
+  /**
+   * Запомнить `incoming` как последнюю ссылку Quick Resto — поэтому снятое
+   * руками фото из Quick Resto не возвращается, пока его там не заменят. Пока
+   * у позиции ручное фото, не запоминаем: удалят ручное — придёт фото из QR.
+   */
+  remember: boolean;
+};
+
+export function decideDishPhoto(state: DishPhotoState, incoming: string | null): DishPhotoDecision {
+  // «manual» без файла (старая запись, файл удалён) ручным фото не считается.
+  if (state.photoSource === "manual" && state.primaryImageFileId !== null) return { action: "skip", remember: false };
+  if (incoming === null) return { action: state.photoSource === "quickresto" ? "clear" : "skip", remember: true };
+  if (incoming === state.quickrestoPhotoUrl) return { action: "skip", remember: true };
+  return { action: "download", remember: true };
 }
 
 const DOWNLOAD_TIMEOUT_MS = 20_000;

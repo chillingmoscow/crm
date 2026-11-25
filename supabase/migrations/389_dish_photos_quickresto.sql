@@ -34,7 +34,7 @@ update public.ingredients
  where primary_image_file_id is not null;
 
 create index ingredients_dish_photo_check_idx
-  on public.ingredients (account_id, quickresto_photo_checked_at)
+  on public.ingredients (account_id, quickresto_photo_checked_at nulls first)
   where kind = 'dish' and archived_at is null;
 
 alter table public.integration_connections
@@ -63,28 +63,27 @@ as $$
 declare
   v_account uuid;
 begin
-  select ic.account_id
+  -- Аккаунт, чьё блюдо дольше всех ждёт проверки (ни разу не проверенные —
+  -- первыми): ни один аккаунт не забирает очередь себе навсегда.
+  select i.account_id
     into v_account
-    from public.integration_connections ic
-   where ic.provider = 'quickresto'
+    from public.ingredients i
+    join public.integration_connections ic
+      on ic.account_id = i.account_id
+     and ic.provider = 'quickresto'
      and ic.status = 'active'
      and ic.backoffice_login is not null
      and (ic.dish_photos_paused_until is null or ic.dish_photos_paused_until <= now())
-     and exists (
-       select 1
-         from public.ingredients i
-        where i.account_id = ic.account_id
-          and i.kind = 'dish'
-          and i.archived_at is null
-          and i.external_id ~ '^[0-9]+$'
-          and (i.quickresto_photo_claimed_at is null or i.quickresto_photo_claimed_at < now() - interval '10 minutes')
-          and (
-            i.quickresto_photo_checked_at is null
-            or i.quickresto_photo_checked_at < now() - interval '1 day'
-            or i.quickresto_photo_checked_version is distinct from i.external_version
-          )
+   where i.kind = 'dish'
+     and i.archived_at is null
+     and i.external_id ~ '^[0-9]+$'
+     and (i.quickresto_photo_claimed_at is null or i.quickresto_photo_claimed_at < now() - interval '10 minutes')
+     and (
+       i.quickresto_photo_checked_at is null
+       or i.quickresto_photo_checked_at < now() - interval '1 day'
+       or i.quickresto_photo_checked_version is distinct from i.external_version
      )
-   order by ic.dish_photos_paused_until nulls first
+   order by i.quickresto_photo_checked_at nulls first
    limit 1;
 
   if v_account is null then

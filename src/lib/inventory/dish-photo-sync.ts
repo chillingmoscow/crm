@@ -17,7 +17,8 @@ import { QuickRestoRateLimitError, readDishBackOffice } from "@/lib/integrations
 import {
   decideDishPhoto,
   downloadDishPhoto,
-  pickDishPhotoUrl,
+  readDishPhoto,
+  type DishPhotoReading,
 } from "@/lib/integrations/quickresto/dish-photo";
 import {
   buildStoragePath,
@@ -68,7 +69,10 @@ async function setQuickRestoPhoto(admin: LooseDb, dish: ClaimedDish, fileId: str
   for (const source of [null, "quickresto"] as const) {
     if (fileId === null && source === null) continue; // снимаем только свою копию
     const query = admin.from<Array<{ id: string }>>("ingredients").update(values).eq("id", dish.id).eq("account_id", dish.account_id);
-    const { data, error } = await (source === null ? query.is("photo_source", null) : query.eq("photo_source", source)).select("id");
+    // Пустой источник при заполненном файле — ручное фото, загруженное до
+    // миграции 389 или старой версией приложения: его не перезаписываем.
+    const guarded = source === null ? query.is("photo_source", null).is("primary_image_file_id", null) : query.eq("photo_source", source);
+    const { data, error } = await guarded.select("id");
     if (error) throw new Error(error.message);
     if (data && data.length > 0) return true;
   }
@@ -150,11 +154,15 @@ async function applyDownload(admin: LooseDb, dish: ClaimedDish, url: string): Pr
   return true;
 }
 
-async function pause(admin: LooseDb, connection: QuickRestoConnection, ms: number) {
-  await admin
+/** Пауза очереди аккаунта; `null` — снять паузу после удачного хода. */
+async function setPause(admin: LooseDb, accountId: string, ms: number | null) {
+  const query = admin
     .from("integration_connections")
-    .update({ dish_photos_paused_until: new Date(Date.now() + ms).toISOString() })
-    .eq("id", connection.id);
+    .update({ dish_photos_paused_until: ms === null ? null : new Date(Date.now() + ms).toISOString() })
+    .eq("account_id", accountId)
+    .eq("provider", "quickresto");
+  const { error } = await (ms === null ? query.not("dish_photos_paused_until", "is", null) : query);
+  if (error) console.error("[dish-photos] не удалось записать паузу очереди:", error.message);
 }
 
 export async function processDishPhotos(input: { deadlineMs?: number } = {}): Promise<DishPhotoTurn> {
@@ -174,16 +182,15 @@ export async function processDishPhotos(input: { deadlineMs?: number } = {}): Pr
   const pending = [...dishes];
   let turnError: string | undefined;
 
-  const connection = await getConnection(accountId);
-  if (!connection?.backoffice_login) {
-    await releaseClaims(admin, pending);
-    return { idle: false, accountId, ...counts, error: "Нет подключения к бэк-офису Quick Resto" };
-  }
-
+  let connection: QuickRestoConnection | null = null;
+  let paused = false;
   try {
+    connection = await getConnection(accountId);
+    if (!connection?.backoffice_login) throw new PauseError("Нет подключения к бэк-офису Quick Resto", AUTH_PAUSE_MS);
+    const live = connection;
     let authorization: string;
     try {
-      authorization = await getBackOfficeAuth({ connection, admin });
+      authorization = await getBackOfficeAuth({ connection: live, admin });
     } catch (error) {
       throw new PauseError(error instanceof Error ? error.message : "Не удалось войти в бэк-офис Quick Resto", AUTH_PAUSE_MS);
     }
@@ -192,7 +199,7 @@ export async function processDishPhotos(input: { deadlineMs?: number } = {}): Pr
     let failuresInRow = 0;
     const read = async (id: number): Promise<unknown> => {
       try {
-        return await readDishBackOffice({ layerName: connection.login, baseUrl: connection.backoffice_base_url, authorization, id });
+        return await readDishBackOffice({ layerName: live.login, baseUrl: live.backoffice_base_url, authorization, id });
       } catch (error) {
         if (error instanceof QuickRestoRateLimitError) throw new PauseError(error.message, RATE_LIMIT_PAUSE_MS);
         if (isBackOfficePermissionError(error)) throw new PauseError((error as Error).message, AUTH_PAUSE_MS);
@@ -202,7 +209,7 @@ export async function processDishPhotos(input: { deadlineMs?: number } = {}): Pr
         }
         refreshed = true;
         try {
-          authorization = await refreshBackOfficeAuth({ connection, admin });
+          authorization = await refreshBackOfficeAuth({ connection: live, admin });
         } catch (loginError) {
           throw new PauseError(loginError instanceof Error ? loginError.message : "Не удалось войти в бэк-офис Quick Resto", AUTH_PAUSE_MS);
         }
@@ -212,9 +219,12 @@ export async function processDishPhotos(input: { deadlineMs?: number } = {}): Pr
 
     while (pending.length > 0 && Date.now() < deadline) {
       const dish = pending[0];
-      let card: unknown;
+      let reading: DishPhotoReading;
       try {
-        card = await read(Number(dish.external_id));
+        const id = Number(dish.external_id);
+        reading = readDishPhoto(await read(id), id);
+        // Пустой или чужой ответ (на проде бывает) — сбой чтения, а не «фото убрали».
+        if (reading.kind === "invalid") throw new Error("Quick Resto вернул пустую или чужую карточку блюда");
       } catch (error) {
         if (error instanceof PauseError) throw error;
         // Карточка не прочиталась — проверим завтра, фото не трогаем.
@@ -231,7 +241,13 @@ export async function processDishPhotos(input: { deadlineMs?: number } = {}): Pr
       }
       failuresInRow = 0;
 
-      const incoming = pickDishPhotoUrl(card);
+      if (reading.kind === "refused") {
+        // Ссылка не из хранилища Quick Resto: не качаем, но и свою копию не снимаем.
+        await markChecked(admin, dish, undefined);
+        pending.shift();
+        continue;
+      }
+      const incoming = reading.kind === "photo" ? reading.url : null;
       const decision = decideDishPhoto(
         {
           primaryImageFileId: dish.primary_image_file_id,
@@ -241,15 +257,15 @@ export async function processDishPhotos(input: { deadlineMs?: number } = {}): Pr
         incoming,
       );
       try {
-        if (decision === "download" && incoming) {
+        if (decision.action === "download" && incoming) {
           if (await applyDownload(admin, dish, incoming)) counts.downloaded++;
-        } else if (decision === "clear") {
+        } else if (decision.action === "clear") {
           if (await setQuickRestoPhoto(admin, dish, null)) {
             await journal(admin, dish, true);
             counts.cleared++;
           }
         }
-        await markChecked(admin, dish, incoming);
+        await markChecked(admin, dish, decision.remember ? incoming : undefined);
       } catch (error) {
         // Ссылку не запоминаем: иначе следующая проверка сочла бы фото уже скачанным.
         counts.failed++;
@@ -258,9 +274,12 @@ export async function processDishPhotos(input: { deadlineMs?: number } = {}): Pr
       }
       pending.shift();
     }
+    // Ход дошёл до конца без сбоя входа — прежняя пауза больше не нужна.
+    await setPause(admin, accountId, null);
   } catch (error) {
     if (error instanceof PauseError) {
-      await pause(admin, connection, error.pauseMs);
+      paused = true;
+      await setPause(admin, accountId, error.pauseMs);
       turnError = error.message;
     } else {
       turnError = error instanceof Error ? error.message : "Не удалось проверить фото блюд";
@@ -268,8 +287,9 @@ export async function processDishPhotos(input: { deadlineMs?: number } = {}): Pr
   } finally {
     await releaseClaims(admin, pending);
   }
+  if (turnError) console.error(`[dish-photos] аккаунт ${accountId}${paused ? " (пауза)" : ""}:`, turnError);
 
-  if (counts.downloaded + counts.cleared > 0) {
+  if (connection && counts.downloaded + counts.cleared > 0) {
     await writeAuditEvent({
       accountId,
       userId: null,

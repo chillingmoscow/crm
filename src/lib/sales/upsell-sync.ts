@@ -98,6 +98,8 @@ type Claim = {
   rule_id: string;
   lines: UpsellLine[];
   job_id: string | null;
+  /** Загрузка создана до конца дня: результат предварительный, зарплату не ставим. */
+  provisional: boolean;
   lease_token: string;
 };
 
@@ -168,7 +170,7 @@ export async function processUpsellDay(): Promise<{ idle: boolean; error?: boole
       p_result: result,
     });
     if (saved.error) throw new Error(saved.error.message);
-    if (saved.data === true) {
+    if (saved.data === true && !day.provisional) {
       // Зарплата дня должна учесть готовую прибавку. День уже зафиксирован, поэтому
       // сбой постановки его не откатывает, но и не теряется: он виден в счётчике ошибок.
       // Заведение без зарплаты — не ошибка.

@@ -88,6 +88,7 @@ const stateLabels = {
   pending: "Ожидает обновления",
   running: "Обновляется",
   error: "Не обновлено",
+  provisional: "Предварительно",
 };
 const moneyKeys = new Set(["turnover", "revenue", "primeCost", "bonus"]);
 const MIN_MONTH = "2000-01";
@@ -98,7 +99,12 @@ type PickerByKey = Map<string, UpsellPickerItem>;
 
 /** Состояние строки: отчёт старой очереди или расчёт дня по чекам. */
 function rowState(r: AdditionalRow) {
-  return r.upsell ? (r.upsell.day?.state ?? "pending") : r.native?.state;
+  if (!r.upsell) return r.native?.state;
+  const day = r.upsell.day;
+  // Предварительный день пересчитывается на каждой загрузке чеков: его
+  // «очередь» и «обновляется» не показываем, ошибку — показываем.
+  if (day?.provisional && day.state !== "error") return "provisional";
+  return day?.state ?? "pending";
 }
 
 /** «Негрони, код 2041 и ещё 3»: позиции чеков не из номенклатуры. */
@@ -227,7 +233,7 @@ function Detail({
   const unknown = row.upsell ? (readyUpsellResult(day)?.unknown ?? []) : [];
   const updated = row.native?.synced_at
     ? ` · обновлено ${formatDayMonthTime(row.native.synced_at, new Date(), data.timezone)}`
-    : day?.computed_at && state === "ready"
+    : day?.computed_at && (state === "ready" || state === "provisional")
       ? ` · посчитано ${formatDayMonthTime(day.computed_at, new Date(), data.timezone)}`
       : "";
   return (
@@ -263,7 +269,9 @@ function Detail({
                 ? state === "error"
                   ? "Нет данных: день не удалось посчитать"
                   : "Нет данных: день ещё не посчитан"
-                : "Делится между сотрудниками смены"
+                : state === "provisional"
+                  ? "Предварительно: день ещё не закрыт"
+                  : "Делится между сотрудниками смены"
           }
         >
           <Money value={bonus} />
@@ -278,7 +286,18 @@ function Detail({
         </TabsList>
         <TabsContent value="details" className="space-y-9">
           {row.upsell
-            ? state !== "ready" && (
+            ? state === "provisional"
+              ? (
+                <p
+                  role="status"
+                  className="rounded-lg border bg-muted/50 p-3 text-sm"
+                >
+                  Смена ещё идёт: сумма обновляется вместе с чеками, примерно раз
+                  в 15 минут. Окончательно день посчитается после его закрытия, и
+                  только тогда прибавка попадёт в зарплату
+                </p>
+              )
+              : state !== "ready" && (
                 <p
                   role={state === "error" ? "alert" : "status"}
                   className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm"

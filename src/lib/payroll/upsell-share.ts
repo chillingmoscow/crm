@@ -56,8 +56,11 @@ export function departmentShares(input: {
 }
 
 /** Сумма готового дня подразделения; строка не готова или результат испорчен — `null`. */
-export function readyUpsellBonus(row: { state: string; result: unknown } | null | undefined): number | null {
-  if (!row || row.state !== "ready") return null;
+export function readyUpsellBonus(
+  row: { state: string; result: unknown; provisional?: boolean } | null | undefined,
+): number | null {
+  // Предварительный расчёт идущего дня в зарплату не попадает.
+  if (!row || row.state !== "ready" || row.provisional) return null;
   const bonus = (row.result as { bonus?: unknown } | null)?.bonus;
   return typeof bonus === "number" && Number.isFinite(bonus) ? bonus : null;
 }

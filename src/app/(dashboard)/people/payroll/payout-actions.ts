@@ -261,6 +261,11 @@ async function loadPayoutPlanImpl(schedule: PayoutScheduleCode): Promise<PayoutP
   };
 }
 
+async function employeeName(s: PayrollScope, id: string): Promise<string> {
+  const r = await s.db.from<{ name: string }>("payroll_employees").select("name").eq("venue_id", s.venueId).eq("id", id).maybeSingle();
+  return r.data?.name ?? "Сотрудник";
+}
+
 function audit(s: PayrollScope, actionCode: string, entityId: string | null, details: Record<string, unknown>) {
   return writeAuditEvent({
     accountId: s.accountId,
@@ -332,6 +337,7 @@ async function updatePayoutRowImpl(rowId: string, amount: number, payDate: strin
   if (r.error) throw new Error(r.error.message);
   await audit(s, "payroll.payout_plan.row_changed", before.data.plan_id, {
     employee_id: before.data.employee_id,
+    employee_name: await employeeName(s, before.data.employee_id),
     amount: money(input.amount),
     previous_amount: Number(before.data.amount),
     pay_date: input.payDate,
@@ -528,14 +534,6 @@ async function issuePayoutTodayImpl(planId: string, requestKey: string, expected
   if (r.error) throw new Error(r.error.message);
   const issueId = r.data as string;
   const total = money(preview.lines.reduce((sum, l) => sum + l.amount, 0));
-  await audit(s, "payroll.payout_plan.issued", planId, {
-    month: preview.plan.month,
-    schedule: preview.plan.schedule,
-    method: "cash",
-    total,
-    lines: preview.lines.map((l) => ({ employee_id: l.employee_id, amount: l.amount })),
-    business_date: preview.ctx.today,
-  });
   // Кому сегодня не хватило совсем — переносим на следующую смену в окне.
   for (const row of preview.short) {
     if (preview.lines.some((l) => l.row_id === row.row_id) || !row.next_pay_date) continue;
@@ -549,6 +547,15 @@ async function issuePayoutTodayImpl(planId: string, requestKey: string, expected
     if (moved.error) console.error("[payroll-payout] день не перенесён", moved.error.message);
   }
   const sent = await sendIssueMessage(s, issueId, preview.ctx.settings.chat_id);
+  await audit(s, "payroll.payout_plan.issued", planId, {
+    month: preview.plan.month,
+    schedule: preview.plan.schedule,
+    method: "cash",
+    total,
+    lines: preview.lines.map((l) => ({ employee_id: l.employee_id, name: l.name, amount: l.amount })),
+    business_date: preview.ctx.today,
+    message_sent: sent,
+  });
   return { issueId, messageSent: sent, message: preview.message };
 }
 
@@ -592,7 +599,7 @@ async function markTransferPaidImpl(rowId: string, input: z.input<typeof transfe
     schedule: current.schedule,
     method: "transfer",
     total: money(value.amount),
-    lines: [{ employee_id: row.data.employee_id, amount: money(value.amount) }],
+    lines: [{ employee_id: row.data.employee_id, name: await employeeName(s, row.data.employee_id), amount: money(value.amount) }],
     business_date: value.date,
   });
 }

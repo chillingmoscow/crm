@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { toast } from "sonner";
@@ -10,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { OptionSelect } from "@/components/ui/option-select";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Money, formatRub } from "@/components/shared/money";
 import { unwrapAction } from "@/lib/actions/result";
@@ -53,7 +53,6 @@ const monthTitle = (month: string) => {
   const name = new Date(`${month}T12:00:00Z`).toLocaleDateString("ru-RU", { month: "long", timeZone: "UTC" });
   return name.charAt(0).toUpperCase() + name.slice(1);
 };
-const shortDate = (d: string) => `${d.slice(8, 10)}.${d.slice(5, 7)}`;
 
 const TONE: Record<PayoutRowState, "success" | "warning" | "neutral" | "info" | "danger"> = {
   issued: "success",
@@ -79,11 +78,34 @@ function rowStatus(row: PayoutRowView, today: string) {
   return <StatusBadge tone={TONE[state]}>{text}</StatusBadge>;
 }
 
-export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
+/**
+ * План последнего захода в «Зарплату» по заведению: вкладка открывается сразу
+ * с ним и тихо обновляется в фоне — без «Загружаем…» на каждом заходе.
+ */
+const planCache = new Map<string, PayoutPlanView>();
+export function cachedPayoutPlan(venueId: string) {
+  return planCache.get(venueId) ?? null;
+}
+export async function prefetchPayoutPlan(venueId: string) {
+  const r = await loadPayoutPlan("main");
+  if (r.ok) planCache.set(venueId, r.data);
+  return r.ok ? r.data : null;
+}
+
+export function PayoutPlan({
+  venueId,
+  view,
+  onView,
+  onChanged,
+}: {
+  venueId: string;
+  view: PayoutPlanView | null;
+  onView: (view: PayoutPlanView) => void;
+  onChanged: () => Promise<void>;
+}) {
   // План — для наличных. Сотрудники на графике «Переводом» в план не входят:
   // им платят по их счетам, выплаты вносят вручную (Павел, 25.11).
   const schedule: PayoutScheduleCode = "main";
-  const [view, setView] = useState<PayoutPlanView | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [openRow, setOpenRow] = useState<PayoutRowView | null>(null);
@@ -92,14 +114,16 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
 
   const load = useCallback(async () => {
     try {
-      setView(unwrapAction(await loadPayoutPlan(schedule)));
+      const next = unwrapAction(await loadPayoutPlan(schedule));
+      planCache.set(venueId, next);
+      onView(next);
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось загрузить план выплат");
     }
-  }, [schedule]);
+  }, [schedule, venueId, onView]);
+  // При открытии — то, что уже есть, и тихое обновление в фоне.
   useEffect(() => {
-    setView(null);
     void load();
   }, [load]);
 
@@ -149,13 +173,12 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
           if (id === "employee")
             return (
               // Имя ведёт в расчёт сотрудника за месяц плана; остальная строка открывает расшифровку.
-              <Link
+              <PayrollEmployeeCell
+                name={r.name}
+                role={r.role}
+                avatarUrl={r.avatarUrl}
                 href={`/people/payroll/${r.employee_id}${plan || view?.window ? `?month=${(plan?.month ?? view?.window?.month ?? "").slice(0, 7)}` : ""}`}
-                onClick={(e) => e.stopPropagation()}
-                className="block rounded-md hover:opacity-80"
-              >
-                <PayrollEmployeeCell name={r.name} role={r.role} avatarUrl={r.avatarUrl} />
-              </Link>
+              />
             );
           if (r.outside && id !== "status" && id !== "earned" && id !== "paid" && id !== "official")
             return <span className="text-muted-foreground">—</span>;
@@ -215,22 +238,9 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
   ) : null;
 
 
-  const heading = view?.window ? (
-    <div className="flex flex-wrap items-center gap-2 text-sm">
-      <span className="font-medium">
-        {monthTitle(view.window.month)}, первая выплата · {shortDate(view.window.from)} – {shortDate(view.window.to)}
-      </span>
-      {plan?.state === "draft" && <StatusBadge tone="neutral">Черновик</StatusBadge>}
-      {plan?.state === "approved" && <StatusBadge tone="success">Утверждён</StatusBadge>}
-      {!plan && <StatusBadge tone="neutral">Не сформирован</StatusBadge>}
-    </div>
-  ) : null;
 
   return (
     <div className="mt-4 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {heading}
-      </div>
       {view?.shiftsHidden && (
         <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
           Нет доступа к графику работы всей команды: дни выплаты и прогноз по сменам не видны. Нужно право планировать график.
@@ -242,7 +252,11 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
           <Button size="sm" variant="outline" onClick={() => void load()}>Повторить</Button>
         </div>
       )}
-      {!view && !error && <p className="py-6 text-sm text-muted-foreground">Загружаем план выплат…</p>}
+      {!view && !error && (
+        <div className="space-y-2" aria-label="Загрузка плана выплат">
+          {Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-14 w-full" />)}
+        </div>
+      )}
       {view && !view.window && !plan && (
         <EmptyState
           icon={CalendarClock}
@@ -261,6 +275,8 @@ export function PayoutPlan({ onChanged }: { onChanged: () => Promise<void> }) {
           searchText={(r) => `${r.name} ${r.role}`}
           onRow={(r) => { if (!r.outside) setOpenRow(r); }}
           actions={actions}
+          // Кнопки — в шапке страницы, как у «Ведомости» и «Выплат».
+          toolbarTargetId="payroll-workspace-controls"
           emptyText="В этом графике нет сотрудников"
           totals={(visible) => ({
             amount: <Money value={visible.reduce((s, r) => s + r.amount, 0)} className="font-semibold" />,

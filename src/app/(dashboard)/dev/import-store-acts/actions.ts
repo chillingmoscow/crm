@@ -239,8 +239,20 @@ async function collectCandidates(
   let earlierCount = 0;
   const decide = (doc: QuickRestoInventoryDocument2, date: string, productIds: number[]) =>
     classifyImportCandidate(
-      { processed: Boolean(doc.processed), deleted: isDeletedQuickRestoRow(doc), invoiceDate: date, productIds },
-      { from: input.from, allowedProductIds: input.allowedProductIds, knownExternalIds, externalId: doc.id },
+      {
+        processed: Boolean(doc.processed),
+        deleted: isDeletedQuickRestoRow(doc),
+        invoiceDate: date,
+        productIds,
+        storeId: typeof doc.store?.id === "number" ? doc.store.id : null,
+      },
+      {
+        from: input.from,
+        allowedProductIds: input.allowedProductIds,
+        knownExternalIds,
+        externalId: doc.id,
+        storeExternalId: ctx.store.externalId,
+      },
     );
 
   for (const listed of storeDocs) {
@@ -263,6 +275,8 @@ async function collectCandidates(
       skipped.push({ ...rowOf(listed, listedDate), reason: "не удалось прочитать в Quick Resto" });
       continue;
     }
+    // Акт другого склада — не наш, в списке не показываем. Акт без склада
+    // classifyImportCandidate отправит в «Пропущено: склад не указан».
     if (typeof fullDoc.store?.id === "number" && fullDoc.store.id !== ctx.store.externalId) continue;
     const fullAt = dateMs(fullDoc.invoiceDate);
     const date = fullAt === null ? listedDate : dayInZone(fullAt, ctx.timeZone);
@@ -309,6 +323,8 @@ async function importOne(ctx: Ctx, candidate: Candidate, allowed: Set<number>): 
 
   const existing = (await readLocalDocs(ctx, [fullDoc.id])).get(fullDoc.id);
   if (existing && !isResumableImport(existing)) throw new Error("Акт уже в Sheerly");
+  // Склад акта — только склад загрузки: строка документа получит его store_id.
+  if (fullDoc.store?.id !== ctx.store.externalId) throw new Error("В акте Quick Resto не указан склад загрузки");
 
   // Строки — из backoffice (там расчёт и разница), иначе из полного акта.
   let items: QuickRestoInventoryItem2[] = [];

@@ -2,7 +2,13 @@
 // (акты взвешивания табака, которые до Sheerly вёл n8n). Без сети и базы —
 // тестируется node:test. Сеть и запись — в /dev/import-store-acts/actions.ts.
 
-export type ImportSkipReason = "не проведён" | "удалён" | "раньше даты" | "уже в Sheerly" | "другие позиции";
+export type ImportSkipReason =
+  | "не проведён"
+  | "удалён"
+  | "раньше даты"
+  | "уже в Sheerly"
+  | "другие позиции"
+  | "склад не указан";
 
 export type ImportDecision = { import: true } | { import: false; reason: ImportSkipReason };
 
@@ -15,10 +21,28 @@ export type ImportDecision = { import: true } | { import: false; reason: ImportS
  *
  * `invoiceDate` — день акта `YYYY-MM-DD` (в часовом поясе заведения; лишняя
  * часть строки после даты не учитывается), `from` — `YYYY-MM-DD`.
+ *
+ * `storeExternalId` — склад загрузки: акт без склада (или с другим) не
+ * загружается, иначе его недостача легла бы на чужое заведение. Склад
+ * проверяется последним — так решение без позиций (по списку актов) доходит
+ * до «другие позиции» и говорит, что акт пора прочитать целиком.
  */
 export function classifyImportCandidate(
-  doc: { processed: boolean; deleted: boolean; invoiceDate: string; productIds: number[] },
-  opts: { from: string; allowedProductIds: number[]; knownExternalIds: Set<number>; externalId: number },
+  doc: {
+    processed: boolean;
+    deleted: boolean;
+    invoiceDate: string;
+    productIds: number[];
+    /** Склад акта в Quick Resto; null — не указан. */
+    storeId?: number | null;
+  },
+  opts: {
+    from: string;
+    allowedProductIds: number[];
+    knownExternalIds: Set<number>;
+    externalId: number;
+    storeExternalId?: number;
+  },
 ): ImportDecision {
   if (doc.deleted) return { import: false, reason: "удалён" };
   if (doc.invoiceDate.slice(0, 10) < opts.from) return { import: false, reason: "раньше даты" };
@@ -27,6 +51,9 @@ export function classifyImportCandidate(
   const allowed = new Set(opts.allowedProductIds);
   if (doc.productIds.length === 0 || doc.productIds.some((id) => !allowed.has(id))) {
     return { import: false, reason: "другие позиции" };
+  }
+  if (opts.storeExternalId !== undefined && doc.storeId !== opts.storeExternalId) {
+    return { import: false, reason: "склад не указан" };
   }
   return { import: true };
 }

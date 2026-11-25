@@ -76,6 +76,37 @@ describe("classifyImportCandidate", () => {
   });
 });
 
+describe("classifyImportCandidate: склад акта", () => {
+  const withStore = (storeId: number | null) => ({ ...base, storeId });
+  it("акт нашего склада загружается", () => {
+    assert.deepEqual(classifyImportCandidate(withStore(2), opts({ storeExternalId: 2 })), { import: true });
+  });
+  it("склад в акте не указан — «склад не указан»", () => {
+    assert.deepEqual(classifyImportCandidate(withStore(null), opts({ storeExternalId: 2 })), {
+      import: false,
+      reason: "склад не указан",
+    });
+  });
+  it("без поля склада — тоже «склад не указан»", () => {
+    assert.deepEqual(classifyImportCandidate(base, opts({ storeExternalId: 2 })), {
+      import: false,
+      reason: "склад не указан",
+    });
+  });
+  it("чужой склад не загружается", () => {
+    assert.deepEqual(classifyImportCandidate(withStore(3), opts({ storeExternalId: 2 })), {
+      import: false,
+      reason: "склад не указан",
+    });
+  });
+  it("с другими позициями причина — позиции, а не склад", () => {
+    assert.deepEqual(
+      classifyImportCandidate({ ...withStore(null), productIds: [555] }, opts({ storeExternalId: 2 })),
+      { import: false, reason: "другие позиции" },
+    );
+  });
+});
+
 describe("affectedMonths", () => {
   it("уникальные месяцы по порядку", () => {
     assert.deepEqual(affectedMonths(["2026-11-04", "2026-10-07", "2026-10-28", "2026-11-18"]), [

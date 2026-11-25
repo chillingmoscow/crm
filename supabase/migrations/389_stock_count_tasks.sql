@@ -37,18 +37,21 @@ alter table public.schedule_task_definitions add constraint schedule_task_enable
 );
 
 -- 2. Проверка настройки взвешивания — та же форма, что countConfigSchema
---    (src/lib/stock-count/tobacco-weighing.ts): склад и позиции — того же аккаунта.
-create function private.schedule_count_config_valid(p_config jsonb, p_account uuid) returns boolean
+--    (src/lib/stock-count/tobacco-weighing.ts): склад — действующий склад этого
+--    заведения, позиции — того же аккаунта, чат Telegram — числовой ID.
+create function private.schedule_count_config_valid(p_config jsonb, p_account uuid, p_venue uuid) returns boolean
 language plpgsql stable set search_path = '' as $$
 declare s jsonb; t jsonb;
 begin
- if p_account is null or jsonb_typeof(p_config) is distinct from 'object' or octet_length(p_config::text) > 100000
+ if p_account is null or p_venue is null or jsonb_typeof(p_config) is distinct from 'object' or octet_length(p_config::text) > 100000
   or p_config->>'mode' is distinct from 'tobacco_weighing'
   or jsonb_typeof(p_config->'storeId') is distinct from 'string'
   or jsonb_typeof(p_config->'telegramChatId') not in ('string', 'null') or not p_config ? 'telegramChatId'
+  or (jsonb_typeof(p_config->'telegramChatId') = 'string' and p_config->>'telegramChatId' !~ '^-?[0-9]{1,20}$')
   or jsonb_typeof(p_config->'sections') is distinct from 'array' or jsonb_array_length(p_config->'sections') not between 1 and 10
  then return false; end if;
- if not exists (select 1 from public.stores st where st.id = (p_config->>'storeId')::uuid and st.account_id = p_account) then return false; end if;
+ if not exists (select 1 from public.stores st where st.id = (p_config->>'storeId')::uuid and st.account_id = p_account
+   and st.local_venue_id = p_venue and st.archived_at is null) then return false; end if;
  if (select count(distinct x->>'key') from jsonb_array_elements(p_config->'sections') x) <> jsonb_array_length(p_config->'sections') then return false; end if;
  for s in select value from jsonb_array_elements(p_config->'sections') loop
   if jsonb_typeof(s) is distinct from 'object'
@@ -73,7 +76,7 @@ begin
 -- Неверный uuid склада или позиции — это «настройка неверна», а не ошибка запроса.
 exception when invalid_text_representation then return false;
 end $$;
-revoke all on function private.schedule_count_config_valid(jsonb, uuid) from public, anon, authenticated;
+revoke all on function private.schedule_count_config_valid(jsonb, uuid, uuid) from public, anon, authenticated;
 
 -- 3. Команда задач: 318 + вид задачи и отказ старого пути для взвешиваний.
 -- Browser writes are scoped and versioned. No direct table/storage write can approve a report.
@@ -98,9 +101,12 @@ begin
   task_kind:=coalesce(nullif(p_input->>'kind',''),case when ident is not null then def.kind else 'checklist' end);
   if task_kind not in ('checklist','stock_count') then raise exception 'Неизвестный вид задачи';end if;
   if ident is not null and task_kind is distinct from def.kind then raise exception 'Вид задачи нельзя изменить';end if;
-  task_items:=case when task_kind='stock_count' then coalesce(nullif(p_input->'items','null'::jsonb),'[]'::jsonb) else p_input->'items' end;
+  -- Взвешивание проводит акт в учёте: настраивает его только тот, кто может проводить результаты.
+  if task_kind='stock_count' and not public.has_permission('inventory.finalize_results') then raise exception 'Нет доступа к настройке взвешиваний';end if;
+  if task_kind='stock_count' and p_input->>'review_mode' is distinct from 'auto' then raise exception 'Взвешивание принимается автоматически: приёмка управляющим пока недоступна';end if;
+  task_items:=case when task_kind='stock_count' then '[]'::jsonb else p_input->'items' end;
   task_config:=case when task_kind='stock_count' then nullif(p_input->'count_config','null'::jsonb) end;
-  if task_config is not null and not private.schedule_count_config_valid(task_config,a) then raise exception 'Проверьте склад и позиции взвешивания';end if;
+  if task_config is not null and not private.schedule_count_config_valid(task_config,a,v) then raise exception 'Проверьте склад и позиции взвешивания';end if;
   if length(trim(coalesce(p_input->>'name',''))) not between 1 and 160 or length(coalesce(p_input->>'instructions',''))>50000
    or p_input->>'review_mode' not in ('auto','manager') or p_input->>'review_mode' is null or not private.schedule_task_items_valid(task_items)
    or jsonb_typeof(p_input->'enabled') is distinct from 'boolean' or jsonb_typeof(p_input->'penalty_enabled') is distinct from 'boolean'
@@ -267,10 +273,12 @@ begin
  ans := coalesce(p_input->'answers', '{}');
  if jsonb_typeof(ans) is distinct from 'object' or octet_length(ans::text) > 100000
   or exists (select 1 from jsonb_object_keys(ans) k where k <> 'weighing')
-  or (ans ? 'weighing' and jsonb_typeof(ans->'weighing') is distinct from 'object') then raise exception 'Неверные ответы'; end if;
+  or (ans ? 'weighing' and (jsonb_typeof(ans->'weighing') is distinct from 'object'
+      or jsonb_typeof(ans->'weighing'->'sections') is distinct from 'object')) then raise exception 'Неверные ответы'; end if;
  if p_action = 'run.submit' and not ans ? 'weighing' then raise exception 'Заполните взвешивание'; end if;
  -- Фото партии — только файл, загруженный к этому заданию: {задание}/weighing/{файл}.
- for photo in select p from jsonb_path_query(ans, 'lax $.weighing.sections.*.batches[*].photo') p loop
+ -- Любое поле photo на любой глубине, чтобы другая форма черновика не обошла проверку.
+ for photo in select p from jsonb_path_query(ans, 'lax $.weighing.**.photo') p loop
   if jsonb_typeof(photo) = 'null' then continue; end if;
   if jsonb_typeof(photo) <> 'string' then raise exception 'Неверные ответы'; end if;
   if length(photo#>>'{}') > 0 and not exists (select 1 from storage.objects where bucket_id = 'task-evidence' and name = photo#>>'{}' and name like o.id::text || '/weighing/%') then
@@ -328,7 +336,7 @@ begin
   if not has_function_privilege('authenticated', f, 'execute') then raise exception 'authenticated должен вызывать %', f; end if;
  end loop;
  foreach f in array array['anon', 'authenticated'] loop
-  if has_function_privilege(f, 'private.schedule_count_config_valid(jsonb,uuid)', 'execute') then raise exception '% не должен вызывать private.schedule_count_config_valid', f; end if;
+  if has_function_privilege(f, 'private.schedule_count_config_valid(jsonb,uuid,uuid)', 'execute') then raise exception '% не должен вызывать private.schedule_count_config_valid', f; end if;
   if has_table_privilege(f, 'public.stock_count_commits', 'insert') or has_table_privilege(f, 'public.stock_count_commits', 'update')
    or has_table_privilege(f, 'public.stock_count_commits', 'delete') then raise exception '% не должен писать в stock_count_commits', f; end if;
  end loop;

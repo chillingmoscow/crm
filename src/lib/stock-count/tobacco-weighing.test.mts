@@ -143,6 +143,17 @@ test("countConfigSchema: граммы тары целые 1–5000", () => {
   assert.equal(countConfigSchema.safeParse(bad).success, false);
   assert.equal(countConfigSchema.safeParse({ ...cfg, sections: [] }).success, false);
 });
+test("countConfigSchema: ID чата Telegram — только число", () => {
+  assert.equal(
+    countConfigSchema.safeParse({ ...cfg, telegramChatId: "abc" }).success,
+    false,
+  );
+  assert.equal(
+    countConfigSchema.safeParse({ ...cfg, telegramChatId: "-1001234567890" })
+      .success,
+    true,
+  );
+});
 test("weighingDraftSchema принимает черновик", () => {
   assert.equal(weighingDraftSchema.safeParse(parfumDraft).success, true);
 });

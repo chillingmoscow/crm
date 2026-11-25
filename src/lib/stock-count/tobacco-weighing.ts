@@ -51,7 +51,10 @@ export const countConfigSchema: z.ZodType<CountConfig> = z
   .object({
     mode: z.literal("tobacco_weighing"),
     storeId: z.string().min(1),
-    telegramChatId: z.string().nullable(),
+    telegramChatId: z
+      .string()
+      .regex(/^-?[0-9]{1,20}$/)
+      .nullable(),
     sections: z.array(sectionSchema).min(1),
   })
   .refine(

@@ -186,6 +186,7 @@ const FIELD_LABELS: Record<string, string> = {
   delivery_weekdays: "дни доставки",
   contacts: "контакты",
   certificate_kind: "вид",
+  scan: "скан",
   number: "номер",
   product: "товар",
   valid_from: "действует с",

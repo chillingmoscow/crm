@@ -40,9 +40,31 @@ type CertificateRow = {
 const NO_ROW = "Не удалось сохранить: нет прав или запись уже удалена. Обновите страницу";
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Сегодня по Москве (`ГГГГ-ММ-ДД`) — для статуса срока и счётчика. */
+/**
+ * Сегодня (`ГГГГ-ММ-ДД`) в поясе аккаунта — как у напоминаний в базе
+ * (`private.finance_account_today`). Без пояса — Москва.
+ */
 export async function todayIso(): Promise<string> {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Moscow" }).format(new Date());
+  let timeZone = "Europe/Moscow";
+  try {
+    const accountId = await getCachedActiveAccountId();
+    if (accountId) {
+      const supabase = asLooseDb(await createClient());
+      const { data } = await supabase
+        .from<{ timezone: string | null }>("accounts")
+        .select("timezone")
+        .eq("id", accountId)
+        .maybeSingle();
+      if (data?.timezone) timeZone = data.timezone;
+    }
+  } catch {
+    /* пояс по умолчанию */
+  }
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date());
+  } catch {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Moscow" }).format(new Date());
+  }
 }
 
 function fromRow(row: CertificateRow): CounterpartyCertificate {
@@ -114,13 +136,14 @@ export async function saveCertificate(input: CertificateInput): Promise<{ error:
     // Скан — только один из документов этого же контрагента.
     const fileId = input.fileId || null;
     if (fileId) {
-      const { data: link } = await supabase
-        .from<{ file_id: string }>("counterparty_attachments")
-        .select("file_id")
-        .eq("file_id", fileId)
-        .eq("counterparty_id", input.counterpartyId)
-        .maybeSingle();
-      if (!link) return { error: "Файл не найден среди документов контрагента" };
+      // Через SECURITY DEFINER: проверка не зависит от права смотреть вложения.
+      const { data: linked } = await (
+        client.rpc as unknown as (
+          fn: string,
+          args: Record<string, unknown>,
+        ) => Promise<{ data: boolean | null }>
+      )("counterparty_file_linked", { p_file_id: fileId, p_counterparty_id: input.counterpartyId });
+      if (!linked) return { error: "Файл не найден среди документов контрагента" };
     }
 
     const values = {
@@ -161,7 +184,7 @@ export async function saveCertificate(input: CertificateInput): Promise<{ error:
       id = created.id;
     }
 
-    const changes = previous
+    const changes: { field: string; old: string | null; new: string | null }[] = previous
       ? (
           [
             ["kind", previous.kind, values.kind],
@@ -179,7 +202,16 @@ export async function saveCertificate(input: CertificateInput): Promise<{ error:
             new: field === "kind" && after ? certificateKindLabel(after) : after,
           }))
       : [];
-    if (!previous || changes.length > 0 || previous.file_id !== values.file_id) {
+    if (previous && previous.file_id !== values.file_id) {
+      const ids = [previous.file_id, values.file_id].filter((v): v is string => Boolean(v));
+      const { data: files } = ids.length
+        ? await supabase.from<{ id: string; name: string }[]>("account_files").select("id, name").in("id", ids)
+        : { data: [] as { id: string; name: string }[] };
+      const fileName = (fileId: string | null) =>
+        fileId ? (files ?? []).find((f) => f.id === fileId)?.name ?? "файл" : null;
+      changes.push({ field: "scan", old: fileName(previous.file_id), new: fileName(values.file_id) });
+    }
+    if (!previous || changes.length > 0) {
       await writeAuditEvent({
         accountId,
         userId: user.id,

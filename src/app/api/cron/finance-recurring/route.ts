@@ -54,10 +54,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({
-    enqueued: Number(data ?? 0),
-    certificateNotifications: Number(certificates.data ?? 0),
-    certificatesError: certificates.error?.message ?? null,
-    timestamp: new Date().toISOString(),
-  });
+  // Сбой напоминаний — не 200: скрипт на хосте видит ошибку и пишет её в лог.
+  return NextResponse.json(
+    {
+      enqueued: Number(data ?? 0),
+      certificateNotifications: Number(certificates.data ?? 0),
+      certificatesError: certificates.error?.message ?? null,
+      timestamp: new Date().toISOString(),
+    },
+    { status: certificates.error ? 500 : 200 },
+  );
 }

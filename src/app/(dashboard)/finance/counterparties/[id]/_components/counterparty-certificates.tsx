@@ -75,6 +75,7 @@ export function CounterpartyCertificates({
   today,
   readOnly,
   lockMessage,
+  failed = false,
 }: {
   counterpartyId: string;
   certificates: CounterpartyCertificate[];
@@ -83,6 +84,7 @@ export function CounterpartyCertificates({
   today: string;
   readOnly: boolean;
   lockMessage: string | null;
+  failed?: boolean;
 }) {
   const router = useRouter();
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -166,7 +168,11 @@ export function CounterpartyCertificates({
       locked={readOnly && lockMessage ? { tone: "locked", message: lockMessage } : undefined}
     >
       <div className="flex flex-col gap-3">
-        {certificates.length === 0 ? (
+        {failed ? (
+          <p role="alert" className="text-sm text-destructive">
+            Не удалось загрузить сертификаты. Обновите страницу
+          </p>
+        ) : certificates.length === 0 ? (
           <p className="text-sm text-muted-foreground">Сертификатов и лицензий пока нет</p>
         ) : (
           <ul className="space-y-2">
@@ -225,7 +231,7 @@ export function CounterpartyCertificates({
             })}
           </ul>
         )}
-        {!readOnly ? (
+        {!readOnly && !failed ? (
           <div>
             <Button
               type="button"
@@ -340,6 +346,10 @@ export function CounterpartyCertificates({
                   options={[
                     { value: "", label: "Без скана" },
                     ...documents.map((d) => ({ value: d.fileId, label: d.name })),
+                    // Нет права смотреть документы — сохранённый скан не теряем.
+                    ...(draft.fileId && !documentById.has(draft.fileId)
+                      ? [{ value: draft.fileId, label: "Прикреплён (файл вам не виден)" }]
+                      : []),
                   ]}
                   disabled={documents.length === 0}
                 />

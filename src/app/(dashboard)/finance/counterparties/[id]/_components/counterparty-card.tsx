@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Building2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
@@ -53,6 +53,7 @@ export function CounterpartyCard({
   groups,
   attachments,
   certificates,
+  certificatesFailed,
   initialTab,
   purchases,
   purchasesFailed,
@@ -78,6 +79,8 @@ export function CounterpartyCard({
   groups: { id: string; name: string }[];
   attachments: CounterpartyDocument[];
   certificates: CounterpartyCertificate[];
+  /** Сертификаты не загрузились: в блоке — ошибка, а не «пока нет». */
+  certificatesFailed: boolean;
   /** Вкладка из адреса (`?tab=documents` — из уведомления о сертификате). */
   initialTab: string | null;
   /** null — нет права смотреть номенклатуру: вкладки «Закупаем» нет. */
@@ -108,6 +111,10 @@ export function CounterpartyCard({
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<TabKey>(initialTab === "documents" ? "documents" : "main");
+  // Переход по уведомлению на уже открытую карточку меняет только адрес.
+  useEffect(() => {
+    if (initialTab === "documents") setTab("documents");
+  }, [initialTab]);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [restoring, startRestore] = useTransition();
@@ -237,6 +244,7 @@ export function CounterpartyCard({
               <CounterpartyCertificates
                 counterpartyId={row.id}
                 certificates={certificates}
+                failed={certificatesFailed}
                 documents={attachments}
                 today={today}
                 readOnly={readOnly}

@@ -59,9 +59,36 @@ create index counterparty_certificates_counterparty_idx
 create index counterparty_certificates_valid_until_idx
   on public.counterparty_certificates (valid_until)
   where valid_until is not null;
+create index counterparty_certificates_created_by_idx
+  on public.counterparty_certificates (created_by) where created_by is not null;
+create index counterparty_certificates_updated_by_idx
+  on public.counterparty_certificates (updated_by) where updated_by is not null;
 create index counterparty_certificates_file_idx
   on public.counterparty_certificates (file_id)
   where file_id is not null;
+
+-- Файл прикреплён к этому контрагенту активного аккаунта? SECURITY DEFINER:
+-- проверка не должна зависеть от права смотреть вложения — иначе
+-- управляющий без него не мог бы сохранить сертификат со сканом.
+create or replace function public.counterparty_file_linked(p_file_id uuid, p_counterparty_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_catalog
+as $$
+  select exists (
+    select 1
+      from public.counterparty_attachments ca
+      join public.counterparties c on c.id = ca.counterparty_id
+     where ca.file_id = p_file_id
+       and ca.counterparty_id = p_counterparty_id
+       and c.account_id = public.get_active_account_id()
+  )
+$$;
+
+revoke all on function public.counterparty_file_linked(uuid, uuid) from public, anon;
+grant execute on function public.counterparty_file_linked(uuid, uuid) to authenticated;
 
 alter table public.counterparty_certificates enable row level security;
 
@@ -82,11 +109,7 @@ create policy "counterparty_certificates_insert"
     and (select public.has_permission('finance.manage_counterparties'))
     and (
       file_id is null
-      or exists (
-        select 1 from public.counterparty_attachments ca
-         where ca.file_id = counterparty_certificates.file_id
-           and ca.counterparty_id = counterparty_certificates.counterparty_id
-      )
+      or public.counterparty_file_linked(file_id, counterparty_id)
     )
   );
 
@@ -102,11 +125,7 @@ create policy "counterparty_certificates_update"
     and (select public.has_permission('finance.manage_counterparties'))
     and (
       file_id is null
-      or exists (
-        select 1 from public.counterparty_attachments ca
-         where ca.file_id = counterparty_certificates.file_id
-           and ca.counterparty_id = counterparty_certificates.counterparty_id
-      )
+      or public.counterparty_file_linked(file_id, counterparty_id)
     )
   );
 
@@ -143,19 +162,23 @@ declare
   v_body     text;
 begin
   for r in
+    -- «Сегодня» — в поясе аккаунта (как у повторяющихся платежей, 378):
+    -- cron идёт в 00:05 по Москве, а это ещё вчера по UTC.
     with due as (
       select c.id,
-             (c.valid_until - current_date) as days_left,
-             c.valid_until
+             c.valid_until,
+             t.today,
+             (c.valid_until - t.today) as days_left
         from public.counterparty_certificates c
         join public.counterparties cp
           on cp.account_id = c.account_id and cp.id = c.counterparty_id
+        cross join lateral (select private.finance_account_today(c.account_id) as today) t
        where c.valid_until is not null
          and cp.deleted_at is null
-         and c.valid_until <= current_date + 30
+         and c.valid_until <= t.today + 30
          and (
            c.notified_30_for is distinct from c.valid_until
-           or (c.valid_until <= current_date + 7 and c.notified_7_for is distinct from c.valid_until)
+           or (c.valid_until <= t.today + 7 and c.notified_7_for is distinct from c.valid_until)
          )
        for update of c skip locked
     )
@@ -164,11 +187,11 @@ begin
            notified_7_for  = case when due.days_left <= 7 then due.valid_until else c.notified_7_for end
       from due
      where c.id = due.id
-    returning c.id, c.account_id, c.counterparty_id, c.kind, c.number, c.product, c.valid_until,
+    returning c.id, c.account_id, c.counterparty_id, c.kind, c.number, c.product, c.valid_until, due.today,
               (select name from public.counterparties x
                 where x.account_id = c.account_id and x.id = c.counterparty_id) as counterparty_name
   loop
-    v_days := r.valid_until - current_date;
+    v_days := r.valid_until - r.today;
     v_kind := case r.kind
       when 'conformity_certificate' then 'Сертификат соответствия'
       when 'conformity_declaration' then 'Декларация о соответствии'
@@ -226,6 +249,9 @@ begin
     or has_function_privilege('authenticated', 'public.enqueue_counterparty_certificate_notifications()', 'EXECUTE')
   then
     raise exception 'Права на рассылку напоминаний о сертификатах не сняты: применяйте миграцию от владельца (supabase_admin)';
+  end if;
+  if has_function_privilege('anon', 'public.counterparty_file_linked(uuid, uuid)', 'EXECUTE') then
+    raise exception 'Проверка скана доступна анониму: применяйте миграцию от владельца (supabase_admin)';
   end if;
   if not has_table_privilege('authenticated', 'public.counterparty_certificates', 'SELECT') then
     raise exception 'Нет права чтения сертификатов у authenticated: применяйте миграцию от владельца (supabase_admin)';

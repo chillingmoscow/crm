@@ -121,7 +121,7 @@ export default async function CounterpartyDetailPage({
             .eq("counterparty_id", id),
         ).catch(() => "failed" as const)
       : Promise.resolve(null),
-    listCounterpartyCertificates(id).catch(() => []),
+    listCounterpartyCertificates(id).catch(() => null),
   ]);
 
   // Подписи операций: статьи и счета одним запросом каждые.
@@ -211,7 +211,8 @@ export default async function CounterpartyDetailPage({
       row={row}
       groups={groups.map((group) => ({ id: group.id, name: group.name }))}
       attachments={attachments}
-      certificates={certificates}
+      certificates={certificates ?? []}
+      certificatesFailed={certificates === null}
       initialTab={query.tab ?? null}
       purchases={purchases}
       purchasesFailed={purchasesFailed}

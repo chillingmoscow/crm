@@ -92,7 +92,8 @@ export default async function CounterpartiesPage({
         .join(" "),
       contactPhones: contacts.map((c) => c.phone).filter((p): p is string => Boolean(p)),
       isSupplier: row.is_supplier,
-      certificateAlert: certificateAlert.get(row.id) ?? null,
+      // В архиве напоминаний нет — и пометки тоже.
+      certificateAlert: row.deleted_at ? null : certificateAlert.get(row.id) ?? null,
       description: row.description,
       archivedAt: row.deleted_at,
       operations: activity ? (stats?.operations ?? 0) : null,

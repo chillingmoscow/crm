@@ -63,6 +63,8 @@ export function validateCommitInput(occurrence: {
   userId: string | null;
   snapshot: unknown;
   answers: unknown;
+  /** Когда сдано: дата акта, если время начала не записалось (во всех разделах «ничего нет»). */
+  submittedAt?: string | null;
 }): CommitInput {
   const fail = (reason: string): CommitInput => ({ ok: false, error: `${INVALID}: ${reason}` });
   const snapshot = (occurrence.snapshot ?? {}) as { kind?: unknown; count_config?: unknown };
@@ -76,7 +78,9 @@ export function validateCommitInput(occurrence: {
   if (!draft.success) return fail("данные взвешивания повреждены");
   const errors = submitErrors(draft.data, config.data);
   if (errors.length > 0) return fail(errors[0]);
-  const invoiceDateMs = draft.data.startedAt ? Date.parse(draft.data.startedAt) : Number.NaN;
+  const started = draft.data.startedAt ? Date.parse(draft.data.startedAt) : Number.NaN;
+  const submitted = occurrence.submittedAt ? Date.parse(occurrence.submittedAt) : Number.NaN;
+  const invoiceDateMs = Number.isFinite(started) ? started : submitted;
   if (!Number.isFinite(invoiceDateMs)) return fail("не известно время начала взвешивания");
   return {
     ok: true,

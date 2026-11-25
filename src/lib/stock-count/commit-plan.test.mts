@@ -247,6 +247,17 @@ test("validateCommitInput: без времени начала дату акта 
   assert.equal(validateCommitInput(occurrence({ ...goodDraft, startedAt: "вчера" })).ok, false);
 });
 
+test("validateCommitInput: время начала не записалось — датой акта служит время сдачи", () => {
+  const empty = { startedAt: null, sections: { standard: { empty: true, batches: [] }, parfum: { empty: true, batches: [] } } };
+  const result = validateCommitInput({ ...occurrence(empty), submittedAt: "2026-11-24T10:30:00.000Z" });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.invoiceDateMs, Date.parse("2026-11-24T10:30:00.000Z"));
+  // Есть своё время начала — оно главнее времени сдачи.
+  const started = validateCommitInput({ ...occurrence(goodDraft), submittedAt: "2026-11-24T10:30:00.000Z" });
+  assert.equal(started.ok && started.invoiceDateMs, Date.parse("2026-11-24T08:00:00.000Z"));
+});
+
 test("validateCommitInput: повреждённые данные и несданное задание", () => {
   assert.equal(validateCommitInput(occurrence({ sections: 5 })).ok, false);
   assert.equal(validateCommitInput(occurrence(goodDraft, { snapshot: { kind: "checklist" } })).ok, false);

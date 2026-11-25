@@ -66,6 +66,7 @@ import {
   type WantedLine,
 } from "./commit-plan";
 import { buildWeighingCaption, sendWeighingReport } from "./report";
+import { chunk, fetchAllRows } from "@/lib/supabase/fetch-all";
 import type { CountConfig, CountSection } from "./tobacco-weighing";
 
 /** Сколько актов без комментария в списке дочитываем по одному при поиске маркера. */
@@ -103,9 +104,11 @@ type OccurrenceRow = {
   status: string;
   snapshot: unknown;
   answers: unknown;
+  submitted_at: string | null;
 };
 
-const OCCURRENCE_COLUMNS = "id, account_id, venue_id, user_id, employee_name, business_date, status, snapshot, answers";
+const OCCURRENCE_COLUMNS =
+  "id, account_id, venue_id, user_id, employee_name, business_date, status, snapshot, answers, submitted_at";
 
 type SectionLine = {
   section: CountSection;
@@ -269,6 +272,7 @@ async function commitSteps(ctx: Ctx): Promise<void> {
     userId: occurrence.user_id,
     snapshot: occurrence.snapshot,
     answers: occurrence.answers,
+    submittedAt: occurrence.submitted_at,
   });
   if (!input.ok) throw new CommitStepError(input.error, { terminal: true });
   const { config, invoiceDateMs, netKg } = input;
@@ -849,6 +853,7 @@ async function sendReport(db: LooseDb, lease: Lease, commit: CommitRow): Promise
     userId: occurrence.user_id,
     snapshot: occurrence.snapshot,
     answers: occurrence.answers,
+    submittedAt: occurrence.submitted_at,
   });
   if (!input.ok) throw new Error(input.error);
   const { config, netKg } = input;
@@ -1012,23 +1017,29 @@ async function reviewerIds(db: LooseDb, venueId: string): Promise<string[]> {
   if (perm.error) throw new Error(perm.error.message);
   const permissionIds = (perm.data ?? []).map((p) => p.id);
   if (permissionIds.length === 0) return [];
-  const granted = await db
-    .from<Array<{ role_id: string }>>("role_permissions")
-    .select("role_id")
-    .in("permission_id", permissionIds)
-    .eq("granted", true);
-  if (granted.error) throw new Error(granted.error.message);
-  const roleIds = [...new Set((granted.data ?? []).map((r) => r.role_id))];
-  if (roleIds.length === 0) return [];
-  const members = await db
-    .from<Array<{ user_id: string }>>("user_venue_roles")
-    .select("user_id")
-    .eq("venue_id", venueId)
-    .eq("status", "active")
-    .is("fired_at", null)
-    .in("role_id", roleIds);
-  if (members.error) throw new Error(members.error.message);
-  return [...new Set((members.data ?? []).map((m) => m.user_id))];
+  // Начинаем с участников заведения: роли других аккаунтов в выборку не попадают.
+  const members = await fetchAllRows<{ user_id: string; role_id: string }>(() =>
+    db
+      .from<Array<{ user_id: string; role_id: string }>>("user_venue_roles")
+      .select("user_id, role_id")
+      .eq("venue_id", venueId)
+      .eq("status", "active")
+      .is("fired_at", null),
+  );
+  const venueRoleIds = [...new Set(members.map((m) => m.role_id))];
+  if (venueRoleIds.length === 0) return [];
+  const grantedRoles = new Set<string>();
+  for (const part of chunk(venueRoleIds, 100)) {
+    const granted = await db
+      .from<Array<{ role_id: string }>>("role_permissions")
+      .select("role_id")
+      .in("role_id", part)
+      .in("permission_id", permissionIds)
+      .eq("granted", true);
+    if (granted.error) throw new Error(granted.error.message);
+    for (const r of granted.data ?? []) grantedRoles.add(r.role_id);
+  }
+  return [...new Set(members.filter((m) => grantedRoles.has(m.role_id)).map((m) => m.user_id))];
 }
 
 async function notifyFailure(input: {

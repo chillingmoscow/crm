@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Окно первой выплаты за M (графики «Основной» и «Переводом»): 25-е M … 1-е M+1. Вторая выплата, сверка, автоперенос, крон — **не в этом этапе**.
-- Графики: `main` — наличными, шаг 5 000, запас 5 000; `transfer` — переводом, шаг 500, запас 0, счёт по умолчанию «СБЕР Бизнес»; `cleaner` — наличными, шаг 5 000, запас 0 (в этом этапе только исключает сотрудника из чужих планов; свой план — этап 2).
+- Графики: `main` — наличными, шаг 5 000, запас 5 000; `transfer` — переводом, первая выплата = половина месяца (50/50), шаг 500, запас 0, счёт по умолчанию «СБЕР Бизнес», выплата в Adesk **не** отправляется (платёж по счёту Татьяны уже приходит туда из банка); `cleaner` — наличными, шаг 5 000, запас 0 (в этом этапе только исключает сотрудника из чужих планов; свой план — этап 2).
 - Минимум в кэшбоксе после выдачи по умолчанию — 120 000. Счёт выдачи наличными — «Кэшбокс».
 - Формула первой выплаты: `цель = floor_step((C + E + F − R) / 2 − P)`, `потолок = floor_step(C + E − P − R)`, `к выдаче = max(0, min(цель, потолок))`.
 - Прогноз F: оставшиеся опубликованные смены M × средний заработок за последние 10 смен; меньше 3 смен — F = 0 с пометкой «мало данных для прогноза».
@@ -36,6 +36,7 @@
 ## Review Focus
 
 - Сотруднику вручную выплатили между утверждением и выдачей: выдача уменьшается до остатка, переплаты нет (проверка в TS при предпросмотре **и** в RPC по `payroll_month_balance`). Тест — Task 1 (`ceiling after manual payment`) и Task 3 (SQL-проверка `overpay rejected`).
+- «Выплачено» у Татьяны не создаёт вторую операцию в Adesk (её счёт уже там из банка). Тест — Task 3 (`transfer not queued to Adesk`).
 - Двойное нажатие «Провести и отправить» или повтор после обрыва: одна выплата на строку и одно сообщение. Тест — Task 3 (`same request_key returns same issue`) и Task 4 (сообщение не уходит повторно, если `message_sent_at` заполнен).
 - Quick Resto не ответил или в кассах меньше минимума: ничего не проводится, текст «Нет данных о наличных в кассах» или «В кассах меньше минимума». Тест — Task 2 (`registerCash` без отчётов → `null`; `distributeCash` при `available ≤ 0` → пусто).
 - Частично выданная строка: в следующий раз выдаётся только остаток, день переносится на следующую смену в окне. Тест — Task 2 (`partial keeps remainder`) и Task 3 (`issued + amount ≤ row amount`).
@@ -122,6 +123,7 @@ Values from `statementRows(employees, accruals, adjustments, payments, allocatio
 - `E = row.earned − pendingFines`.
 - Shift accrual: `calculation_snapshot.kind` not in `monthly`, `adjustment` (same filter as `statementRows.shifts`); its earning = `salary − Σ components kind "monthly"`. Average over the last 10 such accruals before `today` (any month); fewer than 3 → `averageShift: null`, `F = 0`, flag `few_shifts`.
 - Shifts ahead = `shifts` of the employee with `business_date ≥ today` in M and no accrual on that date.
+- Target for `main`: `C + (E + F × shiftsAhead) / 2 − P`. Target for `transfer` (50/50, Павел 25.11): `C + E / 2 − P`, no forecast. Ceiling for both: `C + E − P − reserve`. Amount = `floorStep(max(0, min(target, ceiling)), step)`.
 - `pay_date` (method `cash`): first `shifts` date in `[max(today, window.from), window.to]`; none → `null` + `no_shift`. Method `transfer`: always `null`, no flag.
 - `unmoved_balance` flag: `statementRows` for the previous month gives `remaining ≠ 0` and nothing transferred out of it.
 - Employees: `active && !casual && (payout_schedule ?? "main") === schedule`. Add `payout_schedule?: PayoutScheduleCode` to `PayEmployee` in `types.ts`.
@@ -226,7 +228,7 @@ Tables:
 Rules inside RPCs (texts as given):
 - amount checks use `private.payroll_month_balance(employee, plan.month)`: in `plan_save` and `row_update` `amount − issued > balance` → `'Больше, чем сотрудник уже заработал: %'` (имя); in `issue` `line.amount > balance` → same text.
 - `row_update`: plan `cancelled` → `'План отменён'`; `p_amount < issued` → `'Уже выдано больше'`; `state = 'issued'` → `'Строка уже выдана'`.
-- `issue`: advisory lock on venue; same `request_key` + same `input_snapshot` → return existing id, other snapshot → `'Ключ уже использован для другой выдачи'`; plan must be `approved` → `'Сначала утвердите план'`; `line.amount > amount − issued` → `'Больше, чем осталось выдать: %'`; method `cash` requires `bank_accounts.type = 'cash'`, `transfer` — `'checking'` → `'Выберите счёт выплаты'`; each line posts through `private.payroll_post_payment_scoped` with `request_key = md5(request_key || row_id)::uuid`, kind `salary`, allocation month = plan month, note `'План выплат: ' || employee.name`; then `issued += amount`, `state = case when issued = amount then 'issued' else 'partial' end`, `pay_date = coalesce(next_pay_date, pay_date)`; lines stored with `payment_id`.
+- `issue`: advisory lock on venue; same `request_key` + same `input_snapshot` → return existing id, other snapshot → `'Ключ уже использован для другой выдачи'`; plan must be `approved` → `'Сначала утвердите план'`; `line.amount > amount − issued` → `'Больше, чем осталось выдать: %'`; method `cash` requires `bank_accounts.type = 'cash'`, `transfer` — `'checking'` → `'Выберите счёт выплаты'`; method `transfer`: right after posting, `delete from payroll_adesk_sync where payment_id = <new payment>` in the same transaction (the worker never sees the uncommitted row; trigger 384 only updates existing rows later), so the bank payment already in Adesk is not doubled — SQL test `transfer not queued to Adesk`; each line posts through `private.payroll_post_payment_scoped` with `request_key = md5(request_key || row_id)::uuid`, kind `salary`, allocation month = plan month, note `'План выплат: ' || employee.name`; then `issued += amount`, `state = case when issued = amount then 'issued' else 'partial' end`, `pay_date = coalesce(next_pay_date, pay_date)`; lines stored with `payment_id`.
 - End of migration: `do $$ … has_function_privilege('anon', …, 'execute') → raise exception` for all five; `notify pgrst, 'reload schema'`.
 
 - [ ] **Step 1: Write the migration** with everything above (single `begin; … commit;`).
@@ -313,7 +315,7 @@ git commit -m "Зарплата: действия плана выплат и в�
 Решение этапа 1 (отклонение от спеки, записать в спеку): выбор графика сотрудника — в этой карточке, а не в «Условиях оплаты» карточки сотрудника.
 
 - [ ] **Step 1: Implement the component.**
-- [ ] **Step 2: Verify in the browser** (dev-сервер в Bash в фоне, не `preview_start` — память `feedback_dev_server_no_preview_launcher`): открыть настройки оплаты труда заведения, сохранить минимум 120 000, чат, Татьяну на «Переводом»; после перезагрузки значения на месте.
+- [ ] **Step 2: Verify in the browser** (dev-сервер в Bash в фоне, не `preview_start` — память `feedback_dev_server_no_preview_launcher`): открыть настройки оплаты труда заведения, сохранить минимум 120 000, чат `-1002495828187`, Татьяну на «Переводом»; после перезагрузки значения на месте.
 - [ ] **Step 3: `pnpm exec tsc --noEmit && pnpm lint`** → PASS.
 - [ ] **Step 4: Commit** — `git commit -m "Зарплата: настройка графика выплат"`.
 

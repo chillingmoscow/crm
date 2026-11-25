@@ -52,10 +52,10 @@ async function loadStockCommits(
     .map((o) => o.id);
   if (!ids.length) return {};
   const commits = await db
-    .from<{ occurrence_id: string; status: StockCommitInfo["status"]; last_error: string | null; document_id: string | null }[]>(
+    .from<{ id: string; occurrence_id: string; status: StockCommitInfo["status"]; last_error: string | null; document_id: string | null }[]>(
       "stock_count_commits",
     )
-    .select("occurrence_id,status,last_error,document_id")
+    .select("id,occurrence_id,status,last_error,document_id")
     .in("occurrence_id", ids);
   if (commits.error) return {};
   const docIds = (commits.data ?? []).flatMap((c) => (c.document_id ? [c.document_id] : []));
@@ -72,6 +72,7 @@ async function loadStockCommits(
     (commits.data ?? []).map((c) => [
       c.occurrence_id,
       {
+        id: c.id,
         status: c.status,
         lastError: c.last_error,
         documentNumber: c.document_id ? (numbers.get(c.document_id) ?? null) : null,

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { retryStockCountCommit } from "@/app/(dashboard)/schedule/tasks/weighing-actions";
 
 /** «Повторить» упавшее проведение взвешивания. */
-export function WeighingRetryButton({ commitId }: { commitId: string }) {
+export function WeighingRetryButton({ commitId, onDone }: { commitId: string; onDone?: () => void | Promise<void> }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -27,6 +27,7 @@ export function WeighingRetryButton({ commitId }: { commitId: string }) {
             }
             setError(null);
             router.refresh();
+            await onDone?.();
           })
         }
       >

@@ -35,6 +35,7 @@ import {
   type WeighingBatch,
   type WeighingDraft,
 } from "@/lib/stock-count/tobacco-weighing";
+import { WeighingRetryButton } from "@/app/(dashboard)/documents/inventory/[id]/_components/weighing-retry-button";
 import { TaskScreen } from "./tasks-client";
 import {
   saveWeighingDraft,
@@ -82,7 +83,7 @@ export function WeighingReport({
   onSaved,
 }: {
   occurrence: TaskOccurrence;
-  data: Pick<CalendarTaskData, "userId" | "stockCommits">;
+  data: Pick<CalendarTaskData, "userId" | "stockCommits" | "permissions">;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
@@ -104,6 +105,8 @@ export function WeighingReport({
     o.user_id === data.userId &&
     ["assigned", "in_progress", "returned"].includes(o.status);
   const commit = data.stockCommits?.[o.id];
+  const canRetry =
+    data.permissions.includes("schedule.review") || data.permissions.includes("inventory.finalize_results");
 
   // Сервер обновил задание (сохранение, сдача) — берём его состояние.
   useEffect(() => {
@@ -379,16 +382,19 @@ export function WeighingReport({
         </p>
       )}
       {line && (
-        <p
-          role="status"
-          className={
-            commit?.status === "failed"
-              ? "rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-              : "rounded-md border bg-muted/50 px-3 py-2 text-sm"
-          }
-        >
-          {line}
-        </p>
+        <div className="space-y-2">
+          <p
+            role="status"
+            className={
+              commit?.status === "failed"
+                ? "rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                : "rounded-md border bg-muted/50 px-3 py-2 text-sm"
+            }
+          >
+            {line}
+          </p>
+          {commit?.status === "failed" && canRetry && <WeighingRetryButton commitId={commit.id} onDone={() => onSaved().catch(() => {})} />}
+        </div>
       )}
       {config.sections.map((section) => {
         const s = draft.sections[section.key] ?? { empty: false, batches: [] };

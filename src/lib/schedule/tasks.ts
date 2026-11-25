@@ -149,6 +149,7 @@ export type TaskData = {
 };
 /** Проведение сданного взвешивания: статус очереди и номер акта, если он уже есть. */
 export type StockCommitInfo = {
+  id: string;
   status: "pending" | "processing" | "done" | "failed";
   lastError: string | null;
   documentNumber: string | null;

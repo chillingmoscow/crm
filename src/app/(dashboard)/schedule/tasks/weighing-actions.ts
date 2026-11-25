@@ -1,10 +1,12 @@
 "use server";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { z } from "zod";
 import { createClient, getCachedUser } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { mediaUrl } from "@/lib/storage/media";
 import { actionResult } from "@/lib/actions/result";
+import { processStockCountCommit } from "@/lib/stock-count/commit-worker";
 import {
   countConfigSchema,
   resolveStartedAt,
@@ -80,6 +82,17 @@ async function command(
   if (r.error) throw new Error(r.error.message);
   const version = Number((r.data as { version?: number } | null)?.version);
   revalidatePath("/schedule");
+  if (action === "run.submit") {
+    // Одна попытка проведения сразу после ответа мастеру; страховка — очередь
+    // в фоновом обработчике.
+    after(async () => {
+      try {
+        await processStockCountCommit(value.occurrenceId);
+      } catch (error) {
+        console.error("[submitWeighing] проведение после сдачи не удалось", error instanceof Error ? error.message : error);
+      }
+    });
+  }
   return { version: Number.isFinite(version) ? version : value.version + 1, startedAt: draft.startedAt };
 }
 
@@ -91,7 +104,7 @@ export async function saveWeighingDraft(raw: {
   return actionResult(() => command("run.save", raw), "Не удалось сохранить взвешивание");
 }
 
-/** Проведение акта запускает очередь (Task 6); здесь только сдача. */
+/** Сдача; акт проводит очередь — первая попытка сразу после ответа. */
 export async function submitWeighing(raw: {
   occurrenceId: string;
   version: number;

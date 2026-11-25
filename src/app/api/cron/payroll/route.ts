@@ -8,6 +8,7 @@ import {
 import { processPayrollBonus } from "@/lib/payroll/bonus-worker";
 import { processAdjustmentNotification } from "@/lib/payroll/adjustment-notify-worker";
 import { processScheduleTasks } from "@/lib/schedule/tasks-worker";
+import { processStockCountCommits } from "@/lib/stock-count/commit-worker";
 import { processAdeskSync } from "@/lib/payroll/adesk-worker";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,6 +28,16 @@ export async function POST(request: NextRequest) {
     let taskResult: {created:number;settled:number}|null = null;
     let taskErrors = 0;
     try { taskResult = await processScheduleTasks(); } catch { taskErrors++; }
+    // A Quick Resto outage must not stop salary processing; failed weighings retry with backoff.
+    let stockCounts: { done: number; failed: number } | null = null;
+    let stockCountErrors = 0;
+    try {
+      stockCounts = await processStockCountCommits();
+      stockCountErrors += stockCounts.failed;
+    } catch (error) {
+      console.error("[cron payroll] проведение взвешиваний не удалось", error instanceof Error ? error.message : error);
+      stockCountErrors++;
+    }
     await schedulePayroll();
     const started = Date.now();
     let processed = 0,
@@ -107,6 +118,8 @@ export async function POST(request: NextRequest) {
       adeskErrors,
       tasks: taskResult,
       taskErrors,
+      stockCounts,
+      stockCountErrors,
       finesSent,
       finesErrors,
       bonusProcessed,

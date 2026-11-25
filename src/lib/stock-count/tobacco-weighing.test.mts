@@ -64,7 +64,7 @@ const dupCfg: CountConfig = {
 };
 
 const parfumDraft: WeighingDraft = {
-  startedAt: null,
+  startedAt: "2026-11-25T10:00:00.000Z",
   sections: {
     standard: { empty: true, batches: [] },
     premium: { empty: true, batches: [] },
@@ -75,7 +75,7 @@ const parfumDraft: WeighingDraft = {
   },
 };
 const badDraft: WeighingDraft = {
-  startedAt: null,
+  startedAt: "2026-11-25T10:00:00.000Z",
   sections: {
     standard: {
       empty: false,
@@ -86,7 +86,7 @@ const badDraft: WeighingDraft = {
   },
 };
 const kgLikeDraft: WeighingDraft = {
-  startedAt: null,
+  startedAt: "2026-11-25T10:00:00.000Z",
   sections: {
     standard: { empty: false, batches: [b(6, [["container", 30]])] },
     premium: { empty: true, batches: [] },
@@ -166,7 +166,7 @@ test("DEFAULT_TOBACCO_SECTIONS: три раздела с нужной тарой
 });
 test("submitErrors: неизвестная тара — ошибка, а не 0 г", () => {
   const draft: WeighingDraft = {
-    startedAt: null,
+    startedAt: "2026-11-25T10:00:00.000Z",
     sections: {
       standard: {
         empty: false,
@@ -177,4 +177,8 @@ test("submitErrors: неизвестная тара — ошибка, а не 0 
     },
   };
   assert.deepEqual(submitErrors(draft, cfg), ["Стандарт, партия 2: неизвестная тара"]);
+});
+test("submitErrors: черновик с партиями без startedAt — сначала сохранить", () => {
+  const draft: WeighingDraft = { ...parfumDraft, startedAt: null };
+  assert.deepEqual(submitErrors(draft, cfg), ["Сохраните взвешивание перед сдачей"]);
 });

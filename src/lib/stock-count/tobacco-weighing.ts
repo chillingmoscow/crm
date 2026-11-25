@@ -142,6 +142,14 @@ export function submitErrors(
   config: CountConfig,
 ): string[] {
   const out: string[] = [];
+  // Дата акта берётся из startedAt — его ставит первое сохранение.
+  const hasBatches = config.sections.some((section) => {
+    const s = draft.sections[section.key];
+    return !!s && !s.empty && s.batches.length > 0;
+  });
+  if (hasBatches && !draft.startedAt) {
+    return ["Сохраните взвешивание перед сдачей"];
+  }
   for (const section of config.sections) {
     const s = draft.sections[section.key];
     if (s?.empty) continue;

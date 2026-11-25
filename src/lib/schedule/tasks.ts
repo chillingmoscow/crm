@@ -147,9 +147,15 @@ export type TaskData = {
   today: string;
   timezone: string;
 };
+/** Проведение сданного взвешивания: статус очереди и номер акта, если он уже есть. */
+export type StockCommitInfo = {
+  status: "pending" | "processing" | "done" | "failed";
+  lastError: string | null;
+  documentNumber: string | null;
+};
 export type CalendarTaskData = Pick<
   TaskData, "occurrences" | "plans" | "permissions" | "userId" | "today" | "timezone"
->;
+> & { stockCommits?: Record<string, StockCommitInfo> };
 export function missingItems(
   items: ChecklistItem[],
   answers: Record<string, Answer>,

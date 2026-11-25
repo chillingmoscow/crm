@@ -261,7 +261,7 @@ function ChecklistText({
     />
   );
 }
-function TaskScreen({
+export function TaskScreen({
   title,
   description,
   onBack,

@@ -239,7 +239,11 @@ export function UpsellRulesTab({
   const reasonError =
     reason.trim().length < 3 ? "Напишите причину, не короче 3 символов" : null;
   const ratesValid = lines.every((l) => validRate(l.rate));
-  const blocked = !ratesValid
+  // Пустая первая версия ничего не оплачивает, но вывела бы подразделение
+  // на «Допродажи». Пустая следующая — законный способ выключить допродажи.
+  const blocked = !lines.length && !versions.length
+    ? "Добавьте в правила допродаж хотя бы одну позицию"
+    : !ratesValid
     ? "Укажите ставку допродаж в каждой строке"
     : reasonError
       ? "Напишите причину изменения правил допродаж"

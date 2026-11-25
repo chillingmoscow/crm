@@ -456,11 +456,12 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
   const tab = tabs.find((t) => t.id === tabId) ?? tabs[0] ?? null;
   const kind = tab?.legacyKind ?? null;
   // Правила живут вкладкой карточки подразделения; карточка требует
-  // просмотра должностей. Вкладка без подразделения ведёт к их списку.
+  // просмотра должностей. Вкладка старого вида без подразделения ведёт к их списку.
+  const ruleDepartment = tab ? (data.departments.find((d) => d.id === tab.id) ?? null) : null;
   const rulesHref =
     can("configure") && data.permissions.includes("people.view_roles")
-      ? tab && !tab.id.startsWith("legacy:")
-        ? `/people/departments/${tab.id}?tab=upsell`
+      ? ruleDepartment
+        ? `/people/departments/${ruleDepartment.id}?tab=upsell`
         : "/people/departments"
       : null;
   const picker = useMemo<PickerByKey>(
@@ -1001,8 +1002,8 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
               rulesHref ? (
                 <TableIconButton
                   label={
-                    tab && !tab.id.startsWith("legacy:")
-                      ? `Правила допродаж: ${tab.name}`
+                    ruleDepartment
+                      ? `Правила допродаж: ${ruleDepartment.name}`
                       : "Правила допродаж"
                   }
                   onClick={() => router.push(rulesHref)}

@@ -92,25 +92,21 @@ export default async function DepartmentDetailServerPage({
     ? await listAuditEvents({ entityType: "department", entityId: id })
     : { events: [], hasMore: false, error: null };
 
-  // Нет права просмотра результатов или правила не загрузились — блок «Недостача» просто скрыт.
-  let stockRules: StockRuleData | null = null;
-  if (can("inventory.view_results")) {
-    try {
-      stockRules = unwrapAction(await loadStockRules(department.venue_id));
-    } catch {
-      stockRules = null;
-    }
-  }
-
-  // Правила допродаж подразделения — для тех, кто настраивает продажи.
-  let upsellEditor: UpsellEditorData | null = null;
-  if (can("sales.view_shifts") && can("sales.configure_shifts")) {
-    try {
-      upsellEditor = unwrapAction(await loadUpsellEditor(department.id));
-    } catch {
-      upsellEditor = null;
-    }
-  }
+  // Нет права или данные не загрузились — блок «Недостача» и вкладка
+  // «Допродажи» просто скрыты. Грузятся параллельно.
+  const [stockRules, upsellEditor] = await Promise.all([
+    can("inventory.view_results")
+      ? loadStockRules(department.venue_id)
+          .then((r): StockRuleData | null => unwrapAction(r))
+          .catch(() => null)
+      : Promise.resolve(null),
+    // Правила допродаж — для тех, кто настраивает продажи.
+    can("sales.view_shifts") && can("sales.configure_shifts")
+      ? loadUpsellEditor(department.id)
+          .then((r): UpsellEditorData | null => unwrapAction(r))
+          .catch(() => null)
+      : Promise.resolve(null),
+  ]);
 
   return (
     <DepartmentDetailPage

@@ -22,8 +22,6 @@ import {
   type AdditionalDay,
   type AdditionalArchive,
   type AdditionalRuleVersion,
-  type AdditionalRules,
-  validateAdditionalRules,
 } from "@/lib/sales/additional";
 
 async function scope(permission = "sales.view_shifts", expectedVenue?: string) {
@@ -291,30 +289,6 @@ async function requestAdditionalImpl(month: string, venueId: string) {
     throw new Error("Нет завершённых дней с настроенными правилами допродаж");
   return Number(r.data);
 }
-async function saveAdditionalRulesImpl(input: {
-  venueId: string;
-  version: number;
-  from: string;
-  config: AdditionalRules;
-  reason: string;
-}) {
-  const s = await scope("sales.configure_shifts", input.venueId);
-  z.number().int().positive().parse(input.version);
-  z.string()
-    .regex(/^20\d{2}-\d{2}-\d{2}$/)
-    .parse(input.from);
-  z.string().trim().min(3).max(1000).parse(input.reason);
-  validateAdditionalRules(input.config);
-  const r = await s.db.rpc("sales_save_additional_rules", {
-    p_expected_venue: s.venueId,
-    p_version: input.version,
-    p_from: input.from,
-    p_config: input.config,
-    p_reason: input.reason,
-  });
-  if (r.error) throw new Error(r.error.message);
-  return loadAdditionalImpl(s.venueId);
-}
 /** Что нужно вкладке «Допродажи» карточки подразделения. */
 export type UpsellEditorData = {
   venueId: string;
@@ -452,12 +426,6 @@ export async function requestAdditional(month: string, venueId: string) {
   return actionResult(
     () => requestAdditionalImpl(month, venueId),
     "Не удалось запросить отчёты",
-  );
-}
-export async function saveAdditionalRules(input: Parameters<typeof saveAdditionalRulesImpl>[0]) {
-  return actionResult(
-    () => saveAdditionalRulesImpl(input),
-    "Не удалось сохранить правила",
   );
 }
 export async function loadUpsellEditor(departmentId: string) {

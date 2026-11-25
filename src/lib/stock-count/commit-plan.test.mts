@@ -11,7 +11,10 @@ import {
   lineProblems,
   markerSearchCandidates,
   missingLines,
+  LEASE_STALE_MS,
+  claimKind,
   nextAttemptAt,
+  telegramStep,
   validateCommitInput,
 } from "./commit-plan.ts";
 
@@ -253,4 +256,51 @@ test("validateCommitInput: повреждённые данные и несдан
   );
   assert.equal(validateCommitInput(occurrence(goodDraft, { status: "in_progress" })).ok, false);
   assert.equal(validateCommitInput(occurrence(goodDraft, { userId: null })).ok, false);
+});
+
+const NOW = new Date("2026-11-25T10:00:00.000Z");
+const ago = (ms: number) => new Date(NOW.getTime() - ms).toISOString();
+const later = (ms: number) => new Date(NOW.getTime() + ms).toISOString();
+
+test("claimKind: созревшая pending — в работу, будущая — нет", () => {
+  assert.equal(claimKind({ status: "pending", next_attempt_at: ago(1), updated_at: ago(1) }, NOW), "due");
+  assert.equal(claimKind({ status: "pending", next_attempt_at: later(60_000), updated_at: ago(1) }, NOW), null);
+});
+
+test("claimKind: processing забираем, только когда воркер молчит дольше аренды", () => {
+  assert.equal(claimKind({ status: "processing", next_attempt_at: ago(1), updated_at: ago(LEASE_STALE_MS - 1000) }, NOW), null);
+  assert.equal(claimKind({ status: "processing", next_attempt_at: ago(1), updated_at: ago(LEASE_STALE_MS + 1000) }, NOW), "stale");
+});
+
+test("claimKind: done и failed не захватываются", () => {
+  assert.equal(claimKind({ status: "done", next_attempt_at: ago(1), updated_at: ago(LEASE_STALE_MS * 2) }, NOW), null);
+  assert.equal(claimKind({ status: "failed", next_attempt_at: ago(1), updated_at: ago(LEASE_STALE_MS * 2) }, NOW), null);
+});
+
+const tg = (extra: Record<string, unknown>) => ({
+  status: "done",
+  telegram_status: "pending",
+  telegram_attempts: 0,
+  telegram_next_attempt_at: ago(1),
+  updated_at: ago(1),
+  ...extra,
+});
+
+test("telegramStep: отчёт проведённого акта отправляется, пока не кончились попытки", () => {
+  assert.equal(telegramStep(tg({}), NOW), "send");
+  assert.equal(telegramStep(tg({ telegram_status: "failed", telegram_attempts: 3 }), NOW), "send");
+  assert.equal(telegramStep(tg({ telegram_status: "failed", telegram_attempts: 5 }), NOW), null);
+});
+
+test("telegramStep: не время, нет повтора, не проведено, уже отправлено или без чата — ничего", () => {
+  assert.equal(telegramStep(tg({ telegram_next_attempt_at: later(60_000) }), NOW), null);
+  assert.equal(telegramStep(tg({ telegram_status: "failed", telegram_next_attempt_at: null }), NOW), null);
+  assert.equal(telegramStep(tg({ status: "processing" }), NOW), null);
+  assert.equal(telegramStep(tg({ telegram_status: "sent" }), NOW), null);
+  assert.equal(telegramStep(tg({ telegram_status: "skipped" }), NOW), null);
+});
+
+test("telegramStep: зависшая отправка не повторяется, а закрывается", () => {
+  assert.equal(telegramStep(tg({ telegram_status: "sending", updated_at: ago(LEASE_STALE_MS - 1000) }), NOW), null);
+  assert.equal(telegramStep(tg({ telegram_status: "sending", updated_at: ago(LEASE_STALE_MS + 1000) }), NOW), "abandon");
 });

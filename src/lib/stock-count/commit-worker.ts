@@ -1,5 +1,7 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
+
 // Проведение сданного взвешивания: акт в Quick Resto → локальный документ →
 // фиксация итогов → отчёт в Telegram. Очередь — public.stock_count_commits,
 // одна строка на задание. Каждый шаг идемпотентен: повтор после падения в любом
@@ -49,7 +51,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
 import {
   CommitStepError,
+  LEASE_STALE_MS,
   MAX_COMMIT_ATTEMPTS,
+  claimKind,
   commitErrorText,
   commitMarker,
   findMarkedDocument,
@@ -57,21 +61,20 @@ import {
   markerSearchCandidates,
   missingLines,
   nextAttemptAt,
+  telegramStep,
   validateCommitInput,
   type WantedLine,
 } from "./commit-plan";
 import { buildWeighingCaption, sendWeighingReport } from "./report";
 import type { CountConfig, CountSection } from "./tobacco-weighing";
 
-/** Строка `processing` старше этого — упавший воркер, её можно забрать. */
-const STALE_PROCESSING_MS = 10 * 60 * 1000;
 /** Сколько актов без комментария в списке дочитываем по одному при поиске маркера. */
 const MAX_MARKER_READS = 30;
 /** Не начинать следующее проведение в тике, если прошло больше. */
 const TICK_BUDGET_MS = 25_000;
 
 const COMMIT_COLUMNS =
-  "id, account_id, venue_id, occurrence_id, status, attempts, qr_document_id, document_id, telegram_status, next_attempt_at, updated_at";
+  "id, account_id, venue_id, occurrence_id, status, attempts, qr_document_id, document_id, telegram_status, telegram_attempts, telegram_next_attempt_at, next_attempt_at, updated_at, lease_token";
 
 type CommitRow = {
   id: string;
@@ -82,9 +85,12 @@ type CommitRow = {
   attempts: number;
   qr_document_id: number | string | null;
   document_id: string | null;
-  telegram_status: "pending" | "sent" | "failed" | "skipped";
+  telegram_status: "pending" | "sending" | "sent" | "failed" | "skipped";
+  telegram_attempts: number;
+  telegram_next_attempt_at: string | null;
   next_attempt_at: string;
   updated_at: string;
+  lease_token: string | null;
 };
 
 type OccurrenceRow = {
@@ -97,8 +103,9 @@ type OccurrenceRow = {
   status: string;
   snapshot: unknown;
   answers: unknown;
-  submitted_at: string | null;
 };
+
+const OCCURRENCE_COLUMNS = "id, account_id, venue_id, user_id, employee_name, business_date, status, snapshot, answers";
 
 type SectionLine = {
   section: CountSection;
@@ -112,48 +119,81 @@ type Outcome = "done" | "retry" | "failed" | "skipped";
 /** Строку очереди перехватил другой воркер — дальше не пишем ничего. */
 class LeaseLostError extends Error {}
 
-/** Аренда строки очереди: пишем только пока статус processing и номер попытки наш. */
-type Lease = { id: string; attempts: number };
+/**
+ * Аренда строки: свой токен на каждый захват. Пишем только с ним и только в
+ * своей фазе — `processing` (проведение) или `done` (отчёт в Telegram). Токен
+ * закрывает и ABA: после «Повторить» (stock_count_retry обнуляет попытки)
+ * старый воркер с прежним номером попытки строку уже не тронет.
+ */
+type Lease = { id: string; token: string; phase: "processing" | "done" };
 
 async function writeLeased(db: LooseDb, lease: Lease, patch: Record<string, unknown>): Promise<void> {
   const { data, error } = await db
     .from<Array<{ id: string }>>("stock_count_commits")
     .update({ ...patch, updated_at: new Date().toISOString() })
     .eq("id", lease.id)
-    .eq("status", "processing")
-    .eq("attempts", lease.attempts)
+    .eq("status", lease.phase)
+    .eq("lease_token", lease.token)
     .select("id");
   if (error) throw new Error(error.message);
   if ((data ?? []).length === 0) throw new LeaseLostError("stock_count_commits: аренда потеряна");
 }
 
-/**
- * Захват строки: условный update (compare-and-swap по статусу и номеру
- * попытки), так что из двух воркеров строку получает один. Номер попытки
- * растёт при захвате — упавший посреди шага воркер тоже тратит попытку, и
- * вечного цикла падений не будет.
- */
-async function claim(db: LooseDb, occurrenceId: string): Promise<CommitRow | null> {
-  const { data: row, error } = await db
+/** Признак жизни перед долгими шагами: иначе строку сочтут брошенной и заберут. */
+function heartbeat(db: LooseDb, lease: Lease) {
+  return writeLeased(db, lease, {});
+}
+
+async function readCommit(db: LooseDb, occurrenceId: string): Promise<CommitRow | null> {
+  const { data, error } = await db
     .from<CommitRow>("stock_count_commits")
     .select(COMMIT_COLUMNS)
     .eq("occurrence_id", occurrenceId)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  if (!row) return null;
-  const now = Date.now();
-  const due = row.status === "pending" && Date.parse(row.next_attempt_at) <= now;
-  const stale = row.status === "processing" && Date.parse(row.updated_at) < now - STALE_PROCESSING_MS;
-  if (!due && !stale) return null;
-  const { data: claimed, error: claimError } = await db
+  return data;
+}
+
+/**
+ * Compare-and-swap по всему, что видел читающий: статус, номер попытки,
+ * updated_at и токен. Живой воркер обновляет updated_at (heartbeat), поэтому
+ * захват «брошенной» строки, которую на самом деле ещё ведут, не пройдёт.
+ */
+async function casUpdate(
+  db: LooseDb,
+  row: CommitRow,
+  patch: Record<string, unknown>,
+): Promise<CommitRow | null> {
+  let query = db
     .from<CommitRow[]>("stock_count_commits")
-    .update({ status: "processing", attempts: row.attempts + 1, updated_at: new Date(now).toISOString() })
+    .update(patch)
     .eq("id", row.id)
     .eq("status", row.status)
     .eq("attempts", row.attempts)
-    .select(COMMIT_COLUMNS);
-  if (claimError) throw new Error(claimError.message);
-  return claimed?.[0] ?? null;
+    .eq("telegram_status", row.telegram_status)
+    .eq("telegram_attempts", row.telegram_attempts)
+    .eq("updated_at", row.updated_at);
+  query = row.lease_token ? query.eq("lease_token", row.lease_token) : query.is("lease_token", null);
+  const { data, error } = await query.select(COMMIT_COLUMNS);
+  if (error) throw new Error(error.message);
+  return data?.[0] ?? null;
+}
+
+/**
+ * Захват строки проведения. Номер попытки растёт при захвате: упавший посреди
+ * шага воркер тоже тратит попытку, вечного цикла падений не будет.
+ */
+async function claim(db: LooseDb, occurrenceId: string): Promise<{ commit: CommitRow; lease: Lease } | null> {
+  const row = await readCommit(db, occurrenceId);
+  if (!row || !claimKind(row, new Date())) return null;
+  const token = randomUUID();
+  const commit = await casUpdate(db, row, {
+    status: "processing",
+    attempts: row.attempts + 1,
+    lease_token: token,
+    updated_at: new Date().toISOString(),
+  });
+  return commit ? { commit, lease: { id: commit.id, token, phase: "processing" } } : null;
 }
 
 function qrDocumentIdOf(commit: CommitRow): number | null {
@@ -175,21 +215,21 @@ export async function processStockCountCommit(occurrenceId: string): Promise<voi
 
 async function runCommit(occurrenceId: string): Promise<Outcome> {
   const db = asLooseDb(createAdminClient());
-  let commit: CommitRow | null;
+  let claimed: Awaited<ReturnType<typeof claim>>;
   try {
-    commit = await claim(db, occurrenceId);
+    claimed = await claim(db, occurrenceId);
   } catch (error) {
     console.error("[stock-count commit] захват не удался", { occurrenceId, error: rawMessage(error) });
     return "retry";
   }
-  if (!commit) return "skipped";
-  const lease: Lease = { id: commit.id, attempts: commit.attempts };
+  if (!claimed) return "skipped";
+  const { commit, lease } = claimed;
 
   let occurrence: OccurrenceRow | null = null;
   try {
     const { data, error } = await db
       .from<OccurrenceRow>("schedule_task_occurrences")
-      .select("id, account_id, venue_id, user_id, employee_name, business_date, status, snapshot, answers, submitted_at")
+      .select(OCCURRENCE_COLUMNS)
       .eq("id", commit.occurrence_id)
       .eq("account_id", commit.account_id)
       .maybeSingle();
@@ -205,7 +245,6 @@ async function runCommit(occurrenceId: string): Promise<Outcome> {
       );
     }
     await commitSteps({ db, lease, commit, occurrence });
-    return "done";
   } catch (error) {
     if (error instanceof LeaseLostError) {
       console.warn("[stock-count commit] строку перехватил другой воркер", { occurrenceId });
@@ -213,6 +252,11 @@ async function runCommit(occurrenceId: string): Promise<Outcome> {
     }
     return failCommit({ db, lease, commit, occurrence, error });
   }
+  // Отчёт — отдельной фазой со своими повторами: сбой Telegram проведение не трогает.
+  await runTelegram(occurrenceId).catch((error) => {
+    console.error("[stock-count telegram] отчёт не отправлен", { occurrenceId, error: rawMessage(error) });
+  });
+  return "done";
 }
 
 async function commitSteps(ctx: Ctx): Promise<void> {
@@ -241,7 +285,7 @@ async function commitSteps(ctx: Ctx): Promise<void> {
       .eq("account_id", accountId)
       .maybeSingle();
     if (doc?.results_finalized_at) {
-      await finishDone(ctx, config, netKg, employeeName, await connectionOrFail(accountId));
+      await finishDone(ctx, config);
       return;
     }
   }
@@ -289,7 +333,14 @@ async function commitSteps(ctx: Ctx): Promise<void> {
     }
   }
   if (qrId === null) {
-    const found = await findDocumentByMarker({ apiAuth, marker, storeExternalId, invoiceDateMs });
+    await heartbeat(db, lease);
+    const found = await findDocumentByMarker({
+      apiAuth,
+      marker,
+      storeExternalId,
+      invoiceDateMs,
+      heartbeat: () => heartbeat(db, lease),
+    });
     if (found) {
       qrId = found.id;
       qrDoc = found;
@@ -298,6 +349,8 @@ async function commitSteps(ctx: Ctx): Promise<void> {
     } else {
       // Образцы — до создания: без них акт остался бы пустым.
       for (const line of lines) await sampleFor(line);
+      // Последняя проверка аренды перед необратимым шагом: строку не забрали.
+      await heartbeat(db, lease);
       const created = await withBackOfficeSession({
         connection,
         admin: db,
@@ -339,6 +392,7 @@ async function commitSteps(ctx: Ctx): Promise<void> {
       for (const line of toAdd) {
         const sectionLine = lines.find((l) => l.externalProductId === line.externalProductId) as SectionLine;
         const sample = await sampleFor(sectionLine);
+        await heartbeat(db, lease);
         await withBackOfficeSession({
           connection,
           admin: db,
@@ -402,7 +456,6 @@ async function commitSteps(ctx: Ctx): Promise<void> {
     config,
     storeExternalId,
     masterId,
-    occurrence,
     invoiceDateMs,
   });
   if (commit.document_id !== documentId) {
@@ -440,6 +493,7 @@ async function commitSteps(ctx: Ctx): Promise<void> {
   });
 
   // 5. Проведение и снимок итогов — общей функцией от имени мастера.
+  await heartbeat(db, lease);
   const core = await finalizeInventoryDocumentCore({
     admin: db,
     accountId,
@@ -455,23 +509,24 @@ async function commitSteps(ctx: Ctx): Promise<void> {
     // Вне запроса (фоновый тик) обновлять нечего — страницы динамические.
   }
 
-  // 6. Отчёт и «готово».
-  await finishDone(ctx, config, netKg, employeeName, connection);
+  // 6. «Готово»; отчёт отправит отдельная фаза.
+  await finishDone(ctx, config);
 }
 
-async function finishDone(
-  ctx: Ctx,
-  config: CountConfig,
-  netKg: Record<string, number>,
-  employeeName: string,
-  connection: QuickRestoConnection,
-) {
-  const telegramStatus = await sendReport(ctx, config, netKg, employeeName, connection);
+/**
+ * Проведение закончено. Отчёт в Telegram ставится в свою очередь (pending), а
+ * не шлётся здесь: так падение между отправкой и записью «готово» не может
+ * отправить его второй раз.
+ */
+async function finishDone(ctx: Ctx, config: CountConfig) {
+  const hasChat = Boolean(config.telegramChatId);
   await writeLeased(ctx.db, ctx.lease, {
     status: "done",
     last_error: null,
-    telegram_status: telegramStatus,
     next_attempt_at: new Date().toISOString(),
+    telegram_status: hasChat ? "pending" : "skipped",
+    telegram_attempts: 0,
+    telegram_next_attempt_at: hasChat ? new Date().toISOString() : null,
   });
 }
 
@@ -581,6 +636,7 @@ async function findDocumentByMarker(input: {
   marker: string;
   storeExternalId: number;
   invoiceDateMs: number;
+  heartbeat: () => Promise<void>;
 }): Promise<QuickRestoInventoryDocument2 | null> {
   // Без ответа Quick Resto отсутствие акта не доказано: ошибка → повтор, а не
   // создание второго акта.
@@ -595,7 +651,10 @@ async function findDocumentByMarker(input: {
     throw new CommitStepError("Не удалось проверить, создан ли уже акт взвешивания в Quick Resto");
   }
   const read: QuickRestoInventoryDocument2[] = [];
-  for (const doc of unknown) read.push(await readInventoryDocument({ ...input.apiAuth, objectId: doc.id }));
+  for (const doc of unknown) {
+    read.push(await readInventoryDocument({ ...input.apiAuth, objectId: doc.id }));
+    await input.heartbeat();
+  }
   const found = findMarkedDocument([...withComment, ...read], input.marker);
   if (!found) return null;
   // Склад в списке мог не прийти — сверяем по полному акту.
@@ -642,7 +701,6 @@ async function upsertLocalDocument(input: {
   config: CountConfig;
   storeExternalId: number;
   masterId: string;
-  occurrence: OccurrenceRow;
   invoiceDateMs: number;
 }): Promise<string> {
   const { db, accountId } = input;
@@ -654,11 +712,9 @@ async function upsertLocalDocument(input: {
     .eq("external_id", externalId)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  const ownership = {
-    assigned_to: input.masterId,
-    submitted_by: input.masterId,
-    submitted_at: input.occurrence.submitted_at ?? new Date().toISOString(),
-  };
+  // submitted_at / submitted_by у documents удалены миграцией 233: кто сдал —
+  // видно по исполнителю и журналу акта.
+  const ownership = { assigned_to: input.masterId };
   if (existing) {
     // Акт могла успеть загрузить синхронизация. Сданным он становится только
     // из статусов «до сдачи»; проведённый и зафиксированный не трогаем.
@@ -700,92 +756,213 @@ async function upsertLocalDocument(input: {
   return created.id;
 }
 
-/** Отчёт в Telegram. Ошибка не откатывает проведение: статус отправки, и всё. */
-async function sendReport(
-  ctx: Ctx,
-  config: CountConfig,
-  netKg: Record<string, number>,
-  employeeName: string,
-  connection: QuickRestoConnection,
-): Promise<CommitRow["telegram_status"]> {
-  const { db, commit } = ctx;
-  if (commit.telegram_status === "sent") return "sent";
-  const chatId = config.telegramChatId;
-  if (!chatId) return "skipped";
-  const documentId = commit.document_id;
-  const qrId = qrDocumentIdOf(commit);
+/**
+ * Отчёт в Telegram по проведённому акту — своя фаза с повторами (1, 5, 15,
+ * 60 минут, всего 5 попыток), как у сообщений задач. Проведение уже `done`, и
+ * сбой отчёта его не трогает.
+ *
+ * Защита от двойной отправки: захват ставит следующую попытку не раньше чем
+ * через срок аренды (долгое скачивание PDF не даст второму воркеру начать ту же
+ * отправку), а прямо перед вызовом Telegram статус становится `sending`. Упали
+ * после этого — дошло ли сообщение, неизвестно, и отчёт не повторяется.
+ */
+async function runTelegram(occurrenceId: string): Promise<"sent" | "failed" | "skipped"> {
+  const db = asLooseDb(createAdminClient());
+  let row: CommitRow | null;
+  let step: ReturnType<typeof telegramStep>;
   try {
-    if (!documentId || qrId === null) throw new Error("нет акта для отчёта");
-    const bot = await loadTelegramBot(db, commit.account_id);
-    if (!bot) throw new Error("Telegram не настроен");
-    const { data: doc } = await db
-      .from<{ document_number: string }>("documents")
-      .select("document_number")
-      .eq("id", documentId)
-      .eq("account_id", commit.account_id)
-      .maybeSingle();
-    const documentNumber = doc?.document_number ?? `QR-${qrId}`;
-    const { data: rows } = await db
-      .from<
-        Array<{
-          external_product_id: string | null;
-          finalized_difference_amount: number | null;
-          finalized_difference_sum: number | null;
-          difference_amount: number | null;
-          difference_sum: number | null;
-        }>
-      >("document_items")
-      .select("external_product_id, finalized_difference_amount, finalized_difference_sum, difference_amount, difference_sum")
-      .eq("account_id", commit.account_id)
-      .eq("document_id", documentId);
-    const { data: ingredients } = await db
-      .from<Array<{ id: string; external_id: string | null }>>("ingredients")
-      .select("id, external_id")
-      .eq("account_id", commit.account_id)
-      .in("id", config.sections.map((section) => section.productId));
-    const externalByIngredient = new Map((ingredients ?? []).map((row) => [row.id, row.external_id]));
-    const lines = config.sections.map((section) => {
-      const ext = externalByIngredient.get(section.productId);
-      const row = (rows ?? []).find((r) => ext && r.external_product_id === String(ext));
-      return {
-        title: section.title,
-        kg: netKg[section.key] ?? 0,
-        deltaKg: row ? row.finalized_difference_amount ?? row.difference_amount : null,
-        deltaSum: row ? row.finalized_difference_sum ?? row.difference_sum : null,
-      };
-    });
-    const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://sheerly.app").replace(/\/$/, "");
-    const caption = buildWeighingCaption({
-      documentNumber,
-      employeeName,
-      lines,
-      url: `${base}/documents/inventory/${documentId}`,
-    });
-    await sendWeighingReport({
-      bot,
-      chatId,
-      filename: `Взвешивание-${documentNumber}.pdf`,
-      caption,
-      download: () =>
-        withBackOfficeSession({
-          connection,
-          admin: db,
-          run: (authorization) =>
-            downloadInventoryResultsPdfBackOffice({
-              layerName: connection.login,
-              baseUrl: connection.backoffice_base_url,
-              authorization,
-              documentId: qrId,
-            }),
-        }),
-    });
+    row = await readCommit(db, occurrenceId);
+    step = row ? telegramStep(row, new Date()) : null;
+  } catch (error) {
+    console.error("[stock-count telegram] чтение очереди не удалось", { occurrenceId, error: rawMessage(error) });
+    return "failed";
+  }
+  if (!row || !step) return "skipped";
+
+  if (step === "abandon") {
+    const closed = await casUpdate(db, row, {
+      telegram_status: "failed",
+      telegram_next_attempt_at: null,
+      updated_at: new Date().toISOString(),
+    }).catch(() => null);
+    if (closed) {
+      console.warn("[stock-count telegram] отправка прервалась посередине — не повторяем", { occurrenceId });
+      await notifyReportFailure(db, closed, "отчёт мог не дойти до чата Telegram — проверьте чат");
+    }
+    return "failed";
+  }
+
+  const now = new Date();
+  const attempt = row.telegram_attempts + 1;
+  const token = randomUUID();
+  const claimed = await casUpdate(db, row, {
+    telegram_attempts: attempt,
+    telegram_next_attempt_at: new Date(now.getTime() + LEASE_STALE_MS).toISOString(),
+    lease_token: token,
+    updated_at: now.toISOString(),
+  }).catch((error) => {
+    console.error("[stock-count telegram] захват не удался", { occurrenceId, error: rawMessage(error) });
+    return null;
+  });
+  if (!claimed) return "skipped";
+  const lease: Lease = { id: claimed.id, token, phase: "done" };
+
+  let sent = false;
+  try {
+    await sendReport(db, lease, claimed);
+    sent = true;
+    await writeLeased(db, lease, { telegram_status: "sent", telegram_next_attempt_at: null });
     return "sent";
   } catch (error) {
-    console.error("[stock-count commit] отчёт в Telegram не отправлен", {
+    if (sent || error instanceof LeaseLostError) {
+      // Отправлено, но не записано / строку забрали: состояние допишет тот, у
+      // кого аренда, или зависший `sending` закроется без повтора.
+      console.error("[stock-count telegram] итог отправки не записан", { occurrenceId, error: rawMessage(error) });
+      return sent ? "sent" : "skipped";
+    }
+    console.error("[stock-count telegram] отчёт не отправлен", { occurrenceId, attempt, error: rawMessage(error) });
+    const next = nextAttemptAt(attempt, new Date());
+    try {
+      await writeLeased(db, lease, {
+        telegram_status: "failed",
+        telegram_next_attempt_at: next ? next.toISOString() : null,
+      });
+    } catch (writeError) {
+      console.error("[stock-count telegram] неудача не записана", { occurrenceId, error: rawMessage(writeError) });
+      return "failed";
+    }
+    if (!next) await notifyReportFailure(db, claimed, "отчёт не отправлен в Telegram после 5 попыток");
+    return "failed";
+  }
+}
+
+async function sendReport(db: LooseDb, lease: Lease, commit: CommitRow): Promise<void> {
+  const { data: occurrence, error: occurrenceError } = await db
+    .from<OccurrenceRow>("schedule_task_occurrences")
+    .select(OCCURRENCE_COLUMNS)
+    .eq("id", commit.occurrence_id)
+    .eq("account_id", commit.account_id)
+    .maybeSingle();
+  if (occurrenceError || !occurrence) throw new Error(occurrenceError?.message ?? "задание не найдено");
+  const input = validateCommitInput({
+    status: occurrence.status,
+    userId: occurrence.user_id,
+    snapshot: occurrence.snapshot,
+    answers: occurrence.answers,
+  });
+  if (!input.ok) throw new Error(input.error);
+  const { config, netKg } = input;
+  const chatId = config.telegramChatId;
+  const documentId = commit.document_id;
+  const qrId = qrDocumentIdOf(commit);
+  if (!chatId) throw new Error("чат Telegram не указан");
+  if (!documentId || qrId === null) throw new Error("нет акта для отчёта");
+  const connection = await connectionOrFail(commit.account_id);
+  const bot = await loadTelegramBot(db, commit.account_id);
+  if (!bot) throw new Error("Telegram не настроен");
+
+  const { data: doc } = await db
+    .from<{ document_number: string }>("documents")
+    .select("document_number")
+    .eq("id", documentId)
+    .eq("account_id", commit.account_id)
+    .maybeSingle();
+  const documentNumber = doc?.document_number ?? `QR-${qrId}`;
+  const { data: rows } = await db
+    .from<
+      Array<{
+        external_product_id: string | null;
+        finalized_difference_amount: number | null;
+        finalized_difference_sum: number | null;
+        difference_amount: number | null;
+        difference_sum: number | null;
+      }>
+    >("document_items")
+    .select("external_product_id, finalized_difference_amount, finalized_difference_sum, difference_amount, difference_sum")
+    .eq("account_id", commit.account_id)
+    .eq("document_id", documentId);
+  const { data: ingredients } = await db
+    .from<Array<{ id: string; external_id: string | null }>>("ingredients")
+    .select("id, external_id")
+    .eq("account_id", commit.account_id)
+    .in("id", config.sections.map((section) => section.productId));
+  const externalByIngredient = new Map((ingredients ?? []).map((row) => [row.id, row.external_id]));
+  const lines = config.sections.map((section) => {
+    const ext = externalByIngredient.get(section.productId);
+    const row = (rows ?? []).find((r) => ext && r.external_product_id === String(ext));
+    return {
+      title: section.title,
+      kg: netKg[section.key] ?? 0,
+      deltaKg: row ? row.finalized_difference_amount ?? row.difference_amount : null,
+      deltaSum: row ? row.finalized_difference_sum ?? row.difference_sum : null,
+    };
+  });
+  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://sheerly.app").replace(/\/$/, "");
+  const caption = buildWeighingCaption({
+    documentNumber,
+    employeeName: occurrence.employee_name?.trim() || "Сотрудник",
+    lines,
+    url: `${base}/documents/inventory/${documentId}`,
+  });
+  // Перед самим вызовом Telegram — отметка «отправляется» (см. runTelegram).
+  const markSending = () => writeLeased(db, lease, { telegram_status: "sending" });
+  await sendWeighingReport({
+    bot: {
+      sendDocument: async (...args) => {
+        await markSending();
+        return bot.sendDocument(...args);
+      },
+      sendMessage: async (...args) => {
+        await markSending();
+        return bot.sendMessage(...args);
+      },
+    },
+    chatId,
+    filename: `Взвешивание-${documentNumber}.pdf`,
+    caption,
+    download: () =>
+      withBackOfficeSession({
+        connection,
+        admin: db,
+        run: (authorization) =>
+          downloadInventoryResultsPdfBackOffice({
+            layerName: connection.login,
+            baseUrl: connection.backoffice_base_url,
+            authorization,
+            documentId: qrId,
+          }),
+      }),
+  });
+}
+
+async function notifyReportFailure(db: LooseDb, commit: CommitRow, reason: string) {
+  if (!commit.document_id) return;
+  try {
+    const { data: occurrence } = await db
+      .from<{ employee_name: string | null; business_date: string }>("schedule_task_occurrences")
+      .select("employee_name, business_date")
+      .eq("id", commit.occurrence_id)
+      .maybeSingle();
+    const recipients = await reviewerIds(db, commit.venue_id);
+    const who = occurrence?.employee_name?.trim() || "Сотрудник";
+    const date = occurrence?.business_date ? occurrence.business_date.split("-").reverse().slice(0, 2).join(".") : null;
+    for (const userId of recipients) {
+      await notifyInventoryDocumentEvent({
+        admin: db,
+        recipientId: userId,
+        actorId: null,
+        venueId: commit.venue_id,
+        documentId: commit.document_id,
+        type: "inventory.weighing_failed",
+        title: "Отчёт о взвешивании не отправлен",
+        body: `${who}${date ? `, взвешивание за ${date}` : ""}: акт проведён, но ${reason}`,
+      });
+    }
+  } catch (error) {
+    console.error("[stock-count telegram] уведомление не отправлено", {
       occurrenceId: commit.occurrence_id,
       error: rawMessage(error),
     });
-    return "failed";
   }
 }
 
@@ -803,12 +980,12 @@ async function failCommit(input: {
   const { db, lease, commit, occurrence, error } = input;
   console.error("[stock-count commit] попытка не удалась", {
     occurrenceId: commit.occurrence_id,
-    attempt: lease.attempts,
+    attempt: commit.attempts,
     error: rawMessage(error),
   });
   const now = new Date();
   const terminal = error instanceof CommitStepError && error.terminal;
-  const next = terminal ? null : nextAttemptAt(lease.attempts, now);
+  const next = terminal ? null : nextAttemptAt(commit.attempts, now);
   const text = commitErrorText(error);
   try {
     await writeLeased(db, lease, {
@@ -912,14 +1089,20 @@ async function notifyFailure(input: {
 }
 
 /**
- * Тик очереди: созревшие `pending` и брошенные упавшим воркером `processing`.
- * По одному проведению за раз, не дольше бюджета тика. `failed` — попытки,
- * закончившиеся ошибкой (в том числе ушедшие на повтор).
+ * Тик очереди: созревшие `pending`, брошенные упавшим воркером `processing`, а
+ * затем отчёты в Telegram проведённых актов. По одному за раз, не дольше бюджета
+ * тика. `failed` — попытки, закончившиеся ошибкой (в том числе ушедшие на повтор),
+ * включая отчёты.
  */
 export async function processStockCountCommits(limit = 3): Promise<{ done: number; failed: number }> {
   const db = asLooseDb(createAdminClient());
   const nowIso = new Date().toISOString();
-  const [due, stale] = await Promise.all([
+  const staleIso = new Date(Date.now() - LEASE_STALE_MS).toISOString();
+  const ids = (rows: { data: Array<{ occurrence_id: string }> | null; error: { message: string } | null }) => {
+    if (rows.error) throw new Error(rows.error.message);
+    return (rows.data ?? []).map((row) => row.occurrence_id);
+  };
+  const [due, stale, telegramDue, telegramStuck] = await Promise.all([
     db
       .from<Array<{ occurrence_id: string }>>("stock_count_commits")
       .select("occurrence_id")
@@ -931,20 +1114,39 @@ export async function processStockCountCommits(limit = 3): Promise<{ done: numbe
       .from<Array<{ occurrence_id: string }>>("stock_count_commits")
       .select("occurrence_id")
       .eq("status", "processing")
-      .lt("updated_at", new Date(Date.now() - STALE_PROCESSING_MS).toISOString())
+      .lt("updated_at", staleIso)
+      .limit(limit),
+    db
+      .from<Array<{ occurrence_id: string }>>("stock_count_commits")
+      .select("occurrence_id")
+      .eq("status", "done")
+      .in("telegram_status", ["pending", "failed"])
+      .lt("telegram_attempts", MAX_COMMIT_ATTEMPTS)
+      .lte("telegram_next_attempt_at", nowIso)
+      .order("telegram_next_attempt_at", { ascending: true })
+      .limit(limit),
+    db
+      .from<Array<{ occurrence_id: string }>>("stock_count_commits")
+      .select("occurrence_id")
+      .eq("status", "done")
+      .eq("telegram_status", "sending")
+      .lt("updated_at", staleIso)
       .limit(limit),
   ]);
-  if (due.error) throw new Error(due.error.message);
-  if (stale.error) throw new Error(stale.error.message);
-  const ids = [...new Set([...(stale.data ?? []), ...(due.data ?? [])].map((row) => row.occurrence_id))].slice(0, limit);
+  const commits = [...new Set([...ids(stale), ...ids(due)])].slice(0, limit);
+  const reports = [...new Set([...ids(telegramStuck), ...ids(telegramDue)])].slice(0, limit);
   const started = Date.now();
   let done = 0;
   let failed = 0;
-  for (const id of ids) {
+  for (const id of commits) {
     if (Date.now() - started > TICK_BUDGET_MS) break;
     const outcome = await runCommit(id);
     if (outcome === "done") done += 1;
     if (outcome === "retry" || outcome === "failed") failed += 1;
+  }
+  for (const id of reports) {
+    if (Date.now() - started > TICK_BUDGET_MS) break;
+    if ((await runTelegram(id)) === "failed") failed += 1;
   }
   return { done, failed };
 }

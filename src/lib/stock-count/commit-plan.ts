@@ -157,6 +157,46 @@ export function lineProblems(items: QuickRestoInventoryItem2[], wanted: WantedLi
   return out;
 }
 
+/** Строка, чей воркер молчит дольше, считается брошенной: упавший процесс. */
+export const LEASE_STALE_MS = 10 * 60 * 1000;
+
+type QueueRow = { status: string; next_attempt_at: string; updated_at: string };
+
+/**
+ * Можно ли захватить строку проведения: `due` — пора повторить, `stale` —
+ * воркер в `processing` не подаёт признаков жизни дольше аренды.
+ */
+export function claimKind(row: QueueRow, now: Date): "due" | "stale" | null {
+  if (row.status === "pending") return Date.parse(row.next_attempt_at) <= now.getTime() ? "due" : null;
+  if (row.status === "processing") {
+    return Date.parse(row.updated_at) < now.getTime() - LEASE_STALE_MS ? "stale" : null;
+  }
+  return null;
+}
+
+type TelegramRow = {
+  status: string;
+  telegram_status: string;
+  telegram_attempts: number;
+  telegram_next_attempt_at: string | null;
+  updated_at: string;
+};
+
+/**
+ * Что делать с отчётом проведённого акта. `send` — пора (повторно) отправить;
+ * `abandon` — отправка зависла посреди вызова Telegram: дошло ли сообщение,
+ * неизвестно, поэтому не повторяем, а закрываем как неудачу.
+ */
+export function telegramStep(row: TelegramRow, now: Date): "send" | "abandon" | null {
+  if (row.status !== "done") return null;
+  if (row.telegram_status === "sending") {
+    return Date.parse(row.updated_at) < now.getTime() - LEASE_STALE_MS ? "abandon" : null;
+  }
+  if (row.telegram_status !== "pending" && row.telegram_status !== "failed") return null;
+  if (row.telegram_attempts >= MAX_COMMIT_ATTEMPTS || !row.telegram_next_attempt_at) return null;
+  return Date.parse(row.telegram_next_attempt_at) <= now.getTime() ? "send" : null;
+}
+
 export const MAX_COMMIT_ATTEMPTS = 5;
 const RETRY_DELAYS_MIN = [1, 5, 15, 60];
 

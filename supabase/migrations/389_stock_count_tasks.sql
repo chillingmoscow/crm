@@ -229,8 +229,15 @@ create table public.stock_count_commits (
   last_error text,
   qr_document_id bigint,
   document_id uuid,
-  telegram_status text not null default 'pending' check (telegram_status in ('pending', 'sent', 'failed', 'skipped')),
+  -- sending — отчёт ушёл в Telegram, а ответ ещё не записан: после падения
+  -- воркера такой отчёт не повторяется (лучше потерять, чем прислать дважды).
+  telegram_status text not null default 'pending' check (telegram_status in ('pending', 'sending', 'sent', 'failed', 'skipped')),
+  telegram_attempts integer not null default 0,
+  -- Когда повторить отчёт; null — повторов не будет (отправлен или попытки кончились).
+  telegram_next_attempt_at timestamptz,
   next_attempt_at timestamptz not null default now(),
+  -- Аренда строки воркером: меняется при каждом захвате, запись идёт только с ним.
+  lease_token uuid,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (account_id, id),
@@ -238,6 +245,7 @@ create table public.stock_count_commits (
   foreign key (account_id, document_id) references public.documents(account_id, id)
 );
 create index stock_count_commits_queue on public.stock_count_commits(next_attempt_at) where status in ('pending', 'processing');
+create index stock_count_commits_telegram_queue on public.stock_count_commits(telegram_next_attempt_at) where status = 'done' and telegram_status in ('pending', 'sending', 'failed');
 create index stock_count_commits_document on public.stock_count_commits(account_id, document_id) where document_id is not null;
 create index stock_count_commits_venue on public.stock_count_commits(venue_id);
 

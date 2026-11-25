@@ -3282,10 +3282,13 @@ export type Database = {
           document_id: string | null
           id: string
           last_error: string | null
+          lease_token: string | null
           next_attempt_at: string
           occurrence_id: string
           qr_document_id: number | null
           status: string
+          telegram_attempts: number
+          telegram_next_attempt_at: string | null
           telegram_status: string
           updated_at: string
           venue_id: string
@@ -3297,10 +3300,13 @@ export type Database = {
           document_id?: string | null
           id?: string
           last_error?: string | null
+          lease_token?: string | null
           next_attempt_at?: string
           occurrence_id: string
           qr_document_id?: number | null
           status?: string
+          telegram_attempts?: number
+          telegram_next_attempt_at?: string | null
           telegram_status?: string
           updated_at?: string
           venue_id: string
@@ -3312,10 +3318,13 @@ export type Database = {
           document_id?: string | null
           id?: string
           last_error?: string | null
+          lease_token?: string | null
           next_attempt_at?: string
           occurrence_id?: string
           qr_document_id?: number | null
           status?: string
+          telegram_attempts?: number
+          telegram_next_attempt_at?: string | null
           telegram_status?: string
           updated_at?: string
           venue_id?: string

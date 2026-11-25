@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { z } from "zod";
 import {
   createClient,
   getCachedPermissionChecker,
@@ -28,6 +29,10 @@ export default async function DepartmentDetailServerPage({
   searchParams: Promise<{ tab?: string }>;
 }) {
   const [{ id }, { tab }] = await Promise.all([params, searchParams]);
+  // Не идентификатор (например, `/people/departments/archive`) — сразу на
+  // список. Иначе параллельные загрузчики ниже успевают споткнуться о такой id
+  // и засорить журнал сервера ошибками проверки.
+  if (!z.string().uuid().safeParse(id).success) redirect("/people/departments");
   const [user, supabase, can] = await Promise.all([
     getCachedUser(),
     createClient(),

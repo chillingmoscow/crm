@@ -242,7 +242,7 @@ export function PayoutPlan({
           if (id === "left")
             return r.leftAfter === null ? <span className="text-muted-foreground">—</span> : (
               <span
-                data-tip={r.leftAfter < 0 ? "Переплата после этой выплаты" : "Останемся должны после этой выплаты"}
+                data-tip={r.leftAfter < 0 ? "Переплатим за месяц после этой выплаты" : "Будем должны за месяц после этой выплаты"}
                 data-tip-sub={r.breakdown.official > 0 ? "С учётом официальной части, которую выплатит бухгалтерия" : undefined}
               >
                 <Money value={r.leftAfter} className={r.leftAfter < 0 ? signedAmountClass(r.leftAfter) : undefined} />
@@ -501,7 +501,7 @@ function PayoutRowDrawer({
         )}
         <section aria-label="Как посчитано" className="space-y-4 border-t pt-5">
           <h3 className="text-base font-semibold">Как посчитано</h3>
-          <PayoutBreakdown b={b} amount={row.amount} issued={row.issued} manual={row.manual} leftAfter={row.leftAfter} step={view.settings.schedules.main.step} />
+          <PayoutBreakdown b={b} amount={row.amount} issued={row.issued} manual={row.manual} leftAfter={row.leftAfter} step={view.settings.schedules.main.step} month={plan?.month ?? view.window?.month ?? null} />
         </section>
       </div>
     </PayrollDetailDialog>

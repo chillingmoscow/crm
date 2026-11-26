@@ -280,3 +280,4 @@ test("issueCap: расчётную строку режет потолок, ру�
   assert.deepEqual(recheckDue({ amount: 20000, issued: 0 }, issueCap(b, true), 5000), { due: 20000, capped: false });
   assert.deepEqual(recheckDue({ amount: 20000, issued: 0 }, issueCap(b, false), 5000), { due: 0, capped: true });
 });
+

@@ -45,7 +45,10 @@ function Step({ title, children }: { title: string; children: ReactNode }) {
  * половина месяца, сколько выходит по половине, итог с потолком. Тот же
  * расчёт, что в `planFirstPayout` (Павел, 26.11: «оформи симпатичнее»).
  */
-export function PayoutBreakdown({ b, amount, issued, manual, leftAfter, step }: { b: PlannedRow["breakdown"]; amount: number; issued: number; manual: boolean; leftAfter: number | null; step: number }) {
+const MONTH_DATIVE = ["январю", "февралю", "марту", "апрелю", "маю", "июню", "июлю", "августу", "сентябрю", "октябрю", "ноябрю", "декабрю"];
+
+export function PayoutBreakdown({ b, amount, issued, manual, leftAfter, step, month }: { b: PlannedRow["breakdown"]; amount: number; issued: number; manual: boolean; leftAfter: number | null; step: number; month: string | null }) {
+  const byMonth = month ? `по ${MONTH_DATIVE[Number(month.slice(5, 7)) - 1] ?? "месяцу"}` : "за месяц";
   const total = b.carried + b.earned + b.forecast - b.reserve;
   const byHalf = Math.max(0, b.target);
   const cap = Math.max(0, b.ceiling);
@@ -72,7 +75,14 @@ export function PayoutBreakdown({ b, amount, issued, manual, leftAfter, step }: 
 
       <Step title="По половине">
         <Line label="Половина" value={b.half} />
-        {b.paid > 0 && <Line op="−" label="Уже выплачено за месяц" value={b.paid} />}
+        {b.paid > 0 && (
+          <Line
+            op="−"
+            label="Уже выплачено за месяц"
+            hint={issued > 0 ? `в том числе по этому плану ${formatRub(issued)}` : undefined}
+            value={b.paid}
+          />
+        )}
         {b.official > 0 && <Line op="−" label="Официальная часть" hint="выплатит бухгалтерия" value={b.official} />}
         <Line
           op="="
@@ -86,28 +96,29 @@ export function PayoutBreakdown({ b, amount, issued, manual, leftAfter, step }: 
       <Step title="Итог">
         <Line label="По половине" value={byHalf} />
         <Line
-          label="Больше не выдаём"
-          hint={b.official > 0 ? "начислено минус выплаченное, запас и официальная часть" : "начислено минус выплаченное и запас"}
+          label="Можно выдать без переплаты"
+          hint={b.official > 0 ? "перенос + начислено − выплаченное − запас − официальная часть" : "перенос + начислено − выплаченное − запас"}
           value={cap}
         />
         <Line
           op="="
-          label="К выплате"
+          label="К выплате по плану"
           hint={
-            <>
-              {manual
-                ? <>поставлено вручную, по расчёту — {formatRub(computed)}</>
-                : <>меньшее из двух, вниз до {formatRub(step)}</>}
-            </>
+            manual
+              ? <>поставлено вручную{issued === 0 ? <>, по расчёту сейчас — {formatRub(computed)}</> : null}</>
+              : issued === 0 && Math.round(computed) !== Math.round(amount)
+                ? <>сумма плана; по расчёту сейчас — {formatRub(computed)}</>
+                : <>меньшее из двух, вниз до {formatRub(step)}</>
           }
           value={amount}
           result
         />
-        {issued > 0 && <Line label="Уже выдано по плану" value={issued} />}
+        {issued > 0 && <Line op="−" label="Выдано по плану" value={issued} />}
+        {issued > 0 && amount - issued > 0 && <Line op="=" label="Осталось выдать" value={amount - issued} result />}
         {leftAfter !== null && (
           <Line
-            label={leftAfter < 0 ? "Переплата после выплаты" : "Останется после выплаты"}
-            hint={b.official > 0 ? "перенос + начислено − выплаченное − официальная часть, без прогноза" : "перенос + начислено − выплаченное, без прогноза"}
+            label={leftAfter < 0 ? `Переплатим ${byMonth}` : `Будем должны ${byMonth}`}
+            hint={`можно выдать без переплаты + запас − ${issued > 0 ? "осталось выдать" : "к выплате"}; будущие смены не входят`}
             value={leftAfter}
           />
         )}

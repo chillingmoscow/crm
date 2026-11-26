@@ -22,6 +22,13 @@ const monthLabel = (m: string) =>
     .toLocaleDateString("ru-RU", { month: "long", year: "numeric", timeZone: "UTC" })
     .replace(" г.", "");
 
+/** «октября 2026»: месяц в родительном падеже, для «С … на …». */
+const monthFromLabel = (m: string) =>
+  new Date(`${m}T12:00:00Z`)
+    .toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })
+    .replace(/^\d+\s*/, "")
+    .replace(" г.", "");
+
 /**
  * Причина для журнала: база требует её, а выбирать здесь нечего. Остаток
  * бывает долгом (недоплатили — доплатим в следующем месяце) или переплатой
@@ -31,6 +38,25 @@ export function transferReason(remaining: number, from: string, to: string) {
   return remaining < 0
     ? `Переплата за ${monthLabel(from)}: удерживается из выплаты за ${monthLabel(to)}`
     : `Недоплата за ${monthLabel(from)}: переносится к выплате за ${monthLabel(to)}`;
+}
+
+/**
+ * Кому есть что переносить за месяц: известный и ненулевой остаток.
+ * Переплату, возникшую из-за ожидаемой официальной части, база не видит —
+ * её нет. Пока прежние выплаты месяца на сверке, остаток неизвестен.
+ */
+export function transferCandidates(data: PayrollData, month: string) {
+  const rows = statementRows(
+    data.employees, data.accruals, data.adjustments, data.payments, data.allocations, month,
+    data.transfers, data.settings?.starts_on ?? month, data.officialExpected ?? [],
+  );
+  return rows.flatMap((row) => {
+    const pending = data.legacyPayments.some(
+      (p) => p.employee_id === row.employee.id && p.month === month && p.state === "review",
+    );
+    const { amount } = transferableBalance(row);
+    return !pending && toKopecks(amount) > 0 ? [{ row, amount }] : [];
+  });
 }
 
 /**
@@ -50,19 +76,8 @@ export function PayrollTransferDrawer({ open = true, data, month, employeeId, on
   const next = new Date(`${month}T12:00:00Z`);
   next.setUTCMonth(next.getUTCMonth() + 1);
   const target = next.toISOString().slice(0, 10);
-  const rows = statementRows(
-    data.employees, data.accruals, data.adjustments, data.payments, data.allocations, month,
-    data.transfers, data.settings?.starts_on ?? month, data.officialExpected ?? [],
-  );
-  // Переносить можно только известный и ненулевой остаток. Переплату,
-  // возникшую из-за ожидаемой официальной части, база не видит — её нет.
-  const eligible = rows.flatMap((row) => {
-    const pending = data.legacyPayments.some(
-      (p) => p.employee_id === row.employee.id && p.month === month && p.state === "review",
-    );
-    const { amount } = transferableBalance(row);
-    return !pending && toKopecks(amount) > 0 ? [{ row, amount }] : [];
-  });
+  const eligible = transferCandidates(data, month);
+  const remainingOf = new Map(eligible.map((e) => [e.row.employee.id, e.row.remaining]));
   const [selected, setSelected] = useState<string[]>(
     employeeId && eligible.some((e) => e.row.employee.id === employeeId) ? [employeeId] : [],
   );
@@ -115,7 +130,7 @@ export function PayrollTransferDrawer({ open = true, data, month, employeeId, on
       open={open}
       onOpenChange={(open) => { if (!open && !busy) onClose(); }}
       title="Перенести остаток"
-      description={`С ${monthLabel(month)} на ${monthLabel(target)}`}
+      description={`С ${monthFromLabel(month)} на ${monthLabel(target)}`}
       footer={<>
         <Button variant="outline" disabled={busy} onClick={onClose}>Отмена</Button>
         <Button disabled={busy || !chosen.length} onClick={() => void submit()}>
@@ -132,6 +147,8 @@ export function PayrollTransferDrawer({ open = true, data, month, employeeId, on
             selectedIds={selected}
             disabled={busy || !eligible.length}
             onChange={(ids) => { setSelected(ids); setFailed({}); }}
+            // Остаток «К выплате» — как в ведомости: переплата с минусом.
+            aside={(e) => <Money value={remainingOf.get(e.id)} fraction="auto" />}
           />
           {!eligible.length && (
             <p className="text-xs text-muted-foreground">

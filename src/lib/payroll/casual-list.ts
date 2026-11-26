@@ -3,8 +3,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { casualRoleIds } from "./casual-name";
 
-// Only workers with a personal Quick Resto code are in the staff list: a
-// casual worker counts as added once the code is issued.
+// Only workers with a personal Quick Resto employee are in the staff list: a
+// casual worker counts as added once the code is issued. Workers who had their
+// own Quick Resto employee before Sheerly issued codes are listed too — their
+// PIN lives only in Quick Resto.
 export type CasualStaffRow = {
   id: string;
   name: string;
@@ -12,8 +14,9 @@ export type CasualStaffRow = {
   roleName: string;
   departmentId: string | null;
   departmentName: string | null;
-  /** «••••» when the viewer may not see codes. */
-  pin: string;
+  /** «••••» when the viewer may not see codes; null when the PIN was set in
+   *  Quick Resto, not issued by Sheerly. */
+  pin: string | null;
 };
 
 // Casual workers of a venue for the staff page. The caller checks access.
@@ -21,13 +24,12 @@ export async function getCasualStaff(venueId: string, showPins: boolean) {
   const db = asLooseDb(createAdminClient());
   const [employees, roles, departments, models, venue] = await Promise.all([
     db
-      .from<{ id: string; name: string; role_id: string | null; role_name: string; quickresto_pin: string }[]>("payroll_employees")
+      .from<{ id: string; name: string; role_id: string | null; role_name: string; quickresto_pin: string | null }[]>("payroll_employees")
       .select("id,name,role_id,role_name,quickresto_pin")
       .eq("venue_id", venueId)
       .eq("casual", true)
       .eq("active", true)
-      .not("quickresto_id", "is", null)
-      .not("quickresto_pin", "is", null),
+      .not("quickresto_id", "is", null),
     db
       .from<{ id: string; name: string; department_id: string | null }[]>("roles")
       .select("id,name,department_id")
@@ -60,7 +62,7 @@ export async function getCasualStaff(venueId: string, showPins: boolean) {
       roleName: p.role_name,
       departmentId: role?.department_id ?? null,
       departmentName: (role?.department_id && departmentName.get(role.department_id)) || null,
-      pin: showPins ? p.quickresto_pin : "••••",
+      pin: p.quickresto_pin === null ? null : showPins ? p.quickresto_pin : "••••",
     };
   });
   return {

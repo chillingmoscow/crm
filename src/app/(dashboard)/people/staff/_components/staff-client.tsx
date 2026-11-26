@@ -688,7 +688,13 @@ export function StaffClient({
           <span className="text-sm text-muted-foreground">—</span>
         );
       case "pin":
-        return <span className="font-mono text-sm tabular-nums">{c.pin}</span>;
+        return c.pin ? (
+          <span className="font-mono text-sm tabular-nums">{c.pin}</span>
+        ) : (
+          <span className="text-sm text-muted-foreground" data-tip="PIN задан в Quick Resto, Sheerly его не выдавал">
+            —
+          </span>
+        );
       default:
         return <span className="text-sm text-muted-foreground">—</span>;
     }

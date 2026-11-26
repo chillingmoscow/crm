@@ -203,15 +203,25 @@ export function PayoutPlan({
                 <Money value={-r.breakdown.official} signed />
               </span>
             ) : <span className="text-muted-foreground">—</span>;
-          if (id === "amount")
+          if (id === "amount") {
+            // Подпись — только когда выдача правда будет меньше плана: после
+            // формирования появились выплаты или штрафы и срезали потолок.
+            const cut = r.willIssue !== null && plan && Math.round(r.willIssue) < Math.round(r.amount);
             return (
               <span className="inline-flex flex-col items-end">
                 <Money value={r.amount} className="font-semibold" />
-                {r.fresh !== null && plan && Math.round(r.fresh) < Math.round(r.amount) && (
-                  <small className="text-xs text-amber-700 dark:text-amber-400">сейчас {formatRub(r.fresh)}</small>
+                {cut && (
+                  <small
+                    className="text-xs text-amber-700 dark:text-amber-400"
+                    data-tip={`Выдадим ${formatRub(r.willIssue!)}`}
+                    data-tip-sub="После формирования плана появились выплаты или штрафы — больше начисленного не выдаём"
+                  >
+                    выдадим {formatRub(r.willIssue!)}
+                  </small>
                 )}
               </span>
             );
+          }
           const value = id === "earned" ? r.breakdown.earned : id === "reserve" ? r.breakdown.reserve : r.paidNow;
           return <Money value={value} />;
         },
@@ -412,6 +422,44 @@ function PayoutRowDrawer({
       }
     >
       <div className={formStyle.form}>
+        {/* Сначала — что требует решения, потом правка, потом расшифровка (Павел, 26.11). */}
+        {payoutRowState(row, view.today, "cash") === "missed" && (
+          <p role="alert" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+            День выплаты прошёл, а выдано не всё. Выберите другой день в окне.
+          </p>
+        )}
+        {b.flags.length > 0 && (
+          <ul className="space-y-1 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+            {b.flags.map((f) => <li key={f}>{FLAG_TEXT[f] ?? f}</li>)}
+          </ul>
+        )}
+        {plan && row.willIssue !== null && Math.round(row.willIssue) < Math.round(row.amount) && (
+          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+            Выдадим {formatRub(row.willIssue)}: после формирования плана появились выплаты или штрафы, а больше начисленного не выдаём.
+          </p>
+        )}
+        {editable && (
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="payout-row-amount">К выплате, ₽</Label>
+              <Input id="payout-row-amount" inputMode="decimal" value={amount} disabled={busy} onChange={(e) => setAmount(e.target.value)} />
+              {row.issued > 0 && <p className="text-[13px] text-muted-foreground">Не меньше выданного: {formatRub(row.issued)}</p>}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="payout-row-day">День выплаты</Label>
+              <OptionSelect
+                id="payout-row-day"
+                className={selectClass}
+                value={day}
+                disabled={busy}
+                onValueChange={setDay}
+                placeholder="Не выбран"
+                options={[{ value: "", label: "Не выбран" }, ...days.map((d) => ({ value: d, label: formatDayMonth(d) ?? d }))]}
+              />
+            </div>
+          </div>
+        )}
+        <p className="text-sm font-medium">Как посчитано</p>
         <ul className="divide-y rounded-xl border px-3 text-sm">
           {b.carried !== 0 && line("Перенесено из прошлого месяца", <Money value={b.carried} signed />)}
           {line("Начислено за месяц", <Money value={b.earned} />, b.pendingFines ? `без штрафов на подтверждении: ${formatRub(b.pendingFines)}` : undefined)}
@@ -428,37 +476,6 @@ function PayoutRowDrawer({
           {line("К выплате", <strong><Money value={row.amount} /></strong>, "вниз до шага округления")}
           {row.issued > 0 && line("Выдано", <Money value={row.issued} />)}
         </ul>
-        {payoutRowState(row, view.today, "cash") === "missed" && (
-          <p role="alert" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
-            День выплаты прошёл, а выдано не всё. Выберите другой день в окне.
-          </p>
-        )}
-        {b.flags.length > 0 && (
-          <ul className="space-y-1 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
-            {b.flags.map((f) => <li key={f}>{FLAG_TEXT[f] ?? f}</li>)}
-          </ul>
-        )}
-        {editable && (
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="payout-row-amount">К выплате, ₽</Label>
-              <Input id="payout-row-amount" inputMode="decimal" value={amount} disabled={busy} onChange={(e) => setAmount(e.target.value)} />
-              {row.issued > 0 && <p className="text-[13px] text-muted-foreground">Не меньше выданного: {formatRub(row.issued)}</p>}
-            </div>
-            <div className="space-y-2">
-                <Label htmlFor="payout-row-day">День выплаты</Label>
-                <OptionSelect
-                  id="payout-row-day"
-                  className={selectClass}
-                  value={day}
-                  disabled={busy}
-                  onValueChange={setDay}
-                  placeholder="Не выбран"
-                  options={[{ value: "", label: "Не выбран" }, ...days.map((d) => ({ value: d, label: formatDayMonth(d) ?? d }))]}
-                />
-            </div>
-          </div>
-        )}
       </div>
     </PayrollDetailDialog>
   );

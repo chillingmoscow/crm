@@ -88,6 +88,18 @@ test("премии и удержания отдельно, всё вместе �
   assert.equal(p.earned, 22563);
 });
 
+test("оклад — отдельной строкой, не среди премий", () => {
+  const monthly = [
+    accrual("m", "2026-11-30", [c("monthly", 65000, "Оклад"), c("allowance", 3000, "Надбавка за месяц")], { kind: "monthly" }),
+    accrual("b", "2026-11-12", [c("bonus", 2000, "Премия")], { kind: "adjustment" }),
+  ];
+  const p = buildPayslip(data(monthly), employee, "2026-11-01", () => "Бармен");
+  assert.deepEqual(p.salary, [{ date: "2026-11-30", title: "Оклад за месяц", amount: 65000 }]);
+  assert.equal(p.salaryTotal, 65000);
+  assert.deepEqual(p.additions.map((e) => e.title), ["Премия", "Надбавка за месяц"]);
+  assert.equal(p.salaryTotal + p.additionsTotal + p.deductionsTotal, p.earned);
+});
+
 const detail = (x: { sales: unknown; rate: unknown; salesSource: unknown; extraPool: unknown; sharedWith: unknown }) => ({
   sales: x.sales, rate: x.rate, salesSource: x.salesSource, extraPool: x.extraPool, sharedWith: x.sharedWith,
 });

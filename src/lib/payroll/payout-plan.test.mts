@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  breakdownNow,
   issueCap,
   payDayChoices,
   DEFAULT_PAYOUT_SCHEDULES,
@@ -279,4 +280,17 @@ test("issueCap: расчётную строку режет потолок, ру�
   assert.equal(issueCap(b, true), 21712.86);
   assert.deepEqual(recheckDue({ amount: 20000, issued: 0 }, issueCap(b, true), 5000), { due: 20000, capped: false });
   assert.deepEqual(recheckDue({ amount: 20000, issued: 0 }, issueCap(b, false), 5000), { due: 0, capped: true });
+});
+
+test("breakdownNow: свежий расчёт без выданного по этой же строке", () => {
+  // Свежие данные уже считают выданные по строке 20 000 «выплаченными».
+  const fresh = { carried: 647, earned: 118601, pendingFines: 0, forecast: 18000, forecastShifts: 2, averageShift: 9000,
+    reserve: 5000, paid: 20000, half: 66124, target: -28543, official: 74667, ceiling: 19581, flags: [] };
+  const b = breakdownNow(fresh, 20000);
+  assert.equal(b.paid, 0);
+  assert.equal(b.target, -8543);
+  assert.equal(b.ceiling, 39581);
+  assert.equal(b.half, 66124);
+  // Ничего не выдано — без изменений.
+  assert.deepEqual(breakdownNow(fresh, 0), fresh);
 });

@@ -255,6 +255,22 @@ export function issueCap(b: { ceiling: number; reserve: number; official: number
   return manual ? round(b.ceiling + b.reserve + b.official) : b.ceiling;
 }
 
+/**
+ * Расчёт строки плана на текущую минуту (Павел, 26.11: «должно быть значение
+ * на текущую минуту»). Свежие данные уже считают выданное по этой строке
+ * выплаченным — возвращаем его обратно, чтобы расчёт объяснял сумму строки,
+ * а не обнулялся после выдачи.
+ */
+export function breakdownNow(fresh: PlannedRow["breakdown"], issued: number): PlannedRow["breakdown"] {
+  if (!issued) return fresh;
+  return {
+    ...fresh,
+    paid: round(fresh.paid - issued),
+    target: round(fresh.target + issued),
+    ceiling: round(fresh.ceiling + issued),
+  };
+}
+
 export type PayoutRowState = "issued" | "partial" | "none" | "invoice" | "waiting" | "missed" | "no_day";
 
 /** Что показать в строке плана: выдано, ждёт дня, день пропущен, ждёт счёта. */

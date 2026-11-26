@@ -5,6 +5,7 @@ import { writeAuditEvent } from "@/lib/audit/write";
 import { loadTelegramBot } from "@/lib/integrations/telegram-bot";
 import {
   PAYOUT_SCHEDULE_LABELS,
+  breakdownNow,
   firstPayoutWindow,
   issueCap,
   recheckDue,
@@ -136,11 +137,16 @@ async function planView(s: PayrollScope, schedule: PayoutScheduleCode, firstCtx:
     return { name: e?.name ?? "Сотрудник", role: e?.role_name ?? "", avatarUrl: e?.avatar_url ?? null };
   };
   const rows: PayoutRowView[] = saved
-    ? (await planRows(s, saved.id)).map((row) => ({
+    ? (await planRows(s, saved.id)).map((row) => {
+      // Расчёт — на текущую минуту; снимок на момент формирования — только
+      // если сотрудника больше нет в графике плана.
+      const fb = freshBy.get(row.employee_id)?.breakdown;
+      const now = fb ? breakdownNow(fb, row.issued) : row.breakdown;
+      return {
         employee_id: row.employee_id,
         pay_date: row.pay_date,
         amount: row.amount,
-        breakdown: row.breakdown,
+        breakdown: now,
         id: row.id,
         ...person(row.employee_id),
         issued: row.issued,
@@ -152,11 +158,12 @@ async function planView(s: PayrollScope, schedule: PayoutScheduleCode, firstCtx:
           : money(recheckDue(row, capOf(row), step).due + row.issued),
         manual: row.manual,
         ceilingNow: freshBy.get(row.employee_id)?.breakdown.ceiling ?? null,
-        leftAfter: leftAfter(freshBy.get(row.employee_id)?.breakdown ?? row.breakdown, row.amount - row.issued),
-        paidNow: freshBy.get(row.employee_id)?.breakdown.paid ?? row.breakdown.paid,
+        leftAfter: leftAfter(now, row.amount),
+        paidNow: fb?.paid ?? row.breakdown.paid,
         outside: false,
         shiftDays: shiftDays(row.employee_id),
-      }))
+      };
+    })
     : fresh.map((row) => ({
         ...row, id: null, ...person(row.employee_id), issued: 0, state: "planned" as const, willIssue: row.amount,
         paidNow: row.breakdown.paid, outside: false, shiftDays: shiftDays(row.employee_id),

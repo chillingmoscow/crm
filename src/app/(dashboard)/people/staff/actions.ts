@@ -121,12 +121,31 @@ export type AccountDetailsUpdate = Omit<
   "account_id" | "user_id"
 >;
 
+/**
+ * Должность, которую можно назначить сотруднику заведения: этого заведения и
+ * не в архиве. Системная роль владельца (venue_id null) сюда не проходит.
+ * Читается service-role: RLS прячет часть ролей, а отказ должен быть точным.
+ * Без этой проверки запрос в обход интерфейса создавал сотрудника с любой
+ * ролью, в том числе владельца.
+ */
+async function assignableRoleError(roleId: string, venueId: string): Promise<string | null> {
+  const { data } = await createAdminClient()
+    .from("roles")
+    .select("venue_id, archived_at")
+    .eq("id", roleId)
+    .maybeSingle();
+  if (!data || data.venue_id !== venueId) return "Должность недоступна для этого заведения";
+  if (data.archived_at) return "Нельзя назначить архивную должность";
+  return null;
+}
+
 export async function getStaff(venueId: string): Promise<StaffMember[]> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("get_venue_staff", {
     p_venue_id: venueId,
   });
-  if (error) return [];
+  // Ошибка — не «сотрудников нет»: страница покажет ошибку с повтором.
+  if (error) throw new Error("Не удалось загрузить сотрудников");
   return (data ?? []) as StaffMember[];
 }
 
@@ -140,16 +159,24 @@ export async function getOfficialStaffUserIds(venueId: string): Promise<string[]
   try {
     const supabase = await createClient();
     const db = asLooseDb(supabase);
-    const today = zonedParts(new Date(), await getActiveAccountTimezone()).date;
-    const periods = await fetchAllRows(() =>
-      db
-        .from<{ id: string; employee_id: string }[]>("payroll_official_employments")
-        .select("id,employee_id")
-        .eq("venue_id", venueId)
-        .is("archived_at", null)
-        .lte("starts_on", today)
-        .or(`ends_on.is.null,ends_on.gte.${today}`),
-    );
+    // Пояс аккаунта и периоды — параллельно: периоды берём с запасом в сутки
+    // по UTC и уточняем «сегодня» по поясу после (раньше — три шага подряд).
+    const utc = new Date().toISOString().slice(0, 10);
+    const shift = (days: number) => new Date(Date.parse(`${utc}T12:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
+    const [timezone, rows] = await Promise.all([
+      getActiveAccountTimezone(),
+      fetchAllRows(() =>
+        db
+          .from<{ id: string; employee_id: string; starts_on: string; ends_on: string | null }[]>("payroll_official_employments")
+          .select("id,employee_id,starts_on,ends_on")
+          .eq("venue_id", venueId)
+          .is("archived_at", null)
+          .lte("starts_on", shift(1))
+          .or(`ends_on.is.null,ends_on.gte.${shift(-1)}`),
+      ),
+    ]);
+    const today = zonedParts(new Date(), timezone).date;
+    const periods = rows.filter((p) => p.starts_on <= today && (p.ends_on === null || p.ends_on >= today));
     const employeeIds = [...new Set(periods.map((p) => p.employee_id))];
     const userIds = new Set<string>();
     for (const part of chunk(employeeIds, 200)) {
@@ -180,11 +207,15 @@ export async function updateStaffProfile(
     if (!gender.success) return { error: gender.error.issues[0].message };
   }
   const supabase = await createClient();
-  const { error } = await supabase
+  // RLS (profiles_update) без права или при сменённом заведении меняет 0
+  // строк без ошибки — это отказ, а не «сохранено».
+  const { data: updated, error } = await supabase
     .from("profiles")
     .update(data)
-    .eq("id", userId);
+    .eq("id", userId)
+    .select("id");
   if (error) return { error: errorText(error, "Не удалось сохранить профиль сотрудника") };
+  if (!updated?.length) return { error: "Данные не сохранены: нет права или сотрудник уже не в заведении" };
   revalidatePath("/people/staff");
   return { error: null };
 }
@@ -264,11 +295,14 @@ export async function updateStaffTerminalPin(
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
   const trimmed = pin?.trim() || null;
-  const { error } = await supabase
+  // RLS без права молча меняет 0 строк — это отказ, а не «сохранено».
+  const { data: updated, error } = await supabase
     .from("user_venue_roles")
     .update({ terminal_pin: trimmed })
-    .eq("id", uvrId);
+    .eq("id", uvrId)
+    .select("id");
   if (error) return { error: errorText(error, "Не удалось сохранить PIN-код") };
+  if (!updated?.length) return { error: "PIN-код не сохранён: нет права или сотрудник уже не в заведении" };
   revalidatePath("/people/staff");
   return { error: null };
 }
@@ -286,6 +320,14 @@ export async function inviteStaff(data: {
 
   const email = data.email.trim().toLowerCase();
   const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  if (!isValidEmail(email)) return { error: "Укажите корректный email", invitation: null };
+
+  const [can, roleError] = await Promise.all([
+    getCachedPermissionChecker(),
+    assignableRoleError(data.roleId, data.venueId),
+  ]);
+  if (!can("people.invite_staff")) return { error: "Нет права приглашать сотрудников", invitation: null };
+  if (roleError) return { error: roleError, invitation: null };
 
   const [{ data: venueRow }, { data: inviterProfile }, { data: roleRow }] = await Promise.all([
     supabase
@@ -371,14 +413,9 @@ export async function inviteStaff(data: {
     }
   }
 
-  // Keep one pending invite per email+venue to avoid ambiguous acceptance.
-  await supabase
-    .from("invitations")
-    .delete()
-    .eq("venue_id", data.venueId)
-    .ilike("email", email)
-    .eq("status", "pending");
-
+  // Один pending-инвайт на email+venue. Прежние удаляем только ПОСЛЕ отправки
+  // письма (как в setImportedStaffEmailAndInvite, #441): при сбое SMTP рабочая
+  // прежняя ссылка остаётся.
   const token = randomUUID();
 
   const { data: insertedInvitation, error: invError } = await supabase
@@ -415,14 +452,20 @@ export async function inviteStaff(data: {
     // мёртвый — юзер ничего не получит, лучше дать админу попробовать
     // заново).
     await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
+    console.error("[inviteStaff] email failed:", emailError);
     return {
-      error:
-        emailError instanceof Error
-          ? emailError.message
-          : "Не удалось отправить письмо-приглашение",
+      error: errorText(emailError, "Не удалось отправить письмо-приглашение. Проверьте настройки почты"),
       invitation: null,
     };
   }
+
+  await supabase
+    .from("invitations")
+    .delete()
+    .eq("venue_id", data.venueId)
+    .ilike("email", email)
+    .eq("status", "pending")
+    .neq("id", insertedInvitation.id);
 
   const pendingInvitation: PendingInvitation = {
     inv_id: insertedInvitation.id,
@@ -470,18 +513,18 @@ export async function createStaffWithoutEmail(data: {
     return { error: gender.error.issues[0].message, member: null };
   }
 
-  // Проверка прав: вызывающий должен быть owner/manager/admin в этом venue.
-  const { data: callerUvr } = await supabase
-    .from("user_venue_roles")
-    .select("roles(code)")
-    .eq("user_id", user.id)
-    .eq("venue_id", data.venueId)
-    .eq("status", "active")
-    .maybeSingle();
-  const callerCode = (callerUvr?.roles as { code: string } | null)?.code ?? null;
-  if (!["owner", "manager", "admin"].includes(callerCode ?? "")) {
-    return { error: "Недостаточно прав", member: null };
+  // То же право, по которому интерфейс показывает «Добавить» (раньше здесь
+  // сверялся код должности, и право на должности «Старший смены» не работало),
+  // и должность — этого заведения, не архивная (не владелец).
+  const [can, activeVenue, roleError] = await Promise.all([
+    getCachedPermissionChecker(),
+    supabase.rpc("get_active_venue_id"),
+    assignableRoleError(data.roleId, data.venueId),
+  ]);
+  if (!can("people.edit_staff") || activeVenue.data !== data.venueId) {
+    return { error: "Нет права добавлять сотрудников в это заведение", member: null };
   }
+  if (roleError) return { error: roleError, member: null };
 
   // Случайный placeholder email и пароль. Email-домен @import.local — тот
   // же что у QR-импорта; UI воспринимает такого юзера как «не зарегистрирован»
@@ -723,8 +766,9 @@ export async function setImportedStaffEmailAndInvite(data: {
     // Откатываем только что созданную строку; прежние pending-инвайты не
     // трогали — прежняя ссылка-приглашение продолжает работать.
     await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
+    console.error("[setImportedStaffEmailAndInvite] email failed:", emailError);
     return {
-      error: emailError instanceof Error ? emailError.message : "Не удалось отправить письмо",
+      error: errorText(emailError, "Не удалось отправить письмо. Проверьте настройки почты"),
       invitation: null,
     };
   }
@@ -818,12 +862,20 @@ export async function updateStaffRole(
   // user_venue_roles не имеет WITH CHECK, поэтому без этого можно было бы
   // переподключить сотрудника на роль чужого заведения. Owner (venue_id
   // NULL) через staff-UI не назначается — он не из списка venue-ролей.
-  const { data: uvr } = await supabase
-    .from("user_venue_roles")
-    .select("venue_id, user_id")
-    .eq("id", uvrId)
-    .maybeSingle();
+  const [{ data: uvr }, { data: { user: me } }] = await Promise.all([
+    supabase
+      .from("user_venue_roles")
+      .select("venue_id, user_id, roles(code)")
+      .eq("id", uvrId)
+      .maybeSingle(),
+    supabase.auth.getUser(),
+  ]);
   if (!uvr) return { error: "Сотрудник не найден" };
+  // Свою должность и должность владельца не меняют: интерфейс это прячет,
+  // сервер — точка истины.
+  if (uvr.user_id === me?.id) return { error: "Свою должность изменить нельзя" };
+  if ((uvr.roles as { code: string } | null)?.code === "owner")
+    return { error: "Должность владельца не меняется" };
 
   const { data: role } = await supabase
     .from("roles")
@@ -895,7 +947,7 @@ export async function updateStaffRole(
     const state = hist.error || back.error
       ? "Должность в зарплате изменена, а доступ — нет, и откатить зарплату не удалось: проверьте условия сотрудника в Зарплате."
       : "Изменения отменены: должность в зарплате возвращена, доступ не изменён.";
-    return { error: `${error.message}. ${state}` };
+    return { error: `${errorText(error, "Не удалось изменить доступ сотрудника")}. ${state}` };
   }
 
   if (payrollChanged) {
@@ -995,7 +1047,7 @@ export async function getFiredStaff(venueId: string): Promise<FiredStaffMember[]
   const { data, error } = await supabase.rpc("get_fired_staff", {
     p_venue_id: venueId,
   });
-  if (error) return [];
+  if (error) throw new Error("Не удалось загрузить уволенных сотрудников");
   return (data ?? []) as FiredStaffMember[];
 }
 
@@ -1010,9 +1062,10 @@ export async function getPendingInvitations(
     .eq("status", "pending")
     .order("created_at", { ascending: false });
 
-  if (error || !data) return [];
+  // Без права приглашать RLS отдаёт пустой список без ошибки; ошибка — сбой.
+  if (error) throw new Error("Не удалось загрузить приглашения");
 
-  return data.map((inv) => ({
+  return (data ?? []).map((inv) => ({
     inv_id:     inv.id,
     email:      inv.email,
     role_id:    inv.role_id,
@@ -1026,12 +1079,14 @@ export async function cancelInvitation(
   invId: string
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
-  const { error } = await supabase
+  const { data: removed, error } = await supabase
     .from("invitations")
     .delete()
-    .eq("id", invId);
+    .eq("id", invId)
+    .select("id");
 
   if (error) return { error: errorText(error, "Не удалось отменить приглашение") };
+  if (!removed?.length) return { error: "Приглашение не отменено: нет права или его уже приняли" };
   revalidatePath("/people/staff");
   return { error: null };
 }

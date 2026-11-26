@@ -7,11 +7,12 @@ import { businessDate, zonedParts } from "@/lib/sales/time";
 import { redirect } from "next/navigation";
 import {
   createClient,
+  getCachedActiveAccountId,
   getCachedPermissionChecker,
+  getCachedUser,
 } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { StaffDetailPage } from "./_components/staff-detail-page";
-import { listAuditEvents } from "@/lib/audit/list";
 import type { StaffProfile, StaffAccountDetails } from "../actions";
 import { staffProfileIdentitySchema } from "@/lib/people/staff-identity";
 import { getOfficialEmployment } from "../official-actions";
@@ -45,7 +46,15 @@ type TargetVenueRole = {
   } | null;
 };
 
-type VenueRow = { account_id: string | null };
+type StaffTerminationRow = {
+  state: string;
+  error: string | null;
+  door_revoked: boolean;
+  shared_access: boolean;
+  employee_id: number | null;
+  guest_id: number | null;
+  attempts: number;
+};
 
 // Контекст перехода → куда ведёт хлебная крошка «назад». Whitelist
 // (а не произвольный URL) — чтобы не открывать дыру open-redirect.
@@ -66,62 +75,95 @@ export default async function StaffMemberPage({
   const back = (from && BACK_CONTEXTS[from]) || null;
 
   const supabase = await createClient();
-  type LooseQueryBuilder = {
-    select: (columns: string) => LooseQueryBuilder;
-    eq: (column: string, value: unknown) => LooseQueryBuilder;
-    maybeSingle: () => Promise<{ data: unknown }>;
-  };
-  const db = supabase as unknown as {
-    from: (table: string) => LooseQueryBuilder;
-  };
+  const db = asLooseDb(supabase);
+  // Use admin client to bypass RLS for target user data
+  const admin = createAdminClient();
+  const adminDb = asLooseDb(admin);
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Волна 1: кто смотрит, его права, активное заведение и аккаунт. Пользователь,
+  // права и аккаунт кэшированы на запрос — layout их уже запросил.
+  const [user, can, activeVenue, accountId] = await Promise.all([
+    getCachedUser(),
+    getCachedPermissionChecker(),
+    supabase.rpc("get_active_venue_id"),
+    getCachedActiveAccountId(),
+  ]);
   if (!user) redirect("/login");
-
-  const { data: myProfile } = await supabase
-    .from("profiles")
-    .select("active_venue_id")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (!myProfile?.active_venue_id) redirect("/onboarding");
-  const venueId = myProfile.active_venue_id;
 
   // Гейт доступа к карточке сотрудника. Данные ниже читаются через
   // service-role (admin, в обход RLS), поэтому страницу обязательно закрываем
   // правом people.view_staff_details — иначе ПДн и документы доступны по прямому URL. Свою
   // информацию пользователь смотрит в /profile, отдельный доступ к карточке
   // сотрудника без права не нужен.
-  const can = await getCachedPermissionChecker();
   if (!can("people.view_staff") || !can("people.view_staff_details")) redirect("/dashboard");
 
+  const venueId = (activeVenue.data as string | null) ?? null;
+  if (!venueId || !accountId) redirect("/onboarding");
+
   const canEdit = can("people.edit_staff");
+  // Журнал и Активность грузятся при открытии вкладки; RLS на audit_logs
+  // фильтрует по org.view_audit, флаг нужен фронту, чтобы показать вкладки.
+  const canViewAudit = can("org.view_audit");
+  const canViewPayroll = can("payroll.view");
 
-  // Текущее заведение → account_id (для запроса staff_account_details).
-  const { data: venueRow } = await supabase
-    .from("venues")
-    .select("account_id")
-    .eq("id", venueId)
-    .returns<VenueRow[]>()
+  // Волна 2: всё, что зависит только от аккаунта, заведения и сотрудника, —
+  // одним Promise.all. Запросы, которым нужен результат соседнего (членство,
+  // email, владелец), идут цепочкой внутри волны, не отдельной волной.
+  const uvrPromise = admin
+    .from("user_venue_roles")
+    .select(
+      // departments embed disambiguated по FK roles_department_id_fkey
+      // — без явного указателя PostgREST видит две связи (есть ещё
+      // departments.head_role_id → roles) и возвращает ошибку.
+      "id, role_id, terminal_pin, status, fired_at, fired_reason, created_at, roles(name, code, department_id, departments!roles_department_id_fkey(id, name))",
+    )
+    .eq("user_id", userId)
+    .eq("venue_id", venueId)
+    .in("status", ["active", "fired"])
+    .returns<TargetVenueRole[]>()
+    .maybeSingle()
+    .then(({ data }) => data);
+  // Read minimal, venue-scoped identity without GoTrue's full Auth serializer.
+  // Legacy HR-only records can have NULL tokens / an infinite login ban.
+  const identityPromise = db
+    .rpc("get_staff_profile_identity", { p_user_id: userId })
+    .then((result) => {
+      if (result.error) throw new Error("Не удалось загрузить данные карточки сотрудника");
+      return staffProfileIdentitySchema.nullable().parse(result.data);
+    });
+  const ownerPromise = admin
+    .from("accounts")
+    .select("owner_id")
+    .eq("id", accountId)
+    .maybeSingle()
+    .then(({ data }) => (data as { owner_id: string | null } | null)?.owner_id ?? null);
+  const candidatePromise = db
+    .from<{ id: string; full_name: string }>("candidates")
+    .select("id,full_name")
+    .eq("account_id", accountId)
+    .eq("hired_user_id", userId)
+    .limit(1)
     .maybeSingle();
+  const uvrState = (uvr: TargetVenueRole | null) =>
+    uvr ? { id: uvr.id, fired: uvr.status === "fired" } : null;
 
-  if (!venueRow?.account_id) redirect("/onboarding");
-  const accountId = venueRow.account_id;
-
-  // Use admin client to bypass RLS for target user data
-  const admin = createAdminClient();
-
-  // Параллелим: персональный профиль (тир 1+2), UVR (terminal_pin + role),
-  // тенант-данные (тир 3), QR-link, список ролей.
   const [
     { data: profileRow },
-    { data: targetUvr },
+    targetUvr,
     { data: accountDetailsRow },
     { data: importedLink },
     { data: roles },
-    identityResult,
+    identity,
+    ownerId,
+    candidateLink,
+    pendingInvite,
+    door,
+    termination,
+    restoration,
+    revokedDoorNumbers,
+    salesSettings,
+    officialEmployment,
+    officialTermination,
   ] = await Promise.all([
     admin
       .from("profiles")
@@ -131,19 +173,7 @@ export default async function StaffMemberPage({
       .eq("id", userId)
       .returns<StaffProfile[]>()
       .maybeSingle(),
-    admin
-      .from("user_venue_roles")
-      .select(
-        // departments embed disambiguated по FK roles_department_id_fkey
-        // — без явного указателя PostgREST видит две связи (есть ещё
-        // departments.head_role_id → roles) и возвращает ошибку.
-        "id, role_id, terminal_pin, status, fired_at, fired_reason, created_at, roles(name, code, department_id, departments!roles_department_id_fkey(id, name))",
-      )
-      .eq("user_id", userId)
-      .eq("venue_id", venueId)
-      .in("status", ["active", "fired"])
-      .returns<TargetVenueRole[]>()
-      .maybeSingle(),
+    uvrPromise,
     admin
       .from("staff_account_details")
       .select(
@@ -154,7 +184,7 @@ export default async function StaffMemberPage({
       .returns<StaffAccountDetails[]>()
       .maybeSingle(),
     db
-      .from("external_entity_links")
+      .from<{ id: string }>("external_entity_links")
       .select("id")
       .eq("provider", "quickresto")
       .eq("entity_type", "staff")
@@ -171,41 +201,103 @@ export default async function StaffMemberPage({
       .eq("venue_id", venueId)
       .is("archived_at", null)
       .order("name"),
-    // Read minimal, venue-scoped identity without GoTrue's full Auth serializer.
-    // Legacy HR-only records can have NULL tokens / an infinite login ban.
-    asLooseDb(supabase).rpc("get_staff_profile_identity", { p_user_id: userId }),
+    identityPromise,
+    ownerPromise,
+    candidatePromise,
+    // Неотозванное приглашение на email сотрудника.
+    identityPromise.then((identity) =>
+      identity?.email
+        ? admin
+            .from("invitations")
+            .select("id")
+            .eq("venue_id", venueId)
+            .ilike("email", identity.email)
+            .eq("status", "pending")
+            .limit(1)
+            .maybeSingle()
+            .then(({ data }) => Boolean(data))
+        : false,
+    ),
+    // Код замка показывается владельцу аккаунта для нанятых из кандидатов.
+    Promise.all([ownerPromise, candidatePromise]).then(([owner, candidate]) =>
+      owner === user.id && candidate.data
+        ? adminDb
+            .from<{ id: string }>("staff_door_codes")
+            .select("id")
+            .eq("account_id", accountId)
+            .eq("user_id", userId)
+            .is("revoked_at", null)
+            .maybeSingle()
+            .then(({ data }) => Boolean(data))
+        : false,
+    ),
+    // Статус увольнения показывается только у уволенного.
+    uvrPromise.then((uvr) => {
+      const state = uvrState(uvr);
+      return canEdit && state?.fired
+        ? adminDb
+            .from<StaffTerminationRow>("staff_terminations")
+            .select("state,error,door_revoked,shared_access,employee_id,guest_id,attempts")
+            .eq("account_id", accountId)
+            .eq("uvr_id", state.id)
+            .order("created_at", { ascending: false })
+            .order("id", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+            .then(({ data }) => data)
+        : null;
+    }),
+    // An unfinished «Восстановить» (error or in progress) replaces the dismissal status.
+    uvrPromise.then((uvr) => {
+      const state = uvrState(uvr);
+      return canEdit && state?.fired
+        ? adminDb
+            .from<{ state: string; error: string | null; attempts: number }>("staff_restorations")
+            .select("state,error,attempts")
+            .eq("account_id", accountId)
+            .eq("uvr_id", state.id)
+            .not("state", "in", "(complete,cancelled)")
+            .limit(1)
+            .maybeSingle()
+            .then(({ data }) => data)
+        : null;
+    }),
+    // Номера отозванных кодов замка — владельцу, в статусе увольнения
+    // (показываются, если увольнение отзывало замок).
+    Promise.all([ownerPromise, uvrPromise]).then(([owner, uvr]) =>
+      canEdit && owner === user.id && uvrState(uvr)?.fired
+        ? adminDb
+            .from<{ user_number: number; revoked_at: string | null }[]>("staff_door_codes")
+            .select("user_number,revoked_at")
+            .eq("account_id", accountId)
+            .eq("user_id", userId)
+            .then(({ data }) => data)
+        : null,
+    ),
+    // «Сегодня» в часовом поясе заведения — дефолт даты смены должности.
+    adminDb
+      .from<{ timezone: string; day_start_hour: number }>("sales_settings")
+      .select("timezone, day_start_hour")
+      .eq("venue_id", venueId)
+      .maybeSingle()
+      .then(({ data }) => data),
+    // Официальное трудоустройство — только с правом просмотра зарплаты.
+    canViewPayroll ? getOfficialEmployment(userId) : null,
+    // Окно «Уволить сотрудника» спрашивает дату официального увольнения, если
+    // человек оформлен официально в этом заведении. Увольнять может и тот, кто
+    // зарплату не видит (под RLS оформление ему не видно), поэтому читаем
+    // service-role, но только факт открытого оформления и его дату начала:
+    // заведение и сотрудник фиксированы, оклад и договор сюда не попадают.
+    uvrPromise.then((uvr) =>
+      canEdit && uvr && uvr.status !== "fired"
+        ? loadOpenOfficialStart(accountId, venueId, userId)
+        : null,
+    ),
   ]);
 
   if (!profileRow) redirect("/people/staff");
   if (!targetUvr) redirect("/people/staff");
-  if (identityResult.error)
-    throw new Error("Не удалось загрузить данные карточки сотрудника");
-  const identity = staffProfileIdentitySchema.nullable().parse(identityResult.data);
   if (!identity || identity.id !== userId) redirect("/people/staff");
-
-  const { data: pendingInviteRow } = identity.email
-    ? await admin
-        .from("invitations")
-        .select("id")
-        .eq("venue_id", venueId)
-        .ilike("email", identity.email)
-        .eq("status", "pending")
-        .limit(1)
-        .maybeSingle()
-    : { data: null };
-
-  // Журнал + Активность. RLS на audit_logs фильтрует по org.view_audit;
-  // canViewAudit нужен фронту, чтобы решить рендерить ли табы.
-  const canViewAudit = can("org.view_audit");
-  const [auditResult, activityResult] = canViewAudit
-    ? await Promise.all([
-        listAuditEvents({ entityType: "staff", entityId: userId }),
-        listAuditEvents({ filterGroups: [{ actorIds: [userId] }] }),
-      ])
-    : [
-        { events: [], hasMore: false, error: null },
-        { events: [], hasMore: false, error: null },
-      ];
 
   // Если для пары (account_id, user_id) ещё нет ряда в staff_account_details
   // — это норма (свежий сотрудник, тенант-данные пусты). Подсовываем
@@ -231,112 +323,31 @@ export default async function StaffMemberPage({
   // (у импортированного остаётся true после admin-смены email).
   const needsPasswordSetup = identity.needs_password_setup;
 
-  const candidateLink = await asLooseDb(supabase)
-    .from<{ id: string; full_name: string }>("candidates")
-    .select("id,full_name")
-    .eq("account_id", accountId)
-    .eq("hired_user_id", userId)
-    .limit(1)
-    .maybeSingle();
-
-  const { data: accountOwner } = await admin
-    .from("accounts")
-    .select("id")
-    .eq("id", accountId)
-    .eq("owner_id", user.id)
-    .maybeSingle();
-  const door =
-    accountOwner && candidateLink.data
-      ? await asLooseDb(admin)
-          .from("staff_door_codes")
-          .select("id")
-          .eq("account_id", accountId)
-          .eq("user_id", userId)
-          .is("revoked_at", null)
-          .maybeSingle()
-      : null;
-  const termination = can("people.edit_staff")
-    ? await asLooseDb(admin)
-        .from<{
-          state: string;
-          error: string | null;
-          door_revoked: boolean;
-          shared_access: boolean;
-          employee_id: number | null;
-          guest_id: number | null;
-          attempts: number;
-        }>("staff_terminations")
-        .select(
-          "state,error,door_revoked,shared_access,employee_id,guest_id,attempts",
-        )
-        .eq("account_id", accountId)
-        .eq("uvr_id", targetUvr.id)
-        .order("created_at", { ascending: false })
-        .order("id", { ascending: false })
-        .limit(1)
-        .maybeSingle()
-    : null;
-  // An unfinished «Восстановить» (error or in progress) replaces the dismissal status.
-  const restoration = can("people.edit_staff") && isFired
-    ? await asLooseDb(admin)
-        .from<{ state: string; error: string | null; attempts: number }>("staff_restorations")
-        .select("state,error,attempts")
-        .eq("account_id", accountId)
-        .eq("uvr_id", targetUvr.id)
-        .not("state", "in", "(complete,cancelled)")
-        .limit(1)
-        .maybeSingle()
-    : null;
-  const revokedDoorNumbers =
-    accountOwner && termination?.data?.door_revoked
-      ? await asLooseDb(admin)
-          .from<
-            { user_number: number; revoked_at: string | null }[]
-          >("staff_door_codes")
-          .select("user_number,revoked_at")
-          .eq("account_id", accountId)
-          .eq("user_id", userId)
-      : null;
-  // «Сегодня» в часовом поясе заведения — дефолт даты смены должности.
-  const { data: salesSettings } = await asLooseDb(createAdminClient())
-    .from<{ timezone: string; day_start_hour: number }>("sales_settings")
-    .select("timezone, day_start_hour")
-    .eq("venue_id", venueId)
-    .maybeSingle();
   const venueToday = businessDate(
     new Date(),
     salesSettings?.timezone ?? "Europe/Moscow",
     salesSettings?.day_start_hour ?? 9,
   );
-  // Официальное трудоустройство — только с правом просмотра зарплаты.
-  const officialEmployment = can("payroll.view")
-    ? await getOfficialEmployment(userId)
-    : null;
-  // Окно «Уволить сотрудника» спрашивает дату официального увольнения, если
-  // человек оформлен официально в этом заведении. Увольнять может и тот, кто
-  // зарплату не видит (под RLS оформление ему не видно), поэтому читаем
-  // service-role, но только факт открытого оформления и его дату начала:
-  // заведение и сотрудник фиксированы, оклад и договор сюда не попадают.
-  const officialTermination =
-    canEdit && !isFired
-      ? await loadOpenOfficialStart(accountId, venueId, userId)
-      : null;
 
   return (
     <>
       <StaffDetailPage
         candidateId={candidateLink.data?.id ?? null}
-        doorCode={door?.data ? <StaffDoorCode userId={userId} /> : null}
+        doorCode={door ? <StaffDoorCode userId={userId} /> : null}
         terminationStatus={
-          isFired && restoration?.data ? (
-            <StaffRestoreStatus uvrId={targetUvr.id} status={restoration.data} />
-          ) : isFired && termination?.data && termination.data.state !== "cancelled" ? (
+          isFired && restoration ? (
+            <StaffRestoreStatus uvrId={targetUvr.id} status={restoration} />
+          ) : isFired && termination && termination.state !== "cancelled" ? (
             <StaffTerminationStatus
               uvrId={targetUvr.id}
-              status={termination.data}
-              doorNumbers={revokedDoorNumbers?.data
-                ?.filter((x) => x.revoked_at)
-                .map((x) => x.user_number)}
+              status={termination}
+              doorNumbers={
+                termination.door_revoked
+                  ? revokedDoorNumbers
+                      ?.filter((x) => x.revoked_at)
+                      .map((x) => x.user_number)
+                  : undefined
+              }
             />
           ) : null
         }
@@ -351,7 +362,8 @@ export default async function StaffMemberPage({
         roleCode={targetUvr.roles?.code ?? ""}
         departmentId={targetUvr.roles?.departments?.id ?? null}
         departmentName={targetUvr.roles?.departments?.name ?? null}
-        terminalPin={targetUvr.terminal_pin}
+        // PIN терминала — только с правом редактировать сотрудников.
+        terminalPin={canEdit ? targetUvr.terminal_pin : null}
         venueId={venueId}
         roles={roles ?? []}
         canEdit={canEdit}
@@ -359,24 +371,21 @@ export default async function StaffMemberPage({
         firedAt={targetUvr.fired_at}
         firedReason={targetUvr.fired_reason}
         isMe={user.id === userId}
+        isAccountOwner={ownerId === userId}
         importedFromQuickResto={
           Boolean(importedLink) && !identity.from_candidate
         }
         joinedAt={targetUvr.created_at}
         userCreatedAt={identity.created_at}
         emailConfirmed={identity.email_confirmed}
-        hasPendingInvite={Boolean(pendingInviteRow)}
+        hasPendingInvite={pendingInvite}
         needsPasswordSetup={needsPasswordSetup}
-        canViewAudit={Boolean(canViewAudit)}
+        canViewAudit={canViewAudit}
         canConfigurePayroll={can("payroll.configure")}
         officialEmployment={officialEmployment}
         officialTermination={officialTermination}
-        canViewPay={can("payroll.view") || user.id === userId}
+        canViewPay={canViewPayroll || user.id === userId}
         initialTab={tab === "documents" || tab === "pay" ? tab : "main"}
-        initialAuditEvents={auditResult.events}
-        initialAuditHasMore={auditResult.hasMore}
-        initialActivityEvents={activityResult.events}
-        initialActivityHasMore={activityResult.hasMore}
         backHref={back?.href}
         backLabel={back?.label}
       />
@@ -394,29 +403,31 @@ async function loadOpenOfficialStart(
   venueId: string,
   userId: string,
 ): Promise<{ startsOn: string; today: string } | null> {
-  const admin = asLooseDb(createAdminClient());
-  const employee = await admin
-    .from<{ id: string }>("payroll_employees")
-    .select("id")
-    .eq("account_id", accountId)
-    .eq("venue_id", venueId)
-    .eq("local_user_id", userId)
-    .maybeSingle();
+  // Зарплатная карточка и её открытое оформление — одним запросом (встроенная
+  // выборка по FK), пояс аккаунта — параллельно.
+  const [employee, timezone] = await Promise.all([
+    asLooseDb(createAdminClient())
+      .from<{ id: string; payroll_official_employments: { starts_on: string }[] }>(
+        "payroll_employees",
+      )
+      .select(
+        "id, payroll_official_employments!payroll_official_employments_employee_fkey(starts_on)",
+      )
+      .eq("account_id", accountId)
+      .eq("venue_id", venueId)
+      .eq("local_user_id", userId)
+      .is("payroll_official_employments.archived_at", null)
+      .is("payroll_official_employments.ends_on", null)
+      .order("starts_on", {
+        referencedTable: "payroll_official_employments",
+        ascending: false,
+      })
+      .maybeSingle(),
+    getActiveAccountTimezone(),
+  ]);
   if (employee.error) throw new Error("Не удалось загрузить данные карточки сотрудника");
-  if (!employee.data) return null;
-  const open = await admin
-    .from<{ starts_on: string }>("payroll_official_employments")
-    .select("starts_on")
-    .eq("account_id", accountId)
-    .eq("venue_id", venueId)
-    .eq("employee_id", employee.data.id)
-    .is("archived_at", null)
-    .is("ends_on", null)
-    .order("starts_on", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (open.error) throw new Error("Не удалось загрузить данные карточки сотрудника");
-  if (!open.data) return null;
-  const today = zonedParts(new Date(), await getActiveAccountTimezone()).date;
-  return { startsOn: open.data.starts_on, today };
+  const open = employee.data?.payroll_official_employments[0];
+  if (!open) return null;
+  const today = zonedParts(new Date(), timezone).date;
+  return { startsOn: open.starts_on, today };
 }

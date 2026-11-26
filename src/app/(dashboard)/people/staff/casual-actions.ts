@@ -49,7 +49,7 @@ export async function createCasualEmployee(input: {
     p_role_id: parsed.data.roleId,
   });
   if (created.error || typeof created.data !== "string")
-    return { id: null, pin: null, error: created.error?.message ?? "Не удалось добавить разового сотрудника" };
+    return { id: null, pin: null, error: errorText(created.error, "Не удалось добавить разового сотрудника") };
   return provision(created.data);
 }
 
@@ -68,7 +68,7 @@ export async function provisionCasualEmployee(input: {
     p_first_name: parsed.data.firstName,
     p_last_name: parsed.data.lastName,
   });
-  if (requested.error) return { id: parsed.data.id, pin: null, error: requested.error.message };
+  if (requested.error) return { id: parsed.data.id, pin: null, error: errorText(requested.error, "Не удалось подготовить заведение в Quick Resto") };
   return provision(parsed.data.id);
 }
 

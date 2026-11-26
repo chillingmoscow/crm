@@ -26,7 +26,7 @@ import {
   addUniform,
   cancelUniform,
 } from "../../../automations/actions";
-import { unwrapAction } from "@/lib/actions/result";
+import { actionErrorMessage, unwrapAction } from "@/lib/actions/result";
 import { updateStaffAccountDetails } from "../../actions";
 import {
   employeeMedicalSchema,
@@ -266,9 +266,16 @@ function MedicalCard({
     JSON.stringify(form) !== JSON.stringify(initial) ||
     number !== (data.medicalNumber ?? "");
   async function save(): Promise<boolean> {
+    // safeParse: текст ZodError — JSON со списком ошибок, в тост он не годится.
+    // actionErrorMessage берёт первое русское сообщение проверки.
+    const parsed = employeeMedicalSchema.safeParse(form);
+    if (!parsed.success) {
+      toast.error(actionErrorMessage(parsed.error, "Проверьте данные медкнижки"));
+      return false;
+    }
+    const medical = parsed.data;
     setBusy(true);
     try {
-      const medical = employeeMedicalSchema.parse(form);
       unwrapAction(
         await saveEmployeeMedical({
           employeeId: data.employee.id,

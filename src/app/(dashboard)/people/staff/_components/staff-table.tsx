@@ -226,6 +226,7 @@ export function StaffTable({
   overviewPanel,
   canEdit,
   canSeeDetails,
+  canOpenCasual = false,
   isPending,
   onCancelInvitation,
   onRestore,
@@ -253,6 +254,8 @@ export function StaffTable({
   /** people.view_staff + people.view_staff_details: личные данные коллег и
    *  карточка сотрудника. Без права строки штатных и уволенных не открываются. */
   canSeeDetails: boolean;
+  /** payroll.view: строка разового ведёт в его расчёт в «Зарплате». */
+  canOpenCasual?: boolean;
   isPending: boolean;
   onCancelInvitation: (id: string) => void;
   onRestore: (id: string) => void;
@@ -416,12 +419,12 @@ export function StaffTable({
     },
   ];
   // Карточка штатного/уволенного требует права на детали (иначе редирект);
-  // разовые открываются в «Зарплате» по своим правам.
+  // разовые открываются в «Зарплате» — только с правом на неё.
   const opensCard = (
     row: Row,
   ): row is Exclude<Row, { kind: "invitation" }> =>
-    row.kind === "casual" ||
-    (row.kind !== "invitation" && canSeeDetails);
+    (row.kind === "casual" && canOpenCasual) ||
+    (row.kind !== "invitation" && row.kind !== "casual" && canSeeDetails);
   const table = useReactTable({
     data: rows,
     columns,

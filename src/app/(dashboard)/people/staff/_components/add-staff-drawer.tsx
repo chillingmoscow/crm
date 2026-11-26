@@ -238,6 +238,8 @@ export function AddStaffDrawer({
   casualRoles,
   venueId,
   defaultMode,
+  canCreate,
+  canInvite,
   onInvited,
   onCreated,
 }: {
@@ -248,12 +250,20 @@ export function AddStaffDrawer({
   casualRoles: Role[] | null;
   venueId: string;
   defaultMode: AddStaffMode;
+  /** «Создать» — people.edit_staff; «Пригласить» и «Разовый» — people.invite_staff (как на сервере). */
+  canCreate: boolean;
+  canInvite: boolean;
   onInvited: (invitation: PendingInvitation) => void;
   onCreated: (member: StaffMember) => void;
 }) {
   const router = useRouter();
+  const modes: AddStaffMode[] = [
+    ...(canCreate ? (["manual"] as const) : []),
+    ...(canInvite ? (["email"] as const) : []),
+    ...(canInvite && casualRoles ? (["casual"] as const) : []),
+  ];
   const [mode, setMode] = useState<AddStaffMode>(
-    defaultMode === "casual" && !casualRoles ? "manual" : defaultMode,
+    modes.includes(defaultMode) ? defaultMode : (modes[0] ?? "manual"),
   );
   const [issued, setIssued] = useState<CasualIssued | null>(null);
   const [pending, startTransition] = useTransition();
@@ -375,13 +385,17 @@ export function AddStaffDrawer({
         ) : (
           <Tabs value={mode} onValueChange={(v) => setMode(v as AddStaffMode)}>
             <ProfileTabsList>
-              <TabsTrigger value="manual" disabled={busy}>
-                Создать
-              </TabsTrigger>
-              <TabsTrigger value="email" disabled={busy}>
-                Пригласить
-              </TabsTrigger>
-              {casualRoles && (
+              {modes.includes("manual") && (
+                <TabsTrigger value="manual" disabled={busy}>
+                  Создать
+                </TabsTrigger>
+              )}
+              {modes.includes("email") && (
+                <TabsTrigger value="email" disabled={busy}>
+                  Пригласить
+                </TabsTrigger>
+              )}
+              {modes.includes("casual") && (
                 <TabsTrigger value="casual" disabled={busy}>
                   Разовый
                 </TabsTrigger>

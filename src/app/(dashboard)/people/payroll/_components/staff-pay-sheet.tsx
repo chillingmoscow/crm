@@ -845,25 +845,24 @@ function Conditions({
   const rows: { label: string; value: ReactNode; note?: ReactNode; action?: ReactNode }[] = [
     {
       label: "Должность",
-      value: role || "Не назначена",
-      note: (
-        <>
-          Ставки и проценты заданы должностью.
-          {employee.role_id && (
-            <>
-              {" "}
-              <Link href={`/people/roles/${employee.role_id}?tab=compensation`} className={link}>
-                Оплата должности
-              </Link>
-            </>
-          )}
-        </>
-      ),
+      // Название должности ведёт в её оплату — кликабельное имя (design-system),
+      // а не отдельная ссылка «Оплата должности». Одно действие на строку —
+      // «Изменить» (Павел, 26.11: «много кнопок»).
+      value: employee.role_id && role ? (
+        <Link
+          href={`/people/roles/${employee.role_id}?tab=compensation`}
+          className="transition-colors hover:text-brand"
+          data-tip="Оплата должности"
+        >
+          {role}
+        </Link>
+      ) : (role || "Не назначена"),
+      note: "Ставки и проценты заданы должностью.",
       action:
         canConfigure && !employee.local_user_id ? (
           <button type="button" className={link} onClick={() => onEdit("model")}>Изменить</button>
         ) : canConfigure && employee.local_user_id && context === "payroll" ? (
-          <Link href={`/people/staff/${employee.local_user_id}`} className={link}>Изменить в карточке</Link>
+          <Link href={`/people/staff/${employee.local_user_id}`} className={link} data-tip="Должность меняется в карточке сотрудника">Изменить</Link>
         ) : null,
     },
     {

@@ -1,4 +1,5 @@
 "use server";
+import { payrollMonthRange } from "@/lib/payroll/month-range";
 import { slimOverviewAccrual } from "@/lib/payroll/accrual-slim";
 import { queuePayroll } from "@/lib/payroll/sync";
 import { normalizeOfficialExpected, type OfficialExpectedRow } from "@/lib/payroll/official-expected";
@@ -147,8 +148,13 @@ const EMPLOYEE_SKIPPED_TABLES = new Set([
 async function loadPayrollData(
   overview: boolean,
   employeeUserId?: string,
+  month?: string,
 ): Promise<PayrollData> {
   const s = await scope();
+  // Обзор одного месяца: начисления и журнал — только за него (это основной
+  // объём, ~2,5 МБ за полгода). Выплаты, разнесения и переносы небольшие и
+  // нужны форме выплаты за прошлые месяцы — их читаем целиком.
+  const monthRange = overview && month ? payrollMonthRange(month) : null;
   const manager = s.permissions.includes("payroll.view");
   const single = employeeUserId !== undefined;
   const employeesRequest = (async () => {
@@ -220,6 +226,8 @@ async function loadPayrollData(
           .eq("venue_id", s.venueId);
         if (single && EMPLOYEE_TABLES.has(key))
           query = query.eq("employee_id", employeeId);
+        if (monthRange && (key === "accruals" || key === "adjustments"))
+          query = query.gte("business_date", monthRange.from).lt("business_date", monthRange.until);
         const { data, error } = await query
           .order(key === "salaryLinks" ? "accrual_id" : key === "adeskSync" ? "payment_id" : "id")
           .range(start, start + 999);
@@ -1204,8 +1212,9 @@ async function setPayrollAttendanceSourceImpl(employeeId:string,source:"quickres
 export async function loadPayroll() {
   return actionResult(() => loadPayrollData(false), "Не удалось загрузить данные о зарплате");
 }
-export async function loadPayrollOverview() {
-  return actionResult(() => loadPayrollData(true), "Не удалось загрузить данные о зарплате");
+/** Обзор зарплаты. С месяцем («YYYY-MM») — начисления и журнал только за него; без — вся история (план выплат). */
+export async function loadPayrollOverview(month?: string) {
+  return actionResult(() => loadPayrollData(true, undefined, month), "Не удалось загрузить данные о зарплате");
 }
 export async function loadEmployeePayroll(userId: string) {
   return actionResult(() => loadEmployeePayrollImpl(userId), "Не удалось загрузить зарплату сотрудника");

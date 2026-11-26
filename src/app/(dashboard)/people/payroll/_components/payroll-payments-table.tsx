@@ -1,4 +1,5 @@
 "use client";
+import { useExitValue } from "@/hooks/use-exit-value";
 import {
   officialAccountSelectable,
   paymentJournalRows,
@@ -131,6 +132,8 @@ export function PayrollPaymentsTable({
     [data.timezone, data.adeskSync],
   );
   const selected = rows.find((row) => row.id === selectedId);
+  // Панели держим смонтированными, пока они уезжают (docs/motion.md).
+  const shownSelected = useExitValue(selected);
   // «Сменить счёт»: выбор только проведённых официальных выплат и только с
   // правами на проведение и удаление операций.
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
@@ -140,6 +143,8 @@ export function PayrollPaymentsTable({
   const selectedOfficial = selectable
     ? rows.filter((row) => rowSelection[row.id] && officialAccountSelectable(row))
     : [];
+  // Пока окно закрывается, в нём остаётся прежний выбор, а не сброшенный.
+  const shownAccountIds = useExitValue(accountOpen && selectedOfficial.map((row) => row.id));
   return (
     <div className={selectedOfficial.length ? "min-w-0 pb-28 md:pb-24" : "min-w-0"}>
       <PayrollTable
@@ -179,16 +184,17 @@ export function PayrollPaymentsTable({
           ),
         })}
       />
-      {selected && (
+      {shownSelected && (
         <PaymentDetails
-          key={`${selected.id}:${selected.posted}`}
-          row={selected}
+          key={`${shownSelected.id}:${shownSelected.posted}`}
+          open={!!selected}
+          row={shownSelected}
           data={data}
           busy={busy}
           onClose={() => setSelectedId(null)}
           onCancel={() => {
             setSelectedId(null);
-            void onCancel(selected.id);
+            void onCancel(shownSelected.id);
           }}
         />
       )}
@@ -205,10 +211,11 @@ export function PayrollPaymentsTable({
           }
         />
       )}
-      {accountOpen && (
+      {shownAccountIds && (
         <ChangeAccountDialog
+          open={accountOpen}
           data={data}
-          paymentIds={selectedOfficial.map((row) => row.id)}
+          paymentIds={shownAccountIds}
           onClose={() => setAccountOpen(false)}
           onDone={async () => {
             setAccountOpen(false);
@@ -223,11 +230,14 @@ export function PayrollPaymentsTable({
 
 /** Перенос выбранных официальных выплат на другой расчётный счёт. */
 function ChangeAccountDialog({
+  open = true,
   data,
   paymentIds,
   onClose,
   onDone,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   data: PayrollData;
   paymentIds: string[];
   onClose: () => void;
@@ -240,7 +250,7 @@ function ChangeAccountDialog({
   const count = countRu(paymentIds.length, "официальная выплата", "официальные выплаты", "официальных выплат");
   return (
     <ConfirmDialog
-      open
+      open={open}
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
@@ -387,12 +397,15 @@ function DetailSection({ title, children }: { title: string; children: React.Rea
 }
 
 export function PaymentDetails({
+  open = true,
   row,
   data,
   busy,
   onClose,
   onCancel,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   row: PaymentJournalRow;
   data: PayrollData;
   busy: boolean;
@@ -430,7 +443,7 @@ export function PaymentDetails({
   const adesk = data.adeskSync?.find((x) => x.payment_id === row.id);
   return (
     <PayrollDetailDialog
-      open
+      open={open}
       onOpenChange={(open) => {
         if (!open) onClose();
       }}

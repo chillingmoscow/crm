@@ -1,5 +1,6 @@
 "use client";
 
+import { useExitValue } from "@/hooks/use-exit-value";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { toast } from "sonner";
@@ -111,6 +112,9 @@ export function PayoutPlan({
   const [busy, setBusy] = useState(false);
   const [openRow, setOpenRow] = useState<PayoutRowView | null>(null);
   const [issueOpen, setIssueOpen] = useState(false);
+  // Панели держим смонтированными, пока они уезжают (docs/motion.md).
+  const shownRow = useExitValue(openRow);
+  const shownIssue = useExitValue(issueOpen);
   const [cancelOpen, setCancelOpen] = useState(false);
 
   const load = useCallback(async () => {
@@ -315,21 +319,23 @@ export function PayoutPlan({
         />
       )}
 
-      {openRow && view && (
+      {shownRow && view && (
         <PayoutRowDrawer
-          row={openRow}
+          key={shownRow.id ?? shownRow.employee_id}
+          open={!!openRow}
+          row={shownRow}
           view={view}
           busy={busy}
           onClose={() => setOpenRow(null)}
           onSave={async (amount, day) => {
-            if (!openRow.id) return;
-            const ok = await run(async () => unwrapAction(await updatePayoutRow(openRow.id!, amount, day)), "Строка сохранена");
+            if (!shownRow.id) return;
+            const ok = await run(async () => unwrapAction(await updatePayoutRow(shownRow.id!, amount, day)), "Строка сохранена");
             if (ok) setOpenRow(null);
           }}
         />
       )}
-      {issueOpen && plan && (
-        <PayoutIssueDialog planId={plan.id} onClose={() => setIssueOpen(false)} onDone={refresh} />
+      {shownIssue && plan && (
+        <PayoutIssueDialog open={issueOpen} planId={plan.id} onClose={() => setIssueOpen(false)} onDone={refresh} />
       )}
       <ConfirmDialog
         open={cancelOpen}
@@ -350,12 +356,15 @@ export function PayoutPlan({
 }
 
 function PayoutRowDrawer({
+  open = true,
   row,
   view,
   busy,
   onClose,
   onSave,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   row: PayoutRowView;
   view: PayoutPlanView;
   busy: boolean;
@@ -383,7 +392,7 @@ function PayoutRowDrawer({
   );
   return (
     <PayrollDetailDialog
-      open
+      open={open}
       onOpenChange={(open) => { if (!open && !busy) onClose(); }}
       title="Строка плана"
       description={plan ? `${monthTitle(plan.month)}, первая выплата` : "Расчёт первой выплаты"}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useExitValue } from "@/hooks/use-exit-value";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -232,6 +233,9 @@ export function AccountsList({
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AccountView | null>(null);
   const [impact, setImpact] = useState<BankAccountArchiveImpact | null>(null);
+  // Окно держим смонтированным, пока оно закрывается (docs/motion.md): в нём
+  // остаются прежние название и последствия, а не сброшенные.
+  const shownDelete = useExitValue(deleteTarget && { target: deleteTarget, impact });
 
   const loadImpact = (account: AccountView) => {
     setImpact(null);
@@ -829,9 +833,9 @@ export function AccountsList({
         }}
       />
 
-      {deleteTarget ? (
+      {shownDelete ? (
         <HardDeleteConfirmDialog
-          open
+          open={!!deleteTarget}
           onOpenChange={(open) => {
             if (!open) {
               setDeleteTarget(null);
@@ -839,9 +843,9 @@ export function AccountsList({
             }
           }}
           entityGenitive="счёт"
-          entityName={deleteTarget.name}
+          entityName={shownDelete.target.name}
           impact={[]}
-          restrictedBy={bankAccountDeleteRestrictions(impact)}
+          restrictedBy={bankAccountDeleteRestrictions(shownDelete.impact)}
           onConfirm={confirmDelete}
         />
       ) : null}

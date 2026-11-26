@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useExitValue } from "@/hooks/use-exit-value";
 import Link from "next/link";
 import { Download, ImageDown, Send } from "lucide-react";
 import { toast } from "sonner";
@@ -42,6 +43,8 @@ export function ScheduleImageMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
+  // Окно держим смонтированным, пока оно закрывается (docs/motion.md).
+  const shownSend = useExitValue(sendOpen);
   const [downloading, setDownloading] = useState(false);
   const imageUrl = (part: number, download = false) => {
     const params = new URLSearchParams({ week, part: String(part) });
@@ -112,8 +115,9 @@ export function ScheduleImageMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      {sendOpen && (
+      {shownSend && (
         <SendDialog
+          open={sendOpen}
           week={week}
           department={department}
           venueId={venueId}
@@ -135,12 +139,15 @@ const readChat = (venueId: string) => {
 };
 
 function SendDialog({
+  open = true,
   week,
   department,
   venueId,
   imageUrl,
   onClose,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   week: string;
   department: string | null;
   venueId: string;
@@ -212,7 +219,7 @@ function SendDialog({
           : null;
 
   return (
-    <Dialog open onOpenChange={(next) => !next && !busy && onClose()}>
+    <Dialog open={open} onOpenChange={(next) => !next && !busy && onClose()}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Отправить расписание в Telegram</DialogTitle>

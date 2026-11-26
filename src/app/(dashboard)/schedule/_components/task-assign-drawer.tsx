@@ -24,6 +24,7 @@ type Mode = "template" | "role";
  * получит задачу по текущему графику.
  */
 export function TaskAssignDrawer({
+  open = true,
   data,
   day,
   template: initialTemplate,
@@ -31,6 +32,8 @@ export function TaskAssignDrawer({
   onClose,
   onDone,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   data: ScheduleData;
   day: string;
   /** Шаблон смены, если панель открыта из меню смены. */
@@ -110,7 +113,7 @@ export function TaskAssignDrawer({
 
   return (
     <EditDrawer
-      open
+      open={open}
       onOpenChange={(o) => {
         if (!o && !busy) onClose();
       }}

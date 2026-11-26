@@ -55,12 +55,15 @@ const warningClass =
 
 /** Панель просмотра акта списания или архивной записи (DS § «Боковая панель», тип Б). */
 export function WriteoffDrawer({
+  open = true,
   row,
   data,
   canAssign,
   onAssign,
   onClose,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   row: WriteoffRow;
   data: WriteoffData;
   canAssign: boolean;
@@ -151,7 +154,7 @@ export function WriteoffDrawer({
 
   return (
     <EditDrawer
-      open
+      open={open}
       title={row.name}
       description={[
         formatDayMonth(row.date),

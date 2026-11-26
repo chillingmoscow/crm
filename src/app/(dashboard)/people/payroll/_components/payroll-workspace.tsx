@@ -6,6 +6,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
@@ -156,15 +157,31 @@ export function PayrollWorkspace({
   const [cancelId, setCancelId] = useState<string | null>(null);
   const can = (action: string) =>
     data.permissions.includes(`payroll.${action}`);
+  // Данные грузятся по одному месяцу (начисления и журнал — только за него).
+  // month — месяц загруженных данных, shownMonth — выбранный в переключателе:
+  // пока новый месяц грузится, видны прежние цифры, приглушённые.
+  const [month, setMonth] = useState(initialMonth);
+  const [shownMonth, setShownMonth] = useState(initialMonth);
+  const wantedMonth = useRef(initialMonth);
+  // Уже показанные месяцы открываются сразу из памяти и тихо обновляются.
+  const monthCache = useRef(new Map<string, PayrollData>([[initialMonth, initial]]));
   const reload = useCallback(async () => {
-    const next = unwrapAction(await loadPayrollOverview());
-    if (next.venueId === initial.venueId) setData(next);
+    const wanted = wantedMonth.current;
+    const next = unwrapAction(await loadPayrollOverview(wanted));
+    if (next.venueId !== initial.venueId) return;
+    monthCache.current.set(wanted, next);
+    // Ответ за месяц, с которого уже ушли, не показываем.
+    if (wantedMonth.current !== wanted) return;
+    setData(next);
+    setMonth(wanted);
   }, [initial.venueId]);
   const autoRefresh = useAutoRefresh(reload, 15000);
   const run = async (fn: () => Promise<unknown>, message: string) => {
     setBusy(true);
     try {
       await fn();
+      // Действие могло задеть и другие месяцы (перенос, выплата за прошлый).
+      monthCache.current.clear();
       await reload();
       toast.success(message);
     } catch (error) {
@@ -177,7 +194,6 @@ export function PayrollWorkspace({
       setBusy(false);
     }
   };
-  const [month, setMonth] = useState(initialMonth);
   const [tab, setTab] = useState("statement");
   // «Обзор» (график и стоимость команды) по умолчанию открыт; если его закрыть,
   // это запоминается в браузере.
@@ -219,6 +235,24 @@ export function PayrollWorkspace({
     const start = `${(data.settings?.starts_on ?? first ?? `${initialMonth}-01`).slice(0, 7)}-01`;
     return start < `${initialMonth}-01` ? start : `${initialMonth}-01`;
   }, [data.accruals, data.settings?.starts_on, initialMonth]);
+  // Предыдущий месяц — самый частый следующий шаг: подгружаем его заранее,
+  // чтобы стрелка «назад» открывала его сразу.
+  useEffect(() => {
+    const date = new Date(`${month}-01T12:00:00Z`);
+    date.setUTCMonth(date.getUTCMonth() - 1);
+    const previous = date.toISOString().slice(0, 7);
+    if (`${previous}-01` < minMonth || monthCache.current.has(previous)) return;
+    const timer = setTimeout(() => {
+      loadPayrollOverview(previous)
+        .then(unwrapAction)
+        .then((next) => {
+          if (next.venueId === initial.venueId && !monthCache.current.has(previous))
+            monthCache.current.set(previous, next);
+        })
+        .catch(() => undefined);
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [month, minMonth, initial.venueId]);
   const title = new Date(`${monthStart}T12:00:00Z`)
     .toLocaleDateString("ru-RU", {
       month: "long",
@@ -507,18 +541,28 @@ export function PayrollWorkspace({
     </TabsList>
   );
   const changeMonth = (value: string) => {
-    setMonth(value);
+    wantedMonth.current = value;
+    setShownMonth(value);
+    const cached = monthCache.current.get(value);
+    if (cached) {
+      setData(cached);
+      setMonth(value);
+    }
     setHoverDay(null);
     const url = new URL(window.location.href);
     url.searchParams.set("month", value);
     window.history.replaceState(null, "", url);
+    reload().catch((error: unknown) =>
+      toast.error(error instanceof Error ? error.message : "Не удалось загрузить месяц"),
+    );
   };
   const changeTab = (id: string) => {
     setTab(id);
     setQuery("");
   };
+  const monthLoading = shownMonth !== month;
   const moveMonth = (direction: number) => {
-    const date = new Date(`${monthStart}T12:00:00Z`);
+    const date = new Date(`${shownMonth}-01T12:00:00Z`);
     date.setUTCMonth(date.getUTCMonth() + direction);
     changeMonth(date.toISOString().slice(0, 7));
   };
@@ -604,7 +648,7 @@ export function PayrollWorkspace({
                 <PeriodStepper
                   previous="Предыдущий месяц"
                   next="Следующий месяц"
-                  previousDisabled={monthStart <= minMonth}
+                  previousDisabled={`${shownMonth}-01` <= minMonth}
                   onPrevious={() => moveMonth(-1)}
                   onNext={() => moveMonth(1)}
                 >
@@ -614,7 +658,7 @@ export function PayrollWorkspace({
                     variant="period"
                     prefix=""
                     ariaLabel="Месяц ведомости"
-                    value={monthStart}
+                    value={`${shownMonth}-01`}
                     min={minMonth}
                     onChange={(value) => changeMonth(value.slice(0, 7))}
                   />
@@ -624,7 +668,13 @@ export function PayrollWorkspace({
                 <div id="payroll-workspace-controls" className={s.functionalControls} />
               }
             />
-            <Tabs value={tab} onValueChange={changeTab} className={tabStyle.tabs}>
+            <Tabs
+              value={tab}
+              onValueChange={changeTab}
+              aria-busy={monthLoading || undefined}
+              // Пока грузится выбранный месяц, прежние цифры приглушены.
+              className={`${tabStyle.tabs} transition-opacity duration-150 ${monthLoading ? "pointer-events-none opacity-60" : ""}`}
+            >
             {/* Вкладки — сразу под шапкой: при переключении меняется всё ниже,
                 и итоги тоже. «Обзор» (график и стоимость команды) — справа в
                 строке вкладок, только на «Ведомости». */}

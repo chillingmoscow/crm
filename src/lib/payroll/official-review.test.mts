@@ -158,16 +158,16 @@ test("данные проведения и ошибки полей", () => {
 
 test("карточка через агентство: свои подписи, сумма без налога, без счёта", () => {
   const today = "2026-12-05";
-  const base = { employee_name: "Хосият", month: "2026-11-01", agency: true };
+  const base = { employee_name: "Анна", month: "2026-11-01", agency: true };
   assert.equal(
     officialReviewCopy({ ...base, reason: "final_month" }, today).title,
-    "Окончательный расчёт через агентство: Хосият, ноябрь",
+    "Окончательный расчёт через агентство: Анна, ноябрь",
   );
   assert.equal(
     officialReviewCopy({ ...base, reason: "missed_month" }, today).title,
-    "Не отмечено получение через агентство: Хосият, ноябрь",
+    "Не отмечено получение через агентство: Анна, ноябрь",
   );
-  assert.equal(officialReviewCopy({ ...base, reason: "inactive" }, today).title, "Проверьте официальное увольнение: Хосият");
+  assert.equal(officialReviewCopy({ ...base, reason: "inactive" }, today).title, "Проверьте официальное увольнение: Анна");
 
   const settings = { payDay: 5, bankAccountId: "chk-1" };
   const draft = initialOfficialDraft({ gross: 4350, month: "2026-11-01", reason: "missed_month", agency: true }, settings, banks, "2026-12-09");

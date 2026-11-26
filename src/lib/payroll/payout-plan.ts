@@ -244,6 +244,17 @@ export function recheckDue(
   return { due: Math.max(0, floorStep(cap, step)), capped: true };
 }
 
+/**
+ * До какой суммы выдавать строку плана сейчас. Расчётную — до свежего потолка
+ * (заработано минус выплаченное, запас и официальная часть). Сумму, которую
+ * поставили руками, — целиком: это решение человека, например аванс; её
+ * ограничивает только заработанное (запас и официальная часть не вычитаются),
+ * как и проверка при сохранении строки (Павел, 26.11).
+ */
+export function issueCap(b: { ceiling: number; reserve: number; official: number }, manual: boolean): number {
+  return manual ? round(b.ceiling + b.reserve + b.official) : b.ceiling;
+}
+
 export type PayoutRowState = "issued" | "partial" | "none" | "invoice" | "waiting" | "missed" | "no_day";
 
 /** Что показать в строке плана: выдано, ждёт дня, день пропущен, ждёт счёта. */

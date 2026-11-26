@@ -45,12 +45,11 @@ function Step({ title, children }: { title: string; children: ReactNode }) {
  * половина месяца, сколько выходит по половине, итог с потолком. Тот же
  * расчёт, что в `planFirstPayout` (Павел, 26.11: «оформи симпатичнее»).
  */
-export function PayoutBreakdown({ b, amount, issued, step }: { b: PlannedRow["breakdown"]; amount: number; issued: number; step: number }) {
+export function PayoutBreakdown({ b, amount, issued, manual, step }: { b: PlannedRow["breakdown"]; amount: number; issued: number; manual: boolean; step: number }) {
   const total = b.carried + b.earned + b.forecast - b.reserve;
   const byHalf = Math.max(0, b.target);
   const cap = Math.max(0, b.ceiling);
   const computed = Math.max(0, floorStep(Math.min(byHalf, cap), step));
-  const manual = Math.round(amount) !== Math.round(computed);
   const forecastHint = b.averageShift == null
     ? "мало смен для прогноза"
     : `${countRu(b.forecastShifts, "смена", "смены", "смен")} × ${formatRub(b.averageShift)}`;
@@ -96,8 +95,9 @@ export function PayoutBreakdown({ b, amount, issued, step }: { b: PlannedRow["br
           label="К выплате"
           hint={
             <>
-              меньшее из двух, вниз до {formatRub(step)}
-              {manual && <span className="block">изменено вручную, по расчёту — {formatRub(computed)}</span>}
+              {manual
+                ? <>поставлено вручную, по расчёту — {formatRub(computed)}</>
+                : <>меньшее из двух, вниз до {formatRub(step)}</>}
             </>
           }
           value={amount}

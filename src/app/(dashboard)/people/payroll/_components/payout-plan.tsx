@@ -38,6 +38,8 @@ import formStyle from "./payroll-payment-form.module.css";
 
 const labels = {
   employee: "Сотрудник",
+  // Перенос с прошлого месяца: переплата уменьшает выплату, долг — увеличивает (Павел, 26.11).
+  carried: "Перенос",
   earned: "Начислено",
   forecast: "Прогноз",
   reserve: "Запас",
@@ -46,7 +48,7 @@ const labels = {
   amount: "К выплате",
   status: "Статус",
 };
-const numeric = ["earned", "forecast", "reserve", "official", "paid", "amount"];
+const numeric = ["carried", "earned", "forecast", "reserve", "official", "paid", "amount"];
 const FLAG_TEXT: Record<string, string> = {
   few_shifts: "Мало смен для прогноза",
   no_shift: "Нет смены в окне выплаты: выберите день сами",
@@ -172,6 +174,7 @@ export function PayoutPlan({
         minSize: id === "employee" ? 200 : label.length * 8 + 32,
         accessorFn: (row) =>
           id === "employee" ? row.name
+          : id === "carried" ? row.breakdown.carried
           : id === "earned" ? row.breakdown.earned
           : id === "forecast" ? row.breakdown.forecast
           : id === "reserve" ? row.breakdown.reserve
@@ -191,13 +194,19 @@ export function PayoutPlan({
                 href={`/people/payroll/${r.employee_id}${plan || view?.window ? `?month=${(plan?.month ?? view?.window?.month ?? "").slice(0, 7)}` : ""}`}
               />
             );
-          if (r.outside && id !== "status" && id !== "earned" && id !== "paid" && id !== "official")
+          if (r.outside && id !== "status" && id !== "earned" && id !== "paid" && id !== "official" && id !== "carried")
             return <span className="text-muted-foreground">—</span>;
           if (id === "status") return rowStatus(r, today);
           if (id === "forecast")
             return r.breakdown.averageShift == null
               ? <span className="text-muted-foreground">—</span>
               : <span data-tip={`${countRu(r.breakdown.forecastShifts, "смена", "смены", "смен")} × ${formatRub(r.breakdown.averageShift)}`}><Money value={r.breakdown.forecast} /></span>;
+          if (id === "carried")
+            return r.breakdown.carried ? (
+              <span data-tip={r.breakdown.carried < 0 ? "Переплата прошлого месяца: уменьшает выплату" : "Долг с прошлого месяца: добавляется к выплате"}>
+                <Money value={r.breakdown.carried} signed />
+              </span>
+            ) : <span className="text-muted-foreground">—</span>;
           if (id === "official")
             return r.breakdown.official ? (
               <span data-tip="Выплатит бухгалтерия; идёт в счёт первой половины месяца">
@@ -426,6 +435,11 @@ function PayoutRowDrawer({
             {b.flags.map((f) => <li key={f}>{FLAG_TEXT[f] ?? f}</li>)}
           </ul>
         )}
+        {row.manual && row.ceilingNow !== null && row.amount - row.issued > Math.max(0, row.ceilingNow) + 0.5 && (
+          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+            Сумма поставлена вручную и больше расчёта на {formatRub(row.amount - row.issued - Math.max(0, row.ceilingNow))}: выдадим её, но с учётом запаса{row.breakdown.official > 0 ? " и официальной части" : ""} это уйдёт в переплату.
+          </p>
+        )}
         {plan && row.willIssue !== null && Math.round(row.willIssue) < Math.round(row.amount) && (
           <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
             Выдадим {formatRub(row.willIssue)}: после формирования плана появились выплаты или штрафы, а больше начисленного не выдаём.
@@ -459,7 +473,7 @@ function PayoutRowDrawer({
         )}
         <section aria-label="Как посчитано" className="space-y-4 border-t pt-5">
           <h3 className="text-base font-semibold">Как посчитано</h3>
-          <PayoutBreakdown b={b} amount={row.amount} issued={row.issued} step={view.settings.schedules.main.step} />
+          <PayoutBreakdown b={b} amount={row.amount} issued={row.issued} manual={row.manual} step={view.settings.schedules.main.step} />
         </section>
       </div>
     </PayrollDetailDialog>

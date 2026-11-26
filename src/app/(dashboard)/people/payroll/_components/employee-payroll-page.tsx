@@ -16,6 +16,7 @@ import { StaffPaySheet } from "./staff-pay-sheet";
 import { EmployeeDocuments } from "../../staff/[userId]/_components/employee-documents";
 import { personInitials } from "@/lib/format/initials";
 import { avatarImageUrl } from "@/lib/people/avatar-thumb";
+import { CasualToStaffDrawer } from "./casual-to-staff-drawer";
 
 /**
  * Расчёт сотрудника в разделе «Зарплата». Это тот же расчётный лист, что во
@@ -31,6 +32,7 @@ export function EmployeePayrollPage({
   month: string;
 }) {
   const [data, setData] = useState(initial);
+  const [converting, setConverting] = useState(false);
   const router = useRouter();
   useEffect(() => setData(initial), [initial]);
   const current = `${(data.asOfDate ?? new Date().toISOString()).slice(0, 7)}-01`;
@@ -75,6 +77,11 @@ export function EmployeePayrollPage({
           <h1 className="text-[28px] font-bold leading-tight tracking-tight">{employee.name}</h1>
           <p className="mt-1 text-[13px] text-muted-foreground">{employee.role_name}</p>
         </div>
+        {employee.casual && !employee.local_user_id && data.permissions.includes("payroll.configure") && (
+          <Button variant="outline" onClick={() => setConverting(true)}>
+            Перевести в штат
+          </Button>
+        )}
         {employee.local_user_id && (
           <Button asChild variant="outline">
             <Link href={`/people/staff/${employee.local_user_id}`}>
@@ -85,6 +92,14 @@ export function EmployeePayrollPage({
         )}
       </div>
       {autoRefresh.failed && <RefreshFailedNotice {...autoRefresh} />}
+      {employee.casual && !employee.local_user_id && (
+        <CasualToStaffDrawer
+          open={converting}
+          onOpenChange={setConverting}
+          employee={employee}
+          roles={data.roles ?? []}
+        />
+      )}
       <StaffPaySheet
         key={employeeId}
         context="payroll"

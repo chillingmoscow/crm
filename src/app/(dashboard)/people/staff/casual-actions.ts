@@ -2,9 +2,16 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getCachedPermissionChecker } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { provisionCasualQuickResto } from "@/lib/payroll/casual-quickresto";
+import { errorText } from "@/lib/actions/error-text";
+import { genderSchema } from "@/lib/people/gender";
+import { zonedParts } from "@/lib/sales/time";
+import { getActiveAccountTimezone } from "@/lib/settings/account";
+import { assignPayrollPositionOnly, requeuePayrollFrom } from "@/app/(dashboard)/people/payroll/actions";
+import { createStaffWithoutEmail } from "./actions";
 
 export type CasualResult = { id: string | null; pin: string | null; error: string | null };
 
@@ -62,4 +69,98 @@ export async function provisionCasualEmployee(input: {
   });
   if (requested.error) return { id: parsed.data.id, pin: null, error: requested.error.message };
   return provision(parsed.data.id);
+}
+
+const convertSchema = nameSchema.extend({
+  employeeId: z.string().uuid(),
+  gender: genderSchema,
+  phone: z.string().trim().max(40).optional(),
+  roleId: z.string().uuid("Выберите должность"),
+});
+
+export type ConvertCasualResult = { userId: string | null; notice: string | null; error: string | null };
+
+/**
+ * Перевод разового в штат. Создаётся учётная запись сотрудника (как «Добавить
+ * → Создать»), и к ней привязывается та же запись зарплаты: смены, начисления
+ * и выплаты остаются при человеке, а не делятся на две строки ведомости.
+ * Если привязать не удалось, созданная учётная запись удаляется.
+ */
+export async function convertCasualToStaff(input: z.input<typeof convertSchema>): Promise<ConvertCasualResult> {
+  const parsed = convertSchema.safeParse(input);
+  if (!parsed.success)
+    return { userId: null, notice: null, error: parsed.error.issues[0]?.message ?? "Проверьте поля" };
+  const value = parsed.data;
+  const can = await getCachedPermissionChecker();
+  if (!can("people.edit_staff") || !can("payroll.configure"))
+    return { userId: null, notice: null, error: "Нужны права на сотрудников и на настройку зарплаты" };
+
+  const supabase = await createClient();
+  const db = asLooseDb(supabase);
+  const [venue, employee] = await Promise.all([
+    supabase.rpc("get_active_venue_id"),
+    db
+      .from<{ id: string; casual: boolean; local_user_id: string | null; role_id: string | null }>("payroll_employees")
+      .select("id,casual,local_user_id,role_id")
+      .eq("id", value.employeeId)
+      .maybeSingle(),
+  ]);
+  const venueId = venue.data as string | null;
+  if (!venueId) return { userId: null, notice: null, error: "Не выбрано заведение" };
+  if (!employee.data?.casual || employee.data.local_user_id)
+    return { userId: null, notice: null, error: "Разовый сотрудник не найден" };
+  // Те же условия, что проверит база, — до создания учётной записи: откат
+  // после неё не всегда чистый (журнал приёма ссылается на нового человека).
+  const admin = createAdminClient();
+  const loading = await asLooseDb(admin)
+    .from<{ business_date: string }[]>("payroll_source_days")
+    .select("business_date")
+    .eq("venue_id", venueId)
+    .eq("state", "loading")
+    .limit(1);
+  if (loading.data?.length)
+    return { userId: null, notice: null, error: "Дождитесь обновления зарплаты и повторите" };
+
+  const created = await createStaffWithoutEmail({
+    firstName: value.firstName,
+    lastName: value.lastName,
+    gender: value.gender,
+    phone: value.phone || null,
+    roleId: value.roleId,
+    venueId,
+  });
+  const userId = created.member?.user_id ?? null;
+  if (created.error || !userId)
+    return { userId: null, notice: null, error: created.error ?? "Не удалось создать сотрудника" };
+
+  const linked = await db.rpc("payroll_casual_to_staff", { p_employee_id: value.employeeId, p_user_id: userId });
+  if (linked.error) {
+    // Без привязки новая учётная запись — второй человек: убираем его из
+    // команды, затем саму учётную запись. Удаление может упереться в журнал
+    // приёма — тогда остаётся профиль без доступа к заведению, в списках его нет.
+    await admin.from("user_venue_roles").delete().eq("user_id", userId).eq("venue_id", venueId);
+    await admin.auth.admin.deleteUser(userId);
+    revalidatePath("/people/staff");
+    return { userId: null, notice: null, error: errorText(linked.error, "Не удалось перевести сотрудника в штат") };
+  }
+
+  // Должность в штате другая — условия оплаты меняются с сегодняшнего дня.
+  const notices: string[] = [];
+  const today = zonedParts(new Date(), await getActiveAccountTimezone()).date;
+  if (employee.data.role_id !== value.roleId) {
+    try {
+      await assignPayrollPositionOnly(value.employeeId, value.roleId, today);
+    } catch (e) {
+      notices.push(`Должность в зарплате не изменена: ${errorText(e, "проверьте условия оплаты")}`);
+    }
+  }
+  try {
+    await requeuePayrollFrom(today);
+  } catch {
+    notices.push("Пересчёт зарплаты поставьте вручную (Зарплата → Обновить)");
+  }
+  revalidatePath("/people/staff");
+  revalidatePath("/people/payroll");
+  revalidatePath("/schedule");
+  return { userId, notice: notices.join(". ") || null, error: null };
 }

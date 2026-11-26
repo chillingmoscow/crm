@@ -598,6 +598,11 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline:e=><>изменил(а) участие в зарплатном учёте · {String(e.details.employee_name)}</>,
     buildDetails:e=><><ChangeLines details={e.details}/><p className="text-xs text-muted-foreground">{String(e.details.reason??"")}</p></>,
   },
+  "payroll.employee.converted_to_staff": {
+    icon:Pencil,iconClass:"text-brand bg-brand/10",
+    buildHeadline:e=><>перевёл(а) разового в штат · {String(e.details.employee_name??"Сотрудник")}</>,
+    buildDetails:e=><p className="text-xs text-muted-foreground">Смены и начисления остались при сотруднике · будущих смен перенесено: {String(e.details.moved_shifts??0)}</p>,
+  },
   "payroll.attendance_source.changed": {
     icon:Pencil,iconClass:"text-brand bg-brand/10",
     buildHeadline:e=><>изменил(а) источник факта работы · {String(e.details.employee_name)}</>,

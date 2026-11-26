@@ -35,6 +35,7 @@ import { PersonAvatar } from "@/components/people/person-avatar";
 import { StaffTable, type StaffColKey as ColKey } from "./staff-table";
 import type { CasualStaffRow } from "@/lib/payroll/casual-list";
 import { AddStaffDrawer } from "./add-staff-drawer";
+import { CasualToStaffDrawer } from "./casual-to-staff-drawer";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -86,6 +87,8 @@ type Props = {
   currentUserId: string;
   /** Право people.edit_staff у текущего пользователя. */
   canEditStaff: boolean;
+  /** people.edit_staff + payroll.configure: перевод разового в штат. */
+  canConvertCasual?: boolean;
   /** people.view_staff + people.view_staff_details. Без них сервер не отдаёт
    *  контакты, даты и причину увольнения коллег, а карточка не открывается. */
   canSeeStaffDetails: boolean;
@@ -250,6 +253,7 @@ export function StaffClient({
   venueId,
   currentUserId,
   canEditStaff,
+  canConvertCasual = false,
   canSeeStaffDetails,
   casual,
   officialUserIds,
@@ -259,6 +263,9 @@ export function StaffClient({
   const [invitations, setInvitations] = useState(initialInvitations);
   const [fired, setFired] = useState(initialFired);
   const [inviteOpen, setInviteOpen] = useState(openAddCasual);
+  // Разовый, которого переводят в штат; держим, пока панель уезжает.
+  const [converting, setConverting] = useState<CasualStaffRow | null>(null);
+  const [convertOpen, setConvertOpen] = useState(false);
   const [addKey, setAddKey] = useState(0);
   const openAdd = () => {
     setAddKey((key) => key + 1);
@@ -760,6 +767,14 @@ export function StaffClient({
           </>
         }
         canEdit={canEdit}
+        onConvertCasual={
+          canConvertCasual
+            ? (row) => {
+                setConverting(row);
+                setConvertOpen(true);
+              }
+            : undefined
+        }
         isPending={isPending}
         onCancelInvitation={(invId) =>
           setConfirmAction({
@@ -779,6 +794,16 @@ export function StaffClient({
           ) : undefined
         }
       />
+
+      {converting && (
+        <CasualToStaffDrawer
+          key={converting.id}
+          open={convertOpen}
+          onOpenChange={setConvertOpen}
+          employee={{ id: converting.id, name: converting.name, role_id: converting.roleId }}
+          roles={roles}
+        />
+      )}
 
       {/* «Новый сотрудник»: без входа, по email или разовый. Ключ пересоздаёт
           панель при каждом открытии — форма открывается пустой. */}

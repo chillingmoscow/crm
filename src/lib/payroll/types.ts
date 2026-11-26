@@ -165,6 +165,8 @@ export type Payment = {
   created_at: string;
   /** Месяц официальной (бухгалтерской) выплаты, YYYY-MM-01; null — обычная выплата. */
   official_month?: string | null;
+  /** Официальная запись «Получено через агентство»: без операции в финансах и налога. */
+  agency?: boolean;
 };
 /**
  * Ожидаемая, ещё не проведённая официальная часть за месяц
@@ -180,6 +182,8 @@ export type OfficialExpected = {
   gross: number | null;
   days_paid: number | null;
   days_in_month: number;
+  /** Оформление «Платит агентство»: сотрудник получит сумму через агентство, без налога. */
+  agency: boolean;
 };
 /** Период официального оформления — для выбора «Официальная часть» в форме выплаты. */
 export type OfficialEmploymentSpan = {
@@ -187,6 +191,8 @@ export type OfficialEmploymentSpan = {
   employee_id: string;
   starts_on: string;
   ends_on: string | null;
+  /** «Платит агентство»: запись без счёта и налога. */
+  agency?: boolean;
 };
 /** Mirror of a payout in Adesk; only payouts made in the app are queued. */
 export type AdeskSync = {

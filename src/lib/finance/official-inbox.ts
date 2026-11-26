@@ -29,7 +29,8 @@ const resolveSchema = z
     id: z.string().uuid("Карточка не найдена"),
     gross: money,
     net: money,
-    bank_account_id: z.string().uuid("Выберите расчётный счёт"),
+    // Через агентство счёта нет (null); для обычной официальной выплаты его проверяет база.
+    bank_account_id: z.string().uuid("Выберите расчётный счёт").nullable(),
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Укажите дату выплаты"),
   })
   .refine((v) => Math.round(v.net * 100) <= Math.round(v.gross * 100), "Сумма на руки больше оклада с налогом");

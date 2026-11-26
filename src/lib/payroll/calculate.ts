@@ -264,8 +264,8 @@ export function statementRows(
         (month === startsOn && e.opening_confirmed ? Number(e.opening_balance) : 0) +
           transferredIn,
       );
-      // Ещё не проведённая официальная часть месяца: её выплатит бухгалтерия,
-      // поэтому она уменьшает «К выплате». После проведения строки нет —
+      // Ещё не проведённая официальная часть месяца: её выплатит бухгалтерия
+      // (или сотрудник получит через агентство), поэтому она уменьшает «К выплате». После проведения строки нет —
       // выплата закрывает долг сама, через paid.
       const expected = officialExpected.find(
         (o) => o.employee_id === e.id && o.month.slice(0, 7) === month.slice(0, 7),
@@ -276,6 +276,7 @@ export function statementRows(
             kind: expected.kind,
             days_paid: expected.days_paid,
             days_in_month: expected.days_in_month,
+            agency: expected.agency === true,
           }
         : null;
       const earned = round(current.reduce((s, a) => s + Number(a.salary), 0)),

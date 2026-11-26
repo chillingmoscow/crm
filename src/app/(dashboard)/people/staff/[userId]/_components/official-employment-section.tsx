@@ -115,8 +115,9 @@ export function OfficialEmploymentSection({
 
   const { current, next } = officialSalaryOn(salaries, today);
   const contract = contractLabel(employment.contract_number, employment.contract_date);
+  const agency = employment.agency;
   const actions: TableRowMenuAction[] = [
-    { label: "Изменить оклад", onSelect: () => setPanel("salary") },
+    { label: agency ? "Изменить сумму в месяц" : "Изменить оклад", onSelect: () => setPanel("salary") },
     { label: "Исправить данные", onSelect: () => setPanel("edit") },
     { label: "Уволить официально", onSelect: () => setPanel("end") },
     ...(canEmploy ? [{ label: "Оформить официально", onSelect: () => setPanel("employ"), separatorBefore: true }] : []),
@@ -130,6 +131,7 @@ export function OfficialEmploymentSection({
     >
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <p className="text-sm">Оформлен с {formatDayMonth(employment.starts_on)}</p>
+        {agency && <StatusBadge tone="info">Через агентство</StatusBadge>}
         {employment.ends_on && (
           <StatusBadge tone={employment.ends_on <= today ? "neutral" : "warning"}>
             {employment.ends_on <= today ? "Уволен официально" : "Увольнение"} {formatDayMonth(employment.ends_on)}
@@ -143,10 +145,14 @@ export function OfficialEmploymentSection({
         </div>
         {current && (
           <div className="contents">
-            <dt className="text-[13px] text-muted-foreground">Оклад</dt>
+            <dt className="text-[13px] text-muted-foreground">{agency ? "Получает в месяц" : "Оклад"}</dt>
             <dd className="-mt-2 text-sm tabular-nums sm:mt-0">
-              <Money value={current.gross} fraction="auto" /> · на руки{" "}
-              <Money value={officialNet(current.gross)} fraction="auto" />
+              <Money value={current.gross} fraction="auto" />
+              {!agency && (
+                <>
+                  {" "}· на руки <Money value={officialNet(current.gross)} fraction="auto" />
+                </>
+              )}
               {next && (
                 <p className="text-xs text-muted-foreground">
                   С {formatDayMonth(next.valid_from)}: {formatRub(next.gross, { fraction: "auto" })}

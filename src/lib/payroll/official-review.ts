@@ -3,7 +3,7 @@
 // карточки: подписи по причине, дата и суммы по умолчанию, данные проведения.
 // Последнее слово за базой (payroll_record_official_payment).
 import { officialGrossFromNet, officialNet } from "./official.ts";
-import { checkingBanks, officialAmountsError } from "./official-payment.ts";
+import { agencyAmountError, checkingBanks, officialAmountsError } from "./official-payment.ts";
 import type { PayrollData } from "./types.ts";
 
 export type OfficialReviewReason = "final_month" | "no_bank_account" | "no_category" | "inactive" | "missed_month";
@@ -23,6 +23,11 @@ export type OfficialReviewItem = {
   /** Оклад с налогом за месяц; в месяц увольнения неизвестен. */
   gross: number | null;
   reason: OfficialReviewReason;
+  /**
+   * «Платит агентство»: карточка проводит запись «Получено через агентство» —
+   * одна сумма и дата, без счёта и налога.
+   */
+  agency: boolean;
 };
 
 /** Настройки официальной зарплаты заведения, которые нужны карточке. */
@@ -48,9 +53,32 @@ export const isOfficialReviewReason = (value: unknown): value is OfficialReviewR
   REASONS.includes(value as OfficialReviewReason);
 
 /** Заголовок карточки и пояснение под ним — по причине, по которой месяц не проведён. */
-export function officialReviewCopy(item: Pick<OfficialReviewItem, "reason" | "employee_name" | "month">, today: string) {
+export function officialReviewCopy(
+  item: Pick<OfficialReviewItem, "reason" | "employee_name" | "month"> & { agency?: boolean },
+  today: string,
+) {
   const month = officialMonthName(item.month, today);
   const name = item.employee_name;
+  if (item.agency) {
+    // Счёта и статьи у записи через агентство нет — остаются только эти причины.
+    switch (item.reason) {
+      case "final_month":
+        return {
+          title: `Окончательный расчёт через агентство: ${name}, ${month}`,
+          hint: "Укажите, сколько сотрудник получил через агентство за месяц увольнения",
+        };
+      case "inactive":
+        return {
+          title: `Проверьте официальное увольнение: ${name}`,
+          hint: `${month}. Сотрудник уволен в приложении, а дата официального увольнения не указана. Поставьте её в карточке сотрудника («Уволить официально») или укажите здесь, сколько он получил через агентство`,
+        };
+      default:
+        return {
+          title: `Не отмечено получение через агентство: ${name}, ${month}`,
+          hint: "Проверьте, получил ли сотрудник деньги через агентство, и проведите запись или пропустите месяц.",
+        };
+    }
+  }
   switch (item.reason) {
     case "final_month":
       return {
@@ -126,16 +154,17 @@ export function officialReviewBank(
 }
 
 export function initialOfficialDraft(
-  item: Pick<OfficialReviewItem, "gross" | "month" | "reason">,
+  item: Pick<OfficialReviewItem, "gross" | "month" | "reason"> & { agency?: boolean },
   settings: OfficialReviewSettings,
   banks: PayrollData["banks"],
   today: string,
 ): OfficialReviewDraft {
   return {
-    net: item.gross === null ? null : officialNet(item.gross),
+    net: item.gross === null ? null : item.agency ? item.gross : officialNet(item.gross),
     gross: item.gross,
     grossTouched: false,
-    bank_account_id: officialReviewBank(item.reason, settings, banks),
+    // Через агентство счёт не нужен.
+    bank_account_id: item.agency ? "" : officialReviewBank(item.reason, settings, banks),
     date: officialReviewDefaultDate(item.month, settings.payDay, today),
   };
 }
@@ -156,7 +185,8 @@ export type OfficialResolveInput = {
   id: string;
   gross: number;
   net: number;
-  bank_account_id: string;
+  /** Через агентство — null: запись без счёта. */
+  bank_account_id: string | null;
   /** YYYY-MM-DD */
   date: string;
 };
@@ -165,9 +195,19 @@ export type OfficialDraftErrors = { amount?: string; bank?: string; date?: strin
 
 /** Данные для «Провести» или ошибки полей — те же проверки, что у базы. */
 export function officialResolvePayload(
-  item: Pick<OfficialReviewItem, "id">,
+  item: Pick<OfficialReviewItem, "id"> & { agency?: boolean },
   draft: OfficialReviewDraft,
 ): { input: OfficialResolveInput; errors: null } | { input: null; errors: OfficialDraftErrors } {
+  if (item.agency) {
+    // Получено через агентство = закрыто по зарплате; поле одно — «на руки».
+    const errors: OfficialDraftErrors = {};
+    const amount = agencyAmountError(draft.net);
+    if (amount) errors.amount = amount;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date)) errors.date = "Укажите дату выплаты";
+    if (errors.amount || errors.date) return { input: null, errors };
+    const value = draft.net as number;
+    return { input: { id: item.id, gross: value, net: value, bank_account_id: null, date: draft.date }, errors: null };
+  }
   const errors: OfficialDraftErrors = {};
   const amount = officialAmountsError(draft.net, draft.gross);
   if (amount) errors.amount = amount;

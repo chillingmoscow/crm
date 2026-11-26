@@ -54,6 +54,8 @@ export type OfficialPaymentOption =
   | {
       available: true;
       employmentId: string;
+      /** «Платит агентство»: запись «Получено через агентство» без счёта и налога. */
+      agency: boolean;
       /** Почему провести нельзя (уже проведена); null — можно. */
       blocked: string | null;
       /** Подстановка сумм: ожидаемая часть месяца или удалённая выплата за него. */
@@ -77,10 +79,13 @@ export function officialPaymentOption(input: {
   if (input.employeeIds.length !== 1) return { available: false };
   const [employeeId] = input.employeeIds;
   const month = `${input.month.slice(0, 7)}-01`;
-  const employmentId =
-    officialEmploymentFor(input.employments, employeeId, month)?.id ??
-    input.expected.find((e) => e.employee_id === employeeId && e.month === month)?.employment_id;
+  const span = officialEmploymentFor(input.employments, employeeId, month);
+  const expectedOfEmployee = input.expected.find((e) => e.employee_id === employeeId && e.month === month);
+  const employmentId = span?.id ?? expectedOfEmployee?.employment_id;
   if (!employmentId) return { available: false };
+  const agency = span ? span.agency === true : expectedOfEmployee?.agency === true;
+  // Через агентство налога нет: на руки = закрыто по зарплате.
+  const netOf = (gross: number) => (agency ? gross : officialNet(gross));
 
   const official = input.payments.filter(
     (p) =>
@@ -91,6 +96,7 @@ export function officialPaymentOption(input: {
     return {
       available: true,
       employmentId,
+      agency,
       blocked: "За этот месяц уже проведена официальная выплата",
       gross: null,
       net: null,
@@ -98,7 +104,7 @@ export function officialPaymentOption(input: {
 
   const expected = input.expected.find((e) => e.employment_id === employmentId && e.month === month);
   if (expected && expected.gross !== null)
-    return { available: true, employmentId, blocked: null, gross: expected.gross, net: officialNet(expected.gross) };
+    return { available: true, employmentId, agency, blocked: null, gross: expected.gross, net: netOf(expected.gross) };
 
   // Повтор после удаления: те же суммы, что у последней удалённой выплаты месяца.
   const cancelled = official
@@ -109,15 +115,23 @@ export function officialPaymentOption(input: {
     return {
       available: true,
       employmentId,
+      agency,
       blocked: null,
       gross: Number(allocation.settled_amount ?? allocation.amount),
-      net: Number(allocation.amount),
+      net: agency ? Number(allocation.settled_amount ?? allocation.amount) : Number(allocation.amount),
     };
-  return { available: true, employmentId, blocked: null, gross: null, net: null };
+  return { available: true, employmentId, agency, blocked: null, gross: null, net: null };
 }
 
 const cents = (n: number) => Math.round(n * 100);
 const twoDecimals = (n: number) => Math.abs(n * 100 - cents(n)) < 0.00001;
+
+/** Ошибка суммы записи «Получено через агентство» или null — как проверка базы. */
+export function agencyAmountError(amount: number | null): string | null {
+  if (amount === null || !(amount > 0)) return "Укажите сумму, которую сотрудник получил через агентство";
+  if (amount > 1e9 || !twoDecimals(amount)) return "Не больше двух знаков после запятой";
+  return null;
+}
 
 /** Текст ошибки сумм официальной выплаты или null — как проверки базы. */
 export function officialAmountsError(net: number | null, gross: number | null): string | null {

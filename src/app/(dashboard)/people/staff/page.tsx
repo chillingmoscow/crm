@@ -59,6 +59,8 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     invitations,
     firedStaff,
     officialUserIds,
+    pinResult,
+    casual,
   ] = await Promise.all([
     supabase
       .from("roles")
@@ -81,6 +83,18 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     getFiredStaff(venueId),
     // Без права просмотра зарплаты база отдаёт пустоту — метки и фильтра нет.
     can("payroll.view") ? getOfficialStaffUserIds(venueId) : Promise.resolve<string[]>([]),
+    // PIN кассы и разовые — в той же волне, а не следом: каждый запрос к базе
+    // с сервера стоит 20–50 мс, и цепочка заметно тормозила переход в раздел.
+    // PIN читаем всегда, а показываем только старшим ролям (ниже).
+    db
+      .from("user_venue_roles")
+      .select("id, terminal_pin")
+      .eq("venue_id", venueId) as unknown as Promise<{ data: { id: string; terminal_pin: string | null }[] | null }>,
+    // Unavailable until the database update for casual workers is applied.
+    getCasualStaff(venueId, can("people.edit_staff")).catch((error: unknown) => {
+      console.error("casual staff unavailable:", error instanceof Error ? error.message : error);
+      return null;
+    }),
   ]);
 
   const activeRoleCode =
@@ -95,18 +109,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     can("people.view_staff") && can("people.view_staff_details");
   // The till PIN column: codes are shown only to the venue's senior roles.
   const canSeePins = ["owner", "manager", "admin"].includes(activeRoleCode ?? "");
-  const pinResult = canSeePins
-    ? ((await db
-        .from("user_venue_roles")
-        .select("id, terminal_pin")
-        .eq("venue_id", venueId)) as unknown as { data: { id: string; terminal_pin: string | null }[] | null })
-    : { data: null };
-  const pins = new Map((pinResult.data ?? []).map((row) => [row.id, row.terminal_pin]));
-  // Unavailable until the database update for casual workers is applied.
-  const casual = await getCasualStaff(venueId, canEdit).catch((error: unknown) => {
-    console.error("casual staff unavailable:", error instanceof Error ? error.message : error);
-    return null;
-  });
+  const pins = new Map(canSeePins ? (pinResult.data ?? []).map((row) => [row.id, row.terminal_pin]) : []);
 
   // Email'ы с неотозванным приглашением — надёжный признак «приглашён, но ещё
   // не активировал» для сотрудника, который уже в списке staff (импортированный

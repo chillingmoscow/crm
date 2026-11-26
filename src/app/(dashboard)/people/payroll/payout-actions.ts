@@ -6,6 +6,7 @@ import { loadTelegramBot } from "@/lib/integrations/telegram-bot";
 import {
   PAYOUT_SCHEDULE_LABELS,
   firstPayoutWindow,
+  issueCap,
   recheckDue,
   type PayoutScheduleCode,
   type PlannedRow,
@@ -66,6 +67,10 @@ export type PayoutRowView = PlannedRow & {
   outside: boolean;
   /** Дни опубликованных смен сотрудника в окне выплаты — подсказка при выборе дня. */
   shiftDays: string[];
+  /** Сумму поставили руками (например, аванс): выдаём её, режет только заработанное. */
+  manual: boolean;
+  /** Сколько выдали бы по расчёту сейчас — для предупреждения, если ручная сумма больше. */
+  ceilingNow: number | null;
 };
 export type PayoutPlanView = {
   schedule: PayoutScheduleCode;
@@ -108,6 +113,10 @@ async function planView(s: PayrollScope, schedule: PayoutScheduleCode, firstCtx:
   const fresh = month && span ? plan(ctx, schedule, month, span) : [];
   const freshBy = new Map(fresh.map((r) => [r.employee_id, r]));
   const step = ctx.settings.schedules[schedule].step;
+  const capOf = (row: { employee_id: string; manual: boolean }) => {
+    const b = freshBy.get(row.employee_id)?.breakdown;
+    return b ? issueCap(b, row.manual) : 0;
+  };
   const shiftDays = (id: string) =>
     span
       ? [...new Set(ctx.shifts
@@ -129,10 +138,13 @@ async function planView(s: PayrollScope, schedule: PayoutScheduleCode, firstCtx:
         ...person(row.employee_id),
         issued: row.issued,
         state: row.state,
-        // Так же, как при выдаче: план режет только свежий потолок (recheckDue).
+        // Так же, как при выдаче: план режет только свежий потолок (recheckDue),
+        // ручную сумму — только заработанное (issueCap).
         willIssue: row.state === "issued"
           ? null
-          : money(recheckDue(row, freshBy.get(row.employee_id)?.breakdown.ceiling ?? 0, step).due + row.issued),
+          : money(recheckDue(row, capOf(row), step).due + row.issued),
+        manual: row.manual,
+        ceilingNow: freshBy.get(row.employee_id)?.breakdown.ceiling ?? null,
         paidNow: freshBy.get(row.employee_id)?.breakdown.paid ?? row.breakdown.paid,
         outside: false,
         shiftDays: shiftDays(row.employee_id),
@@ -140,13 +152,14 @@ async function planView(s: PayrollScope, schedule: PayoutScheduleCode, firstCtx:
     : fresh.map((row) => ({
         ...row, id: null, ...person(row.employee_id), issued: 0, state: "planned" as const, willIssue: row.amount,
         paidNow: row.breakdown.paid, outside: false, shiftDays: shiftDays(row.employee_id),
+        manual: false, ceilingNow: row.breakdown.ceiling,
       }));
   // Вне плана — строками со статусом, без сумм к выплате.
   const outside: PayoutRowView[] =
     month && span
       ? plan(ctx, "transfer", month, span).map((row) => ({
           ...row, amount: 0, pay_date: null, id: null, ...person(row.employee_id), issued: 0, state: "planned" as const,
-          willIssue: null, paidNow: row.breakdown.paid, outside: true, shiftDays: [],
+          willIssue: null, paidNow: row.breakdown.paid, outside: true, shiftDays: [], manual: false, ceilingNow: null,
         }))
       : [];
   rows.sort((a, b) => a.name.localeCompare(b.name, "ru"));

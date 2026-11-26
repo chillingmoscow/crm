@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  issueCap,
   payDayChoices,
   DEFAULT_PAYOUT_SCHEDULES,
   firstPayoutWindow,
@@ -269,4 +270,13 @@ test("payDayChoices: выбранный прошедший день остаёт
 test("payDayChoices: график не виден — один список без деления по сменам", () => {
   const r = payDayChoices(["2026-11-26", "2026-11-27"], [], "2026-11-26", null, false);
   assert.deepEqual(r, [{ label: undefined, days: [{ date: "2026-11-26", past: false }, { date: "2026-11-27", past: false }] }]);
+});
+
+test("issueCap: расчётную строку режет потолок, ручную (аванс) — только заработанное", () => {
+  // Наталия, 26.11: перенос −28 698, начислено 50 411, запас 5 000, официальная часть 27 500.
+  const b = { ceiling: -10787.14, reserve: 5000, official: 27500 };
+  assert.equal(issueCap(b, false), -10787.14);
+  assert.equal(issueCap(b, true), 21712.86);
+  assert.deepEqual(recheckDue({ amount: 20000, issued: 0 }, issueCap(b, true), 5000), { due: 20000, capped: false });
+  assert.deepEqual(recheckDue({ amount: 20000, issued: 0 }, issueCap(b, false), 5000), { due: 0, capped: true });
 });

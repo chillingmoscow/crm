@@ -7,6 +7,7 @@ import { addDays, businessDate } from "@/lib/sales/time";
 import {
   DEFAULT_PAYOUT_SCHEDULES,
   firstPayoutWindow,
+  issueCap,
   planFirstPayout,
   recheckDue,
   type PayoutSchedule,
@@ -63,6 +64,8 @@ export type RowRecord = {
   issued: number;
   state: "planned" | "partial" | "issued";
   breakdown: PlannedRow["breakdown"];
+  /** Сумму поставили руками: при выдаче её режет только заработанное (`issueCap`). */
+  manual: boolean;
 };
 export type SettingsRecord = {
   auto_issue?: boolean;
@@ -200,7 +203,7 @@ export async function planById(s: VenueHandle, id: string) {
 export async function planRows(s: VenueHandle, planId: string) {
   const r = await s.db
     .from<RowRecord[]>("payroll_payout_rows")
-    .select("id,plan_id,employee_id,pay_date,amount,issued,state,breakdown")
+    .select("id,plan_id,employee_id,pay_date,amount,issued,state,breakdown,manual")
     .eq("venue_id", s.venueId)
     .eq("plan_id", planId);
   if (r.error) throw new Error(r.error.message);
@@ -230,7 +233,7 @@ export async function buildPreview(
   if (schedule.method !== "cash") throw new Error("Этот график выдаётся переводом: отмечайте «Выплачено» по строке");
   const window = { from: current.window_from, to: current.window_to };
   // Свежий потолок: ручные выплаты и штрафы после утверждения. Саму сумму плана не пересчитываем.
-  const ceilings = new Map(plan(ctx, current.schedule, current.month, window).map((r) => [r.employee_id, r.breakdown.ceiling]));
+  const fresh = new Map(plan(ctx, current.schedule, current.month, window).map((r) => [r.employee_id, r.breakdown]));
   const todays = (await planRows(s, planId)).filter((row) => row.state !== "issued" && row.pay_date === ctx.today);
   const employeeOf = (id: string) => ctx.data.employees.find((e) => e.id === id);
   // Сотрудника перевели на другой график после утверждения — по этому плану не выдаём.
@@ -245,7 +248,9 @@ export async function buildPreview(
         .map((x) => x.business_date)
         .sort()[0];
       // Сумма только уменьшается: новые ручные выплаты и штрафы снижают потолок.
-      const { due, capped } = recheckDue(row, ceilings.get(row.employee_id) ?? 0, schedule.step);
+      // Ручную сумму (аванс) режет только заработанное — см. issueCap.
+      const b = fresh.get(row.employee_id);
+      const { due, capped } = recheckDue(row, b ? issueCap(b, row.manual) : 0, schedule.step);
       return {
         row_id: row.id,
         employee_id: row.employee_id,

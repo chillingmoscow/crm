@@ -30,7 +30,7 @@
     --muted-foreground: 240 4% 46%;    /* #71717a */
     --accent: 240 5% 96%;
     --accent-foreground: 240 6% 10%;
-    --destructive: 357 100% 45%;       /* #e7000b */
+    --destructive: 4 74% 49%;          /* #d92d20 — приглушённый красный (26.11.2026; было #e7000b) */
     --destructive-foreground: 0 0% 100%;
     --border: 240 6% 90%;              /* #e4e4e7 */
     --input: 240 6% 90%;
@@ -128,7 +128,7 @@
     --muted-foreground: 240 5% 65%;    /* #a1a1aa */
     --accent: 240 4% 16%;
     --accent-foreground: 0 0% 98%;
-    --destructive: 0 84% 60%;          /* #ef4444 — lighter for dark surfaces */
+    --destructive: 4 86% 58%;          /* #f04438 — пара к #d92d20, светлее для тёмных поверхностей */
     --destructive-foreground: 0 0% 98%;
     --border: 0 0% 100% / 0.1;         /* #ffffff1a */
     --input: 0 0% 100% / 0.1;

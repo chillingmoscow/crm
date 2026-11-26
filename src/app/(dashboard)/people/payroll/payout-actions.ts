@@ -71,6 +71,12 @@ export type PayoutRowView = PlannedRow & {
   manual: boolean;
   /** Сколько выдали бы по расчёту сейчас — для предупреждения, если ручная сумма больше. */
   ceilingNow: number | null;
+  /**
+   * Сколько останемся должны после этой выплаты: перенос + начислено −
+   * выплачено − официальная часть − ещё не выданное по строке. Минус —
+   * переплата. Не прыгает после выдачи: выданное уже в «выплачено».
+   */
+  leftAfter: number | null;
 };
 export type PayoutPlanView = {
   schedule: PayoutScheduleCode;
@@ -113,6 +119,7 @@ async function planView(s: PayrollScope, schedule: PayoutScheduleCode, firstCtx:
   const fresh = month && span ? plan(ctx, schedule, month, span) : [];
   const freshBy = new Map(fresh.map((r) => [r.employee_id, r]));
   const step = ctx.settings.schedules[schedule].step;
+  const leftAfter = (b: PlannedRow["breakdown"], toIssue: number) => money(b.ceiling + b.reserve - Math.max(0, toIssue));
   const capOf = (row: { employee_id: string; manual: boolean }) => {
     const b = freshBy.get(row.employee_id)?.breakdown;
     return b ? issueCap(b, row.manual) : 0;
@@ -145,6 +152,7 @@ async function planView(s: PayrollScope, schedule: PayoutScheduleCode, firstCtx:
           : money(recheckDue(row, capOf(row), step).due + row.issued),
         manual: row.manual,
         ceilingNow: freshBy.get(row.employee_id)?.breakdown.ceiling ?? null,
+        leftAfter: leftAfter(freshBy.get(row.employee_id)?.breakdown ?? row.breakdown, row.amount - row.issued),
         paidNow: freshBy.get(row.employee_id)?.breakdown.paid ?? row.breakdown.paid,
         outside: false,
         shiftDays: shiftDays(row.employee_id),
@@ -152,7 +160,7 @@ async function planView(s: PayrollScope, schedule: PayoutScheduleCode, firstCtx:
     : fresh.map((row) => ({
         ...row, id: null, ...person(row.employee_id), issued: 0, state: "planned" as const, willIssue: row.amount,
         paidNow: row.breakdown.paid, outside: false, shiftDays: shiftDays(row.employee_id),
-        manual: false, ceilingNow: row.breakdown.ceiling,
+        manual: false, ceilingNow: row.breakdown.ceiling, leftAfter: leftAfter(row.breakdown, row.amount),
       }));
   // Вне плана — строками со статусом, без сумм к выплате.
   const outside: PayoutRowView[] =
@@ -160,6 +168,7 @@ async function planView(s: PayrollScope, schedule: PayoutScheduleCode, firstCtx:
       ? plan(ctx, "transfer", month, span).map((row) => ({
           ...row, amount: 0, pay_date: null, id: null, ...person(row.employee_id), issued: 0, state: "planned" as const,
           willIssue: null, paidNow: row.breakdown.paid, outside: true, shiftDays: [], manual: false, ceilingNow: null,
+          leftAfter: leftAfter(row.breakdown, 0),
         }))
       : [];
   rows.sort((a, b) => a.name.localeCompare(b.name, "ru"));

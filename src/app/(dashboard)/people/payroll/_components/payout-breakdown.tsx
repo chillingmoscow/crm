@@ -45,7 +45,7 @@ function Step({ title, children }: { title: string; children: ReactNode }) {
  * половина месяца, сколько выходит по половине, итог с потолком. Тот же
  * расчёт, что в `planFirstPayout` (Павел, 26.11: «оформи симпатичнее»).
  */
-export function PayoutBreakdown({ b, amount, issued, manual, step }: { b: PlannedRow["breakdown"]; amount: number; issued: number; manual: boolean; step: number }) {
+export function PayoutBreakdown({ b, amount, issued, manual, leftAfter, step }: { b: PlannedRow["breakdown"]; amount: number; issued: number; manual: boolean; leftAfter: number | null; step: number }) {
   const total = b.carried + b.earned + b.forecast - b.reserve;
   const byHalf = Math.max(0, b.target);
   const cap = Math.max(0, b.ceiling);
@@ -104,6 +104,13 @@ export function PayoutBreakdown({ b, amount, issued, manual, step }: { b: Planne
           result
         />
         {issued > 0 && <Line label="Уже выдано по плану" value={issued} />}
+        {leftAfter !== null && (
+          <Line
+            label={leftAfter < 0 ? "Переплата после выплаты" : "Останется после выплаты"}
+            hint={b.official > 0 ? "перенос + начислено − выплаченное − официальная часть, без прогноза" : "перенос + начислено − выплаченное, без прогноза"}
+            value={leftAfter}
+          />
+        )}
       </Step>
     </div>
   );

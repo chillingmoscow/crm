@@ -16,6 +16,7 @@ import { Money, formatRub } from "@/components/shared/money";
 import { unwrapAction } from "@/lib/actions/result";
 import { formatDayMonth } from "@/lib/format/date";
 import { countRu } from "@/lib/format/plural";
+import { signedAmountClass } from "@/lib/format/amount";
 import { addDays } from "@/lib/sales/time";
 import { payDayChoices, payoutRowState, type PayoutRowState, type PayoutScheduleCode } from "@/lib/payroll/payout-plan";
 import { Banknote, CalendarClock, Check, ListChecks, Loader2, MoreHorizontal, RefreshCw, X } from "lucide-react";
@@ -46,9 +47,14 @@ const labels = {
   official: "Официальная часть",
   paid: "Выплачено",
   amount: "К выплате",
+  left: "Останется",
   status: "Статус",
 };
-const numeric = ["carried", "earned", "forecast", "reserve", "official", "paid", "amount"];
+// На виду — только то, по чему решают: сколько начислено, сколько выдаём и
+// сколько останемся должны (или переплатим). Остальное — в «Столбцах» и в
+// панели строки «Как посчитано» (Павел, 26.11).
+const hiddenColumns = ["carried", "forecast", "reserve", "official", "paid"];
+const numeric = ["carried", "earned", "forecast", "reserve", "official", "paid", "amount", "left"];
 const FLAG_TEXT: Record<string, string> = {
   few_shifts: "Мало смен для прогноза",
   no_shift: "Нет смены в окне выплаты: выберите день сами",
@@ -181,6 +187,7 @@ export function PayoutPlan({
           : id === "paid" ? row.paidNow
           : id === "official" ? row.breakdown.official
           : id === "amount" ? row.amount
+          : id === "left" ? (row.leftAfter ?? 0)
           : (row.outside ? "~" : row.pay_date ?? ""),
         cell: ({ row }) => {
           const r = row.original;
@@ -232,6 +239,15 @@ export function PayoutPlan({
               </span>
             );
           }
+          if (id === "left")
+            return r.leftAfter === null ? <span className="text-muted-foreground">—</span> : (
+              <span
+                data-tip={r.leftAfter < 0 ? "Переплата после этой выплаты" : "Останемся должны после этой выплаты"}
+                data-tip-sub={r.breakdown.official > 0 ? "С учётом официальной части, которую выплатит бухгалтерия" : undefined}
+              >
+                <Money value={r.leftAfter} className={r.leftAfter < 0 ? signedAmountClass(r.leftAfter) : undefined} />
+              </span>
+            );
           const value = id === "earned" ? r.breakdown.earned : id === "reserve" ? r.breakdown.reserve : r.paidNow;
           return <Money value={value} />;
         },
@@ -320,7 +336,9 @@ export function PayoutPlan({
       )}
       {view && (view.window || plan) && (
         <PayrollTable
-          id={`payroll.payout-plan.${schedule}`}
+          // v2: новый набор столбцов по умолчанию — прежняя сохранённая видимость его бы перебила.
+          id={`payroll.payout-plan.${schedule}.v2`}
+          hiddenColumns={hiddenColumns}
           label="План выплат"
           rows={rows}
           columns={columns}
@@ -335,6 +353,7 @@ export function PayoutPlan({
           totals={(visible) => ({
             amount: <Money value={visible.reduce((s, r) => s + r.amount, 0)} className="font-semibold" />,
             paid: <Money value={visible.reduce((s, r) => s + r.paidNow, 0)} />,
+            left: <Money value={visible.reduce((s, r) => s + (r.leftAfter ?? 0), 0)} />,
           })}
         />
       )}
@@ -473,7 +492,7 @@ function PayoutRowDrawer({
         )}
         <section aria-label="Как посчитано" className="space-y-4 border-t pt-5">
           <h3 className="text-base font-semibold">Как посчитано</h3>
-          <PayoutBreakdown b={b} amount={row.amount} issued={row.issued} manual={row.manual} step={view.settings.schedules.main.step} />
+          <PayoutBreakdown b={b} amount={row.amount} issued={row.issued} manual={row.manual} leftAfter={row.leftAfter} step={view.settings.schedules.main.step} />
         </section>
       </div>
     </PayrollDetailDialog>

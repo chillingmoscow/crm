@@ -116,12 +116,20 @@ export function formatPayoutAmount(amount: number): string {
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 }
 
+/**
+ * Сообщение менеджерам о выдаче: заголовок, сотрудники списком, итог
+ * отдельной строкой, как провести — последней (Павел, 26.11: «чтобы
+ * выглядело симпатично»). Обычный текст, без разметки: имена не экранируем.
+ */
 export function payoutMessage(lines: { name: string; amount: number }[]): string {
   const total = lines.reduce((s, l) => s + l.amount, 0);
   return [
-    "Выдайте плиз и проведите:",
-    ...lines.map((l) => `${l.name} — ${formatPayoutAmount(l.amount)}`),
-    `Итого ${formatPayoutAmount(total)} — одним изъятием, в комментарии «ЗП»`,
+    "Зарплата на сегодня — выдайте из кассы:",
+    "",
+    ...lines.map((l) => `• ${l.name} — ${formatPayoutAmount(l.amount)}`),
+    "",
+    `Итого: ${formatPayoutAmount(total)}`,
+    "Проведите одним изъятием с комментарием «ЗП».",
   ].join("\n");
 }
 

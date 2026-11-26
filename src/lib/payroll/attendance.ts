@@ -106,15 +106,25 @@ export function reconcileAttendance(
       const e = employees.find(
         (e) => Number(e.quickresto_id) === Number(r.owner?.id),
       );
-      const candidates = e?.local_user_id || casualWithQuickResto(e)
+      const own = e?.local_user_id || casualWithQuickResto(e)
         ? shifts.filter(
             (s) =>
               (casualWithQuickResto(e) ? s.payroll_employee_id === e!.id : s.user_id === e!.local_user_id) &&
-              s.published &&
-              Date.parse(s.starts_at) < (r.endTime ?? r.startTime + 86400000) &&
-              Date.parse(s.ends_at) > r.startTime,
+              s.published,
           )
         : [];
+      const overlapping = own.filter(
+        (s) =>
+          Date.parse(s.starts_at) < (r.endTime ?? r.startTime + 86400000) &&
+          Date.parse(s.ends_at) > r.startTime,
+      );
+      // Пришёл раньше смены или открыл личную смену ещё раз после закрытия:
+      // отметка не пересекается со сменой, но это тот же рабочий день и
+      // единственная смена сотрудника в нём — значит, она и есть.
+      const sameDay = overlapping.length
+        ? []
+        : own.filter((s) => businessDate(new Date(s.starts_at), timezone, hour) === date);
+      const candidates = overlapping.length ? overlapping : sameDay.length === 1 ? sameDay : [];
       const shift = candidates.length === 1 ? candidates[0] : null;
       if (shift) matched.add(shift.id);
       let status: Attendance["status"] = "confirmed",

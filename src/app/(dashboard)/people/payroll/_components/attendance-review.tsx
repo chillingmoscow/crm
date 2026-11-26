@@ -47,6 +47,7 @@ import {
 import {
   reviewAttendanceDecisions,
   type AttendanceDecisionInput,
+  type AttendanceDecisionResult,
 } from "../actions";
 import { unwrapAction } from "@/lib/actions/result";
 import { PayrollTable } from "./payroll-table";
@@ -155,6 +156,9 @@ export function AttendanceReview({
   const [pending, setPending] = useState<Pending | null>(null);
   const [pendingReason, setPendingReason] = useState("");
   const [pendingError, setPendingError] = useState<string | null>(null);
+  // Строки, по которым решение уже отправлено: убираем их из очереди сразу,
+  // не дожидаясь перезагрузки всей зарплаты. Не прошедшие возвращаются.
+  const [decided, setDecided] = useState<ReadonlySet<string>>(() => new Set());
   const period = data.periods.find((period) => period.month === `${month}-01`);
   const canReview =
     data.permissions.includes("payroll.review") &&
@@ -194,7 +198,7 @@ export function AttendanceReview({
     () => attendanceReviewRows(data, month, date),
     [data, month, date],
   );
-  const needsReview = allRows.filter(needsAttendanceReview);
+  const needsReview = allRows.filter((r) => needsAttendanceReview(r) && !decided.has(r.id));
   const rows = view === "review" ? needsReview : allRows;
   const selectedRows = rows.filter((r) => selection[r.id] && decidable(r));
 
@@ -227,22 +231,40 @@ export function AttendanceReview({
         return value ? [value] : [];
       });
       if (!items.length) return "Нет строк, по которым можно принять это решение";
-      const result = unwrapAction(await reviewAttendanceDecisions({ decision, reason: text, items }));
+      const rowIds = targets.map((r) => r.id);
+      const restore = (ids: string[]) =>
+        setDecided((current) => {
+          const next = new Set(current);
+          for (const id of ids) next.delete(id);
+          return next;
+        });
+      setDecided((current) => new Set([...current, ...rowIds]));
+      let result: AttendanceDecisionResult;
+      try {
+        result = unwrapAction(await reviewAttendanceDecisions({ decision, reason: text, items }));
+      } catch (error) {
+        restore(rowIds);
+        throw error;
+      }
+      const rowOf = new Map(targets.map((r) => [r.attendance?.id ?? r.id, r.id]));
+      const done = new Set(result.done.map((id) => rowOf.get(id) ?? id));
+      restore(rowIds.filter((id) => !done.has(id)));
       if (result.done.length) {
         setSelection((current) => {
           const next = { ...current };
           // Не прошедшие строки остаются выбранными: их можно повторить.
-          for (const id of result.done) delete next[id];
+          for (const id of done) delete next[id];
           return next;
         });
-        await onRefresh().catch(() => undefined);
-        const done = result.done.length;
+        // Свежие данные подтягиваем фоном: строка уже ушла из очереди.
+        void onRefresh().catch(() => undefined);
+        const count = result.done.length;
         if (!result.warning) toast.success(
-          done === 1
+          count === 1
             ? decision === "confirm"
               ? "Выход подтверждён. Начисления пересчитываются."
               : "Выход не учитывается. Начисления пересчитываются."
-            : `Решение принято по ${done} выходам. Начисления пересчитываются.`,
+            : `Решение принято по ${count} выходам. Начисления пересчитываются.`,
         );
       }
       if (result.warning) toast.warning(result.warning);
@@ -350,18 +372,18 @@ export function AttendanceReview({
     [ask, blockOf, canReview, decidable, quick],
   );
 
-  const save = async (decision: AttendanceDecision) => {
+  // Панель закрываем сразу: строка уходит из очереди, решение сохраняется
+  // фоном. Если сервер откажет, строка вернётся и появится сообщение.
+  const save = (decision: AttendanceDecision) => {
     if (!row) return;
-    setBusy(true);
-    try {
-      const error = await decide([row], decision, reason.trim());
-      if (error) toast.error(error);
-      else setRow(null);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Не удалось проверить выход");
-    } finally {
-      setBusy(false);
-    }
+    const target = row;
+    const text = reason.trim();
+    setRow(null);
+    decide([target], decision, text)
+      .then((error) => {
+        if (error) toast.error(error);
+      })
+      .catch((e) => toast.error(e instanceof Error ? e.message : "Не удалось проверить выход"));
   };
 
   const pendingTargets = pending
@@ -547,7 +569,7 @@ export function AttendanceReview({
                   key={decision}
                   variant={decision === "confirm" ? "default" : "outline"}
                   disabled={busy || reason.trim().length < 3}
-                  onClick={() => void save(decision)}
+                  onClick={() => save(decision)}
                 >
                   {decision === "confirm" ? "Подтвердить выход" : "Не учитывать"}
                 </Button>

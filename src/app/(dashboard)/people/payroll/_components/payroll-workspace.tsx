@@ -12,8 +12,14 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import {
+  ArrowRightLeft,
   ArrowUpRight,
+  Banknote,
   CalendarX2,
+  CircleMinus,
+  CirclePlus,
+  Download,
+  Gift,
   Users,
   Plus,
 } from "lucide-react";
@@ -41,7 +47,13 @@ import {
 } from "@/app/(dashboard)/people/payroll/actions";
 import { unwrapAction } from "@/lib/actions/result";
 import { PayrollJournal, PayrollEntryForm, PayrollEntryMenuItems } from "./payroll-journal";
-import { PayrollTransferDrawer } from "./payroll-transfer-drawer";
+import { PayrollTransferDrawer, transferCandidates } from "./payroll-transfer-drawer";
+import { downloadPayslip } from "./payslip-download";
+import {
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+} from "@/components/ui/context-menu";
 import { PayoutPlan, cachedPayoutPlan, prefetchPayoutPlan } from "./payout-plan";
 import type { PayoutPlanView } from "../payout-actions";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
@@ -131,8 +143,13 @@ export function PayrollWorkspace({
   const [busy, setBusy] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [entryOpen, setEntryOpen] = useState(false);
-  const [entryKind, setEntryKind] = useState<"deduction" | "allowance">("deduction");
+  const [entryKind, setEntryKind] = useState<"deduction" | "allowance" | "bonus">("deduction");
   const [transferOpen, setTransferOpen] = useState(false);
+  // Сотрудник, для которого форму открыли из меню строки ведомости;
+  // из кнопки «Добавить» — никто, выбирают в самой форме.
+  const [payFor, setPayFor] = useState<string | undefined>();
+  const [entryFor, setEntryFor] = useState<string | undefined>();
+  const [transferFor, setTransferFor] = useState<string | undefined>();
   // Панель держим смонтированной, пока она уезжает (docs/motion.md).
   const shownTransfer = useExitValue(transferOpen);
   const router = useRouter();
@@ -377,24 +394,107 @@ export function PayrollWorkspace({
       toast.error(e instanceof Error ? e.message : "Не удалось пересчитать недостачу", { id });
     }
   };
+  const openPay = (employeeId?: string) => {
+    setPayFor(employeeId);
+    setPayOpen(true);
+  };
+  const openEntry = (kind: "deduction" | "allowance" | "bonus", employeeId?: string) => {
+    setEntryKind(kind);
+    setEntryFor(employeeId);
+    setEntryOpen(true);
+  };
+  const openTransfer = (employeeId?: string) => {
+    setTransferFor(employeeId);
+    setTransferOpen(true);
+  };
+  // Кому есть что переносить: пункт «Перенести остаток» только у них.
+  const transferable = useMemo(
+    () => new Set(transferCandidates(data, monthStart).map((e) => e.row.employee.id)),
+    [data, monthStart],
+  );
+  const savePayslip = async (employee: (typeof rows)[number]["employee"]) => {
+    const id = toast.loading("Формируем выписку…");
+    try {
+      await downloadPayslip(data, employee, monthStart);
+      toast.dismiss(id);
+    } catch {
+      toast.error("Не удалось сформировать выписку. Попробуйте ещё раз", { id });
+    }
+  };
+  /**
+   * Правый клик по строке ведомости: то же, что в «Добавить» и в расчёте
+   * сотрудника, но сразу для этого сотрудника. Пункты — по тем же правам,
+   * что и кнопки.
+   */
+  const statementRowMenu = (row: (typeof rows)[number]) => {
+    const id = row.employee.id;
+    // Премии, штрафы и надбавки начисляют только работающим: форма
+    // предлагает лишь их.
+    const canEntry = can("review") && row.employee.active;
+    const canTransfer = can("review") && transferable.has(id);
+    // Форма выплаты предлагает работающих и тех, у кого есть начисления за месяц.
+    const canPay = can("pay") && (
+      row.employee.active || data.accruals.some((a) => a.employee_id === id && a.business_date.startsWith(month))
+    );
+    return (
+      <>
+        <ContextMenuLabel>{row.employee.name}</ContextMenuLabel>
+        <ContextMenuItem onSelect={() => router.push(`/people/payroll/${id}?month=${month}`)}>
+          <ArrowUpRight />
+          Открыть расчёт
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => void savePayslip(row.employee)}>
+          <Download />
+          Скачать выписку
+        </ContextMenuItem>
+        {(canPay || canEntry || canTransfer) && <ContextMenuSeparator />}
+        {canPay && (
+          <ContextMenuItem disabled={busy} onSelect={() => openPay(id)}>
+            <Banknote />
+            Выплатить
+          </ContextMenuItem>
+        )}
+        {canEntry && (
+          <>
+            <ContextMenuItem onSelect={() => openEntry("bonus", id)}>
+              <Gift />
+              Начислить премию
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => openEntry("deduction", id)}>
+              <CircleMinus />
+              Добавить штраф
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => openEntry("allowance", id)}>
+              <CirclePlus />
+              Надбавка за месяц
+            </ContextMenuItem>
+          </>
+        )}
+        {canTransfer && (
+          <ContextMenuItem onSelect={() => openTransfer(id)}>
+            <ArrowRightLeft />
+            Перенести остаток на следующий месяц
+          </ContextMenuItem>
+        )}
+      </>
+    );
+  };
   const tableActions = tab === "statement" ? (
     (can("pay") || can("review") || canRecalculateShortage) && <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button size="sm" disabled={busy}><Plus size={16} />Добавить</Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        {can("pay") && <DropdownMenuItem onSelect={() => setPayOpen(true)}>Выплата</DropdownMenuItem>}
-        {can("review") && <PayrollEntryMenuItems onSelect={(kind) => {setEntryKind(kind);setEntryOpen(true);}}/>}
-        {can("review") && <><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => {
-          setTransferOpen(true);
-        }}>Перенести остаток</DropdownMenuItem></>}
+        {can("pay") && <DropdownMenuItem onSelect={() => openPay()}>Выплата</DropdownMenuItem>}
+        {can("review") && <PayrollEntryMenuItems onSelect={(kind) => openEntry(kind)}/>}
+        {can("review") && <><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => openTransfer()}>Перенести остаток</DropdownMenuItem></>}
         {canRecalculateShortage && <><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => void recalculateShortage()}>
           Пересчитать недостачу за месяц
         </DropdownMenuItem></>}
       </DropdownMenuContent>
     </DropdownMenu>
   ) : tab === "payments" && can("pay") ? (
-    <Button size="sm" onClick={() => setPayOpen(true)} disabled={busy}>
+    <Button size="sm" onClick={() => openPay()} disabled={busy}>
       <Plus size={16} />Добавить выплату
     </Button>
   ) : null;
@@ -910,6 +1010,7 @@ export function PayrollWorkspace({
                   }
                   actions={tableActions}
                   filters={roleFilters}
+                  rowMenu={statementRowMenu}
                 />
               )}
             </section>}
@@ -918,9 +1019,10 @@ export function PayrollWorkspace({
           </PageFrame>
 
         </div>
-        <PayrollEntryForm initialKind={entryKind} open={entryOpen} onOpenChange={setEntryOpen} data={data} month={monthStart}
+        <PayrollEntryForm initialKind={entryKind} employeeId={entryFor} open={entryOpen} onOpenChange={setEntryOpen} data={data} month={monthStart}
           onCreated={async () => { await reload(); changeTab("journal"); }} />
-        {shownTransfer && <PayrollTransferDrawer open={transferOpen} data={data} month={monthStart}
+        {shownTransfer && <PayrollTransferDrawer key={transferFor ?? "all"} open={transferOpen} data={data} month={monthStart}
+          employeeId={transferFor}
           onClose={() => setTransferOpen(false)} onChange={reload} />}
         <Dialog
           open={composition}
@@ -989,6 +1091,8 @@ export function PayrollWorkspace({
           }
         >
           <PayrollPaymentForm onCancel={() => setPayOpen(false)}
+            key={payFor ?? "all"}
+            initialEmployeeId={payFor}
             data={data}
             month={monthStart}
             onDone={async () => {

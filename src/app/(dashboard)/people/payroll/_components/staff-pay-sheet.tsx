@@ -34,7 +34,7 @@ import {
   type PaySheetItem,
 } from "@/lib/payroll/pay-sheet";
 import type { PayEmployee, PayrollData, PayrollTransfer } from "@/lib/payroll/types";
-import { buildPayslip, payslipFileName } from "@/lib/payroll/payslip";
+import { downloadPayslip as savePayslip } from "./payslip-download";
 import { cn } from "@/lib/utils";
 import { PayrollEntryForm, PayrollJournal } from "@/app/(dashboard)/people/payroll/_components/payroll-journal";
 import { paymentJournalRows } from "@/lib/payroll/payment-journal";
@@ -115,16 +115,7 @@ export function StaffPaySheet({
   async function downloadPayslip() {
     setDownloading(true);
     try {
-      const payslip = buildPayslip(data, employee, month, (a) => accrualRole(a, employee.role_name, data));
-      // The PDF renderer is heavy: it is loaded only when a statement is requested.
-      const { renderPayslip } = await import("@/lib/payroll/payslip-pdf");
-      const blob = await renderPayslip(payslip, `${window.location.origin}/fonts/inter`);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = payslipFileName(payslip);
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      await savePayslip(data, employee, month);
     } catch {
       toast.error("Не удалось сформировать выписку. Попробуйте ещё раз");
     } finally {

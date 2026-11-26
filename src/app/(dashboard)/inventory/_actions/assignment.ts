@@ -65,13 +65,22 @@ function assertEligible(input: {
 }
 
 /**
- * Фильтр «вторая роль акта — не этот человек» для UPDATE: страхует инвариант
+ * «Вторая роль акта — не этот человек» для UPDATE: страхует инвариант
  * «исполнитель ≠ проверяющий» от гонки двух параллельных назначений (оба
  * прошли проверку по прочитанной строке, а в итоге один человек на обеих
- * ролях). userId к этому моменту проверен как uuid (assertEligible).
+ * ролях).
+ *
+ * Без `.or()`: PostgREST на проде (12.2.12) отвечает на `update().or().select()`
+ * ошибкой «column documents.… does not exist», и назначение не проходило ни у
+ * кого. Одиночное назначение сравнивает вторую роль с прочитанным значением,
+ * массовое делает два прохода: вторая роль пуста / занята другим человеком.
  */
-function otherRoleIsNot(column: "assigned_to" | "reviewer_id", userId: string) {
-  return `${column}.is.null,${column}.neq.${userId}`;
+function otherRoleUnchanged<Q extends { is(column: string, value: null): Q; eq(column: string, value: string): Q }>(
+  query: Q,
+  column: "assigned_to" | "reviewer_id",
+  readValue: string | null,
+): Q {
+  return readValue === null ? query.is(column, null) : query.eq(column, readValue);
 }
 
 /**
@@ -136,7 +145,7 @@ export async function assignInventoryReviewer(input: {
       .eq("id", input.documentId)
       .eq("account_id", ctx.accountId)
       .neq("status", "processed");
-    if (input.reviewerId) update = update.or(otherRoleIsNot("assigned_to", input.reviewerId));
+    if (input.reviewerId) update = otherRoleUnchanged(update, "assigned_to", before.assigned_to);
     const { data: updatedRows, error } = await update.select("id");
     if (error) {
       console.error("[assignInventoryReviewer] update failed:", error);
@@ -257,7 +266,7 @@ export async function assignInventoryDocument(input: {
       .eq("id", input.documentId)
       .eq("account_id", ctx.accountId)
       .eq("status", before.status);
-    if (input.assignedTo) update = update.or(otherRoleIsNot("reviewer_id", input.assignedTo));
+    if (input.assignedTo) update = otherRoleUnchanged(update, "reviewer_id", before.reviewer_id);
     const { data: updatedRows, error } = await update.select("id");
 
     if (error) {
@@ -429,17 +438,24 @@ export async function bulkAssignInventoryDocuments(input: {
     const appliedIds = new Set<string>();
     const eligibleIds = eligible.map((d) => d.id);
     if (input.role === "reviewer") {
-      let update = admin
-        .from<Array<{ id: string }>>("documents")
-        .update({ reviewer_id: userId })
-        .eq("account_id", ctx.accountId)
-        .in("id", eligibleIds)
-        // Проведённый за это время акт не трогаем (замок проверяющего).
-        .neq("status", "processed");
-      if (userId) update = update.or(otherRoleIsNot("assigned_to", userId));
-      const { data, error } = await update.select("id");
-      if (error) throw new Error(error.message);
-      for (const row of data ?? []) appliedIds.add(row.id);
+      const update = () =>
+        admin
+          .from<Array<{ id: string }>>("documents")
+          .update({ reviewer_id: userId })
+          .eq("account_id", ctx.accountId)
+          .in("id", eligibleIds)
+          // Проведённый за это время акт не трогаем (замок проверяющего).
+          .neq("status", "processed");
+      // Два прохода вместо `.or()` (см. otherRoleUnchanged): исполнитель пуст /
+      // исполнитель — другой человек.
+      const passes = userId
+        ? [update().is("assigned_to", null), update().neq("assigned_to", userId)]
+        : [update()];
+      for (const pass of passes) {
+        const { data, error } = await pass.select("id");
+        if (error) throw new Error(error.message);
+        for (const row of data ?? []) appliedIds.add(row.id);
+      }
     } else {
       // Исполнитель: статус зависит от текущего (на пересчёте — сохраняем
       // recount_pending). Группируем по целевому статусу и обновляем пачками.
@@ -456,16 +472,21 @@ export async function bulkAssignInventoryDocuments(input: {
         // на проверку между чтением и записью, не откатываем.
         const sourceStatuses =
           next === "recount_pending" ? ["recount_pending"] : ["synced", "assigned", "in_progress"];
-        let update = admin
-          .from<Array<{ id: string }>>("documents")
-          .update({ assigned_to: userId, status: next })
-          .eq("account_id", ctx.accountId)
-          .in("id", idsForStatus)
-          .in("status", sourceStatuses);
-        if (userId) update = update.or(otherRoleIsNot("reviewer_id", userId));
-        const { data, error } = await update.select("id");
-        if (error) throw new Error(error.message);
-        for (const row of data ?? []) appliedIds.add(row.id);
+        const update = () =>
+          admin
+            .from<Array<{ id: string }>>("documents")
+            .update({ assigned_to: userId, status: next })
+            .eq("account_id", ctx.accountId)
+            .in("id", idsForStatus)
+            .in("status", sourceStatuses);
+        const passes = userId
+          ? [update().is("reviewer_id", null), update().neq("reviewer_id", userId)]
+          : [update()];
+        for (const pass of passes) {
+          const { data, error } = await pass.select("id");
+          if (error) throw new Error(error.message);
+          for (const row of data ?? []) appliedIds.add(row.id);
+        }
       }
     }
     const applied = eligible.filter((d) => appliedIds.has(d.id));

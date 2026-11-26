@@ -174,3 +174,13 @@ test("linked to a live Quick Resto employee: its PIN is reused, nothing is creat
   assert.deepEqual(h.writes, ["store_1"]);
   assert.equal(h.row.quickresto_id, 112);
 });
+
+test("linked to a live Quick Resto employee without a readable PIN: no duplicate is created", async () => {
+  const h = await harness({
+    provisioning: {}, name: "Кристина Мелконян", linkedId: 112,
+    existing: [{ id: 112, firstName: "Кристина", lastName: "Мелконян", deleted: false }],
+  });
+  await assert.rejects(h.run(), /Не удалось прочитать PIN/);
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.row.quickresto_id, 112);
+});

@@ -209,14 +209,17 @@ export async function provisionCasualQuickResto(employeeId: string): Promise<{ p
       });
 
     // Created earlier but the PIN was not recorded: read it back. A linked
-    // employee that was deleted in Quick Resto (or has no PIN) is not reused —
-    // the worker gets a new one, otherwise the code would open nothing.
+    // employee that is gone from Quick Resto (deleted or missing) is not
+    // reused — the worker gets a new one, otherwise the code would open
+    // nothing. A live employee without a readable PIN is an error: creating a
+    // second one would duplicate the person in the till.
     if (claim.quickresto_id && !steps.employee) {
       const existing = (await rows("personnel.employee/select", { showDeleted: "true" })).find(
         (e) => Number(e.id) === claim.quickresto_id,
       );
-      const pin = String(existing?.pin ?? "");
-      if (existing && existing.deleted !== true && /^\d{4}$/.test(pin)) {
+      if (existing && existing.deleted !== true) {
+        const pin = String(existing.pin ?? "");
+        if (!/^\d{4}$/.test(pin)) throw new Error("Не удалось прочитать PIN сотрудника в Quick Resto");
         steps.employee = { state: "done", id: claim.quickresto_id, pin };
         await save();
       }

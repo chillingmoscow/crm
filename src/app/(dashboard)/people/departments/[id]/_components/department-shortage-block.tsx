@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { DatePicker } from "@/components/ui/date-picker";
 import { ProfileSection } from "@/components/shared/profile-section";
+import { ExpandPanel } from "@/components/shared/overview-toggle";
 import { useSaveSection } from "@/components/shared/save-bar";
 import {
   saveStockRules,
@@ -177,6 +178,9 @@ function ShortageForm({
             разделить администратор.
           </p>
         )}
+        {/* Распределение долей раскрывается плавно, как только доли
+            меняют; обёртка — чтобы свёрнутое не оставляло flex-gap секции. */}
+        <div>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Switch
@@ -205,8 +209,8 @@ function ShortageForm({
             </div>
           )}
         </div>
-        {dirty && !readOnly && (
-          <div className="space-y-4">
+        <ExpandPanel open={dirty && !readOnly}>
+          <div className="space-y-4 pt-4">
             <div className="divide-y rounded-lg border">
               {visible.map((d) => (
                 <div
@@ -270,7 +274,8 @@ function ShortageForm({
               </Field>
             </div>
           </div>
-        )}
+        </ExpandPanel>
+        </div>
       </ProfileSection>
       {bar}
     </>

@@ -10,12 +10,16 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Archive, Bell, CheckCheck, ListFilter, X } from "lucide-react";
+import { Archive, Bell, CheckCheck, ListFilter, MoreHorizontal, X } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -24,6 +28,8 @@ import {
 import { cn } from "@/lib/utils";
 import { useWorkspaceAppearance } from "@/components/shared/workspace-appearance";
 import appearance from "@/components/shared/workspace-appearance.module.css";
+import tabStyle from "@/components/shared/workspace-tabs.module.css";
+import { TablePageHeader } from "@/components/shared/table/table-page-header";
 import {
   archiveAllRead,
   archiveNotification,
@@ -57,7 +63,8 @@ const HDR_BTN =
   "inline-flex items-center justify-center size-8 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors";
 
 /**
- * Notion-style колокольчик уведомлений.
+ * Notion-style колокольчик уведомлений. В режиме `inbox` — страница
+ * «Уведомления»: шапка с действиями и вкладки представления.
  *   • Шапка: заголовок + кластер icon-кнопок (прочитать все,
  *     архивировать прочитанные, фильтр, настройки push) с RU-тултипами.
  *   • Фильтр сворачивает scope+read в один dropdown: все / непрочитанные
@@ -353,43 +360,161 @@ export function NotificationBell({
         ? "Нет непрочитанных"
         : "Нет уведомлений";
 
-  return (
-    <div className={isInbox ? "min-w-0" : "relative"} ref={ref}>
-      {!isInbox && (
-        <IconTooltip label="Уведомления">
-          <button
-            type="button"
-            aria-label="Уведомления"
-            onClick={() => setOpen((v) => !v)}
-            className="relative inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-          >
-            <Bell className="w-[18px] h-[18px]" />
-            {unreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-xs font-semibold text-destructive-foreground inline-flex items-center justify-center leading-none ring-2 ring-background">
-                {unreadCount > 99 ? "99+" : unreadCount}
-              </span>
-            )}
-          </button>
-        </IconTooltip>
+  // Список: общий для колокольчика и страницы «Уведомления».
+  const list = (
+    <div
+      ref={listRef}
+      onScroll={onListScroll}
+      className={cn(
+        "min-h-0 flex-1 overflow-y-auto",
+        !isInbox && "sm:max-h-[480px]",
       )}
+    >
+      {!loaded[scope] && <NotificationsSkeleton />}
+      {loaded[scope] && filteredList.length === 0 && (
+        <div className="px-4 py-12 text-center">
+          <Bell className="size-8 mx-auto text-muted-foreground/40 mb-2" />
+          <p className="text-xs text-muted-foreground">{emptyText}</p>
+        </div>
+      )}
+      {loaded[scope] &&
+        filteredList.length > 0 &&
+        TIME_BUCKET_ORDER.map((bucket) => {
+          const bucketRows = groups.get(bucket);
+          if (!bucketRows || bucketRows.length === 0) return null;
+          return (
+            <BucketSection
+              key={bucket}
+              label={TIME_BUCKET_LABELS[bucket]}
+              rows={bucketRows}
+              actorsMap={actorsMap}
+              onOpen={handleOpen}
+              onMarkRead={
+                scope === "active" ? handleMarkReadOne : undefined
+              }
+              onArchive={
+                scope === "active" ? handleArchiveOne : undefined
+              }
+              onUnarchive={
+                scope === "archived" ? handleUnarchiveOne : undefined
+              }
+              inArchive={scope === "archived"}
+            />
+          );
+        })}
+      {loaded[scope] &&
+        hasMore[scope] &&
+        filteredList.length >= PAGE_SIZE && (
+          <div className="px-4 py-2 text-center text-xs text-muted-foreground">
+            Прокрутите вниз чтобы загрузить ещё
+          </div>
+        )}
+    </div>
+  );
 
-      {(isInbox || open) && (
+  // Страница «Уведомления»: шапка 36px с действиями, под ней вкладки
+  // представления (как в «Зарплате»), ниже — список.
+  if (isInbox) {
+    const canMarkAll = scope === "active" && unreadCount > 0;
+    const canArchiveRead = scope === "active" && hasReadActive;
+    return (
+      <div className="min-w-0" ref={ref}>
+        <TablePageHeader
+          title="Уведомления"
+          actions={
+            <>
+              {canMarkAll && (
+                <Button variant="outline" size="sm" onClick={handleMarkAllRead}>
+                  <CheckCheck className="size-4" />
+                  Прочитать все
+                </Button>
+              )}
+              {/* Настройки push — своя кнопка-поповер, в размер ряда шапки. */}
+              <NotificationSettings variant="toolbar" />
+              {canArchiveRead && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-9 px-0"
+                      aria-label="Ещё действия с уведомлениями"
+                      data-tip="Ещё"
+                    >
+                      <MoreHorizontal className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" sideOffset={6}>
+                    <DropdownMenuItem onSelect={handleArchiveAllRead}>
+                      <Archive className="size-4" />
+                      Архивировать прочитанные
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </>
+          }
+        />
+        <Tabs
+          value={view}
+          onValueChange={(v) => setView(v as View)}
+          className={cn(tabStyle.tabs, "mt-4")}
+        >
+          <TabsList aria-label="Показать уведомления">
+            <TabsTrigger value="all">Все</TabsTrigger>
+            <TabsTrigger value="unread">
+              {unreadCount > 0 ? `Непрочитанные · ${unreadCount}` : "Непрочитанные"}
+            </TabsTrigger>
+            <TabsTrigger value="archived">Архив</TabsTrigger>
+          </TabsList>
+          <TabsContent value={view} className="!mt-5">
+            <div
+              role="region"
+              aria-label="Список уведомлений"
+              className={cn(
+                "flex min-h-[420px] max-h-[calc(100dvh-300px)] flex-col overflow-hidden rounded-xl border bg-background",
+                modern && appearance.notificationsInbox,
+              )}
+            >
+              {list}
+            </div>
+          </TabsContent>
+        </Tabs>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <IconTooltip label="Уведомления">
+        <button
+          type="button"
+          aria-label="Уведомления"
+          onClick={() => setOpen((v) => !v)}
+          className="relative inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+        >
+          <Bell className="w-[18px] h-[18px]" />
+          {unreadCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-xs font-semibold text-destructive-foreground inline-flex items-center justify-center leading-none ring-2 ring-background">
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
+          )}
+        </button>
+      </IconTooltip>
+
+      {open && (
         <div
           role="region"
           aria-label="Список уведомлений"
           className={cn(
-            isInbox
-              ? "flex min-h-[420px] max-h-[calc(100dvh-240px)] flex-col overflow-hidden rounded-xl border bg-background"
-              : cn(
-                  // Mobile: оверлей на весь экран поверх контента.
-                  "fixed inset-0 z-50 flex flex-col bg-popover",
-                  // Desktop (sm+): привязанный к колокольчику dropdown.
-                  "sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:h-auto sm:w-[400px] sm:overflow-hidden sm:rounded-[10px] sm:border sm:shadow-md",
-                ),
-            modern &&
-              (isInbox
-                ? appearance.notificationsInbox
-                : appearance.notificationsPopover),
+            // Появление — как у всплывающих окон: из угла кнопки
+            // (docs/motion.md, `.motion-popper-in`).
+            "motion-popper-in origin-top-right",
+            // Mobile: оверлей на весь экран поверх контента.
+            "fixed inset-0 z-50 flex flex-col bg-popover",
+            // Desktop (sm+): привязанный к колокольчику dropdown.
+            "sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:h-auto sm:w-[400px] sm:overflow-hidden sm:rounded-[10px] sm:border sm:shadow-md",
+            modern && appearance.notificationsPopover,
           )}
         >
           {/* Header: title + icon-actions */}
@@ -397,30 +522,14 @@ export function NotificationBell({
             data-notification-toolbar
             className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border/60"
           >
-            {modern && isInbox ? (
-              <NotificationViews
-                view={view}
-                setView={setView}
-                unreadCount={unreadCount}
-              />
-            ) : (
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span className="font-semibold text-sm">
-                  {isInbox
-                    ? view === "archived"
-                      ? "Архив"
-                      : view === "unread"
-                        ? "Непрочитанные"
-                        : "Входящие"
-                    : "Уведомления"}
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="font-semibold text-sm">Уведомления</span>
+              {unreadCount > 0 && (
+                <span className="text-xs font-semibold bg-brand/10 text-brand rounded-full px-1.5 leading-5">
+                  {unreadCount}
                 </span>
-                {unreadCount > 0 && (
-                  <span className="text-xs font-semibold bg-brand/10 text-brand rounded-full px-1.5 leading-5">
-                    {unreadCount}
-                  </span>
-                )}
-              </div>
-            )}
+              )}
+            </div>
 
             <div className="flex items-center gap-0.5 shrink-0">
               {scope === "active" && unreadCount > 0 && (
@@ -481,20 +590,18 @@ export function NotificationBell({
               <NotificationSettings />
 
               {/* Закрыть — только на мобильном. */}
-              {!isInbox && (
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  aria-label="Закрыть уведомления"
-                  className={cn(HDR_BTN, "sm:hidden")}
-                >
-                  <X className="size-5" />
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                aria-label="Закрыть уведомления"
+                className={cn(HDR_BTN, "sm:hidden")}
+              >
+                <X className="size-5" />
+              </button>
             </div>
           </div>
 
-          {modern && !isInbox && (
+          {modern && (
             <div className={appearance.popoverViews}>
               <NotificationViews
                 view={view}
@@ -503,70 +610,33 @@ export function NotificationBell({
               />
             </div>
           )}
-          {/* List */}
-          <div
-            ref={listRef}
-            onScroll={onListScroll}
-            className={cn(
-              "min-h-0 flex-1 overflow-y-auto",
-              !isInbox && "sm:max-h-[480px]",
-            )}
+          {list}
+          <Link
+            href="/notifications"
+            onClick={() => setOpen(false)}
+            className="border-t px-4 py-3 text-center text-sm font-medium text-brand hover:bg-muted/40"
           >
-            {!loaded[scope] && (
-              <div className="px-4 py-8 text-center text-xs text-muted-foreground">
-                Загрузка…
-              </div>
-            )}
-            {loaded[scope] && filteredList.length === 0 && (
-              <div className="px-4 py-12 text-center">
-                <Bell className="size-8 mx-auto text-muted-foreground/40 mb-2" />
-                <p className="text-xs text-muted-foreground">{emptyText}</p>
-              </div>
-            )}
-            {loaded[scope] &&
-              filteredList.length > 0 &&
-              TIME_BUCKET_ORDER.map((bucket) => {
-                const bucketRows = groups.get(bucket);
-                if (!bucketRows || bucketRows.length === 0) return null;
-                return (
-                  <BucketSection
-                    key={bucket}
-                    label={TIME_BUCKET_LABELS[bucket]}
-                    rows={bucketRows}
-                    actorsMap={actorsMap}
-                    onOpen={handleOpen}
-                    onMarkRead={
-                      scope === "active" ? handleMarkReadOne : undefined
-                    }
-                    onArchive={
-                      scope === "active" ? handleArchiveOne : undefined
-                    }
-                    onUnarchive={
-                      scope === "archived" ? handleUnarchiveOne : undefined
-                    }
-                    inArchive={scope === "archived"}
-                  />
-                );
-              })}
-            {loaded[scope] &&
-              hasMore[scope] &&
-              filteredList.length >= PAGE_SIZE && (
-                <div className="px-4 py-2 text-center text-xs text-muted-foreground">
-                  Прокрутите вниз чтобы загрузить ещё
-                </div>
-              )}
-          </div>
-          {!isInbox && (
-            <Link
-              href="/notifications"
-              onClick={() => setOpen(false)}
-              className="border-t px-4 py-3 text-center text-sm font-medium text-brand hover:bg-muted/40"
-            >
-              Все уведомления →
-            </Link>
-          )}
+            Все уведомления →
+          </Link>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Заглушка списка при первой загрузке — по форме строк уведомлений. */
+function NotificationsSkeleton() {
+  return (
+    <div role="status" aria-label="Загружаем уведомления" className="divide-y divide-border/60">
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="flex items-start gap-3 px-4 py-3">
+          <Skeleton className="size-8 shrink-0 rounded-full" />
+          <div className="min-w-0 flex-1 space-y-1.5 pt-0.5">
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-3 w-1/2" />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

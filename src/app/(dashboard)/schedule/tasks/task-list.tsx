@@ -123,7 +123,7 @@ export function TaskList({
         <button
           type="button"
           onClick={() => onOpen(row.original)}
-          className="block max-w-full truncate text-left font-medium hover:underline"
+          className="block max-w-full truncate text-left font-medium transition-colors duration-200 hover:text-brand"
           data-tip={row.original.name}
         >
           {row.original.name}

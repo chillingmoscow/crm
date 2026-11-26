@@ -6,7 +6,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
-import { overlayClass, overlayContentTiming } from "@/lib/overlay-classes"
+import { overlayClass } from "@/lib/overlay-classes"
 import { focusOverlayContent } from "@/lib/overlay-focus"
 import { useSsrSafeAriaControls } from "@/hooks/use-hydrated"
 
@@ -42,19 +42,17 @@ const SheetOverlay = React.forwardRef<
 SheetOverlay.displayName = SheetPrimitive.Overlay.displayName
 
 const sheetVariants = cva(
-  cn(
-    "fixed z-50 gap-4 bg-background p-6 shadow-lg transition data-[state=open]:animate-in data-[state=closed]:animate-out",
-    overlayContentTiming,
-  ),
+  // Выезд со своей стороны — .motion-sheet + data-side (globals.css, docs/motion.md).
+  "fixed z-50 gap-4 bg-background p-6 shadow-lg motion-sheet",
   {
     variants: {
       side: {
-        top: "inset-x-0 top-0 border-b data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top",
+        top: "inset-x-0 top-0 border-b",
         bottom:
-          "inset-x-0 bottom-0 border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
-        left: "inset-y-0 left-0 h-full w-3/4 border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left sm:max-w-sm",
+          "inset-x-0 bottom-0 border-t",
+        left: "inset-y-0 left-0 h-full w-3/4 border-r sm:max-w-sm",
         right:
-          "inset-y-0 right-0 h-full w-3/4  border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:max-w-sm",
+          "inset-y-0 right-0 h-full w-3/4  border-l sm:max-w-sm",
       },
     },
     defaultVariants: {
@@ -77,6 +75,7 @@ const SheetContent = React.forwardRef<
       ref={ref}
       tabIndex={-1}
       onOpenAutoFocus={onOpenAutoFocus}
+      data-side={side ?? "right"}
       className={cn(sheetVariants({ side }), "outline-none", className)}
       {...props}
     >

@@ -11,6 +11,7 @@ import { Field } from "@/components/ui/field";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { ProfileSection } from "@/components/shared/profile-section";
 import { formatDayMonth, formatDayMonthTime } from "@/lib/format/date";
@@ -22,10 +23,13 @@ import {
 import { RuleHistory } from "@/app/(dashboard)/org/venues/[venueId]/_components/rule-history";
 
 function Form({
+  open,
   data,
   onClose,
   onSaved,
 }: {
+  /** Панель держат смонтированной, пока она уезжает: закрывают через `open`. */
+  open: boolean;
   data: FinanceExecutionConfiguration;
   onClose: () => void;
   onSaved: (v: FinanceExecutionConfiguration) => void;
@@ -65,7 +69,7 @@ function Form({
   };
   return (
     <EditDrawer
-      open
+      open={open}
       onOpenChange={(v) => {
         if (!v && !busy) onClose();
       }}
@@ -181,12 +185,21 @@ export function FinanceExecutionSettingsSection({
 }) {
   const [data, setData] = useState<FinanceExecutionConfiguration | null>(null),
     [open, setOpen] = useState(false),
-    [error, setError] = useState<string | null>(null);
+    [error, setError] = useState<string | null>(null),
+    [loading, setLoading] = useState(true);
+  // Форму держим смонтированной, пока панель уезжает (docs/motion.md);
+  // каждое открытие — новый ключ, форма начинается с сохранённых данных.
+  const [session, setSession] = useState(0);
+  const openForm = () => {
+    setSession((n) => n + 1);
+    setOpen(true);
+  };
   useEffect(() => {
     let live = true;
     setData(null);
     setOpen(false);
     setError(null);
+    setLoading(true);
     loadFinanceExecutionConfiguration(venueId)
       .then(unwrapAction)
       .then((v) => {
@@ -194,12 +207,26 @@ export function FinanceExecutionSettingsSection({
       })
       .catch((e) => {
         if (live) setError(e.message);
+      })
+      .finally(() => {
+        if (live) setLoading(false);
       });
     return () => {
       live = false;
     };
   }, [venueId]);
-  if ((data && data.venueId !== venueId) || (!data && !error)) return null;
+  // Пока данные грузятся, секция стоит на месте заглушкой: страница не прыгает.
+  // Без доступа (пустой ответ) секции нет.
+  if (loading || (data && data.venueId !== venueId))
+    return (
+      <ProfileSection title="Проведение финансовых операций">
+        <div role="status" aria-label="Загружаем проведение операций" aria-busy className="space-y-2">
+          <Skeleton className="h-4 w-2/3" />
+          <Skeleton className="h-4 w-1/3" />
+        </div>
+      </ProfileSection>
+    );
+  if (!data && !error) return null;
   const current = data?.versions[0];
   return (
     <ProfileSection
@@ -211,7 +238,7 @@ export function FinanceExecutionSettingsSection({
       }
       actions={
         data ? (
-          <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+          <Button variant="outline" size="sm" onClick={() => openForm()}>
             <Settings2 />
             Настроить
           </Button>
@@ -243,9 +270,10 @@ export function FinanceExecutionSettingsSection({
           </ol>
         </RuleHistory>
       )}
-      {open && data && (
+      {data && (
         <Form
-          key={venueId}
+          key={`${venueId}:${session}`}
+          open={open}
           data={data}
           onClose={() => setOpen(false)}
           onSaved={(v) => {

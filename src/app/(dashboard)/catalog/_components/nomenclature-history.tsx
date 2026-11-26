@@ -167,15 +167,15 @@ export function NomenclatureHistory({
             <table className={cn("w-full text-sm", canViewResults && "min-w-[620px]")}>
               <thead className="bg-muted text-xs font-medium text-muted-foreground">
                 <tr className="h-11">
-                  <th className="px-3 text-left font-medium">Акт</th>
-                  <th className="px-3 text-left font-medium">Статус</th>
-                  <th className="px-3 text-right font-medium">Факт</th>
-                  <th className="px-3 text-right font-medium">Расчёт</th>
+                  <th className="px-3 text-left font-medium" data-tip="Номер и дата акта">Акт</th>
+                  <th className="px-3 text-left font-medium" data-tip="Статус акта">Статус</th>
+                  <th className="px-3 text-right font-medium" data-tip="Фактический остаток по акту">Факт</th>
+                  <th className="px-3 text-right font-medium" data-tip="Расчётный остаток Quick Resto">Расчёт</th>
                   {canViewResults ? (
                     <>
-                      <th className="px-3 text-right font-medium">Разница</th>
-                      <th className="px-3 text-right font-medium">Сумма</th>
-                      <th className="px-3 text-left font-medium">Пометки</th>
+                      <th className="px-3 text-right font-medium" data-tip="Разница факта и расчёта">Разница</th>
+                      <th className="px-3 text-right font-medium" data-tip="Сумма разницы">Сумма</th>
+                      <th className="px-3 text-left font-medium" data-tip="Исключения из итогов и пересорт">Пометки</th>
                     </>
                   ) : null}
                 </tr>
@@ -190,7 +190,7 @@ export function NomenclatureHistory({
                             ? `/documents/inventory/${item.documentId}/results`
                             : `/documents/inventory/${item.documentId}`
                         }
-                        className="font-medium hover:underline"
+                        className="font-medium transition-colors duration-200 hover:text-brand"
                       >
                         {item.documentNumber}
                       </Link>

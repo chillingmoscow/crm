@@ -19,7 +19,7 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { GripVertical, SearchX, Wand2 } from "lucide-react";
+import { GripVertical, Plus, SearchX, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
@@ -132,7 +132,14 @@ export function RulesPage({
         icon={Wand2}
         title="Правил пока нет"
         description="Правило само заполнит статью, контрагента или заведение, когда вы вводите операцию"
-        action={canManage ? <Button onClick={() => openRule(null)}>Добавить правило</Button> : undefined}
+        action={
+          canManage ? (
+            <Button onClick={() => openRule(null)}>
+              <Plus className="size-4" />
+              Добавить правило
+            </Button>
+          ) : undefined
+        }
       />
     );
   } else if (visible.length === 0) {
@@ -185,7 +192,14 @@ export function RulesPage({
               open: searchOpen,
               onOpenChange: setSearchOpen,
             }}
-            primaryActions={canManage ? <Button onClick={() => openRule(null)}>Добавить правило</Button> : null}
+            primaryActions={
+              canManage ? (
+                <Button size="sm" onClick={() => openRule(null)}>
+                  <Plus className="size-4" />
+                  Добавить правило
+                </Button>
+              ) : null
+            }
           />
         }
       />
@@ -260,11 +274,15 @@ function RuleRow({
         onClick={onOpen}
         aria-label={`Открыть «${label}»`}
         className={cn(
-          "min-w-0 flex-1 space-y-1 rounded-md py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "group/rule min-w-0 flex-1 space-y-1 rounded-md py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           !rule.enabled && "opacity-60",
         )}
       >
-        {rule.name ? <span className="block truncate text-sm font-medium">{rule.name}</span> : null}
+        {rule.name ? (
+          <span className="block truncate text-sm font-medium transition-colors duration-200 group-hover/rule:text-brand">
+            {rule.name}
+          </span>
+        ) : null}
         <span className="block text-sm">
           <span className="text-muted-foreground">Если </span>
           {rule.conditionsText}

@@ -154,7 +154,7 @@ export function SalesTrend({
             <Button
               variant="outline"
               size="sm"
-              className="h-9 max-w-full gap-2 font-normal"
+              className="max-w-full gap-2 font-normal"
               aria-label={`Показатель графика: ${currentSeries.label}`}
             >
               <span className="truncate">{currentSeries.label}</span>
@@ -258,10 +258,14 @@ export function SalesTrend({
                 className="stroke-border"
               />
             )}
+            {/* Линия рисуется слева направо, при смене показателя — заново
+                (docs/motion.md). */}
             <path
+              key={metric}
               d={path}
               fill="none"
-              className="stroke-brand"
+              pathLength={1}
+              className="stroke-brand chart-line-draw"
               strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -270,10 +274,11 @@ export function SalesTrend({
               <g key={p.month}>
                 {p.value !== null && (
                   <circle
+                    key={metric}
                     cx={x(i)}
                     cy={y(p.value)}
                     r={current?.month === p.month ? 5 : 3}
-                    className="fill-brand stroke-background"
+                    className="fill-brand stroke-background chart-fill-in"
                     strokeWidth="2"
                   />
                 )}

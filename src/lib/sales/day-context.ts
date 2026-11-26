@@ -31,6 +31,8 @@ export type DayContextValue = {
 export type DayMember = {
   id: string;
   employeeId?: string;
+  /** Карточка сотрудника (`/people/staff/<userId>`): только если её можно открыть. */
+  userId?: string;
   name: string;
   position: string | null;
   role: string | null;

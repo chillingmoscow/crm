@@ -1,13 +1,14 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { History, Loader2, Repeat2, XCircle } from "lucide-react";
+import { History, Repeat2, XCircle } from "lucide-react";
 
 import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
   formatSignedInventoryQuantity,
@@ -116,9 +117,15 @@ function HistoryBody({
 
   if (!entries) {
     return (
-      <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Загрузка истории…
+      // Скелетон по форме истории: заголовок, сводка и три строки актов.
+      <div role="status" aria-label="Загружаем историю" className="space-y-2">
+        <Skeleton className="h-3.5 w-28" />
+        <Skeleton className="h-3 w-48" />
+        <div className="space-y-1.5">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-3.5 w-full" />
+          ))}
+        </div>
       </div>
     );
   }

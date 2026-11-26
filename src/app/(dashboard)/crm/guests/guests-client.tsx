@@ -20,6 +20,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ExpandPanel } from "@/components/shared/overview-toggle";
 import { PageFrame } from "@/components/shared/page-frame";
 import {
   TablePageHeader,
@@ -33,6 +34,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   DrawerAvatar,
   DrawerSection,
@@ -162,8 +164,62 @@ function CollapsibleSection({
         </Button>
       }
     >
-      {open && children}
+      <ExpandPanel open={open}>{children}</ExpandPanel>
     </DrawerSection>
+  );
+}
+/** «Изменённые поля» в истории карточки: кнопка с шевроном и раскрытие. */
+function HistoryChanges({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-2 text-xs">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1 text-muted-foreground transition-colors duration-200 hover:text-foreground"
+      >
+        <ChevronRight
+          className={cn("motion-chevron size-3.5", open && "rotate-90")}
+        />
+        Изменённые поля
+      </button>
+      <ExpandPanel open={open}>{children}</ExpandPanel>
+    </div>
+  );
+}
+/** Заглушка карточки гостя, пока она загружается. */
+function GuestCardSkeleton() {
+  return (
+    <div role="status" aria-label="Загружаем карточку" className="space-y-6">
+      <div className="flex items-center gap-3">
+        <Skeleton className="size-14 shrink-0 rounded-full" />
+        <div className="min-w-0 flex-1 space-y-2">
+          <Skeleton className="h-5 w-1/2" />
+          <Skeleton className="h-4 w-1/3" />
+        </div>
+      </div>
+      <Skeleton className="h-9 w-full" />
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="space-y-1.5">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-4 w-2/3" />
+        </div>
+      ))}
+    </div>
+  );
+}
+/** Заглушка настроек гостей, пока они загружаются. */
+function SettingsSkeleton() {
+  return (
+    <div role="status" aria-label="Загружаем настройки" className="space-y-5">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="space-y-2">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-10 w-full" />
+        </div>
+      ))}
+    </div>
   );
 }
 function Value({ label, children }: { label: string; children: ReactNode }) {
@@ -452,8 +508,10 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
             {data.canConfigure && (
               <Button
                 variant="outline"
-                size="icon"
+                size="sm"
+                className="w-9 px-0"
                 aria-label="Настройки гостей"
+                data-tip="Настройки гостей"
                 onClick={() => void settings()}
               >
                 <Settings2 className="size-4" />
@@ -461,6 +519,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
             )}
             {data.canManage && (
               <Button
+                size="sm"
                 onClick={() => {
                   detailSequence.current++;
                   setDetail(null);
@@ -473,7 +532,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                   setCardOpen(true);
                 }}
               >
-                <Plus className="mr-2 size-4" />
+                <Plus className="size-4" />
                 Добавить гостя
               </Button>
             )}
@@ -569,7 +628,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                   variant="outline"
                   onClick={() => change({ desc: !filters.desc })}
                 >
-                  <ArrowUpDown className="mr-2 size-4" />
+                  <ArrowUpDown className="size-4" />
                   {filters.desc ? "По убыванию" : "По возрастанию"}
                 </Button>
               </div>
@@ -628,7 +687,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                   >
                     <GuestAvatar guest={g} />
                     <span className="min-w-0">
-                      <span className="block truncate font-medium">
+                      <span className="block truncate font-medium transition-colors duration-200 hover:text-brand">
                         {g.data.name}
                       </span>
                       <span className="mt-1 block truncate text-xs text-muted-foreground">
@@ -675,7 +734,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
               <span className="flex items-center gap-3">
                 <GuestAvatar guest={g} />
                 <span className="min-w-0 flex-1">
-                  <span className="block break-words text-sm font-medium">
+                  <span className="block break-words text-sm font-medium transition-colors duration-200 hover:text-brand">
                     {g.data.name}
                   </span>
                   <span className="mt-1 block text-xs text-muted-foreground">
@@ -779,9 +838,9 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                 }}
               >
                 {detail.archived ? (
-                  <RotateCcw className="mr-2 size-4" />
+                  <RotateCcw className="size-4" />
                 ) : (
-                  <Archive className="mr-2 size-4" />
+                  <Archive className="size-4" />
                 )}
                 {detail.archived ? "Восстановить" : "В архив"}
               </Button>
@@ -839,7 +898,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                 disabled={saving}
                 onClick={() => file.current?.click()}
               >
-                <Camera className="mr-2 size-4" />
+                <Camera className="size-4" />
                 {draft.photoPath ? "Изменить фото" : "Прикрепить фото"}
               </Button>
               {draft.photoPath && (
@@ -1070,10 +1129,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                         <p className="text-muted-foreground">{h.reason}</p>
                       )}
                       {h.before_data && (
-                        <details className="mt-2 text-xs">
-                          <summary className="cursor-pointer text-muted-foreground">
-                            Изменённые поля
-                          </summary>
+                        <HistoryChanges>
                           <div className="mt-3 space-y-1">
                             {Object.keys({ ...h.before_data, ...h.after_data })
                               .filter(
@@ -1096,7 +1152,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                                 </p>
                               ))}
                           </div>
-                        </details>
+                        </HistoryChanges>
                       )}
                     </DrawerTimelineItem>
                   ))}
@@ -1136,9 +1192,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
             </Tabs>
           </>
         ) : (
-          <div className="py-12 text-sm text-muted-foreground">
-            Загружаем карточку…
-          </div>
+          <GuestCardSkeleton />
         )}
       </EditDrawer>
       <Dialog
@@ -1275,7 +1329,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                     }
                   }}
                 >
-                  <RefreshCw className="mr-2 size-4" />
+                  <RefreshCw className="size-4" />
                   Обновить базу
                 </Button>
                 <Button
@@ -1455,7 +1509,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
             )}
           </>
         ) : (
-          <p className="text-sm text-muted-foreground">Загружаем настройки…</p>
+          <SettingsSkeleton />
         )}
       </EditDrawer>
     </PageFrame>

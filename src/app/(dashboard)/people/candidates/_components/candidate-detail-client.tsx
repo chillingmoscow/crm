@@ -7,7 +7,9 @@ import {
   Pencil,
   MoreHorizontal,
   CalendarPlus,
+  CalendarClock,
   UserCheck,
+  UserRound,
   Trash2,
   Phone,
   ExternalLink,
@@ -127,13 +129,14 @@ export function CandidateDetailClient({
         <ProfileHeader name={c.full_name} avatarUrl={photo} wrapName actions={
           <>
             {canEdit && !c.hired_user_id && !data.hire && ["new", "review", "interview"].includes(c.status) && (
-              canTrial ? <Button onClick={() => openMeeting("trial")}><CalendarPlus className="mr-2 size-4" />Назначить стажировку</Button>
-                : latestInterview ? <Button onClick={() => setViewing(latestInterview)}>Открыть собеседование</Button>
-                  : <Button onClick={() => openMeeting("interview")}><CalendarPlus className="mr-2 size-4" />Назначить собеседование</Button>
+              canTrial ? <Button size="sm" onClick={() => openMeeting("trial")}><CalendarPlus />Назначить стажировку</Button>
+                : latestInterview ? <Button size="sm" onClick={() => setViewing(latestInterview)}><CalendarClock />Открыть собеседование</Button>
+                  : <Button size="sm" onClick={() => openMeeting("interview")}><CalendarPlus />Назначить собеседование</Button>
             )}
             {c.hired_user_id ? (
-              <Button asChild>
+              <Button size="sm" asChild>
                 <Link href={`/people/staff/${c.hired_user_id}`}>
+                  <UserRound />
                   Открыть сотрудника
                 </Link>
               </Button>
@@ -141,7 +144,7 @@ export function CandidateDetailClient({
               // Блок рисуется только на «Стажировке» или при начатом
               // оформлении — в обоих случаях кнопка доступна, поэтому ни
               // disabled, ни подсказки про этап здесь не нужно.
-              <Button onClick={() => setHiring(true)}>
+              <Button size="sm" onClick={() => setHiring(true)}>
                 <UserCheck />
                 {data.hire?.state === "reserved"
                   ? "Продолжить оформление"
@@ -151,7 +154,7 @@ export function CandidateDetailClient({
             {canEdit || permissions.owner ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="icon" aria-label="Действия с кандидатом" disabled={busy}>
+                  <Button variant="outline" size="icon" className="size-9" aria-label="Действия с кандидатом" disabled={busy}>
                     <MoreHorizontal className="size-4" />
                   </Button>
                 </DropdownMenuTrigger>

@@ -132,7 +132,7 @@ export function LegalEntityVenues({
               <VenueTile />
               <Link
                 href={`/org/venues/${v.id}`}
-                className="min-w-0 flex-1 truncate text-sm font-medium hover:underline"
+                className="min-w-0 flex-1 truncate text-sm font-medium transition-colors duration-200 hover:text-brand"
                 data-tip={v.name}
               >
                 {v.name}

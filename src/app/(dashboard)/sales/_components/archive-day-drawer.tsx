@@ -26,10 +26,13 @@ const labels: Record<string, string> = {
 
 /** День из архива Glide: только просмотр, суммы без пересчёта. */
 export function ArchiveDayDrawer({
+  open = true,
   archive,
   tab,
   onClose,
 }: {
+  /** Панель держат смонтированной, пока она уезжает: закрывают через `open`. */
+  open?: boolean;
   archive: DayArchive;
   tab: string;
   onClose: () => void;
@@ -37,7 +40,7 @@ export function ArchiveDayDrawer({
   const weekday = weekdayLabel(archive.business_date);
   return (
     <EditDrawer
-      open
+      open={open}
       title={`Смена ${dayLabel(archive.business_date)}`}
       titleAccessory={<DrawerStatus label="Архив Glide" tone="neutral" />}
       description={`${weekday.charAt(0).toUpperCase()}${weekday.slice(1)} · снимок ${formatDayMonth(archive.captured_at.slice(0, 10)) ?? ""}`}

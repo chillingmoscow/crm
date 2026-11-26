@@ -143,7 +143,7 @@ function EntityReference({
         <span className="text-muted-foreground/50">·</span>
         <Link
           href={`/knowledge/${entity.slug}`}
-          className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
+          className="inline-flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-brand"
         >
           <KbPageIcon icon={entity.icon} color={entity.icon_color} size={12} />
           <span className="truncate max-w-[200px]">
@@ -162,7 +162,7 @@ function EntityReference({
         <span className="text-muted-foreground/50">·</span>
         <Link
           href={`/people/staff/${entity.id}`}
-          className="text-muted-foreground hover:text-foreground transition-colors"
+          className="text-muted-foreground transition-colors hover:text-brand"
         >
           открыть карточку
         </Link>
@@ -179,7 +179,7 @@ function EntityReference({
         <span className="text-muted-foreground/50">·</span>
         <Link
           href={`/people/roles/${entity.id}`}
-          className="text-muted-foreground hover:text-foreground transition-colors"
+          className="text-muted-foreground transition-colors hover:text-brand"
         >
           открыть должность
         </Link>
@@ -193,7 +193,7 @@ function EntityReference({
         <span className="text-muted-foreground/50">·</span>
         <Link
           href={`/people/departments/${entity.id}`}
-          className="text-muted-foreground hover:text-foreground transition-colors"
+          className="text-muted-foreground transition-colors hover:text-brand"
         >
           открыть подразделение
         </Link>
@@ -224,7 +224,7 @@ function EntityReference({
         <span className="text-muted-foreground/50">·</span>
         <Link
           href={`/finance/transactions?id=${entity.id}`}
-          className="text-muted-foreground hover:text-foreground transition-colors"
+          className="text-muted-foreground transition-colors hover:text-brand"
         >
           открыть транзакцию
         </Link>
@@ -239,7 +239,7 @@ function EntityReference({
         <span className="text-muted-foreground/50">·</span>
         <Link
           href={`/finance/accounts/${entity.id}`}
-          className="text-muted-foreground hover:text-foreground transition-colors"
+          className="text-muted-foreground transition-colors hover:text-brand"
         >
           открыть счёт
         </Link>
@@ -257,7 +257,7 @@ function EntityReference({
         <span className="text-muted-foreground/50">·</span>
         <Link
           href="/finance/categories"
-          className="text-muted-foreground hover:text-foreground transition-colors"
+          className="text-muted-foreground transition-colors hover:text-brand"
         >
           открыть статью
         </Link>
@@ -272,7 +272,7 @@ function EntityReference({
         <span className="text-muted-foreground/50">·</span>
         <Link
           href="/finance/counterparties"
-          className="text-muted-foreground hover:text-foreground transition-colors"
+          className="text-muted-foreground transition-colors hover:text-brand"
         >
           открыть контрагента
         </Link>
@@ -286,7 +286,7 @@ function EntityReference({
         <span className="text-muted-foreground/50">·</span>
         <Link
           href={`/org/venues/${entity.id}`}
-          className="text-muted-foreground hover:text-foreground transition-colors"
+          className="text-muted-foreground transition-colors hover:text-brand"
         >
           открыть заведение
         </Link>
@@ -303,7 +303,7 @@ function EntityReference({
         <span className="text-muted-foreground/50">·</span>
         <Link
           href={`/org/legal-entities/${entity.id}`}
-          className="text-muted-foreground hover:text-foreground transition-colors"
+          className="text-muted-foreground transition-colors hover:text-brand"
         >
           открыть юрлицо
         </Link>
@@ -317,7 +317,7 @@ function EntityReference({
         <span className="text-muted-foreground/50">·</span>
         <Link
           href="/org/account"
-          className="text-muted-foreground hover:text-foreground transition-colors"
+          className="text-muted-foreground transition-colors hover:text-brand"
         >
           открыть аккаунт
         </Link>

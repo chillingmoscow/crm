@@ -92,7 +92,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Field } from "@/components/ui/field";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Textarea } from "@/components/ui/textarea";
+import { AnimatedMoney } from "@/components/shared/animated-money";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { ExpandPanel } from "@/components/shared/overview-toggle";
 import {
   TableBulkBar,
   TableColumnManager,
@@ -338,7 +340,7 @@ function TileAmount({
         value == null ? "text-muted-foreground" : signedAmountClass(value),
       )}
     >
-      {value == null ? "—" : formatMoney(Math.abs(value), "RUB", amountRoundingScale)}
+      {value == null ? "—" : <AnimatedMoney value={Math.abs(value)} scale={amountRoundingScale} />}
     </div>
   );
 }
@@ -1122,7 +1124,7 @@ export function InventoryResultsTable({
                 }}
                 // Без title: по наведению здесь открывается карточка истории, и
                 // системная подсказка налезала бы на неё поверх.
-                className="block max-w-full truncate text-left font-medium hover:text-brand hover:underline"
+                className="block max-w-full truncate text-left font-medium transition-colors duration-200 hover:text-brand"
               >
                 {item.product_name}
               </button>
@@ -1615,7 +1617,7 @@ export function InventoryResultsTable({
       {/* Карточка с предложениями пересорта. Триггер ИИ-подсказок переехал
           в тулбар (синяя иконка-палочка). Карточка показывается только
           когда есть что показать: готовые подсказки или идёт загрузка ИИ. */}
-      {displayedSuggestions.length > 0 || aiLoading ? (
+      <ExpandPanel open={displayedSuggestions.length > 0 || aiLoading}>
       <div className="rounded-lg border bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <WandSparkles className="h-4 w-4 text-brand" />
@@ -1692,14 +1694,14 @@ export function InventoryResultsTable({
                       type="button"
                       onClick={() => setOpenReasonKey(reasonOpen ? null : suggestion.key)}
                       aria-expanded={reasonOpen}
-                      className="mt-1.5 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                      className="mt-1.5 inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors duration-200 hover:text-foreground"
                     >
-                      <ChevronRight className={cn("h-3 w-3 transition-transform", reasonOpen && "rotate-90")} />
+                      <ChevronRight className={cn("motion-chevron h-3 w-3", reasonOpen && "rotate-90")} />
                       Почему
                     </button>
-                    {reasonOpen ? (
+                    <ExpandPanel open={reasonOpen}>
                       <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{suggestion.reason}</p>
-                    ) : null}
+                    </ExpandPanel>
                   </div>
 
                   </div>
@@ -1737,7 +1739,7 @@ export function InventoryResultsTable({
           </p>
         )}
       </div>
-      ) : null}
+      </ExpandPanel>
 
       {visibleItems.length === 0 ? (
         // Пусто бывает только из-за условий: строки в акте есть (иначе выше
@@ -1811,8 +1813,15 @@ export function InventoryResultsTable({
                 }
               />
               <tbody>
-                {table.getRowModel().rows.map((row) => (
-                  <tr key={row.id} className="border-b last:border-b-0 hover:bg-muted/30">
+                {table.getRowModel().rows.map((row, index) => (
+                  // Строка проявляется при первом показе (docs/motion.md), как в
+                  // DataTable: ключ — id строки, поэтому при фоновом обновлении
+                  // строка не пересоздаётся и не мигает.
+                  <tr
+                    key={row.id}
+                    className="table-row-in border-b last:border-b-0 hover:bg-muted/30"
+                    style={{ animationDelay: `${Math.min(index, 14) * 40}ms` }}
+                  >
                     {row.getVisibleCells().map((cell) => (
                       <td
                         key={cell.id}

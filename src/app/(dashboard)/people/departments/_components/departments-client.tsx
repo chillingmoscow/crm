@@ -1,5 +1,6 @@
 "use client";
 
+import { MotionPresence } from "@/components/shared/motion-presence";
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -196,7 +197,7 @@ export function DepartmentsClient({
             <div className="min-w-0">
               <Link
                 href={`/people/departments/${d.id}`}
-                className="block truncate font-medium hover:underline"
+                className="block truncate font-medium transition-colors duration-200 hover:text-brand"
                 data-tip={d.name}
               >
                 {d.name}
@@ -370,7 +371,7 @@ export function DepartmentsClient({
         }}
         onReset={resetConditions}
       >
-        {(filtersOpen || !!headFilter) && (
+        <MotionPresence show={filtersOpen || !!headFilter}>
           <TableFilterChip
             label="Руководитель"
             value={headFilter}
@@ -384,7 +385,7 @@ export function DepartmentsClient({
               { value: "missing", label: "Без руководителя" },
             ]}
           />
-        )}
+        </MotionPresence>
       </TableConditions>
 
       {departments.length === 0 ? (

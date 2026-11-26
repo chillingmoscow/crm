@@ -11,6 +11,7 @@ import {
 import { formatRub } from "@/components/shared/money";
 import { formatDayMonthTime } from "@/lib/format/date";
 import { loadCashHistory, type CashHistoryEntry } from "../cash-control-actions";
+import { SectionRowsSkeleton } from "../../_components/section-skeleton";
 
 const amount = (v: number | null) =>
   formatRub(v === null ? null : v / 100, { fraction: "auto" });
@@ -62,6 +63,13 @@ export function CashControlHistory({
       setBusy(false);
     }
   };
+  // Пока не знаем, доступна ли история, держим место секции; без доступа — убираем.
+  if (rows === null && !error)
+    return (
+      <DrawerSection title="Кассовые остатки">
+        <SectionRowsSkeleton label="Загружаем историю кассы" rows={2} />
+      </DrawerSection>
+    );
   if (!allowed && !error) return null;
   return (
     <DrawerSection title="Кассовые остатки">

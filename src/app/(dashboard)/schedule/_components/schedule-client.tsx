@@ -2,6 +2,7 @@
 import { ColorDot } from "@/components/ui/color-dot";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
+import type { SortingState } from "@tanstack/react-table";
 import dynamic from "next/dynamic";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -24,6 +25,7 @@ import {
   CalendarPlus,
   Clock,
   ArrowLeftRight,
+  ClipboardCheck,
 } from "lucide-react";
 import { TaskAssignDrawer } from "./task-assign-drawer";
 import {
@@ -40,7 +42,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { PeriodStepper, periodTriggerClass } from "@/components/shared/period-stepper";
-import { TableControls, TableIconButton, TablePageHeader } from "@/components/shared/table";
+import { TableConditions, TableControls, TableIconButton, TablePageHeader } from "@/components/shared/table";
+import { MotionPresence } from "@/components/shared/motion-presence";
+import { ExpandPanel } from "@/components/shared/overview-toggle";
 import { TableFilterChip } from "@/components/shared/table/table-filter-chip";
 import {
   Popover,
@@ -93,6 +97,7 @@ import {
 import { EmployeePicker } from "./employee-picker";
 import { EmployeeStrip } from "./employee-strip";
 import { ApplyTemplateDialog } from "./apply-template-dialog";
+import { ToolbarCountButton } from "./toolbar-count-button";
 import { ShiftDetails } from "./shift-details";
 import {
   shiftSwap,
@@ -246,6 +251,8 @@ function MyTasks({
 
 /** Префикс id черновика, который ещё сохраняется. */
 const PENDING_SHIFT = "pending:";
+/** У расписания нет сортировки: ряд условий показывает только фильтры и поиск. */
+const NO_SORTING: SortingState = [];
 
 export function ScheduleClient({
   initial,
@@ -1306,7 +1313,9 @@ export function ScheduleClient({
         dragged && "opacity-40",
         mode === "list"
           ? "flex items-stretch gap-3 px-2 py-1.5 transition-colors hover:bg-muted/60"
-          : cn("grid gap-1 px-1.5 py-2 transition-opacity hover:opacity-80", paletteBg(template?.color ?? s.color), paletteText(template?.color ?? s.color)),
+          // Наведение — лёгкая подложка поверх цвета шаблона (тень внутрь),
+          // а не прозрачность: цвет шаблона не бледнеет, в тёмной теме — светлее.
+          : cn("grid gap-1 px-1.5 py-2 transition-shadow duration-200 hover:shadow-[inset_0_0_0_999px_hsl(var(--foreground)/0.05)]", paletteBg(template?.color ?? s.color), paletteText(template?.color ?? s.color)),
       )}
     >
       {mode === "list" ? listCardBody(s, assignee, mark) : (
@@ -1576,34 +1585,28 @@ export function ScheduleClient({
   );
   const pendingReports =
     showTasks && pendingTaskReports.length > 0 ? (
-      <Popover>
-                            <PopoverTrigger asChild>
-                              <Button variant="outline" size="sm" className="h-8 sm:h-9">
-                                На приёмке · {pendingTaskReports.length}
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent
-                              align="end"
-                              className="max-h-[70vh] w-96 max-w-[calc(100vw-32px)] overflow-y-auto p-3"
-                            >
-                              <p className="mb-1 text-sm font-semibold">
-                                Отчёты на приёмке
-                              </p>
-                              <p className="mb-3 text-[13px] text-muted-foreground">
-                                За все дни, включая прошлые недели
-                              </p>
-                              <div className="space-y-2">
-                                {pendingTaskReports.map((task) => (
-                                  <div key={task.id}>
-                                    <p className="mb-1 text-xs text-muted-foreground">
-                                      {dayLabel(task.business_date)}
-                                    </p>
-                                    {taskCard(task, false)}
-                                  </div>
-                                ))}
-                              </div>
-                            </PopoverContent>
-                          </Popover>
+      <ToolbarCountButton
+        icon={<ClipboardCheck />}
+        count={pendingTaskReports.length}
+        label="Отчёты на приёмке"
+      >
+        <p className="mb-1 text-sm font-semibold">
+          Отчёты на приёмке
+        </p>
+        <p className="mb-3 text-[13px] text-muted-foreground">
+          За все дни, включая прошлые недели
+        </p>
+        <div className="space-y-2">
+          {pendingTaskReports.map((task) => (
+            <div key={task.id}>
+              <p className="mb-1 text-xs text-muted-foreground">
+                {dayLabel(task.business_date)}
+              </p>
+              {taskCard(task, false)}
+            </div>
+          ))}
+        </div>
+      </ToolbarCountButton>
     ) : null;
   return (
     <TaskTitleTarget.Provider value={setScreenTitle}>
@@ -1618,8 +1621,6 @@ export function ScheduleClient({
             period={periodControls}
             actions={
               <>
-              {can("shift_assign") && <SwapRequestsButton data={data} onOpen={setSelected} />}
-              {pendingReports}
               <TableControls
                 search={{
                   value: query,
@@ -1674,18 +1675,20 @@ export function ScheduleClient({
                         venueId={data.venueId}
                       />
                     )}
+                    {/* Входящие — иконками со счётчиком справа от столбцов, как архив. */}
+                    {can("shift_assign") && <SwapRequestsButton data={data} onOpen={setSelected} />}
+                    {pendingReports}
                   </>
                 }
                 primaryActions={
                   <>
                     {can("shift_create") && can("checklist_edit") ? (
-                      // Как «Добавить операцию» в финансах: что добавить — по стрелке.
+                      // Кнопка открывает меню «Смена / Задача» — без шеврона (design-system, «Кнопки»).
                       <Popover open={addOpen} onOpenChange={setAddOpen}>
                         <PopoverTrigger asChild>
-                          <Button size="sm" className="h-8 gap-1.5 sm:h-9" variant={canPublish ? "outline" : "default"}>
+                          <Button size="sm" className="h-8 sm:h-9" variant={canPublish ? "outline" : "default"}>
                             <Plus />
                             Добавить
-                            <ChevronDown className="opacity-80" />
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent align="end" className="w-60 p-1">
@@ -1737,6 +1740,48 @@ export function ScheduleClient({
               </>
             }
           />
+          {/* Ряд условий — как в списках (design-system, «List-страница»):
+              плавно раскрывается, выбранный фильтр виден и при свёрнутом ряде. */}
+          <TableConditions
+            label="Фильтры расписания"
+            open={filters}
+            hasFilters={filtersActive}
+            sorting={NO_SORTING}
+            onSortingChange={() => {}}
+            sortFields={[]}
+            sortLabels={{}}
+            search={query}
+            onSearchClear={() => setQuery("")}
+            onReset={() => {
+              setDepartment("all");
+              setPublication("all");
+              setQuery("");
+            }}
+          >
+            <MotionPresence show={filters || department !== "all"}>
+              <TableFilterChip
+                label="Подразделение"
+                value={department === "all" ? "" : department}
+                options={[
+                  { value: "", label: "Все подразделения" },
+                  ...data.departments.map(({ id, name }) => ({ value: id, label: name })),
+                ]}
+                onChange={(value) => setDepartment(value || "all")}
+              />
+            </MotionPresence>
+            <MotionPresence show={canPlan && (filters || publication !== "all")}>
+              <TableFilterChip
+                label="Публикация"
+                value={publication === "all" ? "" : publication}
+                options={[
+                  { value: "", label: "Все смены" },
+                  { value: "draft", label: "Черновики" },
+                  { value: "published", label: "Опубликованные" },
+                ]}
+                onChange={(value) => setPublication(value || "all")}
+              />
+            </MotionPresence>
+          </TableConditions>
         </>
       )}
       {tab === "calendar" && !calendarVisible && (
@@ -1793,31 +1838,6 @@ export function ScheduleClient({
                 </div>
               )}
               <div className={cn("space-y-5", mobileTasks && "max-md:hidden")}>
-              {(filters || filtersActive) && (
-                <div className="flex flex-wrap items-center gap-2" aria-label="Фильтры расписания">
-                  <TableFilterChip
-                    label="Подразделение"
-                    value={department === "all" ? "" : department}
-                    options={[
-                      { value: "", label: "Все подразделения" },
-                      ...data.departments.map(({ id, name }) => ({ value: id, label: name })),
-                    ]}
-                    onChange={(value) => setDepartment(value || "all")}
-                  />
-                  {canPlan && (
-                    <TableFilterChip
-                      label="Публикация"
-                      value={publication === "all" ? "" : publication}
-                      options={[
-                        { value: "", label: "Все смены" },
-                        { value: "draft", label: "Черновики" },
-                        { value: "published", label: "Опубликованные" },
-                      ]}
-                      onChange={(value) => setPublication(value || "all")}
-                    />
-                  )}
-                </div>
-              )}
               {/* Месяц сегодняшнего дня и месяцы показанной недели: невыверенный
                   выход прошлой недели виден, даже когда листаешь вперёд. */}
               {canViewAttendance && (
@@ -1843,7 +1863,11 @@ export function ScheduleClient({
                   </Button>
                 </div>
               )}
-              {stripOpen && !templateView && (
+              {/* Полосы шаблонов и сотрудников — над сеткой в одной обёртке:
+                  свёрнутая полоса не оставляет отступа space-y (margin у
+                  .motion-expand в закрытом виде — 0, и плавно). */}
+              <div>
+              <ExpandPanel open={stripOpen && !templateView} className="mb-5">
                 <section aria-label="Шаблоны смен" className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-muted/30 px-3 py-2.5">
                   <h2 className="shrink-0 text-xs font-semibold text-muted-foreground">Шаблоны смен</h2>
                   <div className="flex flex-wrap gap-1.5">
@@ -1871,16 +1895,18 @@ export function ScheduleClient({
                     )}
                   </div>
                 </section>
-              )}
-              {stripOpen && templateView && can("shift_create") && can("shift_assign") && (
-                <EmployeeStrip
-                  data={data}
-                  days={days}
-                  department={department === "all" ? null : department}
-                  dragging={dragItem?.kind === "employee" ? dragItem.userId : null}
-                  onDragStart={(userId) => startDrag({ kind: "employee", userId })}
-                  onDragEnd={endDrag}
-                />
+              </ExpandPanel>
+              {templateView && can("shift_create") && can("shift_assign") && (
+                <ExpandPanel open={stripOpen} className="md:mb-5">
+                  <EmployeeStrip
+                    data={data}
+                    days={days}
+                    department={department === "all" ? null : department}
+                    dragging={dragItem?.kind === "employee" ? dragItem.userId : null}
+                    onDragStart={(userId) => startDrag({ kind: "employee", userId })}
+                    onDragEnd={endDrag}
+                  />
+                </ExpandPanel>
               )}
               {templateView ? (
                 <TemplateWeek
@@ -1937,7 +1963,11 @@ export function ScheduleClient({
                       <thead className="sticky top-0 z-20">
                         <tr className="bg-muted text-muted-foreground">
                           <th scope="col" className="sticky left-0 z-10 w-[214px] border-b bg-muted px-4 py-3 text-left text-xs font-medium">
-                            Сотрудники · {staff.length}
+                            {/* Сетка недели собрана вручную, поэтому подсказки у
+                                заголовков — через data-tip, как у иконок. */}
+                            <span data-tip="Сотрудники в графике на этой неделе с учётом поиска и подразделения">
+                              Сотрудники · {staff.length}
+                            </span>
                           </th>
                           {days.map((d) => (
                             <th
@@ -1952,7 +1982,9 @@ export function ScheduleClient({
                             </th>
                           ))}
                           <th scope="col" className="w-16 border-b border-l p-2 text-xs font-medium">
-                            Часы
+                            <span data-tip="Сумма часов смен сотрудника за неделю — по сменам, которые видны с текущими фильтрами, включая черновики">
+                              Часы
+                            </span>
                           </th>
                         </tr>
                       </thead>
@@ -2282,6 +2314,7 @@ export function ScheduleClient({
                   </div>
                 </>
               )}
+              </div>
               <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
                 {venueOffset && <span>Время заведения: {venueOffset}</span>}
                 {showTasks && calendarTasks && calendarTasksWeek === week && (
@@ -2411,7 +2444,7 @@ export function ScheduleClient({
             void deleteDropped(shift);
           }}
           className={cn(
-            "fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border-2 border-dashed px-5 py-3 text-sm font-medium shadow-lg transition-all animate-in fade-in-0 slide-in-from-bottom-4",
+            "fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border-2 border-dashed px-5 py-3 text-sm font-medium shadow-lg motion-float-up transition-[transform,background-color,border-color,color] duration-300 ease-[var(--ease-soft)]",
             overTrash
               ? "scale-105 border-destructive bg-destructive text-destructive-foreground"
               : "border-destructive/40 bg-background text-destructive",

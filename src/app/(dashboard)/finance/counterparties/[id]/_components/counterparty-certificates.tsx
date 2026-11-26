@@ -196,7 +196,7 @@ export function CounterpartyCertificates({
                     ) : (
                       <button
                         type="button"
-                        className="block max-w-full truncate text-left text-sm font-medium hover:underline"
+                        className="block max-w-full truncate text-left text-sm font-medium transition-colors duration-200 hover:text-brand"
                         onClick={() => {
                           setError(null);
                           setDraft(draftFrom(certificate));

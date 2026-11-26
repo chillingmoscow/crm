@@ -38,6 +38,7 @@ import { adjustSales, salesHistory } from "../actions";
 
 import { PayrollDayPanel } from "@/app/(dashboard)/people/payroll/_components/payroll-context";
 import { DayDiscussionPanel } from "../../_components/day-discussion";
+import { TimelineSkeleton } from "../../_components/section-skeleton";
 import { SettlementPanel } from "./settlement-panel";
 import { CashControlPanel } from "./cash-control-panel";
 import { CashControlHistory } from "./cash-control-history";
@@ -59,6 +60,7 @@ const show = (k: MetricKey, v: number | null | undefined) =>
   isCount(k) ? formatCount(v ?? null) : money(v ?? null);
 
 export function DayDrawer({
+  open = true,
   day,
   tab,
   timezone,
@@ -66,6 +68,8 @@ export function DayDrawer({
   onClose,
   onSaved,
 }: {
+  /** Панель держат смонтированной, пока она уезжает: закрывают через `open`. */
+  open?: boolean;
   day: SalesDay;
   tab: string;
   timezone: string;
@@ -246,7 +250,7 @@ export function DayDrawer({
   return (
     <>
       <EditDrawer
-        open
+        open={open}
         onOpenChange={(v) => {
           if (!v) close();
         }}
@@ -414,9 +418,7 @@ export function DayDrawer({
                   {historyError}
                 </p>
               ) : events === null ? (
-                <p role="status" className="text-sm text-muted-foreground">
-                  Загружаем историю…
-                </p>
+                <TimelineSkeleton label="Загружаем историю" />
               ) : events.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   Изменений пока нет

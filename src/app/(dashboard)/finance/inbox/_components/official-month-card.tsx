@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { Banknote, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -215,6 +216,7 @@ export function OfficialMonthCard({ item, draft, onDraftChange, onResolved, bank
         {canResolve ? (
           <>
             <Button onClick={() => void post()} disabled={busy !== null} className="min-w-32">
+              {busy === "post" ? <Loader2 className="size-4 animate-spin" /> : <Banknote className="size-4" />}
               {busy === "post" ? "Проводим…" : "Провести"}
             </Button>
             <Button

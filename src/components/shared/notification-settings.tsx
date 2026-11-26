@@ -15,13 +15,16 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { usePushSubscription } from "@/hooks/use-push-subscription";
 
 const ICON_BTN =
-  "inline-flex items-center justify-center size-8 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors";
+  "inline-flex items-center justify-center size-8 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors duration-200";
+/** В шапке страницы — в размер ряда инструментов: 36px с рамкой. */
+const ICON_BTN_TOOLBAR =
+  "touch-target inline-flex items-center justify-center size-9 rounded-md border border-input bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors duration-200";
 
 /**
  * Кнопка-шестерёнка в шапке колокольчика → поповер настроек push.
  * Управление вынесено сюда из инлайн-строки списка. Push — per-device.
  */
-export function NotificationSettings() {
+export function NotificationSettings({ variant = "compact" }: { variant?: "compact" | "toolbar" } = {}) {
   const modern = useWorkspaceAppearance();
   const {
     supported,
@@ -41,7 +44,7 @@ export function NotificationSettings() {
     <Popover>
       <IconTooltip label="Настройки уведомлений">
         <PopoverTrigger
-          className={ICON_BTN}
+          className={variant === "toolbar" ? ICON_BTN_TOOLBAR : ICON_BTN}
           aria-label="Настройки уведомлений"
         >
           <Settings className="size-[18px]" />

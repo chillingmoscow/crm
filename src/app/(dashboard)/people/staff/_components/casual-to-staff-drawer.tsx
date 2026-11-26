@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { Field } from "@/components/ui/field";
@@ -99,6 +100,8 @@ export function CasualToStaffDrawer({
             ? "PIN кассы не изменится."
             : "Кода кассы у него нет — Sheerly заведёт сотрудника в Quick Resto и выдаст PIN."}
         </p>
+        {/* Пока идёт перевод, поля не правятся: ответ сервера про другие данные. */}
+        <fieldset disabled={pending} className="grid min-w-0 gap-5">
         <div className="grid items-start gap-4 sm:grid-cols-2">
           <Field id="convert-first" label="Имя" required>
             {(control) => (
@@ -145,7 +148,16 @@ export function CasualToStaffDrawer({
             />
           )}
         </Field>
-        {error && (
+        </fieldset>
+        {pending && (
+          <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 shrink-0 animate-spin" />
+            {employee.hasPin
+              ? "Создаём карточку и переносим смены…"
+              : "Заводим сотрудника в Quick Resto, создаём карточку и переносим смены. Это может занять до минуты…"}
+          </p>
+        )}
+        {error && !pending && (
           <p role="alert" className="text-sm text-destructive">
             {error}
           </p>

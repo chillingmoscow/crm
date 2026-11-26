@@ -5,17 +5,7 @@ import Link from "next/link";
 import { isStaffPlaceholderEmail } from "@/lib/people/staff-identity";
 import { isGender } from "@/lib/people/gender";
 import { toast } from "sonner";
-import {
-  UserPlus,
-  Calendar,
-  Clock,
-  Archive,
-  Lock,
-  HeartPulse,
-  Cake,
-  CalendarClock,
-  UserRound,
-} from "lucide-react";
+import { UserPlus, Calendar, Clock, Archive, Lock, HeartPulse, Cake, CalendarClock, UserRound, UserCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { formatPhoneDisplay } from "@/lib/format/phone";
@@ -694,6 +684,24 @@ export function StaffClient({
         ) : (
           <span className="text-sm text-muted-foreground">—</span>
         );
+      // Разовый не трудоустроен: на месте даты — перевод в штат.
+      case "employment_date":
+        return canConvertCasual ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 px-2.5 text-xs"
+            onClick={() => {
+              setConverting(c);
+              setConvertOpen(true);
+            }}
+          >
+            <UserCheck className="size-3.5" />
+            Перевести в штат
+          </Button>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        );
       case "pin":
         return c.pin ? (
           <span className="font-mono text-sm tabular-nums">{c.pin}</span>
@@ -773,14 +781,6 @@ export function StaffClient({
           </>
         }
         canEdit={canEdit}
-        onConvertCasual={
-          canConvertCasual
-            ? (row) => {
-                setConverting(row);
-                setConvertOpen(true);
-              }
-            : undefined
-        }
         isPending={isPending}
         onCancelInvitation={(invId) =>
           setConfirmAction({

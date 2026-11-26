@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { provisionCasualQuickResto } from "@/lib/payroll/casual-quickresto";
 import { errorText } from "@/lib/actions/error-text";
+import { isBackOfficeAuthError, isBackOfficePermissionError } from "@/lib/integrations/quickresto/auth-state";
 import { genderSchema } from "@/lib/people/gender";
 import { zonedParts } from "@/lib/sales/time";
 import { getActiveAccountTimezone } from "@/lib/settings/account";
@@ -19,14 +20,14 @@ const nameSchema = z.object({
   firstName: z.string().trim().min(1, "Укажите имя").max(80),
   lastName: z.string().trim().min(1, "Укажите фамилию").max(80),
 });
-const message = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 
 async function provision(id: string): Promise<CasualResult> {
   try {
     const { pin } = await provisionCasualQuickResto(id);
     return { id, pin, error: null };
   } catch (e) {
-    return { id, pin: null, error: message(e, "Не удалось завести сотрудника в Quick Resto") };
+    console.error("[provisionCasual] Quick Resto provisioning failed:", e);
+    return { id, pin: null, error: `Не удалось завести сотрудника в Quick Resto: ${quickRestoReason(e)}` };
   } finally {
     revalidatePath("/people/staff");
   }
@@ -106,8 +107,15 @@ export async function convertCasualToStaff(input: z.input<typeof convertSchema>)
   const [venue, employee] = await Promise.all([
     supabase.rpc("get_active_venue_id"),
     db
-      .from<{ id: string; casual: boolean; local_user_id: string | null; role_id: string | null; quickresto_pin: string | null }>("payroll_employees")
-      .select("id,casual,local_user_id,role_id,quickresto_pin")
+      .from<{
+        id: string;
+        casual: boolean;
+        local_user_id: string | null;
+        role_id: string | null;
+        quickresto_pin: string | null;
+        quickresto_provisioning: { complete?: boolean; steps?: Record<string, unknown> } | null;
+      }>("payroll_employees")
+      .select("id,casual,local_user_id,role_id,quickresto_pin,quickresto_provisioning")
       .eq("id", value.employeeId)
       .maybeSingle(),
   ]);
@@ -131,21 +139,41 @@ export async function convertCasualToStaff(input: z.input<typeof convertSchema>)
   // выдавали) — заводим сотрудника в Quick Resto тем же способом, что
   // «Добавить → Разовый», до создания карточки: без кода штатному нечем
   // отмечаться. Повтор после сбоя продолжает ту же попытку, дубля в кассе нет.
+  // Заведение, начатое Sheerly и не доведённое (код выдан, склады нет), тоже
+  // доводим. Код, выданный кассой до Sheerly, журнала заведения не имеет.
   let issuedPin: string | null = null;
-  if (!employee.data.quickresto_pin) {
-    // Те же проверки и сохранение имени, что у «Добавить → Разовый»
-    // (миграция 397: имя пишется, пока нет живого кода кассы).
-    const names = await db.rpc("payroll_casual_request_quickresto", {
-      p_employee_id: value.employeeId,
-      p_first_name: value.firstName,
-      p_last_name: value.lastName,
-    });
-    if (names.error)
-      return { userId: null, issuedPin: null, notice: null, error: errorText(names.error, "Не удалось подготовить заведение в Quick Resto") };
+  const notices: string[] = [];
+  const ledger = employee.data.quickresto_provisioning;
+  const unfinished = !!ledger?.steps && Object.keys(ledger.steps).length > 0 && !ledger.complete;
+  if (!employee.data.quickresto_pin || unfinished) {
+    if (!employee.data.quickresto_pin) {
+      // Те же проверки и сохранение имени, что у «Добавить → Разовый»
+      // (миграция 397: имя пишется, пока нет живого кода кассы).
+      const names = await db.rpc("payroll_casual_request_quickresto", {
+        p_employee_id: value.employeeId,
+        p_first_name: value.firstName,
+        p_last_name: value.lastName,
+      });
+      if (names.error)
+        return { userId: null, issuedPin: null, notice: null, error: errorText(names.error, "Не удалось подготовить заведение в Quick Resto") };
+    }
     try {
-      issuedPin = (await provisionCasualQuickResto(value.employeeId)).pin;
+      const { pin } = await provisionCasualQuickResto(value.employeeId);
+      if (!employee.data.quickresto_pin) issuedPin = pin;
     } catch (e) {
-      return { userId: null, issuedPin: null, notice: null, error: errorText(e, "Не удалось завести сотрудника в Quick Resto") };
+      console.error("[convertCasualToStaff] Quick Resto provisioning failed:", e);
+      const reason = quickRestoReason(e);
+      // Сотрудник кассы с PIN уже есть, не вышел только доступ к складу —
+      // перевод не срываем: код работает, склад можно выдать в Quick Resto.
+      const after = await asLooseDb(admin)
+        .from<{ quickresto_pin: string | null }>("payroll_employees")
+        .select("quickresto_pin")
+        .eq("id", value.employeeId)
+        .maybeSingle();
+      const pin = after.data?.quickresto_pin ?? null;
+      if (!pin) return { userId: null, issuedPin: null, notice: null, error: `Не удалось завести сотрудника в Quick Resto: ${reason}` };
+      if (!employee.data.quickresto_pin) issuedPin = pin;
+      notices.push(`Доступ к складу в Quick Resto не выдан (${reason}) — добавьте его сотруднику в Quick Resto`);
     }
   }
 
@@ -174,7 +202,6 @@ export async function convertCasualToStaff(input: z.input<typeof convertSchema>)
   }
 
   // Должность в штате другая — условия оплаты меняются с сегодняшнего дня.
-  const notices: string[] = [];
   const today = zonedParts(new Date(), await getActiveAccountTimezone()).date;
   if (employee.data.role_id !== value.roleId) {
     try {
@@ -188,8 +215,43 @@ export async function convertCasualToStaff(input: z.input<typeof convertSchema>)
   } catch {
     notices.push("Пересчёт зарплаты поставьте вручную (Зарплата → Обновить)");
   }
+  // Приглашения в Telegram-чаты должности — как при найме кандидата: бот
+  // присылает одноразовые ссылки в чат приглашений (задание candidate_jobs).
+  try {
+    const venueRow = await asLooseDb(admin)
+      .from<{ account_id: string }>("venues")
+      .select("account_id")
+      .eq("id", venueId)
+      .single();
+    if (venueRow.error || !venueRow.data) throw new Error(venueRow.error?.message ?? "Заведение не найдено");
+    const queued = await asLooseDb(admin).from("candidate_jobs").insert({
+      account_id: venueRow.data.account_id,
+      kind: "chat_invites",
+      payload: {
+        user_id: userId,
+        role_id: value.roleId,
+        name: `${value.firstName.trim()} ${value.lastName.trim()}`,
+        event_key: `casual:${value.employeeId}`,
+      },
+    });
+    if (queued.error) throw new Error(queued.error.message);
+  } catch (e) {
+    console.error("[convertCasualToStaff] chat invites not queued:", e);
+    notices.push("Приглашения в чаты Telegram не отправлены — пригласите сотрудника вручную");
+  }
   revalidatePath("/people/staff");
   revalidatePath("/people/payroll");
   revalidatePath("/schedule");
   return { userId, issuedPin, notice: notices.join(". ") || null, error: null };
+}
+
+/** Причина сбоя Quick Resto по-русски: английский текст клиента — в лог, не пользователю. */
+function quickRestoReason(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (isBackOfficePermissionError(error))
+    return "у пользователя Sheerly Bot в Quick Resto нет прав на этот раздел";
+  if (isBackOfficeAuthError(error)) return "Quick Resto не принял вход Sheerly Bot";
+  if (/[а-яё]/i.test(message)) return message.replace(/\.$/, "");
+  if (/timed out|timeout/i.test(message)) return "Quick Resto не ответил вовремя, повторите";
+  return "Quick Resto вернул ошибку, подробности в журнале сервера";
 }

@@ -78,7 +78,13 @@ const convertSchema = nameSchema.extend({
   roleId: z.string().uuid("Выберите должность"),
 });
 
-export type ConvertCasualResult = { userId: string | null; notice: string | null; error: string | null };
+export type ConvertCasualResult = {
+  userId: string | null;
+  /** PIN кассы, если его выдали при переводе (живого кода не было). */
+  issuedPin: string | null;
+  notice: string | null;
+  error: string | null;
+};
 
 /**
  * Перевод разового в штат. Создаётся учётная запись сотрудника (как «Добавить
@@ -89,26 +95,26 @@ export type ConvertCasualResult = { userId: string | null; notice: string | null
 export async function convertCasualToStaff(input: z.input<typeof convertSchema>): Promise<ConvertCasualResult> {
   const parsed = convertSchema.safeParse(input);
   if (!parsed.success)
-    return { userId: null, notice: null, error: parsed.error.issues[0]?.message ?? "Проверьте поля" };
+    return { userId: null, issuedPin: null, notice: null, error: parsed.error.issues[0]?.message ?? "Проверьте поля" };
   const value = parsed.data;
   const can = await getCachedPermissionChecker();
   if (!can("people.edit_staff") || !can("payroll.configure"))
-    return { userId: null, notice: null, error: "Нужны права на сотрудников и на настройку зарплаты" };
+    return { userId: null, issuedPin: null, notice: null, error: "Нужны права на сотрудников и на настройку зарплаты" };
 
   const supabase = await createClient();
   const db = asLooseDb(supabase);
   const [venue, employee] = await Promise.all([
     supabase.rpc("get_active_venue_id"),
     db
-      .from<{ id: string; casual: boolean; local_user_id: string | null; role_id: string | null }>("payroll_employees")
-      .select("id,casual,local_user_id,role_id")
+      .from<{ id: string; casual: boolean; local_user_id: string | null; role_id: string | null; quickresto_pin: string | null }>("payroll_employees")
+      .select("id,casual,local_user_id,role_id,quickresto_pin")
       .eq("id", value.employeeId)
       .maybeSingle(),
   ]);
   const venueId = venue.data as string | null;
-  if (!venueId) return { userId: null, notice: null, error: "Не выбрано заведение" };
+  if (!venueId) return { userId: null, issuedPin: null, notice: null, error: "Не выбрано заведение" };
   if (!employee.data?.casual || employee.data.local_user_id)
-    return { userId: null, notice: null, error: "Разовый сотрудник не найден" };
+    return { userId: null, issuedPin: null, notice: null, error: "Разовый сотрудник не найден" };
   // Те же условия, что проверит база, — до создания учётной записи: откат
   // после неё не всегда чистый (журнал приёма ссылается на нового человека).
   const admin = createAdminClient();
@@ -119,7 +125,29 @@ export async function convertCasualToStaff(input: z.input<typeof convertSchema>)
     .eq("state", "loading")
     .limit(1);
   if (loading.data?.length)
-    return { userId: null, notice: null, error: "Дождитесь обновления зарплаты и повторите" };
+    return { userId: null, issuedPin: null, notice: null, error: "Дождитесь обновления зарплаты и повторите" };
+
+  // Живого кода кассы нет (разовый перенесён из Quick Resto или код не
+  // выдавали) — заводим сотрудника в Quick Resto тем же способом, что
+  // «Добавить → Разовый», до создания карточки: без кода штатному нечем
+  // отмечаться. Повтор после сбоя продолжает ту же попытку, дубля в кассе нет.
+  let issuedPin: string | null = null;
+  if (!employee.data.quickresto_pin) {
+    // Те же проверки и сохранение имени, что у «Добавить → Разовый»
+    // (миграция 397: имя пишется, пока нет живого кода кассы).
+    const names = await db.rpc("payroll_casual_request_quickresto", {
+      p_employee_id: value.employeeId,
+      p_first_name: value.firstName,
+      p_last_name: value.lastName,
+    });
+    if (names.error)
+      return { userId: null, issuedPin: null, notice: null, error: errorText(names.error, "Не удалось подготовить заведение в Quick Resto") };
+    try {
+      issuedPin = (await provisionCasualQuickResto(value.employeeId)).pin;
+    } catch (e) {
+      return { userId: null, issuedPin: null, notice: null, error: errorText(e, "Не удалось завести сотрудника в Quick Resto") };
+    }
+  }
 
   const created = await createStaffWithoutEmail({
     firstName: value.firstName,
@@ -131,7 +159,7 @@ export async function convertCasualToStaff(input: z.input<typeof convertSchema>)
   });
   const userId = created.member?.user_id ?? null;
   if (created.error || !userId)
-    return { userId: null, notice: null, error: created.error ?? "Не удалось создать сотрудника" };
+    return { userId: null, issuedPin: null, notice: null, error: created.error ?? "Не удалось создать сотрудника" };
 
   const linked = await db.rpc("payroll_casual_to_staff", { p_employee_id: value.employeeId, p_user_id: userId });
   if (linked.error) {
@@ -141,7 +169,8 @@ export async function convertCasualToStaff(input: z.input<typeof convertSchema>)
     await admin.from("user_venue_roles").delete().eq("user_id", userId).eq("venue_id", venueId);
     await admin.auth.admin.deleteUser(userId);
     revalidatePath("/people/staff");
-    return { userId: null, notice: null, error: errorText(linked.error, "Не удалось перевести сотрудника в штат") };
+    // Выданный код остаётся у разового: перевод можно повторить.
+    return { userId: null, issuedPin: null, notice: null, error: errorText(linked.error, "Не удалось перевести сотрудника в штат") };
   }
 
   // Должность в штате другая — условия оплаты меняются с сегодняшнего дня.
@@ -162,5 +191,5 @@ export async function convertCasualToStaff(input: z.input<typeof convertSchema>)
   revalidatePath("/people/staff");
   revalidatePath("/people/payroll");
   revalidatePath("/schedule");
-  return { userId, notice: notices.join(". ") || null, error: null };
+  return { userId, issuedPin, notice: notices.join(". ") || null, error: null };
 }

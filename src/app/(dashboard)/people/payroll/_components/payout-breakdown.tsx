@@ -68,7 +68,8 @@ export function PayoutBreakdown({ b, amount, issued, manual, leftAfter, step, mo
       value={b.paid}
     />
   );
-  const officialLine = b.official > 0 && <Line op="−" label="Официальная часть" hint="выплатит бухгалтерия" value={b.official} />;
+  const officialHint = b.officialAgency ? "получит через агентство" : "выплатит бухгалтерия";
+  const officialLine = b.official > 0 && <Line op="−" label={b.officialAgency ? "Через агентство" : "Официальная часть"} hint={officialHint} value={b.official} />;
   // Как называется расчёт «по правилу» в итоге: половина / за 1–15 / остаток.
   const ruleLabel = mode === "rest" ? "Остаток месяца" : mode === "first_earned" ? "За 1–15 число" : "По половине";
   return (
@@ -118,7 +119,7 @@ export function PayoutBreakdown({ b, amount, issued, manual, leftAfter, step, mo
                 value={b.paid}
               />
             )}
-            {b.official > 0 && <Line op="−" label="Официальная часть" hint="выплатит бухгалтерия" value={b.official} />}
+            {officialLine}
             <Line
               op="="
               label="По половине"

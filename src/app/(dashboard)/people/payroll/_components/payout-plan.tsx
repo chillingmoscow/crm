@@ -216,7 +216,7 @@ export function PayoutPlan({
             ) : <span className="text-muted-foreground">—</span>;
           if (id === "official")
             return r.breakdown.official ? (
-              <span data-tip="Выплатит бухгалтерия; идёт в счёт первой половины месяца">
+              <span data-tip={r.breakdown.officialAgency ? "Получит через агентство" : "Выплатит бухгалтерия; идёт в счёт первой половины месяца"}>
                 <Money value={-r.breakdown.official} signed />
               </span>
             ) : <span className="text-muted-foreground">—</span>;
@@ -243,7 +243,7 @@ export function PayoutPlan({
             return r.leftAfter === null ? <span className="text-muted-foreground">—</span> : (
               <span
                 data-tip={r.leftAfter < 0 ? "Переплатим за месяц после этой выплаты" : "Будем должны за месяц после этой выплаты"}
-                data-tip-sub={r.breakdown.official > 0 ? "С учётом официальной части, которую выплатит бухгалтерия" : undefined}
+                data-tip-sub={r.breakdown.official > 0 ? (r.breakdown.officialAgency ? "С учётом суммы, которую сотрудник получит через агентство" : "С учётом официальной части, которую выплатит бухгалтерия") : undefined}
               >
                 <Money value={r.leftAfter} className={r.leftAfter < 0 ? signedAmountClass(r.leftAfter) : undefined} />
               </span>

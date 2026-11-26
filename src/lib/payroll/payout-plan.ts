@@ -102,8 +102,10 @@ export type PayoutBreakdown = {
   half: number;
   /** half − P − официальная часть, до округления. */
   target: number;
-  /** Ожидаемая официальная часть месяца: её выплатит бухгалтерия. */
+  /** Ожидаемая официальная часть месяца: её выплатит бухгалтерия (или агентство). */
   official: number;
+  /** Официальную часть платит агентство («Платит агентство»). */
+  officialAgency?: boolean;
   /** C + E − P − R − официальная часть, до округления. */
   ceiling: number;
   flags: PayoutFlag[];
@@ -269,6 +271,7 @@ export function planFirstPayout(input: {
         mode, ...(mode === "first_earned" ? { earnedFirstHalf } : {}),
         carried, earned, pendingFines, forecast, forecastShifts, averageShift,
         reserve, paid, half, target, official, ceiling, flags,
+        ...(row.officialExpected?.agency ? { officialAgency: true } : {}),
       },
     };
   });

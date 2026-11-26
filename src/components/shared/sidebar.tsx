@@ -14,7 +14,6 @@ import {
   BookOpen,
   Boxes,
   Building2,
-  ChevronDown,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
@@ -896,7 +895,6 @@ function ExpandedSection({
   onToggle: () => void;
 }) {
   const SectionIcon = section.icon;
-  const ChevronIcon = isOpen ? ChevronDown : ChevronRight;
   const hasActiveChild = section.items.some((item) =>
     item.exact ? pathname === item.href : pathname.startsWith(item.href),
   );
@@ -914,7 +912,7 @@ function ExpandedSection({
   const sectionBadge = typeof candidateBadge === "number" && candidateBadge > 0 ? candidateBadge : (isOpen ? 0 : collapsedBadgeSum);
   return (
     // Group · gap 4px between Trigger and Nested
-    <div className="flex flex-col gap-1" data-nav-section>
+    <div className="flex flex-col" data-nav-section>
       <button
         type="button"
         onClick={onToggle}
@@ -932,11 +930,15 @@ function ExpandedSection({
             {sectionBadge}
           </span>
         )}
-        <ChevronIcon className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+        <ChevronRight
+          className={cn("motion-chevron w-3.5 h-3.5 shrink-0 text-muted-foreground", isOpen && "rotate-90")}
+        />
       </button>
-      {isOpen && (
-        // Nested: padding [6,0,6,18] — 6px vertical, 18px from left
-        // (the 18px puts the guide line under the trigger's icon)
+      {/* Пункты раскрываются плавно (docs/motion.md); свёрнутые — inert,
+          чтобы не попадать в Tab. */}
+      <div className="motion-expand mt-1" data-open={isOpen} inert={!isOpen}>
+        {/* Nested: padding [6,0,6,18] — 6px vertical, 18px from left
+            (the 18px puts the guide line under the trigger's icon) */}
         <div data-nav-children className="py-1.5 pl-[18px]">
           {/* Items: 1px guide line + 8px left pad + 2px gap between items */}
           <div className="border-l border-sidebar-border pl-2 flex flex-col gap-0.5">
@@ -967,7 +969,7 @@ function ExpandedSection({
             })}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
 import { TimeInput, normalizeTimeInput } from "@/components/ui/time-input";
@@ -56,7 +57,7 @@ export function CandidateAppointmentDrawer({ candidateId, appointment: a, initia
     onOpenChange={(open) => { if (!open && !busy) onClose(); }}
     footer={<><Button variant="outline" disabled={busy} onClick={onClose}>Отмена</Button><Button
       disabled={busy || eligibilityLoading || !!eligibilityError || blocked || !form.date || invalidPlace || time === undefined || (kind === "interview" && !time)} onClick={save}>Сохранить</Button></>}>
-    {eligibilityLoading ? <p role="status" className="text-sm text-muted-foreground">Загружаем данные…</p> : eligibilityError ?
+    {eligibilityLoading ? <AppointmentFormSkeleton /> : eligibilityError ?
       <div role="alert" className="space-y-3 text-sm"><p>{eligibilityError}</p><Button variant="outline" onClick={onRetryEligibility}>Повторить</Button></div> : blocked ?
       <div className="space-y-3 text-sm"><p>Сначала заполните результат собеседования: «Пройдено» и комментарий.</p><Button variant="outline" asChild><Link onClick={onClose} href={`/people/candidates/${candidateId}`}>Открыть кандидата</Link></Button></div> : <>
         <div className="grid grid-cols-2 gap-3">
@@ -72,4 +73,14 @@ export function CandidateAppointmentDrawer({ candidateId, appointment: a, initia
           options={[{ value: "", label: "Не назначен" }, ...options.members.map((member) => ({ value: member.id, label: member.name }))]} />}
       </>}
   </EditDrawer>;
+}
+
+/** Скелетон формы назначения, пока грузятся данные: дата и время, место, интервьюер. */
+function AppointmentFormSkeleton() {
+  const field = <div className="space-y-2"><Skeleton className="h-4 w-24" /><Skeleton className="h-10" /></div>;
+  return <div role="status" aria-label="Загружаем данные" className="space-y-4">
+    <div className="grid grid-cols-2 gap-3">{field}{field}</div>
+    {field}
+    {field}
+  </div>;
 }

@@ -5,6 +5,7 @@ import {
   createClient,
   getCachedPermissions,
   getCachedActiveAccountId,
+  getCachedUser,
 } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { actionResult } from "@/lib/actions/result";
@@ -25,14 +26,17 @@ import {
 } from "@/lib/sales/additional";
 
 async function scope(permission = "sales.view_shifts", expectedVenue?: string) {
+  // Всё независимо — одной волной. Пользователь — из кэша запроса: свой
+  // `auth.getUser()` здесь был лишним походом в GoTrue (на проде ~0,1 с)
+  // поверх того, что уже сделали страница и middleware.
   const client = await createClient();
-  const {
-    data: { user },
-  } = await client.auth.getUser();
-  const permissions = await getCachedPermissions();
-  const account = await getCachedActiveAccountId();
   const db = asLooseDb(client);
-  const venue = await db.rpc("get_active_venue_id");
+  const [user, permissions, account, venue] = await Promise.all([
+    getCachedUser(),
+    getCachedPermissions(),
+    getCachedActiveAccountId(),
+    db.rpc("get_active_venue_id"),
+  ]);
   if (
     !user ||
     !account ||
@@ -92,6 +96,7 @@ export type UpsellDay = {
   result: UpsellDayResult | null;
   last_error: string | null;
   computed_at: string | null;
+  provisional: boolean;
 };
 
 /**
@@ -239,7 +244,7 @@ async function loadAdditionalImpl(
       ),
       rows<UpsellDay>(
         "sales_upsell_days",
-        "id,department_id,business_date,state,result,last_error,computed_at",
+        "id,department_id,business_date,state,result,last_error,computed_at,provisional",
         "business_date",
       ),
       loadUpsellScope(s),

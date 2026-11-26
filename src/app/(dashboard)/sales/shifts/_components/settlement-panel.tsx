@@ -16,6 +16,7 @@ import {
   requestSettlement,
   type SettlementPanelData,
 } from "../settlement-actions";
+import { SectionRowsSkeleton } from "../../_components/section-skeleton";
 
 const states: Record<string, { label: string; tone: StatusTone }> = {
   matched: { label: "Совпадает", tone: "success" },
@@ -87,7 +88,15 @@ export function SettlementPanel({
       setBusy(false);
     }
   };
-  if (!data && !error) return null;
+  if (!data && !error)
+    return (
+      <DrawerSection
+        title="Поступления по счетам"
+        description="Сверка поступлений с финансовыми операциями"
+      >
+        <SectionRowsSkeleton label="Загружаем поступления по счетам" />
+      </DrawerSection>
+    );
   const jobError = salesErrorText(data?.job?.error);
   return (
     <DrawerSection

@@ -189,7 +189,6 @@
   display: block;
   height: 100%;
   border-radius: 4px;
-  transition: width 180ms ease-out;
 }
 .count {
   font-variant-numeric: tabular-nums;
@@ -293,7 +292,6 @@
   position: relative;
   width: 100%;
   border-radius: 4px 4px 0 0;
-  transition: height 180ms ease-out;
 }
 .columnLabel {
   position: absolute;
@@ -364,11 +362,5 @@
   }
   .skeleton {
     padding: 16px;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .bar,
-  .columnBar {
-    transition: none;
   }
 }

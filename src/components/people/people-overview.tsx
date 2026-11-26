@@ -1,19 +1,21 @@
 "use client";
 import { useEffect, useId, useState } from "react";
-import {
-  ChartNoAxesColumnIncreasing,
-  ChevronUp,
-  Info,
-  RotateCcw,
-} from "lucide-react";
+import { ChevronUp, Info, RotateCcw } from "lucide-react";
 import { getPeopleOverview } from "@/app/(dashboard)/people/overview-actions";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { MonthPicker } from "@/components/shared/month-picker";
+import { AnimatedNumber } from "@/components/shared/animated-money";
+import {
+  ExpandPanel,
+  OverviewToggle,
+  useOverviewOpen,
+} from "@/components/shared/overview-toggle";
 import { STATUSES } from "@/lib/candidates/types";
 import {
   chartCeiling,
@@ -53,7 +55,7 @@ function Metric({
   hint,
 }: {
   label: string;
-  value: string | number;
+  value: React.ReactNode;
   hint: string;
 }) {
   return (
@@ -70,6 +72,10 @@ const percent = new Intl.NumberFormat("ru-RU", {
   style: "percent",
   maximumFractionDigits: 1,
 });
+/** Задержка полоски: растут по очереди, шаг 90 мс (docs/motion.md). */
+const barDelay = (index: number, step = 90) => ({
+  animationDelay: `${200 + index * step}ms`,
+});
 function EmptyChart({ children }: { children: React.ReactNode }) {
   return <p className={styles.empty}>{children}</p>;
 }
@@ -84,13 +90,16 @@ function HorizontalBars({
   const max = Math.max(1, ...items.map((item) => item.count));
   return (
     <ul className={styles.horizontal}>
-      {items.map((item) => (
+      {items.map((item, index) => (
         <li key={item.id}>
           <span className={styles.barLabel}>{item.label}</span>
           <span className={styles.barTrack} aria-hidden="true">
             <span
-              className={cn(styles.bar, item.color)}
-              style={{ width: `${(item.count / max) * 100}%` }}
+              className={cn(styles.bar, "chart-bar-grow-x", item.color)}
+              style={{
+                width: `${(item.count / max) * 100}%`,
+                ...barDelay(index),
+              }}
             />
           </span>
           <span className={styles.count}>{item.count}</span>
@@ -107,6 +116,9 @@ function ColumnChart({ items }: { items: Column[] }) {
     items.flatMap((item) => item.values.map((s) => s.count)),
   );
   const ticks = [...new Set([ceiling, Math.floor(ceiling / 2), 0])];
+  // Столбики растут по очереди; у месяца по дням их ~30, поэтому шаг
+  // ужимается, чтобы весь ряд вырос примерно за секунду (не больше 60 мс).
+  const step = Math.min(60, Math.round(1000 / Math.max(1, items.length)));
   return (
     <div className={styles.columns}>
       <div className={styles.axis} aria-hidden="true">
@@ -126,7 +138,7 @@ function ColumnChart({ items }: { items: Column[] }) {
           ))}
         </div>
         <div className={styles.groups}>
-          {items.map((item) => (
+          {items.map((item, index) => (
             <div key={item.description} className={styles.columnGroup}>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -138,9 +150,14 @@ function ColumnChart({ items }: { items: Column[] }) {
                     {item.values.map((series) => (
                       <span className={styles.columnTrack} key={series.label}>
                         <span
-                          className={cn(styles.columnBar, series.color)}
+                          className={cn(
+                            styles.columnBar,
+                            "chart-bar-grow-y",
+                            series.color,
+                          )}
                           style={{
                             height: `${(series.count / ceiling) * 100}%`,
+                            ...barDelay(index, step),
                           }}
                         />
                       </span>
@@ -192,17 +209,19 @@ function RecruitingFunnel({ data }: { data: CandidateOverview }) {
         <Hint text="Каждый кандидат учитывается один раз на достигнутом этапе и на всех предыдущих. Отказ и отмена не стирают пройденный путь. Собеседование и стажировка учитываются с момента назначения. Воронка включает принятых сотрудников, которых список уже скрывает." />
       </div>
       <ol className={styles.funnel}>
-        {data.funnel.map((step) => (
+        {data.funnel.map((step, index) => (
           <li key={step.id}>
             <span className={styles.barLabel}>{funnelLabels[step.id]}</span>
             <span className={styles.funnelTrack} aria-hidden="true">
               <span
                 className={cn(
                   styles.bar,
+                  "chart-bar-grow-x",
                   step.id === "hired" ? "bg-emerald-500/80" : "bg-brand/80",
                 )}
                 style={{
                   width: `${data.received ? (step.count / data.received) * 100 : 0}%`,
+                  ...barDelay(index),
                 }}
               />
             </span>
@@ -233,7 +252,17 @@ function OverviewBody({ data }: { data: PeopleOverviewData }) {
         <dl className={styles.staffAverage}>
           <Metric
             label="Средний стаж"
-            value={overviewTenure(data.average_days)}
+            value={
+              // Месяцы досчитываются (docs/motion.md); «< 1 мес.» и прочерк — как есть.
+              data.average_days !== null && data.average_days >= 30.4375 ? (
+                <AnimatedNumber
+                  value={Math.floor(data.average_days / 30.4375)}
+                  format={(n) => `${n} мес.`}
+                />
+              ) : (
+                overviewTenure(data.average_days)
+              )
+            }
             hint={`Среднее время с даты трудоустройства у действующих сотрудников на ${new Date(`${data.today}T12:00:00Z`).toLocaleDateString("ru-RU", { timeZone: "UTC" })}. В расчёте: ${data.dated_staff} из ${data.working}. Записи без даты трудоустройства и с будущей датой не учитываются.`}
           />
         </dl>
@@ -300,12 +329,13 @@ function OverviewBody({ data }: { data: PeopleOverviewData }) {
         {data.received > data.hired ? (
           <>
             <div className={styles.stageTrack} aria-hidden="true">
-              {data.stages.map((item) => (
+              {data.stages.map((item, index) => (
                 <span
                   key={item.id}
-                  className={stageColors[item.id]}
+                  className={cn("chart-bar-grow-x", stageColors[item.id])}
                   style={{
                     width: `${(item.count / (data.received - data.hired)) * 100}%`,
+                    ...barDelay(index),
                   }}
                 />
               ))}
@@ -335,21 +365,27 @@ function OverviewSkeleton() {
   return (
     <div className={styles.skeleton} aria-label="Загружаем обзор">
       <div className="grid gap-6 sm:grid-cols-2">
-        <div className="h-40 rounded-md bg-muted/60" />
-        <div className="h-40 rounded-md bg-muted/60" />
+        <Skeleton className="h-40" />
+        <Skeleton className="h-40" />
       </div>
     </div>
   );
 }
-/** Shared disclosure/controller; always collapsed on page entry and never requests data while closed. */
+/**
+ * Общий «Обзор» сотрудников и кандидатов: по умолчанию открыт, выбор
+ * помнится в браузере (design-system, «Page header»). Данные грузятся,
+ * только пока панель открыта.
+ */
 export function usePeopleOverview(
   kind: OverviewKind,
   scopeId: string,
   revision = "",
 ) {
   const id = useId();
-  const [open, setOpen] = useState(false),
-    [period, setPeriod] = useState<string | null>(null),
+  const [open, setOpen, known] = useOverviewOpen(
+    kind === "staff" ? "people.overview.staff" : "people.overview.candidates",
+  );
+  const [period, setPeriod] = useState<string | null>(null),
     [refresh, setRefresh] = useState(0);
   const [data, setData] = useState<PeopleOverviewData | null>(null),
     [busy, setBusy] = useState(false),
@@ -357,13 +393,12 @@ export function usePeopleOverview(
   const scopedData =
     data?.scope_id === scopeId && data.kind === kind ? data : null;
   useEffect(() => {
-    setOpen(false);
     setPeriod(null);
     setData(null);
     setError(false);
   }, [kind, scopeId]);
   useEffect(() => {
-    if (!open) return;
+    if (!open || !known) return;
     let cancelled = false;
     setBusy(true);
     setError(false);
@@ -381,7 +416,7 @@ export function usePeopleOverview(
     return () => {
       cancelled = true;
     };
-  }, [open, period, refresh, kind, scopeId, revision]);
+  }, [open, known, period, refresh, kind, scopeId, revision]);
   useEffect(() => {
     if (!open) return;
     const focused = () => setRefresh((value) => value + 1);
@@ -398,37 +433,29 @@ export function usePeopleOverview(
       window.removeEventListener("candidates:changed", changed);
     };
   }, [kind]);
+  const label = kind === "staff" ? "Обзор команды" : "Обзор кандидатов";
   const button = (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      aria-label={kind === "staff" ? "Обзор команды" : "Обзор кандидатов"}
-      aria-expanded={open}
-      aria-controls={open ? id : undefined}
-      onClick={() => setOpen((value) => !value)}
-      className={cn(
-        "size-8 p-0 sm:h-9 sm:w-auto sm:gap-2 sm:px-3",
-        open
-          ? "border-brand text-brand hover:text-brand"
-          : "text-muted-foreground",
-      )}
-    >
-      <ChartNoAxesColumnIncreasing className="size-4" />
-      <span className="hidden sm:inline">Обзор</span>
-    </Button>
+    <OverviewToggle
+      variant="toolbar"
+      open={open}
+      onOpenChange={setOpen}
+      ariaLabel={label}
+      controls={id}
+    />
   );
   const month = period ?? scopedData?.month;
-  const panel = open ? (
+  // Панель раскрывается плавно; при каждом раскрытии содержимое
+  // перерисовывается, чтобы полоски и столбики росли заново.
+  const panel = (
+    <ExpandPanel open={open} id={id} replayOnOpen>
     <section
-      id={id}
       className={styles.panel}
-      aria-label={kind === "staff" ? "Обзор команды" : "Обзор кандидатов"}
+      aria-label={label}
       aria-busy={busy}
     >
       <header className={styles.header}>
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <h2>{kind === "staff" ? "Обзор команды" : "Обзор кандидатов"}</h2>
+          <h2>{label}</h2>
           <Hint
             text={
               kind === "staff"
@@ -470,7 +497,7 @@ export function usePeopleOverview(
             variant="outline"
             onClick={() => setRefresh((value) => value + 1)}
           >
-            <RotateCcw className="mr-2 size-3.5" />
+            <RotateCcw className="size-3.5" />
             Повторить
           </Button>
         </div>
@@ -480,6 +507,7 @@ export function usePeopleOverview(
         <OverviewBody data={scopedData} />
       )}
     </section>
-  ) : null;
+    </ExpandPanel>
+  );
   return { button, panel };
 }

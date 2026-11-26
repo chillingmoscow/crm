@@ -1,11 +1,17 @@
 import "server-only";
 import { decryptSecret } from "@/lib/integrations/crypto";
 import type { LooseDb } from "@/lib/supabase/loose";
+import { Agent, fetch as undiciFetch } from "undici";
+import { withConnectRetry } from "./telegram-retry";
 import {
   readTelegramResponse,
   type TelegramApiResult,
 } from "./telegram-response";
 export type { TelegramApiResult } from "./telegram-response";
+
+// Соединение с Telegram с прод-сервера часто не устанавливается: ждём его
+// 2,5 с вместо 10 и пробуем снова (см. telegram-retry).
+const telegramAgent = new Agent({ connect: { timeout: 2500 } });
 
 // Bot API client for one organization. The token lives only inside this closure:
 // it is never returned, logged or put into error messages (fetch errors may carry the URL).
@@ -97,13 +103,15 @@ export async function loadTelegramBot(
   ): Promise<TelegramApiResult<T>> => {
     let response: Response;
     try {
-      response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        cache: "no-store",
-        signal: AbortSignal.timeout(12000),
-      });
+      response = (await withConnectRetry(() =>
+        undiciFetch(`https://api.telegram.org/bot${token}/${method}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          dispatcher: telegramAgent,
+          signal: AbortSignal.timeout(12000),
+        }),
+      )) as unknown as Response;
     } catch {
       throw new Error("Telegram не ответил");
     }
@@ -112,12 +120,14 @@ export async function loadTelegramBot(
   const upload = async <T>(method: string, form: FormData): Promise<TelegramApiResult<T>> => {
     let response: Response;
     try {
-      response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
-        method: "POST",
-        body: form,
-        cache: "no-store",
-        signal: AbortSignal.timeout(30000),
-      });
+      response = await withConnectRetry(() =>
+        fetch(`https://api.telegram.org/bot${token}/${method}`, {
+          method: "POST",
+          body: form,
+          cache: "no-store",
+          signal: AbortSignal.timeout(30000),
+        }),
+      );
     } catch {
       throw new Error("Telegram не ответил");
     }

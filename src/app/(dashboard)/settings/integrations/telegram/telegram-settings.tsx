@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, useTransition } from "react";
-import { Pencil } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,9 +48,9 @@ export function TelegramSettings({ initial, editable, chats, roles, fines: initi
   return <IntegrationLayout provider="telegram" title="Telegram"
     status={<IntegrationStatus tone={!saved ? "neutral" : undelivered.length ? "warning" : "success"}>{!saved ? "Не настроено" : undelivered.length ? "Требует внимания" : "Работает"}</IntegrationStatus>}
     context={saved ? (saved.bot_username ? `@${saved.bot_username}` : "Бот организации") : "Бот для уведомлений и чатов сотрудников"}
-    actions={saved && editable ? <Button variant="outline" onClick={() => setPanel("bot")}>Сменить бота</Button> : null}>
+    actions={saved && editable ? <Button variant="outline" size="sm" onClick={() => setPanel("bot")}>Сменить бота</Button> : null}>
     {!saved ? <IntegrationSection title="Бот не подключён" description="Создайте бота в @BotFather, добавьте его в рабочий чат и вставьте сюда токен"
-      actions={editable ? <Button size="sm" onClick={() => setPanel("bot")}>Подключить бота</Button> : null}>
+      actions={editable ? <Button size="sm" onClick={() => setPanel("bot")}><Plus className="size-4" />Подключить бота</Button> : null}>
       {!editable ? <IntegrationNotice>Подключить бота может владелец организации</IntegrationNotice> : null}
     </IntegrationSection> : <>
       <Undelivered initial={undelivered} />

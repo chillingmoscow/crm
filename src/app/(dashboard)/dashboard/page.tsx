@@ -1,6 +1,9 @@
 import { getCachedUser, createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
+import { PageFrame } from "@/components/shared/page-frame";
+import { TablePageHeader } from "@/components/shared/table/table-page-header";
+
 export default async function DashboardPage() {
   // getCachedUser() returns the same user object already fetched by layout —
   // no additional Supabase Auth API call is made.
@@ -40,9 +43,9 @@ export default async function DashboardPage() {
   }
 
   return (
-    <div className="p-6 md:p-8 w-full">
-      <h1 className="text-2xl font-semibold">Дашборд</h1>
-      <p className="text-muted-foreground mt-1">Добро пожаловать в систему</p>
-    </div>
+    <PageFrame className="flex flex-col gap-4">
+      <TablePageHeader title="Дашборд" />
+      <p className="text-sm text-muted-foreground">Добро пожаловать в систему</p>
+    </PageFrame>
   );
 }

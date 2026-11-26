@@ -395,7 +395,7 @@ export function StaffClient({
               href={`/people/staff/${member.user_id}`}
               data-tip={displayName(member)}
               data-tip-overflow
-              className="font-medium text-sm truncate min-w-0 hover:text-brand"
+              className="min-w-0 truncate text-sm font-medium transition-colors duration-200 hover:text-brand"
             >
               {nameLabel}
             </Link>
@@ -593,7 +593,7 @@ export function StaffClient({
             href={`/people/staff/${member.user_id}`}
             data-tip={displayName(member)}
             data-tip-overflow
-            className="block truncate text-sm font-medium hover:text-brand"
+            className="block truncate text-sm font-medium transition-colors duration-200 hover:text-brand"
           >
             {displayName(member)}
           </Link>
@@ -657,7 +657,7 @@ export function StaffClient({
               href={`/people/payroll/${c.id}`}
               data-tip={c.name}
               data-tip-overflow
-              className="font-medium text-sm truncate min-w-0 hover:text-brand"
+              className="min-w-0 truncate text-sm font-medium transition-colors duration-200 hover:text-brand"
             >
               {c.name}
             </Link>

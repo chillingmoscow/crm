@@ -35,6 +35,8 @@ export type PayEmployee = {
   /** PIN кассы разового, выданный при заведении в Quick Resto. */
   quickresto_pin?: string | null;
   attendance_source?: "quickresto" | "schedule" | "excluded";
+  /** График выплат (план выплат); по умолчанию «Основной». */
+  payout_schedule?: "main" | "cleaner" | "transfer";
   active: boolean;
   opening_balance: number;
   opening_confirmed: boolean;

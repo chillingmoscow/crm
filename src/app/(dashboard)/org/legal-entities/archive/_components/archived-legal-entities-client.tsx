@@ -143,7 +143,7 @@ export function ArchivedLegalEntitiesClient({ rows }: { rows: ArchivedLegalEntit
             <div className="min-w-0">
               <Link
                 href={`/org/legal-entities/${r.id}`}
-                className="block truncate font-medium hover:underline"
+                className="block truncate font-medium transition-colors duration-200 hover:text-brand"
                 data-tip={displayName(r)}
               >
                 {displayName(r)}

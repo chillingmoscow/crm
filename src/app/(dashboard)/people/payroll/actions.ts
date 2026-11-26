@@ -1,12 +1,4 @@
 "use server";
-import {
-  createClient,
-  getCachedPermissions,
-  getCachedActiveAccountId,
-  getCachedUser,
-} from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { asLooseDb } from "@/lib/supabase/loose";
 import { queuePayroll } from "@/lib/payroll/sync";
 import { normalizeOfficialExpected, type OfficialExpectedRow } from "@/lib/payroll/official-expected";
 import { attendanceReviewRows, needsAttendanceReview } from "@/lib/payroll/attendance-review-rows";
@@ -21,28 +13,7 @@ import type {
 } from "@/lib/payroll/types";
 import { z } from "zod";
 import { actionResult } from "@/lib/actions/result";
-async function scope(permission?: string) {
-  const client = await createClient();
-  const [user, permissions, accountId, venue] = await Promise.all([
-    getCachedUser(),
-    getCachedPermissions(),
-    getCachedActiveAccountId(),
-    client.rpc("get_active_venue_id"),
-  ]);
-  if (!user) throw new Error("Войдите в аккаунт");
-  if (!accountId || !venue.data) throw new Error("Выберите заведение");
-  if (permission && !permissions.includes(permission))
-    throw new Error("Нет доступа к этому действию");
-  return {
-    client,
-    db: asLooseDb(client),
-    admin: asLooseDb(createAdminClient()),
-    accountId,
-    venueId: venue.data as string,
-    user,
-    permissions,
-  };
-}
+import { payrollScope as scope } from "./payroll-scope";
 /**
  * Зарплата одного сотрудника — для вкладки «Оплата» в его карточке.
  * Читает только его начисления, записи, выплаты и переносы, а не всё

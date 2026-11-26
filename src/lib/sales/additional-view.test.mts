@@ -4,6 +4,7 @@ import {
   additionalTabs,
   additionalValue,
   departmentRows,
+  readyUpsellResult,
   upsellUnknown,
   type AdditionalViewData,
 } from "./additional-view.ts";
@@ -103,6 +104,7 @@ test("день до перехода берётся из старой очере
           result: result(360),
           last_error: null,
           computed_at: "2026-11-21T06:00:00Z",
+          provisional: false,
         },
       ],
     }),
@@ -150,6 +152,7 @@ test("выручка дня перехода из отчёта бара", () => 
           result: result(360),
           last_error: null,
           computed_at: null,
+          provisional: false,
         },
       ],
     }),
@@ -173,6 +176,7 @@ test("день без результата — bonus null, не 0", () => {
           result: null,
           last_error: null,
           computed_at: null,
+          provisional: false,
         },
         {
           id: "d22",
@@ -182,6 +186,7 @@ test("день без результата — bonus null, не 0", () => {
           result: null,
           last_error: "Чеки дня ещё не загружены",
           computed_at: null,
+          provisional: false,
         },
       ],
     }),
@@ -209,6 +214,7 @@ test("день перехода в состоянии пересчёта (не r
           }),
           last_error: null,
           computed_at: "2026-11-21T06:00:00Z",
+          provisional: false,
         },
       ],
     }),
@@ -261,6 +267,7 @@ test("подразделение без старого вида — только
           result: { bonus: 40, lines: [{ key: "dish:11", quantity: 2, amount: 40 }], paid: {}, unknown: [] },
           last_error: null,
           computed_at: null,
+          provisional: false,
         },
         {
           id: "b20",
@@ -270,6 +277,7 @@ test("подразделение без старого вида — только
           result: result(360),
           last_error: null,
           computed_at: null,
+          provisional: false,
         },
       ],
     }),
@@ -297,6 +305,7 @@ test("строки дня — из версии, действующей на д�
         result: result(1),
         last_error: null,
         computed_at: null,
+        provisional: false,
       })),
     }),
     BAR
@@ -333,6 +342,7 @@ test("архив Glide — старые дни рядом с днями по ч�
           result: result(360),
           last_error: null,
           computed_at: null,
+          provisional: false,
         },
       ],
     }),
@@ -377,6 +387,7 @@ test("позиции не из номенклатуры — только по г
     result: result(1, { unknown }),
     last_error: null,
     computed_at: null,
+    provisional: false,
   });
   const rows = departmentRows(
     data({
@@ -434,4 +445,20 @@ test("архив Glide подставляется сам для дней без 
       ["2026-10-28", "archive", 310],
     ],
   );
+});
+
+test("предварительный день показывает последний расчёт и во время пересчёта", () => {
+  const day = {
+    id: "d",
+    department_id: "dep",
+    business_date: "2026-11-26",
+    result: { bonus: 500, lines: [], paid: {}, unknown: [] },
+    last_error: null,
+    computed_at: "2026-11-26T15:00:00Z",
+  };
+  assert.equal(readyUpsellResult({ ...day, state: "pending", provisional: true })?.bonus, 500);
+  assert.equal(readyUpsellResult({ ...day, state: "running", provisional: true })?.bonus, 500);
+  // Закрытый день во время пересчёта — «нет данных», как раньше.
+  assert.equal(readyUpsellResult({ ...day, state: "pending", provisional: false }), null);
+  assert.equal(readyUpsellResult({ ...day, state: "ready", provisional: false })?.bonus, 500);
 });

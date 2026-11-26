@@ -6,6 +6,7 @@ import { Check, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ExpandPanel } from "@/components/shared/overview-toggle";
 import { cn } from "@/lib/utils";
 import {
   CUSTOM_LEVEL,
@@ -69,7 +70,10 @@ export function PermissionSection({
   const Icon = section.icon;
 
   return (
-    <div className="flex flex-col gap-2 py-4 first:pt-0 last:pb-0">
+    <div className="py-4 first:pt-0 last:pb-0">
+      {/* Список прав раскрывается плавно (ExpandPanel) — он вне flex-gap,
+          чтобы свёрнутый не оставлял отступа снизу. */}
+      <div className="flex flex-col gap-2">
       <div className="flex items-center gap-3">
         <span
           aria-hidden
@@ -132,17 +136,19 @@ export function PermissionSection({
         <button
           type="button"
           aria-expanded={open}
-          aria-controls={open ? listId : undefined}
+          aria-controls={listId}
           onClick={() => onOpenChange(!open)}
           className="inline-flex items-center gap-1 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
         >
-          <ChevronDown className={cn("size-4 transition-transform", !open && "-rotate-90")} />
+          <ChevronDown className={cn("motion-chevron size-4", !open && "-rotate-90")} />
           Отдельные права · {granted.size} из {perms.length}
         </button>
       </div>
+      </div>
 
-      {open ? (
-        <div id={listId} className="rounded-[10px] border sm:ml-10">
+      <ExpandPanel open={open} id={listId}>
+        <div className="pt-2">
+        <div className="rounded-[10px] border sm:ml-10">
           {visiblePerms.map((perm) => (
             <div
               key={perm.id}
@@ -167,7 +173,8 @@ export function PermissionSection({
             </div>
           ))}
         </div>
-      ) : null}
+        </div>
+      </ExpandPanel>
     </div>
   );
 }

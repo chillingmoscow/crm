@@ -18,6 +18,7 @@ import {
 
 import { CategoryColorDot, CategoryShareBar } from "@/components/finance/category-color";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { AnimatedMoney } from "@/components/shared/animated-money";
 import { Metric, MetricStrip } from "@/components/shared/metric-strip";
 import { Money, formatRub } from "@/components/shared/money";
 import { PageFrame } from "@/components/shared/page-frame";
@@ -243,7 +244,7 @@ export default async function FinanceDashboardPage({
               label="На счетах"
               href={canSeeAccounts ? "/finance/accounts" : undefined}
               icon={canSeeAccounts ? <ArrowUpRight size={15} aria-hidden /> : undefined}
-              value={<Money value={totalBalance} scale={scale} />}
+              value={<AnimatedMoney value={totalBalance} scale={scale} />}
               hint={
                 !canSeeAccounts
                   ? "Нет доступа к счетам"
@@ -258,7 +259,7 @@ export default async function FinanceDashboardPage({
               label="Доходы"
               href={flow ? transactionsHref({ type: "income" }) : undefined}
               icon={flow ? <ArrowUpRight size={15} aria-hidden /> : undefined}
-              value={<Money value={flow?.summary.income} scale={scale} />}
+              value={<AnimatedMoney value={flow?.summary.income} scale={scale} />}
               hint={
                 (elapsed && changeLines("income", elapsed, baselines, scale, compareMode)) ??
                 flowHint(flow?.summary.incomeCount)
@@ -268,7 +269,7 @@ export default async function FinanceDashboardPage({
               label="Расходы"
               href={flow ? transactionsHref({ type: "expense" }) : undefined}
               icon={flow ? <ArrowUpRight size={15} aria-hidden /> : undefined}
-              value={<Money value={flow?.summary.expense} scale={scale} />}
+              value={<AnimatedMoney value={flow?.summary.expense} scale={scale} />}
               hint={
                 (elapsed && changeLines("expense", elapsed, baselines, scale, compareMode)) ??
                 flowHint(flow?.summary.expenseCount)
@@ -276,7 +277,7 @@ export default async function FinanceDashboardPage({
             />
             <Metric
               label="Чистый поток"
-              value={<Money value={flow?.summary.net} scale={scale} signed />}
+              value={<AnimatedMoney value={flow?.summary.net} scale={scale} signed />}
               hint={
                 (elapsed && changeLines("net", elapsed, baselines, scale, compareMode)) ??
                 (flow ? "Без учёта переводов" : flowHint(undefined))
@@ -300,10 +301,15 @@ export default async function FinanceDashboardPage({
                   ) : !flow || flow.top.length === 0 ? (
                     <Empty>Расходов за период нет</Empty>
                   ) : (
-                    <ul className="space-y-4">
-                      {flow.top.map((c) => (
+                    // key по периоду и отбору: полоски растут заново при смене.
+                    <ul
+                      key={`${period.from}:${period.to}:${venueId ?? ""}:${legalEntityId ?? ""}`}
+                      className="space-y-4"
+                    >
+                      {flow.top.map((c, i) => (
                         <CategoryBar
                           key={c.category_id ?? NO_CATEGORY}
+                          index={i}
                           href={transactionsHref({
                             type: "expense",
                             category_id: c.category_id ?? NO_CATEGORY,
@@ -327,6 +333,7 @@ export default async function FinanceDashboardPage({
                           count={flow.rest.count}
                           share={flow.rest.share}
                           scale={scale}
+                          index={flow.top.length}
                           muted
                         />
                       ) : null}
@@ -524,6 +531,7 @@ function CategoryBar({
   count,
   share,
   scale,
+  index,
   muted = false,
 }: {
   label: string;
@@ -534,6 +542,8 @@ function CategoryBar({
   count: number;
   share: number;
   scale: AmountRoundingScale;
+  /** Место в списке — полоски растут по очереди. */
+  index: number;
   muted?: boolean;
 }) {
   const pct = Math.round(share * 100);
@@ -543,7 +553,7 @@ function CategoryBar({
         <span className="flex min-w-0 items-center gap-2">
           <CategoryColorDot color={color} size="md" />
           {href ? (
-            <Link href={href} className="min-w-0 truncate hover:underline" data-tip={label} data-tip-overflow>
+            <Link href={href} className="min-w-0 truncate transition-colors duration-200 hover:text-brand" data-tip={label} data-tip-overflow>
               {label}
             </Link>
           ) : (
@@ -553,7 +563,7 @@ function CategoryBar({
         <Money value={amount} scale={scale} className="shrink-0 font-medium" />
       </div>
       {/* Доля меньше процента всё равно видна тонкой полоской. */}
-      <CategoryShareBar color={color} percent={Math.max(share * 100, share > 0 ? 1 : 0)} />
+      <CategoryShareBar color={color} percent={Math.max(share * 100, share > 0 ? 1 : 0)} index={index} />
       <p className="text-xs text-muted-foreground tabular-nums">
         {pct < 1 && share > 0 ? "меньше 1%" : `${pct}%`} расходов ·{" "}
         {countRu(count, "операция", "операции", "операций")}

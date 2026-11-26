@@ -691,12 +691,6 @@
     padding: 13px;
   }
 }
-.actionButton {
-  height: 36px;
-  font-size: 13px;
-  padding-left: 12px;
-  padding-right: 12px;
-}
 .functionalTable thead {
   position: static;
 }

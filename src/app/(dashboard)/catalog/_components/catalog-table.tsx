@@ -24,7 +24,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { Money } from "@/components/shared/money";
 import { LocalDateTime } from "@/components/shared/local-date-time";
@@ -36,6 +35,7 @@ import {
   TableConditions,
   TableControls,
   TableFilterChip,
+  TableIconButton,
   TablePageHeader,
   TableRowMenu,
   TableSortPicker,
@@ -436,7 +436,7 @@ export function CatalogTable({
                 className="touch-target flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
               >
                 <ChevronRight
-                  className={cn("size-4 transition-transform", item.expanded && "rotate-90")}
+                  className={cn("motion-chevron size-4", item.expanded && "rotate-90")}
                 />
               </button>
               <Thumb url={group.imageUrl} previewUrl={group.previewUrl} type="group" name={group.name} />
@@ -467,7 +467,7 @@ export function CatalogTable({
             />
             <Link
               href={productHref(product)}
-              className="block min-w-0 truncate hover:underline"
+              className="block min-w-0 truncate transition-colors duration-200 hover:text-brand"
               data-tip={product.name}
             >
               {product.name}
@@ -749,27 +749,14 @@ export function CatalogTable({
               ),
             }}
             secondaryActions={
-              <IconTooltip
+              <TableIconButton
                 label={archived ? "Вернуться к действующим позициям" : `Архив · ${archivedCount}`}
+                active={archived}
+                pressed={archived}
+                onClick={() => setArchived((value) => !value)}
               >
-                <Button
-                  variant="outline"
-                  size="icon"
-                  aria-label={
-                    archived
-                      ? "Показать действующие позиции"
-                      : `Показать архив (${archivedCount})`
-                  }
-                  aria-pressed={archived}
-                  onClick={() => setArchived((value) => !value)}
-                  className={cn(
-                    "touch-target size-8 text-muted-foreground sm:size-9",
-                    archived && "border-brand bg-brand/5 text-brand",
-                  )}
-                >
-                  <Archive className="size-4" />
-                </Button>
-              </IconTooltip>
+                <Archive />
+              </TableIconButton>
             }
             primaryActions={
               <InventorySyncButton canSync={canSync} lastSyncedAt={lastSyncedAt} layout="toolbar" />

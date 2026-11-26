@@ -225,7 +225,7 @@ export function NomenclatureSuppliers({
                     <button
                       type="button"
                       onClick={() => setDrawer({ mode: "view", supplier })}
-                      className="min-w-0 truncate text-left text-sm font-medium hover:underline"
+                      className="min-w-0 truncate text-left text-sm font-medium transition-colors duration-200 hover:text-brand"
                       data-tip={supplier.counterpartyName}
                     >
                       {supplier.counterpartyName}

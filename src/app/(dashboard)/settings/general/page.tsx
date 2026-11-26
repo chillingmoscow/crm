@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { SlidersHorizontal } from "lucide-react";
 
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { PageFrame } from "@/components/shared/page-frame";
+import { TablePageHeader } from "@/components/shared/table/table-page-header";
 import { normalizeAmountRoundingScale } from "@/lib/format/amount";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
@@ -44,16 +46,9 @@ export default async function GeneralSettingsPage() {
   const timezone = account?.timezone?.trim() || "Europe/Moscow";
 
   return (
-    <div className="w-full px-4 py-4 md:px-8 md:py-6">
-      <div className="mb-6">
-        <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
-          <SlidersHorizontal className="h-5 w-5" />
-        </div>
-        <h1 className="text-2xl font-semibold">Общие настройки</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Базовые параметры для финансов и инвентаризации.
-        </p>
-      </div>
+    <PageFrame className="flex flex-col gap-6">
+      <Breadcrumbs items={[{ label: "Настройки" }, { label: "Общие" }]} />
+      <TablePageHeader title="Общие настройки" />
 
       <GeneralSettingsForm>
         <div>
@@ -97,6 +92,6 @@ export default async function GeneralSettingsPage() {
           </label>
         </div>
       </GeneralSettingsForm>
-    </div>
+    </PageFrame>
   );
 }

@@ -14,9 +14,10 @@ export function CandidateTrialCard({ trial, timezone, showName = false, linked =
 }) {
   const className = cn(
         // Та же карточка, что у смены в ячейке: rounded-md, px-1.5 py-2, gap-1.
-        "grid min-w-0 gap-1 rounded-md px-1.5 py-2 text-xs outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring",
+        "grid min-w-0 gap-1 rounded-md px-1.5 py-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring",
         paletteBg("purple"), paletteText("purple"),
-        !linked && "hover:opacity-100",
+        // Наведение — подложка поверх цвета, как у карточки смены.
+        linked && "transition-shadow duration-200 hover:shadow-[inset_0_0_0_999px_hsl(var(--foreground)/0.05)]",
       );
   const body = (
     <>

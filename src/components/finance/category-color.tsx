@@ -49,9 +49,12 @@ export function CategoryColorDot({
 export function CategoryShareBar({
   color,
   percent,
+  index = 0,
 }: {
   color: string | null | undefined;
   percent: number;
+  /** Место в списке: полоски растут по очереди (docs/motion.md). */
+  index?: number;
 }) {
   const palette = normalizePaletteColor(color);
   const legacyHex = !palette && color && HEX.test(color) ? (color.startsWith("#") ? color : `#${color}`) : null;
@@ -60,11 +63,15 @@ export function CategoryShareBar({
     <div className="h-1.5 overflow-hidden rounded-sm bg-muted" aria-hidden="true">
       <div
         className={cn(
-          "h-full rounded-sm",
+          "chart-bar-grow-x h-full rounded-sm",
           palette && palette !== "default" ? paletteDot(palette) : legacyHex ? null : "bg-muted-foreground/40",
         )}
         // Hex — данные прежнего учёта, не токен интерфейса.
-        style={legacyHex ? { width, backgroundColor: legacyHex } : { width }}
+        style={{
+          width,
+          animationDelay: `${200 + index * 90}ms`,
+          ...(legacyHex ? { backgroundColor: legacyHex } : null),
+        }}
       />
     </div>
   );

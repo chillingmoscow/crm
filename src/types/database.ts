@@ -2836,6 +2836,201 @@ export type Database = {
           },
         ]
       }
+      payroll_payout_issues: {
+        Row: {
+          account_id: string
+          bank_account_id: string
+          business_date: string
+          cash: Json | null
+          created_at: string
+          created_by: string | null
+          id: string
+          input_snapshot: Json
+          lines: Json
+          message: string | null
+          message_error: string | null
+          message_sent_at: string | null
+          method: string
+          plan_id: string
+          request_key: string
+          total: number
+          venue_id: string
+        }
+        Insert: {
+          account_id: string
+          bank_account_id: string
+          business_date: string
+          cash?: Json | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          input_snapshot: Json
+          lines: Json
+          message?: string | null
+          message_error?: string | null
+          message_sent_at?: string | null
+          method: string
+          plan_id: string
+          request_key: string
+          total: number
+          venue_id: string
+        }
+        Update: {
+          account_id?: string
+          bank_account_id?: string
+          business_date?: string
+          cash?: Json | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          input_snapshot?: Json
+          lines?: Json
+          message?: string | null
+          message_error?: string | null
+          message_sent_at?: string | null
+          method?: string
+          plan_id?: string
+          request_key?: string
+          total?: number
+          venue_id?: string
+        }
+        Relationships: []
+      }
+      payroll_payout_plans: {
+        Row: {
+          account_id: string
+          approved_at: string | null
+          approved_by: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          month: string
+          payout_no: number
+          schedule: string
+          state: string
+          venue_id: string
+          version: number
+          window_from: string
+          window_to: string
+        }
+        Insert: {
+          account_id: string
+          approved_at?: string | null
+          approved_by?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          month: string
+          payout_no: number
+          schedule: string
+          state?: string
+          venue_id: string
+          version?: number
+          window_from: string
+          window_to: string
+        }
+        Update: {
+          account_id?: string
+          approved_at?: string | null
+          approved_by?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          month?: string
+          payout_no?: number
+          schedule?: string
+          state?: string
+          venue_id?: string
+          version?: number
+          window_from?: string
+          window_to?: string
+        }
+        Relationships: []
+      }
+      payroll_payout_rows: {
+        Row: {
+          account_id: string
+          amount: number
+          breakdown: Json
+          employee_id: string
+          id: string
+          issued: number
+          pay_date: string | null
+          plan_id: string
+          state: string
+          updated_at: string
+          updated_by: string | null
+          venue_id: string
+        }
+        Insert: {
+          account_id: string
+          amount: number
+          breakdown?: Json
+          employee_id: string
+          id?: string
+          issued?: number
+          pay_date?: string | null
+          plan_id: string
+          state?: string
+          updated_at?: string
+          updated_by?: string | null
+          venue_id: string
+        }
+        Update: {
+          account_id?: string
+          amount?: number
+          breakdown?: Json
+          employee_id?: string
+          id?: string
+          issued?: number
+          pay_date?: string | null
+          plan_id?: string
+          state?: string
+          updated_at?: string
+          updated_by?: string | null
+          venue_id?: string
+        }
+        Relationships: []
+      }
+      payroll_payout_settings: {
+        Row: {
+          account_id: string
+          bank_account_id: string | null
+          chat_id: string | null
+          min_cash: number
+          schedules: Json
+          updated_at: string
+          updated_by: string | null
+          venue_id: string
+        }
+        Insert: {
+          account_id: string
+          bank_account_id?: string | null
+          chat_id?: string | null
+          min_cash?: number
+          schedules?: Json
+          updated_at?: string
+          updated_by?: string | null
+          venue_id: string
+        }
+        Update: {
+          account_id?: string
+          bank_account_id?: string | null
+          chat_id?: string | null
+          min_cash?: number
+          schedules?: Json
+          updated_at?: string
+          updated_by?: string | null
+          venue_id?: string
+        }
+        Relationships: []
+      }
       permissions: {
         Row: {
           code: string
@@ -3122,6 +3317,7 @@ export type Database = {
           job_id: string | null
           last_error: string | null
           lease_token: string | null
+          provisional: boolean
           next_retry_at: string
           result: Json | null
           rule_id: string
@@ -3140,6 +3336,7 @@ export type Database = {
           job_id?: string | null
           last_error?: string | null
           lease_token?: string | null
+          provisional?: boolean
           next_retry_at?: string
           result?: Json | null
           rule_id: string
@@ -3158,6 +3355,7 @@ export type Database = {
           job_id?: string | null
           last_error?: string | null
           lease_token?: string | null
+          provisional?: boolean
           next_retry_at?: string
           result?: Json | null
           rule_id?: string
@@ -4292,6 +4490,17 @@ export type Database = {
         Returns: Json
       }
       payroll_official_skip: { Args: { p_id: string }; Returns: undefined }
+      payroll_payout_issue: { Args: { p_input: Json }; Returns: string }
+      payroll_payout_plan_save: { Args: { p_input: Json }; Returns: string }
+      payroll_payout_plan_state: {
+        Args: { p_plan: string; p_state: string }
+        Returns: undefined
+      }
+      payroll_payout_row_update: {
+        Args: { p_amount: number; p_pay_date: string | null; p_row: string }
+        Returns: undefined
+      }
+      payroll_payout_save_settings: { Args: { p_input: Json }; Returns: undefined }
       payroll_record_official_payment: {
         Args: { p_input: Json }
         Returns: string

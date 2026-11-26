@@ -49,9 +49,11 @@ function resolve(node: EventTarget | null): Resolved | null {
     // когда текст обрезан. Иначе она всплывает на каждом имени в таблице и
     // ничего не добавляет. Правило общее, а не флаг на каждом месте вызова:
     // так новые `data-tip={name}` не вернут проблему.
+    // Если есть вторая строка (`data-tip-sub`), подсказка что-то добавляет к
+    // видимому тексту (например, как сработает сортировка) — показываем всегда.
     const overflowOnly =
       dataEl.hasAttribute("data-tip-overflow") ||
-      (!!label && sameText(label, dataEl.textContent));
+      (!!label && sameText(label, dataEl.textContent) && !dataEl.hasAttribute("data-tip-sub"));
     const clipped = !overflowOnly ||
       dataEl.scrollWidth > dataEl.clientWidth || dataEl.scrollHeight > dataEl.clientHeight;
     if (label && label.trim() && clipped) {
@@ -177,7 +179,7 @@ export function GlobalTooltip() {
         pointerEvents: "none",
         maxWidth: 280,
       }}
-      className="rounded-md bg-neutral-900 px-3 py-1.5 shadow-lg animate-in fade-in-0 zoom-in-95"
+      className="rounded-md bg-neutral-900 px-3 py-1.5 shadow-lg motion-popper-in"
     >
       <span className="block text-xs font-semibold leading-tight text-neutral-50">
         {tip.label}

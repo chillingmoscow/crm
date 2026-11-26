@@ -365,7 +365,7 @@ export function AccountsList({
             <div className="min-w-0">
               <Link
                 href={`/finance/accounts/${a.id}`}
-                className="block truncate font-medium hover:underline"
+                className="block truncate font-medium transition-colors duration-200 hover:text-brand"
                 data-tip={a.name}
               >
                 {a.name}
@@ -538,7 +538,7 @@ export function AccountsList({
   };
 
   const createButton = canManage && !showArchive ? (
-    <Button size="sm" className="h-9 gap-2" onClick={() => setCreateOpen(true)}>
+    <Button size="sm" onClick={() => setCreateOpen(true)}>
       <Plus className="size-4" />
       Добавить счёт
     </Button>
@@ -714,7 +714,7 @@ export function AccountsList({
             action={
               canManage && archivedRows.length === 0 ? (
                 <Button onClick={() => setCreateOpen(true)}>
-                  <Plus className="mr-2 size-4" />
+                  <Plus className="size-4" />
                   Добавить счёт
                 </Button>
               ) : undefined

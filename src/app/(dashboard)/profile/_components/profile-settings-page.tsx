@@ -14,6 +14,9 @@ import {
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { PageFrame } from "@/components/shared/page-frame";
+import { TablePageHeader } from "@/components/shared/table/table-page-header";
 import { Input } from "@/components/ui/input";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -348,22 +351,17 @@ export function ProfileSettingsPage({
   };
 
   return (
-    <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-6">
+    <PageFrame className="flex flex-col gap-6">
       {/* Welcome для новых юзеров — теперь живёт в колокольчике
           (notifications.staff.welcome, добавляется в acceptInvitation).
           Раньше был баннер на этой странице, но перегружал верх.
           `welcomeMode` оставлен для обратной совместимости с legacy
           query-param'ами в чьих-то закладках. */}
 
-      {/* Header — без аватара слева. Большое фото есть в первой секции формы. */}
-      <div className="flex flex-col gap-1 min-w-0">
-        <h1 className="text-[28px] font-bold tracking-tight leading-tight">
-          Настройки профиля
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Эти данные видят все работодатели в системе
-        </p>
-      </div>
+      {/* Шапка — стандартная 36/700, без описания и без аватара: большое
+          фото есть в первой секции формы. */}
+      <Breadcrumbs items={[{ label: "Профиль" }]} />
+      <TablePageHeader title="Настройки профиля" />
 
       {/* Completion meter + friendly onboarding steps. Скрывается, как
           только юзер сохранил профиль на 100% — карточка-онбординг своё
@@ -405,7 +403,9 @@ export function ProfileSettingsPage({
         {/* Личные данные с фото */}
         <FormSection
           title="Личные данные"
-          description="Фото, имя, фамилия, пол и дата рождения"
+          // Кто видит данные — важно знать до заполнения; раньше это было
+          // подзаголовком страницы (описания под заголовком в DS нет).
+          description="Фото, имя, фамилия, пол и дата рождения. Эти данные видят все работодатели в системе"
         >
           {/* Photo block */}
           <div className="flex flex-col items-center gap-3 pb-2">
@@ -694,6 +694,6 @@ export function ProfileSettingsPage({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageFrame>
   );
 }

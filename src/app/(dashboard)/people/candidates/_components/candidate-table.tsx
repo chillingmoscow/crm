@@ -94,7 +94,7 @@ export function candidateColumns(
         if (id === "full_name")
           return (
             <Link
-              className="block truncate font-medium hover:text-brand"
+              className="block truncate font-medium transition-colors duration-200 hover:text-brand"
               data-tip={c.full_name} data-tip-overflow
               href={`/people/candidates/${c.id}`}
             >

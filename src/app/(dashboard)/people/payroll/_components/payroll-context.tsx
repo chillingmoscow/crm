@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { OptionSelect } from "@/components/ui/option-select";
-import { DayTeamList } from "@/app/(dashboard)/sales/_components/day-team";
+import { DayTeamList, DayTeamSkeleton } from "@/app/(dashboard)/sales/_components/day-team";
 import { nativeDayMembers } from "@/lib/sales/day-context";
 import { toast } from "sonner";
 /** Вкладка «Оплата» в карточке сотрудника: расчётный лист за выбранный месяц. */
@@ -130,10 +130,16 @@ export function PayrollDayPanel({ date }: { date: string }) {
     return <p className="p-5 text-sm text-muted-foreground">{error}</p>;
   if (!data)
     return (
-      <p className="p-5 text-sm text-muted-foreground">
-        Загружаем расчёт команды…
-      </p>
+      <div className="pt-4">
+        <DayTeamSkeleton label="Загружаем расчёт команды" />
+      </div>
     );
+  // Имя ведёт в карточку сотрудника — только если её можно открыть
+  // (страница карточки требует обоих прав), как в команде дня продаж.
+  const canOpenStaff =
+    data.permissions.includes("people.view_staff") &&
+    data.permissions.includes("people.view_staff_details");
+  const userIds = new Map(data.employees.map((e) => [e.id, e.local_user_id ?? undefined]));
   const accruals = data.accruals.filter(
       (a) =>
         a.business_date === date && a.calculation_snapshot.kind !== "monthly",
@@ -144,7 +150,10 @@ export function PayrollDayPanel({ date }: { date: string }) {
       <DayTeamList
         date={date}
         source="native"
-        members={nativeDayMembers(accruals, data.employees)}
+        members={nativeDayMembers(accruals, data.employees).map((m) => ({
+          ...m,
+          userId: canOpenStaff && m.employeeId ? userIds.get(m.employeeId) : undefined,
+        }))}
       />
       <Link
         href={`/schedule/attendance?date=${date}`}

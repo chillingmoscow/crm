@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, AlertCircle, Loader2, ChevronDown } from "lucide-react";
+import { CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { Disclosure } from "@/components/shared/disclosure";
 import { retryStaffTermination } from "../actions";
 
 export function StaffTerminationStatus({
@@ -30,6 +31,13 @@ export function StaffTerminationStatus({
   const complete = status.state === "complete";
   const error = status.state === "error";
   const manualDoorCheck = status.door_revoked;
+  // Раскрыт, пока что-то требует внимания; когда статус снова требует
+  // внимания (ошибка, ручная проверка замка), блок раскрывается сам.
+  const attention = error || manualDoorCheck || !complete;
+  const [open, setOpen] = useState(attention);
+  useEffect(() => {
+    if (attention) setOpen(true);
+  }, [attention]);
   useEffect(() => {
     if (complete || (status.state === "error" && status.attempts >= 5)) return;
     const timer = setInterval(() => router.refresh(), 5000);
@@ -51,11 +59,14 @@ export function StaffTerminationStatus({
         ? "Проверить замок"
         : "Завершено";
   return (
-    <details
-      open={error || manualDoorCheck || !complete}
-      className="group border-t pt-4 text-sm"
-    >
-      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-brand [&::-webkit-details-marker]:hidden">
+    <Disclosure
+      open={open}
+      onOpenChange={setOpen}
+      chevron="end"
+      className="border-t pt-4 text-sm"
+      triggerClassName="focus-visible:ring-brand"
+      title={
+        <>
         <span className="flex-1 font-medium">Закрытие доступов</span>
         <StatusBadge
           tone={error ? "danger" : !complete ? "neutral" : manualDoorCheck ? "warning" : "success"}
@@ -67,9 +78,10 @@ export function StaffTerminationStatus({
         >
           {label}
         </StatusBadge>
-        <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180 motion-reduce:transition-none" />
-      </summary>
-      <div className="mt-4 space-y-3" role="status">
+        </>
+      }
+    >
+      <div className="space-y-3 pt-4" role="status">
         <dl className="space-y-2 text-xs">
           <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
             <dt className="text-muted-foreground">Доступ к заведению</dt>
@@ -135,6 +147,6 @@ export function StaffTerminationStatus({
           </Button>
         )}
       </div>
-    </details>
+    </Disclosure>
   );
 }

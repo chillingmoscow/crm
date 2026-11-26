@@ -12,6 +12,7 @@ import {
   CalendarDays,
   FileCheck2,
   FileText,
+  Loader2,
   RefreshCw,
   SearchX,
   Settings,
@@ -21,6 +22,7 @@ import { toast } from "sonner";
 
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { useDiscardGuard } from "@/components/shared/discard-changes-dialog";
+import { AnimatedMoney, AnimatedNumber } from "@/components/shared/animated-money";
 import { Metric, MetricStrip } from "@/components/shared/metric-strip";
 import { MonthPicker } from "@/components/shared/month-picker";
 import { PageFrame } from "@/components/shared/page-frame";
@@ -662,7 +664,7 @@ export function SuppliesClient({
               {/* Настоящая кнопка в первой ячейке: накладную можно открыть с клавиатуры. */}
               <button
                 type="button"
-                className="block max-w-full truncate text-left font-medium tabular-nums hover:underline"
+                className="block max-w-full truncate text-left font-medium tabular-nums transition-colors duration-200 hover:text-brand"
                 data-tip={`Накладная №${r.data.number}`}
                 onClick={() => void openSupply(r.id)}
               >
@@ -1020,7 +1022,7 @@ export function SuppliesClient({
           <Metric
             primary
             label="Сумма накладных"
-            value={money(data.amountCents)}
+            value={<AnimatedMoney value={data.amountCents / 100} scale={amountRoundingScale} />}
             hint={
               isFiltered
                 ? "С учётом поиска и фильтров"
@@ -1029,11 +1031,11 @@ export function SuppliesClient({
                   : undefined
             }
           />
-          <Metric label="Оплачено" value={money(data.paidCents)} hint="Подтверждено расходами" />
-          <Metric label="Не оплачено" value={money(data.unpaidCents)} hint="Осталось связать с расходами" />
+          <Metric label="Оплачено" value={<AnimatedMoney value={data.paidCents / 100} scale={amountRoundingScale} />} hint="Подтверждено расходами" />
+          <Metric label="Не оплачено" value={<AnimatedMoney value={data.unpaidCents / 100} scale={amountRoundingScale} />} hint="Осталось связать с расходами" />
           <Metric
             label="Проверить оплату"
-            value={data.reviewCount.toLocaleString("ru-RU")}
+            value={<AnimatedNumber value={data.reviewCount} />}
             hint={
               data.reviewCount
                 ? "Расход или сумма накладной изменились"
@@ -1062,6 +1064,13 @@ export function SuppliesClient({
                   void (data.configured ? readSource() : openSettings())
                 }
               >
+                {reading || requesting ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : data.configured ? (
+                  <RefreshCw className="size-4" />
+                ) : (
+                  <Settings className="size-4" />
+                )}
                 {data.configured ? "Загрузить накладные" : "Настроить источник"}
               </Button>
             ) : undefined

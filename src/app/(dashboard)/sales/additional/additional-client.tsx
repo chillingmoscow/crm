@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getCoreRowModel,
   getSortedRowModel,
@@ -26,9 +26,11 @@ import {
 } from "@/components/ui/drawer-blocks";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { AnimatedMoney, AnimatedNumber } from "@/components/shared/animated-money";
 import { Metric, MetricStrip } from "@/components/shared/metric-strip";
 import { Money, formatRub } from "@/components/shared/money";
 import { MonthPicker } from "@/components/shared/month-picker";
+import { ExpandPanel, OverviewToggle, TabsRow, useOverviewOpen } from "@/components/shared/overview-toggle";
 import { PageFrame } from "@/components/shared/page-frame";
 import { PeriodStepper } from "@/components/shared/period-stepper";
 import { SalesTrend, type TrendSeries } from "@/components/shared/sales-trend";
@@ -65,6 +67,7 @@ import { formatDateCell, formatDayMonth, formatDayMonthTime } from "@/lib/format
 import { countRu } from "@/lib/format/plural";
 import { DayTeamPanel } from "../_components/day-team";
 import { DayDiscussionPanel } from "../_components/day-discussion";
+import { TimelineSkeleton } from "../_components/section-skeleton";
 import { unwrapAction } from "@/lib/actions/result";
 import {
   loadAdditional,
@@ -88,6 +91,7 @@ const stateLabels = {
   pending: "Ожидает обновления",
   running: "Обновляется",
   error: "Не обновлено",
+  provisional: "Предварительно",
 };
 const moneyKeys = new Set(["turnover", "revenue", "primeCost", "bonus"]);
 const MIN_MONTH = "2000-01";
@@ -98,7 +102,12 @@ type PickerByKey = Map<string, UpsellPickerItem>;
 
 /** Состояние строки: отчёт старой очереди или расчёт дня по чекам. */
 function rowState(r: AdditionalRow) {
-  return r.upsell ? (r.upsell.day?.state ?? "pending") : r.native?.state;
+  if (!r.upsell) return r.native?.state;
+  const day = r.upsell.day;
+  // Предварительный день пересчитывается на каждой загрузке чеков: его
+  // «очередь» и «обновляется» не показываем, ошибку — показываем.
+  if (day?.provisional && day.state !== "error") return "provisional";
+  return day?.state ?? "pending";
 }
 
 /** «Негрони, код 2041 и ещё 3»: позиции чеков не из номенклатуры. */
@@ -189,12 +198,15 @@ function Value({ id, value }: { id: string; value: number | null }) {
 }
 
 function Detail({
+  open,
   row,
   data,
   name,
   picker,
   onClose,
 }: {
+  /** Панель держат смонтированной, пока она уезжает: закрывают через `open`. */
+  open: boolean;
   row: AdditionalRow;
   data: AdditionalData;
   /** Название подразделения (вкладки). */
@@ -227,12 +239,12 @@ function Detail({
   const unknown = row.upsell ? (readyUpsellResult(day)?.unknown ?? []) : [];
   const updated = row.native?.synced_at
     ? ` · обновлено ${formatDayMonthTime(row.native.synced_at, new Date(), data.timezone)}`
-    : day?.computed_at && state === "ready"
+    : day?.computed_at && (state === "ready" || state === "provisional")
       ? ` · посчитано ${formatDayMonthTime(day.computed_at, new Date(), data.timezone)}`
       : "";
   return (
     <EditDrawer
-      open
+      open={open}
       onOpenChange={(v) => !v && onClose()}
       title={`${name} · ${formatDayMonth(row.date) ?? ""}`}
       titleAccessory={
@@ -263,7 +275,9 @@ function Detail({
                 ? state === "error"
                   ? "Нет данных: день не удалось посчитать"
                   : "Нет данных: день ещё не посчитан"
-                : "Делится между сотрудниками смены"
+                : state === "provisional"
+                  ? "Предварительно: день ещё не закрыт"
+                  : "Делится между сотрудниками смены"
           }
         >
           <Money value={bonus} />
@@ -278,7 +292,18 @@ function Detail({
         </TabsList>
         <TabsContent value="details" className="space-y-9">
           {row.upsell
-            ? state !== "ready" && (
+            ? state === "provisional"
+              ? (
+                <p
+                  role="status"
+                  className="rounded-lg border bg-muted/50 p-3 text-sm"
+                >
+                  Смена ещё идёт: сумма обновляется вместе с чеками, примерно раз
+                  в 15 минут. Окончательно день посчитается после его закрытия, и
+                  только тогда прибавка попадёт в зарплату
+                </p>
+              )
+              : state !== "ready" && (
                 <p
                   role={state === "error" ? "alert" : "status"}
                   className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm"
@@ -403,9 +428,7 @@ function Detail({
               Не удалось загрузить историю. Закройте день и откройте ещё раз
             </p>
           ) : history === null ? (
-            <p className="text-sm text-muted-foreground" role="status">
-              Загружаем историю…
-            </p>
+            <TimelineSkeleton label="Загружаем историю" rows={2} />
           ) : history.length ? (
             <DrawerTimeline>
               {history.map((h, i) => (
@@ -451,9 +474,27 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
   const [busy, setBusy] = useState(false),
     [exporting, setExporting] = useState(false),
     [detail, setDetail] = useState<AdditionalRow | null>(null);
+  // «Обзор» (график по месяцам) над таблицей: открыт, выбор помнится.
+  const [overviewOpen, setOverviewOpen] = useOverviewOpen("sales.additional.overview");
   const can = (p: string) => data.permissions.includes(`sales.${p}_shifts`);
   const tabs = useMemo(() => additionalTabs(data), [data]);
   const tab = tabs.find((t) => t.id === tabId) ?? tabs[0] ?? null;
+  // Панель дня держим смонтированной, пока она уезжает: показываем последний
+  // открытый день. `n` — номер открытия: каждое начинается заново.
+  const openCount = useRef(0);
+  const [shownDetail, setShownDetail] = useState<{
+    row: AdditionalRow;
+    name: string;
+    n: number;
+  } | null>(null);
+  useEffect(() => {
+    if (detail && tab)
+      setShownDetail((old) =>
+        old?.row === detail && old.name === tab.name
+          ? old
+          : { row: detail, name: tab.name, n: old?.row.id === detail.id ? old.n : ++openCount.current },
+      );
+  }, [detail, tab]);
   const kind = tab?.legacyKind ?? null;
   // Правила живут вкладкой карточки подразделения; карточка требует
   // просмотра должностей. Вкладка старого вида без подразделения ведёт к их списку.
@@ -603,7 +644,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
           return (
             <div className="min-w-0">
               <button
-                className="block text-left font-medium tabular-nums hover:underline"
+                className="block text-left font-medium tabular-nums transition-colors duration-200 hover:text-brand focus-visible:text-brand focus-visible:outline-none"
                 type="button"
                 onClick={() => setDetail(row.original)}
               >
@@ -792,6 +833,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
   const monthPoints = monthIds.has("points");
   const unknown = upsellUnknown(monthRows);
   const archiveDays = monthRows.filter((r) => r.archive).map((r) => r.date).sort();
+  const showOverview = allRows.length > 0 && groups.length > 0 && monthRows.length > 0;
   const hintFor = (key: string) => {
     const sum = additionalTotal(rows, key);
     return sum.value === null
@@ -829,51 +871,35 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
           номенклатуры
         </p>
       )}
-      {!monthRows.length ? (
-        <EmptyState
-          icon={ChartNoAxesCombined}
-          title="За этот месяц данных нет"
-          description={
-            switchDate
-              ? "Дни появятся после загрузки чеков в «Сменах»"
-              : data.configured
-                ? "Посчитайте завершённые рабочие дни кнопкой «Пересчитать месяц»"
-                : "Источники допродаж пока не подключены"
-          }
-        />
-      ) : !rows.length ? (
-        <EmptyState
-          icon={SearchX}
-          title="Дни не найдены"
-          description="Измените условия поиска"
-          action={
-            <Button variant="outline" onClick={resetConditions}>
-              Очистить все
-            </Button>
-          }
-        />
-      ) : (
-        <>
+      {rows.length > 0 && (
+        // Подразделение — как вкладка: итоги всплывают и досчитываются заново.
+        <div key={tab?.id} className="motion-rise">
           <MetricStrip label="Итоги допродаж за месяц">
             {stripKeys.map((key, i) => (
               <Metric
                 key={key}
                 primary={i === 0}
                 label={labels[key]}
-                value={<Money value={additionalTotal(rows, key).value} />}
+                value={<AnimatedMoney value={additionalTotal(rows, key).value} />}
                 hint={hintFor(key)}
               />
             ))}
             {monthPoints ? (
               <Metric
                 label={labels.points}
-                value={formatQuantity(additionalTotal(rows, "points").value)}
+                value={
+                  <AnimatedNumber
+                    value={additionalTotal(rows, "points").value}
+                    digits={2}
+                    format={formatQuantity}
+                  />
+                }
                 hint={hintFor("points")}
               />
             ) : (
               <Metric
                 label="Рабочих дней"
-                value={workedDays}
+                value={<AnimatedNumber value={workedDays} />}
                 hint={
                   workedDays < expectedDays
                     ? `Данные по ${workedDays} из ${countRu(expectedDays, "дня", "дней", "дней")}`
@@ -882,6 +908,46 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
               />
             )}
           </MetricStrip>
+        </div>
+      )}
+      {/* График и таблица — без зазора между собой: свёрнутый «Обзор» не
+          оставляет лишнего отступа. */}
+      <div className="min-w-0">
+        {showOverview && (
+          <ExpandPanel id="additional-overview" open={overviewOpen} replayOnOpen>
+            <div className="pb-4">
+              <SalesTrend
+                key={tab?.id}
+                series={chartSeries}
+                title="Среднее количество в день с данными"
+              />
+            </div>
+          </ExpandPanel>
+        )}
+        {!monthRows.length ? (
+          <EmptyState
+            icon={ChartNoAxesCombined}
+            title="За этот месяц данных нет"
+            description={
+              switchDate
+                ? "Дни появятся после загрузки чеков в «Сменах»"
+                : data.configured
+                  ? "Посчитайте завершённые рабочие дни кнопкой «Пересчитать месяц»"
+                  : "Источники допродаж пока не подключены"
+            }
+          />
+        ) : !rows.length ? (
+          <EmptyState
+            icon={SearchX}
+            title="Дни не найдены"
+            description="Измените условия поиска"
+            action={
+              <Button variant="outline" onClick={resetConditions}>
+                Очистить все
+              </Button>
+            }
+          />
+        ) : (
           <DataTable
             table={table}
             label={`Допродажи: ${tab?.name ?? ""}`}
@@ -903,15 +969,8 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
             )}
             mobile={{ label: "Карточки дней", nameColumn: "date" }}
           />
-        </>
-      )}
-      {allRows.length > 0 && groups.length > 0 && (
-        <SalesTrend
-          key={tab?.id}
-          series={chartSeries}
-          title="Среднее количество в день с данными"
-        />
-      )}
+        )}
+      </div>
     </div>
   );
 
@@ -943,7 +1002,6 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-9"
                 onClick={() => setMonth(currentMonth)}
               >
                 Сегодня
@@ -1026,7 +1084,6 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
               data.configured && can("sync") ? (
                 <Button
                   size="sm"
-                  className="h-9 gap-2"
                   disabled={busy}
                   onClick={() => void refresh()}
                 >
@@ -1063,14 +1120,31 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
           }}
           className={tabStyle.tabs}
         >
-          <TabsList aria-label="Подразделение">
-            {tabs.map((t) => (
-              <TabsTrigger key={t.id} value={t.id}>
-                {t.name}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-          <TabsContent value={tab.id}>{body}</TabsContent>
+          {/* «Обзор» (график по месяцам) — справа в строке вкладок, как в «Зарплате». */}
+          <TabsRow
+            tabs={
+              <TabsList aria-label="Подразделение">
+                {tabs.map((t) => (
+                  <TabsTrigger key={t.id} value={t.id}>
+                    {t.name}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            }
+            aside={
+              showOverview && (
+                <OverviewToggle
+                  open={overviewOpen}
+                  onOpenChange={setOverviewOpen}
+                  controls="additional-overview"
+                  ariaLabel="Обзор: допродажи по месяцам"
+                />
+              )
+            }
+          />
+          <TabsContent value={tab.id} className="!mt-0">
+            {body}
+          </TabsContent>
         </Tabs>
       ) : (
         <EmptyState
@@ -1083,12 +1157,13 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
           }
         />
       )}
-      {detail && tab && (
+      {shownDetail && (
         <Detail
-          key={detail.id}
-          row={detail}
+          key={shownDetail.n}
+          open={!!detail && !!tab}
+          row={shownDetail.row}
           data={data}
-          name={tab.name}
+          name={shownDetail.name}
           picker={picker}
           onClose={() => setDetail(null)}
         />

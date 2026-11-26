@@ -75,7 +75,7 @@ export function MonthPicker({
             variant === "period"
               ? periodTriggerClass
               : variant === "toolbar"
-              ? "inline-flex h-8 items-center gap-2 rounded-md px-2 text-sm font-normal text-foreground hover:bg-muted disabled:opacity-50"
+              ? "inline-flex h-9 items-center gap-2 rounded-md px-2 text-sm font-normal text-foreground transition-colors hover:bg-muted disabled:opacity-50"
               : variant === "field"
                 ? // Поле формы: радиус, кегль, иконка и фокус — как у DatePicker.
                   cn(

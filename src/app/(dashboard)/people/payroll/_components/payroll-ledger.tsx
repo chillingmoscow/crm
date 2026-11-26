@@ -82,7 +82,7 @@ export function PayrollLedger({
           const record = row.original;
           if (id === "employee")
             return (
-              <PayrollEmployeeCell name={record.employee.name} role={record.employee.role_name} avatarUrl={record.employee.avatar_url} />
+              <PayrollEmployeeCell name={record.employee.name} role={record.employee.role_name} avatarUrl={record.employee.avatar_url} href={`/people/payroll/${record.employee.id}?month=${month.slice(0, 7)}`} />
             );
           const pending = data.legacyPayments.some(
             (p) =>

@@ -7,6 +7,7 @@ import { ArrowLeftRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { AnimatedMoney, AnimatedNumber } from "@/components/shared/animated-money";
 import { MetricStrip, Metric } from "@/components/shared/metric-strip";
 import { Money } from "@/components/shared/money";
 import { ProfileSection } from "@/components/shared/profile-section";
@@ -67,9 +68,9 @@ export function CounterpartyOperations({
       <div aria-busy={pending} className={cn("flex flex-col gap-5 transition-opacity", pending && "opacity-60")}>
         {activity ? (
           <MetricStrip label={`Итоги по контрагенту ${phrase}`}>
-            <Metric primary label="Оплачено" value={<Money value={activity.expenseTotal} />} />
-            <Metric label="Получено" value={<Money value={activity.incomeTotal} />} />
-            <Metric label="Операций" value={<span className="tabular-nums">{activity.operations}</span>} />
+            <Metric primary label="Оплачено" value={<AnimatedMoney value={activity.expenseTotal} />} />
+            <Metric label="Получено" value={<AnimatedMoney value={activity.incomeTotal} />} />
+            <Metric label="Операций" value={<AnimatedNumber value={activity.operations} />} />
             <Metric
               label="Последняя"
               value={

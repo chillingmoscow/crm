@@ -112,13 +112,23 @@ export function TableControls({
             отдельную строку под кнопками — на узких экранах рядом с
             иконками для него нет места. На sm+ (order-first + фикс-ширина)
             стоит слева, как раньше. */}
-        {search?.open ? (
-          <div className="relative order-last w-full sm:order-first sm:w-72">
+        {/* На sm+ поле всегда в разметке и плавно раздвигается (docs/motion.md),
+            сдвигая кнопки влево; на телефоне — отдельной строкой, как раньше. */}
+        {search ? (
+          <div
+            className={cn(
+              "relative order-last sm:order-first",
+              "transition-[width,opacity] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]",
+              search.open ? "w-full opacity-100 sm:w-72" : "hidden sm:block sm:w-0 sm:opacity-0 sm:pointer-events-none",
+            )}
+            aria-hidden={!search.open || undefined}
+          >
             <Input
               ref={inputRef}
               value={search.value}
               onChange={(event) => search.onChange(event.target.value)}
               placeholder={search.placeholder ?? "Поиск"}
+              tabIndex={search.open ? undefined : -1}
               // text-base (16px) на мобильном — iOS Safari НЕ зумит экран при
               // фокусе на input с font-size ≥ 16px. На sm+ — обычный text-sm.
               className="h-9 w-full pr-8 text-base sm:text-sm"

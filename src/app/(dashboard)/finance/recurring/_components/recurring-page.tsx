@@ -16,6 +16,7 @@ import {
   Pause,
   PencilLine,
   Play,
+  Plus,
   Repeat,
   SearchX,
   Trash2,
@@ -344,7 +345,7 @@ export function RecurringPage({
             ) : (
               <button
                 type="button"
-                className="block max-w-full truncate text-left font-medium hover:underline"
+                className="block max-w-full truncate text-left font-medium transition-colors duration-200 hover:text-brand"
                 data-tip={item.name}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -533,7 +534,12 @@ export function RecurringPage({
               : "Повторяющиеся платежи заводит сотрудник с правом создавать операции"
         }
         action={
-          canManage ? <Button onClick={() => setFormMode({ kind: "create" })}>Создать</Button> : undefined
+          canManage ? (
+            <Button onClick={() => setFormMode({ kind: "create" })}>
+              <Plus className="size-4" />
+              Новый платёж
+            </Button>
+          ) : undefined
         }
       />
     );
@@ -655,7 +661,10 @@ export function RecurringPage({
             }
             primaryActions={
               canManage && !showArchive ? (
-                <Button onClick={() => setFormMode({ kind: "create" })}>Создать</Button>
+                <Button size="sm" onClick={() => setFormMode({ kind: "create" })}>
+                  <Plus className="size-4" />
+                  Новый платёж
+                </Button>
               ) : null
             }
           />

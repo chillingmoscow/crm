@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -28,8 +29,14 @@ const Reader = dynamic(
     ),
   {
     ssr: false,
+    // Скелетон текста инструкции, пока грузится редактор.
     loading: () => (
-      <p className="py-4 text-sm text-muted-foreground">Загрузка инструкции…</p>
+      <div role="status" aria-label="Загружаем инструкцию" className="space-y-2.5 py-4">
+        <Skeleton className="h-4 w-11/12" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-4/5" />
+        <Skeleton className="h-4 w-2/3" />
+      </div>
     ),
   },
 );

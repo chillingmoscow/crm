@@ -11,10 +11,10 @@ import { OptionSelect } from "@/components/ui/option-select";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { GENDER_OPTIONS, type Gender } from "@/lib/people/gender";
 import { splitCasualName } from "@/lib/payroll/casual-name";
-import { convertCasualToStaff } from "../../staff/casual-actions";
+import { convertCasualToStaff } from "../casual-actions";
 
 /**
- * «Перевести в штат» на странице разового сотрудника в «Зарплате». Поля — как
+ * «Перевести в штат» у разового в списке сотрудников (меню строки). Поля — как
  * в «Добавить → Создать»; учётная запись привязывается к той же записи
  * зарплаты, поэтому смены, начисления и выплаты остаются при человеке.
  */

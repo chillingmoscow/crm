@@ -109,6 +109,17 @@ export async function convertCasualToStaff(input: z.input<typeof convertSchema>)
   if (!venueId) return { userId: null, notice: null, error: "Не выбрано заведение" };
   if (!employee.data?.casual || employee.data.local_user_id)
     return { userId: null, notice: null, error: "Разовый сотрудник не найден" };
+  // Те же условия, что проверит база, — до создания учётной записи: откат
+  // после неё не всегда чистый (журнал приёма ссылается на нового человека).
+  const admin = createAdminClient();
+  const loading = await asLooseDb(admin)
+    .from<{ business_date: string }[]>("payroll_source_days")
+    .select("business_date")
+    .eq("venue_id", venueId)
+    .eq("state", "loading")
+    .limit(1);
+  if (loading.data?.length)
+    return { userId: null, notice: null, error: "Дождитесь обновления зарплаты и повторите" };
 
   const created = await createStaffWithoutEmail({
     firstName: value.firstName,
@@ -124,8 +135,11 @@ export async function convertCasualToStaff(input: z.input<typeof convertSchema>)
 
   const linked = await db.rpc("payroll_casual_to_staff", { p_employee_id: value.employeeId, p_user_id: userId });
   if (linked.error) {
-    // Без привязки новая учётная запись — второй человек: убираем её.
-    await createAdminClient().auth.admin.deleteUser(userId);
+    // Без привязки новая учётная запись — второй человек: убираем его из
+    // команды, затем саму учётную запись. Удаление может упереться в журнал
+    // приёма — тогда остаётся профиль без доступа к заведению, в списках его нет.
+    await admin.from("user_venue_roles").delete().eq("user_id", userId).eq("venue_id", venueId);
+    await admin.auth.admin.deleteUser(userId);
     revalidatePath("/people/staff");
     return { userId: null, notice: null, error: errorText(linked.error, "Не удалось перевести сотрудника в штат") };
   }

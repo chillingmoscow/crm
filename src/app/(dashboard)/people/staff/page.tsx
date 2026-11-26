@@ -147,6 +147,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       venueId={venueId}
       currentUserId={user.id}
       canEditStaff={canEdit}
+      canConvertCasual={canEdit && can("payroll.configure")}
       canSeeStaffDetails={canSeeStaffDetails}
       casual={casual}
       officialUserIds={officialUserIds}

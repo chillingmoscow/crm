@@ -32,6 +32,7 @@ import { PayrollTable } from "./payroll-table";
 import { PayrollEmployeeCell } from "./payroll-employee-cell";
 import { PayrollDetailDialog } from "./payroll-detail-dialog";
 import { PayoutIssueDialog } from "./payout-issue-dialog";
+import { PayoutBreakdown } from "./payout-breakdown";
 import { selectClass } from "./select-class";
 import formStyle from "./payroll-payment-form.module.css";
 
@@ -381,7 +382,8 @@ function PayoutRowDrawer({
   onClose: () => void;
   onSave: (amount: number, day: string | null) => Promise<void>;
 }) {
-  const [amount, setAmount] = useState(String(row.amount));
+  // Ноль — подсказкой в пустом поле: нажал и вводишь сумму, без стирания «0» (Павел, 26.11).
+  const [amount, setAmount] = useState(row.amount ? String(row.amount) : "");
   const [day, setDay] = useState(row.pay_date ?? "");
   const b = row.breakdown;
   const plan = view.plan;
@@ -391,15 +393,6 @@ function PayoutRowDrawer({
   const parsed = Number(amount.replace(",", ".").replace(/\s/g, ""));
   const valid = Number.isFinite(parsed) && parsed >= 0;
   const changed = valid && (parsed !== row.amount || (day || null) !== row.pay_date);
-  const line = (label: string, value: React.ReactNode, hint?: string) => (
-    <li className="flex items-start justify-between gap-3 py-1.5">
-      <span>
-        {label}
-        {hint && <span className="block text-xs text-muted-foreground">{hint}</span>}
-      </span>
-      <span className="shrink-0 tabular-nums">{value}</span>
-    </li>
-  );
   return (
     <PayrollDetailDialog
       open={open}
@@ -442,7 +435,7 @@ function PayoutRowDrawer({
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="payout-row-amount">К выплате, ₽</Label>
-              <Input id="payout-row-amount" inputMode="decimal" value={amount} disabled={busy} onChange={(e) => setAmount(e.target.value)} />
+              <Input id="payout-row-amount" inputMode="decimal" placeholder="0" value={amount} disabled={busy} onChange={(e) => setAmount(e.target.value)} />
               {row.issued > 0 && <p className="text-[13px] text-muted-foreground">Не меньше выданного: {formatRub(row.issued)}</p>}
             </div>
             <div className="space-y-2">
@@ -464,23 +457,10 @@ function PayoutRowDrawer({
             </div>
           </div>
         )}
-        <p className="text-sm font-medium">Как посчитано</p>
-        <ul className="divide-y rounded-xl border px-3 text-sm">
-          {b.carried !== 0 && line("Перенесено из прошлого месяца", <Money value={b.carried} signed />)}
-          {line("Начислено за месяц", <Money value={b.earned} />, b.pendingFines ? `без штрафов на подтверждении: ${formatRub(b.pendingFines)}` : undefined)}
-          {line(
-            "Прогноз до конца месяца",
-            b.averageShift == null ? "—" : <Money value={b.forecast} />,
-            b.averageShift == null ? "мало смен для прогноза" : `${countRu(b.forecastShifts, "смена", "смены", "смен")} × ${formatRub(b.averageShift)}`,
-          )}
-          {line("Запас", <Money value={-b.reserve} signed />)}
-          {line("Половина месяца", <Money value={b.half} />)}
-          {line("Уже выплачено за месяц", <Money value={-b.paid} signed />)}
-          {b.official > 0 && line("Официальная часть", <Money value={-b.official} signed />, "выплатит бухгалтерия; идёт в счёт первой половины месяца")}
-          {line("Больше не выдаём", <Money value={Math.max(0, b.ceiling)} />, b.official > 0 ? "начислено минус выплаченное, запас и официальная часть" : "начислено минус выплаченное и запас")}
-          {line("К выплате", <strong><Money value={row.amount} /></strong>, "вниз до шага округления")}
-          {row.issued > 0 && line("Выдано", <Money value={row.issued} />)}
-        </ul>
+        <section aria-label="Как посчитано" className="space-y-4 border-t pt-5">
+          <h3 className="text-base font-semibold">Как посчитано</h3>
+          <PayoutBreakdown b={b} amount={row.amount} issued={row.issued} step={view.settings.schedules.main.step} />
+        </section>
       </div>
     </PayrollDetailDialog>
   );

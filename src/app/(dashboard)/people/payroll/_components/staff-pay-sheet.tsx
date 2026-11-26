@@ -23,7 +23,7 @@ import { countRu } from "@/lib/format/plural";
 import { accrualRole, isShiftAccrual, shiftSalary } from "@/lib/payroll/accrual-view";
 import { attendanceRuleAtDate } from "@/lib/payroll/attendance";
 import { statementRows } from "@/lib/payroll/calculate";
-import { officialExpectedNote } from "@/lib/payroll/official";
+import { officialExpectedNote, officialPartLabel, officialPaymentLabel } from "@/lib/payroll/official";
 import {
   buildPaySheet,
   monthKey,
@@ -391,7 +391,7 @@ export function StaffPaySheet({
             {official && (
               <div className="flex justify-between gap-4">
                 <dt>
-                  <span className="text-muted-foreground">Официальная часть</span>
+                  <span className="text-muted-foreground">{officialPartLabel(official.agency)}</span>
                   {official.amount !== null && (
                     <span className="block text-xs text-muted-foreground">
                       {officialExpectedNote(official, month)}
@@ -472,7 +472,7 @@ export function StaffPaySheet({
                       <>
                         {p.kind === "advance" ? "Аванс" : "Зарплата"}
                         {p.official && (
-                          <StatusBadge tone="info" className="ml-2">Официальная</StatusBadge>
+                          <StatusBadge tone="info" className="ml-2">{officialPaymentLabel(p.agency)}</StatusBadge>
                         )}
                         {!p.posted && (
                           <StatusBadge className="ml-2">Удалена</StatusBadge>

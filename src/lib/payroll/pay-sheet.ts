@@ -46,6 +46,8 @@ export type PaySheetPayment = {
   amount: number;
   /** Официальная (бухгалтерская) выплата за месяц. */
   official: boolean;
+  /** Официальная запись «Получено через агентство»: без налога и операции. */
+  agency: boolean;
   /** Удержанный налог; 0 — без налога или выплата делится с другими. */
   tax: number;
 };
@@ -177,6 +179,7 @@ export function paySheetPayments(
         posted: p.state === "posted",
         amount: (byPayment.get(p.id) ?? 0) / 100,
         official: !!p.official_month,
+        agency: !!p.official_month && p.agency === true,
         tax: whole ? (paymentSettlement(own, Number(p.amount)).taxAmount ?? 0) : 0,
       };
     })

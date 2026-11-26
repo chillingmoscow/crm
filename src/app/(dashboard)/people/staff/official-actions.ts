@@ -32,6 +32,8 @@ export type OfficialEmploymentPeriod = {
   contract_number: string | null;
   contract_date: string | null;
   contract_path: string | null;
+  /** «Платит агентство»: сумма в месяц приходит сотруднику через агентство, без налога. */
+  agency: boolean;
 };
 
 export type OfficialEmploymentData = {
@@ -75,7 +77,7 @@ async function getOfficialEmploymentImpl(userId: string): Promise<OfficialEmploy
 
   const employment = await s.db
     .from<OfficialEmploymentPeriod>("payroll_official_employments")
-    .select("id,starts_on,ends_on,position,contract_number,contract_date,contract_path")
+    .select("id,starts_on,ends_on,position,contract_number,contract_date,contract_path,agency")
     .eq("venue_id", s.venueId)
     .eq("employee_id", employee.data.id)
     .is("archived_at", null)
@@ -98,7 +100,7 @@ async function getOfficialEmploymentImpl(userId: string): Promise<OfficialEmploy
   return {
     employeeId: employee.data.id,
     employeeActive: employee.data.active,
-    employment: employment.data,
+    employment: employment.data ? { ...employment.data, agency: employment.data.agency === true } : null,
     salaries,
     canEdit,
   };

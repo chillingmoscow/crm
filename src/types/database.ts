@@ -2643,6 +2643,7 @@ export type Database = {
       payroll_official_employments: {
         Row: {
           account_id: string
+          agency: boolean
           archived_at: string | null
           archived_by: string | null
           contract_date: string | null
@@ -2661,6 +2662,7 @@ export type Database = {
         }
         Insert: {
           account_id: string
+          agency?: boolean
           archived_at?: string | null
           archived_by?: string | null
           contract_date?: string | null
@@ -2679,6 +2681,7 @@ export type Database = {
         }
         Update: {
           account_id?: string
+          agency?: boolean
           archived_at?: string | null
           archived_by?: string | null
           contract_date?: string | null
@@ -4386,6 +4389,7 @@ export type Database = {
       payroll_official_expected: {
         Args: { p_from: string; p_to: string }
         Returns: {
+          agency: boolean
           days_in_month: number
           days_paid: number | null
           employee_id: string

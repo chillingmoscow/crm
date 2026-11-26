@@ -4,13 +4,15 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Field } from "@/components/ui/field";
 import { AmountInput } from "@/components/finance/amount-input";
 import { PayrollDetailDialog } from "@/app/(dashboard)/people/payroll/_components/payroll-detail-dialog";
 import formStyle from "@/app/(dashboard)/people/payroll/_components/payroll-payment-form.module.css";
 import { actionErrorMessage, unwrapAction } from "@/lib/actions/result";
-import { contractDocumentName } from "@/lib/people/official-employment";
+import { contractDocumentName, officialAmountLabel } from "@/lib/people/official-employment";
 import {
   employOfficially,
   updateOfficialEmployment,
@@ -24,7 +26,9 @@ type Errors = Partial<Record<"starts_on" | "position" | "gross", string>>;
 /**
  * Панель «Оформить официально» (новый период) и «Исправить данные»
  * (опечатки в должности, номере и дате договора, дата оформления, файл
- * договора — без новой версии оклада).
+ * договора, «Платит агентство» — без новой версии оклада).
+ * «Платит агентство»: сотрудник получает сумму в месяц через агентство —
+ * без налога, поэтому вместо оклада и подсказки «на руки» — «Получает в месяц».
  */
 export function OfficialEmploymentDrawer({
   open = true,
@@ -53,6 +57,7 @@ export function OfficialEmploymentDrawer({
   const [gross, setGross] = useState<number | null>(null);
   const [number, setNumber] = useState(editing?.contract_number ?? "");
   const [contractDate, setContractDate] = useState(editing?.contract_date ?? "");
+  const [agency, setAgency] = useState(editing?.agency ?? false);
   const [file, setFile] = useState<File | null>(null);
   const [errors, setErrors] = useState<Errors>({});
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +71,7 @@ export function OfficialEmploymentDrawer({
         ...(position.trim() !== editing.position ? { position: position.trim() } : {}),
         ...(number.trim() !== (editing.contract_number ?? "") ? { contract_number: number.trim() || null } : {}),
         ...(contractDate !== (editing.contract_date ?? "") ? { contract_date: contractDate || null } : {}),
+        ...(agency !== editing.agency ? { agency } : {}),
       }
     : {};
   const dirty = editing ? Object.keys(changes).length > 0 || file !== null : true;
@@ -74,7 +80,8 @@ export function OfficialEmploymentDrawer({
     const next: Errors = {};
     if (!startsOn) next.starts_on = "Укажите дату оформления";
     if (!position.trim()) next.position = "Укажите должность по договору";
-    if (!editing && !(gross && gross > 0)) next.gross = "Укажите оклад по договору больше нуля";
+    if (!editing && !(gross && gross > 0))
+      next.gross = agency ? "Укажите, сколько сотрудник получает в месяц" : "Укажите оклад по договору больше нуля";
     setErrors(next);
     if (Object.keys(next).length) return;
     setBusy(true);
@@ -97,6 +104,7 @@ export function OfficialEmploymentDrawer({
             starts_on: startsOn,
             position: position.trim(),
             gross: gross ?? 0,
+            agency,
             contract_number: number.trim() || null,
             contract_date: contractDate || null,
             ...(contractPath ? { contract_path: contractPath } : {}),
@@ -150,9 +158,33 @@ export function OfficialEmploymentDrawer({
             />
           )}
         </Field>
+        <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+          <div className="min-w-0">
+            <Label htmlFor="official-agency">Платит агентство</Label>
+            <p id="official-agency-hint" className="mt-1 text-xs text-muted-foreground">
+              Сотрудник оформлен через аутстафф-агентство и получает деньги от него. Сумма в месяц уменьшает
+              долг, а в день официальных выплат закрывается записью «Получено через агентство» — без расхода и
+              налога
+            </p>
+          </div>
+          <Switch
+            id="official-agency"
+            aria-describedby="official-agency-hint"
+            checked={agency}
+            disabled={busy}
+            onCheckedChange={setAgency}
+          />
+        </div>
         {!editing && (
-          <Field label="Оклад по договору" required error={errors.gross} hint={gross && gross > 0 ? <OfficialTaxHint gross={gross} /> : undefined}>
-            {(control) => <AmountInput {...control} value={gross} onChange={setGross} placeholder="80 000" disabled={busy} />}
+          <Field
+            label={officialAmountLabel(agency)}
+            required
+            error={errors.gross}
+            hint={!agency && gross && gross > 0 ? <OfficialTaxHint gross={gross} /> : undefined}
+          >
+            {(control) => (
+              <AmountInput {...control} value={gross} onChange={setGross} placeholder={agency ? "4 350" : "80 000"} disabled={busy} />
+            )}
           </Field>
         )}
         {canAttachFiles && (

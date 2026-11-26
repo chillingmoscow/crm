@@ -155,3 +155,31 @@ test("данные проведения и ошибки полей", () => {
   const over = officialResolvePayload({ id: "m-1" }, { ...empty, net: 100, gross: 90, grossTouched: true });
   assert.equal(over.errors?.amount, "Сумма на руки больше оклада с налогом");
 });
+
+test("карточка через агентство: свои подписи, сумма без налога, без счёта", () => {
+  const today = "2026-12-05";
+  const base = { employee_name: "Хосият", month: "2026-11-01", agency: true };
+  assert.equal(
+    officialReviewCopy({ ...base, reason: "final_month" }, today).title,
+    "Окончательный расчёт через агентство: Хосият, ноябрь",
+  );
+  assert.equal(
+    officialReviewCopy({ ...base, reason: "missed_month" }, today).title,
+    "Не отмечено получение через агентство: Хосият, ноябрь",
+  );
+  assert.equal(officialReviewCopy({ ...base, reason: "inactive" }, today).title, "Проверьте официальное увольнение: Хосият");
+
+  const settings = { payDay: 5, bankAccountId: "chk-1" };
+  const draft = initialOfficialDraft({ gross: 4350, month: "2026-11-01", reason: "missed_month", agency: true }, settings, banks, "2026-12-09");
+  assert.equal(draft.net, 4350);
+  assert.equal(draft.bank_account_id, "");
+
+  assert.deepEqual(officialResolvePayload({ id: "m-1", agency: true }, draft), {
+    input: { id: "m-1", gross: 4350, net: 4350, bank_account_id: null, date: "2026-12-05" },
+    errors: null,
+  });
+  assert.deepEqual(officialResolvePayload({ id: "m-1", agency: true }, { ...draft, net: null }), {
+    input: null,
+    errors: { amount: "Укажите сумму, которую сотрудник получил через агентство" },
+  });
+});

@@ -20,7 +20,7 @@ import { signedAmountClass } from "@/lib/format/amount";
 import { addDays } from "@/lib/sales/time";
 import { payDayChoices, payoutRowState, type PayoutRowState, type PayoutScheduleCode } from "@/lib/payroll/payout-plan";
 import { Banknote, CalendarClock, Check, ListChecks, Loader2, MoreHorizontal, RefreshCw, X } from "lucide-react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   loadPayoutPlan,
   savePayoutPlan,
@@ -263,8 +263,18 @@ export function PayoutPlan({
   const recalc = () => run(async () => unwrapAction(await savePayoutPlan(schedule)), "План пересчитан", "recalc");
   const approve = () => run(async () => unwrapAction(await setPayoutPlanState(plan!.id, "approved")), "План утверждён", "approve");
   const secondary = plan && plan.state !== "cancelled";
+  // Одно вторичное действие — кнопкой рядом, а не меню «⋯» ради одного пункта
+  // (Павел, 26.11): у утверждённого плана остаётся только «Отменить план».
+  const recalcable = plan?.state === "draft";
+  const cancelButton = secondary && !recalcable && (
+    <Button size="sm" variant="outline" disabled={busy} onClick={() => setCancelOpen(true)}>
+      <X className="size-4" />
+      Отменить план
+    </Button>
+  );
   const actions = view && canPay ? (
     <>
+      {cancelButton}
       {!plan && view.window && (
         <Button size="sm" disabled={busy} onClick={() => void form()}>
           {pending === "form" ? <Loader2 className="size-4 animate-spin" /> : <ListChecks className="size-4" />}
@@ -283,7 +293,7 @@ export function PayoutPlan({
           Выдать сейчас
         </Button>
       )}
-      {secondary && (
+      {secondary && recalcable && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button size="sm" variant="outline" className="w-9 px-0" disabled={busy} aria-label="Ещё действия с планом" data-tip="Ещё">
@@ -291,12 +301,11 @@ export function PayoutPlan({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            {plan.state === "draft" && (
-              <DropdownMenuItem onSelect={() => void recalc()}>
-                <RefreshCw className="size-4" />
-                Пересчитать по свежим данным
-              </DropdownMenuItem>
-            )}
+            <DropdownMenuItem onSelect={() => void recalc()}>
+              <RefreshCw className="size-4" />
+              Пересчитать по свежим данным
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => setCancelOpen(true)}>
               <X className="size-4" />
               Отменить план

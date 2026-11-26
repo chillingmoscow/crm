@@ -695,7 +695,13 @@ export function StaffClient({
           <span className="text-sm text-muted-foreground">—</span>
         );
       case "pin":
-        return <span className="font-mono text-sm tabular-nums">{c.pin}</span>;
+        return c.pin ? (
+          <span className="font-mono text-sm tabular-nums">{c.pin}</span>
+        ) : (
+          <span className="text-sm text-muted-foreground" data-tip="Кода кассы нет: его выдаст «Добавить → Разовый» с тем же именем или перевод в штат">
+            —
+          </span>
+        );
       default:
         return <span className="text-sm text-muted-foreground">—</span>;
     }
@@ -800,7 +806,7 @@ export function StaffClient({
           key={converting.id}
           open={convertOpen}
           onOpenChange={setConvertOpen}
-          employee={{ id: converting.id, name: converting.name, role_id: converting.roleId }}
+          employee={{ id: converting.id, name: converting.name, role_id: converting.roleId, hasPin: converting.pin !== null }}
           roles={roles}
         />
       )}

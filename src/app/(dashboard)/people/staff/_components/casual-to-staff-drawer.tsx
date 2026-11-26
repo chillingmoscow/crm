@@ -26,7 +26,7 @@ export function CasualToStaffDrawer({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  employee: { id: string; name: string; role_id?: string | null };
+  employee: { id: string; name: string; role_id?: string | null; hasPin: boolean };
   roles: { id: string; name: string }[];
 }) {
   const router = useRouter();
@@ -56,7 +56,11 @@ export function CasualToStaffDrawer({
         setError(result.error ?? "Не удалось перевести сотрудника в штат");
         return;
       }
-      toast.success(`${firstName.trim()} ${lastName.trim()} теперь в штате`);
+      const who = `${firstName.trim()} ${lastName.trim()}`;
+      // Выданный при переводе код показываем сразу: его передают сотруднику.
+      if (result.issuedPin)
+        toast.success(`${who} теперь в штате. PIN кассы: ${result.issuedPin}`, { duration: 20000 });
+      else toast.success(`${who} теперь в штате`);
       if (result.notice) toast.warning(result.notice);
       onOpenChange(false);
       router.push(`/people/staff/${result.userId}`);
@@ -90,7 +94,10 @@ export function CasualToStaffDrawer({
       >
         <p className="text-sm text-muted-foreground">
           Появится карточка сотрудника. Смены, начисления и выплаты разового останутся при нём,
-          будущие смены перейдут на карточку, PIN кассы не изменится.
+          будущие смены перейдут на карточку.{" "}
+          {employee.hasPin
+            ? "PIN кассы не изменится."
+            : "Кода кассы у него нет — Sheerly заведёт сотрудника в Quick Resto и выдаст PIN."}
         </p>
         <div className="grid items-start gap-4 sm:grid-cols-2">
           <Field id="convert-first" label="Имя" required>

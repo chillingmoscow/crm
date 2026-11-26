@@ -5,7 +5,7 @@ import { writeAuditEvent } from "@/lib/audit/write";
 import { loadTelegramBot } from "@/lib/integrations/telegram-bot";
 import {
   PAYOUT_SCHEDULE_LABELS,
-  breakdownNow,
+  liveRowAmount,
   firstPayoutWindow,
   issueCap,
   recheckDue,
@@ -138,28 +138,31 @@ async function planView(s: PayrollScope, schedule: PayoutScheduleCode, firstCtx:
   };
   const rows: PayoutRowView[] = saved
     ? (await planRows(s, saved.id)).map((row) => {
-      // Расчёт — на текущую минуту; снимок на момент формирования — только
-      // если сотрудника больше нет в графике плана.
-      const fb = freshBy.get(row.employee_id)?.breakdown;
-      const now = fb ? breakdownNow(fb, row.issued) : row.breakdown;
+      // Всё — на текущую минуту: расчёт по свежим данным (выданное по плану в
+      // нём — обычная выплата месяца), сумма расчётной строки живая
+      // (liveRowAmount). Снимок формирования — только если сотрудника больше
+      // нет в графике плана.
+      const fr = freshBy.get(row.employee_id);
+      const amount = liveRowAmount(row, fr);
+      const live = { ...row, amount };
       return {
         employee_id: row.employee_id,
         pay_date: row.pay_date,
-        amount: row.amount,
-        breakdown: now,
+        amount,
+        breakdown: fr?.breakdown ?? row.breakdown,
         id: row.id,
         ...person(row.employee_id),
         issued: row.issued,
         state: row.state,
-        // Так же, как при выдаче: план режет только свежий потолок (recheckDue),
-        // ручную сумму — только заработанное (issueCap).
-        willIssue: row.state === "issued"
+        // Ручную сумму при выдаче режет только заработанное (issueCap);
+        // живая и так не больше расчёта.
+        willIssue: row.state === "issued" || !row.manual
           ? null
-          : money(recheckDue(row, capOf(row), step).due + row.issued),
+          : money(recheckDue(live, capOf(row), step).due + row.issued),
         manual: row.manual,
-        ceilingNow: freshBy.get(row.employee_id)?.breakdown.ceiling ?? null,
-        leftAfter: leftAfter(now, row.amount),
-        paidNow: fb?.paid ?? row.breakdown.paid,
+        ceilingNow: fr?.breakdown.ceiling ?? null,
+        leftAfter: leftAfter(fr?.breakdown ?? row.breakdown, amount - row.issued),
+        paidNow: fr?.breakdown.paid ?? row.breakdown.paid,
         outside: false,
         shiftDays: shiftDays(row.employee_id),
       };

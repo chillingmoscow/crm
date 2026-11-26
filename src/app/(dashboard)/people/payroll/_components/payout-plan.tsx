@@ -260,7 +260,7 @@ export function PayoutPlan({
   // Кнопки — по правилу дизайн-системы: одна главная (brand, с иконкой) по
   // состоянию плана, остальное — в меню «⋯». Высота 36px, как в шапке.
   const form = () => run(async () => unwrapAction(await savePayoutPlan(schedule)), "План сформирован", "form");
-  const recalc = () => run(async () => unwrapAction(await savePayoutPlan(schedule)), "План пересчитан", "recalc");
+  const recalc = () => run(async () => unwrapAction(await savePayoutPlan(schedule)), "План сформирован заново", "recalc");
   const approve = () => run(async () => unwrapAction(await setPayoutPlanState(plan!.id, "approved")), "План утверждён", "approve");
   const secondary = plan && plan.state !== "cancelled";
   // Одно вторичное действие — кнопкой рядом, а не меню «⋯» ради одного пункта
@@ -303,7 +303,7 @@ export function PayoutPlan({
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuItem onSelect={() => void recalc()}>
               <RefreshCw className="size-4" />
-              Пересчитать по свежим данным
+              Сформировать заново
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => setCancelOpen(true)}>

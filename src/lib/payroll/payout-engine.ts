@@ -233,7 +233,7 @@ export async function buildPreview(
   if (schedule.method !== "cash") throw new Error("Этот график выдаётся переводом: отмечайте «Выплачено» по строке");
   const window = { from: current.window_from, to: current.window_to };
   // Свежий потолок: ручные выплаты и штрафы после утверждения. Саму сумму плана не пересчитываем.
-  const fresh = new Map(plan(ctx, current.schedule, current.month, window).map((r) => [r.employee_id, r.breakdown]));
+  const fresh = new Map(plan(ctx, current.schedule, current.month, window).map((r) => [r.employee_id, r]));
   const todays = (await planRows(s, planId)).filter((row) => row.state !== "issued" && row.pay_date === ctx.today);
   const employeeOf = (id: string) => ctx.data.employees.find((e) => e.id === id);
   // Сотрудника перевели на другой график после утверждения — по этому плану не выдаём.
@@ -247,10 +247,13 @@ export async function buildPreview(
         .filter((x) => x.employee_id === row.employee_id && x.business_date > ctx.today && x.business_date <= window.to)
         .map((x) => x.business_date)
         .sort()[0];
-      // Сумма только уменьшается: новые ручные выплаты и штрафы снижают потолок.
+      // Расчётная строка живая: выдаём, сколько причитается на минуту выдачи
+      // (свежий расчёт уже учёл выданное по плану), и закрываем её — capped.
       // Ручную сумму (аванс) режет только заработанное — см. issueCap.
-      const b = fresh.get(row.employee_id);
-      const { due, capped } = recheckDue(row, b ? issueCap(b, row.manual) : 0, schedule.step);
+      const f = fresh.get(row.employee_id);
+      const { due, capped } = row.manual
+        ? recheckDue(row, f ? issueCap(f.breakdown, true) : 0, schedule.step)
+        : { due: f?.amount ?? 0, capped: true };
       return {
         row_id: row.id,
         employee_id: row.employee_id,

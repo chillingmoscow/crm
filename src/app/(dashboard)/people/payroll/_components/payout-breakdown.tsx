@@ -75,7 +75,14 @@ export function PayoutBreakdown({ b, amount, issued, manual, leftAfter, step, mo
 
       <Step title="По половине">
         <Line label="Половина" value={b.half} />
-        {b.paid > 0 && <Line op="−" label="Уже выплачено за месяц" value={b.paid} />}
+        {b.paid > 0 && (
+          <Line
+            op="−"
+            label="Уже выплачено за месяц"
+            hint={issued > 0 ? `в том числе по этому плану ${formatRub(issued)}` : undefined}
+            value={b.paid}
+          />
+        )}
         {b.official > 0 && <Line op="−" label="Официальная часть" hint="выплатит бухгалтерия" value={b.official} />}
         <Line
           op="="
@@ -95,24 +102,19 @@ export function PayoutBreakdown({ b, amount, issued, manual, leftAfter, step, mo
         />
         <Line
           op="="
-          label="К выплате"
+          label={issued > 0 ? "Осталось выдать" : "К выплате"}
           hint={
-            <>
-              {manual
-                ? <>поставлено вручную, по расчёту сейчас — {formatRub(computed)}</>
-                : Math.round(computed) !== Math.round(amount)
-                  ? <>сумма плана; по расчёту сейчас — {formatRub(computed)}</>
-                  : <>меньшее из двух, вниз до {formatRub(step)}</>}
-            </>
+            manual
+              ? <>поставлено вручную{issued > 0 ? ` (${formatRub(amount)})` : ""}, по расчёту сейчас — {formatRub(computed)}</>
+              : <>меньшее из двух, вниз до {formatRub(step)}</>
           }
-          value={amount}
+          value={Math.max(0, amount - issued)}
           result
         />
-        {issued > 0 && <Line label="Уже выдано по плану" value={issued} />}
         {leftAfter !== null && (
           <Line
             label={leftAfter < 0 ? `Переплатим ${byMonth}` : `Будем должны ${byMonth}`}
-            hint={`можно выдать без переплаты + запас − к выплате; будущие смены не входят`}
+            hint={`можно выдать без переплаты + запас − ${issued > 0 ? "осталось выдать" : "к выплате"}; будущие смены не входят`}
             value={leftAfter}
           />
         )}

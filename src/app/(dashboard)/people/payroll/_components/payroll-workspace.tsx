@@ -1,5 +1,6 @@
 "use client";
 
+import { useExitValue } from "@/hooks/use-exit-value";
 import { AttendanceAttentionNotice } from "./attendance-attention";
 import {
   useCallback,
@@ -132,6 +133,8 @@ export function PayrollWorkspace({
   const [entryOpen, setEntryOpen] = useState(false);
   const [entryKind, setEntryKind] = useState<"deduction" | "allowance">("deduction");
   const [transferOpen, setTransferOpen] = useState(false);
+  // Панель держим смонтированной, пока она уезжает (docs/motion.md).
+  const shownTransfer = useExitValue(transferOpen);
   const router = useRouter();
   const [cancelId, setCancelId] = useState<string | null>(null);
   const can = (action: string) =>
@@ -917,7 +920,7 @@ export function PayrollWorkspace({
         </div>
         <PayrollEntryForm initialKind={entryKind} open={entryOpen} onOpenChange={setEntryOpen} data={data} month={monthStart}
           onCreated={async () => { await reload(); changeTab("journal"); }} />
-        {transferOpen && <PayrollTransferDrawer data={data} month={monthStart}
+        {shownTransfer && <PayrollTransferDrawer open={transferOpen} data={data} month={monthStart}
           onClose={() => setTransferOpen(false)} onChange={reload} />}
         <Dialog
           open={composition}

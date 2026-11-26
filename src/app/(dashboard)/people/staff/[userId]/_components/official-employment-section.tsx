@@ -1,5 +1,6 @@
 "use client";
 
+import { useExitValue } from "@/hooks/use-exit-value";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,8 @@ export function OfficialEmploymentSection({
   canAttachFiles: boolean;
 }) {
   const [panel, setPanel] = useState<Panel>(null);
+  // Панели и окна держим смонтированными, пока они уезжают (docs/motion.md).
+  const shownPanel = useExitValue(panel);
   const [contractUrl, setContractUrl] = useState<string | null>(null);
   const contractPath = data.ok ? data.data.employment?.contract_path ?? null : null;
 
@@ -83,8 +86,9 @@ export function OfficialEmploymentSection({
 
   const canEmploy = canEdit && employeeActive && (!employment || Boolean(employment.ends_on && employment.ends_on < today));
   const close = () => setPanel(null);
-  const employDrawer = panel === "employ" && (
+  const employDrawer = shownPanel === "employ" && (
     <OfficialEmploymentDrawer
+      open={panel === "employ"}
       mode="employ"
       employeeId={employeeId}
       defaultStartsOn={today}
@@ -173,8 +177,9 @@ export function OfficialEmploymentSection({
       </dl>
 
       {employDrawer}
-      {panel === "edit" && (
+      {shownPanel === "edit" && (
         <OfficialEmploymentDrawer
+          open={panel === "edit"}
           mode="edit"
           employeeId={employeeId}
           employment={employment}
@@ -184,8 +189,9 @@ export function OfficialEmploymentSection({
           onClose={close}
         />
       )}
-      {panel === "salary" && (
+      {shownPanel === "salary" && (
         <OfficialSalaryDrawer
+          open={panel === "salary"}
           employment={employment}
           salaries={salaries}
           today={today}
@@ -194,11 +200,12 @@ export function OfficialEmploymentSection({
           onClose={close}
         />
       )}
-      {panel === "end" && (
-        <OfficialEndDialog employment={employment} employeeName={employeeName} today={today} onClose={close} />
+      {shownPanel === "end" && (
+        <OfficialEndDialog open={panel === "end"} employment={employment} employeeName={employeeName} today={today} onClose={close} />
       )}
-      {panel === "cancel" && (
+      {shownPanel === "cancel" && (
         <OfficialCancelDialog
+          open={panel === "cancel"}
           employmentId={employment.id}
           startsOn={employment.starts_on}
           onClose={close}
@@ -210,10 +217,13 @@ export function OfficialEmploymentSection({
 
 /** Отмена оформления, сделанного по ошибке: период пропадает из карточки и ведомости. */
 function OfficialCancelDialog({
+  open = true,
   employmentId,
   startsOn,
   onClose,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   employmentId: string;
   startsOn: string;
   onClose: () => void;
@@ -235,7 +245,7 @@ function OfficialCancelDialog({
   };
   return (
     <ConfirmDialog
-      open
+      open={open}
       onOpenChange={(open) => {
         if (!open) onClose();
       }}

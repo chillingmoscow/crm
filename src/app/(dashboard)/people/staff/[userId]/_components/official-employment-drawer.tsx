@@ -27,6 +27,7 @@ type Errors = Partial<Record<"starts_on" | "position" | "gross", string>>;
  * договора — без новой версии оклада).
  */
 export function OfficialEmploymentDrawer({
+  open = true,
   mode,
   employeeId,
   employment,
@@ -35,6 +36,8 @@ export function OfficialEmploymentDrawer({
   canAttachFiles,
   onClose,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   mode: "employ" | "edit";
   employeeId: string;
   /** Для «Исправить данные» — текущий период. */
@@ -111,7 +114,7 @@ export function OfficialEmploymentDrawer({
 
   return (
     <PayrollDetailDialog
-      open
+      open={open}
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}

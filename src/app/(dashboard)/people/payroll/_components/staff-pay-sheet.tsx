@@ -1,5 +1,6 @@
 "use client";
 
+import { useExitValue } from "@/hooks/use-exit-value";
 import { useId, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Download, Loader2, Plus } from "lucide-react";
@@ -203,6 +204,10 @@ export function StaffPaySheet({
     [data, payments],
   );
   const paymentRow = paymentRows.find((r) => r.id === paymentId);
+  // Панели держим смонтированными, пока они уезжают (docs/motion.md).
+  const shownPaymentRow = useExitValue(paymentRow);
+  const shownCondition = useExitValue(condition);
+  const shownTransfer = useExitValue(transferOpen);
   const day = mine.find((a) => a.id === dayId) ?? null;
 
   /** Строка листа ведёт к записи (премия, штраф) или к расчёту дня. */
@@ -512,12 +517,14 @@ export function StaffPaySheet({
         />
       </ProfileSection>
 
-      {condition && (
+      {shownCondition && (
         <EmployeeConditionDrawer
+          key={shownCondition}
+          open={!!condition}
           data={data}
           employee={employee}
           month={month}
-          mode={condition}
+          mode={shownCondition}
           onClose={() => setCondition(null)}
           onChange={onChange}
         />
@@ -572,16 +579,17 @@ export function StaffPaySheet({
         onOpenIdChange={setEntryId}
         onChange={onChange}
       />
-      {paymentRow && (
+      {shownPaymentRow && (
         <PaymentDetails
-          key={`${paymentRow.id}:${paymentRow.posted}`}
-          row={paymentRow}
+          key={`${shownPaymentRow.id}:${shownPaymentRow.posted}`}
+          open={!!paymentRow}
+          row={shownPaymentRow}
           data={data}
           busy={cancelBusy}
           onClose={() => setPaymentId(null)}
           onCancel={() => {
             setPaymentId(null);
-            setCancelPayment(paymentRow.id);
+            setCancelPayment(shownPaymentRow.id);
           }}
         />
       )}
@@ -607,8 +615,9 @@ export function StaffPaySheet({
         busy={cancelBusy}
         onConfirm={() => void confirmCancel()}
       />
-      {transferOpen && (
+      {shownTransfer && (
         <PayrollTransferDrawer
+          open={transferOpen}
           data={data}
           month={month}
           employeeId={employee.id}

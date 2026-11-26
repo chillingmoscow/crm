@@ -351,6 +351,7 @@ function Colors({
 }
 
 export function ShiftEditor({
+  open = true,
   data,
   shift,
   day,
@@ -363,6 +364,8 @@ export function ShiftEditor({
   save,
   onEditTemplate,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   data: ScheduleData;
   shift?: Shift;
   day: string;
@@ -572,7 +575,7 @@ export function ShiftEditor({
   return (
     <>
     <EditDrawer
-      open
+      open={open}
       onOpenChange={(o) => {
         if (!o) requestClose();
       }}
@@ -743,12 +746,15 @@ export function ShiftEditor({
   );
 }
 export function TemplateEditor({
+  open = true,
   data,
   template,
   copy,
   onClose,
   save,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   data: ScheduleData;
   template?: ShiftTemplate;
   copy?: boolean;
@@ -807,7 +813,7 @@ export function TemplateEditor({
   return (
     <>
     <EditDrawer
-      open
+      open={open}
       onOpenChange={(o) => {
         if (!o) requestClose();
       }}

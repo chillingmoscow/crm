@@ -21,6 +21,7 @@ import { OfficialTaxHint } from "./official-tax-hint";
  * исправление оклада, а не новая версия.
  */
 export function OfficialSalaryDrawer({
+  open = true,
   employment,
   salaries,
   today,
@@ -28,6 +29,8 @@ export function OfficialSalaryDrawer({
   canAttachFiles,
   onClose,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   employment: OfficialEmploymentPeriod;
   salaries: OfficialSalaryVersion[];
   today: string;
@@ -77,7 +80,7 @@ export function OfficialSalaryDrawer({
 
   return (
     <PayrollDetailDialog
-      open
+      open={open}
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}

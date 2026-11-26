@@ -56,6 +56,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import tabStyle from "@/components/shared/workspace-tabs.module.css";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import { useExitValue } from "@/hooks/use-exit-value";
 import {
   Dialog,
   DialogContent,
@@ -436,6 +437,16 @@ export function ScheduleClient({
   const [selected, setSelected] = useState<Shift | null>(null);
   /** Смена, для которой сотрудник ищет замену (панель «Замена смены»). */
   const [swapFor, setSwapFor] = useState<Shift | null>(null);
+  // Панели и окна держим смонтированными, пока они уезжают (docs/motion.md):
+  // в них остаётся последнее открытое значение.
+  const shownSelected = useExitValue(selected);
+  const shownSwapFor = useExitValue(swapFor);
+  const shownTaskAssign = useExitValue(taskAssign);
+  const shownShiftEditor = useExitValue(editor?.type === "shift" ? editor : null);
+  const shownTemplateEditor = useExitValue(editor?.type === "template" ? editor : null);
+  const shownTemplateOverlay = useExitValue(templateOverlay);
+  const applyTemplateOpen = applyTemplate && editor?.type !== "template" && !templateOverlay ? applyTemplate : null;
+  const shownApplyTemplate = useExitValue(applyTemplateOpen);
   const openedSwap = useRef(false);
   useEffect(() => {
     if (!initialSwap || openedSwap.current) return;
@@ -606,20 +617,21 @@ export function ScheduleClient({
     return saved;
   };
   useEffect(() => {
+    // Закрытие: историю не сбрасываем — панель уезжает с ней.
+    if (!selected) return;
     let alive = true;
     setHistory(null);
     setHistoryHasMore(false);
-    if (selected)
-      shiftHistoryPage(selected.id)
-        .then(unwrapAction)
-        .then((page) => {
-          if (!alive) return;
-          setHistory(page.events);
-          setHistoryHasMore(page.hasMore);
-        })
-        .catch(() => {
-          if (alive) setHistory([]);
-        });
+    shiftHistoryPage(selected.id)
+      .then(unwrapAction)
+      .then((page) => {
+        if (!alive) return;
+        setHistory(page.events);
+        setHistoryHasMore(page.hasMore);
+      })
+      .catch(() => {
+        if (alive) setHistory([]);
+      });
     return () => {
       alive = false;
     };
@@ -1205,15 +1217,15 @@ export function ScheduleClient({
   // момент создания, и после перекраски шаблона она устаревает.
   const shiftTemplate = (shift: Shift) =>
     shift.template_id ? templatesById.get(shift.template_id) : undefined;
-  const selectedTemplate = selected ? shiftTemplate(selected) : undefined;
-  const selectedSwap = selected ? shiftSwap(data.swaps, selected.id) : null;
+  const selectedTemplate = shownSelected ? shiftTemplate(shownSelected) : undefined;
+  const selectedSwap = shownSelected ? shiftSwap(data.swaps, shownSelected.id) : null;
   const selectedSwapActive =
-    !!selectedSwap && selectedSwap.status === "pending" && Date.parse(selected!.ends_at) > Date.now();
+    !!selectedSwap && selectedSwap.status === "pending" && Date.parse(shownSelected!.ends_at) > Date.now();
   // У управляющего главная кнопка при открытой заявке — «Утвердить замену».
   const selectedSwapDecision = selectedSwapActive && can("shift_assign");
   const selectedCanRequestSwap =
-    !!selected && !selectedSwapActive && canRequestSwap(selected, data.userId, false, Date.now()) &&
-    !data.runs.some((run) => run.shift_id === selected.id);
+    !!shownSelected && !selectedSwapActive && canRequestSwap(shownSelected, data.userId, false, Date.now()) &&
+    !data.runs.some((run) => run.shift_id === shownSelected.id);
   /**
    * Смена в виде «Список» — как в календаре: время колонкой слева, полоска
    * цвета шаблона, название и сотрудник; статус — только у черновика
@@ -2360,11 +2372,13 @@ export function ScheduleClient({
             }}
           />
         )}
-      {taskAssign && (
+      {shownTaskAssign && (
         <TaskAssignDrawer
+          key={`${shownTaskAssign.day}-${shownTaskAssign.template ?? ""}`}
+          open={!!taskAssign}
           data={data}
-          day={taskAssign.day}
-          template={taskAssign.template}
+          day={shownTaskAssign.day}
+          template={shownTaskAssign.template}
           personName={name}
           onClose={() => setTaskAssign(null)}
           onDone={() => {
@@ -2375,11 +2389,12 @@ export function ScheduleClient({
           }}
         />
       )}
-      {editor?.type === "shift" && (() => {
-        const { returnTo, ...shiftEditor } = editor;
+      {shownShiftEditor && (() => {
+        const { returnTo, ...shiftEditor } = shownShiftEditor;
         return (
           <ShiftEditor
-            key={`${editor.shift?.id ?? "new"}-${editor.copy}`}
+            key={`${shownShiftEditor.shift?.id ?? "new"}-${shownShiftEditor.copy}`}
+            open={editor?.type === "shift"}
             data={data}
             {...shiftEditor}
             onClose={() => setEditor(null)}
@@ -2394,30 +2409,34 @@ export function ScheduleClient({
           />
         );
       })()}
-      {editor?.type === "template" && (
+      {shownTemplateEditor && (
         <TemplateEditor
-          key={`${editor.template?.id ?? "new"}-${editor.copy}`}
+          key={`${shownTemplateEditor.template?.id ?? "new"}-${shownTemplateEditor.copy}`}
+          open={editor?.type === "template"}
           data={data}
-          {...editor}
+          {...shownTemplateEditor}
           onClose={() => setEditor(null)}
-          save={saveTemplate(editor.template)}
+          save={saveTemplate(shownTemplateEditor.template)}
         />
       )}
-      {templateOverlay && (
+      {shownTemplateOverlay && (
         <TemplateEditor
-          key={`overlay-${templateOverlay.id}`}
+          key={`overlay-${shownTemplateOverlay.id}`}
+          open={!!templateOverlay}
           data={data}
-          template={templateOverlay}
+          template={shownTemplateOverlay}
           onClose={() => setTemplateOverlay(null)}
-          save={saveTemplate(templateOverlay)}
+          save={saveTemplate(shownTemplateOverlay)}
         />
       )}
-      {applyTemplate && editor?.type !== "template" && !templateOverlay && (() => {
-        const template = data.templates.find((t) => t.id === applyTemplate.id);
+      {shownApplyTemplate && (() => {
+        const template = data.templates.find((t) => t.id === shownApplyTemplate.id);
         return template ? (
           <ApplyTemplateDialog
+            key={shownApplyTemplate.id}
+            open={!!applyTemplateOpen}
             template={template}
-            previousTitle={applyTemplate.previousTitle}
+            previousTitle={shownApplyTemplate.previousTitle}
             shifts={data.shifts}
             timezone={data.timezone}
             onClose={() => setApplyTemplate(null)}
@@ -2454,28 +2473,28 @@ export function ScheduleClient({
           {overTrash ? "Отпустите, чтобы удалить" : "Перетащите сюда, чтобы удалить"}
         </div>
       )}
-      {selected && (
+      {shownSelected && (
         <EditDrawer
-          open
+          open={!!selected}
           onOpenChange={(o) => {
             if (!o) setSelected(null);
           }}
-          title={selectedTemplate ? shiftTemplateLabel(selectedTemplate) : selected.title}
+          title={selectedTemplate ? shiftTemplateLabel(selectedTemplate) : shownSelected.title}
           titleAccessory={
             <DrawerStatus
-              label={selected.published ? "Опубликована" : "Черновик"}
-              tone={selected.published ? "success" : "neutral"}
+              label={shownSelected.published ? "Опубликована" : "Черновик"}
+              tone={shownSelected.published ? "success" : "neutral"}
             />
           }
           description={[
-            dayLabel(dateInZone(selected.starts_at, data.timezone), { weekday: "long", day: "numeric", month: "long" }).replace(/^./, (c) => c.toUpperCase()),
-            `${timeInZone(selected.starts_at, data.timezone)}–${timeInZone(selected.ends_at, data.timezone)}`,
-            `${shiftHours(selected.starts_at, selected.ends_at).toLocaleString("ru", { maximumFractionDigits: 1 })} ч`,
+            dayLabel(dateInZone(shownSelected.starts_at, data.timezone), { weekday: "long", day: "numeric", month: "long" }).replace(/^./, (c) => c.toUpperCase()),
+            `${timeInZone(shownSelected.starts_at, data.timezone)}–${timeInZone(shownSelected.ends_at, data.timezone)}`,
+            `${shiftHours(shownSelected.starts_at, shownSelected.ends_at).toLocaleString("ru", { maximumFractionDigits: 1 })} ч`,
           ].join(" · ")}
           // Без единой кнопки подвал не рисуем: иначе у сотрудника без прав
           // внизу панели остаётся пустая полоса с рамкой.
           footer={
-            can("shift_delete") || can("shift_edit") || (!selected.published && can("shift_publish")) ||
+            can("shift_delete") || can("shift_edit") || (!shownSelected.published && can("shift_publish")) ||
             selectedSwapActive || selectedCanRequestSwap ? (
             <>
               {can("shift_delete") && (
@@ -2483,9 +2502,9 @@ export function ScheduleClient({
                   variant="ghost"
                   size="icon"
                   className="mr-auto text-destructive hover:text-destructive"
-                  aria-label={selected.published ? "Удалить смену" : "Удалить черновик"}
-                  data-tip={selected.published ? "Удалить смену" : "Удалить черновик"}
-                  onClick={() => confirmDelete(selected)}
+                  aria-label={shownSelected.published ? "Удалить смену" : "Удалить черновик"}
+                  data-tip={shownSelected.published ? "Удалить смену" : "Удалить черновик"}
+                  onClick={() => confirmDelete(shownSelected)}
                 >
                   <Trash2 className="size-4" />
                 </Button>
@@ -2493,11 +2512,11 @@ export function ScheduleClient({
               {(selectedSwapActive || selectedCanRequestSwap) && (
                 <SwapFooterActions
                   data={data}
-                  shift={selected}
+                  shift={shownSelected}
                   swap={selectedSwap}
                   canRequest={selectedCanRequestSwap}
                   onRequest={() => {
-                    setSwapFor(selected);
+                    setSwapFor(shownSelected);
                     setSelected(null);
                   }}
                   refresh={refresh}
@@ -2506,13 +2525,13 @@ export function ScheduleClient({
               )}
               {can("shift_edit") && (
                 <Button
-                  variant={(!selected.published && can("shift_publish")) || selectedSwapDecision ? "outline" : "default"}
+                  variant={(!shownSelected.published && can("shift_publish")) || selectedSwapDecision ? "outline" : "default"}
                   onClick={() => {
                     setEditor({
                       type: "shift",
-                      shift: selected,
-                      day: dateInZone(selected.starts_at, data.timezone),
-                      returnTo: selected.id,
+                      shift: shownSelected,
+                      day: dateInZone(shownSelected.starts_at, data.timezone),
+                      returnTo: shownSelected.id,
                     });
                     setSelected(null);
                   }}
@@ -2520,11 +2539,11 @@ export function ScheduleClient({
                   Изменить
                 </Button>
               )}
-              {!selected.published && can("shift_publish") && (
+              {!shownSelected.published && can("shift_publish") && (
                 <Button
                   disabled={busy}
                   onClick={async () => {
-                    if (await publishShifts([selected])) {
+                    if (await publishShifts([shownSelected])) {
                       toast.success("Смена опубликована");
                       setSelected(null);
                     }
@@ -2539,27 +2558,27 @@ export function ScheduleClient({
           }
         >
           <ShiftDetails
-            key={selected.id}
+            key={shownSelected.id}
             data={data}
-            shift={selected}
+            shift={shownSelected}
             history={history}
             historyHasMore={historyHasMore}
             onLoadMoreHistory={loadMoreHistory}
             personName={name}
             showHistory={canPlan}
-            swap={selectedSwap ? <SwapSection data={data} swap={selectedSwap} shift={selected} /> : undefined}
+            swap={selectedSwap ? <SwapSection data={data} swap={selectedSwap} shift={shownSelected} /> : undefined}
             assignControl={can("shift_assign") && !can("shift_edit") ? (
               <EmployeePicker
                 data={data}
-                value={shiftAssignee(selected)}
+                value={shiftAssignee(shownSelected)}
                 includeCasual={data.permissions.includes("payroll.configure")}
                 onChange={async (next) => {
                   if (
                     await save("shift.assign", {
-                      id: selected.id,
-                      version: selected.version,
+                      id: shownSelected.id,
+                      version: shownSelected.version,
                       ...assignmentFields(next),
-                      payroll_model_id: casualPayModel(next, selected),
+                      payroll_model_id: casualPayModel(next, shownSelected),
                     })
                   )
                     setSelected(null);
@@ -2569,8 +2588,15 @@ export function ScheduleClient({
           />
         </EditDrawer>
       )}
-      {swapFor && (
-        <SwapRequestDrawer data={data} shift={swapFor} refresh={refresh} onClose={() => setSwapFor(null)} />
+      {shownSwapFor && (
+        <SwapRequestDrawer
+          key={shownSwapFor.id}
+          open={!!swapFor}
+          data={data}
+          shift={shownSwapFor}
+          refresh={refresh}
+          onClose={() => setSwapFor(null)}
+        />
       )}
       <Dialog
         open={!!confirmation}

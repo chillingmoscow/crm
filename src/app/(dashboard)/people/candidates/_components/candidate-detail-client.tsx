@@ -1,4 +1,5 @@
 "use client";
+import { useExitValue } from "@/hooks/use-exit-value";
 import Link from "next/link";
 import Image from "next/image";
 import { useRef, useState, useTransition, type ReactNode } from "react";
@@ -85,6 +86,13 @@ export function CandidateDetailClient({
     [removingFile, setRemovingFile] = useState<CandidateFile | null>(null),
     [removeError, setRemoveError] = useState<string | null>(null),
     [busy, start] = useTransition();
+  // Панели держим смонтированными, пока они уезжают (docs/motion.md).
+  const shownEditing = useExitValue(editing),
+    shownHiring = useExitValue(hiring),
+    viewingOpen = meeting === undefined ? viewing : null,
+    shownViewing = useExitValue(viewingOpen),
+    // undefined — панель закрыта, null — новое назначение.
+    shownMeeting = useExitValue(meeting === undefined ? null : { appointment: meeting });
   const fileInput = useRef<HTMLInputElement>(null);
   const c = data.candidate,
     photo = data.files.find((file) => file.url && file.mime_type?.startsWith("image/"))?.url,
@@ -475,8 +483,9 @@ export function CandidateDetailClient({
           });
         }}
       />
-      {editing ? (
+      {shownEditing ? (
         <CandidateForm
+          open={editing}
           candidate={c}
           onClose={() => setEditing(false)}
           onSaved={() => {
@@ -484,8 +493,9 @@ export function CandidateDetailClient({
           }}
         />
       ) : null}
-      {hiring ? (
+      {shownHiring ? (
         <HireDrawer
+          open={hiring}
           detail={data}
           options={options}
           onClose={() => setHiring(false)}
@@ -495,14 +505,16 @@ export function CandidateDetailClient({
           }}
         />
       ) : null}
-      {viewing && meeting === undefined && <CandidateAppointmentDetails key={viewing.id} candidateId={c.id} appointment={viewing} candidateName={c.full_name} options={options} editable={canEdit}
+      {shownViewing && <CandidateAppointmentDetails key={shownViewing.id} open={!!viewingOpen} candidateId={c.id} appointment={shownViewing} candidateName={c.full_name} options={options} editable={canEdit}
         onClose={() => setViewing(null)}
-        onSchedule={() => openMeeting(viewing.kind, viewing)}
-        onSaved={async () => { const next = await refresh(); setViewing(next.appointments.find((a) => a.id === viewing.id) ?? null); }} />}
-      {meeting !== undefined ? (
+        onSchedule={() => openMeeting(shownViewing.kind, shownViewing)}
+        onSaved={async () => { const next = await refresh(); setViewing(next.appointments.find((a) => a.id === shownViewing.id) ?? null); }} />}
+      {shownMeeting ? (
         <CandidateAppointmentDrawer
+          key={`${shownMeeting.appointment?.id ?? "new"}-${meetingKind}`}
+          open={meeting !== undefined}
           candidateId={c.id}
-          appointment={meeting}
+          appointment={shownMeeting.appointment}
           initialKind={meetingKind}
           canScheduleTrial={canTrial}
           options={options}

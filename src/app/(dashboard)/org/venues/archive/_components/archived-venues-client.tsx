@@ -1,5 +1,6 @@
 "use client";
 
+import { useExitValue } from "@/hooks/use-exit-value";
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -81,6 +82,9 @@ export function ArchivedVenuesClient({ rows }: { rows: ArchivedVenueRow[] }) {
   const [restoring, startRestore] = useTransition();
   const [deleteTarget, setDeleteTarget] = useState<ArchivedVenueRow | null>(null);
   const [deleteImpact, setDeleteImpact] = useState<VenueArchiveImpact | null>(null);
+  // Окно держим смонтированным, пока оно закрывается (docs/motion.md): в нём
+  // остаются прежние название и последствия, а не сброшенные.
+  const shownDelete = useExitValue(deleteTarget && { target: deleteTarget, impact: deleteImpact });
 
   const q = st.search.toLocaleLowerCase("ru").trim();
   const filtered = useMemo(
@@ -393,9 +397,9 @@ export function ArchivedVenuesClient({ rows }: { rows: ArchivedVenueRow[] }) {
         onConfirm={restore}
       />
 
-      {deleteTarget ? (
+      {shownDelete ? (
         <HardDeleteConfirmDialog
-          open
+          open={!!deleteTarget}
           onOpenChange={(open) => {
             if (!open) {
               setDeleteTarget(null);
@@ -403,15 +407,15 @@ export function ArchivedVenuesClient({ rows }: { rows: ArchivedVenueRow[] }) {
             }
           }}
           entityGenitive="заведение"
-          entityName={deleteTarget.name}
-          impact={deleteImpact ? venueDeleteImpact(deleteImpact) : []}
+          entityName={shownDelete.target.name}
+          impact={shownDelete.impact ? venueDeleteImpact(shownDelete.impact) : []}
           restrictedBy={[]}
           onConfirm={async () => {
-            const result = await deleteVenue(deleteTarget.id, {
-              confirmName: deleteTarget.name,
+            const result = await deleteVenue(shownDelete.target.id, {
+              confirmName: shownDelete.target.name,
             });
             if (result.error) return { error: result.error };
-            toast.success(`Заведение «${displayName(deleteTarget)}» удалено`);
+            toast.success(`Заведение «${displayName(shownDelete.target)}» удалено`);
             setDeleteTarget(null);
             setDeleteImpact(null);
             router.refresh();

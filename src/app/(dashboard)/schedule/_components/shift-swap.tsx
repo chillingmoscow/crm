@@ -238,11 +238,14 @@ export function SwapFooterActions({
 
 /** Панель «Замена смены»: автор выбирает коллегу из подходящих и свободных. */
 export function SwapRequestDrawer({
+  open = true,
   data,
   shift,
   onClose,
   refresh,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   data: ScheduleData;
   shift: Shift;
   onClose: () => void;
@@ -280,7 +283,7 @@ export function SwapRequestDrawer({
   };
   return (
     <EditDrawer
-      open
+      open={open}
       onOpenChange={(open) => !open && !busy && onClose()}
       title="Замена смены"
       description={[shiftSpan(data, shift), shift.title].join(" · ")}

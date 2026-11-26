@@ -38,7 +38,9 @@ export function transferReason(remaining: number, from: string, to: string) {
  * нескольких сотрудников. Каждый сотрудник — отдельный перенос в базе: если
  * у одного расчёт не завершён, остальные всё равно переносятся.
  */
-export function PayrollTransferDrawer({ data, month, employeeId, onClose, onChange }: {
+export function PayrollTransferDrawer({ open = true, data, month, employeeId, onClose, onChange }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   data: PayrollData;
   month: string;
   employeeId?: string;
@@ -110,7 +112,7 @@ export function PayrollTransferDrawer({ data, month, employeeId, onClose, onChan
 
   return (
     <PayrollDetailDialog
-      open
+      open={open}
       onOpenChange={(open) => { if (!open && !busy) onClose(); }}
       title="Перенести остаток"
       description={`С ${monthLabel(month)} на ${monthLabel(target)}`}

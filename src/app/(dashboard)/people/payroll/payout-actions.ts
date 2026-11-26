@@ -64,6 +64,8 @@ export type PayoutRowView = PlannedRow & {
   paidNow: number;
   /** Вне плана (график «Переводом»): платят себе по счетам, выплаты вносят вручную. */
   outside: boolean;
+  /** Дни опубликованных смен сотрудника в окне выплаты — подсказка при выборе дня. */
+  shiftDays: string[];
 };
 export type PayoutPlanView = {
   schedule: PayoutScheduleCode;
@@ -106,6 +108,12 @@ async function planView(s: PayrollScope, schedule: PayoutScheduleCode, firstCtx:
   const fresh = month && span ? plan(ctx, schedule, month, span) : [];
   const freshBy = new Map(fresh.map((r) => [r.employee_id, r]));
   const step = ctx.settings.schedules[schedule].step;
+  const shiftDays = (id: string) =>
+    span
+      ? [...new Set(ctx.shifts
+          .filter((x) => x.employee_id === id && x.business_date >= span.from && x.business_date <= span.to)
+          .map((x) => x.business_date))].sort()
+      : [];
   const employees = new Map(ctx.data.employees.map((e) => [e.id, e]));
   const person = (id: string) => {
     const e = employees.get(id);
@@ -127,17 +135,18 @@ async function planView(s: PayrollScope, schedule: PayoutScheduleCode, firstCtx:
           : money(recheckDue(row, freshBy.get(row.employee_id)?.breakdown.ceiling ?? 0, step).due + row.issued),
         paidNow: freshBy.get(row.employee_id)?.breakdown.paid ?? row.breakdown.paid,
         outside: false,
+        shiftDays: shiftDays(row.employee_id),
       }))
     : fresh.map((row) => ({
         ...row, id: null, ...person(row.employee_id), issued: 0, state: "planned" as const, willIssue: row.amount,
-        paidNow: row.breakdown.paid, outside: false,
+        paidNow: row.breakdown.paid, outside: false, shiftDays: shiftDays(row.employee_id),
       }));
   // Вне плана — строками со статусом, без сумм к выплате.
   const outside: PayoutRowView[] =
     month && span
       ? plan(ctx, "transfer", month, span).map((row) => ({
           ...row, amount: 0, pay_date: null, id: null, ...person(row.employee_id), issued: 0, state: "planned" as const,
-          willIssue: null, paidNow: row.breakdown.paid, outside: true,
+          willIssue: null, paidNow: row.breakdown.paid, outside: true, shiftDays: [],
         }))
       : [];
   rows.sort((a, b) => a.name.localeCompare(b.name, "ru"));

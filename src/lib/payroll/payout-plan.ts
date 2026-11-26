@@ -259,3 +259,33 @@ export function payoutRowState(
   if (row.pay_date < today) return "missed";
   return row.issued > 0 ? "partial" : "waiting";
 }
+
+export type PayDayChoiceGroup = { label: string | undefined; days: { date: string; past: boolean }[] };
+
+/**
+ * Дни для выбора дня выплаты: сначала те, где у сотрудника смена в графике
+ * (выдают на смене), потом остальные. Прошедшие дни не предлагаем; уже
+ * выбранный прошедший день остаётся в списке недоступным, чтобы было видно,
+ * что стоит сейчас. Без доступа к графику — один список, без деления.
+ */
+export function payDayChoices(
+  days: string[],
+  shiftDays: string[],
+  today: string,
+  current: string | null,
+  shiftsKnown: boolean,
+): PayDayChoiceGroup[] {
+  const ahead = days.filter((d) => d >= today).map((date) => ({ date, past: false }));
+  const groups: PayDayChoiceGroup[] = [];
+  if (shiftsKnown) {
+    const shifts = new Set(shiftDays);
+    const withShift = ahead.filter((d) => shifts.has(d.date));
+    const without = ahead.filter((d) => !shifts.has(d.date));
+    if (withShift.length) groups.push({ label: "Есть смена", days: withShift });
+    if (without.length) groups.push({ label: "Без смены", days: without });
+  } else if (ahead.length) {
+    groups.push({ label: undefined, days: ahead });
+  }
+  if (current && current < today) groups.push({ label: "Прошли", days: [{ date: current, past: true }] });
+  return groups;
+}

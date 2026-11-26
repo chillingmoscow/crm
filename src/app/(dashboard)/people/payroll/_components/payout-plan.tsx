@@ -17,7 +17,7 @@ import { unwrapAction } from "@/lib/actions/result";
 import { formatDayMonth } from "@/lib/format/date";
 import { countRu } from "@/lib/format/plural";
 import { addDays } from "@/lib/sales/time";
-import { payoutRowState, type PayoutRowState, type PayoutScheduleCode } from "@/lib/payroll/payout-plan";
+import { payDayChoices, payoutRowState, type PayoutRowState, type PayoutScheduleCode } from "@/lib/payroll/payout-plan";
 import { Banknote, CalendarClock, Check, ListChecks, Loader2, MoreHorizontal, RefreshCw, X } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
@@ -454,7 +454,12 @@ function PayoutRowDrawer({
                 disabled={busy}
                 onValueChange={setDay}
                 placeholder="Не выбран"
-                options={[{ value: "", label: "Не выбран" }, ...days.map((d) => ({ value: d, label: formatDayMonth(d) ?? d }))]}
+                // Дни со сменой в графике — первыми: выдают на смене (Павел, 26.11).
+                options={[{ value: "", label: "Не выбран" }]}
+                groups={payDayChoices(days, row.shiftDays, view.today, row.pay_date, !view.shiftsHidden).map((g) => ({
+                  label: g.label,
+                  options: g.days.map((d) => ({ value: d.date, label: formatDayMonth(d.date) ?? d.date, disabled: d.past })),
+                }))}
               />
             </div>
           </div>

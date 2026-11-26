@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  payDayChoices,
   DEFAULT_PAYOUT_SCHEDULES,
   firstPayoutWindow,
   floorStep,
@@ -246,4 +247,26 @@ test("transfer schedule ignores saved step and reserve", () => {
   });
   assert.equal(row.amount, 23850);
   assert.equal(row.breakdown.reserve, 0);
+});
+
+test("payDayChoices: сначала дни со сменой, прошедшие дни не предлагаем", () => {
+  const days = ["2026-11-25", "2026-11-26", "2026-11-27", "2026-11-28", "2026-11-29"];
+  const r = payDayChoices(days, ["2026-11-25", "2026-11-27", "2026-11-29"], "2026-11-26", null, true);
+  assert.deepEqual(r, [
+    { label: "Есть смена", days: [{ date: "2026-11-27", past: false }, { date: "2026-11-29", past: false }] },
+    { label: "Без смены", days: [{ date: "2026-11-26", past: false }, { date: "2026-11-28", past: false }] },
+  ]);
+});
+
+test("payDayChoices: выбранный прошедший день остаётся в списке, но недоступен", () => {
+  const r = payDayChoices(["2026-11-25", "2026-11-26"], [], "2026-11-26", "2026-11-25", true);
+  assert.deepEqual(r, [
+    { label: "Без смены", days: [{ date: "2026-11-26", past: false }] },
+    { label: "Прошли", days: [{ date: "2026-11-25", past: true }] },
+  ]);
+});
+
+test("payDayChoices: график не виден — один список без деления по сменам", () => {
+  const r = payDayChoices(["2026-11-26", "2026-11-27"], [], "2026-11-26", null, false);
+  assert.deepEqual(r, [{ label: undefined, days: [{ date: "2026-11-26", past: false }, { date: "2026-11-27", past: false }] }]);
 });

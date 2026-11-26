@@ -1,4 +1,5 @@
 "use server";
+import { slimOverviewAccrual } from "@/lib/payroll/accrual-slim";
 import { queuePayroll } from "@/lib/payroll/sync";
 import { normalizeOfficialExpected, type OfficialExpectedRow } from "@/lib/payroll/official-expected";
 import { attendanceReviewRows, needsAttendanceReview } from "@/lib/payroll/attendance-review-rows";
@@ -248,6 +249,7 @@ async function loadPayrollData(
     PayrollData,
     keyof typeof tables
   >;
+  if (overview) result.accruals = result.accruals.map(slimOverviewAccrual);
   if (result.adjustments.length) {
     // Незаконченные возвраты бонусов, поставленные при удалении записи. Очередь
     // бонусных операций по RLS видна только настройщикам, а статус записи нужен

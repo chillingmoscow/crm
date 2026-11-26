@@ -76,7 +76,8 @@ type Link = { label: string; value: number; op: "+" | "−" | "" };
 /** The month as one sum: what was earned, what was carried and paid, what is left. */
 function formula(p: Payslip): Link[] {
   const links: Link[] = [];
-  if (p.shifts.length && p.shiftTotal !== null) links.push({ label: "смены", value: p.shiftTotal, op: "" });
+  if (p.salary.length) links.push({ label: "оклад", value: p.salaryTotal, op: "" });
+  if (p.shifts.length && p.shiftTotal !== null) links.push({ label: "смены", value: p.shiftTotal, op: links.length ? "+" : "" });
   if (p.additions.length) links.push({ label: "премии", value: p.additionsTotal, op: links.length ? "+" : "" });
   if (p.deductions.length) links.push({ label: "удержания", value: -p.deductionsTotal, op: "−" });
   if (p.opening) links.push({ label: p.opening < 0 ? "переплата" : "долг", value: Math.abs(p.opening), op: p.opening < 0 ? "−" : "+" });
@@ -224,6 +225,7 @@ export function PayslipDocument({ p, generatedAt }: { p: Payslip; generatedAt: D
         {p.shifts.length > 0 && <ShiftTable shifts={p.shifts} total={p.shiftTotal} />}
 
         <View style={s.columns} wrap={false}>
+          {p.salary.length > 0 && <EntryColumn title="Оклад" entries={p.salary} signed />}
           <EntryColumn title="Премии и надбавки" entries={p.additions} signed />
           <EntryColumn title="Удержания" entries={p.deductions} signed />
           <EntryColumn

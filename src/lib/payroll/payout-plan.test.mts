@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  liveRowAmount,
   issueCap,
   payDayChoices,
   DEFAULT_PAYOUT_SCHEDULES,
@@ -282,17 +281,3 @@ test("issueCap: расчётную строку режет потолок, ру�
   assert.deepEqual(recheckDue({ amount: 20000, issued: 0 }, issueCap(b, false), 5000), { due: 0, capped: true });
 });
 
-test("liveRowAmount: расчётная строка живая, ручная и выданная — как есть", () => {
-  // Расчёт сейчас (выданное по плану уже в «выплачено»): осталось выдать 25 000.
-  const fresh = { amount: 25000 };
-  // Ничего не выдано: в плане 45 000 при формировании, сейчас — 25 000.
-  assert.equal(liveRowAmount({ amount: 45000, issued: 0, manual: false, state: "planned" }, fresh), 25000);
-  // Выдано 20 000, осталось по расчёту 25 000 — строка на 45 000.
-  assert.equal(liveRowAmount({ amount: 45000, issued: 20000, manual: false, state: "partial" }, fresh), 45000);
-  // Ручная сумма не меняется.
-  assert.equal(liveRowAmount({ amount: 20000, issued: 0, manual: true, state: "planned" }, fresh), 20000);
-  // Выданная строка закрыта.
-  assert.equal(liveRowAmount({ amount: 30000, issued: 30000, manual: false, state: "issued" }, fresh), 30000);
-  // Сотрудника нет в свежем расчёте — сохранённая сумма.
-  assert.equal(liveRowAmount({ amount: 45000, issued: 0, manual: false, state: "planned" }, undefined), 45000);
-});

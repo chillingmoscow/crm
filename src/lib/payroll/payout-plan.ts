@@ -255,21 +255,6 @@ export function issueCap(b: { ceiling: number; reserve: number; official: number
   return manual ? round(b.ceiling + b.reserve + b.official) : b.ceiling;
 }
 
-/**
- * Сумма строки плана на текущую минуту (Павел, 26.11: «это динамическое
- * значение, оно должно меняться»). Расчётная строка живая: выданное по ней +
- * сколько по свежему расчёту осталось выдать (свежий расчёт уже считает
- * выданное по плану выплаченным). Ручная сумма и выданная строка — как есть.
- * Сотрудника нет в свежем расчёте (другой график) — сохранённая сумма.
- */
-export function liveRowAmount(
-  row: { amount: number; issued: number; manual: boolean; state: "planned" | "partial" | "issued" },
-  fresh: { amount: number } | undefined,
-): number {
-  if (row.manual || row.state === "issued" || !fresh) return row.amount;
-  return round(row.issued + fresh.amount);
-}
-
 export type PayoutRowState = "issued" | "partial" | "none" | "invoice" | "waiting" | "missed" | "no_day";
 
 /** Что показать в строке плана: выдано, ждёт дня, день пропущен, ждёт счёта. */

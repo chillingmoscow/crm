@@ -102,15 +102,19 @@ export function PayoutBreakdown({ b, amount, issued, manual, leftAfter, step, mo
         />
         <Line
           op="="
-          label={issued > 0 ? "Осталось выдать" : "К выплате"}
+          label="К выплате по плану"
           hint={
             manual
-              ? <>поставлено вручную{issued > 0 ? ` (${formatRub(amount)})` : ""}, по расчёту сейчас — {formatRub(computed)}</>
-              : <>меньшее из двух, вниз до {formatRub(step)}</>
+              ? <>поставлено вручную{issued === 0 ? <>, по расчёту сейчас — {formatRub(computed)}</> : null}</>
+              : issued === 0 && Math.round(computed) !== Math.round(amount)
+                ? <>сумма плана; по расчёту сейчас — {formatRub(computed)}</>
+                : <>меньшее из двух, вниз до {formatRub(step)}</>
           }
-          value={Math.max(0, amount - issued)}
+          value={amount}
           result
         />
+        {issued > 0 && <Line op="−" label="Выдано по плану" value={issued} />}
+        {issued > 0 && amount - issued > 0 && <Line op="=" label="Осталось выдать" value={amount - issued} result />}
         {leftAfter !== null && (
           <Line
             label={leftAfter < 0 ? `Переплатим ${byMonth}` : `Будем должны ${byMonth}`}

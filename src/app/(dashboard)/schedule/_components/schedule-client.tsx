@@ -267,6 +267,7 @@ export function ScheduleClient({
   initialDate,
   initialView,
   initialSwap,
+  initialCreate,
 }: {
   initial: ScheduleData;
   section?: "calendar" | "templates";
@@ -277,6 +278,8 @@ export function ScheduleClient({
   initialView?: "templates" | "list" | "week";
   /** Заявка на замену из уведомления (`?swap=`): открыть её смену. */
   initialSwap?: string;
+  /** `?create=shift` из палитры ⌘K: сразу открыть форму новой смены. */
+  initialCreate?: "shift";
 }) {
   const [data, setData] = useState(initial);
   const tab = section;
@@ -1586,6 +1589,18 @@ export function ScheduleClient({
   // День для «Новая смена» / «Задача» из шапки: сегодня, если он на открытой
   // неделе, иначе её первый день — иначе смена уезжает с экрана.
   const addDay = days.includes(today) ? today : days[0];
+  // «Новая смена» из палитры ⌘K (`?create=shift`): форма открывается один
+  // раз — на тот же день, что и кнопка «Добавить», — а параметр уходит из
+  // адреса, чтобы обновление страницы не открывало её снова.
+  const openedCreate = useRef(false);
+  useEffect(() => {
+    if (!initialCreate || openedCreate.current) return;
+    openedCreate.current = true;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("create");
+    window.history.replaceState(null, "", url);
+    if (can("shift_create")) create(addDay);
+  });
   // Период и «Сегодня» стоят в шапке слева, инструменты — в той же строке справа.
   const periodControls = (
     <>

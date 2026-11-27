@@ -20,6 +20,7 @@ import {
   NOBODY_DUE,
   cashAvailable,
   splitShortfall,
+  shortfallRows,
   distributeCash,
   payoutMessage,
   type DueRow,
@@ -27,6 +28,8 @@ import {
   type RegisterCash,
 } from "./payout-issue";
 import { readRegisterCash } from "./payout-cash";
+import { raiseAlert } from "./payout-alerts";
+import { shortAlert } from "./payout-alert-text";
 import type { PayrollData } from "./types";
 
 // Общее для плана выплат: настройки, расчёт строк, предпросмотр выдачи дня,
@@ -417,6 +420,17 @@ export async function executeCashIssue(
     lines: preview.lines.map((l) => ({ row_id: l.row_id, amount: l.amount, next_pay_date: l.next_pay_date, close: l.close })),
     moves: moves.map((row) => ({ row_id: row.row_id, pay_date: row.next_pay_date })),
   });
+  // Кому не хватило и перенести некуда — карточка «Не хватило наличных».
+  const shortfall = shortfallRows(preview.lines, preview.short);
+  if (shortfall.length) {
+    await raiseAlert(s, {
+      kind: "short",
+      key: issueId,
+      planId: preview.plan.id,
+      businessDate: preview.ctx.today,
+      ...shortAlert(preview.ctx.today, shortfall),
+    });
+  }
   let messageState: MessageState = "failed";
   try {
     messageState = await sendIssueMessage(s, issueId, preview.ctx.settings.chat_id);

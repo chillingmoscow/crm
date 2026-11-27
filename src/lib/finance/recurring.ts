@@ -15,6 +15,7 @@ import {
   loadOfficialReview,
   type OfficialInbox,
 } from "@/lib/finance/official-inbox-data";
+import { countPayoutAlerts, loadPayoutAlerts, type PayoutAlertItem } from "@/lib/finance/payout-inbox-data";
 import type {
   RecurringOccurrenceRow,
   RecurringSchedule,
@@ -516,20 +517,23 @@ function inboxQuery(supabase: Supabase, today: string, head: boolean) {
 }
 
 /**
- * Очередь «На разбор»: ожидаемые повторяющиеся платежи и официальная часть
- * зарплаты активного заведения, которую крон не провёл сам (`official`).
- * Ошибка официальной части не прячет платежи и наоборот.
+ * Очередь «На разбор»: ожидаемые повторяющиеся платежи, официальная часть
+ * зарплаты активного заведения, которую крон не провёл сам (`official`), и
+ * карточки выплат зарплаты по плану (`payout`). Ошибка одной части не прячет
+ * остальные.
  */
 export async function listInbox(): Promise<{
   items: RecurringOccurrenceRow[];
   official: OfficialInbox;
+  payout: PayoutAlertItem[];
   error: string | null;
 }> {
   const officialPromise = loadOfficialReview();
+  const payoutPromise = loadPayoutAlerts();
   const ctx = await getCtx();
   if ("error" in ctx) {
-    const official = await officialPromise;
-    return { items: [], official: official.data, error: ctx.error };
+    const [official, payout] = await Promise.all([officialPromise, payoutPromise]);
+    return { items: [], official: official.data, payout: payout.items, error: ctx.error };
   }
   // Порождаем недостающие сроки сейчас — cron может быть ещё не отработавшим.
   const { error: materializeError } = await ctx.supabase.rpc("finance_recurring_materialize_mine");
@@ -548,8 +552,8 @@ export async function listInbox(): Promise<{
   } catch (e) {
     error = e instanceof Error ? e.message : "Не удалось загрузить платежи";
   }
-  const official = await officialPromise;
-  return { items, official: official.data, error: error ?? official.error };
+  const [official, payout] = await Promise.all([officialPromise, payoutPromise]);
+  return { items, official: official.data, payout: payout.items, error: error ?? official.error ?? payout.error };
 }
 
 /**
@@ -569,13 +573,14 @@ const countInboxOnce = cache(async (): Promise<number> => {
   // наступившие сроки. После первого запуска за день совпадений нет — дёшево.
   const { error: materializeError } = await ctx.supabase.rpc("finance_recurring_materialize_mine");
   if (materializeError) console.error(`[recurring] materialize_mine: ${materializeError.message}`);
-  const [{ count, error }, official] = await Promise.all([
+  const [{ count, error }, official, payout] = await Promise.all([
     inboxQuery(ctx.supabase, ctx.today, true),
-    // Официальная часть зарплаты на разборе; без таблицы (выкатка раньше миграции) — 0.
+    // Официальная часть и выплаты по плану; без таблицы (выкатка раньше миграции) — 0.
     countOfficialReview().catch(() => 0),
+    countPayoutAlerts().catch(() => 0),
   ]);
   if (error) console.error(`[recurring] countInbox: ${error.message}`);
-  return (count ?? 0) + official;
+  return (count ?? 0) + official + payout;
 });
 
 async function auditOccurrence(

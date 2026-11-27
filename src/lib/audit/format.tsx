@@ -631,6 +631,20 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline:e=><>изменил(а) участие в зарплатном учёте · {String(e.details.employee_name)}</>,
     buildDetails:e=><><ChangeLines details={e.details}/><p className="text-xs text-muted-foreground">{String(e.details.reason??"")}</p></>,
   },
+  "payroll.casual.fired": {
+    icon:UserMinus,iconClass:"text-destructive bg-destructive/10",
+    buildHeadline:e=><>уволил(а) разового · {String(e.details.employee_name??"Сотрудник")}</>,
+    buildDetails:e=><p className="text-xs text-muted-foreground">{e.details.without_chats?"Не состоял в чатах Telegram":e.details.telegram_id?`Telegram ID ${String(e.details.telegram_id)}`:"Telegram ID не указан"} · сотрудник Quick Resto {e.details.quickresto_employee_id?"удаляется":"не связан"}</p>,
+  },
+  "payroll.casual.telegram_id_changed": {
+    icon:Pencil,iconClass:"text-brand bg-brand/10",
+    buildHeadline:e=><>исправил(а) Telegram ID при увольнении разового · {String(e.details.employee_name??"Сотрудник")}</>,
+    buildDetails:e=><p className="text-xs text-muted-foreground">{String(e.details.before??"—")} → {String(e.details.after??"—")} · чаты проверяются заново</p>,
+  },
+  "payroll.casual.chats_skipped": {
+    icon:Pencil,iconClass:"text-brand bg-brand/10",
+    buildHeadline:e=><>отметил(а), что уволенный разовый не состоял в чатах · {String(e.details.employee_name??"Сотрудник")}</>,
+  },
   "payroll.employee.converted_to_staff": {
     icon:Pencil,iconClass:"text-brand bg-brand/10",
     buildHeadline:e=><>перевёл(а) разового в штат · {String(e.details.employee_name??"Сотрудник")}</>,

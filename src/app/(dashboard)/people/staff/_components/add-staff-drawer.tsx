@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/tabs";
 import { useDiscardGuard } from "@/components/shared/discard-changes-dialog";
 import { ChatInvitesSwitch } from "./chat-invites-switch";
+import { telegramIdError } from "@/lib/people/telegram-id";
 import { GENDER_OPTIONS, genderFormField, type Gender } from "@/lib/people/gender";
 import {
   createStaffWithoutEmail,
@@ -89,17 +90,24 @@ function useCasualCreate(roles: Role[], onIssued: (value: CasualIssued) => void)
   const [roleId, setRoleId] = useState("");
   // Разового в чаты зовут осознанно: по умолчанию выключено.
   const [chatInvites, setChatInvites] = useState(false);
+  const [telegramId, setTelegramId] = useState("");
+  const [telegramError, setTelegramError] = useState<string | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const ready = Boolean(firstName.trim() && lastName.trim() && roleId);
   const submit = () => {
     if (!ready || pending) return;
+    const tgError = telegramIdError(telegramId, chatInvites);
+    setTelegramError(tgError);
+    if (tgError) return;
+    // Выключенные приглашения — ID не нужен и не сохраняется.
+    const tg = chatInvites ? telegramId : null;
     startTransition(async () => {
       setError(null);
       const result = savedId
-        ? await provisionCasualEmployee({ id: savedId, firstName, lastName, chatInvites })
-        : await createCasualEmployee({ firstName, lastName, roleId, chatInvites });
+        ? await provisionCasualEmployee({ id: savedId, firstName, lastName, chatInvites, telegramId: tg })
+        : await createCasualEmployee({ firstName, lastName, roleId, chatInvites, telegramId: tg });
       if (result.id) setSavedId(result.id);
       if (!result.pin) {
         setError(result.error ?? "Quick Resto не ответил");
@@ -124,11 +132,17 @@ function useCasualCreate(roles: Role[], onIssued: (value: CasualIssued) => void)
     setRoleId,
     chatInvites,
     setChatInvites,
+    telegramId,
+    setTelegramId: (value: string) => {
+      setTelegramId(value);
+      setTelegramError(null);
+    },
+    telegramError,
     retry: savedId !== null,
     error,
     pending,
     ready,
-    filled: hasText({ firstName, lastName, roleId }),
+    filled: hasText({ firstName, lastName, roleId, telegramId }),
     submit,
   };
 }
@@ -198,6 +212,9 @@ function CasualCreateFields({ form }: { form: CasualCreate }) {
         checked={form.chatInvites}
         onCheckedChange={form.setChatInvites}
         disabled={form.pending}
+        telegramId={form.telegramId}
+        onTelegramIdChange={form.setTelegramId}
+        telegramIdError={form.telegramError}
       />
       {form.error ? (
         <div
@@ -281,6 +298,8 @@ export function AddStaffDrawer({
   const [pending, startTransition] = useTransition();
   // Штатного в чаты должности обычно зовут сразу — включено по умолчанию.
   const [manualChats, setManualChats] = useState(true);
+  const [manualTelegram, setManualTelegram] = useState("");
+  const [manualTelegramError, setManualTelegramError] = useState<string | null>(null);
   const [inviteChats, setInviteChats] = useState(true);
 
   const manual = useForm<CreateForm>({
@@ -297,7 +316,7 @@ export function AddStaffDrawer({
   // Закрытие заполненной формы спрашивает подтверждение. Экран PIN — нет:
   // разовый уже добавлен, PIN остаётся в списке.
   const filled =
-    hasText(manual.watch()) || hasText(invite.watch()) || casual.filled;
+    hasText(manual.watch()) || hasText(invite.watch()) || casual.filled || manualTelegram.trim() !== "";
   const { guard, dialog } = useDiscardGuard(!issued && filled);
   const close = () => onOpenChange(false);
   const requestClose = () => {
@@ -307,6 +326,9 @@ export function AddStaffDrawer({
   };
 
   const onCreate = (values: CreateForm) => {
+    const tgError = telegramIdError(manualTelegram, manualChats);
+    setManualTelegramError(tgError);
+    if (tgError) return;
     startTransition(async () => {
       const result = await createStaffWithoutEmail({
         firstName: values.firstName,
@@ -316,6 +338,7 @@ export function AddStaffDrawer({
         roleId: values.roleId,
         venueId,
         chatInvites: manualChats,
+        telegramId: manualChats ? manualTelegram : null,
       });
       if (result.error) {
         toast.error(result.error);
@@ -527,6 +550,12 @@ export function AddStaffDrawer({
                   checked={manualChats}
                   onCheckedChange={setManualChats}
                   disabled={busy}
+                  telegramId={manualTelegram}
+                  onTelegramIdChange={(value) => {
+                    setManualTelegram(value);
+                    setManualTelegramError(null);
+                  }}
+                  telegramIdError={manualTelegramError}
                 />
                 <p className="text-xs text-muted-foreground">
                   Без входа в Sheerly. Доступ можно выдать позже в карточке

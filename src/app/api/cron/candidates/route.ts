@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { processCandidateJobs } from "@/lib/candidates/jobs";
 import { processStaffTerminations } from "@/lib/people/termination";
 import { processStaffRestores } from "@/lib/people/restore";
+import { processCasualDismissals } from "@/lib/payroll/casual-dismissal";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -19,5 +20,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Нет доступа" }, { status: 401 });
   const terminations = await processStaffTerminations();
   const restorations = await processStaffRestores();
-  return NextResponse.json({...await processCandidateJobs(),terminations,restorations});
+  const casualDismissals = await processCasualDismissals();
+  return NextResponse.json({...await processCandidateJobs(),terminations,restorations,casualDismissals});
 }

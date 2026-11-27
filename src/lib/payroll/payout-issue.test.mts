@@ -5,6 +5,7 @@ import {
   autoIssueDecision,
   autoIssuedReportText,
   splitShortfall,
+  shortfallRows,
   autoReportText,
   cashAvailable,
   distributeCash,
@@ -149,6 +150,23 @@ test("splitShortfall: who moves to the next shift and who needs a day picked", (
   const { moves, notMoved } = splitShortfall(lines, short);
   assert.deepEqual(moves.map((r) => r.row_id), ["m"]);
   assert.deepEqual(notMoved, ["Частичный без смены (остаток)", "Без выдачи без смены"]);
+});
+
+test("shortfallRows: сколько не выдано тем, кого некуда перенести", () => {
+  const short = [
+    due("p", "Частичный без смены", 30000, null),
+    due("q", "Частичный со сменой", 30000, "2026-11-27"),
+    due("n", "Без выдачи без смены", 20000, null),
+    due("m", "Без выдачи со сменой", 20000, "2026-11-28"),
+  ];
+  const lines = [
+    { row_id: "p", employee_id: "p", name: "Частичный без смены", amount: 10000, next_pay_date: null, close: false },
+    { row_id: "q", employee_id: "q", name: "Частичный со сменой", amount: 10000, next_pay_date: "2026-11-27", close: false },
+  ];
+  assert.deepEqual(shortfallRows(lines, short), [
+    { name: "Частичный без смены", amount: 20000 },
+    { name: "Без выдачи без смены", amount: 20000 },
+  ]);
 });
 
 test("autoIssuedReportText: silent when all is fine, lists every problem otherwise", () => {

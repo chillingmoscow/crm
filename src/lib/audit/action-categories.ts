@@ -64,6 +64,8 @@ const CATEGORY_SUFFIXES: Record<AuditActionCategory, string[]> = {
     ".reviewed",
     ".resolved",
     ".unresolved",
+    // Сверка выдачи зарплаты с изъятием из кассы (`payroll.payout_plan.reconciled`).
+    ".reconciled",
     ".expense_linked",
     ".supplier_added",
     ".supplier_removed",
@@ -86,7 +88,8 @@ const CATEGORY_SUFFIXES: Record<AuditActionCategory, string[]> = {
   ],
   deleted: [".deleted", ".archived", ".cancelled"],
   restored: [".restored"],
-  moved: [".moved"],
+  // `.carried` — перенос остатка месяца после второй выплаты (`payroll.payout_plan.carried`).
+  moved: [".moved", ".carried"],
 };
 
 /** Категории → список like-паттернов для PostgREST (`*` = `%`).

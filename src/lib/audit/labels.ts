@@ -116,6 +116,7 @@ const FIELD_LABELS: Record<string, string> = {
   supplier_price: "цена поставщика",
   is_preferred: "основной поставщик",
   note: "заметка",
+  invoice_date: "дата акта",
   // schedule
   shift_date: "дата",
   shift_time: "время",

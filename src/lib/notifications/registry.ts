@@ -20,6 +20,7 @@ import {
   UserPlus,
   XCircle,
   type LucideIcon,
+  BellRing,
 } from "lucide-react";
 
 import type { StatusTone } from "@/components/ui/status-badge";
@@ -111,6 +112,17 @@ const REGISTRY: Record<string, NotificationTypeSpec> = {
     category: "kb",
     icon: BookOpen,
     verb: "отметил(а) обязательной к прочтению",
+  },
+  "kb.reread_requested": {
+    category: "kb",
+    icon: RotateCcw,
+    verb: "просит перечитать",
+  },
+  "kb.required_reading_reminder": {
+    category: "kb",
+    icon: BellRing,
+    verb: "напоминает прочитать",
+    stack: ["напоминание прочитать", "напоминания прочитать", "напоминаний прочитать"],
   },
   "kb.comment_replied": {
     category: "kb",

@@ -10,6 +10,8 @@ import {
   RotateCcw,
   BookOpen,
   type LucideIcon,
+  BellRing,
+  CheckCheck,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -122,6 +124,36 @@ const SPECS: Record<string, EventSpec> = {
       <>
         восстановил(а) страницу{" "}
         <PageTitle event={e} text={e.details.title as string} /> из корзины
+      </>
+    ),
+  },
+  "kb_page.reread_requested": {
+    icon: RotateCcw,
+    iconClass: "text-amber-600 bg-amber-50",
+    buildLabel: (e) => (
+      <>
+        попросил(а) перечитать страницу{" "}
+        <PageTitle event={e} text={e.details.title as string} />
+      </>
+    ),
+  },
+  "kb_page.reminder_sent": {
+    icon: BellRing,
+    iconClass: "text-foreground bg-muted",
+    buildLabel: (e) => (
+      <>
+        напомнил(а) прочитать страницу{" "}
+        <PageTitle event={e} text={e.details.title as string} />
+      </>
+    ),
+  },
+  "kb_page.reread_dismissed": {
+    icon: CheckCheck,
+    iconClass: "text-foreground bg-muted",
+    buildLabel: (e) => (
+      <>
+        отметил(а), что перечитывать страницу{" "}
+        <PageTitle event={e} text={e.details.title as string} /> не нужно
       </>
     ),
   },

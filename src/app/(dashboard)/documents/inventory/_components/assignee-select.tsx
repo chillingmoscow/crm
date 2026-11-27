@@ -16,12 +16,15 @@ import { cn } from "@/lib/utils";
 import { conflictHint } from "@/lib/inventory/act-assignment";
 import { assignInventoryDocument } from "@/app/(dashboard)/inventory/_actions/assignment";
 import { personInitials } from "@/lib/format/initials";
+import { avatarThumbUrl } from "@/lib/people/avatar-thumb";
 
 const UNASSIGNED_VALUE = "__unassigned__";
 
 export type AssigneeOption = {
   id: string;
   name: string;
+  /** Фото из профиля; нет — инициалы. */
+  avatarUrl?: string | null;
 };
 
 /**
@@ -111,7 +114,7 @@ export function AssigneeSelect({
       >
         {assigned ? (
           <>
-            <AssigneeAvatar name={assigned.name} />
+            <AssigneeAvatar name={assigned.name} src={assigned.avatarUrl} />
             <span className="truncate text-sm">{assigned.name}</span>
           </>
         ) : (
@@ -133,7 +136,7 @@ export function AssigneeSelect({
           return (
             <SelectItem key={member.id} value={member.id} disabled={blocked}>
               <span className="inline-flex items-center gap-2">
-                <AssigneeAvatar name={member.name} muted={blocked} />
+                <AssigneeAvatar name={member.name} src={member.avatarUrl} muted={blocked} />
                 <span className="flex flex-col">
                   <span>{member.name}</span>
                   {blocked ? (
@@ -172,7 +175,7 @@ export function PersonChip({
     "inline-flex h-8 max-w-full items-center gap-2 truncate rounded-full bg-muted/60 px-1.5 text-sm text-muted-foreground";
   const inner = (
     <>
-      <AssigneeAvatar name={person.name} muted />
+      <AssigneeAvatar name={person.name} src={person.avatarUrl} muted />
       {/* Кликабельное имя (DS → «Аватары и цвет»): синеет только имя, чип не меняется. */}
       <span className={cn("truncate", href && "transition-colors duration-200 group-hover:text-brand group-focus-visible:text-brand")}>
         {person.name}
@@ -194,7 +197,35 @@ export function PersonChip({
   );
 }
 
-export function AssigneeAvatar({ name, muted = false }: { name: string; muted?: boolean }) {
+/**
+ * Кружок 24px человека в выборе исполнителя и проверяющего: фото (уменьшенная
+ * копия через оптимизатор, браузер держит её месяц), без фото или пока оно не
+ * загрузилось — инициалы (`muted` — серые инициалы для бейджа без выбора).
+ */
+export function AssigneeAvatar({
+  name,
+  src,
+  muted = false,
+}: {
+  name: string;
+  src?: string | null;
+  muted?: boolean;
+}) {
+  const [failed, setFailed] = useState<string | null>(null);
+  const photo = src && failed !== src ? avatarThumbUrl(src, 64) : null;
+  if (photo) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={photo}
+        alt=""
+        aria-hidden="true"
+        loading="lazy"
+        onError={() => setFailed(src ?? null)}
+        className="h-6 w-6 shrink-0 rounded-full bg-muted object-cover"
+      />
+    );
+  }
   const initials = personInitials(name);
   return (
     <div

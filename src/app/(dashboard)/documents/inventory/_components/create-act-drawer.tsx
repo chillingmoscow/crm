@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Search, Undo2 } from "lucide-react";
+import { ChevronRight, Loader2, Search, Undo2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -28,13 +28,15 @@ import {
   collectGroupSubtree,
   countSelectedItems,
   defaultActComment,
+  groupTreeRows,
+  groupsWithSelectedDescendants,
 } from "@/lib/inventory/act-create";
 import {
   createInventoryAct,
   loadCreateActOptions,
   type CreateActOptions,
 } from "@/app/(dashboard)/inventory/_actions/create";
-import type { AssigneeOption } from "./assignee-select";
+import { AssigneeAvatar, type AssigneeOption } from "./assignee-select";
 
 function todayLocal(): string {
   const now = new Date();
@@ -80,6 +82,7 @@ export function CreateActDrawer({
   const [assignedTo, setAssignedTo] = useState("");
   const [reviewerId, setReviewerId] = useState("");
   const [query, setQuery] = useState("");
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [pending, setPending] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
@@ -123,6 +126,7 @@ export function CreateActDrawer({
     setAssignedTo("");
     setReviewerId("");
     setQuery("");
+    setExpanded(new Set());
     setSaveError(null);
   };
 
@@ -156,10 +160,17 @@ export function CreateActDrawer({
     ? filterEligibleOptions({ options: staff, eligibility, role: "reviewer", venueIds })
     : staff;
 
-  const normalizedQuery = query.trim().toLocaleLowerCase("ru");
-  const visibleGroups = normalizedQuery
-    ? groups.filter((group) => group.name.toLocaleLowerCase("ru").includes(normalizedQuery))
-    : groups;
+  // Свёрнутое дерево: подгруппы (бренды внутри «Табака» и т. п.) видны по
+  // раскрытию; поиск сам раскрывает родителей найденной группы.
+  const rows = useMemo(() => groupTreeRows({ nodes: groups, expanded, query }), [groups, expanded, query]);
+  const partial = useMemo(() => groupsWithSelectedDescendants(groups, selected), [groups, selected]);
+  const toggleExpanded = (id: string) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const tooMany = itemCount > CREATE_ACT_MAX_ITEMS;
   const canSubmit =
@@ -180,7 +191,13 @@ export function CreateActDrawer({
 
   const toggle = (id: string, checked: boolean) => {
     setSaveError(null);
-    setSelected((current) => (checked ? [...current, id] : current.filter((value) => value !== id)));
+    setSelected((current) => {
+      if (!checked) return current.filter((value) => value !== id);
+      // Родитель включает подгруппы: отдельно отмеченные подгруппы больше не нужны
+      // (и не попадут в комментарий акта второй раз).
+      const inside = collectGroupSubtree(groups, [id]);
+      return [...current.filter((value) => !inside.has(value)), id];
+    });
   };
 
   const submit = async () => {
@@ -217,8 +234,25 @@ export function CreateActDrawer({
   };
 
   const staffOptions = (list: AssigneeOption[], blocked: string) => [
-    { value: "", label: "Не назначен" },
-    ...list.map((person) => ({ value: person.id, label: person.name, disabled: person.id === blocked })),
+    {
+      value: "",
+      label: (
+        <span className="inline-flex items-center gap-2 text-muted-foreground">
+          <UserPlus className="h-4 w-4" />
+          Не назначен
+        </span>
+      ),
+    },
+    ...list.map((person) => ({
+      value: person.id,
+      label: (
+        <span className="inline-flex min-w-0 items-center gap-2">
+          <AssigneeAvatar name={person.name} src={person.avatarUrl} />
+          <span className="truncate">{person.name}</span>
+        </span>
+      ),
+      disabled: person.id === blocked,
+    })),
   ];
 
   return (
@@ -321,41 +355,64 @@ export function CreateActDrawer({
                   </div>
                   <div className="max-h-80 overflow-y-auto rounded-md border border-border py-1">
                     {CREATE_ACT_KINDS.map((kind) => {
-                      const ofKind = visibleGroups.filter((group) => group.kind === kind);
+                      const ofKind = rows.filter((row) => row.node.kind === kind);
                       if (ofKind.length === 0) return null;
                       return (
                         <div key={kind} className="py-1">
                           <p className="px-3 py-1 text-xs font-medium text-muted-foreground">
                             {CREATE_ACT_KIND_LABELS[kind]}
                           </p>
-                          {ofKind.map((group) => {
+                          {ofKind.map(({ node: group, hasChildren, open: isOpen }) => {
                             const isImplied = implied.has(group.id);
-                            const checked = isImplied || selected.includes(group.id);
+                            const isSelected = isImplied || selected.includes(group.id);
+                            const checked = isSelected ? true : partial.has(group.id) ? "indeterminate" : false;
                             return (
-                              <label
+                              <div
                                 key={group.id}
                                 className={cn(
-                                  "flex cursor-pointer items-center gap-2 py-1.5 pr-3 text-sm hover:bg-accent",
-                                  isImplied && "cursor-default text-muted-foreground hover:bg-transparent",
+                                  "flex items-center gap-1 pr-3 text-sm hover:bg-accent",
+                                  isImplied && "text-muted-foreground hover:bg-transparent",
                                 )}
-                                style={{ paddingLeft: 12 + (normalizedQuery ? 0 : group.depth * 20) }}
+                                style={{ paddingLeft: 4 + group.depth * 20 }}
                               >
-                                <Checkbox
-                                  checked={checked}
-                                  disabled={isImplied || pending}
-                                  onCheckedChange={(value) => toggle(group.id, value === true)}
-                                />
-                                <span className="min-w-0 flex-1 truncate">{group.name}</span>
-                                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                                  {group.itemCount}
-                                </span>
-                              </label>
+                                {hasChildren ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleExpanded(group.id)}
+                                    aria-expanded={isOpen}
+                                    aria-label={isOpen ? `Свернуть «${group.name}»` : `Показать подгруппы «${group.name}»`}
+                                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
+                                  >
+                                    <ChevronRight
+                                      className={cn("h-4 w-4 transition-transform duration-200", isOpen && "rotate-90")}
+                                    />
+                                  </button>
+                                ) : (
+                                  <span className="h-7 w-7 shrink-0" aria-hidden="true" />
+                                )}
+                                <label
+                                  className={cn(
+                                    "flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5",
+                                    isImplied && "cursor-default",
+                                  )}
+                                >
+                                  <Checkbox
+                                    checked={checked}
+                                    disabled={isImplied || pending}
+                                    onCheckedChange={(value) => toggle(group.id, value === true)}
+                                  />
+                                  <span className="min-w-0 flex-1 truncate">{group.name}</span>
+                                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                                    {group.itemCount}
+                                  </span>
+                                </label>
+                              </div>
                             );
                           })}
                         </div>
                       );
                     })}
-                    {visibleGroups.length === 0 ? (
+                    {rows.length === 0 ? (
                       <p className="px-3 py-2 text-sm text-muted-foreground">Ничего не нашли</p>
                     ) : null}
                   </div>

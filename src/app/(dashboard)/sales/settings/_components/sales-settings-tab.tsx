@@ -23,6 +23,7 @@ import { SettlementSettingsSection } from "./settlement-settings";
 import { CashControlSettingsSection } from "./cash-control-settings";
 import { CashMovementSettingsSection } from "./cash-movement-settings";
 import { FinanceExecutionSettingsSection } from "./finance-execution-settings";
+import { SalesPlanSettingsSection } from "./sales-plan-settings";
 
 /** Число дней между датами `YYYY-MM-DD` включительно. */
 function daysInclusive(from: string, to: string) {
@@ -30,7 +31,14 @@ function daysInclusive(from: string, to: string) {
   return Number.isFinite(ms) ? Math.max(0, Math.round(ms / 86400000) + 1) : 0;
 }
 
-export function SalesSettingsTab({ initial }: { initial: SalesConfiguration }) {
+export function SalesSettingsTab({
+  initial,
+  planMonth,
+}: {
+  initial: SalesConfiguration;
+  /** `?plan=2026-11`: сразу открыть план этого месяца. */
+  planMonth?: string;
+}) {
   const [data, setData] = useState(initial);
   const today = businessDate(
     new Date(),
@@ -138,6 +146,11 @@ export function SalesSettingsTab({ initial }: { initial: SalesConfiguration }) {
           </p>
         )}
       </ProfileSection>
+      <SalesPlanSettingsSection
+        venueId={data.venueId}
+        currentMonth={today.slice(0, 7)}
+        openMonth={planMonth}
+      />
       <ProfileSection
         title="Пересчёт истории"
         description="Повторно загрузим чеки и отчёты за выбранный период и применим текущие правила. Ручные исправления сохранятся."

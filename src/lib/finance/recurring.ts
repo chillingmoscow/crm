@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { cache } from "react";
 
 import { writeAuditEvent } from "@/lib/audit/write";
 import { calendarDateInZone } from "@/lib/format/zoned-day";
@@ -551,7 +552,17 @@ export async function listInbox(): Promise<{
   return { items, official: official.data, error: error ?? official.error };
 }
 
+/**
+ * Число дел «На разбор». Меню и главная в одном рендере считают его оба —
+ * внутренняя часть под `React.cache`, чтобы материализация и подсчёт шли раз
+ * на запрос. Экспорт — обычная async-функция: модуль `"use server"`, и его же
+ * зовёт клиент (`useInboxCount`), где кэша запроса нет и он не нужен.
+ */
 export async function countInbox(): Promise<number> {
+  return countInboxOnce();
+}
+
+const countInboxOnce = cache(async (): Promise<number> => {
   const ctx = await getCtx();
   if ("error" in ctx) return 0;
   // Страховка от молчащего cron, как в listInbox: счётчик сам порождает
@@ -565,7 +576,7 @@ export async function countInbox(): Promise<number> {
   ]);
   if (error) console.error(`[recurring] countInbox: ${error.message}`);
   return (count ?? 0) + official;
-}
+});
 
 async function auditOccurrence(
   ctx: Ctx,

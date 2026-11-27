@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { CircleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { countRu } from "@/lib/format/plural";
 import { cn } from "@/lib/utils";
 import { loadAttendanceAttention } from "../actions";
 import { unwrapAction } from "@/lib/actions/result";
+import { attentionKey, type AttentionSnapshot } from "@/lib/payroll/attention-snapshot";
 
 const monthName = (month: string) =>
   new Date(`${month}-15T12:00:00Z`).toLocaleDateString("ru-RU", { month: "long", timeZone: "UTC" });
@@ -17,22 +18,33 @@ const monthName = (month: string) =>
  * «Зарплатой». Считает то же, что список «На проверке» в «Сверке отметок»,
  * и ведёт туда. Пересчитывается при смене месяцев, по `refreshKey` (решение
  * по смене) и раз в минуту, пока вкладка открыта. Нет выходов — нет блока.
+ *
+ * `initial` — счётчики, посчитанные сервером при отрисовке страницы: с ними
+ * уведомление есть в первой же разметке и не сдвигает страницу, появляясь
+ * после загрузки скриптов.
  */
 export function AttendanceAttentionNotice({
   months,
   refreshKey = 0,
+  initial,
   className,
 }: {
   months: string[];
   refreshKey?: number;
+  initial?: AttentionSnapshot;
   className?: string;
 }) {
-  const key = [...new Set(months)].sort().join(",");
-  const [state, setState] = useState<{ key: string; items: { month: string; count: number }[] } | null>(null);
+  const key = attentionKey(months);
+  const [state, setState] = useState<AttentionSnapshot | null>(initial ?? null);
+  // Серверные счётчики свежие — первое чтение пропускаем (и при повторном
+  // запуске эффекта), дальше по таймеру, при смене месяцев или решении.
+  const serverKey = useRef(initial?.key ?? null);
   useEffect(() => {
     if (!key) return;
     let active = true;
+    const skipFirst = serverKey.current === key && refreshKey === 0;
     const load = () => {
+      serverKey.current = null;
       void loadAttendanceAttention(key.split(","))
         .then(unwrapAction)
         .then((items) => {
@@ -43,7 +55,7 @@ export function AttendanceAttentionNotice({
           if (active) setState(null);
         });
     };
-    load();
+    if (!skipFirst) load();
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") load();
     }, 60000);

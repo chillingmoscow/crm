@@ -44,12 +44,19 @@ test("на смене: открытая отметка без графика —
   assert.deepEqual(r.userIds, []);
 });
 
-test("на смене: ушёл раньше конца смены — не на смене, вернулся — снова на смене", () => {
+test("на смене: закрытая отметка посреди смены не снимает со смены", () => {
+  // В кассе отмечаются приходом и сразу уходом (секунды) — отметка лишь
+  // подтверждает выход; время смены задаёт график, как в «Расписании».
   const shifts = [shift("u1", "2026-11-27T09:00:00Z", "2026-11-27T21:00:00Z")];
-  const left = { employee_id: "e1", user_id: "u1", starts_at: "2026-11-27T09:00:00Z", ends_at: "2026-11-27T13:00:00Z" };
-  assert.deepEqual(onShiftNow(now, shifts, [left]).userIds, []);
-  const back = { employee_id: "e1", user_id: "u1", starts_at: "2026-11-27T14:00:00Z", ends_at: null };
-  assert.deepEqual(onShiftNow(now, shifts, [left, back]).userIds, ["u1"]);
+  const blip = { employee_id: "e1", user_id: "u1", starts_at: "2026-11-27T10:01:41Z", ends_at: "2026-11-27T10:01:46Z" };
+  assert.deepEqual(onShiftNow(now, shifts, [blip]).userIds, ["u1"]);
+  const early = { employee_id: "e1", user_id: "u1", starts_at: "2026-11-27T09:00:00Z", ends_at: "2026-11-27T13:00:00Z" };
+  assert.deepEqual(onShiftNow(now, shifts, [early]).userIds, ["u1"]);
+});
+
+test("на смене: закрытая отметка без смены — не на смене", () => {
+  const closed = { employee_id: "e1", user_id: "u1", starts_at: "2026-11-27T10:00:00Z", ends_at: "2026-11-27T13:00:00Z" };
+  assert.deepEqual(onShiftNow(now, [], [closed]), { userIds: [], employeeIds: [] });
 });
 
 const tl = (from: string | null, to: string) => tenureLabel(from, to)?.replace(/\u00a0/g, " ") ?? null;

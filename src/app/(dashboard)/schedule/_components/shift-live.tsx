@@ -9,11 +9,14 @@ const MINUTE = 60_000;
  * Текущий момент для сетки расписания: обновляется на границе каждой минуты
  * и только на видимой вкладке; при возвращении на вкладку — сразу.
  *
- * `null` на сервере и до монтирования: время устройства и сервера не
- * совпадают, иначе разметка разойдётся при гидратации.
+ * `initial` — момент, когда сервер рисовал страницу: с ним идущие смены и
+ * часы в шапке есть в первой же разметке, и сетка не перестраивается после
+ * загрузки скриптов. Разметка при гидратации совпадает — значение приходит
+ * пропом, а не из часов устройства; сразу после монтирования время берётся
+ * уже с устройства. Без `initial` — `null` до монтирования.
  */
-export function useMinuteNow(): number | null {
-  const [now, setNow] = useState<number | null>(null);
+export function useMinuteNow(initial?: number): number | null {
+  const [now, setNow] = useState<number | null>(initial ?? null);
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = () => {

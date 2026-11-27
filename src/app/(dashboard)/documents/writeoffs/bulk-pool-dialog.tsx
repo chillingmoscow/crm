@@ -1,4 +1,5 @@
 "use client";
+import { Wallet } from "lucide-react";
 import { useState } from "react";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Field } from "@/components/ui/field";
@@ -80,6 +81,7 @@ export function BulkPoolDialog({
 
   return (
     <ConfirmDialog
+      icon={Wallet}
       open={open}
       onOpenChange={close}
       title={`Кто платит за ${acts(count)}?`}

@@ -1,5 +1,6 @@
 "use client";
 
+import { UserX } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { useExitValue } from "@/hooks/use-exit-value";
@@ -136,6 +137,8 @@ export function useCandidateStatusChange({
       ) : null}
       {shownReject ? (
         <ConfirmDialog
+          tone="warning"
+          icon={UserX}
           open={!!reject}
           onOpenChange={(open) => {
             if (!open) setReject(null);

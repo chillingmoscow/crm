@@ -1,4 +1,5 @@
 "use client";
+import { useExitValue } from "@/hooks/use-exit-value";
 import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import {
@@ -11,6 +12,8 @@ import {
   PenLine,
   RefreshCw,
   SearchX,
+  CheckCircle2,
+  CircleSlash,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { ColumnDef, RowSelectionState } from "@tanstack/react-table";
@@ -154,6 +157,7 @@ export function AttendanceReview({
   const [query, setQuery] = useState("");
   const [selection, setSelection] = useState<RowSelectionState>({});
   const [pending, setPending] = useState<Pending | null>(null);
+  const shownPending = useExitValue(pending);
   const [pendingReason, setPendingReason] = useState("");
   const [pendingError, setPendingError] = useState<string | null>(null);
   // Строки, по которым решение уже отправлено: убираем их из очереди сразу,
@@ -499,6 +503,8 @@ export function AttendanceReview({
         />
       ) : null}
       <ConfirmDialog
+        tone={shownPending?.decision === "ignore" ? "warning" : "default"}
+        icon={shownPending?.decision === "ignore" ? CircleSlash : CheckCircle2}
         open={!!pending}
         onOpenChange={(next) => !next && setPending(null)}
         title={

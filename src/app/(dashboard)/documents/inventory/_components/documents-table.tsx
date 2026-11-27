@@ -1121,7 +1121,10 @@ export function DocumentsTable({
           setBulkDeleteOpen(open);
         }}
         title={`Удалить ${countRu(selectedRowsList.length, "акт", "акта", "актов")}?`}
-        description="Удалятся выбранные акты и все их позиции. Акты из Quick Resto вернутся при следующей синхронизации, если не удалить их и там."
+        consequences={[
+          { kind: "remove", text: "Акты и все их позиции удалятся" },
+          { kind: "info", text: "Акты из Quick Resto вернутся при следующей синхронизации, если не удалить их и там" },
+        ]}
         confirmLabel={`Удалить ${countRu(selectedRowsList.length, "акт", "акта", "актов")}`}
         pendingLabel="Удаляем…"
         destructive

@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { RotateCcw, UserMinus } from "lucide-react";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field } from "@/components/ui/field";
@@ -89,6 +90,7 @@ export function CasualDismissDialog({
       confirmLabel={retry ? "Повторить" : "Уволить сотрудника"}
       pendingLabel={retry ? "Повторяем…" : "Увольняем…"}
       destructive={!retry}
+      icon={retry ? RotateCcw : UserMinus}
       busy={pending}
       error={error}
       onConfirm={confirm}

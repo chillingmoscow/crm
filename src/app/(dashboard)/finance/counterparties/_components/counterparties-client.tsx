@@ -871,6 +871,8 @@ export function CounterpartiesClient({
       />
 
       <ConfirmDialog
+        tone="warning"
+        icon={Archive}
         open={Boolean(archiveTarget)}
         onOpenChange={(open) => {
           if (!open && !archiveBusy) setArchiveTarget(null);
@@ -926,6 +928,6 @@ export function counterpartyDeleteImpact(impact: CounterpartyArchiveImpact | nul
     { label: "Документы", count: impact.attachments, tone: "cascade" },
     { label: "Сертификаты и лицензии", count: impact.certificates, tone: "cascade" },
     { label: "Связи с номенклатурой", count: impact.ingredient_suppliers, tone: "cascade" },
-    { label: "Операции останутся без контрагента", count: impact.transactions, tone: "unbind" },
+    { label: "Операции", count: impact.transactions, tone: "unbind" },
   ];
 }

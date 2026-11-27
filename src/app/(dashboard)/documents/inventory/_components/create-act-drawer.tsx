@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Search } from "lucide-react";
+import { Loader2, Search, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -413,6 +413,9 @@ export function CreateActDrawer({
         title="Закрыть новый акт?"
         description="Выбранные группы и назначения не сохранятся."
         confirmLabel="Закрыть без создания"
+        cancelLabel="Продолжить редактирование"
+        destructive
+        icon={Undo2}
         onConfirm={() => {
           setConfirmClose(false);
           close();

@@ -2,12 +2,17 @@
 
 import * as React from "react"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
-import { X } from "lucide-react"
+import { X, type LucideIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { overlayClass } from "@/lib/overlay-classes"
 import { focusOverlayContent } from "@/lib/overlay-focus"
 import { useSsrSafeAriaControls } from "@/hooks/use-hydrated"
+import {
+  DIALOG_FOOTER_CTA_CLASS,
+  DIALOG_TONE_ICON_CLASS,
+  type DialogTone,
+} from "@/components/ui/dialog-tone"
 
 const Dialog = DialogPrimitive.Root
 
@@ -62,9 +67,12 @@ const DialogContent = React.forwardRef<
       ref={ref}
       tabIndex={-1}
       onOpenAutoFocus={onOpenAutoFocus}
+      data-close={hideClose ? undefined : ""}
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg motion-dialog sm:rounded-lg",
-        "outline-none",
+        // Вид окна — docs/design-system.md, «Modal»: 480px, радиус 12,
+        // отступы 24, полоса кнопок `DialogFooter` дотягивается до краёв.
+        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-[480px] translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-xl motion-dialog sm:rounded-xl",
+        "group/dialog outline-none",
         className
       )}
       {...props}
@@ -73,7 +81,7 @@ const DialogContent = React.forwardRef<
       {!hideClose && (
         <DialogPrimitive.Close
           aria-label="Закрыть"
-          className="touch-target absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"
+          className="touch-target absolute right-5 top-5 rounded-sm text-muted-foreground opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"
         >
           <X className="h-4 w-4" />
           <span className="sr-only">Закрыть</span>
@@ -90,7 +98,8 @@ const DialogHeader = ({
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      "flex flex-col space-y-1.5 text-center sm:text-left",
+      // Длинный заголовок не налезает на крестик в углу.
+      "flex flex-col gap-1.5 text-left group-data-[close]/dialog:pr-8",
       className
     )}
     {...props}
@@ -98,17 +107,35 @@ const DialogHeader = ({
 )
 DialogHeader.displayName = "DialogHeader"
 
+/**
+ * Полоса кнопок внизу окна: серый фон во всю ширину, линия сверху, справа
+ * «Отмена» и главная кнопка. Слева — `hint` (подсказка клавиш, только на
+ * компьютере). На телефоне кнопки во всю ширину столбиком, главная сверху.
+ * Рассчитана на стандартный отступ `DialogContent` (p-6).
+ */
 const DialogFooter = ({
   className,
+  hint,
+  children,
   ...props
-}: React.HTMLAttributes<HTMLDivElement>) => (
+}: React.HTMLAttributes<HTMLDivElement> & { hint?: React.ReactNode }) => (
   <div
     className={cn(
-      "flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2",
+      "-mx-6 -mb-6 mt-2 flex flex-col-reverse gap-2 border-t bg-muted/50 py-3 pl-6 pr-4 sm:flex-row sm:items-center sm:justify-end sm:rounded-b-xl",
+      // Иконка-кнопка (size="icon") остаётся квадратной.
+      "[&>button:not([data-size=icon])]:w-full sm:[&>button:not([data-size=icon])]:w-auto",
+      DIALOG_FOOTER_CTA_CLASS,
       className
     )}
     {...props}
-  />
+  >
+    {hint ? (
+      <div className="mr-auto hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
+        {hint}
+      </div>
+    ) : null}
+    {children}
+  </div>
 )
 DialogFooter.displayName = "DialogFooter"
 
@@ -119,7 +146,8 @@ const DialogTitle = React.forwardRef<
   <DialogPrimitive.Title
     ref={ref}
     className={cn(
-      "text-lg font-semibold leading-none tracking-tight",
+      // Длинное имя файла без пробелов переносится, а не вылезает за окно.
+      "text-[18px] font-semibold leading-tight tracking-tight [overflow-wrap:anywhere]",
       className
     )}
     {...props}
@@ -133,11 +161,70 @@ const DialogDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Description
     ref={ref}
-    className={cn("text-sm text-muted-foreground", className)}
+    className={cn("text-sm leading-normal text-muted-foreground", className)}
     {...props}
   />
 ))
 DialogDescription.displayName = DialogPrimitive.Description.displayName
+
+/**
+ * Значок окна: круг 40px с подложкой цвета тона на 10%, над заголовком.
+ * Тон — по смыслу действия (`DialogTone`), не для красоты.
+ */
+function DialogIcon({
+  tone,
+  icon: Icon,
+  className,
+}: {
+  tone: DialogTone
+  icon: LucideIcon
+  className?: string
+}) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "mb-2 inline-flex size-10 shrink-0 items-center justify-center rounded-full",
+        DIALOG_TONE_ICON_CLASS[tone],
+        className
+      )}
+    >
+      <Icon className="size-5" />
+    </span>
+  )
+}
+
+/** Mac определяется после монтирования: navigator есть только в браузере. */
+function useIsMac() {
+  const [isMac, setIsMac] = React.useState(true)
+  React.useEffect(() => {
+    setIsMac(/Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent))
+  }, [])
+  return isMac
+}
+
+/**
+ * Подсказка клавиш в полосе кнопок: «⌘ ↵ перевести», «Esc отмена».
+ * «⌘» на Windows и Linux показывается как Ctrl.
+ */
+function DialogHotkeyHint({ keys, label }: { keys: string[]; label: string }) {
+  const isMac = useIsMac()
+  return (
+    <>
+      <span className="inline-flex items-center gap-1">
+        {keys.map((k) => (
+          <kbd
+            key={k}
+            className="inline-flex min-w-[20px] items-center justify-center rounded-sm border border-border bg-background px-1.5 py-px font-mono text-xs font-semibold text-muted-foreground"
+          >
+            {k === "⌘" && !isMac ? "Ctrl" : k}
+          </kbd>
+        ))}
+      </span>
+      <span>{label}</span>
+    </>
+  )
+}
 
 export {
   Dialog,
@@ -150,4 +237,6 @@ export {
   DialogFooter,
   DialogTitle,
   DialogDescription,
+  DialogIcon,
+  DialogHotkeyHint,
 }

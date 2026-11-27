@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
 import { TimeInput, normalizeTimeInput } from "@/components/ui/time-input";
 import { Field } from "@/components/ui/field";
-import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { ConfirmDialog, ConsequenceList, type DialogConsequence } from "@/components/shared/confirm-dialog";
 import { updateInventoryDocumentDate } from "@/app/(dashboard)/inventory/_actions/document-date";
 
 type Props = {
@@ -76,11 +76,21 @@ export function ActDateEditor({
     });
   };
 
-  const consequence = hasResults
-    ? "У акта уже есть итоги: расчётные остатки, разница и суммы недостач и излишков пересчитаются на новые дату и время. Введённые количества не изменятся."
-    : hasEnteredAmounts
-      ? "Расчётные остатки всех позиций пересчитаются на новые дату и время. Введённые количества не изменятся."
-      : null;
+  // Последствия — списком под полями (DS «Modal»): что именно пересчитается.
+  const consequences: DialogConsequence[] = [
+    {
+      kind: "info",
+      text: "Расчётный остаток Quick Resto считает на этот момент: что пришло и списано позже, в него не попадёт.",
+    },
+    ...(hasResults
+      ? [{ kind: "info" as const, text: "Расчётные остатки, разница и суммы недостач и излишков пересчитаются." }]
+      : hasEnteredAmounts
+        ? [{ kind: "info" as const, text: "Расчётные остатки всех позиций пересчитаются." }]
+        : []),
+    ...(hasResults || hasEnteredAmounts
+      ? [{ kind: "keep" as const, text: "Введённые количества не изменятся." }]
+      : []),
+  ];
 
   return (
     <>
@@ -92,8 +102,9 @@ export function ActDateEditor({
         open={open}
         onOpenChange={setOpen}
         title={`Изменить дату акта № ${documentNumber}?`}
-        description="Новые дата и время сохранятся в Quick Resto. Quick Resto считает расчётный остаток на этот момент: что пришло и списано позже, в остаток не попадёт."
+        description="Новые дата и время сохранятся в Quick Resto."
         confirmLabel="Сохранить"
+        icon={CalendarDays}
         pendingLabel="Сохраняем…"
         busy={saving}
         confirmDisabled={!day || !normalizedTime || (day === currentDay && normalizedTime === currentTime)}
@@ -132,11 +143,7 @@ export function ActDateEditor({
               )}
             </Field>
           </div>
-          {consequence && !restriction ? (
-            <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
-              {consequence}
-            </p>
-          ) : null}
+          {restriction ? null : <ConsequenceList items={consequences} />}
         </div>
       </ConfirmDialog>
     </>

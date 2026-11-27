@@ -842,6 +842,8 @@ export function CategoriesClient({
       />
 
       <ConfirmDialog
+        tone="warning"
+        icon={Archive}
         open={Boolean(archiveTarget)}
         onOpenChange={(open) => {
           if (!open && !archiveBusy) setArchiveTarget(null);
@@ -873,7 +875,7 @@ export function CategoriesClient({
           entityName={shownDelete.target.name}
           impact={
             shownDelete.target.operations
-              ? [{ label: "Операции останутся без статьи", count: shownDelete.target.operations, tone: "unbind" }]
+              ? [{ label: "Операции", count: shownDelete.target.operations, tone: "unbind" }]
               : []
           }
           restrictedBy={[]}

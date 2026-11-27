@@ -9,16 +9,7 @@ import { ru } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 
 export interface TrashRow {
@@ -147,29 +138,29 @@ export function TrashItemRow({
         осталось {daysLeft} {dayWord(daysLeft)}
       </span>
 
-      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Удалить навсегда?</AlertDialogTitle>
-            <AlertDialogDescription>
-              «{row.title || "Без названия"}»
-              {row.descendantsCount > 0
-                ? ` и ${row.descendantsCount} ${childWord(row.descendantsCount)}`
-                : ""}{" "}
-              будут удалены безвозвратно. Это действие нельзя отменить.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={onHardDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Удалить навсегда
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title={`Удалить «${row.title || "Без названия"}» навсегда?`}
+        confirmLabel="Удалить навсегда"
+        destructive
+        consequences={[
+          ...(row.descendantsCount > 0
+            ? [
+                {
+                  kind: "remove" as const,
+                  text: "Подстраницы удалятся вместе с ней",
+                  count: row.descendantsCount,
+                },
+              ]
+            : []),
+          { kind: "irreversible", text: "Удаление нельзя отменить" },
+        ]}
+        onConfirm={() => {
+          setConfirmDelete(false);
+          onHardDelete();
+        }}
+      />
     </div>
   );
 }

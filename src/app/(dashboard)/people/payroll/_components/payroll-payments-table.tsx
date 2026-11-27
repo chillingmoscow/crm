@@ -253,6 +253,7 @@ function ChangeAccountDialog({
   const count = countRu(paymentIds.length, "официальная выплата", "официальные выплаты", "официальных выплат");
   return (
     <ConfirmDialog
+      icon={Landmark}
       open={open}
       onOpenChange={(open) => {
         if (!open && !busy) onClose();

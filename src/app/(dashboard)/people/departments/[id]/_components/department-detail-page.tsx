@@ -647,7 +647,10 @@ export function DepartmentDetailPage({
           if (!open) setDeleteError(null);
         }}
         title={`Удалить подразделение «${department.name}»?`}
-        description="Действие нельзя отменить. Должности останутся, но потеряют привязку к подразделению."
+        consequences={[
+          { kind: "unlink", text: "Должности останутся, но потеряют привязку к подразделению" },
+          { kind: "irreversible", text: "Удаление нельзя отменить" },
+        ]}
         confirmLabel="Удалить подразделение"
         pendingLabel="Удаляем…"
         destructive

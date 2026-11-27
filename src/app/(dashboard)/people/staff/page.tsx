@@ -88,7 +88,15 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
           .eq("venue_id", venueId) as unknown as Promise<{ data: { id: string; terminal_pin: string | null }[] | null }>)
       : Promise.resolve({ data: null }),
     // Unavailable until the database update for casual workers is applied.
-    (accountId ? getCasualStaff(venueId, canSeePins, accountId) : Promise.resolve(null)).catch((error: unknown) => {
+    (accountId ? getCasualStaff(
+          venueId,
+          {
+            showPins: canSeePins,
+            // Telegram ID разового — по тем же правам, что контакты штатных.
+            showContacts: canEdit || (can("people.view_staff") && can("people.view_staff_details")),
+          },
+          accountId,
+        ) : Promise.resolve(null)).catch((error: unknown) => {
       console.error("casual staff unavailable:", error instanceof Error ? error.message : error);
       return null;
     }),

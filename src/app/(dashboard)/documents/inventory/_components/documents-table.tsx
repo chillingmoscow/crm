@@ -14,6 +14,7 @@ import { arrayMove } from "@dnd-kit/sortable";
 import {
   AlertTriangle,
   Loader2,
+  Plus,
   RefreshCw,
   Search as SearchIcon,
   ShieldCheck,
@@ -27,6 +28,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { CreateActDrawer } from "./create-act-drawer";
 import { PageFrame } from "@/components/shared/page-frame";
 import { DateRangeFilter, type DateRangeValue } from "@/components/shared/date-range-filter";
 import {
@@ -229,6 +231,7 @@ export function DocumentsTable({
   const [bulkPending, startBulk] = useTransition();
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
 
   // ── URL sync ───────────────────────────────────────────────
   const updateUrl = useCallback(
@@ -862,6 +865,19 @@ export function DocumentsTable({
                   />
                 ),
               }}
+              secondaryActions={
+                canManage ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-2 sm:h-9"
+                    onClick={() => setCreateOpen(true)}
+                  >
+                    <Plus className="size-4" />
+                    Создать акт
+                  </Button>
+                ) : null
+              }
               primaryActions={
                 canSync ? (
                   <TableSplitButton
@@ -1113,6 +1129,9 @@ export function DocumentsTable({
         error={bulkDeleteError}
         onConfirm={applyBulkDelete}
       />
+      {canManage ? (
+        <CreateActDrawer open={createOpen} onOpenChange={setCreateOpen} staff={staff} eligibility={eligibility} />
+      ) : null}
     </PageFrame>
   );
 }

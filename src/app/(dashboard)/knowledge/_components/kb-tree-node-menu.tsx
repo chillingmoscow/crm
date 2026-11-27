@@ -135,6 +135,8 @@ export function KbTreeNodeMenu({
               "flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground",
               "opacity-0 transition-opacity hover:bg-sidebar-accent/60 hover:text-foreground",
               "group-hover:opacity-100 group-focus-within:opacity-100",
+              // На сенсорном экране наведения нет — меню узла видно всегда.
+              "[@media(pointer:coarse)]:opacity-100",
               open && "opacity-100 bg-sidebar-accent/60 text-foreground",
             )}
           >

@@ -88,3 +88,16 @@ export function kbTreeServiceItems(input: {
     : [];
   return { top, bottom };
 }
+
+/** Принимает ли зона строки дерева перетаскиваемую страницу. Ветка после
+ *  первого раскрытия остаётся смонтированной (ради анимации), и у
+ *  свёрнутой ветки невидимые строки лежат поверх соседей ниже: dnd-kit
+ *  считает попадание по их прямоугольникам и уводил страницу внутрь
+ *  свёрнутого раздела. Поэтому внутри свёрнутой ветки зоны выключены. */
+export function kbDropZoneDisabled(input: {
+  isBlocked: boolean;
+  isDraggingAny: boolean;
+  insideCollapsed: boolean;
+}): boolean {
+  return input.isBlocked || !input.isDraggingAny || input.insideCollapsed;
+}

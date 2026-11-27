@@ -41,6 +41,7 @@ import { ExpandPanel } from "@/components/shared/overview-toggle";
 import { useActiveNavGlide } from "@/components/shared/nav-glide";
 import { createKbPage, moveKbPageInTree } from "@/lib/knowledge/pages";
 import {
+  kbDropZoneDisabled,
   kbTreeServiceItems,
   type KbTreeServiceItem,
 } from "@/lib/knowledge/shell";
@@ -587,6 +588,9 @@ function KbTreeEmpty({ canCreate }: { canCreate: boolean }) {
 interface KbTreeItemProps {
   node: KbTreeNode;
   depth: number;
+  /** Строка лежит внутри свёрнутой (но смонтированной) ветки — её зоны
+   *  перетаскивания выключены. */
+  insideCollapsed?: boolean;
   expanded: Set<string>;
   setExpanded: Dispatch<SetStateAction<Set<string>>>;
   activeSlug?: string;
@@ -608,6 +612,7 @@ interface KbTreeItemProps {
 function KbTreeItem({
   node,
   depth,
+  insideCollapsed = false,
   expanded,
   setExpanded,
   activeSlug,
@@ -663,17 +668,18 @@ function KbTreeItem({
 
   // 3 droppable strip'а: before/child/after. Disabled если этот item —
   // dragged-сам (или его потомок). Активны только во время drag'а.
+  const dropDisabled = kbDropZoneDisabled({ isBlocked, isDraggingAny, insideCollapsed });
   const beforeDrop = useDroppable({
     id: makeDropId(node.id, "before"),
-    disabled: isBlocked || !isDraggingAny,
+    disabled: dropDisabled,
   });
   const childDrop = useDroppable({
     id: makeDropId(node.id, "child"),
-    disabled: isBlocked || !isDraggingAny,
+    disabled: dropDisabled,
   });
   const afterDrop = useDroppable({
     id: makeDropId(node.id, "after"),
-    disabled: isBlocked || !isDraggingAny,
+    disabled: dropDisabled,
   });
 
   // Visual: какая zone сейчас hovered (для рендера insertion-line /
@@ -798,7 +804,7 @@ function KbTreeItem({
               aria-label="Добавить подстраницу"
               className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0
                          transition-opacity hover:bg-sidebar-accent hover:text-foreground disabled:opacity-50
-                         group-hover:opacity-100 group-focus-within:opacity-100"
+                         group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100"
             >
               <Plus className="size-4" />
             </button>
@@ -857,7 +863,7 @@ function KbTreeItem({
       {hasChildren && everOpened && (
         <ExpandPanel open={isOpen}>
         <ul
-          className="ml-5 flex flex-col gap-0.5 border-l border-border/75 pl-[9px]"
+          className="ml-3 flex flex-col gap-0.5 border-l border-border/75 pl-2"
           role="group"
         >
           {node.children.map((child) => (
@@ -865,6 +871,7 @@ function KbTreeItem({
               key={child.id}
               node={child}
               depth={depth + 1}
+              insideCollapsed={insideCollapsed || !isOpen}
               expanded={expanded}
               setExpanded={setExpanded}
               activeSlug={activeSlug}
@@ -1051,7 +1058,7 @@ const TREE_ROW =
 const TREE_ROW_IDLE = "text-sidebar-foreground hover:bg-sidebar-accent";
 const TREE_ROW_ACTIVE = "bg-brand/10 font-semibold text-brand";
 const TREE_ROW_ACTIONS =
-  "hidden shrink-0 items-center group-hover:flex group-focus-within:flex has-[[data-state=open]]:flex";
+  "hidden shrink-0 items-center group-hover:flex group-focus-within:flex has-[[data-state=open]]:flex [@media(pointer:coarse)]:flex";
 
 const SERVICE_ICONS: Record<KbTreeServiceItem["key"], LucideIcon> = {
   home: Home,

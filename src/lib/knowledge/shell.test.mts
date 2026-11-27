@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   isKnowledgePath,
+  kbDropZoneDisabled,
   kbCrumbs,
   kbTreeServiceItems,
   resolveMenuOpen,
@@ -104,4 +105,12 @@ test("kbTreeServiceItems: всё прочитано — пункт без счё
   const toRead = items.top.find((i) => i.key === "to-read");
   assert.ok(toRead);
   assert.equal("count" in toRead, false);
+});
+
+test("kbDropZoneDisabled: зоны свёрнутой ветки не принимают перетаскивание", () => {
+  const base = { isBlocked: false, isDraggingAny: true, insideCollapsed: false };
+  assert.equal(kbDropZoneDisabled(base), false);
+  assert.equal(kbDropZoneDisabled({ ...base, insideCollapsed: true }), true);
+  assert.equal(kbDropZoneDisabled({ ...base, isBlocked: true }), true);
+  assert.equal(kbDropZoneDisabled({ ...base, isDraggingAny: false }), true);
 });

@@ -1,11 +1,11 @@
 -- ============================================================
--- sales-plan-forecast.sql — план месяца v2 (417): право «Планы продаж», план
+-- sales-plan-forecast.sql — план месяца v2 (418): право «Планы продаж», план
 -- оборота и доли алкоголя одной функцией, прямая запись закрыта, заморозка доли
 -- только закончившегося месяца с итогами KPI, журнал цен, сезонность, KPI по доле.
 --
 -- Прогон (415 уже применена) в одной откатываемой транзакции:
 --   cat <(echo 'begin;') \
---       <(sed -E '/^[[:space:]]*(begin|commit);[[:space:]]*$/d' supabase/migrations/417_sales_plan_forecast.sql) \
+--       <(sed -E '/^[[:space:]]*(begin|commit);[[:space:]]*$/d' supabase/migrations/418_sales_plan_forecast.sql) \
 --       <(sed -E '/^[[:space:]]*begin;[[:space:]]*$/d' supabase/tests/sales-plan-forecast.sql) \
 --     | docker exec -i supabase_db_crm psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f -
 --

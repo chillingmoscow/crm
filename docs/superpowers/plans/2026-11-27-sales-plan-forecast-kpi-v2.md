@@ -4,7 +4,7 @@
 
 **Goal:** Один план месяца (оборот + доля алкоголя) в «Статистике» с комплексным прогнозом, KPI старших в течение месяца по доле алкоголя, напоминания 1-го/25-го и аккуратная вкладка KPI.
 
-**Architecture:** Прогноз — чистые функции (`src/lib/sales/forecast.ts`) над помесячными рядами, журналом цен, таблицей сезонности и весами дней недели. Миграция 417 добавляет право `sales.plan`, долю алкоголя в плане, журнал цен, таблицу сезонности и единую функцию записи плана; переводит KPI на долю. UI: панели «План», «Цены», «Сезонность» в «Статистике», переделанная вкладка KPI. История продаж 2025 догружается по одному дню, когда очередь Quick Resto свободна.
+**Architecture:** Прогноз — чистые функции (`src/lib/sales/forecast.ts`) над помесячными рядами, журналом цен, таблицей сезонности и весами дней недели. Миграция 418 добавляет право `sales.plan`, долю алкоголя в плане, журнал цен, таблицу сезонности и единую функцию записи плана; переводит KPI на долю. UI: панели «План», «Цены», «Сезонность» в «Статистике», переделанная вкладка KPI. История продаж 2025 догружается по одному дню, когда очередь Quick Resto свободна.
 
 **Tech Stack:** Next.js 15, Supabase/Postgres, `node:test`, shadcn/ui.
 
@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Тексты интерфейса и `raise exception` — по-русски; server actions через `actionResult`.
-- Миграция — `417_sales_plan_forecast.sql`; номер перепроверить по `origin/main` и открытым PR прямо перед мержем.
+- Миграция — `418_sales_plan_forecast.sql`; номер перепроверить по `origin/main` и открытым PR прямо перед мержем.
 - `set search_path` в каждой функции; `(select auth.uid())`/`(select has_permission(...))` в политиках; grant/revoke с проверкой `has_function_privilege`.
 - Право плана — новое `sales.plan` «Планы продаж»; выдаётся ролям, у которых есть `sales.configure_shifts`.
 - Доля алкоголя = продажи алкоголя (отчёт Quick Resto) / очищенный оборот тех же дней — правилом `statisticsRevenueShare`.
@@ -102,10 +102,10 @@
 
 ---
 
-### Task 3: Миграция 417 и SQL-тест
+### Task 3: Миграция 418 и SQL-тест
 
 **Files:**
-- Create: `supabase/migrations/417_sales_plan_forecast.sql`, `supabase/tests/sales-plan-forecast.sql`
+- Create: `supabase/migrations/418_sales_plan_forecast.sql`, `supabase/tests/sales-plan-forecast.sql`
 
 **Interfaces:**
 - Produces (SQL):
@@ -121,7 +121,7 @@
 - [ ] **Step 2: Run** (миграция 415 уже на локальной базе): `cat <(echo 'begin;') <(sed -E '/^[[:space:]]*begin;[[:space:]]*$/d' supabase/tests/sales-plan-forecast.sql) | docker exec -i supabase_db_crm psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f -`. Expected: FAIL.
 - [ ] **Step 3: Write** миграцию 417.
 - [ ] **Step 4: Run** миграцию + тест одной откатываемой транзакцией (`cat <(echo begin;) <(sed … 417) <(sed … test)`), затем `supabase/tests/payroll-kpi.sql` (с обновлённым `plan_target` в хелпере на долю). Expected: оба `all passed`.
-- [ ] **Step 5: Commit** `git commit -m "Миграция 417: право «Планы продаж», доля алкоголя, цены, сезонность"`.
+- [ ] **Step 5: Commit** `git commit -m "Миграция 418: право «Планы продаж», доля алкоголя, цены, сезонность"`.
 
 ---
 
@@ -270,4 +270,4 @@
 ## После реализации
 
 - Ревью всей ветки свежим рецензентом; все замечания исправить.
-- PR в `main`; после «мержи»: миграция 417 на прод (`-U supabase_admin`, строка в журнале миграций), деплой, проверка: `sales.plan` у «Владельца»/«Директора», условия KPI старшего бармена на `alcohol_share`, первый день истории 2025.
+- PR в `main`; после «мержи»: миграция 418 на прод (`-U supabase_admin`, строка в журнале миграций), деплой, проверка: `sales.plan` у «Владельца»/«Директора», условия KPI старшего бармена на `alcohol_share`, первый день истории 2025.

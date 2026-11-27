@@ -193,7 +193,7 @@ end $$;
 -- ── j. Условия на месяц с итогами ─────────────────────────
 do $$
 begin
-  -- С 417 условия замораживает только закончившийся месяц с итогами.
+  -- С 418 условия замораживает только закончившийся месяц с итогами.
   if '2026-11-01'::date < private.venue_current_month(pg_temp.fx('v')) then
     perform pg_temp.expect_error(format('select public.payroll_kpi_terms_save(%L, %L, %L)', pg_temp.fx('role'),
       jsonb_build_object('valid_from', '2026-11-01', 'reason', 'Меняю ноябрь', 'items', '[{"id":"x","type":"done","label":"X","amount":1}]'::jsonb),

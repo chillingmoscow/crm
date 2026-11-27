@@ -9,7 +9,7 @@ import { loadMonthPlanView, loadPlanSummary, type MonthPlanView } from "@/lib/sa
 import { parseSeasonIndex } from "@/lib/sales/seasonality";
 
 // План месяца в «Статистике»: оборот и доля алкоголя, журнал цен, сезонность.
-// Права и запись проверяет база (миграция 417); здесь — ввод и данные экрана.
+// Права и запись проверяет база (миграция 418); здесь — ввод и данные экрана.
 
 const MONTH = z.string().regex(/^20\d{2}-(0[1-9]|1[0-2])$/, "Проверьте месяц");
 

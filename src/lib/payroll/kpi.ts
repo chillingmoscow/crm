@@ -67,7 +67,7 @@ export function parseKpiItems(raw: unknown): KpiItem[] {
     if (r.type === "done") return { id, type: "done", label, amount: money(r.amount, label, "сумму") };
     if (r.type === "each") return { id, type: "each", label, price: money(r.price, label, "цену") };
     if (r.type === "plan") {
-      // «alcohol» — имя показателя до перехода на долю (миграция 417).
+      // «alcohol» — имя показателя до перехода на долю (миграция 418).
       if (r.metric !== "alcohol_share" && r.metric !== "alcohol") throw new Error(`Пункт «${label}»: выберите показатель плана`);
       return { id, type: "plan", label, amount: money(r.amount, label, "сумму"), metric: "alcohol_share" };
     }

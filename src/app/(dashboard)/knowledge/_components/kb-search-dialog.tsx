@@ -225,7 +225,7 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
           - Footer с подсказками (border-top, fill-accent) */}
       <DialogContent
         data-kb-search=""
-        className="max-w-[720px] p-0 gap-0 rounded-[14px] overflow-hidden shadow-xl
+        className="max-w-[720px] p-0 gap-0 rounded-[14px] sm:rounded-[14px] overflow-hidden shadow-xl
                    [&>button:last-child]:hidden top-[20%] translate-y-0"
       >
         {/* Radix requires a DialogTitle for a11y; hide it visually. */}

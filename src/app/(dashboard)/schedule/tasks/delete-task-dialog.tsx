@@ -1,15 +1,7 @@
 "use client";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import type { TaskDefinition } from "@/lib/schedule/tasks";
 import { deleteTask } from "./actions";
 export function DeleteTaskDialog({
@@ -41,34 +33,25 @@ export function DeleteTaskDialog({
     }
   }
   return (
-    <Dialog
+    <ConfirmDialog
       open={!!task}
       onOpenChange={(open) => {
-        if (!open && !busy) onClose();
+        if (!open) onClose();
       }}
-    >
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Удалить задачу?</DialogTitle>
-          <DialogDescription>
-            «{task?.name}» исчезнет из списка. Будущие незаполненные задания
-            отменятся. Задания на сегодня, переносы, начатые отчёты и фото,
-            история и начисления сохранятся.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button variant="outline" disabled={busy} onClick={onClose}>
-            Отмена
-          </Button>
-          <Button
-            variant="destructive"
-            disabled={busy}
-            onClick={() => void remove()}
-          >
-            {busy ? "Удаление…" : "Удалить задачу"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      title="Удалить задачу?"
+      description={`«${task?.name ?? ""}» исчезнет из списка.`}
+      consequences={[
+        { kind: "remove", text: "Будущие незаполненные задания отменятся" },
+        {
+          kind: "keep",
+          text: "Задания на сегодня, переносы, начатые отчёты и фото, история и начисления сохранятся",
+        },
+      ]}
+      confirmLabel="Удалить задачу"
+      pendingLabel="Удаление…"
+      destructive
+      busy={busy}
+      onConfirm={() => void remove()}
+    />
   );
 }

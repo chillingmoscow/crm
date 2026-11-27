@@ -393,7 +393,10 @@ export function CounterpartyCertificates({
           if (!open && !deleting) setDeleteTarget(null);
         }}
         title="Удалить запись?"
-        description="Сертификат или лицензия удалится из карточки, напоминаний по нему не будет. Скан останется в документах."
+        consequences={[
+          { kind: "remove", text: "Сертификат или лицензия удалится из карточки, напоминаний по нему не будет" },
+          { kind: "keep", text: "Скан останется в документах" },
+        ]}
         confirmLabel="Удалить"
         pendingLabel="Удаляем…"
         destructive

@@ -82,6 +82,7 @@ export function ActDateEditor({
         title={`Изменить дату акта № ${documentNumber}?`}
         description="Новая дата сохранится в Quick Resto. Quick Resto считает расчётный остаток на дату акта."
         confirmLabel="Изменить дату"
+        icon={CalendarDays}
         pendingLabel="Сохраняем…"
         busy={saving}
         confirmDisabled={!day || day === currentDay}

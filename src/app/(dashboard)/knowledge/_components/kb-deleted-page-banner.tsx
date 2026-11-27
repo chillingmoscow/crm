@@ -8,16 +8,7 @@ import { ru } from "date-fns/locale";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { hardDeleteKbPage, restoreKbPage } from "@/lib/knowledge/pages";
 
 interface KbDeletedPageBannerProps {
@@ -50,6 +41,7 @@ export function KbDeletedPageBanner({
 }: KbDeletedPageBannerProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const meta: string[] = [];
@@ -80,12 +72,15 @@ export function KbDeletedPageBanner({
   };
 
   const onHardDelete = () => {
+    setDeleteError(null);
     startTransition(async () => {
       const { error } = await hardDeleteKbPage(pageId);
       if (error) {
-        toast.error(`Не удалось удалить: ${error}`);
+        // Ошибка остаётся в окне подтверждения.
+        setDeleteError(`Не удалось удалить: ${error}`);
         return;
       }
+      setConfirmDelete(false);
       toast.success("Страница удалена навсегда");
       router.replace("/knowledge/trash");
       router.refresh();
@@ -140,29 +135,32 @@ export function KbDeletedPageBanner({
         )}
       </div>
 
-      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Удалить навсегда?</AlertDialogTitle>
-            <AlertDialogDescription>
-              «{title || "Без названия"}»
-              {descendantsCount > 0
-                ? ` и ${descendantsCount} ${childWord(descendantsCount)}`
-                : ""}{" "}
-              будут удалены безвозвратно. Это действие нельзя отменить.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={onHardDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Удалить навсегда
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={(next) => {
+          setConfirmDelete(next);
+          if (!next) setDeleteError(null);
+        }}
+        title={`Удалить «${title || "Без названия"}» навсегда?`}
+        confirmLabel="Удалить навсегда"
+        destructive
+        consequences={[
+          ...(descendantsCount > 0
+            ? [
+                {
+                  kind: "remove" as const,
+                  text: "Подстраницы удалятся вместе с ней",
+                  count: descendantsCount,
+                },
+              ]
+            : []),
+          { kind: "irreversible", text: "Удаление нельзя отменить" },
+        ]}
+        pendingLabel="Удаляем…"
+        busy={pending}
+        error={deleteError}
+        onConfirm={onHardDelete}
+      />
     </div>
   );
 }

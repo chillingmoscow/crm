@@ -1134,7 +1134,11 @@ export function PayrollWorkspace({
             if (!open) setCancelId(null);
           }}
           title="Удалить выплату?"
-          description="Финансовая операция будет помечена удалённой, а сумма вернётся в «К выплате». История сохранится."
+          consequences={[
+            { kind: "remove", text: "Финансовая операция будет помечена удалённой" },
+            { kind: "info", text: "Сумма вернётся в «К выплате»" },
+            { kind: "keep", text: "История сохранится" },
+          ]}
           confirmLabel="Удалить выплату"
           pendingLabel="Удаляем…"
           destructive

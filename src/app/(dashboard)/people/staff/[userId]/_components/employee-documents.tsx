@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Plus, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { ProfileSection } from "@/components/shared/profile-section";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
@@ -682,6 +682,7 @@ function UniformCard({
         {!!parts.length && <Installments items={parts} />}
       </EditDrawer>
       <ConfirmDialog
+        icon={Ban}
         open={!!cancel}
         onOpenChange={(v) => {
           if (!v) setCancel(null);
@@ -689,7 +690,10 @@ function UniformCard({
         title={`Остановить удержания за «${
           data.uniform.find((i) => i.id === cancel)?.title ?? "форму"
         }»?`}
-        description="Будущие части удержаний отменятся. Уже учтённые суммы и расход на покупку сохранятся."
+        consequences={[
+          { kind: "remove", text: "Будущие части удержаний отменятся" },
+          { kind: "keep", text: "Уже учтённые суммы и расход на покупку сохранятся" },
+        ]}
         confirmLabel="Остановить удержания"
         pendingLabel="Останавливаем…"
         destructive

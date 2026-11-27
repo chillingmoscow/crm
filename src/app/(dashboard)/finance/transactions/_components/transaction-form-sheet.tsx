@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
+import { Trash2, Undo2 } from "lucide-react";
 
 import { TransactionHistory } from "@/components/audit/transaction-history";
 import { Button } from "@/components/ui/button";
@@ -806,7 +806,10 @@ export function TransactionFormSheet({
           if (!next && !deleteBusy) setConfirmDelete(false);
         }}
         title={tx ? `Удалить операцию №${tx.public_id}?` : "Удалить операцию?"}
-        description="Операция пропадёт из списка, а остаток счёта пересчитается. Вернуть можно сразу кнопкой «Отменить» или позже из «Удалённых операций»."
+        consequences={[
+          { kind: "remove", text: "Операция пропадёт из списка, остаток счёта пересчитается" },
+          { kind: "info", text: "Вернуть можно сразу кнопкой «Отменить» или позже из «Удалённых операций»" },
+        ]}
         confirmLabel="Удалить операцию"
         pendingLabel="Удаляем…"
         destructive
@@ -816,6 +819,8 @@ export function TransactionFormSheet({
       />
 
       <ConfirmDialog
+        icon={Undo2}
+        cancelLabel="Продолжить редактирование"
         open={confirmDiscard}
         onOpenChange={setConfirmDiscard}
         title="Не сохранять изменения?"

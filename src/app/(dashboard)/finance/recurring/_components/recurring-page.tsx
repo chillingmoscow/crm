@@ -231,8 +231,8 @@ export function RecurringPage({
     // Пока считали, диалог могли закрыть или открыть для другого платежа.
     if (!impact || impact.error || deleteRequest.current !== row.id) return;
     setDeleteImpact([
-      { label: "Ждут разбора", count: impact.pending, tone: "cascade" },
-      { label: "Проведённые операции сохранятся", count: impact.posted, tone: "unbind" },
+      { label: "Платежи на разборе", count: impact.pending, tone: "cascade" },
+      { label: "Проведённые операции", count: impact.posted, tone: "unbind" },
     ]);
   };
 
@@ -736,12 +736,20 @@ export function RecurringPage({
       />
 
       <ConfirmDialog
+        tone="warning"
+        icon={Archive}
         open={Boolean(archiveTarget)}
         onOpenChange={(open) => {
           if (!open && !archiveBusy) setArchiveTarget(null);
         }}
         title={archiveTarget ? `Отправить «${archiveTarget.name}» в архив?` : "Отправить платёж в архив?"}
-        description="Новые платежи по нему перестанут появляться на разбор; те, что уже ждут, останутся в очереди. Это не удаление: проведённые операции останутся в «Транзакциях». Вернуть платёж можно из архива по кнопке «Архив» в ряду инструментов."
+        description="Это не удаление."
+        consequences={[
+          { kind: "archive", text: "Новые платежи перестанут появляться на разбор" },
+          { kind: "keep", text: "Те, что уже ждут, останутся в очереди" },
+          { kind: "keep", text: "Проведённые операции останутся в «Транзакциях»" },
+          { kind: "info", text: "Вернуть платёж можно из архива: кнопка «Архив» в ряду инструментов" },
+        ]}
         confirmLabel="В архив"
         pendingLabel="Отправляем…"
         busy={archiveBusy}

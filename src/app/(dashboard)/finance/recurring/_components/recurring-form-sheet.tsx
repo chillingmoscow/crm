@@ -1,5 +1,6 @@
 "use client";
 
+import { Save, Undo2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -530,6 +531,7 @@ export function RecurringFormSheet({
       />
 
       <ConfirmDialog
+        icon={Save}
         open={confirmSave}
         onOpenChange={setConfirmSave}
         title="Сохранить изменения?"
@@ -542,6 +544,8 @@ export function RecurringFormSheet({
       />
 
       <ConfirmDialog
+        icon={Undo2}
+        cancelLabel="Продолжить редактирование"
         open={confirmDiscard}
         onOpenChange={setConfirmDiscard}
         title="Не сохранять изменения?"

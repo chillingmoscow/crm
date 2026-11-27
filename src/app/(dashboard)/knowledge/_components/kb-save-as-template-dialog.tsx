@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, BookmarkPlus, X } from "lucide-react";
+import { Loader2, BookmarkPlus } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,9 @@ import {
   DialogDescription,
   DialogTitle,
   DialogTrigger,
-  DialogClose,
+  DialogHeader,
+  DialogFooter,
+  DialogIcon,
 } from "@/components/ui/dialog";
 import { createKbTemplate } from "@/lib/knowledge/templates";
 
@@ -96,33 +98,17 @@ export function KbSaveAsTemplateDialog({
           </DialogTrigger>
         </IconTooltip>
       )}
-      <DialogContent className="max-w-[440px] p-0 gap-0 [&>button:last-child]:hidden">
-        <form onSubmit={onSubmit}>
-          <div className="flex items-start gap-3.5 px-6 pt-6 pb-4">
-            <span className="inline-flex shrink-0 items-center justify-center size-10 rounded-full bg-brand/10 text-brand">
-              <BookmarkPlus className="size-[18px]" />
-            </span>
-            <div className="flex-1 flex flex-col gap-1.5 min-w-0">
-              <DialogTitle className="text-[17px] font-semibold leading-tight tracking-tight text-foreground">
-                Сохранить как шаблон
-              </DialogTitle>
-              <DialogDescription className="text-sm leading-snug text-muted-foreground">
-                Контент страницы (без attachments / комментариев / истории)
-                сохранится как готовый blueprint. Иконка и цвет тоже
-                подтянутся.
-              </DialogDescription>
-            </div>
-            <DialogClose asChild>
-              <button
-                type="button"
-                aria-label="Закрыть"
-                className="inline-flex shrink-0 items-center justify-center size-7 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-              >
-                <X className="size-4" />
-              </button>
-            </DialogClose>
-          </div>
-          <div className="px-6 pb-4 pl-[78px] flex flex-col gap-3">
+      <DialogContent>
+        <form onSubmit={onSubmit} className="grid gap-4">
+          <DialogHeader>
+            <DialogIcon tone="default" icon={BookmarkPlus} />
+            <DialogTitle>Сохранить как шаблон</DialogTitle>
+            <DialogDescription>
+              Содержимое страницы сохранится как шаблон — без вложений,
+              комментариев и истории. Иконка и цвет тоже.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="kb-tpl-name">Название</Label>
               <Input
@@ -155,7 +141,7 @@ export function KbSaveAsTemplateDialog({
               />
             </div>
           </div>
-          <div className="flex justify-end gap-2 px-6 py-4 border-t">
+          <DialogFooter>
             <Button
               type="button"
               variant="outline"
@@ -172,7 +158,7 @@ export function KbSaveAsTemplateDialog({
               )}
               Сохранить шаблон
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

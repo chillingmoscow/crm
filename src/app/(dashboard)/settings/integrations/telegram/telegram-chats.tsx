@@ -90,9 +90,16 @@ export function TelegramChats({ chats, roles }: { chats: TelegramChatRow[]; role
         {error ? <p role="alert" className="mt-4 text-xs text-destructive">{error}</p> : null}
       </> : null}
     </EditDrawer>
-    <ConfirmDialog open={!!archiving} onOpenChange={o => { if (!o) setArchiving(null); }} busy={busy} error={archiveError || undefined}
+    <ConfirmDialog
+      tone="warning"
+      icon={Archive}
+      open={!!archiving} onOpenChange={o => { if (!o) setArchiving(null); }} busy={busy} error={archiveError || undefined}
       title={`Убрать чат «${archiving?.title ?? ""}» в архив?`} confirmLabel="Убрать в архив" pendingLabel="Убираем…"
-      description="Это не удаление: сам чат в Telegram не меняется. Новых сотрудников в него больше не приглашаем, уволенных из него не исключаем. Чат останется в блоке «Архив» внизу списка, его можно восстановить"
+      description="Это не удаление: сам чат в Telegram не меняется."
+      consequences={[
+        { kind: "archive", text: "Новых сотрудников в него больше не приглашаем, уволенных из него не исключаем" },
+        { kind: "info", text: "Чат останется в блоке «Архив» внизу списка, его можно восстановить" },
+      ]}
       onConfirm={() => start(async () => {
         if (!archiving) return; setArchiveError("");
         try { unwrapAction(await setTelegramChatArchived(archiving.id, true)); toast.success("Чат в архиве"); setArchiving(null); }

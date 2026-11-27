@@ -6,16 +6,7 @@ import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { emptyKbTrash } from "@/lib/knowledge/pages";
 
 /** Кнопка «Очистить корзину» с обязательным подтверждением.
@@ -24,12 +15,15 @@ export function KbEmptyTrashButton({ count }: { count: number }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
 
   const onConfirm = () => {
+    setError(null);
     startTransition(async () => {
       const { deleted, error } = await emptyKbTrash();
       if (error) {
-        toast.error(`Не удалось очистить корзину: ${error}`);
+        // Ошибка остаётся в окне подтверждения.
+        setError(`Не удалось очистить корзину: ${error}`);
         return;
       }
       toast.success(
@@ -52,26 +46,28 @@ export function KbEmptyTrashButton({ count }: { count: number }) {
         Очистить корзину
       </Button>
 
-      <AlertDialog open={open} onOpenChange={setOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Очистить корзину?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Все страницы в корзине ({count}) и их подстраницы будут удалены
-              безвозвратно. Это действие нельзя отменить.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={onConfirm}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Очистить
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setError(null);
+        }}
+        title="Очистить корзину?"
+        confirmLabel="Очистить корзину"
+        destructive
+        consequences={[
+          {
+            kind: "remove",
+            text: "Страницы в корзине и их подстраницы удалятся",
+            count,
+          },
+          { kind: "irreversible", text: "Удаление нельзя отменить" },
+        ]}
+        pendingLabel="Очищаем…"
+        busy={pending}
+        error={error}
+        onConfirm={onConfirm}
+      />
     </>
   );
 }

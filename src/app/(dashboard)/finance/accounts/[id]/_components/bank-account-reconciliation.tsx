@@ -165,7 +165,10 @@ export function BankAccountReconciliation({
           }
         }}
         title={toDelete ? `Удалить сверку на ${formatDayMonth(toDelete.balance_date)}?` : "Удалить сверку?"}
-        description="Сверка пропадёт из истории. Операции и баланс счёта не изменятся"
+        consequences={[
+          { kind: "remove", text: "Сверка пропадёт из истории" },
+          { kind: "keep", text: "Операции и баланс счёта не изменятся" },
+        ]}
         confirmLabel="Удалить сверку"
         pendingLabel="Удаляем…"
         destructive

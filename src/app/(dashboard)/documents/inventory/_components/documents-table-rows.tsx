@@ -32,8 +32,6 @@ import { cn } from "@/lib/utils";
 import { PersonChip, inventoryPersonHref, type AssigneeOption } from "./assignee-select";
 import { getDocHref, netResultsTotal } from "./documents-table-utils";
 
-const weekday = new Intl.DateTimeFormat("ru-RU", { weekday: "long" });
-
 /**
  * Подзаголовок актов одной даты: «Среда, 18 ноября · 3 акта · Бар, Кухня» и
  * общий итог справа. Итог — по актам этой даты на странице; сбой итога хотя
@@ -41,14 +39,21 @@ const weekday = new Intl.DateTimeFormat("ru-RU", { weekday: "long" });
  */
 export function DocumentDateGroupHeader({
   docs,
+  timeZone,
   amountRoundingScale,
 }: {
   docs: DocumentListRow[];
+  /** Пояс заведения: тот же, в котором считается ключ группы. */
+  timeZone: string;
   amountRoundingScale: AmountRoundingScale;
 }) {
   const date = docs[0]?.invoice_date ? new Date(docs[0].invoice_date) : null;
-  const day = date && !Number.isNaN(date.getTime()) ? weekday.format(date) : null;
-  const title = date && day ? `${day.charAt(0).toLocaleUpperCase("ru")}${day.slice(1)}, ${formatDayMonth(date)}` : "Без даты";
+  const valid = date && !Number.isNaN(date.getTime()) ? date : null;
+  const day = valid ? new Intl.DateTimeFormat("ru-RU", { weekday: "long", timeZone }).format(valid) : null;
+  const title =
+    valid && day
+      ? `${day.charAt(0).toLocaleUpperCase("ru")}${day.slice(1)}, ${formatDayMonth(valid, new Date(), timeZone)}`
+      : "Без даты";
   const stores = Array.from(new Set(docs.map((doc) => doc.store_title).filter(Boolean))).join(", ");
   const totals = netResultsTotal(docs);
   // Итог — сразу за числом актов, а не у правого края: широкая таблица
@@ -74,6 +79,10 @@ export function DocumentDateGroupHeader({
       <span className={cn("font-medium tabular-nums", signedAmountClass(totals.net))}>
         {formatSignedMoney(totals.net, "RUB", amountRoundingScale)}
       </span>
+      {/* На телефоне подсказок нет: неполный итог помечаем прямо в тексте. */}
+      {totals.counted < docs.length ? (
+        <span className="tabular-nums"> ({totals.counted} из {docs.length})</span>
+      ) : null}
     </span>
   ) : null;
   return (

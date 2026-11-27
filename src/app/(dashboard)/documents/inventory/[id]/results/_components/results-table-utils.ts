@@ -212,6 +212,12 @@ export type ResultDifferenceEntry = {
   sum: number;
   amount: number | null;
   unit: string | null;
+  /**
+   * `adjustment` — корректировка себестоимости пересорта: строки таблицы у
+   * неё нет, но в управленческую недостачу она входит, и без неё полоса и
+   * топ не сходились бы.
+   */
+  kind?: "row" | "adjustment";
 };
 
 /**
@@ -245,4 +251,23 @@ export function resultBalanceShares(
   const total = shortfall + surplus;
   if (total < 0.005) return null;
   return { shortfall: shortfall / total, surplus: surplus / total };
+}
+
+/**
+ * Подписи долей под полосой: вторая — 100 минус первая, чтобы в сумме всегда
+ * было 100%. Ненулевая доля, которая округлилась в ноль, — «<1%», а её
+ * соседка — «>99%»: «0%» под видимым кусочком полосы читался бы как ошибка.
+ */
+export function resultBalancePercents(shares: { shortfall: number; surplus: number }): {
+  shortfall: string;
+  surplus: string;
+} {
+  const shortfall = Math.round(shares.shortfall * 100);
+  const surplus = 100 - shortfall;
+  const label = (rounded: number, own: number, other: number) =>
+    own > 0 && rounded === 0 ? "<1%" : other > 0 && rounded === 100 ? ">99%" : `${rounded}%`;
+  return {
+    shortfall: label(shortfall, shares.shortfall, shares.surplus),
+    surplus: label(surplus, shares.surplus, shares.shortfall),
+  };
 }

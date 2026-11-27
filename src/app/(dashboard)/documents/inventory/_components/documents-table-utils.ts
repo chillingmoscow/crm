@@ -7,7 +7,19 @@
 import { hasCountedResults } from "../../../../../lib/inventory/act-status.ts";
 import type { DocumentListRow, DocumentSortMode } from "@/lib/inventory/list-documents-shared";
 
-export type VenueOption = { id: string; name: string };
+export type VenueOption = { id: string; name: string; timezone?: string | null };
+
+/**
+ * Пояс, в котором считается день акта: пояс его заведения, как в карточке
+ * акта. Без пояса сервер (UTC) и браузер (Москва) положили бы ночной акт в
+ * разные дни, и группы по дате разъехались бы при гидрации.
+ */
+export const DEFAULT_ACT_TIME_ZONE = "Europe/Moscow";
+
+export function actTimeZones(venues: VenueOption[]): (venueId: string | null) => string {
+  const byVenue = new Map(venues.map((venue) => [venue.id, venue.timezone || DEFAULT_ACT_TIME_ZONE]));
+  return (venueId) => (venueId ? byVenue.get(venueId) : undefined) ?? DEFAULT_ACT_TIME_ZONE;
+}
 export type StoreOption = { id: string; title: string };
 
 export type SortField = "date" | "number" | "status";

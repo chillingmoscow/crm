@@ -8,16 +8,27 @@
  * интерфейсом (ответ действия, сохранённый итог фоновой сверки) сообщение
  * проходит через `quickRestoErrorText`.
  *
+ * Перехватываются только технические тексты клиента. Своя русская фраза, где
+ * Quick Resto просто упомянут («Quick Resto не вернул показатель «Revenue»»,
+ * «Не удалось проверить гостя Quick Resto (HTTP 404)»), проходит как есть:
+ * латиница в скобках и кавычках — название или код, а не английский текст.
+ *
  * Модуль без зависимостей: его подключают и действия, и фоновые обработчики,
  * и тесты на подменённых модулях.
  */
 
 const QUICK_RESTO = /quick\s*resto|keycloak/i;
+const CYRILLIC = /[а-яё]/i;
+
+const LOGIN_FAILED = "Не удалось войти в Quick Resto. Проверьте подключение в настройках интеграций";
+const NO_RIGHTS = "У пользователя интеграции в Quick Resto нет прав на этот раздел";
+const UNAVAILABLE = "Quick Resto временно недоступен";
 
 type Rule = { test: RegExp; text: string };
 
 // Порядок важен: тайм-аут соединения (UND_ERR_CONNECT_TIMEOUT) — это «не
-// ответил вовремя», а не «не удалось связаться».
+// ответил вовремя», а не «не удалось связаться»; недоступная страница входа
+// (503) — сбой Quick Resto, а не неверное подключение.
 const RULES: Rule[] = [
   { test: /timed out|timeout|ETIMEDOUT/i, text: "Quick Resto не ответил вовремя" },
   {
@@ -25,21 +36,17 @@ const RULES: Rule[] = [
     text: "Не удалось связаться с Quick Resto",
   },
   { test: /ограничил частоту/i, text: "Quick Resto временно ограничил частоту запросов, подождите пару минут" },
-  {
-    test: /access denied \(403\)|ошибку 403\b/i,
-    text: "У пользователя Sheerly Bot в Quick Resto нет прав на этот раздел",
-  },
+  { test: /access denied \(403\)/i, text: NO_RIGHTS },
   {
     test: /неверный логин или пароль/i,
     text: "Quick Resto не принял логин или пароль. Проверьте подключение в настройках интеграций",
   },
-  {
-    test: /auth failed|keycloak|token exchange|loginAction|ошибку 401\b/i,
-    text: "Не удалось войти в Quick Resto. Проверьте подключение в настройках интеграций",
-  },
-  { test: /ошибку 5\d\d\b/i, text: "Quick Resto временно недоступен" },
-  { test: /ошибку 4\d\d\b/i, text: "Quick Resto отклонил запрос" },
+  { test: /недоступн|\((?:статус )?5\d\d\)/i, text: UNAVAILABLE },
+  { test: /auth failed|keycloak|token exchange|loginAction/i, text: LOGIN_FAILED },
 ];
+
+/** «Quick Resto вернул ошибку 400: <ответ сервера>» — формат `quickRestoErrorMessage` клиента. */
+const STATUS_ERROR = /вернул ошибку (\d{3})\b(?::\s*([\s\S]*))?$/i;
 
 function messageOf(error: unknown): string {
   if (typeof error === "string") return error;
@@ -48,6 +55,40 @@ function messageOf(error: unknown): string {
     return (error as { message: string }).message;
   }
   return "";
+}
+
+const withoutPeriod = (text: string) => text.replace(/\.\s*$/, "");
+
+/**
+ * Русская часть ответа сервера («Документ уже проведён» из тела 400 или из
+ * JSON `{"message": "…"}`) — её стоит показать, в ней причина отказа.
+ */
+function serverReason(body: string | undefined): string | null {
+  if (!body) return null;
+  const parts = body
+    .split(/["{}[\]<>]|\\n/)
+    .map((part) => part.replace(/^[\s:,]+|[\s:,]+$/g, ""))
+    .filter((part) => CYRILLIC.test(part));
+  if (parts.length === 0) return null;
+  const reason = withoutPeriod(parts.join(". ").replace(/\s+/g, " ").trim());
+  return reason.length > 200 ? `${reason.slice(0, 199).trimEnd()}…` : reason;
+}
+
+function statusErrorText(status: number, body: string | undefined): string {
+  if (status === 401) return LOGIN_FAILED;
+  if (status === 403) return NO_RIGHTS;
+  if (status === 429) return "Quick Resto временно ограничил частоту запросов, подождите пару минут";
+  const reason = serverReason(body);
+  if (status >= 500) return reason ? `Quick Resto вернул ошибку: ${reason}` : UNAVAILABLE;
+  return reason ? `Quick Resto отклонил запрос: ${reason}` : "Quick Resto отклонил запрос";
+}
+
+/** Латиница вне скобок и кавычек — признак английского технического текста. */
+function hasLooseLatin(message: string): boolean {
+  const bare = message
+    .replace(/«[^»]*»|"[^"]*"|“[^”]*”|\([^)]*\)/g, " ")
+    .replace(new RegExp(QUICK_RESTO.source, "gi"), " ");
+  return /[A-Za-z]/.test(bare);
 }
 
 /**
@@ -60,11 +101,10 @@ function messageOf(error: unknown): string {
 export function quickRestoErrorText(error: unknown): string | null {
   const message = messageOf(error).trim();
   if (!message || !QUICK_RESTO.test(message)) return null;
+  const status = STATUS_ERROR.exec(message);
+  if (status) return statusErrorText(Number(status[1]), status[2]);
   for (const rule of RULES) if (rule.test.test(message)) return rule.text;
-  // Своя русская фраза без технических вставок («Quick Resto не вернул
-  // склад») показывается как есть; латиница кроме названия системы — нет.
-  const latin = message.replace(QUICK_RESTO, "").match(/[A-Za-z]/g)?.length ?? 0;
-  if (latin === 0 && /[а-яё]/i.test(message)) return message.replace(/\.\s*$/, "");
+  if (CYRILLIC.test(message) && !hasLooseLatin(message)) return withoutPeriod(message);
   return "Quick Resto вернул ошибку";
 }
 
@@ -73,5 +113,5 @@ export function quickRestoUserMessage(error: unknown, fallback: string): string 
   const known = quickRestoErrorText(error);
   if (known) return known;
   const message = messageOf(error).trim();
-  return message && /[а-яё]/i.test(message) ? message.replace(/\.\s*$/, "") : fallback;
+  return message && CYRILLIC.test(message) ? withoutPeriod(message) : fallback;
 }

@@ -7,6 +7,7 @@ import {
   combineResultSort,
   hasDifference,
   isOpenDifference,
+  resultBalancePercents,
   resultBalanceShares,
   resultFactAmount,
   resultSortFieldsFor,
@@ -148,4 +149,11 @@ test("resultBalanceShares: доли на одной оси и пустой сл�
   assert.deepEqual(resultBalanceShares(-300, 100), { shortfall: 0.75, surplus: 0.25 });
   assert.deepEqual(resultBalanceShares(0, 40), { shortfall: 0, surplus: 1 });
   assert.equal(resultBalanceShares(0, 0), null);
+});
+
+test("resultBalancePercents: в сумме 100%, крошечная доля — «<1%»", () => {
+  assert.deepEqual(resultBalancePercents({ shortfall: 0.506, surplus: 0.494 }), { shortfall: "51%", surplus: "49%" });
+  assert.deepEqual(resultBalancePercents({ shortfall: 0.004, surplus: 0.996 }), { shortfall: "<1%", surplus: ">99%" });
+  assert.deepEqual(resultBalancePercents({ shortfall: 0.997, surplus: 0.003 }), { shortfall: ">99%", surplus: "<1%" });
+  assert.deepEqual(resultBalancePercents({ shortfall: 1, surplus: 0 }), { shortfall: "100%", surplus: "0%" });
 });

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { formatDateCell } from "../../../../../lib/format/date.ts";
 import {
+  actTimeZones,
   combineSort,
   formatDate,
   getDocHref,
@@ -121,4 +123,19 @@ test("netResultsTotal: только сданные акты с расчётом,
     { net: -150, counted: 2, unavailable: false },
   );
   assert.equal(netResultsTotal([row({ totals_unavailable: true })]).unavailable, true);
+});
+
+test("actTimeZones: день акта — в поясе заведения, без пояса — Москва", () => {
+  const zoneOf = actTimeZones([
+    { id: "msk", name: "Бар", timezone: "Europe/Moscow" },
+    { id: "nsk", name: "Кухня", timezone: "Asia/Novosibirsk" },
+    { id: "none", name: "Склад", timezone: null },
+  ]);
+  // 01:30 МСК 24.11 — на сервере в UTC это ещё 23.11.
+  const night = "2026-11-23T22:30:00Z";
+  assert.equal(formatDateCell(night, zoneOf("msk")), "24.11.2026");
+  assert.equal(formatDateCell(night, zoneOf("nsk")), "24.11.2026");
+  assert.equal(zoneOf("none"), "Europe/Moscow");
+  assert.equal(zoneOf(null), "Europe/Moscow");
+  assert.equal(zoneOf("unknown"), "Europe/Moscow");
 });

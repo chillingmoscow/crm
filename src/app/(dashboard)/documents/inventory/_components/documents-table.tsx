@@ -86,6 +86,7 @@ import { ReviewerSelect } from "./reviewer-select";
 import {
   SORTABLE_COLUMNS,
   getDocHref,
+  actTimeZones,
   groupsByDate,
   netResultsTotal,
   sortModesToSorting,
@@ -458,6 +459,7 @@ export function DocumentsTable({
 
   // ── Columns ────────────────────────────────────────────────
   const searchActive = Boolean(filtersFromUrl.q);
+  const timeZoneOf = useMemo(() => actTimeZones(venues), [venues]);
 
   const columns = useMemo<ColumnDef<DocumentListRow>[]>(() => {
     const cells: Record<string, ColumnDef<DocumentListRow>["cell"]> = {
@@ -487,7 +489,7 @@ export function DocumentsTable({
         );
       },
       invoice_date: ({ row }) => (
-        <span className="tabular-nums">{formatDateCell(row.original.invoice_date) ?? "—"}</span>
+        <span className="tabular-nums">{formatDateCell(row.original.invoice_date, timeZoneOf(row.original.venue_id)) ?? "—"}</span>
       ),
       status: ({ row }) => {
         const doc = row.original;
@@ -658,7 +660,7 @@ export function DocumentsTable({
         ),
       },
     ];
-  }, [amountRoundingScale, canManage, canViewResults, canViewStaff, eligibleFor, searchActive, staff]);
+  }, [amountRoundingScale, canManage, canViewResults, canViewStaff, eligibleFor, searchActive, staff, timeZoneOf]);
 
   const st = useTableState({ tableId: TABLE_ID, columns: STATE_COLUMNS });
   // Служебные столбцы не участвуют в порядке и видимости: раньше их
@@ -993,9 +995,13 @@ export function DocumentsTable({
           groups={
             groupsByDate(sortFromUrl)
               ? {
-                  key: (doc) => formatDateCell(doc.invoice_date) ?? "",
+                  key: (doc) => formatDateCell(doc.invoice_date, timeZoneOf(doc.venue_id)) ?? "",
                   header: (docs) => (
-                    <DocumentDateGroupHeader docs={docs} amountRoundingScale={amountRoundingScale} />
+                    <DocumentDateGroupHeader
+                      docs={docs}
+                      timeZone={timeZoneOf(docs[0]?.venue_id ?? null)}
+                      amountRoundingScale={amountRoundingScale}
+                    />
                   ),
                 }
               : undefined

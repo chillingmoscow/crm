@@ -59,6 +59,7 @@ import {
   sortingToResultSorts,
   topResultDifferences,
   type ResultColumnKey,
+  type ResultDifferenceEntry,
   type ResultRecountFilter,
   type ResultSortMode,
   type ResultStatusFilter,
@@ -66,8 +67,8 @@ import {
 import {
   formatMoney,
   formatSignedMoney,
+  formatInventoryNumber,
   formatInventoryQuantity as formatQuantity,
-  INVENTORY_QUANTITY_MAX_FRACTION,
   signedAmountClass,
   type AmountRoundingScale,
 } from "@/lib/format/amount";
@@ -348,15 +349,6 @@ function TileAmount({
   );
 }
 
-/** Число без единицы для чипа пересчёта: единица — в подсказке. */
-function formatAmountOnly(value: number | null | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
-  return new Intl.NumberFormat("ru-RU", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: INVENTORY_QUANTITY_MAX_FRACTION,
-  }).format(value);
-}
-
 // Пересчитанное значение совпало с прежним. Это законный исход («пересчитали,
 // значение подтвердилось»), но он должен читаться именно так: «было 3 → стало
 // 3» само по себе неотличимо от акта, где пересчёт не делали.
@@ -523,10 +515,23 @@ export function InventoryResultsTable({
   );
   // Топ позиций по расхождению — по той же управленческой сумме, что в
   // столбце «Упр. сумма»: исключённая строка — ноль, в пересорте — остаток.
+  // Корректировки себестоимости пересортов идут отдельными строками: они
+  // входят в недостачу на полосе, и без них полоса и топ не сходились бы.
   const topDifferences = useMemo(
     () =>
-      topResultDifferences(
-        items.map((item) => {
+      topResultDifferences([
+        ...activeResorts
+          .map((resort) => Number(resort.cost_adjustment_sum ?? 0))
+          .filter((value) => Number.isFinite(value) && value > 0)
+          .map((value, index, list): ResultDifferenceEntry => ({
+            id: `adjustment:${index}`,
+            name: list.length > 1 ? `Корректировка пересорта ${index + 1}` : "Корректировка пересорта",
+            sum: -value,
+            amount: null,
+            unit: null,
+            kind: "adjustment",
+          })),
+        ...items.map((item) => {
           const resortItem = activeResortItemByItemId.get(item.id);
           return {
             id: item.id,
@@ -538,8 +543,8 @@ export function InventoryResultsTable({
             unit: item.measure_unit_name,
           };
         }),
-      ),
-    [items, activeResortItemByItemId],
+      ]),
+    [items, activeResortItemByItemId, activeResorts],
   );
   // «Отправить на пересчёт» доступно из ready_for_review / results_blocked.
   // Из recount_pending уже отправили; processed закрыт в QR.
@@ -970,19 +975,21 @@ export function InventoryResultsTable({
           {wasRecounted ? (
             // Постоянный след пересчёта: «было → стало», чтобы проверяющий
             // сравнил исходный факт с пересчитанным (см. recount_previous_amount).
-            // Чип «30 → 27» на общем StatusBadge: колонка узкая, поэтому в
-            // чипе только числа, единица и слова — в подсказке. Значение
-            // изменилось — жёлтый; подтвердилось — серый с галочкой.
+            // Чип «30 → 27 шт» на общем StatusBadge. Единица — в самом чипе:
+            // на телефоне подсказок нет, а без неё число не прочесть. Колонка
+            // узкая, поэтому чип переносится: «было → стало» — после стрелки
+            // (новое число с единицей держит неразрывный пробел), одно
+            // подтверждённое значение — перед единицей. Значение изменилось — жёлтый;
+            // подтвердилось — серый с галочкой.
             <StatusBadge
               tone={recountUnchanged ? "neutral" : "warning"}
               icon={recountUnchanged ? <CheckCircle2 /> : undefined}
-              className="self-start px-1.5 tabular-nums"
+              className="self-start rounded-lg px-1.5 tabular-nums [&>span]:whitespace-normal"
               tip={`${recountUnchanged ? "Пересчитали, значение подтвердилось" : "Пересчитали"}: было ${formatQuantity(item.recount_previous_amount, item.measure_unit_name)}, стало ${formatQuantity(factAmount, item.measure_unit_name)}`}
             >
               {recountUnchanged
-                ? formatAmountOnly(factAmount)
-                : // Тонкие пробелы у стрелки: колонка узкая, обычные съедали место.
-                  `${formatAmountOnly(item.recount_previous_amount)}\u2009→\u2009${formatAmountOnly(factAmount)}`}
+                ? formatQuantity(factAmount, item.measure_unit_name)
+                : `${formatInventoryNumber(item.recount_previous_amount)}\u2009→ ${formatInventoryNumber(factAmount)}\u00a0${item.measure_unit_name ?? "ед."}`}
             </StatusBadge>
           ) : null}
           </div>
@@ -1329,10 +1336,15 @@ export function InventoryResultsTable({
     const index = visibleItems.findIndex((item) => item.id === focusRowId);
     if (index < 0) return;
     const pageIndex = Math.floor(index / currentPageSize);
-    if (pageIndex !== currentPageIndex) {
-      setTablePagination((current) => ({ ...current, pageIndex }));
-      return;
-    }
+    // Целевую страницу ставим всегда, даже если она совпадает с текущей:
+    // сброс фильтров в том же проходе уже поставил в очередь «страница 1»,
+    // и без явной установки таблица уехала бы туда. Функциональное
+    // обновление идёт после него и побеждает.
+    setTablePagination((current) =>
+      current.pageIndex === pageIndex ? current : { ...current, pageIndex },
+    );
+    // Фокус снимаем, только когда строка правда на экране.
+    if (pageIndex !== currentPageIndex || !document.getElementById(`result-row-${focusRowId}`)) return;
     setFocusRowId(null);
     setFlashRowId(focusRowId);
   }, [focusRowId, visibleItems, currentPageIndex, currentPageSize, setTablePagination]);

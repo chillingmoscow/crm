@@ -362,7 +362,13 @@ function GroupValue({ stock }: { stock: CatalogGroupStock }) {
     >
       <Money value={stock.value} />
       {/* На телефоне подсказки нет, а подпись поля там — «Себестоимость». */}
-      <span className="ml-1 font-normal text-muted-foreground sm:hidden">в остатках</span>
+      <span className="ml-1 whitespace-nowrap font-normal text-muted-foreground sm:hidden">в остатках</span>
+      {/* Неполную сумму помечаем прямо в тексте: без подсказки она выглядела бы полной. */}
+      {stock.unpriced > 0 ? (
+        <span className="ml-1 whitespace-nowrap font-normal text-muted-foreground">
+          (без {countRu(stock.unpriced, "позиции", "позиций", "позиций")})
+        </span>
+      ) : null}
     </span>
   );
 }

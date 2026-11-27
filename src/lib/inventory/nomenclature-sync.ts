@@ -357,7 +357,7 @@ async function importNomenclatureKind(input: {
     for (const row of data ?? []) localByExternalId.set(String(row.external_id), row);
   }
   if (productRows.some((row) => !localByExternalId.has(row.external_id))) {
-    throw new Error(`Не удалось сохранить часть позиций Quick Resto (${spec.kind})`);
+    throw new Error(`Не удалось сохранить в каталог часть позиций (${spec.title})`);
   }
   // Ключ карты — пара «вид + id»: идентификаторы уникальны только внутри
   // класса, и общий словарь по голому id перемешал бы виды.

@@ -2,7 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Loader2, Paperclip, X } from "lucide-react";
+import { LifeBuoy, Loader2, Paperclip, X } from "lucide-react";
 
 import {
   Dialog,
@@ -11,7 +11,10 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHotkeyHint,
+  DialogIcon,
 } from "@/components/ui/dialog";
+import { DIALOG_CTA_DISABLED_CLASS, isConfirmHotkey } from "@/components/ui/dialog-tone";
 import {
   Select,
   SelectContent,
@@ -66,6 +69,7 @@ export function SupportReportDialog({
   };
 
   const handleSubmit = () => {
+    if (isPending) return;
     if (description.trim().length < 10) {
       toast.error("Опишите проблему подробнее (мин. 10 символов)");
       return;
@@ -114,16 +118,23 @@ export function SupportReportDialog({
         if (!isPending) onOpenChange(o);
       }}
     >
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent
+        onKeyDown={(event) => {
+          if (!isConfirmHotkey(event)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          handleSubmit();
+        }}
+      >
         <DialogHeader>
+          <DialogIcon tone="default" icon={LifeBuoy} />
           <DialogTitle>Помощь и поддержка</DialogTitle>
           <DialogDescription>
-            Опишите проблему или идею. Можно приложить скриншот, видео или
-            файл — ответ придёт на вашу почту.
+            Опишите проблему или идею — ответ придёт на вашу почту.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-1">
+        <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="support-category">Тип обращения</Label>
             <Select
@@ -154,8 +165,7 @@ export function SupportReportDialog({
             />
           </div>
 
-          <div className="space-y-1.5">
-            <Label>Вложение (необязательно)</Label>
+          <div>
             <input
               ref={inputRef}
               type="file"
@@ -182,30 +192,34 @@ export function SupportReportDialog({
                 </Button>
               </div>
             ) : (
-              <Button
+              <button
                 type="button"
-                variant="outline"
-                size="sm"
                 onClick={() => inputRef.current?.click()}
                 disabled={isPending}
+                className="inline-flex items-center gap-2 rounded-sm text-sm font-medium text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
               >
-                <Paperclip className="mr-2 h-4 w-4" />
-                Прикрепить файл
-              </Button>
+                <Paperclip className="size-4" />
+                Прикрепить скриншот, видео или файл
+              </button>
             )}
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter hint={<DialogHotkeyHint keys={["⌘", "↵"]} label="отправить" />}>
           <Button
             type="button"
-            variant="ghost"
+            variant="outline"
             onClick={() => onOpenChange(false)}
             disabled={isPending}
           >
             Отмена
           </Button>
-          <Button type="button" onClick={handleSubmit} disabled={isPending}>
+          <Button
+            type="button"
+            className={DIALOG_CTA_DISABLED_CLASS.default}
+            onClick={handleSubmit}
+            disabled={isPending}
+          >
             {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Отправить
           </Button>

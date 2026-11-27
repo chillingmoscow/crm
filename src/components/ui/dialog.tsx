@@ -63,13 +63,12 @@ const DialogContent = React.forwardRef<
       ref={ref}
       tabIndex={-1}
       onOpenAutoFocus={onOpenAutoFocus}
+      data-close={hideClose ? undefined : ""}
       className={cn(
         // Вид окна — docs/design-system.md, «Modal»: 480px, радиус 12,
         // отступы 24, полоса кнопок `DialogFooter` дотягивается до краёв.
         "fixed left-[50%] top-[50%] z-50 grid w-full max-w-[480px] translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-[0_24px_56px_-16px_rgb(9_9_11/0.28)] motion-dialog sm:rounded-xl",
-        "outline-none",
-        // Длинный заголовок не налезает на крестик.
-        !hideClose && "[&>*:first-child]:pr-8",
+        "group/dialog outline-none",
         className
       )}
       {...props}
@@ -95,7 +94,8 @@ const DialogHeader = ({
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      "flex flex-col gap-1.5 text-left",
+      // Длинный заголовок не налезает на крестик в углу.
+      "flex flex-col gap-1.5 text-left group-data-[close]/dialog:pr-8",
       className
     )}
     {...props}

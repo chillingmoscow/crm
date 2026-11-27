@@ -2,19 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Loader2, X, Copy, Download } from "lucide-react";
+import { Trash2, Loader2, Copy, Download } from "lucide-react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  DialogTrigger,
-  DialogClose,
-  DialogDescription,
-} from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import {
   duplicateKbPage,
   exportKbPageAsMarkdown,
@@ -162,68 +154,42 @@ export function KbPageActions({
         </IconTooltip>
       )}
       {canDelete && (
-        <Dialog open={open} onOpenChange={setOpen}>
+        <>
           <IconTooltip label="Удалить страницу">
-            <DialogTrigger asChild>
-              {/* Top-bar icon button — стиль iedpv (36×36, no border,
-                  18px icon). Hover уезжает в destructive-цвет. */}
-              <button
-                type="button"
-                aria-label="Удалить страницу"
-                className="inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-              >
-                <Trash2 className="w-[18px] h-[18px]" />
-              </button>
-            </DialogTrigger>
+            {/* Top-bar icon button — стиль iedpv (36×36, no border,
+                18px icon). Hover уезжает в destructive-цвет. */}
+            <button
+              type="button"
+              aria-label="Удалить страницу"
+              onClick={() => setOpen(true)}
+              className="inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+            >
+              <Trash2 className="w-[18px] h-[18px]" />
+            </button>
           </IconTooltip>
-          {/* Дизайн по sheerly.pen → z8BoQL: 440px, header с иконкой-
-              бэйджем и кастомной close-кнопкой, body-hint, footer с
-              разделителем-сверху. Стандартный shadcn close спрятан
-              через [&>button:last-child]:hidden. */}
-          <DialogContent className="max-w-[440px] p-0 gap-0 [&>button:last-child]:hidden">
-            <div className="flex items-start gap-3.5 px-6 pt-6 pb-4">
-              <span className="inline-flex shrink-0 items-center justify-center size-10 rounded-full bg-destructive/10 text-destructive">
-                <Trash2 className="size-[18px]" />
-              </span>
-              <div className="flex-1 flex flex-col gap-1.5 min-w-0">
-                <DialogTitle className="text-[17px] font-semibold leading-tight tracking-tight text-foreground">
-                  Удалить «{pageTitle || "Без названия"}»?
-                </DialogTitle>
-                <DialogDescription className="text-sm leading-snug text-muted-foreground">
-                  {childCount > 0 ? (
-                    <>
-                      Страница и все её подстраницы ({childCount}) будут
-                      перемещены в корзину.
-                    </>
-                  ) : (
-                    <>Страница будет перемещена в корзину.</>
-                  )}
-                </DialogDescription>
-              </div>
-              <DialogClose asChild>
-                <button
-                  type="button"
-                  aria-label="Закрыть"
-                  className="inline-flex shrink-0 items-center justify-center size-7 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-                >
-                  <X className="size-4" />
-                </button>
-              </DialogClose>
-            </div>
-            <div className="px-6 pb-4 pl-[78px] text-[13px] leading-snug text-muted-foreground">
-              Восстановить страницу можно из корзины
-            </div>
-            <div className="flex justify-end gap-2 px-6 py-4 border-t">
-              <Button variant="outline" onClick={() => setOpen(false)} disabled={deletePending}>
-                Отмена
-              </Button>
-              <Button variant="destructive" onClick={onDelete} disabled={deletePending}>
-                {deletePending ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-                Удалить
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+          <ConfirmDialog
+            open={open}
+            onOpenChange={setOpen}
+            title={`Удалить «${pageTitle || "Без названия"}»?`}
+            consequences={[
+              ...(childCount > 0
+                ? [
+                    {
+                      kind: "remove" as const,
+                      text: "Подстраницы переедут в корзину вместе с ней",
+                      count: childCount,
+                    },
+                  ]
+                : []),
+              { kind: "keep", text: "Восстановить страницу можно из корзины" },
+            ]}
+            confirmLabel="Удалить страницу"
+            pendingLabel="Удаляем…"
+            destructive
+            busy={deletePending}
+            onConfirm={() => void onDelete()}
+          />
+        </>
       )}
     </>
   );

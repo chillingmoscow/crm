@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LayoutTemplate, Loader2, Trash2, X, FileText } from "lucide-react";
+import { LayoutTemplate, Loader2, Trash2, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/shared/confirm-dialog";
 
@@ -14,7 +14,8 @@ import {
   DialogDescription,
   DialogTitle,
   DialogTrigger,
-  DialogClose,
+  DialogHeader,
+  DialogIcon,
 } from "@/components/ui/dialog";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import {
@@ -134,32 +135,17 @@ export function KbTemplatePicker({
           </Button>
         </DialogTrigger>
       </IconTooltip>
-      <DialogContent className="max-w-[520px] p-0 gap-0 [&>button:last-child]:hidden">
+      <DialogContent className="max-w-[520px]">
+        <DialogHeader>
+          <DialogIcon tone="default" icon={LayoutTemplate} />
+          <DialogTitle>Создать страницу из шаблона</DialogTitle>
+          <DialogDescription>
+            Выберите готовый шаблон — структура и оформление подтянутся
+            автоматически.
+          </DialogDescription>
+        </DialogHeader>
         {confirmDialog}
-        <div className="flex items-start gap-3.5 px-6 pt-6 pb-4">
-          <span className="inline-flex shrink-0 items-center justify-center size-10 rounded-full bg-brand/10 text-brand">
-            <LayoutTemplate className="size-[18px]" />
-          </span>
-          <div className="flex-1 flex flex-col gap-1.5 min-w-0">
-            <DialogTitle className="text-[17px] font-semibold leading-tight tracking-tight text-foreground">
-              Создать страницу из шаблона
-            </DialogTitle>
-            <DialogDescription className="text-sm leading-snug text-muted-foreground">
-              Выберите готовый шаблон — структура и оформление подтянутся
-              автоматически.
-            </DialogDescription>
-          </div>
-          <DialogClose asChild>
-            <button
-              type="button"
-              aria-label="Закрыть"
-              className="inline-flex shrink-0 items-center justify-center size-7 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-            >
-              <X className="size-4" />
-            </button>
-          </DialogClose>
-        </div>
-        <div className="px-6 pb-6 pl-[78px] flex flex-col gap-4 max-h-[60vh] overflow-y-auto">
+        <div className="-mx-2 flex max-h-[60vh] flex-col gap-4 overflow-y-auto px-2">
           {loading && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
               <Loader2 className="size-4 animate-spin" />

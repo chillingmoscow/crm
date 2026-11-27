@@ -1,9 +1,10 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { FileText, Loader2 } from "lucide-react";
+import { FileText } from "lucide-react";
 
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
+import { EmptyState } from "@/components/ui/empty-state";
 import { KbPageProperties } from "@/app/(dashboard)/knowledge/_components/kb-page-properties";
 import { kbPropertiesSchema } from "@/lib/knowledge/schemas";
 import type { KbBlock, KbProperty } from "@/types/knowledge";
@@ -39,62 +40,36 @@ export function KbVersionSnapshotPreview({
     : [];
   const hasContent = content.length > 0;
 
+  // Снимок читается как сама страница: колонка 720, заголовок 28px, без
+  // карточек вокруг (окно и так рамка).
   return (
-    <div className="mx-auto flex w-full max-w-[1040px] flex-col gap-8 px-6 py-8 sm:px-8 lg:px-12 lg:py-10">
-      <header className="space-y-5">
-        <KbPageIcon icon={icon} color={iconColor} size={56} />
-        <div className="space-y-2">
-          <h2 className="text-4xl font-bold leading-[1.2] tracking-[-0.5px] text-foreground">
-            {title || "Без названия"}
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            Снимок страницы в режиме только для чтения. Комментарии и лента
-            обновлений в версию не входят
-          </p>
-        </div>
+    <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-6 py-8">
+      <header className="space-y-4">
+        <KbPageIcon icon={icon} color={iconColor} size={44} />
+        <h2 className="text-[28px] font-bold leading-[1.2] tracking-[-0.5px] text-foreground">
+          {title || "Без названия"}
+        </h2>
       </header>
 
       {snapshotProperties.length > 0 && (
-        <div className="rounded-xl border bg-background/80 px-4 py-4">
-          <KbPageProperties
-            targetId={pageId}
-            mode="page"
-            initialProperties={snapshotProperties}
-            canEdit={false}
-            showAddButton={false}
-          />
-        </div>
+        <KbPageProperties
+          targetId={pageId}
+          mode="page"
+          initialProperties={snapshotProperties}
+          canEdit={false}
+          showAddButton={false}
+        />
       )}
 
-      <section className="rounded-xl border bg-background/80">
-        {hasContent ? (
-          <div className="px-4 py-5 sm:px-5 lg:px-6">
-            <KbBlockNoteEditor
-              key={`${pageId}-snapshot`}
-              initialContent={content}
-              editable={false}
-            />
-          </div>
-        ) : (
-          <div className="flex min-h-[180px] flex-col items-center justify-center gap-2 px-6 py-10 text-center">
-            <FileText className="size-5 text-muted-foreground" />
-            <p className="text-sm font-medium">В этой версии нет блоков</p>
-            <p className="max-w-[420px] text-sm text-muted-foreground">
-              Снимок сохранил заголовок и свойства страницы, но содержимое в тот
-              момент было пустым.
-            </p>
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-export function KbVersionSnapshotLoading() {
-  return (
-    <div className="flex min-h-[320px] items-center justify-center gap-2 text-sm text-muted-foreground">
-      <Loader2 className="size-4 animate-spin" />
-      Загружаем снимок страницы…
+      {hasContent ? (
+        <KbBlockNoteEditor key={`${pageId}-snapshot`} initialContent={content} editable={false} />
+      ) : (
+        <EmptyState
+          icon={FileText}
+          title="В этой версии нет текста"
+          description="Снимок сохранил заголовок и свойства, содержимое тогда было пустым"
+        />
+      )}
     </div>
   );
 }

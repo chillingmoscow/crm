@@ -3,10 +3,13 @@ import test from "node:test";
 
 import {
   backOfficeTimeZoneParam,
+  invoiceTimeInZone,
+  invoiceWallInZone,
+  isClockTime,
   getInventoryDateLockReason,
   invoiceDayInZone,
   isCalendarDay,
-  moveInvoiceDateToDay,
+  moveInvoiceDate,
 } from "./act-date.ts";
 
 const MSK = "Europe/Moscow";
@@ -27,9 +30,9 @@ test("invoiceDayInZone берёт день по поясу заведения, �
   assert.equal(invoiceDayInZone("не дата", MSK), null);
 });
 
-test("moveInvoiceDateToDay сохраняет время суток акта и меняет только день", () => {
+test("moveInvoiceDate сохраняет время суток акта и меняет только день", () => {
   // 23:59:59 по Москве 20.11 → 23:59:59 по Москве 18.11.
-  const moved = moveInvoiceDateToDay({
+  const moved = moveInvoiceDate({
     original: "2026-11-20T20:59:59.000Z",
     day: "2026-11-18",
     timeZone: MSK,
@@ -37,14 +40,14 @@ test("moveInvoiceDateToDay сохраняет время суток акта и 
   assert.equal(new Date(moved!).toISOString(), "2026-11-18T20:59:59.000Z");
 });
 
-test("moveInvoiceDateToDay без исходной даты ставит полдень по времени заведения", () => {
-  const moved = moveInvoiceDateToDay({ original: null, day: "2026-11-18", timeZone: MSK });
+test("moveInvoiceDate без исходной даты ставит полдень по времени заведения", () => {
+  const moved = moveInvoiceDate({ original: null, day: "2026-11-18", timeZone: MSK });
   assert.equal(new Date(moved!).toISOString(), "2026-11-18T09:00:00.000Z");
 });
 
-test("moveInvoiceDateToDay учитывает переход на летнее время", () => {
+test("moveInvoiceDate учитывает переход на летнее время", () => {
   // Берлин: 10:00 местного зимой = 09:00Z, летом = 08:00Z.
-  const moved = moveInvoiceDateToDay({
+  const moved = moveInvoiceDate({
     original: "2026-01-10T09:00:00.000Z",
     day: "2026-07-10",
     timeZone: "Europe/Berlin",
@@ -52,8 +55,8 @@ test("moveInvoiceDateToDay учитывает переход на летнее �
   assert.equal(new Date(moved!).toISOString(), "2026-07-10T08:00:00.000Z");
 });
 
-test("moveInvoiceDateToDay отклоняет невалидный день", () => {
-  assert.equal(moveInvoiceDateToDay({ original: null, day: "2026-02-30", timeZone: MSK }), null);
+test("moveInvoiceDate отклоняет невалидный день", () => {
+  assert.equal(moveInvoiceDate({ original: null, day: "2026-02-30", timeZone: MSK }), null);
 });
 
 test("getInventoryDateLockReason: проведённый, зафиксированный и удалённый акт — без смены даты", () => {
@@ -75,4 +78,45 @@ test("timeZone для бэк-офиса — как getTimezoneOffset в пояс
   assert.equal(backOfficeTimeZoneParam(at, "Europe/Moscow"), -180);
   assert.equal(backOfficeTimeZoneParam(at, "UTC"), 0);
   assert.equal(backOfficeTimeZoneParam(Date.parse("2026-07-01T12:00:00Z"), "Europe/Berlin"), -120);
+});
+
+test("moveInvoiceDate ставит указанное время в поясе заведения", () => {
+  const moved = moveInvoiceDate({
+    original: "2026-11-25T15:00:00.000Z",
+    day: "2026-11-29",
+    time: "09:30",
+    timeZone: MSK,
+  });
+  assert.equal(new Date(moved!).toISOString(), "2026-11-29T06:30:00.000Z");
+});
+
+test("moveInvoiceDate: неизменённое время сохраняет секунды исходной даты", () => {
+  const moved = moveInvoiceDate({
+    original: "2026-11-17T20:59:59.000Z",
+    day: "2026-11-17",
+    time: "23:59",
+    timeZone: MSK,
+  });
+  assert.equal(new Date(moved!).toISOString(), "2026-11-17T20:59:59.000Z");
+  const changed = moveInvoiceDate({
+    original: "2026-11-17T20:59:59.000Z",
+    day: "2026-11-17",
+    time: "23:58",
+    timeZone: MSK,
+  });
+  assert.equal(new Date(changed!).toISOString(), "2026-11-17T20:58:00.000Z");
+});
+
+test("moveInvoiceDate отклоняет невалидное время", () => {
+  assert.equal(moveInvoiceDate({ original: null, day: "2026-11-18", time: "24:00", timeZone: MSK }), null);
+  assert.equal(moveInvoiceDate({ original: null, day: "2026-11-18", time: "9:30", timeZone: MSK }), null);
+});
+
+test("время и дата акта в поясе заведения", () => {
+  assert.equal(isClockTime("00:00"), true);
+  assert.equal(isClockTime("23:59"), true);
+  assert.equal(isClockTime("7:05"), false);
+  assert.equal(invoiceTimeInZone("2026-11-25T15:00:00.000Z", MSK), "18:00");
+  assert.equal(invoiceWallInZone("2026-11-25T22:30:00.000Z", MSK), "2026-11-26 01:30");
+  assert.equal(invoiceWallInZone(null, MSK), null);
 });

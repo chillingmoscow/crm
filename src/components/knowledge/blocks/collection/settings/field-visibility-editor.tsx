@@ -122,7 +122,7 @@ export function CollectionFieldVisibilityEditor({
     <div className="kb-collection-property-visibility-editor">
       <Input
         value={query}
-        placeholder="Найти свойство..."
+        placeholder="Найти свойство…"
         className="kb-collection-property-visibility-search"
         aria-label="Найти свойство"
         onPointerDown={stopBlockInteraction}

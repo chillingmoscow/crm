@@ -374,7 +374,7 @@ export function CollectionColumnMenu({
       {descriptionOpen && (
         <Input
           value={descriptionDraft}
-          placeholder="Добавить описание..."
+          placeholder="Добавить описание…"
           className="kb-collection-column-description-input"
           aria-label="Описание свойства"
           onPointerDown={stopBlockInteraction}

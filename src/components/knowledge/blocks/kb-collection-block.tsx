@@ -2004,12 +2004,12 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                   <button
                     type="button"
                     className="kb-collection-view-tab kb-collection-view-more"
-                    aria-label="Еще виды"
+                    aria-label="Ещё виды"
                     onPointerDown={stopBlockInteraction}
                     onMouseDown={stopBlockInteraction}
                     onClick={stopBlockInteraction}
                   >
-                    {hiddenViewTabs.length} еще...
+                    {hiddenViewTabs.length} ещё
                   </button>
                 </PopoverTrigger>
                 <PopoverContent
@@ -2025,7 +2025,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                     <Input
                       value={viewSearch}
                       className="kb-collection-view-overflow-search"
-                      placeholder="Найти вид..."
+                      placeholder="Найти вид…"
                       aria-label="Найти вид"
                       onPointerDown={stopBlockInteraction}
                       onMouseDown={stopBlockInteraction}
@@ -2225,7 +2225,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                 className="kb-collection-view-tab kb-collection-view-more"
                 data-kb-view-more-measure
               >
-                99 еще...
+                99 ещё
               </span>
               <span
                 className="kb-collection-view-add-inline"

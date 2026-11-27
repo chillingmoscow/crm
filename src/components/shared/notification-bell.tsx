@@ -33,11 +33,14 @@ import { TablePageHeader } from "@/components/shared/table/table-page-header";
 import {
   archiveAllRead,
   archiveNotification,
+  archiveNotifications,
   getNotificationActors,
   getNotifications,
   markAllNotificationsRead,
   markNotificationRead,
+  markNotificationsRead,
   unarchiveNotification,
+  unarchiveNotifications,
 } from "@/app/(dashboard)/notifications/actions";
 import type {
   Notification,
@@ -45,7 +48,12 @@ import type {
   NotificationPayload,
 } from "@/app/(dashboard)/notifications/actions";
 import { createClient } from "@/lib/supabase/client";
-import { KbNotificationRow } from "@/components/shared/notification-row";
+import {
+  KbNotificationRow,
+  NotificationStackRow,
+} from "@/components/shared/notification-row";
+import { ExpandPanel } from "@/components/shared/overview-toggle";
+import { stackNotifications } from "@/lib/notifications/stack";
 import { NotificationSettings } from "@/components/shared/notification-settings";
 import {
   TIME_BUCKET_LABELS,
@@ -58,6 +66,7 @@ type Scope = "active" | "archived";
 type View = "all" | "unread" | "archived";
 
 const PAGE_SIZE = 50;
+const UPDATE_RELOAD_DEBOUNCE_MS = 300;
 
 const HDR_BTN =
   "inline-flex items-center justify-center size-8 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors";
@@ -91,6 +100,13 @@ export function NotificationBell({
   const [actorsMap, setActorsMap] = useState<Map<string, NotificationActor>>(
     new Map(),
   );
+  /** Фото кандидатов для уведомлений об анкетах: id → адрес (null — без фото). */
+  const [candidatePhotos, setCandidatePhotos] = useState<
+    Map<string, string | null>
+  >(new Map());
+  const requestedPhotosRef = useRef<Set<string>>(new Set());
+  /** Раскрытые стопки однотипных уведомлений. */
+  const [openStacks, setOpenStacks] = useState<Set<string>>(new Set());
   const [loaded, setLoaded] = useState({ active: false, archived: false });
   const [hasMore, setHasMore] = useState({ active: true, archived: true });
   const [, startTransition] = useTransition();
@@ -170,6 +186,9 @@ export function NotificationBell({
   useEffect(() => {
     let cancelled = false;
     let channel: ReturnType<typeof supabase.channel> | null = null;
+    // «Прочитать стопку» из 13 записей — 13 событий UPDATE подряд:
+    // перечитываем список один раз, когда они утихнут.
+    let reloadTimer: number | undefined;
 
     (async () => {
       const {
@@ -225,8 +244,12 @@ export function NotificationBell({
           },
           () => {
             if (cancelled) return;
-            void loadInitial("active");
-            setLoaded((prev) => ({ ...prev, archived: false }));
+            window.clearTimeout(reloadTimer);
+            reloadTimer = window.setTimeout(() => {
+              if (cancelled) return;
+              void loadInitial("active");
+              setLoaded((prev) => ({ ...prev, archived: false }));
+            }, UPDATE_RELOAD_DEBOUNCE_MS);
           },
         )
         .subscribe();
@@ -234,6 +257,7 @@ export function NotificationBell({
 
     return () => {
       cancelled = true;
+      window.clearTimeout(reloadTimer);
       if (channel) void supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -245,6 +269,30 @@ export function NotificationBell({
       void loadInitial("archived");
     }
   }, [scope, loaded.archived, loadInitial]);
+
+  // Фото кандидатов для уведомлений об анкетах. Без права на кандидатов
+  // ответ 403 — остаются инициалы.
+  useEffect(() => {
+    const ids = [...activeNotifs, ...archiveNotifs]
+      .filter((n) => n.entity_type === "candidate" && n.entity_id)
+      .map((n) => n.entity_id!)
+      .filter((id) => !requestedPhotosRef.current.has(id))
+      .slice(0, 100);
+    if (ids.length === 0) return;
+    for (const id of ids) requestedPhotosRef.current.add(id);
+    void fetch(`/api/people/candidate-photos?ids=${ids.join(",")}`)
+      .then(async (response) => {
+        if (!response.ok) return;
+        const photos: Record<string, { photo_thumb_url?: string | null }> =
+          await response.json();
+        setCandidatePhotos((prev) => {
+          const next = new Map(prev);
+          for (const id of ids) next.set(id, photos[id]?.photo_thumb_url ?? null);
+          return next;
+        });
+      })
+      .catch(() => {});
+  }, [activeNotifs, archiveNotifs]);
 
   // ── Outside click closes dropdown ───────────────────────────────
   useEffect(() => {
@@ -330,6 +378,51 @@ export function NotificationBell({
     });
   };
 
+  // Стопка: одно действие на все её уведомления.
+  const handleMarkReadMany = (ids: string[]) => {
+    const set = new Set(ids);
+    setActiveNotifs((prev) =>
+      prev.map((n) => (set.has(n.id) ? { ...n, read: true } : n)),
+    );
+    startTransition(async () => {
+      await markNotificationsRead(ids);
+    });
+  };
+
+  const handleArchiveMany = (ids: string[]) => {
+    const set = new Set(ids);
+    const archivedAt = new Date().toISOString();
+    const moved = activeNotifs
+      .filter((n) => set.has(n.id))
+      .map((n) => ({ ...n, archived_at: archivedAt }));
+    setActiveNotifs((prev) => prev.filter((n) => !set.has(n.id)));
+    if (moved.length > 0 && loaded.archived) {
+      setArchiveNotifs((prev) =>
+        [...prev, ...moved].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)),
+      );
+    }
+    startTransition(async () => {
+      await archiveNotifications(ids);
+    });
+  };
+
+  const handleUnarchiveMany = (ids: string[]) => {
+    const set = new Set(ids);
+    setArchiveNotifs((prev) => prev.filter((n) => !set.has(n.id)));
+    startTransition(async () => {
+      await unarchiveNotifications(ids);
+      await loadInitial("active");
+    });
+  };
+
+  const toggleStack = (key: string) =>
+    setOpenStacks((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
   const handleMarkAllRead = () => {
     setActiveNotifs((prev) => prev.map((n) => ({ ...n, read: true })));
     startTransition(async () => {
@@ -388,6 +481,10 @@ export function NotificationBell({
               label={TIME_BUCKET_LABELS[bucket]}
               rows={bucketRows}
               actorsMap={actorsMap}
+              candidatePhotos={candidatePhotos}
+              openStacks={openStacks}
+              onToggleStack={toggleStack}
+              idPrefix={mode}
               onOpen={handleOpen}
               onMarkRead={
                 scope === "active" ? handleMarkReadOne : undefined
@@ -397,6 +494,15 @@ export function NotificationBell({
               }
               onUnarchive={
                 scope === "archived" ? handleUnarchiveOne : undefined
+              }
+              onMarkReadMany={
+                scope === "active" ? handleMarkReadMany : undefined
+              }
+              onArchiveMany={
+                scope === "active" ? handleArchiveMany : undefined
+              }
+              onUnarchiveMany={
+                scope === "archived" ? handleUnarchiveMany : undefined
               }
               inArchive={scope === "archived"}
             />
@@ -645,21 +751,54 @@ function BucketSection({
   label,
   rows,
   actorsMap,
+  candidatePhotos,
+  openStacks,
+  onToggleStack,
+  idPrefix,
   onOpen,
   onMarkRead,
   onArchive,
   onUnarchive,
+  onMarkReadMany,
+  onArchiveMany,
+  onUnarchiveMany,
   inArchive,
 }: {
   label: string;
   rows: Notification[];
   actorsMap: Map<string, NotificationActor>;
+  candidatePhotos: Map<string, string | null>;
+  openStacks: Set<string>;
+  onToggleStack: (key: string) => void;
+  /** Колокольчик и страница могут быть на экране вместе — id панелей разные. */
+  idPrefix: string;
   onOpen: (notif: Notification) => void;
   onMarkRead?: (id: string) => void;
   onArchive?: (id: string) => void;
   onUnarchive?: (id: string) => void;
+  onMarkReadMany?: (ids: string[]) => void;
+  onArchiveMany?: (ids: string[]) => void;
+  onUnarchiveMany?: (ids: string[]) => void;
   inArchive: boolean;
 }) {
+  const row = (n: Notification, nested = false) => (
+    <KbNotificationRow
+      key={n.id}
+      notification={n}
+      actor={n.actor_user_id ? (actorsMap.get(n.actor_user_id) ?? null) : null}
+      entityPhoto={
+        n.entity_type === "candidate" && n.entity_id
+          ? (candidatePhotos.get(n.entity_id) ?? null)
+          : null
+      }
+      nested={nested}
+      onOpen={onOpen}
+      onMarkRead={onMarkRead}
+      onArchive={onArchive}
+      onUnarchive={onUnarchive}
+      inArchive={inArchive}
+    />
+  );
   return (
     <div>
       <div
@@ -668,20 +807,32 @@ function BucketSection({
       >
         {label}
       </div>
-      {rows.map((n) => (
-        <KbNotificationRow
-          key={n.id}
-          notification={n}
-          actor={
-            n.actor_user_id ? (actorsMap.get(n.actor_user_id) ?? null) : null
-          }
-          onOpen={onOpen}
-          onMarkRead={onMarkRead}
-          onArchive={onArchive}
-          onUnarchive={onUnarchive}
-          inArchive={inArchive}
-        />
-      ))}
+      {stackNotifications(rows).map((entry) => {
+        if (entry.kind === "single") return row(entry.item);
+        const open = openStacks.has(entry.key);
+        const panelId = `${idPrefix}-${entry.key.replace(/[^a-z0-9]+/gi, "-")}`;
+        return (
+          <div key={entry.key}>
+            <NotificationStackRow
+              type={entry.type}
+              items={entry.items}
+              actorsMap={actorsMap}
+              open={open}
+              onToggle={() => onToggleStack(entry.key)}
+              panelId={panelId}
+              onMarkRead={onMarkReadMany}
+              onArchive={onArchiveMany}
+              onUnarchive={onUnarchiveMany}
+              inArchive={inArchive}
+            />
+            <ExpandPanel id={panelId} open={open}>
+              <div role="group" aria-label="Уведомления стопки">
+                {entry.items.map((n) => row(n, true))}
+              </div>
+            </ExpandPanel>
+          </div>
+        );
+      })}
     </div>
   );
 }

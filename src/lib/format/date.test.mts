@@ -46,3 +46,11 @@ test("formatDayMonth: год только для другого года", () =>
   assert.equal(formatDayMonth("2026-03-08", now, "Europe/Moscow"), "8 марта");
   assert.match(formatDayMonth("2025-03-08", now, "Europe/Moscow") ?? "", /^8 марта 2025/);
 });
+
+test("formatWeekdayDayMonth: день недели и дата", async () => {
+  const { formatWeekdayDayMonth } = await import("./date.ts");
+  assert.equal(formatWeekdayDayMonth("2026-11-27", now), "пятница, 27 ноября");
+  // 22:30 UTC четверга — в Москве уже пятница.
+  assert.equal(formatWeekdayDayMonth("2026-11-26T22:30:00Z", now, "Europe/Moscow"), "пятница, 27 ноября");
+  assert.equal(formatWeekdayDayMonth("2025-12-31", now), "среда, 31 декабря 2025 г.");
+});

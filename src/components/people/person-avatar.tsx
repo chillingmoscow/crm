@@ -119,7 +119,9 @@ export function PersonAvatar({
     return marked(
       <span
         className={cn(
-          "relative flex shrink-0 items-center justify-center rounded-full bg-muted font-medium text-muted-foreground",
+          // inline-flex, как у ветки без фото: аватар прямо в строке текста
+          // не переносит её ни с фото, ни без.
+          "relative inline-flex shrink-0 items-center justify-center rounded-full bg-muted font-medium text-muted-foreground",
           dims.box,
           dims.text,
           faded && "opacity-50",

@@ -227,7 +227,7 @@ export function KbTemplatePicker({
                             onClick={() => onDelete(tmpl.id, tmpl.name)}
                             disabled={deleting === tmpl.id}
                             aria-label={`Удалить шаблон «${tmpl.name}»`}
-                            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-[opacity,colors] hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-[opacity,color,background-color] hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                           >
                             {deleting === tmpl.id ? (
                               <Loader2 className="size-4 animate-spin" />

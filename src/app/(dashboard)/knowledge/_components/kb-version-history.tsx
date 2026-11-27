@@ -30,6 +30,7 @@ import { DrawerSection } from "@/components/ui/drawer-blocks";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { errorText } from "@/lib/actions/error-text";
 import { countRu } from "@/lib/format/plural";
 import { kbChangeKindLabel, kbVersionDeltaLabel } from "@/lib/knowledge/version-labels";
 import {
@@ -140,7 +141,7 @@ export function KbVersionHistory({
     });
     setRestoring(null);
     if (result.error) {
-      toast.error(`Не удалось восстановить версию: ${result.error}`);
+      toast.error(errorText(new Error(result.error), "Не удалось восстановить версию"));
       return;
     }
     toast.success("Версия восстановлена");
@@ -243,7 +244,9 @@ function VersionsPane({
       <EmptyState
         illustration="error"
         title="Не удалось загрузить историю"
-        description="Попробуйте ещё раз через несколько секунд"
+        // Русский текст сервера (например, «Нет доступа к истории версий»)
+        // показываем как есть — повтор его не исправит; технический — общей фразой.
+        description={errorText(new Error(error), "Попробуйте ещё раз через несколько секунд")}
         action={
           <Button size="sm" variant="outline" onClick={onRetry}>
             Повторить
@@ -523,6 +526,12 @@ function VersionPreviewDialog({
           <DialogTitle>Версия {row.version_number}</DialogTitle>
           <DialogDescription>
             {authorName(row.author)} · {metaLabel}
+            {/* В описании, а не подсказкой подвала: та скрыта на телефоне,
+                а восстановление идёт без подтверждения. */}
+            <span className="block">
+              Комментарии в снимок не входят.
+              {canRestore && " Восстановление создаст новую текущую версию, прежние сохранятся"}
+            </span>
           </DialogDescription>
         </DialogHeader>
         <div className="-mx-6 min-h-0 flex-1 overflow-y-auto border-y">
@@ -546,7 +555,7 @@ function VersionPreviewDialog({
             />
           )}
         </div>
-        <DialogFooter hint={canRestore ? "Восстановление создаст новую текущую версию" : undefined}>
+        <DialogFooter>
           <DialogClose asChild>
             <Button variant="outline">Закрыть</Button>
           </DialogClose>

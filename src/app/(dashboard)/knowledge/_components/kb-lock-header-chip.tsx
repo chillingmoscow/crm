@@ -53,11 +53,13 @@ export function KbLockHeaderChip({
   const hasActions = canEditBase || canLock;
   const Icon = localUnlocked ? Unlock : Lock;
   const label = localUnlocked ? "Разблокировано" : "Заблокировано";
+  // На телефоне от чипа остаётся замок ~24×20: зону нажатия растягиваем по
+  // высоте до 44px, но не вбок — соседние значки шапки стоят вплотную.
   // Бейдж статуса DS: та же форма и палитра, что у StatusBadge
   // (statusTones), но кнопкой — у бейджа есть действия. Заблокировано —
   // neutral, разблокировано для себя — info.
   const chipClassName = cn(
-    "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 max-sm:px-1.5 text-xs font-medium transition-colors [&_svg]:size-3 [&_svg]:shrink-0",
+    "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 max-sm:px-1.5 relative max-sm:before:absolute max-sm:before:inset-x-0 max-sm:before:-inset-y-3 max-sm:before:content-[''] text-xs font-medium transition-colors [&_svg]:size-3 [&_svg]:shrink-0",
     localUnlocked
       ? cn(statusTones.info, "hover:bg-brand/15 data-[state=open]:bg-brand/15")
       : cn(statusTones.neutral, "hover:text-foreground data-[state=open]:text-foreground"),

@@ -159,6 +159,7 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
       setHits([]);
       setLoading(false);
       setAi(null);
+      setSearchFailed(false);
       if (debounceRef.current) clearTimeout(debounceRef.current);
     }
   }, [open]);
@@ -363,7 +364,7 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
 
             {loading && !ai && <SearchSkeleton />}
 
-            {!loading && !ai && searchFailed && (
+            {!loading && !ai && searchFailed && query.trim().length > 0 && (
               <p className="px-5 py-8 text-center text-sm text-destructive">
                 Не удалось выполнить поиск. Попробуйте ещё раз
               </p>
@@ -374,7 +375,9 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
                 <EmptyIllustration kind="search" className="h-[72px] w-[90px]" />
                 <span className="text-sm font-medium">Ничего не найдено</span>
                 <span className="text-[13px] text-muted-foreground">
-                  Попробуйте другое слово или задайте вопрос ИИ
+                  {aiAskEnabled
+                    ? "Попробуйте другое слово или задайте вопрос ИИ"
+                    : "Попробуйте другое слово"}
                 </span>
               </CommandEmpty>
             )}

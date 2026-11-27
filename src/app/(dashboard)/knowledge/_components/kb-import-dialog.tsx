@@ -9,6 +9,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -30,6 +31,7 @@ function ImportDialogSkeleton() {
     <DialogContent aria-busy>
       <DialogHeader>
         <DialogTitle>Импорт из Markdown / Notion</DialogTitle>
+        <DialogDescription className="sr-only">Открываем окно импорта</DialogDescription>
       </DialogHeader>
       <div role="status" aria-label="Открываем импорт" className="space-y-3">
         <Skeleton className="h-28 w-full rounded-lg" />

@@ -86,6 +86,14 @@ export function KbTrashClient({ rows }: { rows: TrashRow[] }) {
   );
   const selectedIds = visible.filter((r) => rowSelection[r.id]).map((r) => r.id);
   const clearSelection = () => setRowSelection({});
+  // После действия снимаем отметки только с тех страниц, над которыми оно
+  // было: восстановление одной строки из меню ⋯ не сбрасывает остальной выбор.
+  const unselect = (ids: string[]) =>
+    setRowSelection((prev) => {
+      const next = { ...prev };
+      for (const id of ids) delete next[id];
+      return next;
+    });
 
   // restoreKbPages / hardDeleteKbPages применяют успешные и продолжают после
   // ошибки, поэтому всегда обновляем список и снимаем выбор (Codex #314 P2).
@@ -96,8 +104,16 @@ export function KbTrashClient({ rows }: { rows: TrashRow[] }) {
       if (restored > 0) {
         toast.success(restored > 1 ? `Восстановлено: ${pages(restored)}` : "Страница восстановлена");
       }
-      if (error) toast.error("Часть страниц не восстановилась. Попробуйте ещё раз");
-      clearSelection();
+      if (error) {
+        toast.error(
+          restored > 0
+            ? "Часть страниц не восстановилась. Попробуйте ещё раз"
+            : ids.length > 1
+              ? "Не удалось восстановить страницы. Попробуйте ещё раз"
+              : "Не удалось восстановить страницу. Попробуйте ещё раз",
+        );
+      }
+      unselect(ids);
       router.refresh();
     });
   };
@@ -109,9 +125,17 @@ export function KbTrashClient({ rows }: { rows: TrashRow[] }) {
       if (deleted > 0) {
         toast.success(deleted > 1 ? `Удалено навсегда: ${pages(deleted)}` : "Страница удалена навсегда");
       }
-      if (error) toast.error("Часть страниц не удалилась. Попробуйте ещё раз");
+      if (error) {
+        toast.error(
+          deleted > 0
+            ? "Часть страниц не удалилась. Попробуйте ещё раз"
+            : ids.length > 1
+              ? "Не удалось удалить страницы. Попробуйте ещё раз"
+              : "Не удалось удалить страницу. Попробуйте ещё раз",
+        );
+      }
       setConfirmIds(null);
-      clearSelection();
+      unselect(ids);
       router.refresh();
     });
   };
@@ -291,7 +315,9 @@ export function KbTrashClient({ rows }: { rows: TrashRow[] }) {
           mobile={{
             label: "Удалённые страницы",
             nameColumn: "title",
-            actionsPlacement: "header",
+            // В шапке карточки уже флажок выбора, меню ⋯ — в подвале
+            // (как в зарплате и документах).
+            actionsPlacement: "footer",
             selection: (
               <label className="flex min-h-10 items-center gap-3 text-sm text-muted-foreground">
                 <Checkbox
@@ -342,7 +368,16 @@ export function KbTrashClient({ rows }: { rows: TrashRow[] }) {
         }
         consequences={[
           ...(confirmChildren > 0
-            ? [{ kind: "remove" as const, text: "Подстраницы удалятся вместе с ними", count: confirmChildren }]
+            ? [
+                {
+                  kind: "remove" as const,
+                  text:
+                    confirmRows.length === 1
+                      ? "Подстраницы удалятся вместе с ней"
+                      : "Подстраницы удалятся вместе с ними",
+                  count: confirmChildren,
+                },
+              ]
             : []),
           { kind: "irreversible" as const, text: "Восстановить будет нельзя" },
         ]}

@@ -57,7 +57,7 @@ export function KbLockHeaderChip({
   // (statusTones), но кнопкой — у бейджа есть действия. Заблокировано —
   // neutral, разблокировано для себя — info.
   const chipClassName = cn(
-    "inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium transition-colors [&_svg]:size-3 [&_svg]:shrink-0",
+    "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 max-sm:px-1.5 text-xs font-medium transition-colors [&_svg]:size-3 [&_svg]:shrink-0",
     localUnlocked
       ? cn(statusTones.info, "hover:bg-brand/15 data-[state=open]:bg-brand/15")
       : cn(statusTones.neutral, "hover:text-foreground data-[state=open]:text-foreground"),
@@ -83,7 +83,7 @@ export function KbLockHeaderChip({
     return (
       <span className={chipClassName} aria-label="Страница заблокирована">
         <Icon className="size-3" />
-        <span>{label}</span>
+        <span className="max-sm:hidden">{label}</span>
       </span>
     );
   }
@@ -97,7 +97,7 @@ export function KbLockHeaderChip({
         onClick={lockForMe}
       >
         <Icon className="size-3" />
-        <span>{label}</span>
+        <span className="max-sm:hidden">{label}</span>
       </button>
     );
   }
@@ -111,7 +111,7 @@ export function KbLockHeaderChip({
           aria-label="Страница заблокирована"
         >
           <Icon className="size-3" />
-          <span>{label}</span>
+          <span className="max-sm:hidden">{label}</span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent

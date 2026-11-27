@@ -39,14 +39,18 @@ export function DashboardTopbar({
     <header
       data-dashboard-topbar
       className={cn(
-        "flex h-14 items-center gap-2 px-6",
+        "flex h-14 items-center gap-2",
+        // В базе на телефоне в строке шесть значков, «Страницы» и иногда чип
+        // блокировки: поля меньше, а значки 36px стоят вплотную (у значка
+        // 18px и так 18px воздуха), иначе колокольчик уходит за край.
+        inKnowledge ? "px-4 md:px-6" : "px-6",
         // В документе действия страницы (⋯, «Сохранено») нужны и в конце
         // длинного текста — в базе плашка прилипает к верху.
         // Под баннером режима просмотра (он fixed сверху) — с его отступом.
         inKnowledge && "sticky top-[var(--impersonation-offset,0px)] z-30",
       )}
     >
-      <SidebarTrigger className="md:hidden" />
+      <SidebarTrigger className="shrink-0 md:hidden" />
       {leading}
       {inKnowledge ? (
         // На телефоне рядом с «Страницы» путь не помещается и наезжает на
@@ -58,10 +62,10 @@ export function DashboardTopbar({
         <PageHeaderBreadcrumbSlot />
       )}
       {afterBreadcrumb}
-      <div className="flex-1" />
       {/* Кнопки справа не сжимаются: при нехватке места обрезается путь,
-       * а не значки 36px. */}
-      <div className="flex shrink-0 items-center gap-2">
+       * а не значки 36px. Прижаты вправо через ml-auto, а не пустым
+       * блоком: тот съедал лишний зазор, которого на телефоне нет. */}
+      <div className={cn("ml-auto flex shrink-0 items-center gap-2", inKnowledge && "max-md:gap-0")}>
         <CommandPaletteTrigger />
         <PageHeaderActionsSlot />
         <PageHelpButton />

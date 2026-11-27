@@ -39,7 +39,7 @@ const nextMonth = () => {
 function retype(item: KpiItem, type: KpiItem["type"]): KpiItem {
   const amount = item.type === "each" ? item.price : item.amount;
   if (type === "each") return { id: item.id, type, label: item.label, price: amount };
-  if (type === "plan") return { id: item.id, type, label: item.label, amount, metric: "alcohol" };
+  if (type === "plan") return { id: item.id, type, label: item.label, amount, metric: "alcohol_share" };
   if (type === "all") return { id: item.id, type, label: item.label, amount, requires: item.type === "all" ? item.requires : [] };
   return { id: item.id, type, label: item.label, amount };
 }

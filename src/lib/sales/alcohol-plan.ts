@@ -66,3 +66,22 @@ export function suggestAlcoholPlan(
   const amount = Math.ceil(Math.round(value * 100) / 100 / 1000) * 1000;
   return { ...base, amount, basis: seasonal ? "seasonal" : "last_month" };
 }
+
+/**
+ * Факт доли алкоголя для KPI: только за закончившийся месяц и только по
+ * полному готовому отчёту. Саму долю считает `statisticsRevenueShare` на
+ * сервере (сверка рабочих периодов отчёта и смен) и передаёт её в `share`.
+ */
+export function alcoholShareStatus(input: {
+  month: string;
+  today: string;
+  report: { state: string; through_date: string | null; revenue: number | null } | null;
+  share: number | null;
+}): { actual: number | null; pending: "month" | "report" | null } {
+  const next = new Date(Date.parse(`${input.month.slice(0, 7)}-01T12:00:00Z`));
+  next.setUTCMonth(next.getUTCMonth() + 1);
+  if (input.today < next.toISOString().slice(0, 10)) return { actual: null, pending: "month" };
+  const full = input.report ? alcoholActual({ month: input.month, ...input.report }, input.month) : null;
+  if (full === null || input.share === null || !Number.isFinite(input.share)) return { actual: null, pending: "report" };
+  return { actual: input.share, pending: null };
+}

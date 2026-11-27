@@ -8,10 +8,14 @@ import type { PayAssignment, PayEmployee, PayModel } from "./types.ts";
 export type KpiItem =
   | { id: string; type: "done"; label: string; amount: number }
   | { id: string; type: "each"; label: string; price: number }
-  | { id: string; type: "plan"; label: string; amount: number; metric: "alcohol" }
+  | { id: string; type: "plan"; label: string; amount: number; metric: "alcohol_share" }
   | { id: string; type: "all"; label: string; amount: number; requires: string[] };
 export type KpiAnswers = Record<string, boolean | number>;
-export type KpiPlanFact = { target: number | null; actual: number | null };
+/**
+ * План по доле алкоголя в очищенном обороте, %: `target` — план, `actual` — факт
+ * за закончившийся месяц с полным отчётом. `pending` — почему факта пока нет.
+ */
+export type KpiPlanFact = { target: number | null; actual: number | null; pending?: "month" | "report" | null };
 export type KpiLine = {
   id: string;
   label: string;
@@ -32,7 +36,7 @@ export const SENIOR_BAR: KpiItem[] = [
   { id: "purchasing", type: "done", label: "Закупки алкоголя (кроме пива)", amount: 10000 },
   { id: "team_event", type: "done", label: "Командное мероприятие", amount: 3000 },
   { id: "all_three", type: "all", label: "Все три KPI", amount: 5000, requires: ["inventory", "purchasing", "team_event"] },
-  { id: "alcohol_plan", type: "plan", label: "План продаж алкоголя", amount: 10000, metric: "alcohol" },
+  { id: "alcohol_plan", type: "plan", label: "План продаж алкоголя", amount: 10000, metric: "alcohol_share" },
   { id: "seasonal", type: "each", label: "Сезонные позиции", price: 1000 },
 ];
 
@@ -63,8 +67,9 @@ export function parseKpiItems(raw: unknown): KpiItem[] {
     if (r.type === "done") return { id, type: "done", label, amount: money(r.amount, label, "сумму") };
     if (r.type === "each") return { id, type: "each", label, price: money(r.price, label, "цену") };
     if (r.type === "plan") {
-      if (r.metric !== "alcohol") throw new Error(`Пункт «${label}»: выберите показатель плана`);
-      return { id, type: "plan", label, amount: money(r.amount, label, "сумму"), metric: "alcohol" };
+      // «alcohol» — имя показателя до перехода на долю (миграция 417).
+      if (r.metric !== "alcohol_share" && r.metric !== "alcohol") throw new Error(`Пункт «${label}»: выберите показатель плана`);
+      return { id, type: "plan", label, amount: money(r.amount, label, "сумму"), metric: "alcohol_share" };
     }
     if (r.type === "all") {
       const requires = Array.isArray(r.requires) ? [...new Set(r.requires.filter((x): x is string => typeof x === "string"))] : [];
@@ -81,8 +86,7 @@ export function parseKpiItems(raw: unknown): KpiItem[] {
   return items;
 }
 
-const percentLabel = (n: number) =>
-  `${(Math.floor(n * 100) / 100).toLocaleString("ru-RU", { maximumFractionDigits: 2 })}% плана`;
+const pct = (n: number) => `${n.toLocaleString("ru-RU", { maximumFractionDigits: 2 })}%`;
 
 /** Итог месяца по ответам чек-листа. План засчитывается только при факте ≥ плана. */
 export function kpiResult(items: KpiItem[], answers: KpiAnswers, plan: KpiPlanFact): { lines: KpiLine[]; total: number } {
@@ -103,9 +107,10 @@ export function kpiResult(items: KpiItem[], answers: KpiAnswers, plan: KpiPlanFa
     }
     if (item.type === "plan") {
       if (plan.target === null || plan.target <= 0) return { ...base, amount: 0, counted: false, note: "План не был задан" };
+      if (plan.pending === "month") return { ...base, amount: 0, counted: false, note: KPI_WAITING_MONTH };
       if (plan.actual === null) return { ...base, amount: 0, counted: false, note: KPI_WAITING_REPORT };
       const ok = plan.actual >= plan.target;
-      return { ...base, amount: ok ? item.amount : 0, counted: ok, note: percentLabel((plan.actual / plan.target) * 100) };
+      return { ...base, amount: ok ? item.amount : 0, counted: ok, note: `${pct(plan.actual)} при плане ${pct(plan.target)}` };
     }
     return { ...base, amount: 0, counted: false, note: null };
   });
@@ -119,13 +124,14 @@ export function kpiResult(items: KpiItem[], answers: KpiAnswers, plan: KpiPlanFa
 }
 
 export const KPI_WAITING_REPORT = "Ждём отчёт Quick Resto";
+export const KPI_WAITING_MONTH = "Посчитаем после конца месяца";
 
 /**
  * Итог сохранили, пока отчёта продаж за месяц не было: пункт плана не
  * засчитан «пока», и итог нужно досчитать, когда отчёт придёт.
  */
 export function kpiNeedsRecount(lines: Pick<KpiLine, "type" | "counted" | "note">[]): boolean {
-  return lines.some((l) => l.type === "plan" && !l.counted && l.note === KPI_WAITING_REPORT);
+  return lines.some((l) => l.type === "plan" && !l.counted && (l.note === KPI_WAITING_REPORT || l.note === KPI_WAITING_MONTH));
 }
 
 /** Основание премии: «KPI за ноябрь 2026: Инвентаризация до 20-го, Сезонные позиции ×2». */

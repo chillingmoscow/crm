@@ -165,15 +165,23 @@ export function heatmapStart(today: string, weeks = 53): string {
  * Часы по рабочим дням: отметки — факт и заменяют график за свой день;
  * без отметок за день считаются опубликованные смены. Смены и отметки уже
  * разложены по рабочим дням заведения (`date`).
+ *
+ * `verified` — дни, которые зарплатный учёт уже сверил с кассой: в отметки
+ * за них попали и смены, засчитанные по графику, а невыход не попал. За
+ * такой день график не подставляем — нет отметки, значит не работал.
+ * Смены, которые управляющий не засчитал («не пришёл»), вызывающий убирает
+ * из `planned` сам.
  */
 export function hoursByDay(
   planned: { date: string; hours: number }[],
   marked: { date: string; hours: number }[],
+  verified: ReadonlySet<string> = new Set(),
 ): Record<string, number> {
   const fact: Record<string, number> = {};
   for (const m of marked) fact[m.date] = (fact[m.date] ?? 0) + Math.max(0, m.hours);
   const result: Record<string, number> = { ...fact };
   for (const p of planned)
-    if (!(p.date in fact)) result[p.date] = (result[p.date] ?? 0) + Math.max(0, p.hours);
+    if (!(p.date in fact) && !verified.has(p.date))
+      result[p.date] = (result[p.date] ?? 0) + Math.max(0, p.hours);
   return result;
 }

@@ -79,9 +79,9 @@ export function flyToStaffCard(info: FlightInfo, navigate: () => void) {
     return;
   }
   pending = info;
-  // Метка «идёт view transition» для анимации смены страницы в каркасе
-  // (page-transition.tsx): она пропускает свой ход, чтобы не было двойного
-  // движения. Нужна браузерам без document.activeViewTransition.
+  // Метка «идёт view transition» на <html>: по ней другие анимации смены
+  // страницы могут пропустить свой ход, чтобы не было двойного движения.
+  // Нужна браузерам без document.activeViewTransition.
   const root = document.documentElement;
   root.setAttribute("data-view-transition", "");
   // Крупная копия фото, которую покажет шапка, — заранее, чтобы она не

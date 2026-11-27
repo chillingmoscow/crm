@@ -4716,6 +4716,13 @@ html.theme-transition *::after {
 .heatmap-week-in {
   animation: heatmap-week-in 480ms var(--ease-soft) both;
 }
+/* Без движения — сразу вся карта: общий override укорачивает анимацию,
+   но не задержку из animationDelay (до ~0,6 с на последних неделях). */
+@media (prefers-reduced-motion: reduce) {
+  .heatmap-week-in {
+    animation: none;
+  }
+}
 
 /* ──── prefers-reduced-motion ────────────────────────────────────
    Глобальный override: уважаем настройку OS «уменьшить движение».

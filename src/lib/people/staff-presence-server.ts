@@ -1,7 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
-import { chunk } from "@/lib/supabase/fetch-all";
+import { chunk, fetchAllRows } from "@/lib/supabase/fetch-all";
 import {
   OPEN_CLOCK_MAX_HOURS,
   onShiftNow,
@@ -38,38 +38,56 @@ export async function loadOnShift(
       .lte("starts_at", iso)
       .gte("ends_at", iso);
     if (onlyUserId) shiftsQuery = shiftsQuery.eq("user_id", onlyUserId);
-    let employeesQuery = admin
-      .from<{ id: string; local_user_id: string | null }[]>("payroll_employees")
-      .select("id, local_user_id")
-      .eq("venue_id", venueId);
-    if (onlyUserId) employeesQuery = employeesQuery.eq("local_user_id", onlyUserId);
-    const [shifts, employees] = await Promise.all([shiftsQuery, employeesQuery]);
-    if (shifts.error || employees.error) return empty;
-    const userOf = new Map<string, string | null>(
-      (employees.data ?? []).map((e: { id: string; local_user_id: string | null }) => [e.id, e.local_user_id]),
-    );
+    type Employee = { id: string; local_user_id: string | null };
+    type ClockRow = { employee_id: string | null; starts_at: string; ends_at: string | null };
     // Отметки за последние 16 часов: открытые и закрытые (ушёл раньше).
-    const ids = onlyUserId ? [...userOf.keys()] : null;
-    if (ids && ids.length === 0 && !(shifts.data ?? []).length) return empty;
-    const clockRows: { employee_id: string | null; starts_at: string; ends_at: string | null }[] = [];
     const clockQuery = () =>
       admin
-        .from<typeof clockRows>("payroll_attendance")
+        .from<ClockRow[]>("payroll_attendance")
         .select("employee_id, starts_at, ends_at")
         .eq("venue_id", venueId)
         .gte("starts_at", since)
         .neq("status", "ignored");
-    if (ids) {
-      for (const part of chunk(ids, 100)) {
-        const { data, error } = await clockQuery().in("employee_id", part);
-        if (error) return empty;
-        clockRows.push(...(data ?? []));
-      }
+    const employeesByIds = async (ids: string[]) =>
+      (
+        await Promise.all(
+          chunk(ids, 100).map(async (part) => {
+            const { data, error } = await admin
+              .from<Employee[]>("payroll_employees")
+              .select("id, local_user_id")
+              .eq("venue_id", venueId)
+              .in("id", part);
+            if (error) throw new Error(error.message);
+            return data ?? [];
+          }),
+        )
+      ).flat();
+    let employees: Employee[];
+    let clockRows: ClockRow[];
+    const shifts = await shiftsQuery;
+    if (shifts.error) return empty;
+    if (onlyUserId) {
+      // Одна карточка: зарплатные карточки этого человека, потом их отметки.
+      const own = await admin
+        .from<Employee[]>("payroll_employees")
+        .select("id, local_user_id")
+        .eq("venue_id", venueId)
+        .eq("local_user_id", onlyUserId);
+      if (own.error) return empty;
+      employees = own.data ?? [];
+      const ids = employees.map((e) => e.id);
+      clockRows = ids.length
+        ? await fetchAllRows(() => clockQuery().in("employee_id", ids))
+        : [];
     } else {
-      const { data, error } = await clockQuery();
-      if (error) return empty;
-      clockRows.push(...(data ?? []));
+      // Всё заведение: сначала отметки за 16 часов, потом только те
+      // зарплатные карточки, что в них встречаются.
+      clockRows = await fetchAllRows(clockQuery);
+      employees = await employeesByIds([
+        ...new Set(clockRows.flatMap((c) => (c.employee_id ? [c.employee_id] : []))),
+      ]);
     }
+    const userOf = new Map(employees.map((e) => [e.id, e.local_user_id]));
     const clocks: PresenceClock[] = clockRows.map((c) => ({
       ...c,
       user_id: c.employee_id ? userOf.get(c.employee_id) ?? null : null,

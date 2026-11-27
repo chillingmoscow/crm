@@ -399,9 +399,12 @@ export function StaffDetailPage({
       loadJournal(activeTab);
   };
   // Тепловая карта смен — при открытии «Активности», как и лента событий.
+  // denied — сервер ответил «нечего показать» (права на график и зарплату
+  // сняли, пока карточка была открыта): иначе скелетон висел бы вечно.
   const [heatmap, setHeatmap] = useState<{
     data: ShiftHeatmapData | null;
     failed: boolean;
+    denied?: boolean;
   }>({ data: null, failed: false });
   const heatmapRequested = useRef(false);
   const loadHeatmap = useCallback(() => {
@@ -412,7 +415,9 @@ export function StaffDetailPage({
       .then((result) =>
         setHeatmap((prev) =>
           result.ok
-            ? { data: result.data, failed: false }
+            ? result.data
+              ? { data: result.data, failed: false }
+              : { data: null, failed: false, denied: true }
             : prev.data
               ? prev
               : { data: null, failed: true },
@@ -1791,6 +1796,10 @@ export function StaffDetailPage({
                     <FormSection title="Смены за год">
                       {heatmap.data ? (
                         <ShiftHeatmap hours={heatmap.data.hours} today={heatmap.data.today} />
+                      ) : heatmap.denied ? (
+                        <p className="text-sm text-muted-foreground">
+                          Смены видны с доступом к графику или к зарплате
+                        </p>
                       ) : heatmap.failed ? (
                         <div
                           role="alert"

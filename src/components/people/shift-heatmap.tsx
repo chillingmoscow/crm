@@ -99,7 +99,7 @@ export function ShiftHeatmap({
             <span
               key={i}
               aria-hidden
-              className="pr-1 text-[10px] leading-[10px] text-muted-foreground"
+              className="whitespace-nowrap pr-1 text-xs leading-[10px] text-muted-foreground"
             >
               {label}
             </span>
@@ -117,7 +117,7 @@ export function ShiftHeatmap({
       </div>
       <div
         aria-hidden
-        className="flex items-center justify-end gap-1.5 text-[11px] text-muted-foreground"
+        className="flex items-center justify-end gap-1.5 text-xs text-muted-foreground"
       >
         Меньше
         {([0, 1, 2, 3, 4] as const).map((level) => (
@@ -144,7 +144,7 @@ function WeekColumn({
     <>
       <span
         aria-hidden
-        className="h-4 overflow-visible whitespace-nowrap text-[10px] leading-4 text-muted-foreground"
+        className="h-4 overflow-visible whitespace-nowrap text-xs leading-4 text-muted-foreground"
       >
         {label}
       </span>

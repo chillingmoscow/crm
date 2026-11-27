@@ -34,21 +34,24 @@ interface KbRequiredReadingBannerProps {
   stats?: { read: number; total: number } | null;
   /** slug страницы — ссылка «Кто прочитал». */
   pageSlug?: string;
+  /** Право обязательного чтения: ссылка «Кто прочитал» видна и тогда,
+   *  когда счётчика ещё нет (флаг только что включили в меню ⋯). */
+  canSeeReaders?: boolean;
 }
 
 /**
- * Edge-to-edge баннер обязательного чтения (как красная плашка
- * корзины в Notion). Состояния:
- *   1. required=false → ничего.
- *   2. readAt!=null → зелёный mini-badge «Прочитано {дата}».
- *   3. needsReread → «Страница обновлена» (RotateCcw).
- *   4. иначе → «Требуется прочтение» (AlertTriangle).
+ * Плашка обязательного чтения в колонке документа, под заголовком
+ * (состояние — `kbReadingPlate` в src/lib/knowledge/document.ts):
+ *   1. страница не обязательная → ничего;
+ *   2. прочитана → зелёная «Прочитано {дата}»;
+ *   3. изменилась после прочтения → жёлтая с RotateCcw;
+ *   4. иначе → жёлтая «Обязательно к прочтению» с BookCheck.
+ * Руководителю справа — «Прочитали N из M» и ссылка «Кто прочитал».
  *
- * Read-gate: кнопка «Прочитано» неактивна, пока суммарное активное
- * время (накопленное на сервере + добор в текущей сессии) не
- * достигнет порога (~25% времени чтения, 10–90с). Таймер на паузе
- * при скрытой вкладке. Никакого обратного отсчёта в кнопке —
- * disabled + tooltip.
+ * Кнопка «Прочитано» неактивна, пока суммарное активное время
+ * (накопленное на сервере + добор в текущей сессии) не достигнет порога
+ * (~25% времени чтения, 10–90 с); рядом — подсказка «Сначала прочитайте
+ * страницу». Таймер на паузе при скрытой вкладке.
  */
 export function KbRequiredReadingBanner({
   pageId,
@@ -58,6 +61,7 @@ export function KbRequiredReadingBanner({
   readingMinutes = null,
   accumulatedActiveSeconds = 0,
   stats = null,
+  canSeeReaders = false,
   pageSlug,
 }: KbRequiredReadingBannerProps) {
   const [readAt, setReadAt] = useState<string | null>(initialReadAt);
@@ -152,7 +156,7 @@ export function KbRequiredReadingBanner({
             {plate.kind === "read"
               ? `Прочитано ${formatDayMonth(plate.readAt) ?? ""}`.trim()
               : plate.reread
-                ? "Страница изменилась — прочитайте снова"
+                ? "Страница изменилась, прочитайте снова"
                 : "Обязательно к прочтению"}
           </span>
           {plate.kind === "unread" && minutes && (
@@ -180,12 +184,12 @@ export function KbRequiredReadingBanner({
                 style={{ width: `${Math.round((stats.read / stats.total) * 100)}%` }}
               />
             </span>
-            {pageSlug && (
-              <Button variant="outline" size="sm" asChild>
-                <Link href={`/knowledge/${pageSlug}/required-reading`}>Кто прочитал</Link>
-              </Button>
-            )}
           </>
+        )}
+        {(canSeeReaders || (stats && stats.total > 0)) && pageSlug && (
+          <Button variant="outline" size="sm" asChild>
+            <Link href={`/knowledge/${pageSlug}/required-reading`}>Кто прочитал</Link>
+          </Button>
         )}
         {plate.kind === "unread" && (
           <>

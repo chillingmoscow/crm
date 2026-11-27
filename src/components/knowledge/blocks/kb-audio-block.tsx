@@ -126,7 +126,7 @@ function KbAudioPreviewWithMenu(
         onClick={onSelect}
         onMouseDown={(e) => e.preventDefault()}
       >
-        <MoreHorizontal className="size-4" strokeWidth={2.25} />
+        <MoreHorizontal className="size-4" />
       </button>
     </div>
   );
@@ -155,7 +155,7 @@ function KbAudioBlock(
   if (url !== "" && showPreview === false) {
     return (
       <KbMediaChip
-        icon={<Volume2 size={18} strokeWidth={1.75} />}
+        icon={<Volume2 size={18} />}
         label={props.block.props.name || url}
         caption={props.block.props.caption}
         variant="minimal"
@@ -166,7 +166,7 @@ function KbAudioBlock(
   return (
     <FileBlockWrapper
       {...wrapperProps}
-      buttonIcon={<Volume2 size={24} strokeWidth={1.5} />}
+      buttonIcon={<Volume2 size={24} />}
     >
       <KbAudioPreviewWithMenu {...wrapperProps} />
     </FileBlockWrapper>

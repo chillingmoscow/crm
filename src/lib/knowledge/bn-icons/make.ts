@@ -1,4 +1,4 @@
-import { createElement, type ComponentType, type SVGProps } from "react";
+import { createElement, type ReactElement, type SVGProps } from "react";
 import type { LucideIcon } from "lucide-react";
 
 /**
@@ -14,7 +14,13 @@ type BnIconProps = Omit<SVGProps<SVGSVGElement>, "ref"> & {
   color?: string;
 };
 
-export function makeBnIcon(icon: LucideIcon): ComponentType<BnIconProps> {
+/** Функция-компонент, а не ComponentType: BlockNote типизирует значки
+ *  как react-icons `IconType` и класс-компонент туда не подходит. */
+export type BnIcon = ((props: BnIconProps) => ReactElement) & {
+  displayName?: string;
+};
+
+export function makeBnIcon(icon: LucideIcon): BnIcon {
   function BnIcon({ size, title, color, ...rest }: BnIconProps) {
     return createElement(icon, {
       ...(rest as Record<string, unknown>),

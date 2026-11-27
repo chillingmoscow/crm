@@ -97,7 +97,7 @@ function KbFileBlock(
     const { basename, extension } = splitFileName(name);
     return (
       <KbMediaChip
-        icon={<FileIcon size={18} strokeWidth={1.75} />}
+        icon={<FileIcon size={18} />}
         label={basename || name || url}
         meta={extension || undefined}
         caption={props.block.props.caption}
@@ -110,7 +110,7 @@ function KbFileBlock(
   return (
     <FileBlockWrapper
       {...wrapperProps}
-      buttonIcon={<FileIcon size={24} strokeWidth={1.5} />}
+      buttonIcon={<FileIcon size={24} />}
     />
   );
 }

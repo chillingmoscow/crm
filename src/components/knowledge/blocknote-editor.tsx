@@ -62,15 +62,7 @@ import {
   type BlockTypeSelectItem,
 } from "@blocknote/react";
 
-// react-icons IconType — `(props: IconBaseProps) => JSX.Element`. Не
-// импортируем сам `react-icons` (transitive dep BN, не в нашем
-// package.json), описываем минимально совместимо с BN's
-// `BlockTypeSelectItem.icon` shape.
-type IconType = ((props: {
-  size?: number | string;
-  className?: string;
-  color?: string;
-}) => React.ReactElement) & { displayName?: string };
+import { makeBnIcon } from "@/lib/knowledge/bn-icons/make";
 import { cn } from "@/lib/utils";
 import { useCoarsePointer } from "@/hooks/use-mobile";
 import { KbMobileToolbar } from "@/components/knowledge/kb-mobile-toolbar";
@@ -432,27 +424,6 @@ function getActiveBlockType(
   }
 }
 
-/** Lucide-иконка как IconType (react-icons-совместимый shape) — BN'ный
- *  `BlockTypeSelectItem.icon` ждёт react-icons. Default react-icons/ri
- *  (RiH1 / RiH2 / RiText / ...) — filled-paths и визуально жирные. У
- *  нас всё остальное в DS — lucide stroke 1.5px, дроп-даун стиля
- *  выбивается. Подменяем на lucide. */
-const lucideAsIcon = (
-  Comp: LucideIcon,
-  strokeWidth = 1.75,
-): IconType => {
-  const Wrapped: IconType = ({ size, ...rest }) => (
-    <Comp
-      width={size ?? 16}
-      height={size ?? 16}
-      strokeWidth={strokeWidth}
-      {...(rest as Record<string, unknown>)}
-    />
-  );
-  Wrapped.displayName = `LucideIcon(${Comp.displayName ?? Comp.name ?? "Anonymous"})`;
-  return Wrapped;
-};
-
 /** Custom items для BN's BlockTypeSelect — те же типы блоков, что и
  *  default'ные, но с lucide-иконками. Названия берём из BN-default'а
  *  (он синхронизирован с нашим slash-меню override). */
@@ -485,7 +456,7 @@ function getKbBlockTypeSelectItems(
         : item.type;
     const lucide = ICON_MAP[key];
     if (!lucide) return item;
-    return { ...item, icon: lucideAsIcon(lucide) };
+    return { ...item, icon: makeBnIcon(lucide) };
   });
 }
 

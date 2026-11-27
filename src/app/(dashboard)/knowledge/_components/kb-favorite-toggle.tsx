@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { Star } from "lucide-react";
 import { toast } from "sonner";
 
+import { errorText } from "@/lib/actions/error-text";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { addKbFavorite, removeKbFavorite } from "@/lib/knowledge/favorites";
 import { KB_COMMAND_EVENT, type KbCommand } from "@/lib/kb-hotkeys";
@@ -23,7 +23,6 @@ export function KbFavoriteToggle({
   pageId: string;
   initialFavorited: boolean;
 }) {
-  const router = useRouter();
   const [favorited, setFavorited] = useState(initialFavorited);
   const [, startTransition] = useTransition();
 
@@ -59,11 +58,11 @@ export function KbFavoriteToggle({
         : await removeKbFavorite(pageId);
       if (error) {
         setFavorited(!next); // revert
-        toast.error(`Не удалось обновить избранное: ${error}`);
-        return;
+        toast.error(errorText(error, "Не удалось обновить избранное"));
       }
-      // Refresh tree-section в KB-сайдбаре.
-      router.refresh();
+      // Дерево с «Избранным» обновится само: действие вызывает
+      // revalidatePath, и Next возвращает свежее дерево в ответе. Лишний
+      // router.refresh() перерисовывал страницу второй раз.
     });
   };
 

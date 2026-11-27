@@ -185,19 +185,29 @@ export default async function KbPageView({ params }: PageProps) {
   // странице (иначе лишний RPC). Read-gate стартует с этого значения,
   // а не с нуля — повторный заход / обновление страницы не требуют
   // вычитывать порог заново.
-  const accumulatedActiveSeconds =
-    readStatus.required && !readStatus.myReadAt
-      ? await getKbMyActiveSeconds(row.id)
-      : 0;
+  //
   // Руководителю с правом обязательного чтения — «Прочитали N из M» на
-  // плашке (вместо пункта «Кто прочитал» в меню ⋯).
-  const readingStats =
+  // плашке (вместо пункта «Кто прочитал» в меню ⋯). Оба запроса зависят
+  // только от readStatus — идут параллельно.
+  const [accumulatedActiveSeconds, readingStats] = await Promise.all([
+    readStatus.required && !readStatus.myReadAt
+      ? getKbMyActiveSeconds(row.id)
+      : Promise.resolve(0),
     readStatus.required && permissionCodes.includes("kb.manage_required_reading")
-      ? await getKbRequiredReadingStats(row.id).then(({ rows }) => ({
-          read: rows.filter((r) => r.read_at !== null).length,
-          total: rows.length,
-        }))
-      : null;
+      ? getKbRequiredReadingStats(row.id).then(({ rows, error }) => {
+          if (error) {
+            // Без счётчика плашка остаётся рабочей, ссылка «Кто прочитал»
+            // видна по праву; ошибку оставляем в логе сервера.
+            console.error("[kb] статистика обязательного чтения:", error);
+            return null;
+          }
+          return {
+            read: rows.filter((r) => r.read_at !== null).length,
+            total: rows.length,
+          };
+        })
+      : Promise.resolve(null),
+  ]);
 
   const chain = pageViewData?.breadcrumbs ?? [];
   const backlinkRows = pageViewData?.backlinks ?? [];
@@ -400,6 +410,7 @@ export default async function KbPageView({ params }: PageProps) {
                 pageId={row.id}
                 pageSlug={row.slug}
                 stats={readingStats}
+                canSeeReaders={hasManageRequiredReading}
                 required={readStatus.required}
                 initialReadAt={readStatus.myReadAt}
                 needsReread={readStatus.needsReread}

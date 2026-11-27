@@ -1069,11 +1069,9 @@ input:-webkit-autofill {
 [data-slot="select-content"] [data-slot="select-item"] svg {
   width: 16px;
   height: 16px;
-  stroke-width: 1.75;
-  /* react-icons/ri (RiText / RiH1 / ...) — filled-paths, муто-серые
-   * по дефолту приглушают визуальный вес. На hover/active — foreground.
-   * Selected (data-state=checked) рисует чек-mark иконку справа,
-   * её же приглушаем, но НЕ при focus / hover (дальше). */
+  /* Значки серые, на hover/active — foreground. Выбранный пункт
+   * (data-state=checked) рисует галочку справа, её тоже приглушаем,
+   * но НЕ при focus / hover (дальше). */
   color: hsl(var(--muted-foreground));
 }
 [data-slot="select-content"] [data-slot="select-item"]:hover svg,
@@ -1096,19 +1094,12 @@ input:-webkit-autofill {
   background-color: hsl(var(--popover)) !important;
   box-shadow: theme('boxShadow.md') !important;
 }
-/* Кнопки: компактнее, иконки приглушены (foreground при hover/active).
- *
- * BN-default использует react-icons/ri (RiBold, RiH1 и т.д.) — это
- * filled-paths, на них `stroke-width` не влияет. Зато influence на
- * визуальный вес даёт `color` (через currentColor у SVG fill'а).
- * Дефолтная яркая «жирность» уходит, если выкрасить иконку в
- * `text-muted-foreground` для idle и `text-foreground` для hover/
- * active. Пользователь явно просил «никаких жирных иконок» — это
- * именно про visual weight, не про stroke. */
+/* Кнопки 32px, как в остальных панелях приложения; значки Lucide
+ * (подмена react-icons), серые, на hover/active — foreground. */
 .bn-sheerly .bn-toolbar.bn-formatting-toolbar button,
 .bn-formatting-toolbar button {
-  height: 28px;
-  min-width: 28px;
+  height: 32px;
+  min-width: 32px;
   padding: 0 5px;
   border-radius: 6px;
   color: hsl(var(--muted-foreground));
@@ -1167,7 +1158,7 @@ input:-webkit-autofill {
  * `border-none`, оставляем но даём compact-padding. */
 .bn-sheerly .bn-toolbar.bn-formatting-toolbar [data-slot="select-trigger"],
 .bn-formatting-toolbar [data-slot="select-trigger"] {
-  height: 28px;
+  height: 32px;
   padding: 0 8px;
   font-size: 13px;
   font-weight: 500;
@@ -1278,6 +1269,9 @@ input:-webkit-autofill {
   flex-shrink: 0;
   border-radius: 8px;
   color: hsl(var(--muted-foreground));
+}
+.kb-mobile-toolbar-btn:disabled {
+  opacity: 0.3;
 }
 .kb-mobile-toolbar-btn[data-active] {
   background-color: hsl(var(--accent));

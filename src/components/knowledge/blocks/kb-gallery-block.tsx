@@ -632,7 +632,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
             }
           }}
         >
-          <UploadCloud className="size-8" strokeWidth={1.5} />
+          <UploadCloud className="size-8" />
           <div className="kb-gallery-empty-title">
             Перетащите изображения сюда
           </div>

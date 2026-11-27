@@ -259,10 +259,7 @@ export function KbThreadGutterIndicators() {
             "shadow-sm border border-amber-200/60 dark:border-amber-700/40",
           )}
         >
-          <MessageSquare
-            className={isTouch ? "size-3" : "size-3.5"}
-            strokeWidth={2.25}
-          />
+          <MessageSquare className={isTouch ? "size-3" : "size-3.5"} />
           {it.count > 1 && (
             <span className="text-[11px] font-semibold leading-none tabular-nums">
               {it.count}

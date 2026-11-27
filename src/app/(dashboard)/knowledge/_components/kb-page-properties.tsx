@@ -1002,7 +1002,7 @@ function PropertyGroupHeader({
         </span>
       )}
       {typeof count === "number" && (
-        <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-xs font-medium leading-none text-muted-foreground">
+        <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-xs font-medium leading-none text-muted-foreground tabular-nums">
           {count}
         </span>
       )}

@@ -3,7 +3,7 @@ import {
   Download, ExternalLink, File, Film, Heading1, Heading2, Heading3, Heading4, Heading5,
   Heading6, Image, ImagePlus, ImageUp, IndentDecrease, IndentIncrease, Italic, Link,
   List, ListChecks, ListCollapse, ListOrdered, MessageSquare, Minus, MoreHorizontal, Pencil,
-  Plus, Quote, Smile, SquareCode, Strikethrough, Table, TableCellsMerge, TableCellsSplit,
+  Plus, Quote, Smile, SquareCode, Strikethrough, Table, TableCellsMerge,
   TextCursorInput, Trash2, Type, Underline, Undo2, Unlink, Video, Volume2,
 } from "lucide-react";
 
@@ -46,7 +46,8 @@ export const RiListCheck3 = makeBnIcon(ListChecks);
 export const RiListOrdered = makeBnIcon(ListOrdered);
 export const RiListUnordered = makeBnIcon(List);
 export const RiMergeCellsHorizontal = makeBnIcon(TableCellsMerge);
-export const RiMergeCellsVertical = makeBnIcon(TableCellsSplit);
+// BlockNote рисует этим значком объединение ячеек по вертикали — тоже «объединить».
+export const RiMergeCellsVertical = makeBnIcon(TableCellsMerge);
 // В BlockNote — «Сворачиваемый список».
 export const RiPlayList2Fill = makeBnIcon(ListCollapse);
 export const RiQuoteText = makeBnIcon(Quote);

@@ -51,7 +51,7 @@ function KbImageBlock(
   if (url !== "" && showPreview === false) {
     return (
       <KbMediaChip
-        icon={<ImageIcon size={18} strokeWidth={1.75} />}
+        icon={<ImageIcon size={18} />}
         label={props.block.props.name || url}
         caption={props.block.props.caption}
         variant="minimal"
@@ -62,7 +62,7 @@ function KbImageBlock(
   return (
     <ResizableFileBlockWrapper
       {...wrapperProps}
-      buttonIcon={<ImageIcon size={24} strokeWidth={1.5} />}
+      buttonIcon={<ImageIcon size={24} />}
     >
       <KbImagePreview {...wrapperProps} />
     </ResizableFileBlockWrapper>

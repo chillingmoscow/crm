@@ -151,7 +151,7 @@ export function PageCommentComposer({
           disabled={submitting}
           className={cn(
             "flex-1 min-w-0 resize-none bg-transparent outline-none",
-            "text-sm text-foreground placeholder:text-muted-foreground",
+            "text-base sm:text-sm text-foreground placeholder:text-muted-foreground",
             "leading-snug py-1",
             "max-h-40 overflow-y-auto",
           )}

@@ -5,6 +5,8 @@ import { Loader2, Lock, Pencil, Unlock } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
+import { errorText } from "@/lib/actions/error-text";
+import { statusTones } from "@/components/ui/status-badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,13 +53,14 @@ export function KbLockHeaderChip({
   const hasActions = canEditBase || canLock;
   const Icon = localUnlocked ? Unlock : Lock;
   const label = localUnlocked ? "Разблокировано" : "Заблокировано";
-  // Бейдж статуса DS (форма pill, 12 / 500): заблокировано — neutral,
-  // разблокировано для себя — info (docs/design-system.md → «Статусные бейджи»).
+  // Бейдж статуса DS: та же форма и палитра, что у StatusBadge
+  // (statusTones), но кнопкой — у бейджа есть действия. Заблокировано —
+  // neutral, разблокировано для себя — info.
   const chipClassName = cn(
-    "inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-xs font-medium transition-colors",
+    "inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium transition-colors [&_svg]:size-3 [&_svg]:shrink-0",
     localUnlocked
-      ? "bg-brand/10 text-brand hover:bg-brand/15 data-[state=open]:bg-brand/15"
-      : "bg-muted text-muted-foreground hover:text-foreground data-[state=open]:text-foreground",
+      ? cn(statusTones.info, "hover:bg-brand/15 data-[state=open]:bg-brand/15")
+      : cn(statusTones.neutral, "hover:text-foreground data-[state=open]:text-foreground"),
   );
 
   const unlockForMe = () =>
@@ -72,7 +75,7 @@ export function KbLockHeaderChip({
     setUnlockPending(false);
     if (error) {
       setKbPageStateOverride(pageId, { locked: true, localUnlocked: false });
-      toast.error(`Не удалось разблокировать страницу: ${error}`);
+      toast.error(errorText(error, "Не удалось разблокировать страницу"));
     }
   };
 

@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/client";
+import { safeAuthRedirectPath } from "@/lib/auth/redirects";
 import { useAuthLeave } from "../_components/auth-shell";
 import { AuthLoading } from "../_components/auth-ui";
 import { NewPasswordForm } from "../_components/new-password-form";
@@ -14,17 +15,6 @@ function mapSupabaseError(message: string) {
     return "Новый пароль должен отличаться от старого.";
   }
   return "Не удалось сохранить пароль. Попробуйте ещё раз.";
-}
-
-function safeNext(raw: string | null): string {
-  if (!raw || !raw.startsWith("/")) return "/dashboard";
-  try {
-    const url = new URL(raw, window.location.origin);
-    if (url.origin !== window.location.origin) return "/dashboard";
-    return url.pathname + url.search + url.hash;
-  } catch {
-    return "/dashboard";
-  }
 }
 
 function SetPasswordContent() {
@@ -56,10 +46,8 @@ function SetPasswordContent() {
     const { error } = await supabase.auth.updateUser({ password });
     if (error) return mapSupabaseError(error.message);
     // Пароль сохранён — в приложение (принять приглашение, онбординг):
-    // обычно /invite?invitation=ID. Только свой сайт — адрес разбираем
-    // относительно текущего, иначе «//host» или «/\host» браузер увёл бы
-    // на чужой домен.
-    leave(safeNext(searchParams.get("next")));
+    // обычно /invite?invitation=ID, только путь на своём сайте.
+    leave(safeAuthRedirectPath(searchParams.get("next")));
     return null;
   };
 

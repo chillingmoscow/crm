@@ -9,10 +9,13 @@ import { writeAuditEvent } from "@/lib/audit/write";
 import { isBackOfficePermissionError } from "@/lib/integrations/quickresto/auth-state";
 import {
   readInventoryDocument,
+  readInventoryDocumentBackOffice,
   updateInventoryDocumentDateBackOffice,
   type QuickRestoInventoryDocument2,
+  type QuickRestoInventoryDocumentBackOffice,
 } from "@/lib/integrations/quickresto/client";
 import {
+  backOfficeTimeZoneParam,
   getInventoryDateLockReason,
   invoiceDayInZone,
   isCalendarDay,
@@ -145,18 +148,35 @@ export async function updateInventoryDocumentDate(input: {
     if (!stillOpen) return { error: DOCUMENT_CHANGED_ERROR };
 
     try {
-      await withBackOfficeSession({
+      const applied = await withBackOfficeSession({
         connection,
         admin,
-        run: (authorization) =>
-          updateInventoryDocumentDateBackOffice({
+        run: async (authorization) => {
+          // Тело записи — акт целиком из бэк-офиса (с `version` и автором):
+          // public `read` этих полей не отдаёт, и запись по нему их бы стёрла.
+          const backOfficeDocument = await readInventoryDocumentBackOffice({
             layerName: connection.login,
             baseUrl: connection.backoffice_base_url,
             authorization,
-            document: qrDocument,
+            id: externalId,
+          });
+          if (backOfficeDocument.id !== externalId) return "missing" as const;
+          if (isBackOfficeDocumentProcessed(backOfficeDocument)) return "processed" as const;
+          await updateInventoryDocumentDateBackOffice({
+            layerName: connection.login,
+            baseUrl: connection.backoffice_base_url,
+            authorization,
+            document: backOfficeDocument,
             invoiceDate,
-          }),
+            timeZoneOffset: backOfficeTimeZoneParam(invoiceDate, timeZone),
+          });
+          return "updated" as const;
+        },
       });
+      if (applied === "missing") return { error: "Акт не найден в Quick Resto." };
+      if (applied === "processed") {
+        return { error: "Акт уже проведён в Quick Resto — дату проведённого акта изменить нельзя." };
+      }
     } catch (error) {
       console.error("[updateInventoryDocumentDate] update failed", error);
       if (isBackOfficePermissionError(error)) {
@@ -167,8 +187,9 @@ export async function updateInventoryDocumentDate(input: {
       return { error: "Quick Resto не принял новую дату акта. Попробуйте ещё раз." };
     }
 
-    // Проверяем, что дата правда сменилась: ответ записи не гарантирует, что
-    // Quick Resto сохранил именно это поле.
+    // Проверяем, что дата правда сменилась и именно на этот момент: ответ
+    // записи этого не гарантирует, а при неверном поясе Quick Resto сдвигает
+    // время акта на часы.
     let saved: QuickRestoInventoryDocument2;
     try {
       saved = await readQr();
@@ -180,7 +201,7 @@ export async function updateInventoryDocumentDate(input: {
       };
     }
     const savedInvoiceDate = dateText(saved.invoiceDate);
-    if (invoiceDayInZone(savedInvoiceDate, timeZone) !== input.date) {
+    if (!savedInvoiceDate || Date.parse(savedInvoiceDate) !== invoiceDate) {
       console.error("[updateInventoryDocumentDate] date not applied", {
         documentId: document.id,
         expected: new Date(invoiceDate).toISOString(),
@@ -246,6 +267,12 @@ export async function updateInventoryDocumentDate(input: {
     console.error("[updateInventoryDocumentDate] unhandled error", error);
     return { error: actionErrorMessage(error, "Не удалось изменить дату акта") };
   }
+}
+
+/** Проведён ли акт по ответу бэк-офиса: `processed` или иной `processingState`. */
+function isBackOfficeDocumentProcessed(document: QuickRestoInventoryDocumentBackOffice): boolean {
+  if (document.processed) return true;
+  return typeof document.processingState === "string" && document.processingState !== "UNPROCESSED";
 }
 
 async function venueTimeZone(

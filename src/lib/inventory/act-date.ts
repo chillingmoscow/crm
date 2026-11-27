@@ -57,6 +57,19 @@ function zonedWallToInstant(
   return instant;
 }
 
+/**
+ * Параметр `timeZone` для записи в бэк-офис Quick Resto: смещение пояса, как
+ * его отдаёт `Date#getTimezoneOffset` в браузере заведения (Москва → −180).
+ * Quick Resto сдвигает присланный `invoiceDate` на разницу между этим
+ * параметром и московским временем (поясом заведения или своего сервера — у нас
+ * они совпадают): с сервера в UTC (0) дата сохраняется на 3 часа раньше, с −180
+ * — ровно как прислана. Проверено на проде 27.11.2026, акт СВ396.
+ */
+export function backOfficeTimeZoneParam(at: number, timeZone: string): number {
+  // `|| 0` — чтобы у UTC вышел 0, а не −0.
+  return -Math.round(offsetMs(new Date(at), timeZone) / 60_000) || 0;
+}
+
 /** Валиден ли `YYYY-MM-DD` как настоящий календарный день (не 2026-02-30). */
 export function isCalendarDay(value: string): boolean {
   const match = DAY_RE.exec(value);

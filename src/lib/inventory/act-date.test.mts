@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  backOfficeTimeZoneParam,
   getInventoryDateLockReason,
   invoiceDayInZone,
   isCalendarDay,
@@ -67,4 +68,11 @@ test("getInventoryDateLockReason: проведённый, зафиксирова
     /зафиксированы/,
   );
   assert.match(getInventoryDateLockReason({ ...open, archived_at: "2026-11-20T10:00:00Z" })!, /удалён/);
+});
+
+test("timeZone для бэк-офиса — как getTimezoneOffset в поясе заведения", () => {
+  const at = Date.parse("2026-11-25T15:00:00Z");
+  assert.equal(backOfficeTimeZoneParam(at, "Europe/Moscow"), -180);
+  assert.equal(backOfficeTimeZoneParam(at, "UTC"), 0);
+  assert.equal(backOfficeTimeZoneParam(Date.parse("2026-07-01T12:00:00Z"), "Europe/Berlin"), -120);
 });

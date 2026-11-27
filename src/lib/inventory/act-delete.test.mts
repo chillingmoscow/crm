@@ -18,7 +18,12 @@ test("quickRestoActId: только положительное целое", () =
 
 test("quickRestoDeleteStep: открытый акт удаляем в Quick Resto", () => {
   assert.equal(quickRestoDeleteStep({ id: 7, processed: false, processingState: "UNPROCESSED" }, 7), "remove");
-  assert.equal(quickRestoDeleteStep({ id: 7 }, 7), "remove");
+});
+
+test("quickRestoDeleteStep: без явного «не проведён» не удаляем", () => {
+  assert.equal(quickRestoDeleteStep({ id: 7 }, 7), "unknown");
+  assert.equal(quickRestoDeleteStep({ id: 7, processingState: "UNPROCESSED" }, 7), "unknown");
+  assert.equal(quickRestoDeleteStep({ id: 7, processed: "false" }, 7), "unknown");
 });
 
 test("quickRestoDeleteStep: проведённый и проводимый акт не трогаем", () => {

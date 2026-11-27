@@ -16,10 +16,16 @@ export type QuickRestoDeleteStep =
   /** Quick Resto акт не вернул (другой id или пусто) — удаляем только у нас. */
   | "missing"
   /** Проведён в Quick Resto — не удаляем нигде. */
-  | "processed";
+  | "processed"
+  /** Ответ без явного «не проведён» — не удаляем нигде (лучше отказать, чем
+   *  удалить проведённый акт по неполному ответу). */
+  | "unknown";
 
 /** Как удалён акт: пишется в журнал событий (`details.quickresto`). */
-export type QuickRestoDeleteOutcome = Exclude<QuickRestoDeleteStep, "processed" | "remove"> | "deleted" | "not_linked";
+export type QuickRestoDeleteOutcome =
+  | Exclude<QuickRestoDeleteStep, "processed" | "remove" | "unknown">
+  | "deleted"
+  | "not_linked";
 
 /** Числовой id акта в Quick Resto или null, если акт с ним не связан. */
 export function quickRestoActId(externalId: string | null | undefined): number | null {
@@ -29,9 +35,10 @@ export function quickRestoActId(externalId: string | null | undefined): number |
 }
 
 /**
- * Шаг по акту, прочитанному из бэк-офиса Quick Resto. Признаки проведения —
- * как у смены даты: `processed` или любое `processingState`, кроме
- * UNPROCESSED (акт в процессе проведения тоже не трогаем).
+ * Шаг по акту, прочитанному из бэк-офиса Quick Resto. Удаляем только при
+ * явном «не проведён»: `processed === false` и `processingState` либо нет,
+ * либо UNPROCESSED (акт в процессе проведения тоже не трогаем). Ответ без
+ * этих полей — `unknown`, удаления нет ни там, ни у нас.
  */
 export function quickRestoDeleteStep(
   document: Record<string, unknown> | null | undefined,
@@ -43,6 +50,7 @@ export function quickRestoDeleteStep(
   if (typeof document.processingState === "string" && document.processingState !== "UNPROCESSED") {
     return "processed";
   }
+  if (document.processed !== false) return "unknown";
   return "remove";
 }
 
@@ -58,4 +66,9 @@ export function processedInQuickRestoMessage(documentNumber: string | null | und
 export function quickRestoDeleteFailedMessage(documentNumber: string | null | undefined): string {
   const number = documentNumber?.trim();
   return `Quick Resto не удалил акт${number ? ` № ${number}` : ""} — у нас он тоже остался. Попробуйте ещё раз через минуту.`;
+}
+
+export function deletedOnlyInQuickRestoMessage(documentNumber: string | null | undefined): string {
+  const number = documentNumber?.trim();
+  return `Акт${number ? ` № ${number}` : ""} удалён в Quick Resto, но здесь его за это время провели или утвердили итоги — у нас он остался. Проверьте акт в Quick Resto.`;
 }

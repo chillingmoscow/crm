@@ -14,6 +14,7 @@ import { GENDER_OPTIONS, type Gender } from "@/lib/people/gender";
 import { splitCasualName } from "@/lib/payroll/casual-name";
 import { convertCasualToStaff } from "../casual-actions";
 import { ChatInvitesSwitch } from "./chat-invites-switch";
+import { telegramIdError } from "@/lib/people/telegram-id";
 
 /**
  * «Перевести в штат» у разового в списке сотрудников (меню строки). Поля — как
@@ -28,7 +29,7 @@ export function CasualToStaffDrawer({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  employee: { id: string; name: string; role_id?: string | null; hasPin: boolean };
+  employee: { id: string; name: string; role_id?: string | null; hasPin: boolean; telegramId?: string | null };
   roles: { id: string; name: string }[];
 }) {
   const router = useRouter();
@@ -39,12 +40,18 @@ export function CasualToStaffDrawer({
   const [phone, setPhone] = useState("");
   const [roleId, setRoleId] = useState(employee.role_id ?? "");
   const [chatInvites, setChatInvites] = useState(true);
+  // ID, вписанный разовому, переходит в карточку штатного.
+  const [telegramId, setTelegramId] = useState(employee.telegramId ?? "");
+  const [telegramError, setTelegramError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const ready = Boolean(firstName.trim() && lastName.trim() && gender && roleId);
 
   const submit = () => {
     if (!ready || pending) return;
+    const tgError = telegramIdError(telegramId, chatInvites);
+    setTelegramError(tgError);
+    if (tgError) return;
     setError(null);
     startTransition(async () => {
       const result = await convertCasualToStaff({
@@ -55,6 +62,7 @@ export function CasualToStaffDrawer({
         phone: phone || undefined,
         roleId,
         chatInvites,
+        telegramId,
       });
       if (result.error || !result.userId) {
         setError(result.error ?? "Не удалось перевести сотрудника в штат");
@@ -151,7 +159,17 @@ export function CasualToStaffDrawer({
             />
           )}
         </Field>
-        <ChatInvitesSwitch id="convert-chats" checked={chatInvites} onCheckedChange={setChatInvites} />
+        <ChatInvitesSwitch
+          id="convert-chats"
+          checked={chatInvites}
+          onCheckedChange={setChatInvites}
+          telegramId={telegramId}
+          onTelegramIdChange={(value) => {
+            setTelegramId(value);
+            setTelegramError(null);
+          }}
+          telegramIdError={telegramError}
+        />
         </fieldset>
         {pending && (
           <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">

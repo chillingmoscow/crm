@@ -1,5 +1,6 @@
 "use client";
 
+import { Pencil } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -132,6 +133,7 @@ export function BulkEditDialog({
 
   return (
     <ConfirmDialog
+      icon={Pencil}
       open={open}
       onOpenChange={(next) => {
         if (!busy) onOpenChange(next);

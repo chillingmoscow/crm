@@ -284,7 +284,7 @@ export function SettingsDrawer({
         description="Несохранённые изменения будут потеряны."
         confirmLabel="Отменить изменения"
         cancelLabel="Продолжить редактирование"
-        tone="warning"
+        destructive
         icon={Undo2}
         onConfirm={() => {
           setDiscard(false);

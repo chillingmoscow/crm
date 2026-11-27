@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FolderTree, Loader2, Package, Search, Trash2 } from "lucide-react";
+import { FolderTree, Loader2, Package, Search, Trash2, ListChecks } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -557,6 +557,7 @@ export function ExclusionsRow({
       </ConfirmDialog>
 
       <ConfirmDialog
+        icon={ListChecks}
         open={confirmApply}
         onOpenChange={setConfirmApply}
         title="Применить исключения к прошлым актам?"

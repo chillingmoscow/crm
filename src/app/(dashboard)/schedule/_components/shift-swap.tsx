@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { ArrowLeftRight, Check, MessageSquare } from "lucide-react";
+import { ArrowLeftRight, Check, MessageSquare, Ban, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EditDrawer } from "@/components/ui/edit-drawer";
@@ -201,6 +201,8 @@ export function SwapFooterActions({
         </>
       )}
       <ConfirmDialog
+        tone="warning"
+        icon={Undo2}
         open={confirm === "cancel"}
         onOpenChange={(open) => !open && setConfirm(null)}
         title="Отозвать заявку на замену?"
@@ -210,6 +212,7 @@ export function SwapFooterActions({
         onConfirm={() => void run({ action: "cancel", id: swap.id, version: swap.version }, "Заявка отозвана")}
       />
       <ConfirmDialog
+        icon={Ban}
         open={confirm === "reject"}
         onOpenChange={(open) => {
           if (!open) {

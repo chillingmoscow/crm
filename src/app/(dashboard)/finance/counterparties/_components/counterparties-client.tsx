@@ -871,6 +871,8 @@ export function CounterpartiesClient({
       />
 
       <ConfirmDialog
+        tone="warning"
+        icon={Archive}
         open={Boolean(archiveTarget)}
         onOpenChange={(open) => {
           if (!open && !archiveBusy) setArchiveTarget(null);

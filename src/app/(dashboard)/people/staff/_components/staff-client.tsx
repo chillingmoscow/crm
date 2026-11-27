@@ -7,7 +7,7 @@ import { flyToStaffCard, isPlainClick } from "@/lib/people/avatar-flight";
 import { isStaffPlaceholderEmail } from "@/lib/people/staff-identity";
 import { isGender } from "@/lib/people/gender";
 import { toast } from "sonner";
-import { UserPlus, Calendar, Clock, Archive, HeartPulse, Cake, CalendarClock, UserRound, UserCheck } from "lucide-react";
+import { UserPlus, Calendar, Clock, Archive, HeartPulse, Cake, CalendarClock, UserRound, UserCheck, ArchiveRestore, MailX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { formatPhoneDisplay } from "@/lib/format/phone";
@@ -929,6 +929,7 @@ export function StaffClient({
         onCreated={(member) => setStaff((prev) => [...prev, member])}
       />
       <ConfirmDialog
+        icon={confirmAction?.kind === "restore" ? ArchiveRestore : MailX}
         open={Boolean(confirmAction)}
         onOpenChange={(open) => {
           if (!open) setConfirmAction(null);

@@ -813,6 +813,7 @@ export function AccountsList({
       />
 
       <ConfirmDialog
+        icon={ArchiveRestore}
         open={Boolean(restoreTarget)}
         onOpenChange={(open) => {
           if (!open && !restoreBusy) {

@@ -736,12 +736,20 @@ export function RecurringPage({
       />
 
       <ConfirmDialog
+        tone="warning"
+        icon={Archive}
         open={Boolean(archiveTarget)}
         onOpenChange={(open) => {
           if (!open && !archiveBusy) setArchiveTarget(null);
         }}
         title={archiveTarget ? `Отправить «${archiveTarget.name}» в архив?` : "Отправить платёж в архив?"}
-        description="Новые платежи по нему перестанут появляться на разбор; те, что уже ждут, останутся в очереди. Это не удаление: проведённые операции останутся в «Транзакциях». Вернуть платёж можно из архива по кнопке «Архив» в ряду инструментов."
+        description="Это не удаление."
+        consequences={[
+          { kind: "archive", text: "Новые платежи перестанут появляться на разбор" },
+          { kind: "keep", text: "Те, что уже ждут, останутся в очереди" },
+          { kind: "keep", text: "Проведённые операции останутся в «Транзакциях»" },
+          { kind: "info", text: "Вернуть платёж можно из архива: кнопка «Архив» в ряду инструментов" },
+        ]}
         confirmLabel="В архив"
         pendingLabel="Отправляем…"
         busy={archiveBusy}

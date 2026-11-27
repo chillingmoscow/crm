@@ -40,7 +40,7 @@ export function useDiscardGuard(
       description={description}
       confirmLabel="Не сохранять"
       cancelLabel="Продолжить редактирование"
-      tone="warning"
+      destructive
       icon={Undo2}
       onConfirm={() => {
         const action = pending;

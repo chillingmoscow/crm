@@ -208,6 +208,7 @@ export function SalesSettingsTab({
       <CashMovementSettingsSection venueId={data.venueId} />
       <FinanceExecutionSettingsSection venueId={data.venueId} />
       <ConfirmDialog
+        icon={RefreshCw}
         open={confirming}
         onOpenChange={setConfirming}
         title={`Пересчитать историю за ${countRu(days, "день", "дня", "дней")}?`}

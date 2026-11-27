@@ -1,5 +1,6 @@
 "use client";
 
+import { Ban } from "lucide-react";
 import { useExitValue } from "@/hooks/use-exit-value";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -251,6 +252,7 @@ function OfficialCancelDialog({
   };
   return (
     <ConfirmDialog
+      icon={Ban}
       open={open}
       onOpenChange={(open) => {
         if (!open) onClose();

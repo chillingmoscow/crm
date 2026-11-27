@@ -11,6 +11,8 @@ import {
   PenLine,
   RefreshCw,
   SearchX,
+  CheckCircle2,
+  CircleSlash,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { ColumnDef, RowSelectionState } from "@tanstack/react-table";
@@ -499,6 +501,8 @@ export function AttendanceReview({
         />
       ) : null}
       <ConfirmDialog
+        tone={pending?.decision === "ignore" ? "warning" : "default"}
+        icon={pending?.decision === "ignore" ? CircleSlash : CheckCircle2}
         open={!!pending}
         onOpenChange={(next) => !next && setPending(null)}
         title={

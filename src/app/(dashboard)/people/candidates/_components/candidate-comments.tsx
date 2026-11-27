@@ -79,7 +79,10 @@ export function CandidateComments({ candidateId, comments, viewerId, editable, o
       open={!!deleting}
       onOpenChange={(open) => { if (!open) setDeleting(null); }}
       title="Удалить комментарий?"
-      description="Комментарий исчезнет из анкеты. Запись об удалении останется в журнале."
+      consequences={[
+        { kind: "remove", text: "Комментарий исчезнет из анкеты" },
+        { kind: "keep", text: "Запись об удалении останется в журнале" },
+      ]}
       confirmLabel="Удалить комментарий"
       pendingLabel="Удаляем…"
       destructive

@@ -864,6 +864,97 @@ export async function removeInventoryDocumentBackOffice(input: {
   });
 }
 
+/** Массивы позиций в объекте акта: в back-office позиции — отдельные сущности
+ *  (`warehouse.inventory.items`), шапку акта сохраняем без них. */
+const INVENTORY_DOCUMENT_ITEM_ARRAYS = [
+  "effectedItems",
+  "prefabricatedItems",
+  "disassembledItems",
+] as const;
+
+/**
+ * Акт инвентаризации из бэк-офиса — целиком, как его открывает интерфейс
+ * Quick Resto: с `version`, автором, `processingState`, дата — в мс. Public
+ * `read` этих полей не отдаёт, поэтому для записи шапки акта он не годится.
+ * Позиций в ответе нет. Проверено на проде 27.11.2026 (акт 10954).
+ */
+export function readInventoryDocumentBackOffice(input: {
+  layerName: string;
+  baseUrl?: string | null;
+  /** Authorization-заголовок сессии: «Bearer <access_token>». */
+  authorization: string;
+  id: number;
+}) {
+  return callQuickRestoBackOfficeData<QuickRestoInventoryDocumentBackOffice>({
+    layerName: input.layerName,
+    baseUrl: input.baseUrl,
+    authorization: input.authorization,
+    path: "warehouse.inventory.document.v2/read",
+    query: { id: input.id, className: INVENTORY_DOCUMENT_CREATE_CLASS },
+  });
+}
+
+/** Шапка акта из бэк-офиса: поля, на которые опирается код, остальное — как есть. */
+export type QuickRestoInventoryDocumentBackOffice = Record<string, unknown> & {
+  id?: number;
+  version?: number;
+  invoiceDate?: number | string | null;
+  processed?: boolean | null;
+  processingState?: string | null;
+};
+
+/**
+ * Сменить дату (`invoiceDate`) непроведённого акта.
+ *
+ * Back-office `warehouse.inventory.document.v2/update` — тот же вызов, которым
+ * шапку акта сохраняет интерфейс Quick Resto (проверено на проде 27.11.2026,
+ * акт СВ396: дата сменилась, позиции и введённые количества не тронуты,
+ * расчётные остатки пересчитались): тело — акт целиком из
+ * back-office `read` с новой датой плюс `original_entity_sent` (как у
+ * `items/update`). Позиций в нём нет, этим вызовом они не меняются. Расчётный
+ * остаток Quick Resto после этого считает на новую дату — позиции нужно
+ * перечитать.
+ */
+export async function updateInventoryDocumentDateBackOffice(input: {
+  layerName: string;
+  baseUrl?: string | null;
+  /** Authorization-заголовок сессии: «Bearer <access_token>». */
+  authorization: string;
+  /** Акт из `readInventoryDocumentBackOffice`. */
+  document: QuickRestoInventoryDocumentBackOffice;
+  /** Новая дата акта в миллисекундах. */
+  invoiceDate: number;
+  /**
+   * Смещение пояса заведения в формате `getTimezoneOffset` (Москва → −180).
+   * Quick Resto сдвигает `invoiceDate` на разницу между ним и поясом
+   * заведения: с `new Date().getTimezoneOffset()` сервера в UTC дата
+   * сохраняется на 3 часа раньше (прод, 27.11.2026).
+   */
+  timeZoneOffset: number;
+}) {
+  const original = cloneJson(input.document);
+  for (const field of INVENTORY_DOCUMENT_ITEM_ARRAYS) delete original[field];
+  original.className = INVENTORY_DOCUMENT_CREATE_CLASS;
+  const body = {
+    ...original,
+    invoiceDate: input.invoiceDate,
+    original_entity_sent: cloneJson(original),
+  };
+
+  return callQuickRestoBackOfficeData<QuickRestoInventoryDocumentBackOffice>({
+    layerName: input.layerName,
+    baseUrl: input.baseUrl,
+    authorization: input.authorization,
+    path: "warehouse.inventory.document.v2/update",
+    query: {
+      regTime: Date.now(),
+      businessDayOffsetInMs: 32_400_000,
+      timeZone: input.timeZoneOffset,
+    },
+    body,
+  });
+}
+
 export async function updateInventoryItemBackOffice(input: {
   layerName: string;
   baseUrl?: string | null;

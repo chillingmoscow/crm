@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>База знаний — новые экраны</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#fafafa; --card:#fff; --fg:#09090b; --muted:#f4f4f5; --mfg:#71717a; --border:#e4e4e7;
+    --brand:#1570EF; --brand-t:#0b5bd3; --amber-t:#b45309; --red:#d92d20;
+    --green:#047857; --orange:#c2410c; --purple:#7e22ce; --blue:#1d4ed8; --yellow:#a16207; --pink:#be185d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Inter,system-ui,sans-serif;color:var(--fg);background:#fff;-webkit-font-smoothing:antialiased}
+  header.page{padding:40px 48px 8px;max-width:1400px}
+  header.page h1{font-size:32px;margin:0 0 8px;letter-spacing:-.02em}
+  header.page p{margin:0;color:var(--mfg);font-size:15px;max-width:900px;line-height:1.55}
+  section.v{padding:36px 48px 16px;border-top:1px solid var(--border);margin-top:28px}
+  section.v h2{font-size:22px;margin:0 0 6px;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+  .tag{display:inline-block;font-size:13px;font-weight:600;color:var(--brand-t);background:rgba(21,112,239,.1);border-radius:6px;padding:3px 8px}
+  .about{color:#3f3f46;font-size:14.5px;line-height:1.6;max-width:1040px;margin:0 0 18px}
+  .about li{margin:2px 0}
+  .scaler{width:100%;max-width:1280px}
+  .scaler > .app{transform-origin:0 0}
+
+  svg.i{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+  svg.s{width:16px;height:16px}
+  svg.xs{width:14px;height:14px}
+
+  .app{width:1280px;height:800px;display:flex;background:var(--bg);border:1px solid var(--border);border-radius:12px;overflow:hidden;position:relative}
+  .rail{width:60px;flex:none;border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px}
+  .rail .av{width:36px;height:36px;border-radius:8px;background:rgba(21,112,239,.1);color:var(--brand-t);font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px;margin-bottom:14px}
+  .rail .ib{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#3f3f46;position:relative}
+  .rail .ib.on{background:var(--brand);color:#fff}
+  .rail .ib .dot{position:absolute;top:5px;right:5px;width:8px;height:8px;border-radius:50%;background:var(--brand);box-shadow:0 0 0 2px var(--bg)}
+  .rail .me2{margin-top:auto;width:32px;height:32px;border-radius:50%;background:var(--muted);font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;color:#3f3f46}
+
+  /* дерево — в стиле меню приложения (workspace-appearance.module.css) */
+  .tree{width:256px;flex:none;border-right:1px solid var(--border);display:flex;flex-direction:column;padding:0 14px 12px}
+  .tree .th{display:flex;align-items:center;gap:6px;height:68px;padding:0 0 0 12px}
+  .tree .th b{font-size:16px;font-weight:600}
+  .tree .th .sp{flex:1}
+  .tree .th .tbtn{width:36px;height:36px}
+  .tnav{display:flex;align-items:center;gap:10px;min-height:41px;padding:0 12px;border-radius:8px;font-size:13px;font-weight:500;color:var(--mfg);white-space:nowrap}
+  .tnav svg{width:17px;height:17px}
+  .tnav.on{background:rgba(21,112,239,.1);color:var(--brand-t);font-weight:600}
+  .tnav .cnt,.tn .cnt{margin-left:auto;font-size:12px;font-weight:600;color:#fff;background:var(--brand);border-radius:999px;padding:0 7px;line-height:18px}
+  .cap{font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.6px;color:var(--mfg);padding:18px 12px 8px}
+  .tn{display:flex;align-items:center;gap:10px;min-height:36px;padding:0 8px 0 12px;border-radius:8px;font-size:13px;font-weight:500;color:#27272a;white-space:nowrap;overflow:hidden}
+  .tn > svg:first-child{width:16px;height:16px}
+  .tn .t{overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+  .tn .ch{width:16px;height:16px;color:#a1a1aa;flex:none;transition:transform .2s}
+  .tn .ch.open{transform:rotate(90deg)}
+  .tn.on{background:rgba(21,112,239,.1);color:var(--brand-t);font-weight:600}
+  .kids{margin:1px 0 4px 20px;border-left:1px solid rgba(228,228,231,.75);padding-left:9px;display:flex;flex-direction:column;gap:2px}
+  .kids .tn{font-weight:400;min-height:34px;padding-left:10px}
+  .kids .tn.on{font-weight:600}
+  .tree .foot{margin-top:auto;padding-top:8px}
+  .side2{width:256px;padding:20px 14px 12px;display:flex;flex-direction:column;border-right:1px solid var(--border)}
+  .side2 .venue{display:flex;align-items:center;gap:10px;padding:8px;border:1px solid var(--border);border-radius:10px;background:var(--card)}
+  .side2 .venue .av{width:32px;height:32px;border-radius:8px;background:rgba(21,112,239,.1);color:var(--brand-t);font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px}
+  .side2 .venue b{font-size:13px;display:block}.side2 .venue small{font-size:12px;color:var(--mfg)}
+  .c-green{color:var(--green)}.c-orange{color:var(--orange)}.c-purple{color:var(--purple)}.c-blue{color:var(--blue)}.c-yellow{color:var(--yellow)}.c-pink{color:var(--pink)}.c-m{color:var(--mfg)}.c-red{color:#b91c1c}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .top{height:68px;flex:none;display:flex;align-items:center;gap:8px;padding:0 24px;border-bottom:1px solid var(--border)}
+  .crumbs{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--mfg);white-space:nowrap}
+  .crumbs b{color:var(--fg);font-weight:400}
+  .top .sp{flex:1}
+  .saved{font-size:13px;color:var(--mfg);display:flex;align-items:center;gap:6px;margin-left:6px}
+  .cmdk{width:224px;height:36px;border:1px solid var(--border);border-radius:6px;background:var(--card);display:flex;align-items:center;gap:8px;padding:0 10px;font-size:14px;color:var(--mfg)}
+  kbd{font-family:inherit;font-size:12px;font-weight:500;color:var(--mfg);background:var(--card);border:1px solid var(--border);border-radius:4px;padding:0 5px;line-height:18px}
+  .cmdk kbd{margin-left:auto}
+  .tbtn{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--mfg);position:relative;flex:none}
+  .tbtn.star{color:#d97706}
+  .tbtn .dot{position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--brand);box-shadow:0 0 0 2px var(--bg)}
+  .body{flex:1;overflow:hidden;padding:40px 42px 0}
+
+  /* документ */
+  .doc{max-width:720px;margin:0 auto}
+  .doc .ico{width:44px;height:44px;color:var(--green)}
+  .doc .ico svg{width:44px;height:44px;stroke-width:1.5}
+  .doc h1{font-size:36px;font-weight:700;letter-spacing:-.5px;line-height:1.2;margin:12px 0 20px}
+  .req{display:flex;align-items:center;gap:12px;border:1px solid rgba(245,158,11,.3);background:rgba(245,158,11,.1);border-radius:8px;padding:10px 12px;font-size:14px;margin-bottom:20px}
+  .req .ic{color:var(--amber-t)}
+  .req.ok{border-color:rgba(16,185,129,.3);background:rgba(16,185,129,.1)} .req.ok .ic{color:var(--green)}
+  .req .m{color:var(--mfg);font-size:13px}
+  .req .r{margin-left:auto;display:flex;gap:8px;align-items:center}
+  .bar{height:6px;border-radius:999px;background:rgba(21,112,239,.15);overflow:hidden;width:90px}
+  .bar i{display:block;height:100%;background:var(--brand);border-radius:999px}
+  .btn{height:32px;padding:0 12px;border-radius:6px;font-size:13px;font-weight:500;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--card);color:var(--fg);white-space:nowrap}
+  .btn.b36{height:36px;font-size:14px}
+  .btn.brand{background:var(--brand);border-color:var(--brand);color:#fff}
+  .props{display:grid;grid-template-columns:168px 1fr;row-gap:2px;font-size:14px;margin-bottom:24px}
+  .props div{height:34px;display:flex;align-items:center;gap:8px}
+  .props .k{color:var(--mfg)}
+  .chip{font-size:12px;font-weight:500;border-radius:999px;padding:2px 8px;background:rgba(16,185,129,.1);color:var(--green);white-space:nowrap}
+  .chip.n{background:var(--muted);color:var(--mfg)} .chip.w{background:rgba(245,158,11,.1);color:var(--amber-t)} .chip.i{background:rgba(21,112,239,.1);color:var(--brand-t)}
+  .pav{width:20px;height:20px;border-radius:50%;background:#ede9fe;color:#6d28d9;font-size:12px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;flex:none}
+  .pav.l{width:28px;height:28px}
+  .pav.g{background:#d1fae5;color:#047857}.pav.o{background:#ffedd5;color:#c2410c}.pav.b{background:#dbeafe;color:#1d4ed8}.pav.m{background:var(--muted);color:#3f3f46}
+  .doc h2{font-size:20px;font-weight:600;margin:6px 0 10px}
+  .doc p{font-size:16px;line-height:1.6;margin:0 0 12px;color:#27272a}
+  .doc ul{margin:0 0 14px;padding-left:22px;font-size:16px;line-height:1.75;color:#27272a}
+  .callout{display:flex;gap:10px;border-radius:8px;background:rgba(21,112,239,.06);padding:12px 14px;font-size:15px;line-height:1.55;margin:4px 0 16px;color:#27272a}
+  .callout svg{color:var(--brand-t);margin-top:2px}
+  .cb{display:flex;align-items:center;gap:10px;font-size:16px;line-height:1.75;color:#27272a}
+  .cb i{width:16px;height:16px;border-radius:4px;border:1.5px solid #a1a1aa;display:inline-flex;align-items:center;justify-content:center}
+  .cb.done i{background:var(--brand);border-color:var(--brand);color:#fff}
+  .cb.done span{color:var(--mfg);text-decoration:line-through}
+  .sec{margin-top:28px;padding-top:20px;border-top:1px solid var(--border)}
+  .sec h3{font-size:16px;font-weight:600;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+  .sec h3 .n{color:var(--mfg);font-weight:500}
+  .cm{display:flex;gap:10px;margin-bottom:12px;font-size:14px;line-height:1.5}
+  .cm b{font-weight:600} .cm small{color:var(--mfg);font-size:12px;margin-left:6px}
+  .composer{display:flex;align-items:center;gap:10px;height:40px;border:1px solid var(--border);border-radius:6px;background:var(--card);padding:0 12px;color:var(--mfg);font-size:14px}
+
+  /* страницы-списки и обзор */
+  .pf{padding:38px 42px 0}
+  .ph{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+  .ph h1{font-size:36px;font-weight:700;letter-spacing:-.5px;margin:0}
+  .ph .sp{flex:1}
+  .sub2{font-size:14px;color:var(--mfg);margin:-8px 0 20px}
+  .stepper{display:inline-flex;align-items:center;height:36px;border:1px solid var(--border);border-radius:8px;background:var(--card);font-size:14px}
+  .stepper span{padding:0 10px;display:flex;align-items:center;height:100%}
+  .stepper span+span{border-left:1px solid var(--border)}
+  .seg{display:inline-flex;gap:2px;background:var(--muted);border-radius:8px;padding:2px}
+  .seg span{height:32px;padding:0 10px;display:flex;align-items:center;font-size:13px;border-radius:6px;color:var(--mfg)}
+  .seg span.on{background:var(--card);color:var(--fg);box-shadow:0 1px 2px rgba(10,10,10,.08)}
+  .ms{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--border);border-radius:12px;background:var(--card);margin-bottom:20px}
+  .ms div{padding:16px 18px}
+  .ms div+div{border-left:1px solid var(--border)}
+  .ms small{font-size:13px;color:var(--mfg);display:block}
+  .ms b{font-size:28px;font-weight:600;letter-spacing:-.5px;display:block;margin:6px 0 4px;font-variant-numeric:tabular-nums}
+  .ms em{font-style:normal;font-size:12px;color:var(--mfg)} .ms em.up{color:var(--green)}
+  .grid2{display:grid;grid-template-columns:1.15fr 1fr;gap:20px}
+  .card{border:1px solid var(--border);border-radius:8px;background:var(--card);padding:20px}
+  .card h3{font-size:16px;font-weight:600;margin:0 0 14px;display:flex;align-items:center;gap:8px}
+  .card h3 .r{margin-left:auto}
+  .row{display:flex;align-items:center;gap:12px;padding:10px 0}
+  .row+.row{border-top:1px solid var(--border)}
+  .tile{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex:none}
+  .tile.w{background:rgba(245,158,11,.1);color:var(--amber-t)} .tile.i{background:rgba(21,112,239,.1);color:var(--brand-t)} .tile.n{background:var(--muted);color:#3f3f46} .tile.d{background:rgba(217,45,32,.1);color:var(--red)}
+  .row .tx{flex:1;min-width:0}
+  .row .tx b{font-size:14px;font-weight:500;display:block}
+  .row .tx small{font-size:12px;color:var(--mfg)}
+  .stack{display:flex}
+  .stack .pav{width:24px;height:24px;box-shadow:0 0 0 2px var(--card);margin-left:-6px}
+  .stack .pav:first-child{margin-left:0}
+  .rank{display:flex;align-items:center;gap:10px;padding:8px 0}
+  .rank .no{width:22px;height:22px;border-radius:50%;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:none;color:var(--mfg)}
+  .rank .no.top{background:rgba(21,112,239,.1);color:var(--brand-t)}
+  .rank .tx{flex:1;min-width:0}
+  .rank .tx b{font-size:14px;font-weight:500;display:flex;align-items:center;gap:6px}
+  .rank .ln{height:4px;border-radius:999px;background:var(--muted);margin-top:6px}
+  .rank .ln i{display:block;height:100%;border-radius:999px;background:var(--brand)}
+  .rank .ln i.s{background:rgba(21,112,239,.4)}
+  .rank .v{font-size:14px;font-variant-numeric:tabular-nums;color:var(--mfg)}
+  .cols{display:flex;align-items:flex-end;gap:14px;height:120px;padding:10px 6px 0}
+  .cols div{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px;color:var(--mfg)}
+  .cols i{display:block;width:100%;max-width:40px;border-radius:4px 4px 0 0;background:rgba(21,112,239,.25)}
+  .cols .hl i{background:var(--brand)} .cols .hl{color:var(--fg);font-weight:500}
+
+  /* главная сотрудника */
+  .hero{border:1px solid var(--border);border-radius:8px;background:var(--card);padding:20px;margin-bottom:20px}
+  .hero .hd{display:flex;align-items:center;gap:14px;margin-bottom:14px}
+  .ring{width:56px;height:56px;flex:none}
+  .hero .hd b{font-size:16px;font-weight:600;display:block}
+  .hero .hd small{font-size:13px;color:var(--mfg)}
+  .lrow{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;margin-top:8px;background:var(--bg)}
+  .lrow .tx{flex:1;min-width:0} .lrow .tx b{font-size:14px;font-weight:500;display:block} .lrow .tx small{font-size:12px;color:var(--mfg)}
+  .secs{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+  .sc{border:1px solid var(--border);border-radius:8px;background:var(--card);padding:16px}
+  .sc .tile{margin-bottom:12px}
+  .sc b{font-size:14px;font-weight:600;display:block}
+  .sc small{font-size:12px;color:var(--mfg)}
+  .h3{font-size:16px;font-weight:600;margin:0 0 12px}
+  .tile.green{background:rgba(16,185,129,.1);color:var(--green)}.tile.orange{background:rgba(249,115,22,.1);color:var(--orange)}.tile.yellow{background:rgba(234,179,8,.12);color:var(--yellow)}.tile.blue{background:rgba(21,112,239,.1);color:var(--blue)}
+
+  /* телефон */
+  .phones{display:flex;gap:32px;flex-wrap:wrap}
+  .phone{width:375px;height:760px;border:1px solid var(--border);border-radius:28px;overflow:hidden;background:var(--bg);display:flex;flex-direction:column;flex:none}
+  .phone .ptop{height:58px;display:flex;align-items:center;gap:6px;padding:0 12px;border-bottom:1px solid var(--border)}
+  .phone .pbody{padding:20px 16px;overflow:hidden}
+  .phone h1{font-size:28px;font-weight:700;letter-spacing:-.5px;margin:10px 0 16px;line-height:1.2}
+  .phone .req{flex-wrap:wrap}
+  .phone .req .r{margin-left:0;width:100%}
+  .phone .req .btn{flex:1;justify-content:center;height:40px}
+  .phone p{font-size:16px;line-height:1.6;margin:0 0 12px;color:#27272a}
+  .phone h2{font-size:20px;font-weight:600;margin:4px 0 8px}
+  .phone .ico{color:var(--green)}
+  .phone .ico svg{width:36px;height:36px;stroke-width:1.5}
+
+  .note{position:absolute;z-index:5;background:#18181b;color:#fff;font-size:12px;font-weight:500;padding:6px 9px;border-radius:6px;line-height:1.35;max-width:230px;box-shadow:0 8px 24px -4px rgba(0,0,0,.25)}
+  .note b{color:#93c5fd;font-weight:600}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute"><defs>
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
+  <symbol id="cr" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="cl" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="cd" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+  <symbol id="help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/></symbol>
+  <symbol id="info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
+  <symbol id="more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+  <symbol id="users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="cal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+  <symbol id="trend" viewBox="0 0 24 24"><path d="M22 7 13.5 15.5 8.5 10.5 2 17"/><path d="M16 7h6v6"/></symbol>
+  <symbol id="bld" viewBox="0 0 24 24"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2M10 6h4M10 10h4M10 14h4M10 18h4"/></symbol>
+  <symbol id="wallet" viewBox="0 0 24 24"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></symbol>
+  <symbol id="pkg" viewBox="0 0 24 24"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/></symbol>
+  <symbol id="file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M10 9H8M16 13H8M16 17H8"/></symbol>
+  <symbol id="user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></symbol>
+  <symbol id="book" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>
+  <symbol id="gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9 7 7M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/></symbol>
+  <symbol id="martini" viewBox="0 0 24 24"><path d="M8 22h8M12 11v11M19 3l-7 8-7-8Z"/></symbol>
+  <symbol id="chef" viewBox="0 0 24 24"><path d="M17 21a1 1 0 0 0 1-1v-5.35c0-.46.32-.84.73-1.04a4 4 0 0 0-2.13-7.59 5 5 0 0 0-9.19 0 4 4 0 0 0-2.13 7.59c.41.2.73.58.73 1.04V20a1 1 0 0 0 1 1Z"/><path d="M6 17h12"/></symbol>
+  <symbol id="bellc" viewBox="0 0 24 24"><path d="M3 20a1 1 0 0 1-1-1v-1a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1a1 1 0 0 1-1 1Z"/><path d="M20 16a8 8 0 1 0-16 0M12 4v4M10 4h4"/></symbol>
+  <symbol id="clip" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2M12 11h4M12 16h4M8 11h.01M8 16h.01"/></symbol>
+  <symbol id="wine" viewBox="0 0 24 24"><path d="M8 22h8M7 10h10M12 15v7M12 15a5 5 0 0 0 5-5c0-2-.5-4-2-8H9c-1.5 4-2 6-2 8a5 5 0 0 0 5 5Z"/></symbol>
+  <symbol id="star" viewBox="0 0 24 24"><path d="M11.5 2.3a.5.5 0 0 1 1 0l2.3 4.7 5.2.8a.5.5 0 0 1 .3.9l-3.8 3.6.9 5.2a.5.5 0 0 1-.7.5L12 15.6l-4.7 2.5a.5.5 0 0 1-.7-.5l.9-5.2-3.8-3.7a.5.5 0 0 1 .3-.9l5.2-.8Z"/></symbol>
+  <symbol id="grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></symbol>
+  <symbol id="home" viewBox="0 0 24 24"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .71-1.53l7-6a2 2 0 0 1 2.58 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="cloud" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></symbol>
+  <symbol id="sparkles" viewBox="0 0 24 24"><path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.13-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.13a.5.5 0 0 1 .96 0L14.06 8.5A2 2 0 0 0 15.5 9.94l6.13 1.58a.5.5 0 0 1 0 .96L15.5 14.06a2 2 0 0 0-1.44 1.44l-1.58 6.13a.5.5 0 0 1-.96 0z"/></symbol>
+  <symbol id="bookcheck" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/><path d="m9 9.5 2 2 4-4"/></symbol>
+  <symbol id="refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+  <symbol id="send" viewBox="0 0 24 24"><path d="M14.54 21.69a.5.5 0 0 0 .94-.03l6.5-19a.5.5 0 0 0-.64-.64l-19 6.5a.5.5 0 0 0-.03.94l7.93 3.18a2 2 0 0 1 1.11 1.11z"/><path d="m21.85 2.15-10.94 10.93"/></symbol>
+  <symbol id="clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+  <symbol id="lightbulb" viewBox="0 0 24 24"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5M9 18h6M10 22h4"/></symbol>
+  <symbol id="msg" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></symbol>
+  <symbol id="link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+  <symbol id="list" viewBox="0 0 24 24"><path d="M3 12h18M3 6h18M3 18h18"/></symbol>
+</defs></svg>
+
+<header class="page">
+  <h1>База знаний — новые экраны</h1>
+  <p>Раскладка В: в базе знаний меню приложения само сворачивается в иконки, рядом дерево страниц. Повторный клик по значку «База знаний» прячет дерево — документ на всю ширину, а наведение на значок показывает дерево поверх (как сейчас). При выходе из базы меню возвращается, каким было. Ниже — четыре ключевых экрана. Тексты и цифры выдуманы.</p>
+</header>
+
+<section class="v">
+  <h2><span class="tag">0</span>Меню приложения и дерево базы — одной «породы»</h2>
+  <ul class="about">
+    <li>Слева — меню приложения как сейчас, справа — новое дерево. Не копия, но те же правила: пункты 41px, 13px, значки 17px серые, активный — синяя подложка и синий жирный текст, подпись групп — серым капслоком 12px, вложенные пункты — с тонкой линией слева, шеврон справа и плавное раскрытие, подсветка «переезжает» к новому пункту.</li>
+    <li>Сейчас в дереве: пункты 30px, значки 14px, активный — серым, подписи 11px, вложенность отступом без линии, шеврон прячется под значком страницы.</li>
+    <li>Страницы в дереве чуть плотнее пунктов меню (36px), потому что их бывает много; значки страниц остаются в цвете, который выбрал автор.</li>
+  </ul>
+  <div style="display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap">
+    <div class="app" style="width:auto;height:720px">
+      <aside class="side2">
+        <div class="venue"><span class="av">Р</span><span><b>Ресторан «Тест»</b><small>Владелец</small></span></div>
+        <div class="cap" style="padding-top:22px">Рабочее пространство</div>
+        <div class="tnav"><svg class="i"><use href="#users"/></svg>Люди<svg class="i" style="margin-left:auto;width:16px;height:16px;color:#a1a1aa;transform:rotate(90deg)"><use href="#cr"/></svg></div>
+        <div class="kids" style="margin-left:20px">
+          <div class="tn on" style="font-size:12px">Сотрудники</div>
+          <div class="tn" style="font-size:12px;font-weight:400">Кандидаты<span class="cnt">12</span></div>
+          <div class="tn" style="font-size:12px;font-weight:400">Зарплата</div>
+        </div>
+        <div class="tnav"><svg class="i"><use href="#cal"/></svg>График работы<svg class="i" style="margin-left:auto;width:16px;height:16px;color:#a1a1aa"><use href="#cr"/></svg></div>
+        <div class="tnav"><svg class="i"><use href="#trend"/></svg>Продажи<svg class="i" style="margin-left:auto;width:16px;height:16px;color:#a1a1aa"><use href="#cr"/></svg></div>
+        <div class="tnav"><svg class="i"><use href="#wallet"/></svg>Финансы<span class="cnt">1</span></div>
+        <div class="tnav"><svg class="i"><use href="#user"/></svg>Гости</div>
+        <div class="tnav"><svg class="i"><use href="#book"/></svg>База знаний</div>
+      </aside>
+    </div>
+    <div class="app" style="width:auto;height:720px"><aside class="tree" data-k="tree" data-active="open"></aside></div>
+  </div>
+</section>
+
+<!-- ═════════ 1. Документ ═════════ -->
+<section class="v">
+  <h2><span class="tag">1</span>Документ</h2>
+  <ul class="about">
+    <li>Общая верхняя панель: путь вместо «‹ Бар», поиск, справка. Справа у документа три значка: ☆ избранное, ⓘ «О странице» (кто и когда создал и правил — вместо строки внизу меню), ⋯ остальное.</li>
+    <li>Обязательное чтение — спокойная плашка. Менеджер видит прогресс «прочитали 4 из 12» и кнопку «Кто прочитал», сотрудник — кнопку «Прочитано» (экран 4).</li>
+    <li>Текст статьи — тем же шрифтом Inter, что и всё приложение; колонка 720px; заголовки по шкале.</li>
+    <li>Обсуждение переехало под текст, рядом — «Ссылаются сюда». Меню ⋯ — 12 пунктов вместо 20: «Отменить/Повторить» есть на ⌘Z, «Кто прочитал» и «Статистика» — на плашке и в ⓘ.</li>
+  </ul>
+  <div class="scaler"><div class="app">
+    <aside class="rail" data-k="rail"></aside>
+    <aside class="tree" data-k="tree" data-active="open"></aside>
+    <main class="main">
+      <div class="top">
+        <div class="crumbs">База знаний <span>/</span> Бар <span>/</span> <b>Открытие бара</b></div>
+        <span class="saved"><svg class="i s"><use href="#cloud"/></svg>Сохранено</span>
+        <div class="sp"></div>
+        <div class="cmdk"><svg class="i s"><use href="#search"/></svg>Поиск по базе<kbd>⌘K</kbd></div>
+        <div class="tbtn star"><svg class="i" style="fill:#fbbf24;stroke:#d97706"><use href="#star"/></svg></div>
+        <div class="tbtn"><svg class="i"><use href="#info"/></svg></div>
+        <div class="tbtn"><svg class="i"><use href="#more"/></svg></div>
+        <div class="tbtn"><svg class="i"><use href="#help"/></svg></div>
+        <div class="tbtn"><svg class="i"><use href="#bell"/></svg><span class="dot"></span></div>
+      </div>
+      <div class="body"><div class="doc">
+        <div class="ico"><svg class="i"><use href="#clip"/></svg></div>
+        <h1>Открытие бара</h1>
+        <div class="req"><svg class="i ic"><use href="#bookcheck"/></svg><span><b>Обязательно к прочтению</b> <span class="m">· прочитали 4 из 12</span></span>
+          <span class="r"><span class="bar"><i style="width:33%"></i></span><span class="btn">Кто прочитал</span></span></div>
+        <div class="props">
+          <div class="k">Ответственный</div><div><span class="pav">А</span>Анна Белова</div>
+          <div class="k">Статус</div><div><span class="chip">Актуально</span></div>
+        </div>
+        <h2>Перед сменой</h2>
+        <p>Бармен приходит за 30 минут до открытия. Первым делом проверяем остатки льда, цитрусовых и сиропов — без них смену не начинаем.</p>
+        <div class="callout"><svg class="i s"><use href="#lightbulb"/></svg><span>Лёд заказываем у поставщика до 12:00, иначе привезут только завтра.</span></div>
+        <h2>Чек-лист открытия</h2>
+        <div class="cb done"><i><svg class="i" style="width:12px;height:12px;stroke-width:3"><use href="#check"/></svg></i><span>Касса открыта, смена начата</span></div>
+        <div class="cb"><i></i><span>Холодильники: температура в норме</span></div>
+        <div class="sec"><h3><svg class="i s c-m"><use href="#msg"/></svg>Обсуждение <span class="n">2</span></h3>
+          <div class="cm"><span class="pav l o">ПО</span><div><b>Пётр Орлов</b><small>вчера, 18:20</small><br>А если поставщик не приехал — берём лёд в «Ленте»?</div></div>
+        </div>
+      </div></div>
+    </main>
+    <div class="note" style="left:1010px;top:76px">Поиск ⌘K в базе знаний ищет <b>по страницам базы</b>; наведите на ⓘ — кто создал и правил</div>
+  </div></div>
+</section>
+
+<!-- ═════════ 2. Главная сотрудника ═════════ -->
+<section class="v">
+  <h2><span class="tag">2</span>Главная базы знаний — для сотрудника</h2>
+  <ul class="about">
+    <li>Сверху то, что сотруднику нужно сделать: «К прочтению» с кольцом прогресса и кнопкой «Читать». Сюда же попадают страницы, которые менеджер <b>попросил перечитать</b> после изменений — с пометкой «Обновлено».</li>
+    <li>Ниже — разделы плитками (верхний уровень дерева: «Бар», «Кухня»…) с числом страниц: по ним сотрудник ходит чаще, чем по дереву.</li>
+    <li>Последний ряд — «Недавно обновлённые» и «Избранное». Шапка как у всех разделов: 36px, без описания.</li>
+  </ul>
+  <div class="scaler"><div class="app">
+    <aside class="rail" data-k="rail"></aside>
+    <aside class="tree" data-k="tree" data-active="home"></aside>
+    <main class="main">
+      <div class="top"><div class="crumbs"><b>База знаний</b></div><div class="sp"></div>
+        <div class="cmdk"><svg class="i s"><use href="#search"/></svg>Поиск по базе<kbd>⌘K</kbd></div>
+        <div class="tbtn"><svg class="i"><use href="#help"/></svg></div><div class="tbtn"><svg class="i"><use href="#bell"/></svg><span class="dot"></span></div></div>
+      <div class="pf">
+        <div class="ph"><h1>База знаний</h1></div>
+        <div class="hero">
+          <div class="hd">
+            <svg class="ring" viewBox="0 0 56 56"><circle cx="28" cy="28" r="23" fill="none" stroke="#f4f4f5" stroke-width="7"/><circle cx="28" cy="28" r="23" fill="none" stroke="#1570EF" stroke-width="7" stroke-linecap="round" stroke-dasharray="144.5" stroke-dashoffset="57.8" transform="rotate(-90 28 28)"/><text x="28" y="32" text-anchor="middle" font-size="13" font-weight="600" fill="#09090b">60%</text></svg>
+            <div><b>К прочтению · 2</b><small>Прочитано 3 из 5 обязательных страниц</small></div>
+          </div>
+          <div class="lrow"><svg class="i c-green"><use href="#clip"/></svg><div class="tx"><b>Открытие бара</b><small>Бар · ≈ 1 мин</small></div><span class="chip w">Обновлено</span><span class="btn b36">Читать</span></div>
+          <div class="lrow"><svg class="i c-red"><use href="#file"/></svg><div class="tx"><b>Санитарные нормы</b><small>Кухня · ≈ 4 мин</small></div><span class="btn b36">Читать</span></div>
+        </div>
+        <div class="h3">Разделы</div>
+        <div class="secs">
+          <div class="sc"><span class="tile blue"><svg class="i"><use href="#martini"/></svg></span><b>Бар</b><small>5 страниц</small></div>
+          <div class="sc"><span class="tile orange"><svg class="i"><use href="#chef"/></svg></span><b>Кухня</b><small>2 страницы</small></div>
+          <div class="sc"><span class="tile yellow"><svg class="i"><use href="#bellc"/></svg></span><b>Зал</b><small>2 страницы</small></div>
+          <div class="sc"><span class="tile green"><svg class="i"><use href="#users"/></svg></span><b>Онбординг</b><small>2 страницы</small></div>
+        </div>
+        <div class="grid2" style="grid-template-columns:1fr 1fr">
+          <div class="card" style="padding:16px 20px"><h3 style="margin-bottom:6px">Недавно обновлённые</h3>
+            <div class="row"><svg class="i s c-purple"><use href="#wine"/></svg><div class="tx"><b>Коктейльная карта</b></div><small style="font-size:12px;color:var(--mfg)">3 дня назад</small></div>
+            <div class="row"><svg class="i s c-yellow"><use href="#star"/></svg><div class="tx"><b>Стандарты сервиса</b></div><small style="font-size:12px;color:var(--mfg)">4 дня назад</small></div></div>
+          <div class="card" style="padding:16px 20px"><h3 style="margin-bottom:6px">Избранное</h3>
+            <div class="row"><svg class="i s c-m"><use href="#book"/></svg><div class="tx"><b>Классические коктейли</b></div></div>
+            <div class="row"><svg class="i s c-blue"><use href="#user"/></svg><div class="tx"><b>Первый день</b></div></div></div>
+        </div>
+      </div>
+    </main>
+  </div></div>
+</section>
+
+<!-- ═════════ 3. Обзор менеджера ═════════ -->
+<section class="v">
+  <h2><span class="tag">3</span>Обзор — для менеджера</h2>
+  <ul class="about">
+    <li>Вместо «Дашборда» с пятью карточками и двумя рядами переключателей — экран как «Сегодня»: период общим переключателем, итоги одной полосой, ниже блоки.</li>
+    <li>«Требует внимания» — что сделать менеджеру: кто не прочитал обязательное, какие обязательные страницы изменены после прочтения (перечитать — только если менеджер попросит), какие давно не обновлялись. Кнопка «Напомнить» — <b>новая функция</b>: уведомление в приложении (и в Telegram, если подключён) тем, кто не прочитал.</li>
+    <li>«Популярное за неделю» — как рейтинг в «Допродажах»; «По месяцам» — те же столбики, что в «Статистике» продаж.</li>
+  </ul>
+  <div class="scaler"><div class="app">
+    <aside class="rail" data-k="rail"></aside>
+    <aside class="tree" data-k="tree" data-active="overview"></aside>
+    <main class="main">
+      <div class="top"><div class="crumbs">База знаний <span>/</span> <b>Обзор</b></div><div class="sp"></div>
+        <div class="cmdk"><svg class="i s"><use href="#search"/></svg>Поиск по базе<kbd>⌘K</kbd></div>
+        <div class="tbtn"><svg class="i"><use href="#help"/></svg></div><div class="tbtn"><svg class="i"><use href="#bell"/></svg><span class="dot"></span></div></div>
+      <div class="pf">
+        <div class="ph" style="margin-bottom:20px"><h1>Обзор</h1></div>
+        <div class="ph" style="margin-bottom:16px"><span class="stepper"><span><svg class="i s c-m"><use href="#cl"/></svg></span><span>23–29 ноября</span><span><svg class="i s c-m"><use href="#cr"/></svg></span></span>
+          <span class="seg"><span class="on">Неделя</span><span>Месяц</span></span><span class="sp"></span><span class="btn b36"><svg class="i s"><use href="#refresh"/></svg>Обновить поиск ИИ</span></div>
+        <div class="ms">
+          <div><small>Обязательное прочитано</small><b>68%</b><em>34 из 50 прочтений</em></div>
+          <div><small>Читали</small><b>9</b><em>из 12 сотрудников</em></div>
+          <div><small>Время чтения</small><b>3 ч 40 мин</b><em class="up">+25% к прошлой неделе</em></div>
+          <div><small>Изменений</small><b>14</b><em>в 6 страницах</em></div>
+        </div>
+        <div class="grid2" style="grid-template-columns:1.5fr 1fr">
+          <div class="card"><h3>Требует внимания · 3</h3>
+            <div class="row"><span class="tile w"><svg class="i"><use href="#bookcheck"/></svg></span><div class="tx"><b>«Санитарные нормы» не прочитали 5 человек</b><small>Анна Белова, Пётр Орлов и ещё 3</small></div><span class="btn b36"><svg class="i s"><use href="#send"/></svg>Напомнить</span></div>
+            <div class="row"><span class="tile i"><svg class="i"><use href="#refresh"/></svg></span><div class="tx"><b>«Открытие бара» изменена после прочтения</b><small>Её уже прочитали 8 человек · правка вчера, 21:40</small></div><span class="btn b36">Попросить перечитать</span></div>
+            <div class="row"><span class="tile n"><svg class="i"><use href="#clock"/></svg></span><div class="tx"><b>«Правила компании» не обновлялась 7 месяцев</b><small>Проверьте, всё ли актуально</small></div><span class="btn b36">Открыть</span></div>
+          </div>
+          <div class="card"><h3>Популярное за неделю</h3>
+            <div class="rank"><span class="no top">1</span><div class="tx"><b><svg class="i s c-green"><use href="#clip"/></svg>Открытие бара</b><div class="ln"><i style="width:100%"></i></div></div><span class="v">42 мин</span></div>
+            <div class="rank"><span class="no top">2</span><div class="tx"><b><svg class="i s c-purple"><use href="#wine"/></svg>Коктейльная карта</b><div class="ln"><i style="width:71%"></i></div></div><span class="v">30 мин</span></div>
+            <div class="rank"><span class="no top">3</span><div class="tx"><b><svg class="i s c-yellow"><use href="#star"/></svg>Стандарты сервиса</b><div class="ln"><i style="width:48%"></i></div></div><span class="v">20 мин</span></div>
+            <div class="rank"><span class="no">4</span><div class="tx"><b><svg class="i s c-red"><use href="#file"/></svg>Санитарные нормы</b><div class="ln"><i class="s" style="width:30%"></i></div></div><span class="v">13 мин</span></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div></div>
+</section>
+
+<!-- ═════════ 4. Телефон ═════════ -->
+<section class="v">
+  <h2><span class="tag">4</span>Телефон — сотрудник читает</h2>
+  <ul class="about">
+    <li>Одна строка шапки вместо двух: кнопка «Страницы» открывает дерево, путь сокращается до раздела.</li>
+    <li>Плашка обязательного чтения компактная, «Прочитано» — во всю ширину внизу плашки; после нажатия — зелёная «Прочитано 27 ноября».</li>
+    <li>Заголовок 28px, поля 16px с обеих сторон (сейчас слева 40, справа 16).</li>
+  </ul>
+  <div class="phones">
+    <div class="phone">
+      <div class="ptop"><span class="tbtn"><svg class="i"><use href="#list"/></svg></span><span style="font-size:14px;color:var(--mfg)">Бар</span><span style="flex:1"></span><span class="tbtn"><svg class="i"><use href="#search"/></svg></span><span class="tbtn"><svg class="i"><use href="#more"/></svg></span><span class="tbtn"><svg class="i"><use href="#bell"/></svg><span class="dot"></span></span></div>
+      <div class="pbody">
+        <div class="ico"><svg class="i"><use href="#clip"/></svg></div>
+        <h1>Открытие бара</h1>
+        <div class="req"><svg class="i ic"><use href="#bookcheck"/></svg><span><b>Обязательно к прочтению</b> <span class="m">· ≈ 1 мин</span></span><span class="r"><span class="btn"><svg class="i s"><use href="#check"/></svg>Прочитано</span></span></div>
+        <h2>Перед сменой</h2>
+        <p>Бармен приходит за 30 минут до открытия. Первым делом проверяем остатки льда, цитрусовых и сиропов.</p>
+      </div>
+    </div>
+    <div class="phone">
+      <div class="ptop"><span class="tbtn"><svg class="i"><use href="#list"/></svg></span><span style="font-size:14px;color:var(--mfg)">Бар</span><span style="flex:1"></span><span class="tbtn"><svg class="i"><use href="#search"/></svg></span><span class="tbtn"><svg class="i"><use href="#more"/></svg></span><span class="tbtn"><svg class="i"><use href="#bell"/></svg></span></div>
+      <div class="pbody">
+        <div class="ico"><svg class="i"><use href="#clip"/></svg></div>
+        <h1>Открытие бара</h1>
+        <div class="req ok"><svg class="i ic"><use href="#check"/></svg><span><b>Прочитано</b> <span class="m">· 27 ноября</span></span></div>
+        <h2>Перед сменой</h2>
+        <p>Бармен приходит за 30 минут до открытия. Первым делом проверяем остатки льда, цитрусовых и сиропов.</p>
+      </div>
+    </div>
+  </div>
+</section>
+<div style="height:60px"></div>
+
+<template id="t-rail">
+  <span class="av">Р</span>
+  <span class="ib"><svg class="i"><use href="#users"/></svg><span class="dot"></span></span>
+  <span class="ib"><svg class="i"><use href="#cal"/></svg></span>
+  <span class="ib"><svg class="i"><use href="#trend"/></svg></span>
+  <span class="ib"><svg class="i"><use href="#bld"/></svg></span>
+  <span class="ib"><svg class="i"><use href="#wallet"/></svg><span class="dot"></span></span>
+  <span class="ib"><svg class="i"><use href="#pkg"/></svg></span>
+  <span class="ib"><svg class="i"><use href="#file"/></svg><span class="dot"></span></span>
+  <span class="ib"><svg class="i"><use href="#user"/></svg></span>
+  <span class="ib on"><svg class="i"><use href="#book"/></svg></span>
+  <span class="ib"><svg class="i"><use href="#gear"/></svg></span>
+  <span class="me2">ТВ</span>
+</template>
+<template id="t-tree">
+  <div class="th"><b>База знаний</b><span class="sp"></span><span class="tbtn"><svg class="i s"><use href="#plus"/></svg></span></div>
+  <div class="tnav" data-a="home"><svg class="i"><use href="#home"/></svg>Главная</div>
+  <div class="tnav" data-a="overview"><svg class="i"><use href="#grid"/></svg>Обзор</div>
+  <div class="tnav"><svg class="i"><use href="#bookcheck"/></svg>К прочтению<span class="cnt">2</span></div>
+  <div class="cap">Избранное</div>
+  <div class="tn"><svg class="i c-m"><use href="#book"/></svg><span class="t">Классические коктейли</span></div>
+  <div class="cap">Страницы</div>
+  <div class="tn"><svg class="i c-blue"><use href="#martini"/></svg><span class="t">Бар</span><svg class="i ch open"><use href="#cr"/></svg></div>
+  <div class="kids">
+    <div class="tn" data-a="open"><svg class="i c-green"><use href="#clip"/></svg><span class="t">Открытие бара</span></div>
+    <div class="tn"><svg class="i c-orange"><use href="#clip"/></svg><span class="t">Закрытие бара</span></div>
+    <div class="tn"><svg class="i c-purple"><use href="#wine"/></svg><span class="t">Коктейльная карта</span><svg class="i ch"><use href="#cr"/></svg></div>
+  </div>
+  <div class="tn"><svg class="i c-orange"><use href="#chef"/></svg><span class="t">Кухня</span><svg class="i ch"><use href="#cr"/></svg></div>
+  <div class="tn"><svg class="i c-yellow"><use href="#bellc"/></svg><span class="t">Зал</span><svg class="i ch"><use href="#cr"/></svg></div>
+  <div class="tn"><svg class="i c-green"><use href="#users"/></svg><span class="t">Онбординг</span><svg class="i ch"><use href="#cr"/></svg></div>
+  <div class="tn"><svg class="i c-m"><use href="#file"/></svg><span class="t">Правила компании</span></div>
+  <div class="foot"><div class="tnav"><svg class="i"><use href="#trash"/></svg>Корзина</div></div>
+</template>
+<script>
+  document.querySelectorAll('[data-k="rail"]').forEach(el => el.append(document.getElementById('t-rail').content.cloneNode(true)));
+  document.querySelectorAll('[data-k="tree"]').forEach(el => {
+    el.append(document.getElementById('t-tree').content.cloneNode(true));
+    const a = el.dataset.active; const n = el.querySelector(`[data-a="${a}"]`); if (n) n.classList.add('on');
+  });
+  function scale(){ document.querySelectorAll('.scaler').forEach(s => { const a = s.firstElementChild; const k = Math.min(1, s.clientWidth/1280); a.style.transform = `scale(${k})`; s.style.height = (800*k)+'px'; }); }
+  addEventListener('resize', scale); scale();
+</script>
+</body>
+</html>

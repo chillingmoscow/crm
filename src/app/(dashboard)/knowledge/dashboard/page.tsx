@@ -1,14 +1,18 @@
 import Link from "next/link";
+import type { Metadata } from "next";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { canOpenKbOverview } from "@/lib/knowledge/shell";
+import { PageFrame } from "@/components/shared/page-frame";
+import { TablePageHeader } from "@/components/shared/table/table-page-header";
 import { redirect } from "next/navigation";
 
 import {
   createClient,
   getCachedActiveAccountId,
   getCachedPermissionChecker,
+  getCachedPermissions,
 } from "@/lib/supabase/server";
-import { PageHeaderActions } from "@/components/shared/page-header-actions";
 import { KbStatCard } from "@/components/knowledge/kb-stat-card";
-import { KbSectionHeader } from "@/app/(dashboard)/knowledge/_components/kb-section-header";
 import { KbTimeMetricHint } from "@/app/(dashboard)/knowledge/_components/kb-time-metric-hint";
 import { KbReindexAiButton } from "@/app/(dashboard)/knowledge/_components/kb-reindex-ai-button";
 import { KbMonthlyTrend } from "@/app/(dashboard)/knowledge/_components/kb-monthly-trend";
@@ -58,6 +62,8 @@ const PERIOD_DAYS: Record<KbAnalyticsPeriod, number> = {
  * URL-состояние shareable: `?p=day|week|month`, `?view=overview|pages`.
  * `/knowledge/analytics` 301-redirect'ится сюда (next.config).
  */
+export const metadata: Metadata = { title: "Обзор базы знаний" };
+
 export default async function KbDashboardPage({
   searchParams,
 }: {
@@ -89,7 +95,10 @@ export default async function KbDashboardPage({
   const canAnalytics = can("kb.view_analytics");
   const canAudit = can("org.view_audit");
   const canAskAi = can("kb.ask_ai");
-  if (!canAnalytics && !canAudit) redirect("/knowledge");
+  // Тот же набор прав, что у пункта «Обзор» в дереве.
+  if (!canOpenKbOverview(new Set(await getCachedPermissions()))) {
+    redirect("/knowledge");
+  }
 
   // Кнопка «Переиндексировать для ИИ» — только тем, кто может
   // пользоваться AI-поиском, и если ИИ включён для аккаунта (паритет
@@ -184,20 +193,17 @@ export default async function KbDashboardPage({
       .join("&") || undefined;
 
   return (
-    <div className="flex-1 flex flex-col">
-      <div className="px-6 md:px-8 pt-4 pb-8 w-full">
-        <div className="mx-auto w-full max-w-[1100px] flex flex-col gap-6">
-          <PageHeaderActions>
-            {aiReindexEnabled && <KbReindexAiButton />}
-            <KbTimeMetricHint />
-          </PageHeaderActions>
-
-          <KbSectionHeader
-            title="Дашборд"
-            hideBreadcrumb
-            description="Сводка по базе знаний: активность чтения, обязательное чтение и последние изменения."
-            actions={
-              <div className="flex flex-wrap items-center gap-3">
+    <PageFrame className="flex flex-col gap-6">
+          <Breadcrumbs
+            items={[
+              { label: "База знаний", href: "/knowledge" },
+              { label: "Обзор" },
+            ]}
+          />
+          <TablePageHeader
+            title="Обзор"
+            period={
+              <>
                 <KbAnalyticsViewTabs
                   current={view}
                   period={period}
@@ -208,7 +214,13 @@ export default async function KbDashboardPage({
                   basePath="/knowledge/dashboard"
                   view={view}
                 />
-              </div>
+              </>
+            }
+            actions={
+              <>
+                <KbTimeMetricHint />
+                {aiReindexEnabled && <KbReindexAiButton />}
+              </>
             }
           />
 
@@ -393,9 +405,7 @@ export default async function KbDashboardPage({
               </ul>
             )}
           </section>
-        </div>
-      </div>
-    </div>
+    </PageFrame>
   );
 }
 

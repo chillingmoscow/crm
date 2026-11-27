@@ -117,6 +117,8 @@ export function CommandPaletteProvider({
   activeRoleCode: string | null;
 }) {
   const [open, setOpen] = useState(false);
+  const openRef = useRef(open);
+  openRef.current = open;
   // Номер открытия: содержимое пересоздаётся при каждом открытии (пустой
   // запрос), но держится смонтированным, пока окно уезжает (motion.md, п. 8).
   const [session, setSession] = useState(0);
@@ -133,7 +135,14 @@ export function CommandPaletteProvider({
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
       if (e.key.toLowerCase() !== "k" && e.code !== "KeyK") return;
-      if (onKnowledge) return; // там ⌘K — поиск базы знаний
+      if (onKnowledge) {
+        // В базе ⌘K — её поиск. Палитру там открывают из окна поиска
+        // («Искать во всём приложении»), и ⌘K её закрывает, как везде.
+        if (!openRef.current) return;
+        e.preventDefault();
+        setOpen(false);
+        return;
+      }
       // Поверх другого окна или панели не открываемся (но своё окно ⌘K
       // закрывает).
       if (anotherDialogOpen(PALETTE_ATTR)) return;

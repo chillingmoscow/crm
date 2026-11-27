@@ -1,6 +1,8 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getCachedUser } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import type { LooseQuery } from "@/lib/supabase/loose";
 
 // ============================================================
 // Sprint D / Phase 6 — Server-actions для landing-виджетов.
@@ -37,13 +39,14 @@ export interface KbRecentlyViewedRow extends KbLandingPageRow {
  *  Sprint D Phase 6 §2.6. */
 export async function getKbRequiredUnreadForUser(): Promise<{
   rows: KbRequiredUnreadRow[];
+  /** Сколько всего обязательных страниц в аккаунте (для счётчика в дереве
+   *  и прогресса на главной — без отдельного count-запроса). */
+  total: number;
   error: string | null;
 }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { rows: [], error: null };
+  const user = await getCachedUser();
+  if (!user) return { rows: [], total: 0, error: null };
 
   // Шаг 1: required-pages в active account.
   const { data: pages, error: pagesError } = await supabase
@@ -52,30 +55,40 @@ export async function getKbRequiredUnreadForUser(): Promise<{
     .eq("required_reading", true)
     .is("deleted_at", null)
     .order("updated_at", { ascending: false, nullsFirst: false });
-  if (pagesError) return { rows: [], error: pagesError.message };
-  if (!pages || pages.length === 0) return { rows: [], error: null };
+  if (pagesError) return { rows: [], total: 0, error: pagesError.message };
+  if (!pages || pages.length === 0) return { rows: [], total: 0, error: null };
 
   // Шаг 2: версионная сверка. После миграции 097 user считается
   // «прочитавшим» только если его max(read_version) >= max(version_number)
   // страницы. Иначе (= никогда не читал ИЛИ читал устаревшую версию)
   // → попадает в unread list. См. Codex #88 P1.
   const pageIds = pages.map((p) => p.id);
-  const [versionsRes, readsRes] = await Promise.all([
-    supabase
-      .from("kb_page_versions")
-      .select("page_id, version_number")
-      .in("page_id", pageIds),
-    supabase
-      .from("kb_page_reads")
-      .select("page_id, read_version")
-      .eq("user_id", user.id)
-      .in("page_id", pageIds),
-  ]);
-  if (versionsRes.error) return { rows: [], error: versionsRes.error.message };
-  if (readsRes.error) return { rows: [], error: readsRes.error.message };
+  // Версий у живой страницы набирается много (по сессии правки), и
+  // PostgREST молча режет ответ на 1000 строк — читаем постранично.
+  type VersionRow = { page_id: string; version_number: number };
+  let versions: VersionRow[];
+  try {
+    versions = await fetchAllRows<VersionRow>(
+      () =>
+        // fetchAllRows принимает «свободный» билдер; у типизированного тот
+        // же рантайм-контракт (order + range).
+        supabase
+          .from("kb_page_versions")
+          .select("page_id, version_number")
+          .in("page_id", pageIds) as unknown as LooseQuery<VersionRow[]>,
+    );
+  } catch (e) {
+    return { rows: [], total: pages.length, error: (e as Error).message };
+  }
+  const readsRes = await supabase
+    .from("kb_page_reads")
+    .select("page_id, read_version")
+    .eq("user_id", user.id)
+    .in("page_id", pageIds);
+  if (readsRes.error) return { rows: [], total: pages.length, error: readsRes.error.message };
 
   const maxVersionByPage = new Map<string, number>();
-  for (const v of versionsRes.data ?? []) {
+  for (const v of versions) {
     const cur = maxVersionByPage.get(v.page_id) ?? 0;
     if (v.version_number > cur) {
       maxVersionByPage.set(v.page_id, v.version_number);
@@ -106,7 +119,7 @@ export async function getKbRequiredUnreadForUser(): Promise<{
       icon_color: p.icon_color,
       required_since: (p.updated_at as string | null) ?? new Date().toISOString(),
     }));
-  return { rows, error: null };
+  return { rows, total: pages.length, error: null };
 }
 
 /** Recently-viewed pages для current user. Backed by RPC

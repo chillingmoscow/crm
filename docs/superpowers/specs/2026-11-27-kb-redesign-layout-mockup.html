@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>База знаний — раскладка боковых панелей</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#fafafa; --card:#fff; --fg:#09090b; --muted:#f4f4f5; --mfg:#71717a; --border:#e4e4e7;
+    --brand:#1570EF; --brand-t:#0b5bd3; --amber-t:#b45309;
+    --green:#047857; --orange:#c2410c; --purple:#7e22ce; --blue:#1d4ed8; --yellow:#a16207; --pink:#be185d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Inter,system-ui,sans-serif;color:var(--fg);background:#fff;-webkit-font-smoothing:antialiased}
+  header.page{padding:40px 48px 8px;max-width:1400px}
+  header.page h1{font-size:32px;margin:0 0 8px;letter-spacing:-.02em}
+  header.page p{margin:0;color:var(--mfg);font-size:15px;max-width:860px;line-height:1.55}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:16px;font-size:13px;color:#3f3f46}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .legend i{width:14px;height:14px;border-radius:4px;display:inline-block}
+  section.v{padding:36px 48px 16px;border-top:1px solid var(--border);margin-top:28px}
+  section.v h2{font-size:22px;margin:0 0 6px;letter-spacing:-.01em;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .tag{display:inline-block;font-size:13px;font-weight:600;color:var(--brand-t);background:rgba(21,112,239,.1);border-radius:6px;padding:3px 8px}
+  .tag.rec{color:#fff;background:var(--brand)}
+  .tag.now{color:#52525b;background:var(--muted)}
+  .about{color:#3f3f46;font-size:14.5px;line-height:1.6;max-width:1000px;margin:0 0 14px}
+  .pc{display:grid;grid-template-columns:repeat(2,minmax(0,480px));gap:12px 32px;margin:0 0 20px;font-size:14px;line-height:1.5}
+  .pc ul{margin:6px 0 0;padding-left:18px;color:#3f3f46}
+  .pc b{font-size:13px}
+  .pc .plus b{color:var(--green)} .pc .minus b{color:#b91c1c}
+  .scaler{width:100%;max-width:1280px}
+  .scaler > .app{transform-origin:0 0}
+
+  svg.i{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+  svg.s{width:16px;height:16px}
+
+  /* ── приложение ───────────────────────────────────────── */
+  .app{width:1280px;height:760px;display:flex;background:var(--bg);border:1px solid var(--border);border-radius:12px;overflow:hidden;position:relative}
+  .side{width:236px;flex:none;border-right:1px solid var(--border);display:flex;flex-direction:column;padding:12px 10px;background:var(--bg)}
+  .venue{display:flex;align-items:center;gap:10px;padding:8px;border:1px solid var(--border);border-radius:10px;background:var(--card)}
+  .venue .av{width:32px;height:32px;border-radius:8px;background:rgba(21,112,239,.1);color:var(--brand-t);font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px}
+  .venue b{font-size:13px;display:block} .venue small{font-size:12px;color:var(--mfg)}
+  .venue svg{margin-left:auto;color:var(--mfg)}
+  .grp{font-size:12px;font-weight:500;color:var(--mfg);letter-spacing:.04em;text-transform:uppercase;padding:18px 8px 8px}
+  .nav{display:flex;align-items:center;gap:10px;height:34px;padding:0 8px;border-radius:6px;font-size:14px;color:#27272a}
+  .nav .ch{margin-left:auto;color:#a1a1aa;width:16px;height:16px}
+  .nav.on{background:rgba(21,112,239,.1);color:var(--brand-t);font-weight:500}
+  .nav .badge{margin-left:auto;font-size:12px;font-weight:600;color:#fff;background:var(--brand);border-radius:999px;padding:0 7px;line-height:18px}
+  .me{margin-top:auto;display:flex;align-items:center;gap:10px;padding:8px;border-top:1px solid var(--border)}
+  .me .av{width:32px;height:32px;border-radius:50%;background:var(--muted);font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;color:#3f3f46}
+  .me b{font-size:13px;display:block}.me small{font-size:12px;color:var(--mfg)}
+
+  /* компактное меню */
+  .rail{width:60px;flex:none;border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px;background:var(--bg)}
+  .rail .av{width:36px;height:36px;border-radius:8px;background:rgba(21,112,239,.1);color:var(--brand-t);font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px;margin-bottom:14px}
+  .rail .ib{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#3f3f46;position:relative}
+  .rail .ib.on{background:var(--brand);color:#fff}
+  .rail .ib .dot{position:absolute;top:5px;right:5px;width:8px;height:8px;border-radius:50%;background:var(--brand);box-shadow:0 0 0 2px var(--bg)}
+  .rail .me2{margin-top:auto;width:32px;height:32px;border-radius:50%;background:var(--muted);font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;color:#3f3f46}
+
+  /* дерево базы знаний */
+  .tree{width:252px;flex:none;border-right:1px solid var(--border);display:flex;flex-direction:column;background:var(--bg);padding:12px 10px}
+  .tree .th{display:flex;align-items:center;gap:6px;height:36px;padding:0 4px 0 8px}
+  .tree .th b{font-size:14px;font-weight:600}
+  .tree .th .sp{flex:1}
+  .tree .th .tb{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--mfg)}
+  .tree .search{display:flex;align-items:center;gap:8px;height:34px;margin:6px 0 10px;padding:0 10px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--mfg);font-size:13px}
+  .tree .search kbd{margin-left:auto}
+  .tn{display:flex;align-items:center;gap:6px;height:32px;padding-right:8px;border-radius:6px;font-size:14px;color:#27272a;white-space:nowrap;overflow:hidden}
+  .tn .tw{width:16px;height:16px;color:#a1a1aa;flex:none}
+  .tn .tw.empty{visibility:hidden}
+  .tn.on{background:rgba(21,112,239,.1);color:var(--brand-t);font-weight:500}
+  .tn .t{overflow:hidden;text-overflow:ellipsis}
+  .tsec{font-size:12px;font-weight:500;color:var(--mfg);padding:14px 8px 6px}
+  .tree .foot{margin-top:auto;border-top:1px solid var(--border);padding-top:8px}
+  .c-green{color:var(--green)}.c-orange{color:var(--orange)}.c-purple{color:var(--purple)}.c-blue{color:var(--blue)}.c-yellow{color:var(--yellow)}.c-pink{color:var(--pink)}.c-m{color:var(--mfg)}
+
+  /* дерево внутри общего меню (вариант Б) */
+  .sub{margin-left:17px;border-left:1px solid var(--border);padding-left:6px}
+  .side .tn{font-size:13px;height:30px}
+
+  /* контент */
+  .main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg)}
+  .top{height:68px;flex:none;display:flex;align-items:center;gap:10px;padding:0 24px;border-bottom:1px solid var(--border)}
+  .crumbs{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--mfg);min-width:0;white-space:nowrap}
+  .crumbs b{color:var(--fg);font-weight:400}
+  .top .sp{flex:1}
+  .saved{font-size:13px;color:var(--mfg);display:flex;align-items:center;gap:6px}
+  .cmdk{width:224px;height:36px;border:1px solid var(--border);border-radius:6px;background:var(--card);display:flex;align-items:center;gap:8px;padding:0 10px;font-size:14px;color:var(--mfg)}
+  .cmdk.narrow{width:36px;padding:0;justify-content:center}
+  kbd{font-family:inherit;font-size:12px;font-weight:500;color:var(--mfg);background:var(--card);border:1px solid var(--border);border-radius:4px;padding:0 5px;line-height:18px}
+  .cmdk kbd{margin-left:auto}
+  .tbtn{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--mfg);position:relative}
+  .tbtn .dot{position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--brand);box-shadow:0 0 0 2px var(--bg)}
+  .body{flex:1;overflow:hidden;padding:44px 40px 0}
+  .doc{max-width:720px;margin:0 auto}
+  .doc .ico{width:44px;height:44px;color:var(--green)}
+  .doc .ico svg{width:44px;height:44px;stroke-width:1.5}
+  .doc h1{font-size:36px;font-weight:700;letter-spacing:-.5px;line-height:1.2;margin:12px 0 20px}
+  .req{display:flex;align-items:center;gap:12px;border:1px solid rgba(245,158,11,.3);background:rgba(245,158,11,.1);border-radius:8px;padding:10px 12px;font-size:14px;margin-bottom:20px}
+  .req .ic{color:var(--amber-t)}
+  .req .m{color:var(--mfg);font-size:13px}
+  .req .btn{margin-left:auto}
+  .btn{height:32px;padding:0 12px;border-radius:6px;font-size:13px;font-weight:500;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--card);color:var(--fg);white-space:nowrap}
+  .props{display:grid;grid-template-columns:168px 1fr;row-gap:2px;font-size:14px;margin-bottom:24px}
+  .props div{height:34px;display:flex;align-items:center;gap:8px}
+  .props .k{color:var(--mfg)}
+  .chip{font-size:12px;font-weight:500;border-radius:999px;padding:2px 8px;background:rgba(16,185,129,.1);color:var(--green)}
+  .pav{width:20px;height:20px;border-radius:50%;background:#ede9fe;color:#6d28d9;font-size:12px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
+  .doc h2{font-size:20px;font-weight:600;margin:6px 0 10px}
+  .doc p{font-size:16px;line-height:1.6;margin:0 0 12px;color:#27272a}
+  .doc ul{margin:0 0 14px;padding-left:22px;font-size:16px;line-height:1.75;color:#27272a}
+  .cb{display:flex;align-items:center;gap:10px;font-size:16px;line-height:1.75;color:#27272a}
+  .cb i{width:16px;height:16px;border-radius:4px;border:1.5px solid #a1a1aa;display:inline-flex;align-items:center;justify-content:center}
+  .cb.done i{background:var(--brand);border-color:var(--brand);color:#fff}
+  .cb.done span{color:var(--mfg);text-decoration:line-through}
+
+  .note{position:absolute;z-index:5;background:#18181b;color:#fff;font-size:12px;font-weight:500;padding:6px 9px;border-radius:6px;line-height:1.35;max-width:220px;box-shadow:0 8px 24px -4px rgba(0,0,0,.25)}
+  .note::before{content:"";position:absolute;width:8px;height:8px;background:#18181b;transform:rotate(45deg)}
+  .note.l::before{left:-4px;top:12px}
+  .note.t::before{top:-4px;left:16px}
+  .note.r::before{right:-4px;top:12px}
+  .width{position:absolute;z-index:4;bottom:10px;height:20px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--brand-t)}
+  .width::before{content:"";position:absolute;left:0;right:0;top:50%;border-top:1.5px dashed rgba(21,112,239,.5)}
+  .width span{position:relative;background:var(--bg);padding:0 6px}
+  .old{filter:saturate(.9)}
+  .old .top{height:56px}
+  .old .crumbs{color:var(--mfg)}
+  .old .reqold{background:#fef3c7;border-bottom:1px solid #fde68a;padding:14px 40px;margin:-44px -40px 28px;text-align:center;font-size:13px;color:#78350f}
+  .old .doc h1{font-size:40px;font-weight:800}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
+    <symbol id="cr" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="cd" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="ud" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></symbol>
+    <symbol id="bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+    <symbol id="help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/></symbol>
+    <symbol id="more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+    <symbol id="users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="cal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+    <symbol id="trend" viewBox="0 0 24 24"><path d="M22 7 13.5 15.5 8.5 10.5 2 17"/><path d="M16 7h6v6"/></symbol>
+    <symbol id="bld" viewBox="0 0 24 24"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2M10 6h4M10 10h4M10 14h4M10 18h4"/></symbol>
+    <symbol id="wallet" viewBox="0 0 24 24"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></symbol>
+    <symbol id="pkg" viewBox="0 0 24 24"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/></symbol>
+    <symbol id="file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M10 9H8M16 13H8M16 17H8"/></symbol>
+    <symbol id="user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></symbol>
+    <symbol id="book" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>
+    <symbol id="gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9 7 7M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/></symbol>
+    <symbol id="martini" viewBox="0 0 24 24"><path d="M8 22h8M12 11v11M19 3l-7 8-7-8Z"/></symbol>
+    <symbol id="chef" viewBox="0 0 24 24"><path d="M17 21a1 1 0 0 0 1-1v-5.35c0-.46.32-.84.73-1.04a4 4 0 0 0-2.13-7.59 5 5 0 0 0-9.19 0 4 4 0 0 0-2.13 7.59c.41.2.73.58.73 1.04V20a1 1 0 0 0 1 1Z"/><path d="M6 17h12"/></symbol>
+    <symbol id="bellc" viewBox="0 0 24 24"><path d="M3 20a1 1 0 0 1-1-1v-1a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1a1 1 0 0 1-1 1Z"/><path d="M20 16a8 8 0 1 0-16 0M12 4v4M10 4h4"/></symbol>
+    <symbol id="clip" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2M12 11h4M12 16h4M8 11h.01M8 16h.01"/></symbol>
+    <symbol id="wine" viewBox="0 0 24 24"><path d="M8 22h8M7 10h10M12 15v7M12 15a5 5 0 0 0 5-5c0-2-.5-4-2-8H9c-1.5 4-2 6-2 8a5 5 0 0 0 5 5Z"/></symbol>
+    <symbol id="star" viewBox="0 0 24 24"><path d="M11.5 2.3a.5.5 0 0 1 1 0l2.3 4.7 5.2.8a.5.5 0 0 1 .3.9l-3.8 3.6.9 5.2a.5.5 0 0 1-.7.5L12 15.6l-4.7 2.5a.5.5 0 0 1-.7-.5l.9-5.2-3.8-3.7a.5.5 0 0 1 .3-.9l5.2-.8Z"/></symbol>
+    <symbol id="flag" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"/></symbol>
+    <symbol id="grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></symbol>
+    <symbol id="trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+    <symbol id="check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="cloud" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></symbol>
+    <symbol id="sparkles" viewBox="0 0 24 24"><path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.13-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.13a.5.5 0 0 1 .96 0L14.06 8.5A2 2 0 0 0 15.5 9.94l6.13 1.58a.5.5 0 0 1 0 .96L15.5 14.06a2 2 0 0 0-1.44 1.44l-1.58 6.13a.5.5 0 0 1-.96 0z"/></symbol>
+    <symbol id="bookcheck" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/><path d="m9 9.5 2 2 4-4"/></symbol>
+  </defs>
+</svg>
+
+<header class="page">
+  <h1>База знаний: как разложить боковые панели</h1>
+  <p>Один и тот же документ «Открытие бара» в четырёх раскладках, экран 1280 × 760. Во всех вариантах уже стоит общая верхняя панель приложения (путь, поиск ⌘K, справка, колокольчик), заголовок по шкале 36px и спокойная плашка «Обязательно к прочтению» — меняется только то, что слева. Синим пунктиром внизу — сколько ширины достаётся тексту.</p>
+  <div class="legend">
+    <span><i style="background:rgba(21,112,239,.1);border:1px solid rgba(21,112,239,.3)"></i>активный пункт</span>
+    <span><i style="background:#18181b"></i>пояснение к макету</span>
+  </div>
+</header>
+
+<!-- ═════════════ СЕЙЧАС ═════════════ -->
+<section class="v">
+  <h2><span class="tag now">Сейчас</span>Для сравнения: как есть</h2>
+  <p class="about">Полное меню + отдельное дерево со своей шапкой «Страницы» и «Инструментами менеджера». Своя верхняя панель ниже общей, без поиска и справки, вместо пути — «‹ Бар». Жёлтый баннер во всю ширину, заголовок 40px сверхжирный.</p>
+  <div class="scaler"><div class="app old">
+    <aside class="side" data-k="side"></aside>
+    <aside class="tree">
+      <div class="tsec" style="padding-top:2px;text-transform:uppercase;letter-spacing:.04em">Страницы</div>
+      <div class="tn"><svg class="i s tw"><use href="#cd"/></svg><svg class="i s c-blue"><use href="#martini"/></svg><span class="t">Бар</span></div>
+      <div class="tn on" style="padding-left:18px"><svg class="i s c-green"><use href="#clip"/></svg><span class="t">Открытие бара</span></div>
+      <div class="tn" style="padding-left:18px"><svg class="i s c-orange"><use href="#clip"/></svg><span class="t">Закрытие бара</span></div>
+      <div class="tn"><svg class="i s tw empty"><use href="#cr"/></svg><svg class="i s c-orange"><use href="#chef"/></svg><span class="t">Кухня</span></div>
+      <div class="tn"><svg class="i s tw empty"><use href="#cr"/></svg><svg class="i s c-yellow"><use href="#bellc"/></svg><span class="t">Зал</span></div>
+      <div class="foot"><div class="tsec" style="text-transform:uppercase;letter-spacing:.04em;padding-top:4px">Инструменты менеджера</div>
+        <div class="tn"><svg class="i s c-m"><use href="#grid"/></svg>Дашборд</div>
+        <div class="tn"><svg class="i s c-m"><use href="#trash"/></svg>Корзина</div></div>
+    </aside>
+    <main class="main">
+      <div class="top"><div class="crumbs">‹ Бар</div><div class="sp"></div><div class="tbtn"><svg class="i"><use href="#more"/></svg></div><div class="tbtn"><svg class="i"><use href="#bell"/></svg><span class="dot"></span></div></div>
+      <div class="body"><div class="reqold">⚠ <b>Требуется прочтение</b> · Эта страница помечена как обязательная к прочтению. После того как ознакомитесь с содержимым — подтвердите прочтение.<br><span class="btn" style="margin-top:8px">Прочитано</span></div>
+        <div class="doc" data-k="doc-old"></div></div>
+    </main>
+    <div class="width" style="left:488px;right:0"><span>≈ 790px тексту — меню и дерево занимают больше трети экрана</span></div>
+  </div></div>
+</section>
+
+<!-- ═════════════ А ═════════════ -->
+<section class="v">
+  <h2><span class="tag">А</span>Две колонки остаются, дерево оформлено как общее меню</h2>
+  <p class="about">Меню приложения как везде. Рядом дерево той же «породы»: тот же фон, кегли, высота пунктов и синяя подсветка активного. «Дашборд» и «Корзина» переезжают в верх дерева, искать по базе — общим поиском ⌘K в верхней панели.</p>
+  <div class="pc"><div class="plus"><b>Плюсы</b><ul><li>Меньше всего переделок, ничего не ломаем</li><li>Меню приложения не меняется при заходе в базу</li></ul></div>
+    <div class="minus"><b>Минусы</b><ul><li>Тексту остаётся меньше всего места</li><li>Две колонки с похожими пунктами — глаз путается, где меню, а где страницы</li></ul></div></div>
+  <div class="scaler"><div class="app">
+    <aside class="side" data-k="side"></aside>
+    <aside class="tree" data-k="tree"></aside>
+    <main class="main" data-k="main"></main>
+    <div class="width" style="left:488px;right:0"><span>≈ 790px — колонка текста ужимается до 720 только впритык</span></div>
+  </div></div>
+</section>
+
+<!-- ═════════════ Б ═════════════ -->
+<section class="v">
+  <h2><span class="tag">Б</span>Дерево внутри общего меню</h2>
+  <p class="about">Одна боковая панель. Пункт «База знаний» раскрывается в дерево страниц так же, как «Люди» раскрываются в «Сотрудники / Кандидаты». Дашборд и корзина — первыми подпунктами.</p>
+  <div class="pc"><div class="plus"><b>Плюсы</b><ul><li>Максимально «как всё приложение»: одна колонка, одно меню</li><li>Больше всего места тексту</li></ul></div>
+    <div class="minus"><b>Минусы</b><ul><li>Меню узкое (236px): вложенность 3–4 уровня после импорта из Notion режет названия</li><li>Длинное дерево выталкивает остальные разделы вниз, меню приходится листать</li><li>Самая большая переделка: перенос перетаскивания, ширины, меню узлов в общее меню</li></ul></div></div>
+  <div class="scaler"><div class="app">
+    <aside class="side" data-k="side-b"></aside>
+    <main class="main" data-k="main"></main>
+    <div class="note l" style="left:246px;top:395px">Третий уровень уже не влезает: «Классические коктей…»</div>
+    <div class="width" style="left:236px;right:0"><span>≈ 1040px</span></div>
+  </div></div>
+</section>
+
+<!-- ═════════════ В ═════════════ -->
+<section class="v">
+  <h2><span class="tag">В</span>Меню сворачивается в иконки, дерево рядом <span class="tag rec">Рекомендую</span></h2>
+  <p class="about">Заходя в базу знаний, меню приложения само переходит в компактный режим (он уже есть) — иконки разделов, «База знаний» подсвечена синей плиткой. Рядом полноценное дерево с «Дашбордом» и «Корзиной»; искать — общим поиском ⌘K в верхней панели. Развернуть меню обратно можно в любой момент, выбор запоминается.</p>
+  <div class="pc"><div class="plus"><b>Плюсы</b><ul><li>Дереву хватает ширины, тексту — тоже</li><li>Один «главный» список на экране — страницы; разделы приложения под рукой иконками</li><li>Перетаскивание и ширина дерева остаются как есть</li></ul></div>
+    <div class="minus"><b>Минусы</b><ul><li>Меню приложения в базе знаний выглядит иначе, чем в других разделах (но это уже существующий компактный вид)</li></ul></div></div>
+  <div class="scaler"><div class="app">
+    <aside class="rail" data-k="rail"></aside>
+    <aside class="tree" data-k="tree"></aside>
+    <main class="main" data-k="main"></main>
+    <div class="note l" style="left:66px;top:520px">Наведите — подсказка с названием раздела</div>
+    <div class="width" style="left:312px;right:0"><span>≈ 970px</span></div>
+  </div></div>
+</section>
+
+<div style="height:60px"></div>
+
+<template id="t-side">
+  <div class="venue"><span class="av">Р</span><span><b>Ресторан «Тест»</b><small>Владелец</small></span><svg class="i s"><use href="#ud"/></svg></div>
+  <div class="grp">Рабочее пространство</div>
+  <div class="nav"><svg class="i"><use href="#users"/></svg>Люди<span class="badge">12</span></div>
+  <div class="nav"><svg class="i"><use href="#cal"/></svg>График работы<svg class="i ch"><use href="#cr"/></svg></div>
+  <div class="nav"><svg class="i"><use href="#trend"/></svg>Продажи<svg class="i ch"><use href="#cr"/></svg></div>
+  <div class="nav"><svg class="i"><use href="#bld"/></svg>Организация<svg class="i ch"><use href="#cr"/></svg></div>
+  <div class="nav"><svg class="i"><use href="#wallet"/></svg>Финансы<span class="badge">1</span></div>
+  <div class="nav"><svg class="i"><use href="#pkg"/></svg>Номенклатура<svg class="i ch"><use href="#cr"/></svg></div>
+  <div class="nav"><svg class="i"><use href="#file"/></svg>Документы<span class="badge">4</span></div>
+  <div class="nav"><svg class="i"><use href="#user"/></svg>Гости</div>
+  <div class="nav on"><svg class="i"><use href="#book"/></svg>База знаний</div>
+  <div class="nav"><svg class="i"><use href="#gear"/></svg>Настройки<svg class="i ch"><use href="#cr"/></svg></div>
+  <div class="me"><span class="av">ТВ</span><span><b>Тест Владелец</b><small>owner@test.com</small></span></div>
+</template>
+
+<template id="t-side-b">
+  <div class="venue"><span class="av">Р</span><span><b>Ресторан «Тест»</b><small>Владелец</small></span><svg class="i s"><use href="#ud"/></svg></div>
+  <div class="grp">Рабочее пространство</div>
+  <div class="nav"><svg class="i"><use href="#users"/></svg>Люди<span class="badge">12</span></div>
+  <div class="nav"><svg class="i"><use href="#cal"/></svg>График работы<svg class="i ch"><use href="#cr"/></svg></div>
+  <div class="nav"><svg class="i"><use href="#trend"/></svg>Продажи<svg class="i ch"><use href="#cr"/></svg></div>
+  <div class="nav"><svg class="i"><use href="#bld"/></svg>Организация<svg class="i ch"><use href="#cr"/></svg></div>
+  <div class="nav"><svg class="i"><use href="#wallet"/></svg>Финансы<span class="badge">1</span></div>
+  <div class="nav"><svg class="i"><use href="#book"/></svg>База знаний<svg class="i ch"><use href="#cd"/></svg></div>
+  <div class="sub">
+    <div class="tn"><svg class="i s c-m"><use href="#grid"/></svg>Дашборд</div>
+    <div class="tn"><svg class="i s tw"><use href="#cd"/></svg><svg class="i s c-blue"><use href="#martini"/></svg><span class="t">Бар</span></div>
+    <div class="sub" style="margin-left:9px">
+      <div class="tn on"><svg class="i s c-green"><use href="#clip"/></svg><span class="t">Открытие бара</span></div>
+      <div class="tn"><svg class="i s c-orange"><use href="#clip"/></svg><span class="t">Закрытие бара</span></div>
+      <div class="tn"><svg class="i s tw"><use href="#cd"/></svg><svg class="i s c-purple"><use href="#wine"/></svg><span class="t">Коктейльная карта</span></div>
+      <div class="sub" style="margin-left:9px">
+        <div class="tn"><svg class="i s c-m"><use href="#book"/></svg><span class="t">Классические коктейли</span></div>
+        <div class="tn"><svg class="i s c-pink"><use href="#sparkles"/></svg><span class="t">Авторские коктейли</span></div>
+      </div>
+    </div>
+    <div class="tn"><svg class="i s tw"><use href="#cr"/></svg><svg class="i s c-orange"><use href="#chef"/></svg><span class="t">Кухня</span></div>
+    <div class="tn"><svg class="i s tw"><use href="#cr"/></svg><svg class="i s c-yellow"><use href="#bellc"/></svg><span class="t">Зал</span></div>
+    <div class="tn"><svg class="i s tw"><use href="#cr"/></svg><svg class="i s c-green"><use href="#users"/></svg><span class="t">Онбординг</span></div>
+    <div class="tn"><svg class="i s c-m"><use href="#trash"/></svg>Корзина</div>
+  </div>
+  <div class="nav" style="opacity:.55"><svg class="i"><use href="#pkg"/></svg>Номенклатура<svg class="i ch"><use href="#cr"/></svg></div>
+  <div class="nav" style="opacity:.35"><svg class="i"><use href="#file"/></svg>Документы<span class="badge">4</span></div>
+  <div class="me"><span class="av">ТВ</span><span><b>Тест Владелец</b><small>owner@test.com</small></span></div>
+</template>
+
+<template id="t-rail">
+  <span class="av">Р</span>
+  <span class="ib"><svg class="i"><use href="#users"/></svg><span class="dot"></span></span>
+  <span class="ib"><svg class="i"><use href="#cal"/></svg></span>
+  <span class="ib"><svg class="i"><use href="#trend"/></svg></span>
+  <span class="ib"><svg class="i"><use href="#bld"/></svg></span>
+  <span class="ib"><svg class="i"><use href="#wallet"/></svg><span class="dot"></span></span>
+  <span class="ib"><svg class="i"><use href="#pkg"/></svg></span>
+  <span class="ib"><svg class="i"><use href="#file"/></svg><span class="dot"></span></span>
+  <span class="ib"><svg class="i"><use href="#user"/></svg></span>
+  <span class="ib on"><svg class="i"><use href="#book"/></svg></span>
+  <span class="ib"><svg class="i"><use href="#gear"/></svg></span>
+  <span class="me2">ТВ</span>
+</template>
+
+<template id="t-tree">
+  <div class="th"><b>База знаний</b><span class="sp"></span><span class="tbtn" style="width:28px;height:28px"><svg class="i s"><use href="#plus"/></svg></span></div>
+  <div class="tn"><svg class="i s tw empty"><use href="#cr"/></svg><svg class="i s c-m"><use href="#grid"/></svg><span class="t">Дашборд</span></div>
+  <div class="tn"><svg class="i s tw empty"><use href="#cr"/></svg><svg class="i s c-m"><use href="#bookcheck"/></svg><span class="t">К прочтению</span><span style="margin-left:auto;font-size:12px;color:var(--mfg)">3</span></div>
+  <div class="tsec">Страницы</div>
+  <div class="tn"><svg class="i s tw"><use href="#cd"/></svg><svg class="i s c-blue"><use href="#martini"/></svg><span class="t">Бар</span></div>
+  <div class="tn on" style="padding-left:20px"><svg class="i s tw empty"><use href="#cr"/></svg><svg class="i s c-green"><use href="#clip"/></svg><span class="t">Открытие бара</span></div>
+  <div class="tn" style="padding-left:20px"><svg class="i s tw empty"><use href="#cr"/></svg><svg class="i s c-orange"><use href="#clip"/></svg><span class="t">Закрытие бара</span></div>
+  <div class="tn" style="padding-left:20px"><svg class="i s tw"><use href="#cd"/></svg><svg class="i s c-purple"><use href="#wine"/></svg><span class="t">Коктейльная карта</span></div>
+  <div class="tn" style="padding-left:40px"><svg class="i s tw empty"><use href="#cr"/></svg><svg class="i s c-m"><use href="#book"/></svg><span class="t">Классические коктейли</span></div>
+  <div class="tn" style="padding-left:40px"><svg class="i s tw empty"><use href="#cr"/></svg><svg class="i s c-pink"><use href="#sparkles"/></svg><span class="t">Авторские коктейли</span></div>
+  <div class="tn"><svg class="i s tw"><use href="#cr"/></svg><svg class="i s c-orange"><use href="#chef"/></svg><span class="t">Кухня</span></div>
+  <div class="tn"><svg class="i s tw"><use href="#cr"/></svg><svg class="i s c-yellow"><use href="#bellc"/></svg><span class="t">Зал</span></div>
+  <div class="tn"><svg class="i s tw"><use href="#cr"/></svg><svg class="i s c-green"><use href="#users"/></svg><span class="t">Онбординг</span></div>
+  <div class="tn"><svg class="i s tw empty"><use href="#cr"/></svg><svg class="i s c-m"><use href="#file"/></svg><span class="t">Правила компании</span></div>
+  <div class="foot"><div class="tn"><svg class="i s tw empty"><use href="#cr"/></svg><svg class="i s c-m"><use href="#trash"/></svg><span class="t">Корзина</span></div></div>
+</template>
+
+<template id="t-main">
+  <div class="top">
+    <div class="crumbs">База знаний <span>/</span> Бар <span>/</span> <b>Открытие бара</b></div>
+    <span class="saved"><svg class="i s"><use href="#cloud"/></svg>Сохранено</span>
+    <div class="sp"></div>
+    <div class="cmdk"><svg class="i s"><use href="#search"/></svg>Поиск по базе<kbd>⌘K</kbd></div>
+    <div class="tbtn"><svg class="i"><use href="#more"/></svg></div>
+    <div class="tbtn"><svg class="i"><use href="#help"/></svg></div>
+    <div class="tbtn"><svg class="i"><use href="#bell"/></svg><span class="dot"></span></div>
+  </div>
+  <div class="body"><div class="doc">
+    <div class="ico"><svg class="i"><use href="#clip"/></svg></div>
+    <h1>Открытие бара</h1>
+    <div class="req"><svg class="i ic"><use href="#bookcheck"/></svg><span><b>Обязательно к прочтению</b> <span class="m">· ≈ 1 мин</span></span><span class="btn"><svg class="i s"><use href="#check"/></svg>Прочитано</span></div>
+    <div class="props">
+      <div class="k">Ответственный</div><div><span class="pav">А</span>Анна Белова</div>
+      <div class="k">Статус</div><div><span class="chip">Актуально</span></div>
+    </div>
+    <h2>Перед сменой</h2>
+    <p>Бармен приходит за 30 минут до открытия. Первым делом проверяем остатки льда, цитрусовых и сиропов — без них смену не начинаем.</p>
+    <ul><li>Включить кофемашину и прогреть группы</li><li>Протереть стойку и барные стулья</li></ul>
+    <h2>Чек-лист открытия</h2>
+    <div class="cb done"><i><svg class="i" style="width:12px;height:12px;stroke-width:3"><use href="#check"/></svg></i><span>Касса открыта, смена начата</span></div>
+    <div class="cb"><i></i><span>Холодильники: температура в норме</span></div>
+  </div></div>
+</template>
+
+<script>
+  const fill = (sel, tpl) => document.querySelectorAll(sel).forEach(el => el.append(document.getElementById(tpl).content.cloneNode(true)));
+  fill('[data-k="side"]','t-side'); fill('[data-k="side-b"]','t-side-b'); fill('[data-k="rail"]','t-rail');
+  fill('[data-k="tree"]','t-tree'); fill('[data-k="main"]','t-main');
+  // старый документ: то же содержимое без новой плашки и свойств
+  document.querySelectorAll('[data-k="doc-old"]').forEach(el => {
+    const d = document.getElementById('t-main').content.querySelector('.doc').cloneNode(true);
+    d.querySelector('.req').remove(); d.querySelector('.props').remove();
+    el.replaceWith(d);
+  });
+  function scale(){ document.querySelectorAll('.scaler').forEach(s => { const a = s.firstElementChild; const k = Math.min(1, s.clientWidth/1280); a.style.transform = `scale(${k})`; s.style.height = (760*k)+'px'; }); }
+  addEventListener('resize', scale); scale();
+</script>
+</body>
+</html>

@@ -216,6 +216,19 @@
       overflow-x: clip;
     }
   }
+  /* То же при открытом меню или окне: Radix (react-remove-scroll-bar)
+     ставит body[data-scroll-locked] { overflow: hidden !important }, body
+     снова становится scroll-контейнером, и всё sticky (верхняя панель базы
+     знаний, дерево страниц, шапки таблиц) прыгает вверх на величину
+     прокрутки. Меню при этом рисовалось сдвинутым прямо под курсор, и
+     отпускание кнопки мыши выбирало пункт («Дублировать страницу»).
+     Прокрутку страницы держит html, а колесо и касания блокирует сама
+     библиотека — overflow на body ей для этого не нужен. */
+  @media (min-width: 640px) {
+    html body[data-scroll-locked] {
+      overflow: clip !important;
+    }
+  }
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";

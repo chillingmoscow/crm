@@ -1,11 +1,13 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, ChevronLeft } from "lucide-react";
 
 import { getCachedPermissionChecker } from "@/lib/supabase/server";
-import { PageBreadcrumb } from "@/components/shared/page-header-actions";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { PageFrame } from "@/components/shared/page-frame";
+import { TablePageHeader } from "@/components/shared/table/table-page-header";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
-import { getKbPageBySlug } from "@/lib/knowledge/pages";
+import { getKbPageBySlugCached } from "@/lib/knowledge/page-by-slug";
 import {
   getKbAnalyticsPageViewers,
   type KbAnalyticsPeriod,
@@ -27,6 +29,16 @@ const PERIOD_LABEL: Record<KbAnalyticsPeriod, string> = {
  * Аналитики переехал сюда (`/knowledge/analytics/*` 301-redirect'ится
  * в next.config). Slug в URL — для читаемости вместо UUID.
  */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  const { row } = await getKbPageBySlugCached(slug);
+  return { title: `Статистика — ${row?.title?.trim() || "Без названия"}` };
+}
+
 export default async function KbDashboardPageDrilldown({
   params,
   searchParams,
@@ -45,46 +57,30 @@ export default async function KbDashboardPageDrilldown({
   const can = await getCachedPermissionChecker();
   if (!can("kb.view_analytics")) redirect("/knowledge");
 
-  const { row: page, error: pageError } = await getKbPageBySlug(slug);
+  const { row: page, error: pageError } = await getKbPageBySlugCached(slug);
   if (pageError || !page) notFound();
 
   const { rows: viewers, error: viewersError } =
     await getKbAnalyticsPageViewers({ pageId: page.id, period });
 
   return (
-    <div className="flex-1 flex flex-col">
-      <PageBreadcrumb>
-        <Link
-          href="/knowledge/dashboard"
-          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          Дашборд
-        </Link>
-      </PageBreadcrumb>
+    <PageFrame className="flex flex-col gap-6">
+      <Breadcrumbs
+        items={[
+          { label: "База знаний", href: "/knowledge" },
+          { label: "Обзор", href: `/knowledge/dashboard?p=${period}` },
+          { label: page.title || "Без названия" },
+        ]}
+      />
 
-      <div className="px-6 md:px-8 pt-4 pb-8 w-full">
-        <div className="mx-auto w-full max-w-[1100px] flex flex-col gap-6">
-          <Link
-            href={`/knowledge/dashboard?p=${period}`}
-            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground self-start"
-          >
-            <ArrowLeft className="size-4" />
-            К дашборду
-          </Link>
-
-          <header className="flex items-start gap-3">
-            <KbPageIcon icon={page.icon} color={page.icon_color} size={28} />
-            <div className="flex flex-col gap-1.5 min-w-0">
-              <h1 className="text-[28px] font-bold tracking-tight leading-tight">
-                {page.title || "Без названия"}
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                Кто и сколько времени провёл на этой странице{" "}
-                {PERIOD_LABEL[period]}.
-              </p>
-            </div>
-          </header>
+          <TablePageHeader
+            title={
+              <span className="flex min-w-0 items-center gap-3">
+                <KbPageIcon icon={page.icon} color={page.icon_color} size={28} />
+                <span className="truncate">{page.title || "Без названия"}</span>
+              </span>
+            }
+          />
 
           {viewersError && (
             <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
@@ -95,7 +91,7 @@ export default async function KbDashboardPageDrilldown({
           <section className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
             <div className="flex items-baseline justify-between">
               <h2 className="text-sm font-semibold text-foreground">
-                Читавшие
+                Читавшие {PERIOD_LABEL[period]}
               </h2>
               <span className="text-xs text-muted-foreground">
                 {viewers.length}{" "}
@@ -111,9 +107,7 @@ export default async function KbDashboardPageDrilldown({
           >
             ← Открыть страницу
           </Link>
-        </div>
-      </div>
-    </div>
+    </PageFrame>
   );
 }
 

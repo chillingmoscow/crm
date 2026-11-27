@@ -1,11 +1,13 @@
-import Link from "next/link";
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, CheckCircle2, Clock, BookCheck } from "lucide-react";
+import { CheckCircle2, Clock } from "lucide-react";
 
 import { getCachedPermissionChecker } from "@/lib/supabase/server";
-import { PageBreadcrumb } from "@/components/shared/page-header-actions";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { ProfilePageFrame } from "@/components/shared/page-frame";
+import { TablePageHeader } from "@/components/shared/table/table-page-header";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
-import { getKbPageBySlug } from "@/lib/knowledge/pages";
+import { getKbPageBySlugCached } from "@/lib/knowledge/page-by-slug";
 import {
   getKbRequiredReadingStats,
   type KbRequiredReadingStatsRow,
@@ -30,6 +32,16 @@ import { avatarImageUrl } from "@/lib/people/avatar-thumb";
  * «обязательно для всех в аккаунте». Per-role или per-user assignment
  * (Раздел 2.7-D) — отдельная фича вместе с per-page sharing.
  */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  const { row } = await getKbPageBySlugCached(slug);
+  return { title: `Кто прочитал — ${row?.title?.trim() || "Без названия"}` };
+}
+
 export default async function KbRequiredReadingAdminPage({
   params,
 }: {
@@ -40,7 +52,7 @@ export default async function KbRequiredReadingAdminPage({
   const can = await getCachedPermissionChecker();
   if (!can("kb.manage_required_reading")) redirect(`/knowledge/${slug}`);
 
-  const { row: page, error: pageError } = await getKbPageBySlug(slug);
+  const { row: page, error: pageError } = await getKbPageBySlugCached(slug);
   if (pageError || !page) notFound();
 
   const { rows, error } = await getKbRequiredReadingStats(page.id);
@@ -51,36 +63,29 @@ export default async function KbRequiredReadingAdminPage({
   const readPct = total > 0 ? Math.round((readRows.length / total) * 100) : 0;
 
   return (
-    <div className="flex-1 flex flex-col">
-      <PageBreadcrumb>
-        <span className="text-sm font-medium text-foreground inline-flex items-center gap-2">
-          <BookCheck className="size-4 text-muted-foreground" />
-          Кто прочитал
-        </span>
-      </PageBreadcrumb>
+    <ProfilePageFrame>
+      <Breadcrumbs
+        items={[
+          { label: "База знаний", href: "/knowledge" },
+          { label: page.title || "Без названия", href: `/knowledge/${page.slug}` },
+          { label: "Кто прочитал" },
+        ]}
+      />
 
-      <div className="px-6 md:px-8 pt-6 pb-8 w-full flex flex-col gap-6">
-        <div className="mx-auto w-full max-w-[760px] flex flex-col gap-6">
-          <Link
-            href={`/knowledge/${page.slug}`}
-            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground self-start"
-          >
-            <ArrowLeft className="size-4" />К странице
-          </Link>
-
-          <header className="flex items-start gap-3">
-            <KbPageIcon icon={page.icon} color={page.icon_color} size={28} />
-            <div className="flex flex-col gap-1.5 min-w-0">
-              <h1 className="text-[24px] font-bold tracking-tight leading-tight">
+          <TablePageHeader title="Кто прочитал" />
+          <div className="-mt-2 flex items-center gap-3">
+            <KbPageIcon icon={page.icon} color={page.icon_color} size={20} />
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <span className="truncate text-base font-semibold">
                 {page.title || "Без названия"}
-              </h1>
+              </span>
               <p className="text-sm text-muted-foreground">
                 {page.required_reading
                   ? `Обязательная к прочтению. Прочитали ${readRows.length} из ${total} (${readPct}%).`
                   : `Страница не помечена как обязательная. Записи о прочтении сохранены за прошлые периоды.`}
               </p>
             </div>
-          </header>
+          </div>
 
           {error && (
             <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
@@ -113,9 +118,7 @@ export default async function KbRequiredReadingAdminPage({
             </div>
             <ReaderList rows={unreadRows} mode="unread" />
           </section>
-        </div>
-      </div>
-    </div>
+    </ProfilePageFrame>
   );
 }
 

@@ -1,14 +1,10 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import type { Metadata } from "next";
 import { ArrowRight, BookMarked, BookOpen, Clock, Star } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 
-import {
-  createClient,
-  getCachedUser,
-  getCachedPermissions,
-} from "@/lib/supabase/server";
+import { getCachedPermissions } from "@/lib/supabase/server";
 import { listRecentKbPages } from "@/lib/knowledge/pages";
 import { listMyKbFavorites } from "@/lib/knowledge/favorites";
 import {
@@ -16,64 +12,43 @@ import {
   getMyRecentlyViewedKbPages,
 } from "@/lib/knowledge/landing";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { PageFrame } from "@/components/shared/page-frame";
+import { TablePageHeader } from "@/components/shared/table/table-page-header";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { CreateRootPageButton } from "@/app/(dashboard)/knowledge/_components/create-root-page-button";
-import { KbSearchTrigger } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
 import { KbLandingSection } from "@/app/(dashboard)/knowledge/_components/kb-landing-section";
 
 /**
- * KB-главная для сотрудника (sheerly `foMCZ`): приветствие по имени,
- * hero обязательного чтения с прогрессом, «Недавно обновлённые»,
- * «Мои недавние», «Избранное».
- *
- * Role-aware: пользователь с `kb.view_analytics` сюда не попадает —
- * редиректится на свою рабочую домашнюю `/knowledge/dashboard`
- * (раздел «База знаний» для него = дашборд). Кнопка «Новая
- * страница» — только при `kb.create_pages` (иначе сотрудник ловил
- * RLS `new row violates ... kb_pages`).
+ * Главная базы знаний: обязательное чтение с прогрессом (`#to-read` — на
+ * него ведёт пункт «К прочтению» в дереве), «Недавно обновлённые», «Мои
+ * недавние», «Избранное». Открыта всем; менеджера с правом аналитики
+ * значок «База знаний» в меню ведёт сразу на «Обзор» (KbNavLink), а сюда —
+ * пункт «Главная» дерева. Кнопка «Новая страница» — только при
+ * `kb.create_pages`.
  *
  * Все блоки conditional: пустые секции скрываются. Полностью пусто
  * → empty-state (с поправкой на права создания).
  */
+export const metadata: Metadata = { title: "База знаний" };
+
 export default async function KnowledgeLandingPage() {
   const perms = new Set(await getCachedPermissions());
-  if (perms.has("kb.view_analytics")) redirect("/knowledge/dashboard");
   const canCreate = perms.has("kb.create_pages");
 
-  const supabase = await createClient();
   const [
-    user,
     { rows: recentTeam },
     { pages: favorites },
-    { rows: requiredUnread },
+    { rows: requiredUnread, total: requiredTotal },
     { rows: recentlyViewed },
-    requiredCountRes,
   ] = await Promise.all([
-    getCachedUser(),
     listRecentKbPages(8),
     listMyKbFavorites(),
     getKbRequiredUnreadForUser(),
     getMyRecentlyViewedKbPages(7),
-    supabase
-      .from("kb_pages")
-      .select("id", { count: "exact", head: true })
-      .eq("required_reading", true)
-      .is("deleted_at", null),
   ]);
 
-  let firstName: string | null = null;
-  if (user) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("first_name")
-      .eq("id", user.id)
-      .maybeSingle();
-    firstName = profile?.first_name?.trim() || null;
-  }
-
-  const requiredTotal = requiredCountRes.count ?? 0;
-  const unreadCount = requiredUnread.length;
-  const readCount = Math.max(0, requiredTotal - unreadCount);
+  const readCount = Math.max(0, requiredTotal - requiredUnread.length);
   const progressPct =
     requiredTotal > 0 ? Math.round((readCount / requiredTotal) * 100) : 0;
 
@@ -85,24 +60,12 @@ export default async function KnowledgeLandingPage() {
     requiredTotal === 0;
 
   return (
-    <div className="px-6 md:px-8 pt-5 pb-10 w-full flex flex-col gap-7">
-      <header className="flex flex-col gap-3">
-        <div className="flex items-end justify-between gap-4">
-          <div className="flex flex-col gap-1.5 min-w-0">
-            <h1 className="text-[28px] font-bold tracking-tight leading-tight">
-              {firstName ? `Привет, ${firstName}!` : "База знаний"}
-            </h1>
-            <p className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-              <BookMarked className="size-4 shrink-0" />
-              {unreadCount > 0
-                ? `У вас ${unreadCount} ${articleWord(unreadCount)} к прочтению`
-                : "SOP, регламенты, рецепты и онбординг команды"}
-            </p>
-          </div>
-          {canCreate && <CreateRootPageButton />}
-        </div>
-        <KbSearchTrigger />
-      </header>
+    <PageFrame className="flex flex-col gap-6">
+      <Breadcrumbs items={[{ label: "База знаний" }]} />
+      <TablePageHeader
+        title="База знаний"
+        actions={canCreate ? <CreateRootPageButton /> : undefined}
+      />
 
       {isAllEmpty ? (
         <EmptyState
@@ -119,7 +82,10 @@ export default async function KnowledgeLandingPage() {
         <div className="flex flex-col gap-7">
           {/* Hero обязательного чтения — только если есть обязательные. */}
           {requiredTotal > 0 && (
-            <section className="flex flex-col gap-4 rounded-xl border border-brand/20 bg-brand/5 p-6">
+            <section
+              id="to-read"
+              className="flex scroll-mt-6 flex-col gap-4 rounded-xl border border-brand/20 bg-brand/5 p-6"
+            >
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h2 className="inline-flex items-center gap-2 text-base font-semibold text-foreground">
                   <BookMarked className="size-4 text-brand" />
@@ -238,16 +204,6 @@ export default async function KnowledgeLandingPage() {
           )}
         </div>
       )}
-    </div>
+    </PageFrame>
   );
-}
-
-/** RU-склонение «статья» по числу (обязательных к прочтению). */
-function articleWord(n: number): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod100 >= 11 && mod100 <= 14) return "обязательных статей";
-  if (mod10 === 1) return "обязательная статья";
-  if (mod10 >= 2 && mod10 <= 4) return "обязательные статьи";
-  return "обязательных статей";
 }

@@ -1,10 +1,11 @@
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { FileX, ShieldAlert } from "lucide-react";
 
 import { createClient, getCachedActiveAccountId, getCachedPermissions } from "@/lib/supabase/server";
+import { getKbPageBySlugCached } from "@/lib/knowledge/page-by-slug";
 import {
   getDeletedKbPageBySlug,
-  getKbPageBySlug,
   getKbPageViewData,
   resolveKbMentionTargets,
 } from "@/lib/knowledge/pages";
@@ -12,11 +13,9 @@ import { extractBacklinks } from "@/lib/knowledge/backlinks";
 import { isUnavailableNotionPage } from "@/lib/knowledge/notion-unavailable";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getKbTreeRows } from "@/lib/knowledge/tree";
-import {
-  PageBreadcrumb,
-  PageHeaderActions,
-} from "@/components/shared/page-header-actions";
-import { KbBackLink } from "@/app/(dashboard)/knowledge/_components/kb-back-link";
+import { kbCrumbs } from "@/lib/knowledge/shell";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { PageHeaderActions } from "@/components/shared/page-header-actions";
 import { KbDeletedPageBanner } from "@/app/(dashboard)/knowledge/_components/kb-deleted-page-banner";
 import { KbPageEditor } from "@/app/(dashboard)/knowledge/_components/kb-page-editor";
 import { KbBacklinks } from "@/app/(dashboard)/knowledge/_components/kb-backlinks";
@@ -38,9 +37,15 @@ interface PageProps {
   params: Promise<{ slug: string }>;
 }
 
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { slug } = await params;
+  const { row } = await getKbPageBySlugCached(slug);
+  return { title: row?.title?.trim() || "База знаний" };
+}
+
 export default async function KbPageView({ params }: PageProps) {
   const { slug } = await params;
-  const { row, error } = await getKbPageBySlug(slug);
+  const { row, error } = await getKbPageBySlugCached(slug);
   if (error) notFound();
   if (!row) {
     // Notion-style: страница из корзины не 404-ит, а открывается
@@ -66,9 +71,7 @@ export default async function KbPageView({ params }: PageProps) {
   if (isUnavailableNotionPage(row)) {
     return (
       <>
-        <PageBreadcrumb>
-          <KbBackLink href="/knowledge" label="База знаний" />
-        </PageBreadcrumb>
+        <Breadcrumbs items={kbCrumbs([{ slug: row.slug, title: row.title }])} />
         <div className="mx-auto w-full max-w-[760px] px-4 py-6 md:px-8">
           <EmptyState
             icon={FileX}
@@ -267,13 +270,6 @@ export default async function KbPageView({ params }: PageProps) {
     trashed: trashedMentionSlugs,
   } = mentionResolution;
 
-  // Resolve back-link target: parent page if any, else /knowledge.
-  // chain comes root → leaf, last entry is the current page itself.
-  const parent = chain.length >= 2 ? chain[chain.length - 2] : null;
-  const backHref = parent ? `/knowledge/${parent.slug}` : "/knowledge";
-  const backLabel = parent
-    ? parent.title || "Без названия"
-    : "База знаний";
 
   // Profile lookup для KbPageMenu — footer + «О странице» dialog
   // (full audit info: id / created / author / updated / editor) +
@@ -309,9 +305,9 @@ export default async function KbPageView({ params }: PageProps) {
       {/* Top-bar slots (теперь отрисовываются в KB-собственном header'е,
           см. knowledge/layout.tsx). Левая часть — breadcrumb back-link,
           правая — version history, delete, info popover. */}
-      <PageBreadcrumb>
-        <KbBackLink href={backHref} label={backLabel} />
-      </PageBreadcrumb>
+      <Breadcrumbs
+        items={kbCrumbs(chain.length > 0 ? chain : [{ slug: row.slug, title: row.title }])}
+      />
       <PageHeaderActions>
         {/* Порядок справа налево: колокольчик (в layout) → ⋯-меню →
             «Заблокировано». В DOM-слоте, значит, сначала lock-чип,
@@ -488,9 +484,13 @@ async function DeletedKbPageView({ row }: { row: KbPageRow }) {
 
   return (
     <div className="flex-1 flex flex-col">
-      <PageBreadcrumb>
-        <KbBackLink href="/knowledge/trash" label="Корзина" />
-      </PageBreadcrumb>
+      <Breadcrumbs
+        items={[
+          { label: "База знаний", href: "/knowledge" },
+          { label: "Корзина", href: "/knowledge/trash" },
+          { label: row.title?.trim() || "Без названия" },
+        ]}
+      />
 
       {/* Edge-to-edge плашка «в корзине» (как красная плашка Notion) */}
       <KbDeletedPageBanner
@@ -532,9 +532,12 @@ async function DeletedKbPageView({ row }: { row: KbPageRow }) {
 function DeletedPageAccessDenied() {
   return (
     <div className="flex-1 flex flex-col">
-      <PageBreadcrumb>
-        <KbBackLink href="/knowledge" label="База знаний" />
-      </PageBreadcrumb>
+      <Breadcrumbs
+        items={[
+          { label: "База знаний", href: "/knowledge" },
+          { label: "Страница в корзине" },
+        ]}
+      />
 
       <div className="pl-10 pr-4 md:px-8 pt-6 pb-8 w-full flex flex-col gap-3">
         <div className="mx-auto w-full max-w-[760px]">

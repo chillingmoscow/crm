@@ -32,13 +32,13 @@ const crumbs = [
 export default async function SalesSettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ venue?: string }>;
+  searchParams: Promise<{ venue?: string; plan?: string }>;
 }) {
   if (!(await getCachedUser())) redirect("/login");
   const can = await getCachedPermissionChecker();
   if (!can("sales.view_shifts") || !can("sales.configure_shifts"))
     return <SalesNoAccess page="Настройки продаж" />;
-  const { venue } = await searchParams;
+  const { venue, plan } = await searchParams;
   let venueId = z.string().uuid().safeParse(venue).success ? venue! : null;
   if (!venueId) {
     const active = await (await createClient()).rpc("get_active_venue_id");
@@ -76,7 +76,11 @@ export default async function SalesSettingsPage({
           {configuration.venueName}
         </span>
       </ProfileHeader>
-      <SalesSettingsTab key={configuration.venueId} initial={configuration} />
+      <SalesSettingsTab
+        key={configuration.venueId}
+        initial={configuration}
+        planMonth={typeof plan === "string" ? plan : undefined}
+      />
     </ProfilePageFrame>
   );
 }

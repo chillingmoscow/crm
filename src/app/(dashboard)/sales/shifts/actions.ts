@@ -139,6 +139,28 @@ async function recalculateSalesHistoryImpl(input: {
   return length;
 }
 /**
+ * План оборота месяца: `null` — плана нет, `undefined` — план не прочитать
+ * (например, миграция 402 ещё не накатана). Тогда «Смены» открываются без
+ * карточки плана — и без «Задать план», ведь план, может быть, уже задан.
+ */
+async function loadMonthPlan(
+  s: Awaited<ReturnType<typeof scope>>,
+  month: string,
+): Promise<number | null | undefined> {
+  const r = await s.client
+    .from("sales_month_plans")
+    .select("turnover")
+    .eq("account_id", s.accountId)
+    .eq("venue_id", s.venueId)
+    .eq("month", `${month}-01`)
+    .maybeSingle();
+  if (r.error) {
+    console.error(`[sales] план месяца не прочитан: ${r.error.message}`);
+    return undefined;
+  }
+  return r.data ? Number(r.data.turnover) : null;
+}
+/**
  * Смены активного заведения. С `month` («2026-11») — только дни этого месяца:
  * экран «Смен» показывает один месяц и обновляет его каждую минуту, читать
  * всю историю на каждом обновлении незачем. Без `month` — вся история
@@ -152,7 +174,8 @@ async function loadSalesImpl(
       .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
       .parse(requested);
   const s = await scope();
-  const [venue, settings, connection] = await Promise.all([
+  const explicit = requested !== "current" ? requested : undefined;
+  const [venue, settings, connection, explicitPlan] = await Promise.all([
     s.db
       .from<{ name: string; timezone: string }>("venues")
       .select("name,timezone")
@@ -164,6 +187,7 @@ async function loadSalesImpl(
       .eq("venue_id", s.venueId)
       .maybeSingle(),
     getConnection(s.accountId),
+    explicit ? loadMonthPlan(s, explicit) : undefined,
   ]);
   if (venue.error || settings.error)
     throw new Error(venue.error?.message ?? settings.error?.message);
@@ -178,6 +202,12 @@ async function loadSalesImpl(
           settings.data?.day_start_hour ?? 9,
         ).slice(0, 7)
       : requested;
+  // План текущего месяца читаем параллельно со сменами.
+  const plan = explicit
+    ? Promise.resolve(explicitPlan)
+    : month
+      ? loadMonthPlan(s, month)
+      : Promise.resolve(undefined);
   const days: SalesDay[] = [];
   const bounds = month
     ? {
@@ -234,6 +264,7 @@ async function loadSalesImpl(
     days,
     hasDays,
     month,
+    plan: await plan,
     venueId: s.venueId,
     venueName: venue.data?.name ?? "",
     timezone:

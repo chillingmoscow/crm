@@ -3310,6 +3310,57 @@ export type Database = {
           },
         ]
       }
+      sales_month_plans: {
+        Row: {
+          account_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          month: string
+          turnover: number
+          updated_at: string
+          updated_by: string | null
+          venue_id: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          month: string
+          turnover: number
+          updated_at?: string
+          updated_by?: string | null
+          venue_id: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          month?: string
+          turnover?: number
+          updated_at?: string
+          updated_by?: string | null
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_month_plans_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_month_plans_account_id_venue_id_fkey"
+            columns: ["account_id", "venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["account_id", "id"]
+          },
+        ]
+      }
       sales_upsell_days: {
         Row: {
           account_id: string

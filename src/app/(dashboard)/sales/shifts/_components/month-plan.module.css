@@ -1,0 +1,63 @@
+/* Кольцо плана (docs/motion.md): дуга «дорисовывается» от нуля до своей
+   длины. В keyframes только `from` — конечное значение берётся из
+   stroke-dasharray самого элемента. Прогноз проявляется следом за фактом. */
+@keyframes plan-arc {
+  from {
+    stroke-dasharray: 0 100;
+  }
+}
+.arc {
+  animation: plan-arc 1400ms var(--ease-draw) 120ms both;
+}
+.ahead {
+  animation-delay: 500ms;
+}
+/* Общее правило укорачивает длительность, но не задержку: без этого дуги
+   полсекунды стоят пустыми и появляются рывком. */
+@media (prefers-reduced-motion: reduce) {
+  .arc,
+  .ahead {
+    animation-delay: 0ms;
+  }
+}
+
+/* Раскладка по ширине карточки, а не окна (как у MetricStrip): узко —
+   столбиком, широко — кольцо, прогноз и ссылка в одну строку. */
+.card {
+  container-type: inline-size;
+}
+.layout {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.forecast {
+  border-top: 1px solid hsl(var(--border));
+  padding-top: 16px;
+}
+.edit {
+  align-self: flex-start;
+  margin-left: -8px;
+}
+@container (min-width: 820px) {
+  .layout {
+    flex-direction: row;
+    align-items: center;
+    gap: 24px;
+  }
+  .main {
+    flex-shrink: 0;
+  }
+  .forecast {
+    flex: 1;
+    max-width: 420px;
+    border-top: 0;
+    border-left: 1px solid hsl(var(--border));
+    padding-top: 0;
+    padding-left: 24px;
+  }
+  .edit {
+    align-self: center;
+    margin-left: auto;
+  }
+}

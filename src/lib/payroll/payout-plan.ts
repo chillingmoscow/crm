@@ -239,7 +239,23 @@ export function planFirstPayout(input: {
             .reduce((s, a) => s - Number(a.amount), 0),
         )
       : 0;
-    const half = mode === "half" ? round((carried + earned + forecast - reserve) / 2) : 0;
+    // Премия KPI за M известна только 1-го M+1 и платится второй выплатой:
+    // в половину первой она не входит, даже если её уже записали.
+    const kpiSources = new Set(
+      data.adjustments
+        .filter((a) => a.employee_id === id && a.origin === "kpi" && !a.deleted_at)
+        .map((a) => `payroll-entry:${a.id}`),
+    );
+    const kpiAccrued = mode === "half" && kpiSources.size
+      ? round(
+          data.accruals
+            .filter((a) => a.employee_id === id && a.business_date >= month && a.business_date < until)
+            .flatMap((a) => a.components)
+            .filter((c) => c.source && kpiSources.has(c.source))
+            .reduce((s, c) => s + (c.amount ?? 0), 0),
+        )
+      : 0;
+    const half = mode === "half" ? round((carried + earned - kpiAccrued + forecast - reserve) / 2) : 0;
     // Официальная часть идёт в счёт первой половины месяца (Павел, 25.11): её
     // платим и при увольнении, поэтому подстраховываемся на первой выплате.
     const ceiling = round(carried + earned - paid - reserve - official);

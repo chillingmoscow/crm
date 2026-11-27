@@ -132,6 +132,10 @@ import {
 } from "@/lib/schedule/tasks";
 import { loadCalendarTasks } from "../tasks/actions";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { useCoarsePointer } from "@/hooks/use-mobile";
+import { useHydrated } from "@/hooks/use-hydrated";
+import { LiveDot, NowLine, ShiftNowMark, TodayClock, shiftElapsed, shiftRunning, useMinuteNow } from "./shift-live";
+import { ShiftHoverCard } from "./shift-hover-card";
 const CalendarTaskReport = dynamic(
   () => import("../tasks/tasks-client").then((module) => module.TaskReport),
   {
@@ -283,6 +287,14 @@ export function ScheduleClient({
     weekStart(initialDate ?? dateInZone(new Date(), initial.timezone)),
   );
   const [weekPickerOpen, setWeekPickerOpen] = useState(false);
+  // Текущий момент для «живой» сетки: идущие смены, отметка «сейчас».
+  // Раз в минуту и только на видимой вкладке.
+  const now = useMinuteNow();
+  const nowTime = now === null ? null : timeInZone(new Date(now).toISOString(), data.timezone);
+  // Карточка при наведении — только с мышью: на сенсорном экране нажатие
+  // открывает смену, как раньше. До гидратации — без неё (разметка SSR).
+  const coarsePointer = useCoarsePointer();
+  const hoverCards = useHydrated() && !coarsePointer;
   useEffect(() => {
     if (initialDate) setWeek(weekStart(initialDate));
   }, [initialDate]);
@@ -1243,7 +1255,7 @@ export function ScheduleClient({
       </span>
     );
   };
-  const listCardBody = (s: Shift, assignee: string | null, mark: unknown) => {
+  const listCardBody = (s: Shift, assignee: string | null, mark: unknown, running: boolean) => {
     const template = shiftTemplate(s);
     const title = template ? template.name : s.title;
     const subtitle = template?.subtitle ?? null;
@@ -1264,6 +1276,7 @@ export function ScheduleClient({
             <span className={cn("truncate text-sm font-semibold", !assignee && "font-normal text-muted-foreground")}>
               {person}
             </span>
+            {running && <LiveDot className={paletteText(template?.color ?? s.color)} />}
             {swapMark(s)}
             {/* На телефоне бейдж — в этой строке, справа он резал бы имя. */}
             {!s.published && (
@@ -1296,10 +1309,31 @@ export function ScheduleClient({
     const dragged = dragItem?.kind === "shift" && dragItem.shift.id === s.id;
     // Заглушка до ответа сервера: у неё ещё нет настоящего id.
     const pending = s.id.startsWith(PENDING_SHIFT);
+    // Идёт сейчас: опубликованная смена с сотрудником (черновик и пустой
+    // слот — не «работа сейчас»).
+    const running = !pending && s.published && !!assignee && shiftRunning(s, now);
+    const startTime = timeInZone(s.starts_at, data.timezone);
+    const endTime = timeInZone(s.ends_at, data.timezone);
+    const person = assignee ? roster.find((p) => p.user_id === assignee) : undefined;
     return (
     <ContextMenu key={s.id} modal={false}>
     <ContextMenuTrigger asChild>
     <div className="relative min-w-0">
+    <ShiftHoverCard
+      enabled={hoverCards && !!assignee}
+      suppressed={!!dragItem}
+      info={{
+        name: name(assignee),
+        role: person?.role_name,
+        avatar: person?.avatar_url,
+        time: `${startTime}–${endTime}`,
+        hours: Math.round(shiftHours(s.starts_at, s.ends_at) * 10) / 10,
+        template: template ? { name: shiftTemplateLabel(template), color: template.color } : null,
+        draft: !s.published,
+        running,
+        attendance: mark,
+      }}
+    >
     <button
       draggable={can("shift_edit") && !pending}
       disabled={pending}
@@ -1327,10 +1361,11 @@ export function ScheduleClient({
           ? "flex items-stretch gap-3 px-2 py-1.5 transition-colors hover:bg-muted/60"
           // Наведение — лёгкая подложка поверх цвета шаблона (тень внутрь),
           // а не прозрачность: цвет шаблона не бледнеет, в тёмной теме — светлее.
-          : cn("grid gap-1 px-1.5 py-2 transition-shadow duration-200 hover:shadow-[inset_0_0_0_999px_hsl(var(--foreground)/0.05)]", paletteBg(template?.color ?? s.color), paletteText(template?.color ?? s.color)),
+          // relative — для отметки «сейчас» у нижнего края идущей смены.
+          : cn("relative grid gap-1 px-1.5 py-2 transition-shadow duration-200 hover:shadow-[inset_0_0_0_999px_hsl(var(--foreground)/0.05)]", paletteBg(template?.color ?? s.color), paletteText(template?.color ?? s.color)),
       )}
     >
-      {mode === "list" ? listCardBody(s, assignee, mark) : (
+      {mode === "list" ? listCardBody(s, assignee, mark, running) : (
       <>
       {mode === "template" ? (
         <>
@@ -1349,9 +1384,12 @@ export function ScheduleClient({
             <span className="min-w-0 hyphens-auto break-words text-[13px] font-semibold leading-tight">{assigneeLabel}</span>
             {swapMark(s)}
           </span>
-          <span className="text-xs tabular-nums opacity-75">
-            {timeInZone(s.starts_at, data.timezone)}–<wbr />
-            {timeInZone(s.ends_at, data.timezone)}
+          <span className="flex items-center gap-1 text-xs tabular-nums">
+            {running && <LiveDot />}
+            <span className="opacity-75">
+              {startTime}–<wbr />
+              {endTime}
+            </span>
           </span>
         </>
       ) : (
@@ -1359,8 +1397,9 @@ export function ScheduleClient({
           {/* В узкой колонке (таблица на минимальной ширине) время переносится
               после тире, а не обрезается: 12px «13:00–00:30» не всегда влезает. */}
           <span className={cn("text-xs font-semibold tabular-nums", mark && "pr-5")}>
-            {timeInZone(s.starts_at, data.timezone)}–<wbr />
-            {timeInZone(s.ends_at, data.timezone)}
+            {running && <LiveDot className="mb-px mr-1 align-middle" />}
+            {startTime}–<wbr />
+            {endTime}
             {swapMark(s) && <> {swapMark(s)}</>}
           </span>
           {template
@@ -1376,9 +1415,11 @@ export function ScheduleClient({
           Черновик
         </span>
       )}
+      {running && now !== null && <ShiftNowMark elapsed={shiftElapsed(s, now)} />}
       </>
       )}
     </button>
+    </ShiftHoverCard>
     {mark && (
       <ShiftAttendancePopover
         shiftId={s.id}
@@ -1925,6 +1966,7 @@ export function ScheduleClient({
                   days={days}
                   today={today}
                   timezone={data.timezone}
+                  nowTime={nowTime}
                   templates={data.templates.filter((template) => !template.archived &&
                     (department === "all" || template.department_id === department))}
                   shifts={weekDateShifts}
@@ -1991,6 +2033,7 @@ export function ScheduleClient({
                               )}
                             >
                               {dayLabel(d, { weekday: "short", day: "numeric" })}
+                              {d === today && <TodayClock time={nowTime} />}
                             </th>
                           ))}
                           <th scope="col" className="w-16 border-b border-l p-2 text-xs font-medium">
@@ -2278,12 +2321,18 @@ export function ScheduleClient({
                           )}
                         </div>
                         <div className="space-y-2 p-3">
-                          {weekShifts
-                            .filter(
-                              (s) =>
-                                dateInZone(s.starts_at, data.timezone) === d,
-                            )
-                            .map((shift) => card(shift, "list"))}
+                          {(() => {
+                            const dayShifts = weekShifts.filter(
+                              (s) => dateInZone(s.starts_at, data.timezone) === d,
+                            );
+                            const items = dayShifts.map((shift) => card(shift, "list"));
+                            if (d !== today || now === null || !nowTime || !dayShifts.length) return items;
+                            // Линия «сейчас» — перед первой ещё не начавшейся
+                            // сменой сегодняшнего дня (смены идут по началу).
+                            const next = dayShifts.findIndex((s) => Date.parse(s.starts_at) > now);
+                            const at = next === -1 ? items.length : next;
+                            return [...items.slice(0, at), <NowLine key="now" time={nowTime} />, ...items.slice(at)];
+                          })()}
                           {weekTasks
                             .filter((task) => task.business_date === d)
                             .map((task) => taskCard(task, false))}

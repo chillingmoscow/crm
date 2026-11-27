@@ -28,8 +28,7 @@ import {
 import { CommentBodyRenderer, extractPlainText } from "./comment-body-renderer";
 import { PageCommentComposer } from "./page-comment-composer";
 import { buildCommentLink } from "./page-comment-copy-link";
-import { personInitials } from "@/lib/format/initials";
-import { avatarImageUrl } from "@/lib/people/avatar-thumb";
+import { PersonAvatar } from "@/components/people/person-avatar";
 
 interface PageCommentUser {
   id: string;
@@ -132,22 +131,10 @@ export function PageCommentItem({
 
   const authorName = author?.fullName ?? "Удалённый пользователь";
   const authorAvatar = author?.avatarUrl ?? null;
-  const initials = personInitials(authorName);
 
   return (
     <div id={`comment-${comment.id}`} className="group flex items-start gap-2">
-      {authorAvatar ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={avatarImageUrl(authorAvatar, 96)}
-          alt=""
-          className="size-7 rounded-full object-cover bg-muted shrink-0"
-        />
-      ) : (
-        <span className="size-7 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-xs font-semibold shrink-0">
-          {initials}
-        </span>
-      )}
+      <PersonAvatar src={authorAvatar} name={authorName} size="md" />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5">
           <span className="text-sm font-semibold text-foreground truncate">

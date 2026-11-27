@@ -65,11 +65,13 @@ export function KbMobileTreeDrawer({
         <Button
           variant="outline"
           size="sm"
-          className="md:hidden gap-1.5"
+          className="shrink-0 gap-1.5 max-sm:size-9 max-sm:px-0 md:hidden"
           aria-label="Открыть дерево страниц"
         >
           <Menu className="size-4" />
-          Страницы
+          {/* На узком телефоне — только значок: подпись не оставляет места
+              значкам справа. */}
+          <span className="max-sm:hidden">Страницы</span>
         </Button>
       </SheetTrigger>
       <SheetContent

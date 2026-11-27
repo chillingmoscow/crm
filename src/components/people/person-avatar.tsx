@@ -11,6 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 import { personInitials } from "@/lib/format/initials";
 import { avatarThumbUrl } from "@/lib/people/avatar-thumb";
+import { personAvatarSize, type PersonAvatarSize } from "./person-avatar-size";
 
 /**
  * One photo treatment for people lists: circular crop, complete image on inspection.
@@ -23,6 +24,10 @@ import { avatarThumbUrl } from "@/lib/people/avatar-thumb";
  * справа внизу «Сейчас на смене», `noAccount` — значок замка слева внизу
  * «Без аккаунта». У каждой своя подсказка. `flightId` — id сотрудника для
  * перелёта аватара в шапку карточки (`src/lib/people/avatar-flight.ts`).
+ *
+ * `size` — 36 (по умолчанию), 28, 20 или 14px. `interactive={false}` — тихий
+ * аватар без карточки при наведении: внутри ссылки, кнопки, редактора или
+ * другой всплывающей карточки, где вложенная кнопка-фото недопустима.
  */
 export function PersonAvatar({
   src: requestedSrc,
@@ -33,6 +38,8 @@ export function PersonAvatar({
   onShift = false,
   noAccount = false,
   flightId,
+  size,
+  interactive = true,
 }: {
   src?: string | null;
   previewSrc?: string | null;
@@ -45,7 +52,11 @@ export function PersonAvatar({
   noAccount?: boolean;
   /** id сотрудника: отсюда аватар перелетает в шапку его карточки. */
   flightId?: string;
+  size?: PersonAvatarSize;
+  /** false — без карточки с крупным фото (статичный `<span>`). */
+  interactive?: boolean;
 }) {
+  const dims = personAvatarSize(size);
   const [open, setOpen] = useState(false);
   const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set());
   const pick = (...urls: Array<string | null | undefined>) =>
@@ -64,9 +75,30 @@ export function PersonAvatar({
   const hasPhoto = !!src;
   const initial = personInitials(name);
   const fallback = (
-    <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
+    <span
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-full bg-muted font-medium text-muted-foreground",
+        dims.box,
+        dims.text,
+      )}
+    >
       {initial}
     </span>
+  );
+  const photo = (
+    <img
+      src={src!}
+      alt=""
+      width={dims.px}
+      height={dims.px}
+      className={cn("absolute inset-0 rounded-full object-cover", dims.box)}
+      loading="lazy"
+      decoding="async"
+      onError={() => {
+        markFailed(src!);
+        if (!fallbackSrc || src === fallbackSrc) setOpen(false);
+      }}
+    />
   );
   const marked = (circle: ReactNode) => (
     <AvatarMarks
@@ -81,6 +113,22 @@ export function PersonAvatar({
     return marked(
       <span className={cn("inline-flex", faded && "opacity-50")}>
         {fallback}
+      </span>,
+    );
+  if (!interactive)
+    return marked(
+      <span
+        className={cn(
+          // inline-flex, как у ветки без фото: аватар прямо в строке текста
+          // не переносит её ни с фото, ни без.
+          "relative inline-flex shrink-0 items-center justify-center rounded-full bg-muted font-medium text-muted-foreground",
+          dims.box,
+          dims.text,
+          faded && "opacity-50",
+        )}
+      >
+        <span aria-hidden="true">{initial}</span>
+        {photo}
       </span>,
     );
   return marked(
@@ -104,24 +152,14 @@ export function PersonAvatar({
           className={cn(
             // Пока фото грузится, под ним видны те же инициалы на сером круге,
             // что и у людей без фото, — ячейка не выглядит пустой.
-            "relative flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-brand",
+            "relative flex shrink-0 items-center justify-center rounded-full bg-muted font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-brand",
+            dims.box,
+            dims.text,
             faded && "opacity-50",
           )}
         >
           <span aria-hidden="true">{initial}</span>
-          <img
-            src={src!}
-            alt=""
-            width={36}
-            height={36}
-            className="absolute inset-0 size-9 rounded-full object-cover"
-            loading="lazy"
-            decoding="async"
-            onError={() => {
-              markFailed(src!);
-              if (!fallbackSrc || src === fallbackSrc) setOpen(false);
-            }}
-          />
+          {photo}
         </button>
       </HoverCardTrigger>
       <HoverCardContent

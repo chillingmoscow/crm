@@ -1,10 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 
-import { personInitials } from "@/lib/format/initials";
-import { avatarImageUrl } from "@/lib/people/avatar-thumb";
+import { PersonAvatar } from "@/components/people/person-avatar";
 
 /** Shared employee identity for payroll and sales. */
 export function EmployeeIdentity({
@@ -23,22 +21,10 @@ export function EmployeeIdentity({
    */
   href?: string;
 }) {
-  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   return (
     <span className="flex min-w-0 items-center gap-3">
-      <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-medium text-muted-foreground">
-        {avatarUrl && failedUrl !== avatarUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={avatarImageUrl(avatarUrl, 96)}
-            alt=""
-            className="size-full object-cover"
-            onError={() => setFailedUrl(avatarUrl)}
-          />
-        ) : (
-          personInitials(name)
-        )}
-      </span>
+      {/* Строка таблицы сама кликабельна — тихий аватар без карточки фото. */}
+      <PersonAvatar src={avatarUrl ?? null} name={name} interactive={false} />
       <span className="flex min-w-0 flex-col gap-1">
         {href ? (
           <Link

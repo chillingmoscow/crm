@@ -37,6 +37,7 @@ import {
 import { redoDepth, undoDepth } from "prosemirror-history";
 
 import { runKbAiCommand, type KbAiCommand } from "@/lib/knowledge/ai-commands";
+import { PALETTE_COLORS, type PaletteColor } from "@/lib/palette";
 import {
   KB_AI_COMMAND_SPECS,
   NON_TEXT_AI_BLOCK_TYPES,
@@ -110,20 +111,28 @@ const BLOCK_TYPES: BlockTypeOption[] = [
   { key: "quote", label: "Цитата", icon: Quote, type: "quote" },
 ];
 
-// Цвета текста BlockNote (ключи — как в BN; реальный цвет в редакторе задаёт
-// сам BN через data-text-color, тут hex — только превью свотча в пикере).
-const TEXT_COLORS: { key: string; label: string; css: string | null }[] = [
-  { key: "default", label: "Авто", css: null },
-  { key: "gray", label: "Серый", css: "#9b9a97" },
-  { key: "brown", label: "Коричневый", css: "#64473a" },
-  { key: "red", label: "Красный", css: "#e03e3e" },
-  { key: "orange", label: "Оранжевый", css: "#d9730d" },
-  { key: "yellow", label: "Жёлтый", css: "#dfab01" },
-  { key: "green", label: "Зелёный", css: "#4d8a6a" },
-  { key: "blue", label: "Синий", css: "#0b6e99" },
-  { key: "purple", label: "Фиолетовый", css: "#6940a5" },
-  { key: "pink", label: "Розовый", css: "#ad1a72" },
+// Цвета текста и фона — общая палитра (`--palette-*`, src/lib/palette.ts),
+// в том же порядке, что выбор цвета на компьютере (kb-color-picker-item).
+// Своих hex нет: в тёмной теме образцы совпадают с компьютером.
+const COLOR_ORDER: PaletteColor[] = [
+  "default",
+  "gray",
+  "brown",
+  "red",
+  "orange",
+  "yellow",
+  "green",
+  "blue",
+  "purple",
+  "pink",
 ];
+const PALETTE_LABEL = new Map(PALETTE_COLORS.map((c) => [c.name, c.label]));
+const TEXT_COLORS = COLOR_ORDER.map((key) => ({
+  key,
+  label: PALETTE_LABEL.get(key) ?? key,
+  fg: key === "default" ? null : `var(--palette-${key}-fg)`,
+  bg: key === "default" ? null : `var(--palette-${key}-bg)`,
+}));
 
 type SheetKind = "block" | "color" | "link" | "more" | "ai";
 
@@ -599,8 +608,8 @@ export function KbMobileToolbar({
                 >
                   <span
                     className="kb-mobile-color-chip"
-                    style={color.css ? { color: color.css } : undefined}
-                    data-default={color.css ? undefined : true}
+                    style={color.fg ? { color: color.fg } : undefined}
+                    data-default={color.fg ? undefined : true}
                   >
                     А
                   </span>
@@ -625,8 +634,8 @@ export function KbMobileToolbar({
                 >
                   <span
                     className="kb-mobile-color-chip kb-mobile-color-chip-bg"
-                    style={color.css ? { backgroundColor: color.css } : undefined}
-                    data-default={color.css ? undefined : true}
+                    style={color.bg ? { backgroundColor: color.bg } : undefined}
+                    data-default={color.bg ? undefined : true}
                   >
                     А
                   </span>

@@ -1,5 +1,5 @@
-import { KbSectionLoading } from "@/app/(dashboard)/knowledge/_components/kb-route-loading";
+import { ListPageLoading } from "@/components/shared/list-page-loading";
 
 export default function KnowledgeTrashLoading() {
-  return <KbSectionLoading label="Открываем корзину" />;
+  return <ListPageLoading label="Открываем корзину" tools={2} />;
 }

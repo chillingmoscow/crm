@@ -4,17 +4,11 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  AlertCircle,
   ChevronRight,
   Eye,
-  FileText,
   History,
   Loader2,
-  Minus,
-  Plus,
   RotateCcw,
-  SlidersHorizontal,
-  Undo2,
 } from "lucide-react";
 import { format, isThisYear, isToday, isYesterday } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -27,17 +21,18 @@ import {
   DialogClose,
   DialogContent,
   DialogDescription,
+  DialogFooter,
+  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { IconTooltip } from "@/components/ui/icon-tooltip";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
+import { EditDrawer } from "@/components/ui/edit-drawer";
+import { DrawerSection } from "@/components/ui/drawer-blocks";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { errorText } from "@/lib/actions/error-text";
+import { countRu } from "@/lib/format/plural";
+import { kbChangeKindLabel, kbVersionDeltaLabel } from "@/lib/knowledge/version-labels";
 import {
   getKbPageVersion,
   getKbPageVersionDiffData,
@@ -47,14 +42,13 @@ import {
   type KbVersionDiffData,
 } from "@/lib/knowledge/versions";
 import type { KbBlock, KbPageVersionRow } from "@/types/knowledge";
-import { avatarImageUrl } from "@/lib/people/avatar-thumb";
+import { PersonAvatar } from "@/components/people/person-avatar";
 
 interface KbVersionHistoryProps {
   pageId: string;
   /** Per-role gate. Disables the restore action when false. */
   canEdit: boolean;
-  /** Controlled-mode: caller владеет open-state'ом и сам рендерит
-   *  триггер. Если оба переданы — default-icon-trigger не рендерится. */
+  /** Открытие снаружи (меню ⋯ страницы); своей кнопки у панели нет. */
   open?: boolean;
   onOpenChange?: (next: boolean) => void;
 }
@@ -90,12 +84,7 @@ const KbVersionSnapshotPreview = dynamic(
     ).then((m) => m.KbVersionSnapshotPreview),
   {
     ssr: false,
-    loading: () => (
-      <div className="flex min-h-[320px] items-center justify-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
-        Загружаем снимок страницы…
-      </div>
-    ),
+    loading: () => <SnapshotSkeleton />,
   },
 );
 
@@ -152,7 +141,7 @@ export function KbVersionHistory({
     });
     setRestoring(null);
     if (result.error) {
-      toast.error(`Не удалось восстановить версию: ${result.error}`);
+      toast.error(errorText(new Error(result.error), "Не удалось восстановить версию"));
       return;
     }
     toast.success("Версия восстановлена");
@@ -183,70 +172,48 @@ export function KbVersionHistory({
 
   const currentVersionNumber = rows?.[0]?.version_number ?? null;
 
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      {!isControlled && (
-        <IconTooltip label="История версий">
-          <SheetTrigger asChild>
-            <button
-              type="button"
-              aria-label="История версий"
-              className="inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-            >
-              <History className="w-[18px] h-[18px]" />
-            </button>
-          </SheetTrigger>
-        </IconTooltip>
-      )}
-      <SheetContent side="right" className="w-full overflow-hidden p-0 sm:max-w-[680px]">
-        <div className="flex h-full flex-col">
-          <SheetHeader className="border-b px-6 py-5 text-left">
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-1.5">
-                <SheetTitle className="text-xl">История версий</SheetTitle>
-                <SheetDescription className="max-w-[520px] text-sm leading-5">
-                  Здесь собраны точки восстановления страницы. Можно
-                  посмотреть снимок версии, увидеть только изменённые
-                  фрагменты и при необходимости откатиться.
-                </SheetDescription>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 pt-3">
-              <MetricBadge
-                value={rows?.length ?? 0}
-                label={plural(rows?.length ?? 0, "версия", "версии", "версий")}
-              />
-              <MetricBadge
-                value={sessionCount}
-                label={plural(sessionCount, "сессия", "сессии", "сессий")}
-              />
-            </div>
-          </SheetHeader>
+  const versionCount = rows?.length ?? 0;
+  const description =
+    rows && rows.length > 0
+      ? `${countRu(versionCount, "версия", "версии", "версий")} · ${countRu(sessionCount, "сессия правки", "сессии правки", "сессий правки")}`
+      : undefined;
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-            <VersionsPane
-              loading={loading}
-              error={error}
-              onRetry={load}
-              groups={groups}
-              canEdit={canEdit}
-              currentVersionNumber={currentVersionNumber}
-              restoring={restoring}
-              onRestore={onRestore}
-              pageId={pageId}
-            />
-          </div>
-        </div>
-      </SheetContent>
-    </Sheet>
+  return (
+    <EditDrawer
+      open={open}
+      onOpenChange={onOpenChange}
+      title="История версий"
+      description={description}
+    >
+      <VersionsPane
+        loading={loading}
+        error={error}
+        onRetry={load}
+        groups={groups}
+        canEdit={canEdit}
+        currentVersionNumber={currentVersionNumber}
+        restoring={restoring}
+        onRestore={onRestore}
+        pageId={pageId}
+      />
+    </EditDrawer>
   );
 }
 
-function MetricBadge({ value, label }: { value: number; label: string }) {
+/** Заготовка списка сессий, пока история грузится. */
+function SessionsSkeleton() {
   return (
-    <span className="rounded-md bg-background/80 px-2 py-1 text-xs text-muted-foreground">
-      {value} {label}
-    </span>
+    <div role="status" aria-label="Загружаем историю" aria-busy className="space-y-4">
+      {Array.from({ length: 4 }, (_, i) => (
+        <div key={i} className="flex gap-3">
+          <Skeleton className="size-7 shrink-0 rounded-full" />
+          <div className="min-w-0 flex-1 space-y-2 pt-1">
+            <Skeleton className="h-4 w-1/2" />
+            <Skeleton className="h-3 w-1/3" />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -271,127 +238,52 @@ function VersionsPane({
   onRestore: (versionNumber: number) => void;
   pageId: string;
 }) {
-  if (loading) return <LoadingState />;
-  if (error) return <ErrorState error={error} onRetry={onRetry} />;
-  if (groups !== null && groups.length === 0) return <EmptyState />;
+  if (loading) return <SessionsSkeleton />;
+  if (error)
+    return (
+      <EmptyState
+        illustration="error"
+        title="Не удалось загрузить историю"
+        // Русский текст сервера (например, «Нет доступа к истории версий»)
+        // показываем как есть — повтор его не исправит; технический — общей фразой.
+        description={errorText(new Error(error), "Попробуйте ещё раз через несколько секунд")}
+        action={
+          <Button size="sm" variant="outline" onClick={onRetry}>
+            Повторить
+          </Button>
+        }
+      />
+    );
+  if (groups !== null && groups.length === 0)
+    return (
+      <EmptyState
+        icon={History}
+        title="Истории пока нет"
+        description="Первая версия появится после изменения текста, заголовка или свойств"
+      />
+    );
   if (!groups) return null;
 
   return (
-    <div className="space-y-6">
-      {groups.map((group, idx) => (
-        <DayGroup
-          key={group.label}
-          group={group}
-          defaultOpen={idx === 0}
-          canEdit={canEdit}
-          currentVersionNumber={currentVersionNumber}
-          restoringVersion={restoring}
-          onRestore={onRestore}
-          pageId={pageId}
-        />
+    <>
+      {groups.map((group) => (
+        <DrawerSection key={group.label} title={group.label}>
+          <div className="space-y-2">
+            {group.sessions.map((session) => (
+              <VersionSessionCard
+                key={session.id}
+                session={session}
+                canEdit={canEdit}
+                currentVersionNumber={currentVersionNumber}
+                restoringVersion={restoring}
+                onRestore={onRestore}
+                pageId={pageId}
+              />
+            ))}
+          </div>
+        </DrawerSection>
       ))}
-    </div>
-  );
-}
-
-function LoadingState({ label = "Загружаем историю…" }: { label?: string }) {
-  return (
-    <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-4 py-5 text-sm text-muted-foreground">
-      <Loader2 className="size-4 animate-spin" />
-      {label}
-    </div>
-  );
-}
-
-function ErrorState({
-  title = "Не удалось загрузить историю",
-  error,
-  onRetry,
-}: {
-  title?: string;
-  error: string;
-  onRetry: () => void;
-}) {
-  return (
-    <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4">
-      <div className="flex items-start gap-3">
-        <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-destructive">{title}</p>
-          <p className="mt-1 text-sm text-muted-foreground">{error}</p>
-          <Button className="mt-3" size="sm" variant="outline" onClick={onRetry}>
-            Повторить
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="rounded-lg border border-dashed p-6 text-center">
-      <History className="mx-auto size-5 text-muted-foreground" />
-      <p className="mt-2 text-sm font-medium">История пока пуста</p>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Первая версия появится после изменения содержимого, заголовка или свойств.
-      </p>
-    </div>
-  );
-}
-
-function DayGroup({
-  group,
-  defaultOpen,
-  canEdit,
-  currentVersionNumber,
-  restoringVersion,
-  onRestore,
-  pageId,
-}: {
-  group: DayBucket;
-  defaultOpen: boolean;
-  canEdit: boolean;
-  currentVersionNumber: number | null;
-  restoringVersion: number | null;
-  onRestore: (versionNumber: number) => void;
-  pageId: string;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <section className="space-y-3">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="sticky top-0 z-10 flex w-full items-center gap-2 bg-background/95 py-1 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur hover:text-foreground"
-      >
-        <ChevronRight
-          className={cn("size-3.5 transition-transform", open && "rotate-90")}
-        />
-        <span>{group.label}</span>
-        <span
-          className="inline-flex min-w-6 items-center justify-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
-          aria-label={`${group.sessions.length} ${plural(group.sessions.length, "сессия", "сессии", "сессий")}`}
-        >
-          {group.sessions.length}
-        </span>
-      </button>
-      {open && (
-        <div className="space-y-2">
-          {group.sessions.map((session) => (
-            <VersionSessionCard
-              key={session.id}
-              session={session}
-              canEdit={canEdit}
-              currentVersionNumber={currentVersionNumber}
-              restoringVersion={restoringVersion}
-              onRestore={onRestore}
-              pageId={pageId}
-            />
-          ))}
-        </div>
-      )}
-    </section>
+    </>
   );
 }
 
@@ -418,23 +310,26 @@ function VersionSessionCard({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-muted/20"
+        aria-expanded={open}
+        className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
       >
         <Avatar author={session.author} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="font-medium">{authorName(session.author)}</span>
-            <span className="text-sm text-muted-foreground">
+            <span className="text-sm font-medium">{authorName(session.author)}</span>
+            <span className="text-[13px] text-muted-foreground">
               {timeRange(session.startAt, session.endAt)}
             </span>
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {session.changeKinds.map((kind) => (
-              <ChangeKindBadge key={kind} kind={kind} />
+              <StatusBadge key={kind} tone="neutral">
+                {kbChangeKindLabel(kind)}
+              </StatusBadge>
             ))}
             <DeltaBadge delta={session.delta} />
             <span className="text-xs text-muted-foreground">
-              {changedCount} {plural(changedCount, "сохранение", "сохранения", "сохранений")}
+              {countRu(changedCount, "сохранение", "сохранения", "сохранений")}
             </span>
           </div>
         </div>
@@ -447,17 +342,17 @@ function VersionSessionCard({
       </button>
       {open && (
         <div className="divide-y border-t">
-            {session.versions.map((version) => (
-              <VersionRow
-                key={version.id}
-                row={version}
-                pageId={pageId}
-                isCurrent={version.version_number === currentVersionNumber}
-                canEdit={canEdit}
-                restoring={restoringVersion === version.version_number}
-                onRestore={() => onRestore(version.version_number)}
-              />
-            ))}
+          {session.versions.map((version) => (
+            <VersionRow
+              key={version.id}
+              row={version}
+              pageId={pageId}
+              isCurrent={version.version_number === currentVersionNumber}
+              canEdit={canEdit}
+              restoring={restoringVersion === version.version_number}
+              onRestore={() => onRestore(version.version_number)}
+            />
+          ))}
         </div>
       )}
     </article>
@@ -530,50 +425,38 @@ function VersionRow({
   };
 
   return (
-    <div className={cn("bg-background", isCurrent && "bg-primary/5")}>
-      <div className="flex items-center gap-2 px-4 py-3">
+    <div className={cn("bg-background", isCurrent && "bg-brand/5")}>
+      <div className="flex items-center gap-2 px-4 py-2.5">
         <button
           type="button"
           onClick={onToggle}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          aria-expanded={expanded}
+          className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-left"
         >
           <ChevronRight
-            className={cn("size-3.5 shrink-0 transition-transform", expanded && "rotate-90")}
+            className={cn("size-4 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-90")}
           />
-          <span className="text-sm font-medium">Изменения</span>
-          {isCurrent && (
-            <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
-              текущая
-            </span>
-          )}
-          <span className="truncate text-xs text-muted-foreground">
+          <span className="text-sm font-medium">
             {format(new Date(row.updated_at), "HH:mm", { locale: ru })}
           </span>
+          {isCurrent && <StatusBadge tone="info">Текущая</StatusBadge>}
           <DeltaBadge delta={row.delta} />
         </button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onPreview}
-          data-tip="Просмотреть версию"
-        >
+        <Button variant="ghost" size="sm" onClick={onPreview}>
           <Eye className="size-4" />
           Просмотреть
         </Button>
       </div>
       {expanded && (
-        <div className="border-t bg-muted/15 px-4 py-3">
+        <div className="border-t px-4 py-3">
           {loadingDiff && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
-              Строим diff…
+            <div role="status" aria-label="Сравниваем версии" aria-busy className="space-y-2">
+              <Skeleton className="h-4 w-4/5" />
+              <Skeleton className="h-4 w-3/5" />
             </div>
           )}
           {!loadingDiff && diffError && (
-            <div className="flex items-center gap-2 text-sm text-destructive">
-              <AlertCircle className="size-4" />
-              {diffError}
-            </div>
+            <p className="text-sm text-destructive">Не удалось сравнить версии. Попробуйте ещё раз</p>
           )}
           {!loadingDiff && diffData && (
             <TextDiff before={diffData.previous_plain_text} after={diffData.plain_text} />
@@ -592,6 +475,18 @@ function VersionRow({
         onRestore={onRestore}
         pageId={pageId}
       />
+    </div>
+  );
+}
+
+/** Заготовка снимка страницы, пока он грузится. */
+function SnapshotSkeleton() {
+  return (
+    <div role="status" aria-label="Загружаем снимок" aria-busy className="mx-auto max-w-[720px] space-y-4 px-6 py-8">
+      <Skeleton className="h-8 w-2/3" />
+      <Skeleton className="h-4 w-full" />
+      <Skeleton className="h-4 w-11/12" />
+      <Skeleton className="h-4 w-4/5" />
     </div>
   );
 }
@@ -625,39 +520,29 @@ function VersionPreviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[90vh] max-w-[1440px] flex-col gap-0 overflow-hidden p-0">
-        <div className="shrink-0 border-b bg-background/95 px-6 py-4 backdrop-blur">
-          <div className="flex flex-col gap-3 pr-10">
-            <div className="space-y-1.5">
-              <DialogTitle className="text-xl">Снимок версии</DialogTitle>
-              <DialogDescription>
-                Полный просмотр страницы перед восстановлением
-              </DialogDescription>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">
-                {authorName(row.author)}
-              </span>
-              <span className="rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">
-                {metaLabel}
-              </span>
-            </div>
-          </div>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto bg-muted/10">
-          {loading && (
-            <div className="flex min-h-[320px] items-center justify-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
-              Загружаем снимок страницы…
-            </div>
-          )}
+      {/* Просмотр как у документов: широкое общее окно, подвал — DialogFooter. */}
+      <DialogContent className="flex h-[min(90dvh,900px)] max-w-4xl flex-col gap-4">
+        <DialogHeader>
+          <DialogTitle>Версия {row.version_number}</DialogTitle>
+          <DialogDescription>
+            {authorName(row.author)} · {metaLabel}
+            {/* В описании, а не подсказкой подвала: та скрыта на телефоне,
+                а восстановление идёт без подтверждения. */}
+            <span className="block">
+              Комментарии в снимок не входят.
+              {canRestore && " Восстановление создаст новую текущую версию, прежние сохранятся"}
+            </span>
+          </DialogDescription>
+        </DialogHeader>
+        <div className="-mx-6 min-h-0 flex-1 overflow-y-auto border-y">
+          {loading && <SnapshotSkeleton />}
           {!loading && error && (
-            <div className="px-6 py-6">
-              <div className="flex items-center gap-2 text-sm text-destructive">
-                <AlertCircle className="size-4" />
-                {error}
-              </div>
-            </div>
+            <EmptyState
+              illustration="error"
+              title="Не удалось открыть версию"
+              description="Закройте окно и попробуйте ещё раз"
+              className="m-6"
+            />
           )}
           {!loading && !error && snapshot && (
             <KbVersionSnapshotPreview
@@ -670,28 +555,17 @@ function VersionPreviewDialog({
             />
           )}
         </div>
-        <div className="shrink-0 border-t bg-background/95 px-6 py-4 backdrop-blur">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">
-              Восстановление создаст новую текущую версию страницы
-            </p>
-            <div className="flex items-center gap-2">
-              <DialogClose asChild>
-                <Button variant="outline">Закрыть</Button>
-              </DialogClose>
-              {canRestore && (
-                <Button onClick={onRestore} disabled={restoring || loading}>
-                  {restoring ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <RotateCcw className="size-4" />
-                  )}
-                  Восстановить эту версию
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline">Закрыть</Button>
+          </DialogClose>
+          {canRestore && (
+            <Button onClick={onRestore} disabled={restoring || loading}>
+              {restoring ? <Loader2 className="size-4 animate-spin" /> : <RotateCcw className="size-4" />}
+              Восстановить эту версию
+            </Button>
+          )}
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -711,52 +585,44 @@ function TextDiff({
   if (!before && !after) {
     return (
       <p className="text-sm text-muted-foreground">
-        В этой версии нет текстового предпросмотра. Полный снимок доступен
-        для восстановления.
+        В этой версии нет текста для сравнения. Полный снимок можно открыть кнопкой «Просмотреть»
       </p>
     );
   }
   if (changes.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        Текст не изменился. Проверьте бейджи выше: возможно, менялись свойства,
-        заголовок или иконка.
+        Текст не изменился: правили заголовок, значок или свойства
       </p>
     );
   }
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-        <span>
-          Только изменённые фрагменты
-        </span>
+        <span>Только изменённые фрагменты</span>
         {(truncated || hiddenCount > 0) && (
           <span>
             {truncated
-              ? "diff укорочен"
-              : `скрыто ${hiddenCount} ${plural(hiddenCount, "изменение", "изменения", "изменений")}`}
+              ? "Показана часть изменений"
+              : `Ещё ${countRu(hiddenCount, "изменение", "изменения", "изменений")}`}
           </span>
         )}
       </div>
-      <div className="max-h-[260px] space-y-2 overflow-y-auto rounded-md bg-muted/35 p-3 text-sm leading-6">
+      <div className="max-h-[260px] space-y-2 overflow-y-auto text-sm leading-6">
         {changes.map((change, idx) => (
-          <div key={idx} className="space-y-1.5 rounded-md border bg-background/70 p-2.5">
+          <div key={idx} className="space-y-1.5 rounded-lg border p-3">
             {change.removed && (
-              <div className="flex gap-2">
-                <span className="mt-0.5 inline-flex h-5 shrink-0 items-center rounded bg-rose-500/10 px-1.5 text-[11px] font-medium text-rose-700 dark:text-rose-300">
-                  Удалено
-                </span>
-                <del className="min-w-0 whitespace-pre-wrap break-words text-rose-800 decoration-rose-500/60 dark:text-rose-300">
+              <div className="flex items-start gap-2">
+                <StatusBadge tone="danger" className="mt-0.5">Удалено</StatusBadge>
+                <del className="min-w-0 whitespace-pre-wrap break-words text-muted-foreground">
                   {change.removed}
                 </del>
               </div>
             )}
             {change.added && (
-              <div className="flex gap-2">
-                <span className="mt-0.5 inline-flex h-5 shrink-0 items-center rounded bg-emerald-500/10 px-1.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
-                  Добавлено
-                </span>
-                <ins className="min-w-0 whitespace-pre-wrap break-words text-emerald-800 no-underline dark:text-emerald-300">
+              <div className="flex items-start gap-2">
+                <StatusBadge tone="success" className="mt-0.5">Добавлено</StatusBadge>
+                <ins className="min-w-0 whitespace-pre-wrap break-words no-underline">
                   {change.added}
                 </ins>
               </div>
@@ -768,66 +634,20 @@ function TextDiff({
   );
 }
 
-function ChangeKindBadge({ kind }: { kind: string }) {
-  const meta =
-    kind === "title"
-      ? { label: "заголовок", icon: FileText }
-      : kind === "properties"
-        ? { label: "свойства", icon: SlidersHorizontal }
-        : kind === "icon"
-          ? { label: "иконка", icon: FileText }
-          : kind === "restore"
-            ? { label: "восстановление", icon: Undo2 }
-            : { label: "контент", icon: FileText };
-  const Icon = meta.icon;
-  return (
-    <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-      <Icon className="size-3" />
-      {meta.label}
-    </span>
-  );
-}
-
 function DeltaBadge({ delta }: { delta: number | null }) {
-  if (delta === null) {
-    return <span className="text-xs text-muted-foreground/70">первая версия</span>;
-  }
-  if (delta === 0) {
-    return <span className="text-xs text-muted-foreground/70">без изменения длины</span>;
-  }
-  const positive = delta > 0;
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs font-medium",
-        positive
-          ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-          : "bg-rose-500/10 text-rose-700 dark:text-rose-400",
-      )}
-      data-tip={`${positive ? "Добавлено" : "Удалено"} ${Math.abs(delta)} символов`}
-    >
-      {positive ? <Plus className="size-2.5" /> : <Minus className="size-2.5" />}
-      {Math.abs(delta)}
-    </span>
-  );
+  const { text, tone } = kbVersionDeltaLabel(delta);
+  return <StatusBadge tone={tone}>{text}</StatusBadge>;
 }
 
 function Avatar({ author }: { author: EnrichedVersion["author"] }) {
-  const name = authorName(author);
-  if (author?.avatar_url) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={avatarImageUrl(author.avatar_url, 96)}
-        alt={name}
-        className="size-8 rounded-full object-cover"
-      />
-    );
-  }
+  // Стоит внутри кнопки сессии — тихий аватар без карточки фото.
   return (
-    <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
-      {name.slice(0, 1).toUpperCase()}
-    </div>
+    <PersonAvatar
+      src={author?.avatar_url ?? null}
+      name={authorName(author)}
+      size="md"
+      interactive={false}
+    />
   );
 }
 
@@ -979,14 +799,6 @@ function timeRange(start: Date, end: Date): string {
   const a = format(start, "HH:mm", { locale: ru });
   const b = format(end, "HH:mm", { locale: ru });
   return a === b ? a : `${a}–${b}`;
-}
-
-function plural(n: number, one: string, few: string, many: string): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return one;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
-  return many;
 }
 
 type DiffPart = { type: "same" | "add" | "del"; text: string };

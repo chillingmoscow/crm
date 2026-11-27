@@ -9,8 +9,7 @@ import {
   useCommentMentionDropdown,
   type KbCommentMention,
 } from "@/components/knowledge/blocks/kb-comment-mention-dropdown";
-import { personInitials } from "@/lib/format/initials";
-import { avatarImageUrl } from "@/lib/people/avatar-thumb";
+import { PersonAvatar } from "@/components/people/person-avatar";
 
 interface PageCommentComposerProps {
   currentUserName: string | null;
@@ -120,7 +119,6 @@ export function PageCommentComposer({
 
   const trimmed = text.trim();
   const canSubmit = trimmed.length > 0 && !submitting;
-  const initials = personInitials(currentUserName);
 
   // Кнопки показываем только когда есть что отправить или это режим
   // редактирования — иначе строка остаётся «лёгкой», как в Notion.
@@ -128,18 +126,7 @@ export function PageCommentComposer({
 
   return (
     <div className="group flex items-center gap-2">
-      {currentUserAvatarUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={avatarImageUrl(currentUserAvatarUrl, 96)}
-          alt=""
-          className="size-7 rounded-full object-cover bg-muted shrink-0"
-        />
-      ) : (
-        <span className="size-7 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-xs font-semibold shrink-0">
-          {initials}
-        </span>
-      )}
+      <PersonAvatar src={currentUserAvatarUrl} name={currentUserName ?? ""} size="md" interactive={false} />
       <div className="flex-1 min-w-0 flex items-center gap-2">
         <textarea
           ref={textareaRef}

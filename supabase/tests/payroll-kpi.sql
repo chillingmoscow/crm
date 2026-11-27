@@ -188,6 +188,32 @@ begin
   perform public.sales_alcohol_plan_save('2027-02-01', jsonb_build_object('alcohol', null));
   perform pg_temp.check(not exists (select 1 from public.sales_month_plans where venue_id = pg_temp.fx('v') and month = '2027-02-01'), 'оба плана пусты — строки нет');
   perform pg_temp.check(exists (select 1 from public.audit_logs where action_code = 'sales.plan.alcohol_set' and entity_id = pid), 'журнал: план алкоголя');
+  perform pg_temp.expect_error('select public.sales_alcohol_plan_save(''2026-11-01'', ''{"alcohol":1000}'')',
+    '%уже подведены%', 'план месяца с итогами KPI не меняется');
+end $$;
+
+-- ── l. Прямая запись плана алкоголя пользователем отклоняется ─
+do $$
+declare upd text; ins text;
+begin
+  upd := format('update public.sales_month_plans set alcohol = 1 where venue_id = %L and month = %L', pg_temp.fx('v'), '2027-01-01');
+  ins := format('insert into public.sales_month_plans(account_id, venue_id, month, alcohol, created_by, updated_by) values (%L, %L, %L, 5, %L, %L)',
+    pg_temp.fx('a'), pg_temp.fx('v'), '2027-05-01', pg_temp.fx('owner'), pg_temp.fx('owner'));
+  set local role authenticated;
+  begin
+    execute upd;
+    raise exception 'TEST FAILED: прямая правка плана алкоголя прошла';
+  exception when others then
+    if sqlerrm not like '%вкладке «KPI»%' then raise exception 'TEST FAILED: прямая правка: %', sqlerrm; end if;
+  end;
+  begin
+    execute ins;
+    raise exception 'TEST FAILED: прямая вставка плана алкоголя прошла';
+  exception when others then
+    if sqlerrm not like '%вкладке «KPI»%' then raise exception 'TEST FAILED: прямая вставка: %', sqlerrm; end if;
+  end;
+  reset role;
+  raise notice 'ok: прямая запись плана алкоголя — отказ';
 end $$;
 
 -- ── h. Права ──────────────────────────────────────────────

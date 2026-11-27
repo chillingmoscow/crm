@@ -3,6 +3,7 @@ import { z } from "zod";
 import { actionResult } from "@/lib/actions/result";
 import { kpiReason, kpiResult, parseKpiItems, type KpiAnswers, type KpiItem } from "@/lib/payroll/kpi";
 import { loadKpiMonthView, type KpiMonthView } from "@/lib/payroll/kpi-month";
+import { suggestAlcoholPlan } from "@/lib/sales/alcohol-plan";
 import { payrollScope, type PayrollScope } from "./payroll-scope";
 
 // KPI старших: вкладка «KPI» зарплаты и блок «KPI» в условиях должности.
@@ -88,22 +89,23 @@ async function saveKpiReviewImpl(input: { employeeId: string; month: string; ter
   return view(s, m);
 }
 
-async function saveAlcoholPlanImpl(input: { viewMonth: string; amount: number | null; priceIncreasePercent: number | null; suggested: number | null }) {
+async function saveAlcoholPlanImpl(input: { viewMonth: string; amount: number | null; priceIncreasePercent: number | null }) {
   const s = await viewScope();
   const parsed = z.object({
     viewMonth: MONTH,
     amount: z.number().finite().positive("План должен быть больше нуля").lt(1e12, "Слишком большая сумма").nullable(),
     priceIncreasePercent: z.number().finite().min(0.1, "Повышение цен — от 0,1 до 100%").max(100, "Повышение цен — от 0,1 до 100%").nullable(),
-    suggested: z.number().finite().positive().nullable(),
   }).parse(input);
   const m = `${parsed.viewMonth}-01`;
-  const target = new Date(`${m}T12:00:00Z`);
-  target.setUTCMonth(target.getUTCMonth() + 1);
+  // Месяц плана и предложение — с сервера: план всегда на месяц после месяца
+  // итогов, а предложение пересчитываем по истории, а не берём из браузера.
+  const current = await view(s, m);
+  const suggested = suggestAlcoholPlan(new Map(current.next.history), current.next.month, parsed.priceIncreasePercent).amount;
   const r = await s.db.rpc("sales_alcohol_plan_save", {
-    p_month: target.toISOString().slice(0, 10),
+    p_month: current.next.month,
     p_input: {
       alcohol: parsed.amount === null ? null : Math.round(parsed.amount * 100) / 100,
-      suggested: parsed.suggested,
+      suggested,
       price_increase_percent: parsed.amount === null ? null : parsed.priceIncreasePercent,
     },
   });
@@ -164,7 +166,7 @@ export async function loadKpiMonth(month: string) {
 export async function saveKpiReview(input: { employeeId: string; month: string; termsId: string; answers: KpiAnswers; requestKey: string }) {
   return actionResult(() => saveKpiReviewImpl(input), "Не удалось сохранить итоги KPI");
 }
-export async function saveAlcoholPlan(input: { viewMonth: string; amount: number | null; priceIncreasePercent: number | null; suggested: number | null }) {
+export async function saveAlcoholPlan(input: { viewMonth: string; amount: number | null; priceIncreasePercent: number | null }) {
   return actionResult(() => saveAlcoholPlanImpl(input), "Не удалось сохранить план продаж");
 }
 export async function loadKpiTerms(roleId: string) {

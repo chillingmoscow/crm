@@ -349,7 +349,12 @@ begin
   if v_suggested is not null and (v_suggested <= 0 or v_suggested >= 1e12) then v_suggested := null; end if;
   if v_percent is not null and (v_percent < 0.1 or v_percent > 100) then raise exception 'Повышение цен — от 0,1 до 100%%'; end if;
   perform pg_advisory_xact_lock(hashtextextended('sales-plan:' || v::text, 0));
+  -- План, по которому уже подвели итоги KPI, задним числом не меняется.
+  if exists (select 1 from public.payroll_kpi_reviews where account_id = a and venue_id = v and month = p_month) then
+    raise exception 'Итоги KPI за % уже подведены — план этого месяца менять нельзя', private.payroll_month_label(p_month);
+  end if;
   select * into cur from public.sales_month_plans where account_id = a and venue_id = v and month = p_month for update;
+  perform set_config('app.alcohol_plan_write', '1', true);
   if cur.id is null then
     if v_plan is null then return null; end if;
     insert into public.sales_month_plans (account_id, venue_id, month, alcohol, alcohol_suggested, price_increase_percent, created_by, updated_by)
@@ -365,12 +370,33 @@ begin
         price_increase_percent = case when v_plan is null then null else v_percent end, updated_by = u
     where id = cur.id returning id into result;
   end if;
+  perform set_config('app.alcohol_plan_write', '', true);
   insert into public.audit_logs (account_id, venue_id, user_id, action_code, entity_type, entity_id, details)
   values (a, v, u, 'sales.plan.alcohol_set', 'sales_month_plan', result, jsonb_build_object(
     'month', to_char(p_month, 'YYYY-MM'), 'before', cur.alcohol, 'after', v_plan,
     'suggested', v_suggested, 'price_increase_percent', v_percent));
   return result;
 end $$;
+
+-- План алкоголя пишет только sales_alcohol_plan_save: прямая запись в таблицу
+-- (у «Смен» есть права на строку плана) не должна менять его в обход проверок.
+create or replace function private.sales_alcohol_plan_guard()
+returns trigger language plpgsql set search_path = public, pg_catalog as $$
+begin
+  if coalesce(current_setting('app.alcohol_plan_write', true), '') = '1' or current_user in ('postgres', 'supabase_admin', 'service_role') then
+    return case when tg_op = 'DELETE' then old else new end;
+  end if;
+  if (tg_op = 'INSERT' and (new.alcohol is not null or new.alcohol_suggested is not null or new.price_increase_percent is not null))
+     or (tg_op = 'UPDATE' and (new.alcohol is distinct from old.alcohol or new.alcohol_suggested is distinct from old.alcohol_suggested
+       or new.price_increase_percent is distinct from old.price_increase_percent))
+     or (tg_op = 'DELETE' and old.alcohol is not null) then
+    raise exception 'План продаж алкоголя задаётся во вкладке «KPI» зарплаты';
+  end if;
+  return case when tg_op = 'DELETE' then old else new end;
+end $$;
+revoke all on function private.sales_alcohol_plan_guard() from public, anon, authenticated;
+create trigger sales_alcohol_plan_guard before insert or update or delete on public.sales_month_plans
+  for each row execute function private.sales_alcohol_plan_guard();
 
 do $$
 declare f text;

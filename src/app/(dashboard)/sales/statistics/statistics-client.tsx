@@ -14,6 +14,7 @@ import {
   ChartNoAxesCombined,
   RefreshCw,
   SearchX,
+  Target,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -71,6 +72,8 @@ import {
   type StatisticsData,
 } from "./actions";
 import { StatisticsChart } from "./statistics-chart";
+import { MonthPlanDrawer } from "./_components/month-plan-drawer";
+import { loadPlanSummaryAction } from "./plan-actions";
 
 const labels: Record<string, string> = {
   month: "Месяц",
@@ -89,6 +92,8 @@ const labels: Record<string, string> = {
   food: "Питание",
   payroll: "ФОТ",
   mastersSales: "Продажи мастеров",
+  plan_turnover: "План оборота",
+  plan_alcohol: "Доля алкоголя · план",
 };
 const defaultColumns = [
   "month",
@@ -117,12 +122,21 @@ const columnConfig = [
   "food",
   "payroll",
   "mastersSales",
+  "plan_turnover",
+  "plan_alcohol",
 ].map((id) => ({
   id,
   defaultSize: id === "month" ? 180 : 150,
-  defaultVisible: defaultColumns.includes(id),
+  defaultVisible: defaultColumns.includes(id) || id.startsWith("plan_"),
 }));
-const valueColumns = columnConfig.map((c) => c.id).filter((id) => id !== "month");
+/** Столбцы плана месяца — не из показателей смен, а из «Плана на месяц». */
+const planColumns = ["plan_turnover", "plan_alcohol"];
+const nextMonth = (ym: string) => {
+  const d = new Date(`${ym}-01T12:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() + 1);
+  return d.toISOString().slice(0, 7);
+};
+const valueColumns = columnConfig.map((c) => c.id).filter((id) => id !== "month" && !planColumns.includes(id));
 const sortFields = columnConfig.map((c) => c.id);
 const countKeys = new Set(["shifts", "checks", "regularGuests"]);
 const reportKinds: Record<string, string> = {
@@ -211,10 +225,23 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
     if (detail) setShownDetail(detail);
   }, [detail]);
   const st = useTableState({
-    tableId: `sales-statistics.v3.${initial.venueId}`,
+    tableId: `sales-statistics.v4.${initial.venueId}`,
     columns: columnConfig,
   });
   const can = (p: string) => data.permissions.includes(`sales.${p}_shifts`);
+  const canPlan = data.permissions.includes("sales.plan");
+  const [plans, setPlans] = useState<Map<string, { turnover: number | null; alcoholShare: number | null }>>(new Map());
+  const [planMonth, setPlanMonth] = useState<string | null>(null);
+  const reloadPlans = () =>
+    loadPlanSummaryAction().then(unwrapAction)
+      .then((list) => setPlans(new Map(list.map((p) => [p.month.slice(0, 7), p]))))
+      .catch(() => undefined);
+  useEffect(() => {
+    void reloadPlans();
+    // Ссылка «Задать план» из «Смен», «Настроек продаж» и «На разбор».
+    const wanted = new URLSearchParams(window.location.search).get("plan");
+    if (wanted && /^20\d{2}-(0[1-9]|1[0-2])$/.test(wanted)) setPlanMonth(wanted);
+  }, []);
   const currentMonth = businessDate(
     new Date(),
     data.timezone,
@@ -295,8 +322,46 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
           cell: ({ row }) => <Amount value={row.original.values[id]} id={id} />,
         }),
       ),
+      {
+        id: "plan_turnover",
+        header: labels.plan_turnover,
+        size: 160,
+        minSize: 140,
+        accessorFn: (r) => plans.get(r.month)?.turnover ?? undefined,
+        sortUndefined: "last",
+        cell: ({ row }) => {
+          const plan = plans.get(row.original.month)?.turnover ?? null;
+          const fact = row.original.values.turnover?.value ?? null;
+          if (plan === null) return <span className="text-muted-foreground">—</span>;
+          return (
+            <span className="inline-flex flex-col items-end">
+              <Money value={plan} />
+              {fact !== null && <span className="text-xs text-muted-foreground">{Math.round((fact / plan) * 1000) / 10}% выполнено</span>}
+            </span>
+          );
+        },
+      },
+      {
+        id: "plan_alcohol",
+        header: labels.plan_alcohol,
+        size: 170,
+        minSize: 150,
+        accessorFn: (r) => plans.get(r.month)?.alcoholShare ?? undefined,
+        sortUndefined: "last",
+        cell: ({ row }) => {
+          const plan = plans.get(row.original.month)?.alcoholShare ?? null;
+          const fact = row.original.values.alcoholShare?.value ?? null;
+          if (plan === null) return <span className="text-muted-foreground">—</span>;
+          return (
+            <span className="inline-flex flex-col items-end">
+              <span className="tabular-nums">{plan.toLocaleString("ru-RU")}%</span>
+              {fact !== null && <span className="text-xs text-muted-foreground">факт {fact.toLocaleString("ru-RU")}%</span>}
+            </span>
+          );
+        },
+      },
     ],
-    [router],
+    [router, plans],
   );
   const table = useReactTable({
     data: rows,
@@ -554,7 +619,17 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
                   }
                 : undefined
             }
-            primaryActions={reportsButton}
+            primaryActions={
+              <>
+                {source === "native" && (
+                  <Button size="sm" variant={canPlan ? "default" : "outline"} onClick={() => setPlanMonth(plans.has(currentMonth) ? nextMonth(currentMonth) : currentMonth)}>
+                    <Target className="size-4" />
+                    План на {monthLabel(plans.has(currentMonth) ? nextMonth(currentMonth) : currentMonth)}
+                  </Button>
+                )}
+                {reportsButton}
+              </>
+            }
           />
         }
       />
@@ -692,6 +767,13 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
           />
         </>
       )}
+      <MonthPlanDrawer
+        open={planMonth !== null}
+        onOpenChange={(v) => { if (!v) setPlanMonth(null); }}
+        month={planMonth ?? currentMonth}
+        currentMonth={currentMonth}
+        onSaved={() => void reloadPlans()}
+      />
       <EditDrawer
         open={!!detail}
         onOpenChange={(open) => !open && setDetail(null)}

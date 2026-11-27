@@ -2652,8 +2652,8 @@ button.kb-gallery-menu-item {
 }
 .kb-collection-create-view-title {
   color: hsl(var(--muted-foreground));
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
 }
 .kb-collection-create-view-grid {
   display: grid;
@@ -2667,16 +2667,21 @@ button.kb-gallery-menu-item {
   gap: 8px;
   border-radius: 8px;
   color: hsl(var(--foreground));
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
+  border: 1px solid hsl(var(--border));
 }
 .kb-collection-create-view-option:hover:not(:disabled) {
-  background-color: hsl(var(--accent) / 0.62);
+  background-color: hsl(var(--accent));
 }
 .kb-collection-create-view-option:disabled {
   cursor: not-allowed;
   opacity: 0.38;
 }
+/* Между текстами вкладок 20px, но это поля самих вкладок (по 10px), а не
+ * промежуток: зона нажатия и перетаскивания сплошная, а подчёркивание
+ * рисует ::after только под текстом. Первая вкладка сдвинута на -10px,
+ * чтобы текст стоял ровно под заголовком. */
 .bn-sheerly .kb-collection-view-tabs {
   position: relative;
   display: inline-flex;
@@ -2684,7 +2689,8 @@ button.kb-gallery-menu-item {
   flex: 1 1 auto;
   align-self: stretch;
   align-items: stretch;
-  gap: 20px;
+  gap: 0;
+  margin-inline-start: -10px;
   overflow: visible;
 }
 .bn-sheerly .kb-collection-view-tab {
@@ -2695,25 +2701,33 @@ button.kb-gallery-menu-item {
   flex: 0 0 auto;
   align-items: center;
   gap: 6px;
-  margin-bottom: -1px;
-  border-bottom: 2px solid transparent;
   border-radius: 0;
-  padding: 0;
+  padding: 0 10px;
   color: hsl(var(--muted-foreground));
   font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
-  transition:
-    border-color 120ms ease,
-    color 120ms ease;
+  transition: color 120ms ease;
+}
+.bn-sheerly .kb-collection-view-tab::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  bottom: -1px;
+  left: 10px;
+  height: 2px;
+  background-color: transparent;
+  transition: background-color 120ms ease;
 }
 .bn-sheerly .kb-collection-view-tab:hover {
   color: hsl(var(--foreground));
 }
 .bn-sheerly .kb-collection-view-tab[data-active] {
-  border-bottom-color: hsl(var(--brand));
   color: hsl(var(--brand-text));
   font-weight: 600;
+}
+.bn-sheerly .kb-collection-view-tab[data-active]::after {
+  background-color: hsl(var(--brand));
 }
 /* Своих кнопок шапки много — рамка фокуса как у Button (--ring), а не
  * системная рамка браузера. */
@@ -2755,16 +2769,13 @@ button.kb-gallery-menu-item {
   inset: auto auto 0 0;
   z-index: -1;
   display: inline-flex;
-  gap: 20px;
+  gap: 0;
   visibility: hidden;
   pointer-events: none;
 }
 .kb-collection-view-menu {
   width: min(300px, calc(100vw - 24px));
   padding: 10px;
-}
-.kb-collection-view-source-row {
-  color: hsl(var(--muted-foreground));
 }
 .kb-collection-view-description-field {
   display: grid;
@@ -2774,8 +2785,7 @@ button.kb-gallery-menu-item {
   font-size: 12px;
   font-weight: 500;
 }
-.kb-collection-view-description-input,
-.bn-sheerly .kb-collection-settings-description-input {
+.kb-collection-view-description-input {
   width: 100%;
   min-height: 64px;
   resize: none;
@@ -2789,14 +2799,9 @@ button.kb-gallery-menu-item {
   line-height: 1.35;
   outline: none;
 }
-.kb-collection-view-description-input:focus,
-.bn-sheerly .kb-collection-settings-description-input:focus {
+.kb-collection-view-description-input:focus {
   border-color: hsl(var(--brand));
   box-shadow: 0 0 0 2px hsl(var(--brand) / 0.14);
-}
-.bn-sheerly .kb-collection-settings-description-input {
-  min-height: 58px;
-  resize: none;
 }
 .bn-sheerly .kb-collection-settings-description-compact {
   height: 36px;
@@ -2807,12 +2812,12 @@ button.kb-gallery-menu-item {
 .kb-collection-view-description-trigger,
 .kb-collection-view-icon-picker {
   display: inline-flex;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  border: 1px solid hsl(var(--border) / 0.74);
+  border: 1px solid hsl(var(--border));
   border-radius: 6px;
   background-color: hsl(var(--background));
   color: hsl(var(--muted-foreground));
@@ -2853,25 +2858,6 @@ button.kb-gallery-menu-item {
   font-size: 12px;
   font-weight: 600;
   line-height: 1;
-}
-.kb-collection-view-icon-menu {
-  width: max-content;
-  border-radius: 6px;
-  padding: 6px;
-}
-.kb-collection-view-icon-option {
-  display: inline-flex;
-  width: 34px;
-  height: 34px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  color: hsl(var(--muted-foreground));
-}
-.kb-collection-view-icon-option:hover,
-.kb-collection-view-icon-option[data-active] {
-  background-color: hsl(var(--accent) / 0.68);
-  color: hsl(var(--foreground));
 }
 .kb-collection-column-menu-row:disabled {
   cursor: not-allowed;
@@ -2975,10 +2961,12 @@ button.kb-gallery-menu-item {
   align-items: center;
   gap: 6px;
 }
+/* Поле 16px до 700px включительно — иначе iOS Safari увеличивает страницу
+ * при фокусе (docs/mobile-web.md §2); с 701px — 13px, как текст панели. */
 .bn-sheerly .kb-collection-search-input {
   width: 0;
   height: 36px;
-  font-size: 13px;
+  font-size: 16px;
   min-width: 0;
   border-color: transparent;
   opacity: 0;
@@ -2988,6 +2976,11 @@ button.kb-gallery-menu-item {
     opacity 120ms ease,
     padding 160ms ease,
     border-color 120ms ease;
+}
+@media (min-width: 701px) {
+  .bn-sheerly .kb-collection-search-input {
+    font-size: 13px;
+  }
 }
 .bn-sheerly .kb-collection-search[data-open] .kb-collection-search-input {
   width: 180px;
@@ -3042,7 +3035,7 @@ button.kb-gallery-menu-item {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border: 1px solid hsl(var(--border) / 0.82);
+  border: 1px solid hsl(var(--border));
   border-radius: 8px;
   background-color: hsl(var(--background));
   color: hsl(var(--muted-foreground));
@@ -3061,9 +3054,8 @@ button.kb-gallery-menu-item {
 }
 .kb-collection-layout-card[data-active] {
   border-color: hsl(var(--brand));
-  background-color: hsl(var(--brand) / 0.08);
+  background-color: hsl(var(--brand) / 0.1);
   color: hsl(var(--brand-text));
-  box-shadow: inset 0 0 0 1px hsl(var(--brand) / 0.2);
 }
 .kb-collection-layout-card:disabled {
   cursor: not-allowed;
@@ -3105,6 +3097,10 @@ button.kb-gallery-menu-item {
   border-color: hsl(var(--brand) / 0.3);
   background-color: hsl(var(--brand) / 0.1);
   color: hsl(var(--brand-text));
+}
+.bn-sheerly .kb-collection-icon-btn[data-active]:hover,
+.bn-sheerly .kb-collection-icon-btn[data-active][data-state="open"] {
+  background-color: hsl(var(--brand) / 0.15);
 }
 .bn-sheerly .kb-collection-actions .kb-collection-toolbar-toggle {
   opacity: 0;
@@ -3241,9 +3237,6 @@ button.kb-gallery-menu-item {
   justify-content: flex-end;
   gap: 6px;
 }
-.bn-sheerly .kb-collection-properties[data-wrap] .kb-collection-property-value {
-  white-space: normal;
-}
 .bn-sheerly .kb-collection-property {
   display: inline-flex;
   max-width: 100%;
@@ -3271,15 +3264,6 @@ button.kb-gallery-menu-item {
 }
 .bn-sheerly .kb-collection-property button {
   max-width: 180px;
-}
-.bn-sheerly .kb-collection-property-name {
-  color: hsl(var(--muted-foreground));
-}
-.bn-sheerly .kb-collection-property-value {
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .bn-sheerly .kb-collection-table-scroll {
   display: block;
@@ -3396,7 +3380,7 @@ button.kb-gallery-menu-item {
   top: 0;
   z-index: 6;
   display: inline-flex;
-  height: 34px;
+  height: 40px;
   align-items: center;
   gap: 6px;
   border: 1px solid hsl(var(--border) / 0.78);
@@ -3680,7 +3664,7 @@ button.kb-gallery-menu-item {
 .kb-collection-settings-title {
   padding: 2px 6px 6px;
   color: hsl(var(--muted-foreground));
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
 }
 .kb-collection-settings-name-row {
@@ -3739,25 +3723,6 @@ button.kb-gallery-menu-item {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.kb-collection-field-toggle {
-  display: inline-flex;
-  min-height: 28px;
-  align-items: center;
-  gap: 5px;
-  color: hsl(var(--muted-foreground));
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-.kb-collection-field-toggle input {
-  accent-color: hsl(var(--brand));
-}
-.kb-collection-settings-section-title {
-  padding: 8px 6px 0;
-  color: hsl(var(--muted-foreground));
-  font-size: 12px;
-  font-weight: 500;
-}
 .kb-collection-settings-panel-head {
   display: flex;
   min-height: 34px;
@@ -3783,11 +3748,6 @@ button.kb-gallery-menu-item {
   font-size: 14px;
   font-weight: 600;
 }
-.kb-collection-settings-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
 .kb-collection-settings-row {
   display: flex;
   min-height: 36px;
@@ -3797,26 +3757,8 @@ button.kb-gallery-menu-item {
   border-radius: 6px;
   padding: 3px 4px;
 }
-.kb-collection-settings-row-label {
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-  color: hsl(var(--foreground));
-  font-size: 13px;
-  font-weight: 600;
-}
-.kb-collection-settings-row-label svg {
-  color: hsl(var(--muted-foreground));
-}
-.kb-collection-settings-subtitle {
-  color: hsl(var(--muted-foreground));
-  font-size: 12px;
-  font-weight: 500;
-}
 .kb-collection-views-editor,
-.kb-collection-view-list,
-.kb-collection-view-actions {
+.kb-collection-view-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -3830,7 +3772,7 @@ button.kb-gallery-menu-item {
   border-radius: 6px;
   padding: 0 8px;
   color: hsl(var(--foreground));
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 400;
   text-align: left;
 }
@@ -3875,7 +3817,7 @@ button.kb-gallery-menu-item {
 .kb-collection-filter-input,
 .kb-collection-sort-select {
   min-width: 0;
-  height: 30px;
+  height: 36px;
   border: 1px solid hsl(var(--border) / 0.82);
   border-radius: 8px;
   background-color: hsl(var(--background));
@@ -3900,7 +3842,7 @@ button.kb-gallery-menu-item {
 }
 .kb-collection-grouping-select {
   min-width: 0;
-  height: 30px;
+  height: 36px;
   border: 1px solid hsl(var(--border) / 0.82);
   border-radius: 8px;
   background-color: hsl(var(--background));
@@ -3913,7 +3855,7 @@ button.kb-gallery-menu-item {
   grid-template-columns: 20px minmax(0, 1fr) 16px;
   width: 100%;
   min-width: 0;
-  height: 32px;
+  height: 36px;
   align-items: center;
   gap: 8px;
   border: 1px solid hsl(var(--border) / 0.82);
@@ -3952,7 +3894,7 @@ button.kb-gallery-menu-item {
   min-height: 34px;
   align-items: center;
   gap: 8px;
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 0 7px;
   color: hsl(var(--foreground));
   font-size: 14px;
@@ -3985,18 +3927,13 @@ button.kb-gallery-menu-item {
   font-size: 12px;
   line-height: 1.4;
 }
-.kb-collection-properties-editor-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
 .kb-collection-property-visibility-editor {
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
 .kb-collection-property-visibility-search {
-  height: 38px;
+  height: 36px;
   border-radius: 6px;
   font-size: 14px;
 }
@@ -4062,37 +3999,6 @@ button.kb-gallery-menu-item {
   color: hsl(var(--muted-foreground));
   font-size: 13px;
 }
-.kb-collection-field-editor {
-  display: grid;
-  grid-template-columns: 16px 18px minmax(100px, 1fr) 108px auto 30px;
-  min-height: 38px;
-  align-items: center;
-  gap: 6px;
-  border-radius: 6px;
-  padding: 4px 5px;
-}
-.kb-collection-field-editor:hover {
-  background-color: hsl(var(--accent) / 0.45);
-}
-.kb-collection-field-drag {
-  cursor: grab;
-}
-.kb-collection-field-drag:active {
-  cursor: grabbing;
-}
-.kb-collection-field-type,
-.kb-collection-native-select {
-  height: 30px;
-  border: 1px solid hsl(var(--border) / 0.82);
-  border-radius: 8px;
-  background-color: hsl(var(--background));
-  color: hsl(var(--foreground));
-  padding-inline: 9px;
-  font-size: 12px;
-}
-.kb-collection-native-select {
-  width: 100%;
-}
 .kb-collection-column-menu {
   width: min(300px, calc(100vw - 24px));
   padding: 10px;
@@ -4116,7 +4022,7 @@ button.kb-gallery-menu-item {
   padding: 2px 6px;
 }
 .kb-collection-column-description-input {
-  height: 34px;
+  height: 36px;
   margin-top: 3px;
   border-radius: 6px;
   font-size: 13px;
@@ -4211,10 +4117,10 @@ button.kb-gallery-menu-item {
   min-height: 34px;
   align-items: center;
   gap: 7px;
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 0 7px;
   color: hsl(var(--foreground));
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 400;
   text-align: left;
   transition: background-color 120ms ease,
@@ -4230,30 +4136,6 @@ button.kb-gallery-menu-item {
 .kb-collection-column-type-option[data-active] svg:last-child {
   color: hsl(var(--brand-text));
 }
-.kb-collection-column-create-btn {
-  width: 100%;
-  height: 32px;
-  border-radius: 8px;
-  background-color: hsl(var(--brand));
-  color: hsl(var(--brand-foreground));
-  font-size: 13px;
-  font-weight: 500;
-}
-.kb-collection-column-create-btn:hover {
-  background-color: hsl(var(--brand-hover));
-  color: hsl(var(--brand-foreground));
-}
-.kb-collection-field-type:focus,
-.kb-collection-native-select:focus {
-  outline: 2px solid hsl(var(--brand) / 0.35);
-  outline-offset: 1px;
-}
-.kb-collection-add-field-row {
-  display: flex;
-  justify-content: flex-start;
-  padding-top: 2px;
-}
-
 @media (max-width: 700px) {
   .bn-sheerly .kb-collection-title-row,
   .bn-sheerly .kb-collection-toolbar {
@@ -4266,9 +4148,21 @@ button.kb-gallery-menu-item {
   .bn-sheerly .kb-collection-toolbar {
     border-bottom: 0;
   }
+  /* Ряд сдвинут на -10px (поля вкладок), линия — от начала текста. */
   .bn-sheerly .kb-collection-view-tabs {
-    width: 100%;
-    border-bottom: 1px solid hsl(var(--border));
+    width: calc(100% + 10px);
+  }
+  .bn-sheerly .kb-collection-view-tabs::before {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 10px;
+    height: 1px;
+    background-color: hsl(var(--border));
+  }
+  .bn-sheerly .kb-collection-view-tab::after {
+    bottom: 0;
   }
   .bn-sheerly .kb-collection-actions {
     width: 100%;
@@ -4278,6 +4172,20 @@ button.kb-gallery-menu-item {
   }
   .bn-sheerly .kb-collection-actions .kb-collection-add-btn {
     margin-left: auto;
+  }
+  /* Открытый поиск занимает свободное место строки; «Добавить» на это
+   * время прячется — иначе ряд шире экрана и кнопка обрезана. */
+  .bn-sheerly .kb-collection-search[data-open] {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .bn-sheerly .kb-collection-search[data-open] .kb-collection-search-input {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .bn-sheerly .kb-collection-actions:has(.kb-collection-search[data-open]) .kb-collection-add-btn {
+    display: none;
   }
   /* Свернуть панель — по наведению, которого на телефоне нет: кнопка
    * только занимала место перед значками. */
@@ -4290,15 +4198,7 @@ button.kb-gallery-menu-item {
   .bn-sheerly .kb-collection-table-scroll {
     margin-inline: -2px;
   }
-  .kb-collection-field-editor {
-    grid-template-columns: auto auto minmax(0, 1fr) auto auto;
-  }
-  .kb-collection-field-type {
-    grid-column: 3 / -1;
-    width: 100%;
-  }
 }
-
 .bn-drag-preview .kb-gallery-header,
 .bn-drag-preview .kb-gallery-item-actions {
   display: none !important;
@@ -4413,13 +4313,11 @@ button.kb-gallery-menu-item {
   font-size: 12px;
   line-height: 1.35;
 }
-
 @media (max-width: 420px) {
   .bn-sheerly .kb-gallery-grid {
     grid-template-columns: 1fr !important;
   }
 }
-
 .kb-gallery-lightbox {
   width: min(96vw, 1120px);
   max-width: none;
@@ -4517,7 +4415,6 @@ button.kb-gallery-menu-item {
   font-size: 14px;
   line-height: 1.45;
 }
-
 /* ──── Плавный переход тем ──────────────────────────────────────
    `.theme-transition` навешивается на <html> на 220ms во время
    переключения через `applyTheme` (src/lib/theme.ts), чтобы цвета

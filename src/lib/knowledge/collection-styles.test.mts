@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 import { collectionCss, offScaleDeclarations, parseCssRules, type CssRule } from "./css-scale.ts";
 
@@ -131,4 +131,109 @@ test("table, list and empty state are on the DS scale", () => {
 test("whole collection section is on the DS scale", () => {
   const found = offScaleDeclarations(rules, { selectorIncludes: "kb-collection" });
   assert.deepEqual(found, [], report(found));
+});
+
+const globalsCss = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+
+test("the collection section keeps all of its rules", () => {
+  // Сторож видит только участок между маркерами: если правила уедут за
+  // маркер, тест выше молча станет проверять меньше.
+  // 290 правил на 27.11.2026; порог с запасом под чистку.
+  assert.ok(rules.length >= 250, `в участке ${rules.length} правил`);
+});
+
+test("collection rules anywhere in globals.css are on the DS scale", () => {
+  const found = offScaleDeclarations(parseCssRules(globalsCss), { selectorIncludes: "kb-collection" });
+  assert.deepEqual(found, [], report(found));
+});
+
+function rule(selector: string): CssRule {
+  const found = rules.find((r) => r.selector.split(",").some((s) => s.trim() === selector));
+  assert.ok(found, `нет правила ${selector}`);
+  return found;
+}
+
+function value(selector: string, prop: string): string | undefined {
+  return rule(selector).declarations.find((d) => d.prop === prop)?.value;
+}
+
+test("group labels in collection popovers are 12 / 500 (DS «Меню редактора»)", () => {
+  for (const selector of [
+    ".kb-collection-create-view-title",
+    ".kb-collection-settings-title",
+    ".kb-collection-property-visibility-heading",
+    ".kb-collection-column-insert-subtitle",
+  ]) {
+    assert.equal(value(selector, "font-size"), "12px", selector);
+    assert.equal(value(selector, "font-weight"), "500", selector);
+  }
+});
+
+test("menu rows in collection popovers are 14px with radius 6", () => {
+  for (const selector of [
+    ".kb-collection-view-row",
+    ".kb-collection-view-overflow-row",
+    ".kb-collection-settings-nav-row",
+    ".kb-collection-field-select-option",
+    ".kb-collection-column-menu-row",
+    ".kb-collection-column-type-option",
+  ]) {
+    assert.equal(value(selector, "font-size"), "14px", selector);
+    assert.equal(value(selector, "border-radius"), "6px", selector);
+  }
+});
+
+test("fields inside collection popovers are 36px high", () => {
+  for (const selector of [
+    ".kb-collection-filter-select",
+    ".kb-collection-grouping-select",
+    ".kb-collection-field-select-trigger",
+    ".kb-collection-field-select-search",
+    ".kb-collection-property-visibility-search",
+    ".kb-collection-column-description-input",
+    ".kb-collection-view-overflow-search",
+  ]) {
+    assert.equal(value(selector, "height"), "36px", selector);
+  }
+});
+
+test("view layout tiles: bordered, 13 / 500, active without inset shadow", () => {
+  for (const selector of [".kb-collection-create-view-option", ".kb-collection-layout-card"]) {
+    assert.equal(value(selector, "font-size"), "13px", selector);
+    assert.equal(value(selector, "font-weight"), "500", selector);
+    assert.equal(value(selector, "border-radius"), "8px", selector);
+    assert.ok(value(selector, "border")?.includes("hsl(var(--border))"), selector);
+  }
+  assert.equal(value(".kb-collection-layout-card[data-active]", "box-shadow"), undefined);
+  assert.equal(value(".kb-collection-layout-card[data-active]", "background-color"), "hsl(var(--brand) / 0.1)");
+});
+
+function collectionSources(): string {
+  const dir = new URL("../../components/knowledge/blocks/", import.meta.url);
+  const files = [
+    "kb-collection-block.tsx",
+    ...readdirSync(new URL("collection/", dir), { recursive: true })
+      .map(String)
+      .filter((f) => f.endsWith(".tsx") || f.endsWith(".ts"))
+      .map((f) => `collection/${f}`),
+  ];
+  return files.map((f) => readFileSync(new URL(f, dir), "utf8")).join("\n");
+}
+
+test("every .kb-collection-* class in CSS is used by the block", () => {
+  const sources =
+    collectionSources() + readFileSync(new URL("../../components/knowledge/blocknote-editor.tsx", import.meta.url), "utf8");
+  const classes = new Set(css.match(/\.kb-collection-[a-z0-9-]+/g)?.map((c) => c.slice(1)) ?? []);
+  const dead = [...classes].filter((c) => !sources.includes(c));
+  assert.deepEqual(dead, []);
+});
+
+test("collection components use only scale values in arbitrary Tailwind classes", () => {
+  const sources = collectionSources();
+  const bad = [
+    ...(sources.match(/text-\[\d+(?:\.\d+)?px\]/g) ?? []).filter((c) => !["text-[13px]", "text-[28px]"].includes(c)),
+    ...(sources.match(/font-\[\d+\]/g) ?? []),
+    ...(sources.match(/rounded-\[\d+px\]/g) ?? []).filter((c) => !["rounded-[10px]", "rounded-[14px]"].includes(c)),
+  ];
+  assert.deepEqual(bad, []);
 });

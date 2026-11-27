@@ -417,7 +417,9 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
       const addNode = measure.querySelector<HTMLElement>(
         "[data-kb-view-add-measure]",
       );
-      const gap = 6;
+      // Промежуток берём из CSS ряда, а не константой: иначе расчёт
+      // расходится с вёрсткой и вкладки налезают на кнопки справа.
+      const gap = Number.parseFloat(getComputedStyle(measure).columnGap) || 0;
       const moreWidth = (moreNode?.getBoundingClientRect().width ?? 86) + gap;
       const addWidth =
         editable && tabNodes.length > 0

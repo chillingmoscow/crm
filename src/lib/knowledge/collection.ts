@@ -292,12 +292,20 @@ export function normalizeCollectionViewType(value: unknown): KbCollectionView {
   return value === "table" ? "table" : "list";
 }
 
+const LEGACY_LIST_VIEW_NAME = "Галерея";
+
 export function normalizeCollectionViewName(
   value: unknown,
   view: KbCollectionView,
 ): string {
   if (typeof value !== "string") return KB_COLLECTION_VIEW_LABELS[view];
   const title = value.trim();
+  // Меню «/» до 27.11.2026 записывало виду-списку имя «Галерея» в свойства
+  // блока. Строки видов переименовала миграция 419, а из текста страниц это
+  // имя возвращалось при дублировании страницы и копировании блока.
+  if (view === "list" && title === LEGACY_LIST_VIEW_NAME) {
+    return KB_COLLECTION_VIEW_LABELS.list;
+  }
   return title || KB_COLLECTION_VIEW_LABELS[view];
 }
 

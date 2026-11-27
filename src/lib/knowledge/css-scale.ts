@@ -87,21 +87,34 @@ function isAllowedShadow(value: string): boolean {
     .every((part) => /^(inset\s+)?0\s+0\s+0\s+\d+(\.\d+)?px\b/.test(part.trim()));
 }
 
+/** Токен темы (`var(--…)`) задаёт значение из шкалы где-то ещё — его не
+ *  проверяем; `inherit` берёт значение родителя. */
+function isPassThrough(value: string): boolean {
+  return value.startsWith("var(") || value === "inherit";
+}
+
+/** `font: [style] [weight] size[/line-height] family` — кегль и начертание
+ *  из шортката проверяются как отдельные свойства. */
+function fontShorthandParts(value: string): CssDeclaration[] {
+  const parts: CssDeclaration[] = [];
+  const weight = value.match(/(?:^|\s)(\d{3})(?=\s)/);
+  if (weight) parts.push({ prop: "font-weight", value: weight[1] });
+  const size = value.match(/(?:^|\s)(\d+(?:\.\d+)?px)(?:\/|\s|$)/);
+  if (size) parts.push({ prop: "font-size", value: size[1] });
+  return parts;
+}
+
 function isAllowed(prop: string, value: string): boolean {
   const v = value.trim();
-  if (v.startsWith("var(") || v === "inherit") return true;
-  switch (prop) {
-    case "font-size":
-      return FONT_SIZES.has(v);
-    case "font-weight":
-      return FONT_WEIGHTS.has(v);
-    case "border-radius":
-      return v.split(/\s+/).every((part) => RADII.has(part));
-    case "box-shadow":
-      return isAllowedShadow(v);
-    default:
-      return true;
+  if (isPassThrough(v)) return true;
+  if (prop === "font-size") return FONT_SIZES.has(v);
+  if (prop === "font-weight") return FONT_WEIGHTS.has(v);
+  if (prop === "border-radius" || /^border-(top|bottom)-(left|right)-radius$/.test(prop)) {
+    return v.split(/\s+/).every((part) => RADII.has(part));
   }
+  if (prop === "box-shadow" || prop === "-webkit-box-shadow") return isAllowedShadow(v);
+  if (prop === "filter") return !/drop-shadow\(/.test(v);
+  return true;
 }
 
 /** Декларации вне шкалы DS: кегль, начертание, радиус, тень. */
@@ -113,7 +126,10 @@ export function offScaleDeclarations(
   for (const rule of rules) {
     if (opts.selectorIncludes && !rule.selector.includes(opts.selectorIncludes)) continue;
     for (const d of rule.declarations) {
-      if (!isAllowed(d.prop, d.value)) found.push({ selector: rule.selector, ...d });
+      const checked = d.prop === "font" ? fontShorthandParts(d.value) : [d];
+      for (const part of checked) {
+        if (!isAllowed(part.prop, part.value)) found.push({ selector: rule.selector, ...part });
+      }
     }
   }
   return found;

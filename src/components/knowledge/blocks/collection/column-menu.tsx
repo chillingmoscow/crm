@@ -716,7 +716,7 @@ function CollectionColumnInsertPanel({
       <Button
         type="button"
         size="sm"
-        className="kb-collection-column-create-btn"
+        className="w-full"
         onClick={(event) => {
           stopBlockMenuAction(event);
           onCreate();

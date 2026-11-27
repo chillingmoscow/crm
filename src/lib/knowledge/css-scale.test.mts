@@ -56,3 +56,19 @@ test("collectionCss cuts the collection section between markers", () => {
   assert.ok(!section.includes(".before"));
   assert.ok(!section.includes(".after"));
 });
+
+test("font shorthand is checked for size and weight", () => {
+  const found = offScaleDeclarations(parseCssRules(".a{font:650 13.5px/1.2 Inter, sans-serif}.b{font:inherit}"));
+  assert.deepEqual(found.map((d) => d.value), ["650", "13.5px"]);
+  assert.ok(found.every((d) => d.selector === ".a"));
+});
+
+test("radius longhands, prefixed shadows and drop-shadow are checked", () => {
+  const found = offScaleDeclarations(
+    parseCssRules(
+      ".a{border-top-left-radius:9px}.b{-webkit-box-shadow:0 2px 4px red}" +
+        ".c{filter:drop-shadow(0 2px 4px red)}.d{filter:saturate(0.9)}",
+    ),
+  );
+  assert.deepEqual(found.map((d) => d.selector), [".a", ".b", ".c"]);
+});

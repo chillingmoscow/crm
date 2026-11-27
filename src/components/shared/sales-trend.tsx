@@ -284,7 +284,8 @@ export function SalesTrend({
                       ) : (
                         <span
                           className={cn(
-                            "chart-bar-grow-y w-full max-w-10 rounded-t-[5px] transition-colors duration-200",
+                            // Задержка — inline; при «уменьшить движение» снимаем её (!important бьёт style).
+                            "chart-bar-grow-y w-full max-w-10 rounded-t-[5px] transition-colors duration-200 motion-reduce:![animation-delay:0ms]",
                             isMarked
                               ? "bg-brand"
                               : isTip

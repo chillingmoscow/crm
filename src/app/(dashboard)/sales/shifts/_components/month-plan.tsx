@@ -92,7 +92,8 @@ export function MonthPlan({
       </div>
     ) : null;
   const p = planProgress({ plan, month, today, days });
-  const left = p.fact === null ? plan : plan - p.fact;
+  // Оборота нет — разницу с планом не считаем: неизвестное не равно нулю.
+  const left = p.fact === null ? null : plan - p.fact;
   return (
     <section
       aria-label="План месяца"
@@ -113,6 +114,8 @@ export function MonthPlan({
           <p className="text-[13px] text-muted-foreground">
             {p.phase === "future" ? (
               "Месяц ещё не начался"
+            ) : left === null ? (
+              p.phase === "past" ? "Оборота за месяц нет" : "Оборота пока нет"
             ) : left > 0 ? (
               <>
                 {p.phase === "past" ? "Не хватило" : "До плана"} <Money value={left} />
@@ -137,7 +140,8 @@ export function MonthPlan({
                 </span>
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Средний оборот закрытой смены <Money value={p.forecast.pace} /> ×{" "}
+                Оборот на сейчас и средний оборот закрытой смены{" "}
+                <Money value={p.forecast.pace} /> ×{" "}
                 {p.forecast.remaining > 0
                   ? `ещё ${countRu(p.forecast.remaining, "смену", "смены", "смен")}`
                   : "0 смен"}

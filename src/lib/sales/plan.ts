@@ -15,7 +15,7 @@ export type PlanProgress = {
   /** Месяц прошёл, идёт или ещё не начался — относительно текущего рабочего дня. */
   phase: "past" | "current" | "future";
   /**
-   * Прогноз на конец месяца по темпу закрытых смен. Только у текущего месяца
+   * Прогноз на конец месяца: факт + темп закрытых смен × смены впереди. Только у текущего месяца
    * и только когда закрыто не меньше `FORECAST_MIN_SHIFTS` смен с оборотом.
    */
   forecast: {
@@ -25,7 +25,7 @@ export type PlanProgress = {
     pace: number;
     /** Закрытых смен с оборотом. */
     shifts: number;
-    /** Сколько смен ещё ждём до конца месяца, включая текущую. */
+    /** Сколько смен ещё ждём до конца месяца — сверх уже начатых (сегодняшняя с оборотом входит в факт). */
     remaining: number;
   } | null;
   /** Закрытых смен с оборотом — для подписи «Прогноз появится после трёх смен». */
@@ -39,11 +39,12 @@ const round = (n: number) => Math.round(n * 100) / 100;
 /**
  * Оборот к плану и прогноз на конец месяца.
  *
- * Темп считается по сменам, а не по календарным дням: средний оборот закрытой
- * смены × смены, которые ещё будут. Сколько смен ещё будет, берём из того, как
- * заведение работало в этом месяце: доля дней со сменой среди прошедших дней,
- * применённая к оставшимся (включая сегодняшний). Заведение без выходных —
- * каждый оставшийся день; с выходными — пропорционально меньше.
+ * Прогноз = оборот на сейчас (включая сегодняшнюю смену, если она уже есть) +
+ * средний оборот закрытой смены × смены, которые ещё будут. Темп — по сменам,
+ * а не по календарным дням. Сколько смен ещё будет, берём из того, как
+ * заведение работало в этом месяце: доля прошедших дней со сменой (любой, в
+ * том числе ещё не закрытой), применённая к дням после сегодняшнего — и к
+ * сегодняшнему, если смены сегодня ещё нет. Прогноз не бывает меньше факта.
  */
 export function planProgress(input: {
   plan: number;
@@ -62,10 +63,9 @@ export function planProgress(input: {
   const fact = known.length ? round(known.reduce((s, v) => s + v, 0)) : null;
   const phase =
     month < today.slice(0, 7) ? "past" : month > today.slice(0, 7) ? "future" : "current";
+  const before = monthDays.filter((d) => d.business_date < today && turnover(d) !== null);
   // Закрытая смена — завершённая (или перенесённая из архива) и до сегодняшней.
-  const closed = monthDays.filter(
-    (d) => d.status !== "preliminary" && d.business_date < today && turnover(d) !== null,
-  );
+  const closed = before.filter((d) => d.status !== "preliminary");
   const base = {
     plan,
     fact,
@@ -73,15 +73,18 @@ export function planProgress(input: {
     phase,
     closedShifts: closed.length,
   } as const;
-  if (phase !== "current" || closed.length < FORECAST_MIN_SHIFTS)
+  if (phase !== "current" || fact === null || closed.length < FORECAST_MIN_SHIFTS)
     return { ...base, forecast: null };
-  const closedSum = closed.reduce((s, d) => s + turnover(d)!, 0);
-  const pace = closedSum / closed.length;
-  const elapsed = Number(today.slice(8, 10)) - 1; // дней месяца до сегодняшнего
-  const left = daysInMonth(month) - elapsed; // сегодня и после
-  const workShare = elapsed > 0 ? Math.min(1, closed.length / elapsed) : 1;
-  const remaining = Math.round(left * workShare);
-  const value = round(closedSum + pace * remaining);
+  const pace = closed.reduce((s, d) => s + turnover(d)!, 0) / closed.length;
+  const day = Number(today.slice(8, 10));
+  const elapsed = day - 1; // дней месяца до сегодняшнего
+  // Работали — был оборот, даже если смену ещё не закрыли: незакрытая
+  // вчерашняя смена не должна занижать, сколько смен ждём впереди.
+  const workShare = elapsed > 0 ? Math.min(1, new Set(before.map((d) => d.business_date)).size / elapsed) : 1;
+  const hasToday = monthDays.some((d) => d.business_date === today && turnover(d) !== null);
+  const ahead = daysInMonth(month) - day + (hasToday ? 0 : 1);
+  const remaining = Math.round(ahead * workShare);
+  const value = round(Math.max(fact, fact + pace * remaining));
   return {
     ...base,
     forecast: {

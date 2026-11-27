@@ -39,8 +39,41 @@ test("идущая смена входит в оборот, но не в тем�
   assert.equal(p.fact, 330);
   assert.equal(p.forecast?.pace, 100);
   assert.equal(p.forecast?.shifts, 3);
-  // Сегодня и ещё 26 дней — 27 смен по 100 сверх закрытых 300.
-  assert.equal(p.forecast?.value, 300 + 27 * 100);
+  // Сегодняшняя смена уже в факте; впереди 26 дней — 26 смен по 100.
+  assert.equal(p.forecast?.remaining, 26);
+  assert.equal(p.forecast?.value, 330 + 26 * 100);
+});
+
+test("последний день месяца: прогноз не меньше факта", () => {
+  // Смены каждый третий день по 100 000, сегодня (30-е) — смена на 250 000.
+  const days = [1, 4, 7, 10, 13, 16, 19, 22, 25, 28].map((d) =>
+    day(`2026-11-${String(d).padStart(2, "0")}`, 100_000),
+  );
+  days.push(day("2026-11-30", 250_000, "preliminary"));
+  const p = planProgress({ plan: 2_000_000, month: "2026-11", today: "2026-11-30", days });
+  assert.equal(p.fact, 1_250_000);
+  assert.equal(p.forecast?.remaining, 0);
+  assert.equal(p.forecast?.value, 1_250_000);
+});
+
+test("сегодняшняя смена выше средней — прогноз от факта, а не от темпа", () => {
+  const days = [1, 2, 3, 4].map((d) => day(`2026-11-0${d}`, 100));
+  days.push(day("2026-11-05", 900, "preliminary"));
+  const p = planProgress({ plan: 5000, month: "2026-11", today: "2026-11-05", days });
+  assert.equal(p.fact, 1300);
+  // Впереди 25 дней, работали каждый день — 25 смен по 100.
+  assert.equal(p.forecast?.value, 1300 + 25 * 100);
+  assert.ok(p.forecast!.value >= p.fact!);
+});
+
+test("незакрытая вчерашняя смена не занижает число смен впереди", () => {
+  const days = Array.from({ length: 9 }, (_, i) => day(`2026-11-0${i + 1}`, 100));
+  days.push(day("2026-11-10", 100, "preliminary"));
+  const p = planProgress({ plan: 3000, month: "2026-11", today: "2026-11-11", days });
+  assert.equal(p.forecast?.shifts, 9);
+  // Работали все 10 прошедших дней: ждём 20 смен (сегодня и ещё 19 дней).
+  assert.equal(p.forecast?.remaining, 20);
+  assert.equal(p.forecast?.value, 1000 + 20 * 100);
 });
 
 test("меньше трёх закрытых смен — прогноза нет", () => {

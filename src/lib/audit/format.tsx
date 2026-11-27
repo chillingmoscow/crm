@@ -100,6 +100,21 @@ function BankAccountGroupLines({ details }: { details: Record<string, unknown> }
 /** Заголовок KB-страницы в фразе события: кликабельная ссылка, если
  *  страница ещё существует и не в корзине; иначе — просто выделенный
  *  текст (как в бывшем KB-журнале, но без превью). */
+/** План продаж: «Ноябрь 2026 · 4 000 000 ₽ → 4 500 000 ₽». */
+function SalesPlanDetails({ details }: { details: Record<string, unknown> }) {
+  const month = String(details.month ?? "");
+  return (
+    <p className="text-xs text-muted-foreground">
+      {/^\d{4}-\d{2}/.test(month)
+        ? monthLabel(month).replace(/^./, (c) => c.toUpperCase())
+        : "Месяц"}{" "}
+      ·{" "}
+      {details.before != null && <>{formatAmount(details.before)} → </>}
+      {details.after != null ? formatAmount(details.after) : "без плана"}
+    </p>
+  );
+}
+
 function KbPageTitle({ event, text }: { event: AuditEvent; text: string }) {
   const label = `«${text || "Без названия"}»`;
   const e = event.entity;
@@ -543,19 +558,21 @@ const SPECS: Record<string, AuditEventSpec> = {
       </>
     ),
   },
+  "sales.plan.created": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>задал(а) план продаж</>,
+    buildDetails: (e) => <SalesPlanDetails details={e.details} />,
+  },
   "sales.plan.updated": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
+    // До разведения кодов создание и удаление тоже писались как `updated`.
     buildHeadline: (e) => <>{e.details.after == null ? "удалил(а) план продаж" : e.details.before == null ? "задал(а) план продаж" : "изменил(а) план продаж"}</>,
-    buildDetails: (e) => (
-      <p className="text-xs text-muted-foreground">
-        {/^\d{4}-\d{2}/.test(String(e.details.month))
-          ? monthLabel(String(e.details.month)).replace(/^./, (c) => c.toUpperCase())
-          : "Месяц"}{" "}
-        ·{" "}
-        {e.details.before != null && <>{formatAmount(e.details.before)} → </>}
-        {e.details.after != null ? formatAmount(e.details.after) : "без плана"}
-      </p>
-    ),
+    buildDetails: (e) => <SalesPlanDetails details={e.details} />,
+  },
+  "sales.plan.deleted": {
+    icon: Settings2, iconClass: "text-muted-foreground bg-muted",
+    buildHeadline: () => <>удалил(а) план продаж</>,
+    buildDetails: (e) => <SalesPlanDetails details={e.details} />,
   },
   "sales.statistics.refresh_requested": {
     icon: RotateCcw, iconClass: "text-brand bg-brand/10",

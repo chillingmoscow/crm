@@ -175,7 +175,8 @@ export function UpsellRankingCard({
                     <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted" aria-hidden>
                       <span
                         className={cn(
-                          "chart-bar-grow-x block h-full rounded-full",
+                          // Задержка — inline; при «уменьшить движение» снимаем её (!important бьёт style).
+                          "chart-bar-grow-x block h-full rounded-full motion-reduce:![animation-delay:0ms]",
                           i < 3 ? "bg-brand" : "bg-brand/40",
                         )}
                         style={{

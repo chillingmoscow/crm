@@ -7,6 +7,7 @@ import { EditDrawer } from "@/components/ui/edit-drawer";
 import { Field } from "@/components/ui/field";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AmountInput } from "@/components/finance/amount-input";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Money, formatRub } from "@/components/shared/money";
 import { MonthPicker } from "@/components/shared/month-picker";
 import { ProfileSection } from "@/components/shared/profile-section";
@@ -44,6 +45,9 @@ function PlanForm({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null),
     [invalid, setInvalid] = useState<string | undefined>();
+  // Удаление — через подтверждение (DS «Modal»); его ошибка остаётся в окне.
+  const [confirmDelete, setConfirmDelete] = useState(false),
+    [deleteError, setDeleteError] = useState<string | null>(null);
   const existing = byMonth.get(month) ?? null;
   const save = async (next: number | null) => {
     if (next !== null && !(next > 0)) {
@@ -53,8 +57,10 @@ function PlanForm({
     setInvalid(undefined);
     setBusy(true);
     setError(null);
+    setDeleteError(null);
     try {
       const saved = unwrapAction(await saveSalesPlan({ venueId, month, turnover: next }));
+      setConfirmDelete(false);
       onSaved(saved);
       toast.success(
         next === null
@@ -62,7 +68,9 @@ function PlanForm({
           : `План на ${monthLabel(month)}: ${formatRub(next)}`,
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось сохранить план продаж");
+      const text = e instanceof Error ? e.message : "Не удалось сохранить план продаж";
+      if (next === null) setDeleteError(text);
+      else setError(text);
     } finally {
       setBusy(false);
     }
@@ -82,7 +90,10 @@ function PlanForm({
               variant="ghost"
               className="mr-auto text-destructive hover:text-destructive"
               disabled={busy}
-              onClick={() => void save(null)}
+              onClick={() => {
+                setDeleteError(null);
+                setConfirmDelete(true);
+              }}
             >
               Удалить план
             </Button>
@@ -132,6 +143,18 @@ function PlanForm({
           </p>
         )}
       </fieldset>
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title={`Удалить план на ${monthLabel(month)}?`}
+        description="Кольцо и прогноз на «Сменах» для этого месяца пропадут. План можно задать заново"
+        confirmLabel="Удалить план"
+        pendingLabel="Удаляем…"
+        destructive
+        busy={busy}
+        error={deleteError}
+        onConfirm={() => void save(null)}
+      />
     </EditDrawer>
   );
 }

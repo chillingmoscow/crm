@@ -91,7 +91,7 @@ export type SalesData = {
   hasDays: boolean;
   /** Загруженный месяц («2026-11»); без него загружена вся история. */
   month?: string;
-  /** План оборота загруженного месяца; `null` — плана нет (или его не прочитать). */
+  /** План оборота загруженного месяца; `null` — плана нет, `undefined` — не загружали или не прочитать. */
   plan?: number | null;
   venueId: string;
   venueName: string;

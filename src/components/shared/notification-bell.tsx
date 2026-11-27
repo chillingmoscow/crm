@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   useTransition,
+  useContext,
 } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -51,7 +52,9 @@ import type {
 import { createClient } from "@/lib/supabase/client";
 import {
   KbNotificationRow,
+  NotificationClockContext,
   NotificationStackRow,
+  type NotificationClock,
 } from "@/components/shared/notification-row";
 import { ExpandPanel } from "@/components/shared/overview-toggle";
 import { stackNotifications } from "@/lib/notifications/stack";
@@ -87,6 +90,10 @@ const HDR_BTN =
 export type NotificationsInitial = {
   notifications: Notification[];
   actors: NotificationActor[];
+  /** Время сервера (мс) — «сейчас» до монтирования. */
+  now: number;
+  /** Пояс аккаунта: границы «Сегодня», «На этой неделе» и даты строк. */
+  timeZone: string;
 };
 
 export function NotificationBell({
@@ -116,6 +123,8 @@ export function NotificationBell({
   // Прислал ли сервер первую страницу: тогда при монтировании её не
   // перечитываем (подписка на новые всё равно включается).
   const [servedInitial] = useState(!!initial);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const [archiveNotifs, setArchiveNotifs] = useState<Notification[]>([]);
   const [actorsMap, setActorsMap] = useState<Map<string, NotificationActor>>(
     () => new Map((initial?.actors ?? []).map((a) => [a.id, a])),
@@ -212,6 +221,7 @@ export function NotificationBell({
     // «Прочитать стопку» из 13 записей — 13 событий UPDATE подряд:
     // перечитываем список один раз, когда они утихнут.
     let reloadTimer: number | undefined;
+    let resynced = false;
 
     (async () => {
       const {
@@ -288,7 +298,23 @@ export function NotificationBell({
             }, UPDATE_RELOAD_DEBOUNCE_MS);
           },
         )
-        .subscribe();
+        .subscribe((status) => {
+          // Список пришёл с сервера (или из кэша роутера при «Назад»): после
+          // подписки тихо перечитываем первую страницу — так не теряются
+          // уведомления между запросом сервера и подпиской, а прочитанное
+          // не остаётся непрочитанным. Список меняется, только если правда
+          // изменился.
+          if (status !== "SUBSCRIBED" || !servedInitial || resynced || cancelled) return;
+          resynced = true;
+          void getNotifications({ scope: "active", limit: PAGE_SIZE })
+            .then((data) => {
+              if (cancelled) return;
+              setActiveNotifs((prev) => (sameNotifications(prev, data) ? prev : data));
+              setHasMore((prev) => ({ ...prev, active: data.length === PAGE_SIZE }));
+              void ensureActorsForList(data);
+            })
+            .catch(() => {});
+        });
     })();
 
     return () => {
@@ -480,7 +506,17 @@ export function NotificationBell({
   // ── Render ──────────────────────────────────────────────────────
   const filteredList =
     view === "unread" ? currentList.filter((n) => !n.read) : currentList;
-  const groups = groupByTimeBucket(filteredList);
+  // До монтирования — «сейчас» и пояс с сервера: разметка и первая
+  // отрисовка в браузере совпадают (сервер живёт в UTC). Потом — текущее время.
+  const clock: NotificationClock = {
+    now: mounted ? null : (initial?.now ?? null),
+    timeZone: initial?.timeZone,
+  };
+  const groups = groupByTimeBucket(
+    filteredList,
+    new Date(clock.now ?? Date.now()),
+    clock.timeZone,
+  );
 
   const emptyText =
     view === "archived"
@@ -618,7 +654,7 @@ export function NotificationBell({
                 modern && appearance.notificationsInbox,
               )}
             >
-              {list}
+              <NotificationClockContext.Provider value={clock}>{list}</NotificationClockContext.Provider>
             </div>
           </TabsContent>
         </Tabs>
@@ -752,7 +788,7 @@ export function NotificationBell({
               />
             </div>
           )}
-          {list}
+          <NotificationClockContext.Provider value={clock}>{list}</NotificationClockContext.Provider>
           <Link
             href="/notifications"
             onClick={() => setOpen(false)}
@@ -763,6 +799,21 @@ export function NotificationBell({
         </div>
       )}
     </div>
+  );
+}
+
+/** Тот же список: те же строки в том же порядке и с тем же состоянием. */
+function sameNotifications(a: Notification[], b: Notification[]) {
+  return (
+    a.length === b.length &&
+    a.every(
+      (n, i) =>
+        n.id === b[i].id &&
+        n.read === b[i].read &&
+        n.archived_at === b[i].archived_at &&
+        n.title === b[i].title &&
+        n.body === b[i].body,
+    )
   );
 }
 
@@ -817,6 +868,7 @@ function BucketSection({
   onUnarchiveMany?: (ids: string[]) => void;
   inArchive: boolean;
 }) {
+  const { timeZone } = useContext(NotificationClockContext);
   const row = (n: Notification, nested = false) => (
     <KbNotificationRow
       key={n.id}
@@ -843,7 +895,7 @@ function BucketSection({
       >
         {label}
       </div>
-      {stackNotifications(rows).map((entry) => {
+      {stackNotifications(rows, timeZone).map((entry) => {
         if (entry.kind === "single") return row(entry.item);
         const open = openStacks.has(entry.key);
         const panelId = `${idPrefix}-${entry.key.replace(/[^a-z0-9]+/gi, "-")}`;

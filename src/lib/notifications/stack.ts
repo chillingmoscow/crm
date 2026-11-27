@@ -20,9 +20,23 @@ export type NotificationEntry<T extends Stackable> =
 /** Сколько одинаковых уведомлений за день собираются в стопку. */
 export const STACK_MIN = 2;
 
-/** Календарный день в часовом поясе браузера: «2026-11-27». */
-export function localDayKey(iso: string): string {
+/**
+ * Календарный день: «2026-11-27». В поясе `timeZone`, без него — в поясе
+ * браузера. Список рисует и сервер (он в UTC), поэтому страница передаёт пояс
+ * аккаунта, и стопки в разметке и в браузере совпадают.
+ */
+export function localDayKey(iso: string, timeZone?: string): string {
   const d = new Date(iso);
+  if (timeZone) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(d);
+    const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+    return `${part("year")}-${part("month")}-${part("day")}`;
+  }
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${d.getFullYear()}-${mm}-${dd}`;
@@ -30,11 +44,12 @@ export function localDayKey(iso: string): string {
 
 export function stackNotifications<T extends Stackable>(
   items: T[],
+  timeZone?: string,
 ): NotificationEntry<T>[] {
   const groups = new Map<string, T[]>();
   const order: string[] = [];
   for (const item of items) {
-    const key = `${item.type}|${localDayKey(item.created_at)}`;
+    const key = `${item.type}|${localDayKey(item.created_at, timeZone)}`;
     const group = groups.get(key);
     if (group) group.push(item);
     else {

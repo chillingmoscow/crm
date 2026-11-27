@@ -57,6 +57,17 @@ export const getCachedActiveAccountId = cache(async () => {
 });
 
 /**
+ * Активное заведение пользователя (RPC get_active_venue_id) — один раз на
+ * RSC-дерево. Нужен страницам, которые запускают запросы по заведению
+ * параллельно с основной загрузкой.
+ */
+export const getCachedActiveVenueId = cache(async () => {
+  const supabase = await createClient();
+  const { data } = await supabase.rpc("get_active_venue_id");
+  return typeof data === "string" ? data : null;
+});
+
+/**
  * Per-request cached permission list — list_my_permissions RPC вызывается
  * ровно один раз на весь RSC-дерево.
  */

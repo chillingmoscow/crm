@@ -13,9 +13,24 @@
 export const TABLE_WIDTH_COOKIE = "sheerly_table_w";
 const MAX_ENTRIES = 24;
 
+/**
+ * Адрес без идентификаторов: у карточек `/people/staff/<id>` одна раскладка,
+ * и каждая карточка не должна занимать свою запись, вытесняя списки.
+ */
+export function tableWidthRoute(pathname: string) {
+  return pathname
+    .split("/")
+    .map((part) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(part) || /^\d+$/.test(part)
+        ? ":id"
+        : part,
+    )
+    .join("/");
+}
+
 /** Ключ таблицы: адрес страницы и столбцы (у двух таблиц одной страницы они разные). */
 export function tableWidthKey(pathname: string, columnIds: readonly string[]) {
-  const text = `${pathname}|${columnIds.join(",")}`;
+  const text = `${tableWidthRoute(pathname)}|${columnIds.join(",")}`;
   // FNV-1a, 32 бита: коротко и одинаково на сервере и в браузере.
   let hash = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {

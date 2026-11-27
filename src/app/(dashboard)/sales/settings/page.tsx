@@ -14,7 +14,6 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { loadSalesConfiguration } from "../shifts/actions";
 import { SalesNoAccess } from "../_components/sales-no-access";
 import { SalesSettingsTab, type SalesSettingsSections } from "./_components/sales-settings-tab";
-import { actionResult } from "@/lib/actions/result";
 import { loadSettlementConfiguration } from "../shifts/settlement-actions";
 import { loadCashConfiguration } from "../shifts/cash-control-actions";
 import { loadMovementConfiguration } from "../shifts/cash-movement-actions";
@@ -59,10 +58,7 @@ export default async function SalesSettingsPage({
     ? await Promise.all([
         loadSettlementConfiguration(configuration.venueId),
         loadCashConfiguration(configuration.venueId),
-        actionResult(
-          () => loadMovementConfiguration(configuration.venueId),
-          "Не удалось загрузить правила инкассаций",
-        ),
+        loadMovementConfiguration(configuration.venueId),
         loadFinanceExecutionConfiguration(configuration.venueId),
         loadSalesPlans(configuration.venueId),
       ]).then(([settlement, cash, movement, finance, plans]) => ({

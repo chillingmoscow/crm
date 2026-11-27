@@ -119,7 +119,11 @@ export function CandidatesClient({
     setView(saved ?? "table");
     if (saved) writeViewCookie(preferenceKey, saved);
   }, [viewKey, preferenceKey, initialView]);
+  // Доска с сервера годится только для первого показа: после смены вида
+  // доска монтируется заново и могла бы принять свои фильтры за серверные.
+  const [boardSeed, setBoardSeed] = useState(initialBoard);
   const changeView = (next: CandidatesView) => {
+    setBoardSeed(undefined);
     setView(next);
     try {
       localStorage.setItem(viewKey, next);
@@ -497,7 +501,7 @@ export function CandidatesClient({
           onStatusSaved={statusSaved}
           onListChanged={refreshList}
           onTotal={setBoardTotal}
-          initial={initialBoard}
+          initial={boardSeed}
         />
       ) : (
       <div className="min-w-0 space-y-3" aria-busy={loading}>

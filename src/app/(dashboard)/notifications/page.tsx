@@ -3,12 +3,27 @@ import { NotificationBell } from "@/components/shared/notification-bell";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { PageFrame } from "@/components/shared/page-frame";
 import { getNotificationActors, getNotifications } from "./actions";
+import { createClient, getCachedActiveAccountId } from "@/lib/supabase/server";
+
+/** Пояс активного аккаунта; без него — московский. */
+async function accountTimeZone(): Promise<string> {
+  const [accountId, supabase] = await Promise.all([getCachedActiveAccountId(), createClient()]);
+  if (!accountId) return "Europe/Moscow";
+  const { data } = await supabase.from("accounts").select("timezone").eq("id", accountId).maybeSingle();
+  return data?.timezone || "Europe/Moscow";
+}
 
 export const metadata: Metadata = { title: "Уведомления" };
 export default async function NotificationsPage() {
   // Первая страница входящих — с сервера (столько же, сколько грузит
   // колокольчик): список приходит готовым, без скелетона другой высоты.
-  const notifications = await getNotifications({ scope: "active", limit: 50 }).catch(() => null);
+  // Пояс аккаунта и время сервера — чтобы группы «Сегодня» и «… назад»
+  // совпали в разметке и в браузере (сервер живёт в UTC).
+  const now = Date.now();
+  const [notifications, timeZone] = await Promise.all([
+    getNotifications({ scope: "active", limit: 50 }).catch(() => null),
+    accountTimeZone(),
+  ]);
   const actorIds = [
     ...new Set((notifications ?? []).map((n) => n.actor_user_id).filter((id): id is string => !!id)),
   ];
@@ -24,7 +39,7 @@ export default async function NotificationsPage() {
           действия шапки зависят от состояния списка. */}
       <NotificationBell
         mode="inbox"
-        initial={notifications ? { notifications, actors } : undefined}
+        initial={notifications ? { notifications, actors, now, timeZone } : undefined}
       />
     </PageFrame>
   );

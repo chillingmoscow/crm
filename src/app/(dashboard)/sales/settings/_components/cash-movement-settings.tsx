@@ -1,5 +1,5 @@
 "use client";
-import type { ActionResult } from "@/lib/actions/result";
+import { unwrapAction, type ActionResult } from "@/lib/actions/result";
 import { useEffect, useState } from "react";
 import { Plus, Settings2, X } from "lucide-react";
 import { toast } from "sonner";
@@ -101,12 +101,14 @@ function Form({
       if (!parsed.success)
         throw Error(parsed.error.issues[0]?.message ?? "Проверьте параметры");
       onSaved(
-        await saveMovementConfiguration({
-          venueId: data.venueId,
-          version: previous?.version ?? 0,
-          config: parsed.data,
-          reason,
-        }),
+        unwrapAction(
+          await saveMovementConfiguration({
+            venueId: data.venueId,
+            version: previous?.version ?? 0,
+            config: parsed.data,
+            reason,
+          }),
+        ),
       );
       toast.success("Правила инкассаций сохранены");
     } catch (e) {
@@ -502,6 +504,7 @@ export function CashMovementSettingsSection({
     if (initial && venueId === servedVenueId) return;
     let live = true;
     loadMovementConfiguration(venueId)
+      .then(unwrapAction)
       .then((d) => {
         if (live) setData(d);
       })

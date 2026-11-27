@@ -400,10 +400,14 @@ export function usePeopleOverview(
     data?.scope_id === scopeId && data.kind === kind ? data : null;
   // Первый запрос не нужен, пока на экране то, что прислал сервер: тот же
   // месяц, без обновлений и правок списка. Условие — по состоянию, а не по
-  // флагу «уже загружали»: двойной запуск эффектов в StrictMode его не ломает.
+  // ref-флагу «уже загружали»: двойной запуск эффектов в StrictMode его не ломает.
   const [initialRevision] = useState(revision);
+  // После первого запроса серверные данные больше не «свои»: при возврате к
+  // исходному месяцу или ревизии читаем заново.
+  const [touched, setTouched] = useState(false);
   const servedByServer =
     !!initialData &&
+    !touched &&
     initialData.scope_id === scopeId &&
     initialData.kind === kind &&
     period === null &&
@@ -420,6 +424,7 @@ export function usePeopleOverview(
   }
   useEffect(() => {
     if (!open || !known || servedByServer) return;
+    setTouched(true);
     let cancelled = false;
     setBusy(true);
     setError(false);

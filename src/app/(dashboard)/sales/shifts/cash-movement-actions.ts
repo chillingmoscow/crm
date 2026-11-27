@@ -18,7 +18,7 @@ import {
 } from "@/lib/sales/cash-movements";
 import { validDate } from "@/lib/sales/time";
 import { loadSettlementConfiguration } from "./settlement-actions";
-import { unwrapAction } from "@/lib/actions/result";
+import { actionResult, unwrapAction } from "@/lib/actions/result";
 export type MovementRuleVersion = {
   id: string;
   version: number;
@@ -85,7 +85,7 @@ async function scope(venueId: string) {
     canManage: owner.data.owner_id === user.id,
   };
 }
-export async function loadMovementConfiguration(
+async function loadMovementConfigurationImpl(
   venueId: string,
 ): Promise<MovementConfiguration> {
   const s = await scope(venueId);
@@ -130,12 +130,13 @@ export async function loadMovementConfiguration(
   }
   throw Error("Не удалось полностью загрузить историю правил");
 }
-export async function saveMovementConfiguration(input: {
+type SaveMovementInput = {
   venueId: string;
   version: number;
   config: CashMovementRules;
   reason: string;
-}) {
+};
+async function saveMovementConfigurationImpl(input: SaveMovementInput) {
   const s = await scope(input.venueId);
   if (!s?.canManage) throw Error("Правила изменяет владелец");
   const config = cashMovementRulesSchema.parse(input.config);
@@ -160,7 +161,22 @@ export async function saveMovementConfiguration(input: {
     p_reason: input.reason,
   });
   if (r.error) throw Error(r.error.message);
-  return loadMovementConfiguration(input.venueId);
+  return loadMovementConfigurationImpl(input.venueId);
+}
+// Ошибка — текстом, а не исключением: в рабочей сборке Next.js заменяет текст
+// брошенного исключения английской заглушкой, и раздел настроек не узнавал бы
+// «нет доступа» (см. lib/actions/result).
+export async function loadMovementConfiguration(venueId: string) {
+  return actionResult(
+    () => loadMovementConfigurationImpl(venueId),
+    "Не удалось загрузить правила инкассаций",
+  );
+}
+export async function saveMovementConfiguration(input: SaveMovementInput) {
+  return actionResult(
+    () => saveMovementConfigurationImpl(input),
+    "Не удалось сохранить правила инкассаций",
+  );
 }
 export async function requestCashMovements(venueId: string, date: string) {
   const s = await scope(venueId);

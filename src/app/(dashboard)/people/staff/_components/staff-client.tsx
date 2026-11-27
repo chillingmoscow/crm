@@ -141,6 +141,12 @@ function genderShort(g: string | null) {
  * Дата сравнивается по локальному календарному дню (без UTC-сдвига),
  * чтобы «истекает сегодня» считалось одинаково в Москве и Калининграде.
  */
+/** «2026-11-27» — календарный день устройства. */
+function localIsoDate(date: Date) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 function medbookStatus(
   medicalBookDate: string | null,
   /** Сегодня в поясе заведения, «2026-11-27» — с сервера, одинаково в разметке и в браузере. */
@@ -316,10 +322,16 @@ export function StaffClient({
   openAddCasual = false,
   initialOverviewOpen,
   initialOverviewData,
-  today,
+  today: serverToday,
   onShiftUserIds = [],
   onShiftEmployeeIds = [],
 }: Props) {
+  // «Сегодня» для отметок медкнижки и дня рождения: до монтирования — с
+  // сервера (разметка и первая отрисовка совпадают), потом — дата устройства
+  // на момент отрисовки, чтобы вкладка, открытая через полночь, пересчиталась.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const today = mounted ? localIsoDate(new Date()) : serverToday;
   const onShiftUsers = new Set(onShiftUserIds);
   const onShiftEmployees = new Set(onShiftEmployeeIds);
   const [staff, setStaff] = useState(initialStaff);

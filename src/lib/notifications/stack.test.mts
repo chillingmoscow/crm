@@ -57,3 +57,15 @@ test("подпись стопки: два имени и остаток", () => {
   assert.equal(stackNamesPreview(["Анна", "Пётр", "Анна", "Ольга", null]), "Анна, Пётр и ещё 1");
   assert.equal(stackNamesPreview([]), "");
 });
+
+test("день стопки — в переданном поясе", () => {
+  // 27.11 00:30 МСК = 26.11 21:30 UTC.
+  assert.equal(localDayKey("2026-11-26T21:30:00Z", "Europe/Moscow"), "2026-11-27");
+  assert.equal(localDayKey("2026-11-26T21:30:00Z", "UTC"), "2026-11-26");
+  const items = [
+    { id: "a", type: "candidate.new", created_at: "2026-11-26T21:30:00Z" },
+    { id: "b", type: "candidate.new", created_at: "2026-11-27T08:00:00Z" },
+  ];
+  assert.equal(stackNotifications(items, "Europe/Moscow")[0]!.kind, "stack");
+  assert.equal(stackNotifications(items, "UTC").length, 2);
+});

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { Check, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -34,11 +34,14 @@ export function DoorCodesSettings({ venues, activeVenue, initialPool, initialSet
   const [venue, setVenue] = useState(activeVenue), [ready, setReady] = useState(initialSettings?.office_pool_initialized ?? false), [loaded, setLoaded] = useState(served);
   const [pool, setPool] = useState(initialPool), [adding, setAdding] = useState(false), [codes, setCodes] = useState("");
   const [empty, setEmpty] = useState(false), [error, setError] = useState(""), [saveError, setSaveError] = useState(""), [attempt, setAttempt] = useState(0), [busy, start] = useTransition();
+  // Настройки активного заведения прислал сервер — запрос не нужен, пока
+  // заведение ни разу не меняли и не нажали «Повторить». После первой смены
+  // читаем всегда, и при возврате к исходному (условие по состоянию —
+  // двойной запуск эффектов в StrictMode его не ломает).
+  const venueTouched = useRef(false);
   useEffect(() => {
-    // Настройки активного заведения прислал сервер — запрос не нужен, пока не
-    // сменили заведение и не нажали «Повторить» (условие по состоянию —
-    // двойной запуск эффектов в StrictMode его не ломает).
-    if (served && venue === activeVenue && attempt === 0) return;
+    if (served && !venueTouched.current && venue === activeVenue && attempt === 0) return;
+    venueTouched.current = true;
     let active = true; setLoaded(false); setError("");
     if (!venue) return;
     getEmploymentSettings(venue).then(unwrapAction).then(value => { if (active) { setReady(value?.office_pool_initialized ?? false); setLoaded(true); } }).catch(e => { if (active) setError(candidateError(e, "Не удалось загрузить настройки кодов")); });

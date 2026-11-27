@@ -95,10 +95,10 @@ export function transferAlert(input: { month: string; payoutNo: 1 | 2; name: str
 }
 
 /** Итоги KPI за прошлый месяц не подведены (KPI старших). */
-export function kpiAlert(month: string, people: { name: string; role: string }[]): AlertText {
+export function kpiAlert(month: string, people: { name: string; role: string; recount?: boolean }[]): AlertText {
   return {
     title: `KPI за ${monthName(month)} ${month.slice(0, 4)} не подведены`,
-    lines: people.map((p) => `${p.name} — ${p.role}`),
+    lines: people.map((p) => `${p.name} — ${p.role}${p.recount ? ": досчитайте план, когда придёт отчёт продаж" : ""}`),
   };
 }
 

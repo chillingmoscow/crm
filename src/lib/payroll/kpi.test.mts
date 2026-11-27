@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { kpiPeople, kpiReason, kpiResult, kpiSummary, parseKpiItems, SENIOR_BAR, type KpiPlanFact } from "./kpi.ts";
+import { kpiNeedsRecount, kpiPeople, kpiReason, kpiResult, kpiSummary, parseKpiItems, SENIOR_BAR, type KpiPlanFact } from "./kpi.ts";
 import type { PayAssignment, PayEmployee, PayModel } from "./types.ts";
 
 const all = { inventory: true, purchasing: true, team_event: true, seasonal: 2 };
@@ -88,4 +88,11 @@ test("KPI: уволенный — только с начислениями за 
   assert.deepEqual(kpiPeople([gone], [], models, terms, "2026-11-01", new Set()), []);
   assert.equal(kpiPeople([gone], [], models, terms, "2026-11-01", new Set(["s"])).length, 1);
   assert.deepEqual(kpiPeople([employee("c", "m-senior", { casual: true })], [], models, terms, "2026-11-01", new Set(["c"])), []);
+});
+
+test("KPI: итог, сохранённый до отчёта продаж, надо досчитать", () => {
+  assert.equal(kpiNeedsRecount(kpiResult(SENIOR_BAR, all, { target: 400000, actual: null }).lines), true);
+  assert.equal(kpiNeedsRecount(kpiResult(SENIOR_BAR, all, { target: 400000, actual: 390000 }).lines), false);
+  assert.equal(kpiNeedsRecount(kpiResult(SENIOR_BAR, all, { target: null, actual: null }).lines), false);
+  assert.equal(kpiNeedsRecount([]), false);
 });

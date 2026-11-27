@@ -1,11 +1,11 @@
 -- ============================================================
--- payroll-kpi.sql — KPI старших (410): одна премия на итог, повтор запроса,
+-- payroll-kpi.sql — KPI старших (415): одна премия на итог, повтор запроса,
 -- защита премии от ручной правки, закрытый период, перенесённый остаток,
 -- права, план алкоголя в строке плана месяца, условия после итогов.
 --
 -- Прогон внутри одной откатываемой транзакции (reset базы не нужен):
 --   cat <(echo 'begin;') \
---       <(sed -E '/^[[:space:]]*(begin|commit);[[:space:]]*$/d' supabase/migrations/410_payroll_kpi.sql) \
+--       <(sed -E '/^[[:space:]]*(begin|commit);[[:space:]]*$/d' supabase/migrations/415_payroll_kpi.sql) \
 --       <(sed -E '/^[[:space:]]*begin;[[:space:]]*$/d' supabase/tests/payroll-kpi.sql) \
 --     | docker exec -i supabase_db_crm psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f -
 --
@@ -50,11 +50,14 @@ $$;
 create or replace function pg_temp.fx(p_key text)
 returns uuid language sql as $$ select id from fx where key = p_key $$;
 
+-- Сохранение итогов так, как его шлёт приложение: с версией итогов и планом, которые оно видело.
 create or replace function pg_temp.save(p_key uuid, p_total numeric, p_answers jsonb default '{"inventory":true}', p_month text default '2026-11-01')
 returns jsonb language sql as $$
   select public.payroll_kpi_save(jsonb_build_object(
     'request_key', p_key, 'employee_id', pg_temp.fx('senior'), 'month', p_month, 'terms_id', pg_temp.fx('terms'),
-    'answers', p_answers, 'lines', '[]'::jsonb, 'total', p_total, 'reason', 'KPI за ноябрь 2026: тест'))
+    'answers', p_answers, 'lines', '[]'::jsonb, 'total', p_total, 'reason', 'KPI за ноябрь 2026: тест',
+    'expected_saved_at', (select saved_at from public.payroll_kpi_reviews where employee_id = pg_temp.fx('senior') and month = p_month::date),
+    'plan_target', (select alcohol from public.sales_month_plans where venue_id = pg_temp.fx('v') and month = p_month::date)))
 $$;
 
 create or replace function pg_temp.kpi_rows()
@@ -119,11 +122,34 @@ begin
     'снова больше нуля — та же премия восстановлена');
 end $$;
 
+-- ── n. Устаревшее окно, изменённый план, уведомление об изменённой сумме ─
+do $$
+begin
+  perform pg_temp.expect_error(format('select public.payroll_kpi_save(%L)', jsonb_build_object(
+    'request_key', gen_random_uuid(), 'employee_id', pg_temp.fx('senior'), 'month', '2026-11-01', 'terms_id', pg_temp.fx('terms'),
+    'answers', '{}'::jsonb, 'lines', '[]'::jsonb, 'total', 0, 'reason', 'KPI за ноябрь 2026: из старого окна',
+    'expected_saved_at', '2026-11-01T00:00:00Z')), '%только что изменили%', 'сохранение из устаревшего окна — отказ');
+  perform pg_temp.expect_error(format('select public.payroll_kpi_save(%L)', jsonb_build_object(
+    'request_key', gen_random_uuid(), 'employee_id', pg_temp.fx('senior'), 'month', '2026-11-01', 'terms_id', pg_temp.fx('terms'),
+    'answers', '{}'::jsonb, 'lines', '[]'::jsonb, 'total', 0, 'reason', 'KPI за ноябрь 2026: другой план',
+    'expected_saved_at', (select saved_at from public.payroll_kpi_reviews where employee_id = pg_temp.fx('senior') and month = '2026-11-01'),
+    'plan_target', 123)), '%План продаж за месяц изменился%', 'итог по устаревшему плану — отказ');
+  insert into public.organization_telegram_settings(account_id, secret, fines_notify_from) values (pg_temp.fx('a'), '{}', '2000-01-01')
+  on conflict (account_id) do update set fines_notify_from = '2000-01-01';
+  -- Прежнюю сумму уже отправили: изменённая сумма должна встать в очередь заново.
+  insert into public.payroll_adjustment_notifications(adjustment_id, account_id, venue_id, state)
+  values (pg_temp.fx('adj'), pg_temp.fx('a'), pg_temp.fx('v'), 'sent')
+  on conflict (account_id, adjustment_id) do update set state = 'sent';
+  perform pg_temp.save(gen_random_uuid(), 8000, '{"inventory":true,"seasonal":1}');
+  perform pg_temp.check((select state = 'pending' from public.payroll_adjustment_notifications where adjustment_id = pg_temp.fx('adj')),
+    'изменённая сумма — уведомление снова в очереди');
+end $$;
+
 -- ── e. Ручная правка премии KPI отклоняется ───────────────
 do $$
 begin
   perform pg_temp.expect_error(format('select public.payroll_update_entry(%L)', jsonb_build_object(
-    'id', pg_temp.fx('adj'), 'amount', 1, 'reason', 'Ручная правка', 'expected_amount', 7000,
+    'id', pg_temp.fx('adj'), 'amount', 1, 'reason', 'Ручная правка', 'expected_amount', 8000,
     'expected_reason', (select reason from public.payroll_adjustments where id = pg_temp.fx('adj')))),
     '%итог KPI%', 'правка премии KPI через журнал отклонена');
   perform pg_temp.expect_error(format('select public.payroll_journal_command(''delete'', %L)', jsonb_build_object(

@@ -23,7 +23,8 @@ const usable = (n: number | null | undefined): n is number => typeof n === "numb
 export function alcoholActual(report: AlcoholReport | null, month: string): number | null {
   if (!report || report.state !== "ready" || !report.through_date) return null;
   if (report.through_date < lastDay(month)) return null;
-  return usable(report.revenue) ? report.revenue : null;
+  // Ноль за полный месяц — тоже факт: план не выполнен, а не «ждём отчёт».
+  return typeof report.revenue === "number" && Number.isFinite(report.revenue) && report.revenue >= 0 ? report.revenue : null;
 }
 
 /** Продажи по месяцам: готовый полный отчёт важнее архива; ноль — нет данных. */
@@ -36,7 +37,7 @@ export function alcoholHistory(
   for (const r of reports) {
     const month = r.month.slice(0, 10);
     const value = alcoholActual(r, month);
-    if (value !== null) out.set(month, value);
+    if (usable(value)) out.set(month, value);
   }
   return out;
 }

@@ -4,7 +4,7 @@
 
 **Goal:** Пункты KPI в условиях должности, чек-лист итогов месяца, который сам пишет премию в зарплату, и план продаж алкоголя с предложением приложения.
 
-**Architecture:** Чистые функции (`src/lib/payroll/kpi.ts`, `src/lib/sales/alcohol-plan.ts`) считают пункты, итог и предложение плана. Миграция 410 добавляет две таблицы и колонки плана алкоголя. Запись идёт только через SECURITY DEFINER-функции: они проверяют права, период и перенос, пишут премию `allowance` с `origin='kpi'` и журнал. Интерфейс: блок «KPI» в условиях должности, вкладка «KPI» на странице зарплаты, карточки в «На разбор» из утренней проверки этапа 3.
+**Architecture:** Чистые функции (`src/lib/payroll/kpi.ts`, `src/lib/sales/alcohol-plan.ts`) считают пункты, итог и предложение плана. Миграция 415 добавляет две таблицы и колонки плана алкоголя. Запись идёт только через SECURITY DEFINER-функции: они проверяют права, период и перенос, пишут премию `allowance` с `origin='kpi'` и журнал. Интерфейс: блок «KPI» в условиях должности, вкладка «KPI» на странице зарплаты, карточки в «На разбор» из утренней проверки этапа 3.
 
 **Tech Stack:** Next.js 15 server actions, Supabase/Postgres (plpgsql), `node:test`, shadcn/ui.
 
@@ -14,7 +14,7 @@
 
 - Ответы и тексты интерфейса — по-русски; тексты `raise exception` — по-русски.
 - Server actions — через `actionResult(fn, "<русский fallback>")`, клиент — `unwrapAction`; `redirect()` внутри не вызывать.
-- Миграция — `410_payroll_kpi.sql`. Номер перепроверить по `origin/main` прямо перед мержем.
+- Миграция — `415_payroll_kpi.sql`. Номер перепроверить по `origin/main` прямо перед мержем.
 - В каждой `create or replace function` в `public`/`private` — `set search_path`. В политиках — `(select auth.uid())` и `(select public.has_permission(...))`.
 - Для SECURITY DEFINER-функций: `revoke all … from public, anon`, `grant execute … to authenticated` (только серверные функции — ещё и `revoke … from authenticated`). Проверка через `has_function_privilege` → `raise exception`.
 - Таблицы: `account_id` + `unique (account_id, id)` + композитные FK; FK-индексы без `CONCURRENTLY`.
@@ -219,10 +219,10 @@
 
 ---
 
-### Task 3: Миграция 410 и SQL-тест
+### Task 3: Миграция 415 и SQL-тест
 
 **Files:**
-- Create: `supabase/migrations/410_payroll_kpi.sql`, `supabase/tests/payroll-kpi.sql`
+- Create: `supabase/migrations/415_payroll_kpi.sql`, `supabase/tests/payroll-kpi.sql`
 
 **Interfaces:**
 - Produces (SQL):
@@ -288,9 +288,9 @@
   - (j) `payroll_kpi_terms_save` на месяц с сохранённым итогом → «уже подведены»;
   - (k) октябрь 2026 → отказ.
 - [ ] **Step 2: Run** `pnpm db:reset`, затем прогон теста командой из шапки (`docker exec -i supabase_db_crm psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < supabase/tests/payroll-kpi.sql`) до миграции — Expected: FAIL (функций нет).
-- [ ] **Step 3: Write** `supabase/migrations/410_payroll_kpi.sql` по интерфейсу выше, одной транзакцией `begin; … notify pgrst,'reload schema'; commit;`.
+- [ ] **Step 3: Write** `supabase/migrations/415_payroll_kpi.sql` по интерфейсу выше, одной транзакцией `begin; … notify pgrst,'reload schema'; commit;`.
 - [ ] **Step 4: Run** `pnpm db:reset` и SQL-тест. Expected: все `ok:`, нет `TEST FAILED`. Ещё прогнать `supabase/tests/payroll_payout_plan.sql` и `supabase/tests/payroll-entry-edit.sql`: старое не сломано.
-- [ ] **Step 5: Commit** `git commit -m "Миграция 410: KPI старших, итоги месяца, план алкоголя"`.
+- [ ] **Step 5: Commit** `git commit -m "Миграция 415: KPI старших, итоги месяца, план алкоголя"`.
 
 ---
 

@@ -7,8 +7,9 @@ import { suggestAlcoholPlan } from "@/lib/sales/alcohol-plan";
 import { payrollScope, type PayrollScope } from "./payroll-scope";
 
 // KPI старших: вкладка «KPI» зарплаты и блок «KPI» в условиях должности.
-// Итог считается здесь, на сервере, по условиям и плану из базы — клиенту не
-// доверяем; запись, права, период и перенос проверяет база (миграция 410).
+// Итог считается здесь, на сервере, по условиям и плану из базы, а не в
+// браузере. База проверяет права, период, перенос, план и то, что итог не
+// больше условий; что месяц закончился — проверяет только это действие.
 
 const MONTH = z.string().regex(/^20\d{2}-(0[1-9]|1[0-2])$/, "Проверьте месяц");
 const monthStart = (m: string) => `${MONTH.parse(m)}-01`;
@@ -54,7 +55,9 @@ function cleanAnswers(items: KpiItem[], raw: KpiAnswers): KpiAnswers {
   return out;
 }
 
-async function saveKpiReviewImpl(input: { employeeId: string; month: string; termsId: string; answers: KpiAnswers; requestKey: string }) {
+type ReviewInput = { employeeId: string; month: string; termsId: string; answers: KpiAnswers; requestKey: string; expectedSavedAt: string | null };
+
+async function saveKpiReviewImpl(input: ReviewInput) {
   const s = await viewScope();
   if (!access(s).canSave) throw new Error("Нет доступа к итогам KPI");
   const parsed = z.object({
@@ -63,6 +66,7 @@ async function saveKpiReviewImpl(input: { employeeId: string; month: string; ter
     termsId: z.string().uuid(),
     answers: answersSchema,
     requestKey: z.string().uuid(),
+    expectedSavedAt: z.string().max(64).nullable(),
   }).parse(input);
   const m = `${parsed.month}-01`;
   const current = await view(s, m);
@@ -83,6 +87,9 @@ async function saveKpiReviewImpl(input: { employeeId: string; month: string; ter
       lines,
       total,
       reason: kpiReason(m, lines),
+      // Что видел этот экран: итоги из соседнего окна и сменившийся план база не перезапишет.
+      expected_saved_at: parsed.expectedSavedAt,
+      plan_target: current.plan.target,
     },
   });
   if (r.error) throw new Error(r.error.message);
@@ -165,7 +172,7 @@ async function saveKpiTermsImpl(roleId: string, input: { valid_from: string; ite
 export async function loadKpiMonth(month: string) {
   return actionResult(() => loadKpiMonthImpl(month), "Не удалось загрузить KPI");
 }
-export async function saveKpiReview(input: { employeeId: string; month: string; termsId: string; answers: KpiAnswers; requestKey: string }) {
+export async function saveKpiReview(input: ReviewInput) {
   return actionResult(() => saveKpiReviewImpl(input), "Не удалось сохранить итоги KPI");
 }
 export async function saveAlcoholPlan(input: { viewMonth: string; target: "this" | "next"; amount: number | null; priceIncreasePercent: number | null }) {

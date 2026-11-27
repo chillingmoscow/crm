@@ -124,6 +124,7 @@ begin
     or new.employee_id is distinct from old.employee_id
     or new.medium is distinct from old.medium
     or new.deleted_at is distinct from old.deleted_at
+    or new.origin is distinct from old.origin
   ) then
     raise exception 'Эта премия — итог KPI. Измените её в итогах KPI';
   end if;
@@ -209,6 +210,7 @@ declare
   why text := trim(coalesce(p_input->>'reason', ''));
   starts date;
   v_role uuid;
+  v_model uuid;
   before_total numeric;
 begin
   if u is null or a is null or v is null then raise exception 'Войдите в аккаунт и выберите заведение'; end if;
@@ -238,10 +240,14 @@ begin
   end if;
 
   -- Условия — действующие для должности сотрудника на последний день месяца.
+  -- Должность — как в приложении (employeeAtDate): модель из последнего
+  -- назначения или текущая, должность модели или сотрудника.
   last_day := (m + interval '1 month' - interval '1 day')::date;
-  select pm.role_id into v_role from public.payroll_employee_models em join public.payroll_models pm on pm.id = em.model_id
-  where em.employee_id = e.id and em.valid_from <= last_day order by em.valid_from desc limit 1;
-  if v_role is null then select pm.role_id into v_role from public.payroll_models pm where pm.id = e.model_id; end if;
+  select em.model_id into v_model from public.payroll_employee_models em
+  where em.employee_id = e.id and em.valid_from <= last_day order by em.valid_from desc, em.created_at desc limit 1;
+  v_model := coalesce(v_model, e.model_id);
+  select pm.role_id into v_role from public.payroll_models pm where pm.id = v_model;
+  v_role := coalesce(v_role, e.role_id);
   select * into t from public.payroll_kpi_terms
   where venue_id = v and role_id = v_role and valid_from <= m order by valid_from desc limit 1;
   if t.id is null or t.id is distinct from (p_input->>'terms_id')::uuid then
@@ -262,6 +268,15 @@ begin
   if r.id is not null and r.request_key = v_key then
     if r.total <> v_total or r.answers <> (p_input->'answers') then raise exception 'Повторный запрос содержит другие данные'; end if;
     return jsonb_build_object('review_id', r.id, 'adjustment_id', r.adjustment_id, 'total', r.total);
+  end if;
+  -- Итоги открыли в двух окнах: сохранение из устаревшего не перезаписывает новое.
+  if r.id is not null and r.saved_at is distinct from nullif(p_input->>'expected_saved_at', '')::timestamptz then
+    raise exception 'Итоги KPI только что изменили. Обновите страницу';
+  end if;
+  -- Итог посчитан по плану, который видел сервер приложения; план могли поменять.
+  if (select alcohol from public.sales_month_plans where account_id = a and venue_id = v and month = m)
+     is distinct from round(nullif(p_input->>'plan_target', '')::numeric, 2) then
+    raise exception 'План продаж за месяц изменился. Обновите страницу';
   end if;
 
   if exists (select 1 from public.payroll_periods where venue_id = v and month = m and status <> 'draft') then
@@ -308,6 +323,16 @@ begin
   end if;
   perform set_config('app.kpi_write', '', true);
   update public.payroll_kpi_reviews set adjustment_id = adj.id where id = r.id;
+  -- Сотрудник узнаёт и об изменённой премии: уведомление ставится только на
+  -- новую запись (316), поэтому изменённую сумму ставим в очередь сами.
+  if adj.id is not null and adj.deleted_at is null and before_total is not null and before_total is distinct from v_total
+     and exists (select 1 from public.organization_telegram_settings s
+                 where s.account_id = a and s.fines_notify_from is not null and adj.created_at >= s.fines_notify_from) then
+    insert into public.payroll_adjustment_notifications (adjustment_id, account_id, venue_id, available_at)
+    values (adj.id, a, v, now() + interval '2 minutes')
+    on conflict (account_id, adjustment_id) do update
+      set state = 'pending', attempts = 0, available_at = excluded.available_at, claimed_at = null, last_error = null, updated_at = now();
+  end if;
 
   insert into public.audit_logs (account_id, venue_id, user_id, action_code, entity_type, entity_id, details)
   values (a, v, u, 'payroll.kpi.saved', 'payroll_kpi_review', r.id, jsonb_build_object(
@@ -357,19 +382,21 @@ begin
   if v_plan is not null and (v_plan <= 0 or v_plan >= 1e12) then raise exception 'План должен быть больше нуля'; end if;
   if v_suggested is not null and (v_suggested <= 0 or v_suggested >= 1e12) then v_suggested := null; end if;
   if v_percent is not null and (v_percent < 0.1 or v_percent > 100) then raise exception 'Повышение цен — от 0,1 до 100%%'; end if;
-  perform pg_advisory_xact_lock(hashtextextended('sales-plan:' || v::text, 0));
+  -- Та же блокировка, что у сохранения итогов KPI: план и итог не разъедутся.
+  perform pg_advisory_xact_lock(hashtextextended(v::text, 0));
   -- План, по которому уже подвели итоги KPI, задним числом не меняется.
   if exists (select 1 from public.payroll_kpi_reviews where account_id = a and venue_id = v and month = p_month) then
     raise exception 'Итоги KPI за % уже подведены — план этого месяца менять нельзя', private.payroll_month_label(p_month);
   end if;
   select * into cur from public.sales_month_plans where account_id = a and venue_id = v and month = p_month for update;
+  if cur.id is null and v_plan is null then return null; end if;
+  if cur.id is not null and cur.alcohol is not distinct from v_plan and cur.price_increase_percent is not distinct from v_percent then
+    return cur.id;
+  end if;
   perform set_config('app.alcohol_plan_write', '1', true);
   if cur.id is null then
-    if v_plan is null then return null; end if;
     insert into public.sales_month_plans (account_id, venue_id, month, alcohol, alcohol_suggested, price_increase_percent, created_by, updated_by)
     values (a, v, p_month, v_plan, v_suggested, v_percent, u, u) returning id into result;
-  elsif cur.alcohol is not distinct from v_plan and cur.price_increase_percent is not distinct from v_percent then
-    return cur.id;
   elsif v_plan is null and cur.turnover is null then
     delete from public.sales_month_plans where id = cur.id;
     result := cur.id;
@@ -392,7 +419,7 @@ end $$;
 create or replace function private.sales_alcohol_plan_guard()
 returns trigger language plpgsql set search_path = public, pg_catalog as $$
 begin
-  if coalesce(current_setting('app.alcohol_plan_write', true), '') = '1' or current_user in ('postgres', 'supabase_admin', 'service_role') then
+  if coalesce(current_setting('app.alcohol_plan_write', true), '') = '1' then
     return case when tg_op = 'DELETE' then old else new end;
   end if;
   if (tg_op = 'INSERT' and (new.alcohol is not null or new.alcohol_suggested is not null or new.price_increase_percent is not null))

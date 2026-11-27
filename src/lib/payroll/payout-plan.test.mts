@@ -361,3 +361,14 @@ test("вторая выплата: премия KPI входит в остато
   const [row] = planFirstPayout({ ...withKpi(fixture({ earnedInMonth: 83258, avgShift: 7163, shiftsAhead: 0 }), 27000), payoutNo: 2 });
   assert.equal(row.amount, 110000);
 });
+
+test("первая выплата клинера: премия KPI не входит в заработанное за 1–15", () => {
+  const base = input({
+    employees: [employee("filipp", { payout_schedule: "cleaner" })],
+    accruals: [accrual("filipp", "2026-11-05", 20000)],
+    schedule: "cleaner",
+  });
+  const [plain] = planFirstPayout(base);
+  const [row] = planFirstPayout(withKpi(base as ReturnType<typeof fixture>, 27000));
+  assert.equal(row.amount, plain.amount);
+});

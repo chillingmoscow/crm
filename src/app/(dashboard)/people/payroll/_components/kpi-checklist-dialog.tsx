@@ -58,6 +58,7 @@ export function KpiChecklistDialog({ open, onOpenChange, view, person, onSaved }
         termsId: person.termsId,
         answers,
         requestKey,
+        expectedSavedAt: person.review?.savedAt ?? null,
       }));
       toast.success(result.total > 0 ? `Итоги KPI сохранены: ${formatRub(result.total)}` : "Итоги KPI сохранены без премии");
       onSaved(next);

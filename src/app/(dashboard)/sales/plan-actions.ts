@@ -105,7 +105,8 @@ async function saveSalesPlanImpl(input: {
             })
             .select("id");
   if (write.error) {
-    if (write.error.code === "23505")
+    // План алкоголя в этой строке только что задали (вкладка «KPI»): строку уже нельзя удалить.
+    if (write.error.code === "23505" || /вкладке «KPI»/.test(write.error.message))
       throw new Error("План этого месяца только что изменили. Обновите страницу");
     throw new Error("Не удалось сохранить план продаж");
   }

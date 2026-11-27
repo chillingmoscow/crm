@@ -8,7 +8,7 @@ import { cashMovementDefaults, normalizeCashMovements } from "@/lib/sales/cash-m
 import { addDays, businessDate } from "@/lib/sales/time";
 import { attention, closeAlert, closePlanAlerts, raiseAlert } from "./payout-alerts";
 import { carryAlert, kpiAlert, kpiPlanAlert, reconcileAlert, rub, transferAlert } from "./payout-alert-text";
-import { KPI_START } from "./kpi";
+import { KPI_START, kpiNeedsRecount } from "./kpi";
 import { alcoholMonth, kpiMonthPeople, termsWithPlan } from "./kpi-month";
 import { carryItems, carryWaiting } from "./payout-carry";
 import { buildContext, cashPlan, money, payoutAudit, plan, planRows, type PayoutSourceData, type VenueHandle } from "./payout-engine";
@@ -369,7 +369,11 @@ async function checkKpi(s: VenueHandle, _data: PayoutSourceData, today: string, 
   const month = monthBefore(current);
   if (month >= KPI_START) {
     const base = await kpiMonthPeople(venue, month);
-    const missing = base.people.filter((p) => !base.reviews.has(p.employeeId));
+    // Не подведены — нет итога или итог сохранили до отчёта продаж (план не досчитан).
+    const missing = base.people.filter((p) => {
+      const review = base.reviews.get(p.employeeId);
+      return !review || kpiNeedsRecount(Array.isArray(review.lines) ? review.lines : []);
+    });
     out.kpiMissing = missing.length;
     if (missing.length) {
       const roleIds = [...new Set(missing.map((p) => p.roleId))];
@@ -379,10 +383,31 @@ async function checkKpi(s: VenueHandle, _data: PayoutSourceData, today: string, 
       const text = kpiAlert(month, missing.map((p) => ({
         name: base.employees.get(p.employeeId)?.name ?? "Сотрудник",
         role: names.get(p.roleId) ?? "",
+        recount: base.reviews.has(p.employeeId),
       })));
       if ((await raiseAlert(s, { kind: "kpi", key: month, businessDate: month, ...text })) === "failed") out.unseen = true;
     } else {
       await closeAlert(s, "kpi", month);
+    }
+  }
+  // Карточки прошлых месяцев: итоги подвели позже — закрыть; план прошлого месяца уже не нужен.
+  const open = await s.admin
+    .from<{ kind: string; key: string }[]>("payroll_payout_alerts")
+    .select("kind,key")
+    .eq("account_id", s.accountId)
+    .eq("venue_id", s.venueId)
+    .eq("status", "open")
+    .in("kind", ["kpi", "kpi_plan"]);
+  if (open.error) throw new Error(open.error.message);
+  for (const a of open.data ?? []) {
+    if (a.kind === "kpi_plan" && a.key < current) await closeAlert(s, "kpi_plan", a.key);
+    if (a.kind === "kpi" && a.key < month) {
+      const old = await kpiMonthPeople(venue, a.key);
+      const waiting = old.people.some((p) => {
+        const review = old.reviews.get(p.employeeId);
+        return !review || kpiNeedsRecount(Array.isArray(review.lines) ? review.lines : []);
+      });
+      if (!waiting) await closeAlert(s, "kpi", a.key);
     }
   }
   if (current >= KPI_START) {

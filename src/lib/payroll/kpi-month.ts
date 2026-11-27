@@ -3,7 +3,7 @@ import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import type { LooseDb } from "@/lib/supabase/loose";
 import { businessDate } from "@/lib/sales/time";
 import { alcoholActual, alcoholHistory, suggestAlcoholPlan, type AlcoholReport, type AlcoholSuggestion } from "@/lib/sales/alcohol-plan";
-import { kpiPeople, parseKpiItems, type KpiAnswers, type KpiItem, type KpiPlanFact } from "./kpi";
+import { kpiNeedsRecount, kpiPeople, parseKpiItems, type KpiAnswers, type KpiItem, type KpiLine, type KpiPlanFact } from "./kpi";
 import { transferMonthLabel } from "./transfer-reason";
 import type { PayAssignment, PayEmployee, PayModel } from "./types";
 
@@ -20,7 +20,14 @@ export type KpiMonthPerson = {
   since: string | null;
   termsId: string;
   items: KpiItem[];
-  review: { answers: KpiAnswers; total: number; savedAt: string; savedBy: string | null } | null;
+  review: {
+    answers: KpiAnswers;
+    total: number;
+    savedAt: string;
+    savedBy: string | null;
+    /** Сохранили, пока отчёта продаж не было: план надо досчитать. */
+    needsRecount: boolean;
+  } | null;
   /** Ручные надбавки и премии за месяц с названием должности в основании — риск заплатить дважды. */
   manual: { amount: number; reason: string }[];
   /** Почему итог сейчас не сохранить (перенесён остаток). */
@@ -60,7 +67,7 @@ function check<T>(r: { data: T | null; error: { message: string } | null }): T {
 }
 
 type TermsRow = { id: string; role_id: string; valid_from: string; items: unknown };
-type ReviewRow = { employee_id: string; answers: KpiAnswers; total: number; saved_at: string; saved_by: string | null };
+type ReviewRow = { employee_id: string; answers: KpiAnswers; lines: KpiLine[]; total: number; saved_at: string; saved_by: string | null };
 
 /** Люди и условия месяца — общая часть для вкладки и утренней проверки. */
 export async function kpiMonthPeople(s: KpiVenue, month: string) {
@@ -73,7 +80,7 @@ export async function kpiMonthPeople(s: KpiVenue, month: string) {
     scoped<PayAssignment>("payroll_employee_models", "id,employee_id,model_id,valid_from"),
     scoped<PayModel>("payroll_models"),
     scoped<TermsRow>("payroll_kpi_terms", "id,role_id,valid_from,items"),
-    admin.from<ReviewRow[]>("payroll_kpi_reviews").select("employee_id,answers,total,saved_at,saved_by")
+    admin.from<ReviewRow[]>("payroll_kpi_reviews").select("employee_id,answers,lines,total,saved_at,saved_by")
       .eq("account_id", accountId).eq("venue_id", venueId).eq("month", month),
     fetchAllRows<{ employee_id: string }>(() =>
       admin.from<{ employee_id: string }[]>("payroll_accruals").select("employee_id")
@@ -214,7 +221,13 @@ export async function loadKpiMonthView(
       termsId: p.termsId,
       items,
       review: review
-        ? { answers: review.answers, total: Number(review.total), savedAt: review.saved_at, savedBy: review.saved_by ? names.get(review.saved_by) ?? null : null }
+        ? {
+            answers: review.answers,
+            total: Number(review.total),
+            savedAt: review.saved_at,
+            savedBy: review.saved_by ? names.get(review.saved_by) ?? null : null,
+            needsRecount: kpiNeedsRecount(Array.isArray(review.lines) ? review.lines : []),
+          }
         : null,
       manual: adjustments
         .filter((a) => a.employee_id === p.employeeId && a.origin !== "kpi" && !a.deleted_at && Number(a.amount) > 0 &&

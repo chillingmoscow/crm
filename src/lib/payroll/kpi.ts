@@ -26,7 +26,7 @@ export type KpiPerson = { employeeId: string; termsId: string; roleId: string; s
 export const KPI_START = "2026-11-01";
 export const KPI_MAX_COUNT = 50;
 
-/** Условия старшего бармена (слова Павла, 27.11.2026). Тот же набор — в сиде миграции 410. */
+/** Условия старшего бармена (слова Павла, 27.11.2026). Тот же набор — в сиде миграции 415. */
 export const SENIOR_BAR: KpiItem[] = [
   { id: "inventory", type: "done", label: "Инвентаризация до 20-го", amount: 7000 },
   { id: "purchasing", type: "done", label: "Закупки алкоголя (кроме пива)", amount: 10000 },
@@ -103,7 +103,7 @@ export function kpiResult(items: KpiItem[], answers: KpiAnswers, plan: KpiPlanFa
     }
     if (item.type === "plan") {
       if (plan.target === null || plan.target <= 0) return { ...base, amount: 0, counted: false, note: "План не был задан" };
-      if (plan.actual === null) return { ...base, amount: 0, counted: false, note: "Ждём отчёт Quick Resto" };
+      if (plan.actual === null) return { ...base, amount: 0, counted: false, note: KPI_WAITING_REPORT };
       const ok = plan.actual >= plan.target;
       return { ...base, amount: ok ? item.amount : 0, counted: ok, note: percentLabel((plan.actual / plan.target) * 100) };
     }
@@ -116,6 +116,16 @@ export function kpiResult(items: KpiItem[], answers: KpiAnswers, plan: KpiPlanFa
     lines[i] = { ...lines[i], amount: ok ? item.amount : 0, counted: ok };
   }
   return { lines, total: round(lines.reduce((s, l) => s + l.amount, 0)) };
+}
+
+export const KPI_WAITING_REPORT = "Ждём отчёт Quick Resto";
+
+/**
+ * Итог сохранили, пока отчёта продаж за месяц не было: пункт плана не
+ * засчитан «пока», и итог нужно досчитать, когда отчёт придёт.
+ */
+export function kpiNeedsRecount(lines: Pick<KpiLine, "type" | "counted" | "note">[]): boolean {
+  return lines.some((l) => l.type === "plan" && !l.counted && l.note === KPI_WAITING_REPORT);
 }
 
 /** Основание премии: «KPI за ноябрь 2026: Инвентаризация до 20-го, Сезонные позиции ×2». */

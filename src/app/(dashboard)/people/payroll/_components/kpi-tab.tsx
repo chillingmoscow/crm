@@ -54,7 +54,8 @@ export function KpiTab({ month }: { month: string }) {
       />
     );
 
-  const done = view.people.filter((p) => p.review).length;
+  const done = view.people.filter((p) => p.review && !p.review.needsRecount).length;
+  const anySaved = view.people.some((p) => p.review);
   const total = view.people.reduce((s, p) => s + (p.review?.total ?? 0), 0);
   const person = view.people.find((p) => p.employeeId === open) ?? null;
   const hasPlanItem = view.people.some((p) => p.items.some((i) => i.type === "plan"));
@@ -83,13 +84,17 @@ export function KpiTab({ month }: { month: string }) {
               <p className="truncate text-sm font-medium">{p.name}</p>
               <p className="text-[13px] text-muted-foreground">{p.roleName}{p.since ? ` с ${dayLabel(p.since)}` : ""}</p>
             </div>
-            {p.review ? (
+            {p.review?.needsRecount ? (
+              <StatusBadge tone="warning" className="mr-auto sm:mr-0" tip="Итоги сохранили до отчёта продаж: пункт плана ещё не засчитан">
+                Досчитать план · <Money value={p.review.total} />
+              </StatusBadge>
+            ) : p.review ? (
               <StatusBadge tone="success" className="mr-auto sm:mr-0">Подведены · <Money value={p.review.total} /></StatusBadge>
             ) : (
               <StatusBadge tone="warning" className="mr-auto sm:mr-0">Не подведены</StatusBadge>
             )}
             <Button size="sm" variant={p.review ? "outline" : "default"} onClick={() => setOpen(p.employeeId)}>
-              {!view.canSave || view.blocked || p.blocked ? "Открыть" : p.review ? "Изменить" : "Подвести итоги"}
+              {!view.canSave || view.blocked || p.blocked ? "Открыть" : p.review?.needsRecount ? "Досчитать" : p.review ? "Изменить" : "Подвести итоги"}
             </Button>
           </li>
         ))}
@@ -99,10 +104,10 @@ export function KpiTab({ month }: { month: string }) {
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">План продаж алкоголя на {label} не задан</p>
             <p className="text-[13px] text-muted-foreground">
-              {done > 0 ? "Итоги месяца уже подведены — план этого месяца больше не меняется" : "Без плана пункт «План продаж алкоголя» не засчитается"}
+              {anySaved ? "Итоги месяца уже подведены — план этого месяца больше не меняется" : "Без плана пункт «План продаж алкоголя» не засчитается"}
             </p>
           </div>
-          {view.canSave && done === 0 && (
+          {view.canSave && !anySaved && (
             <Button size="sm" variant="outline" onClick={() => setPlanOpen("this")}>Задать план</Button>
           )}
         </section>

@@ -133,7 +133,7 @@ export function HireDrawer({
         ));
         toast.success("Кандидат принят на работу");
         // Большое событие — конфетти (без него при «Уменьшить движение»).
-        celebrate();
+        void celebrate();
         onSaved(result.user_id);
         onClose();
       } catch (e) {

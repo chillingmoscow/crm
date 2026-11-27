@@ -42,7 +42,8 @@ export function CandidateStatusCell({
     onSaved,
     onRefresh,
   });
-  const status = pending?.status ?? candidate.status;
+  const saving = pending.get(candidate.id);
+  const status = saving ?? candidate.status;
   const save = (next: CandidateStatus) => {
     setOpen(false);
     void change(candidate, next);
@@ -59,8 +60,8 @@ export function CandidateStatusCell({
           type="button"
           aria-label={`Изменить статус: ${candidate.full_name}`}
           data-tip={STATUSES[status]}
-          disabled={!!pending}
-          aria-busy={!!pending}
+          disabled={!!saving}
+          aria-busy={!!saving}
           className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full text-left outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-default"
         >
           <StatusBadge tone={STATUS_TONES[status]} className="min-w-0">

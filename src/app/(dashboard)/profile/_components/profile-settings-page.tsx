@@ -235,7 +235,7 @@ export function ProfileSettingsPage({
       // Один тост: либо праздничный (с конфетти) если только что достигли 100%,
       // либо обычный «обновлено».
       if (completion.pct === 100 && prevCompletionRef.current < 100) {
-        fireConfetti();
+        void fireConfetti();
         toast.success("Профиль полностью заполнен!", { duration: 4000 });
         setMeterHidden(true);
       } else {

@@ -8,7 +8,7 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
-import { SquareKanban, Table2, Trash2 } from "lucide-react";
+import { SquareKanban, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
@@ -91,6 +91,8 @@ export function CandidatesClient({
     } catch {}
   };
   const board = view === "board";
+  // Сколько анкет на доске: у неё свои запросы, таблица в это время не грузится.
+  const [boardTotal, setBoardTotal] = useState<number | null>(null);
   const st = useTableState({
     tableId: `candidates.list.${preferenceKey}`,
     columns: COLUMN_CONFIG,
@@ -172,6 +174,8 @@ export function CandidatesClient({
     return () => clearTimeout(timer);
   }, [search, setPagination]);
   useEffect(() => {
+    // Пока открыта доска, таблицу не грузим: она перечитается при возврате.
+    if (view !== "table") return;
     if (loaded.current === key) {
       setLoading(false);
       setError("");
@@ -205,7 +209,7 @@ export function CandidatesClient({
     };
     // The serialized key includes all filters, sorting and pagination.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, view]);
   const changeSorting = (next: SortingState) => {
     st.setSorting(next);
     firstPage();
@@ -313,18 +317,20 @@ export function CandidatesClient({
     >
       <PeopleListHeader
         title="Кандидаты"
-        count={list.total}
+        count={board ? (boardTotal ?? list.total) : list.total}
         actions={
           <>
             <TableControls
               secondaryActions={
                 <>
+                  {/* Переключатель: подпись постоянная, вид — в aria-pressed. */}
                   <TableIconButton
-                    label={board ? "Показать таблицей" : "Показать доской по этапам"}
+                    label="Доска по этапам"
                     pressed={board}
+                    active={board}
                     onClick={() => changeView(board ? "table" : "board")}
                   >
-                    {board ? <Table2 /> : <SquareKanban />}
+                    <SquareKanban />
                   </TableIconButton>
                   {overview.button}
                 </>
@@ -440,7 +446,11 @@ export function CandidatesClient({
           />
       </TableConditions>
       <p className="sr-only" aria-live="polite">
-        {countRu(list.total, "анкета", "анкеты", "анкет")}
+        {board
+          ? boardTotal === null
+            ? null
+            : countRu(boardTotal, "анкета", "анкеты", "анкет")
+          : countRu(list.total, "анкета", "анкеты", "анкет")}
       </p>
       {view === null ? null : board ? (
         <CandidateBoard
@@ -449,6 +459,8 @@ export function CandidatesClient({
           permissions={permissions}
           reloadKey={reload}
           onStatusSaved={statusSaved}
+          onListChanged={refreshList}
+          onTotal={setBoardTotal}
         />
       ) : (
       <div className="min-w-0 space-y-3" aria-busy={loading}>

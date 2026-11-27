@@ -38,12 +38,16 @@ export function useCandidateStatusChange({
   onRefresh: () => void;
 }): {
   change: (candidate: Candidate, next: CandidateStatus) => Promise<void>;
-  /** Этап, который сейчас сохраняется: id анкеты и новый статус. */
-  pending: { id: string; status: CandidateStatus } | null;
+  /** Анкеты, этап которых сейчас сохраняется: id → новый статус. */
+  pending: ReadonlyMap<string, CandidateStatus>;
   /** Панель записи на собеседование или стажировку. */
   panel: ReactNode;
 } {
-  const [pending, setPending] = useState<{ id: string; status: CandidateStatus } | null>(null);
+  // Несколько анкет могут сохраняться одновременно (на доске перенесли
+  // вторую, пока сохраняется первая) — каждая занята до своего ответа.
+  const [pending, setPending] = useState<ReadonlyMap<string, CandidateStatus>>(
+    () => new Map(),
+  );
   const [appointment, setAppointment] = useState<{
     candidate: Candidate;
     kind: Appointment["kind"];
@@ -55,8 +59,8 @@ export function useCandidateStatusChange({
       setAppointment({ candidate, kind: next });
       return;
     }
-    if (next === candidate.status || next === "hired") return;
-    setPending({ id: candidate.id, status: next });
+    if (next === candidate.status || next === "hired" || pending.has(candidate.id)) return;
+    setPending((current) => new Map(current).set(candidate.id, next));
     try {
       const saved = unwrapAction(
         await updateCandidate(candidate.id, {
@@ -69,7 +73,11 @@ export function useCandidateStatusChange({
       toast.error(candidateError(e, "Не удалось изменить статус."));
       onRefresh();
     } finally {
-      setPending(null);
+      setPending((current) => {
+        const rest = new Map(current);
+        rest.delete(candidate.id);
+        return rest;
+      });
     }
   };
   const panel = shown ? (

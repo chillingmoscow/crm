@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -17,6 +17,7 @@ import {
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
+  type KeyboardCoordinateGetter,
 } from "@dnd-kit/core";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -40,7 +41,7 @@ import {
   type HiringOptions,
   type ListFilters,
 } from "@/lib/candidates/types";
-import { getCandidate, listCandidates } from "../actions";
+import { getCandidate, listCandidateBoard } from "../actions";
 import { HireDrawer } from "./hire-drawer";
 import {
   useCandidateStatusChange,
@@ -49,14 +50,12 @@ import {
 
 /** Колонки доски — этапы по порядку воронки. */
 const COLUMNS: CandidateStatus[] = ["new", "review", "interview", "trial", "hired", "rejected"];
-/** Этапы в работе: показываем все анкеты, дольше всех ждущие — сверху. */
+/** Этапы в работе: дольше всех ждущие — сверху. У «Не подходит» — последние. */
 const ACTIVE: CandidateStatus[] = ["new", "review", "interview", "trial"];
-/** «Не подходит» копится годами: на доске — последние, остальные в таблице. */
-const DONE_LIMIT = 25;
-const ACTIVE_LIMIT = 100;
 
 type BoardCandidate = Candidate & Partial<CandidatePhotos>;
 type Column = { rows: BoardCandidate[]; total: number };
+type Columns = Partial<Record<CandidateStatus, Column>>;
 
 const byStageAsc = (a: Candidate, b: Candidate) =>
   a.stage_changed_at.localeCompare(b.stage_changed_at);
@@ -65,7 +64,8 @@ const byStageDesc = (a: Candidate, b: Candidate) => byStageAsc(b, a);
 /**
  * Доска кандидатов по этапам — второй вид списка рядом с таблицей. Карточку
  * переносят между колонками мышью, пальцем (долгое нажатие) или с
- * клавиатуры (пробел — взять, стрелки — перенести, пробел — положить).
+ * клавиатуры (пробел — взять, стрелки влево и вправо — соседняя колонка,
+ * пробел — положить; Enter на имени открывает анкету).
  * Перенос меняет этап тем же действием, что меню статуса в таблице
  * (`useCandidateStatusChange`): права и журнал — те же. «Собеседование» и
  * «Стажировка» открывают запись на встречу, «Принят на работу» — оформление.
@@ -77,6 +77,8 @@ export function CandidateBoard({
   permissions,
   reloadKey,
   onStatusSaved,
+  onListChanged,
+  onTotal,
 }: {
   /** Поиск и условия списка — те же, что у таблицы; сортировка своя. */
   filters: Omit<ListFilters, "sort">;
@@ -85,9 +87,14 @@ export function CandidateBoard({
   /** Меняется, когда список нужно перечитать (новые анкеты, удаление). */
   reloadKey: number;
   onStatusSaved: (saved: CandidateStatusUpdate) => void;
+  /** Список изменился не сменой этапа (найм): перечитать и таблицу, и доску. */
+  onListChanged: () => void;
+  /** Сколько анкет на доске — для счётчика в шапке страницы. */
+  onTotal: (total: number) => void;
 }) {
   const router = useRouter();
-  const [columns, setColumns] = useState<Record<CandidateStatus, Column> | null>(null);
+  const [columns, setColumns] = useState<Columns | null>(null);
+  const [reserved, setReserved] = useState<ReadonlySet<string>>(() => new Set());
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
   const refresh = useCallback(() => setReload((n) => n + 1), []);
@@ -98,46 +105,23 @@ export function CandidateBoard({
   useEffect(() => {
     let cancelled = false;
     setError("");
-    const base = { ...filters, page: 0 } as const;
-    const active = ACTIVE.filter((s) => !chosen.length || chosen.includes(s));
     // Принятые уходят в «Сотрудников» и в списке анкет их нет: колонка
     // «Принят на работу» — только место, куда переносят анкету для оформления.
-    const done = (["rejected"] as const).filter((s) => !chosen.length || chosen.includes(s));
-    const load = async () => {
-      // Два запроса, а не пять: действия из браузера идут по очереди.
-      const [activePage, ...donePages] = await Promise.all([
-        active.length
-          ? listCandidates({
-              ...base,
-              status: active,
-              // «На этапе» по убыванию — дольше всех ждущие сверху.
-              sort: [{ field: "stage_changed_at", direction: "desc" }],
-              pageSize: ACTIVE_LIMIT,
-            }).then(unwrapAction)
-          : Promise.resolve(null),
-        ...done.map((status) =>
-          listCandidates({
-            ...base,
-            status: [status],
-            // «На этапе» по возрастанию — последние отказы сверху.
-            sort: [{ field: "stage_changed_at", direction: "asc" }],
-            pageSize: DONE_LIMIT,
-          }).then(unwrapAction),
-        ),
-      ]);
-      const next = Object.fromEntries(
-        COLUMNS.map((s) => [s, { rows: [] as BoardCandidate[], total: 0 }]),
-      ) as Record<CandidateStatus, Column>;
-      for (const row of activePage?.rows ?? []) next[row.status].rows.push(row);
-      for (const s of ACTIVE) next[s].total = next[s].rows.length;
-      done.forEach((status, i) => {
-        next[status] = { rows: donePages[i].rows, total: donePages[i].total };
-      });
-      return next;
-    };
-    load()
-      .then((next) => {
-        if (!cancelled) setColumns(next);
+    const stages = visible.filter((s) => s !== "hired");
+    const load = stages.length
+      ? listCandidateBoard({
+          search: filters.search,
+          position: filters.position,
+          from: filters.from,
+          to: filters.to,
+          stages,
+        }).then(unwrapAction)
+      : Promise.resolve({ columns: {}, reserved: [] });
+    load
+      .then((board) => {
+        if (cancelled) return;
+        setColumns(board.columns as Columns);
+        setReserved(new Set(board.reserved));
       })
       .catch((e) => {
         if (!cancelled) setError(candidateError(e, "Не удалось загрузить кандидатов."));
@@ -149,61 +133,94 @@ export function CandidateBoard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterKey, reload, reloadKey]);
 
+  useEffect(() => {
+    if (columns)
+      onTotal(Object.values(columns).reduce((sum, c) => sum + (c?.total ?? 0), 0));
+  }, [columns, onTotal]);
+
   // Фото — отдельным запросом, как в таблице: без них остаются инициалы.
+  // Догружаем только тех, кого ещё не спрашивали: перенос карточки фото
+  // заново не запрашивает.
   const [photos, setPhotos] = useState<Record<string, CandidatePhotos>>({});
-  const ids = useMemo(
-    () => (columns ? COLUMNS.flatMap((s) => columns[s].rows.map((r) => r.id)) : []),
+  const asked = useRef(new Set<string>());
+  const idsKey = useMemo(
+    () =>
+      columns
+        ? Object.values(columns)
+            .flatMap((c) => c?.rows.map((r) => r.id) ?? [])
+            .sort()
+            .join(",")
+        : "",
     [columns],
   );
-  const idsKey = ids.join(",");
   useEffect(() => {
-    if (!idsKey) return;
-    const controller = new AbortController();
-    const list = idsKey.split(",");
-    const parts: string[][] = [];
-    for (let i = 0; i < list.length; i += 100) parts.push(list.slice(i, i + 100));
-    void Promise.all(
-      parts.map((part) =>
-        fetch(`/api/people/candidate-photos?ids=${part.join(",")}`, {
-          signal: controller.signal,
-        }).then((r) => (r.ok ? (r.json() as Promise<Record<string, CandidatePhotos>>) : {})),
-      ),
-    )
-      .then((all) => {
-        if (!controller.signal.aborted) setPhotos(Object.assign({}, ...all));
-      })
-      .catch(() => {});
-    return () => controller.abort();
+    const missing = idsKey ? idsKey.split(",").filter((id) => !asked.current.has(id)) : [];
+    if (!missing.length) return;
+    for (const id of missing) asked.current.add(id);
+    let alive = true;
+    for (let i = 0; i < missing.length; i += 100) {
+      const part = missing.slice(i, i + 100);
+      void fetch(`/api/people/candidate-photos?ids=${part.join(",")}`)
+        .then((r) => (r.ok ? (r.json() as Promise<Record<string, CandidatePhotos>>) : {}))
+        .then((found) => {
+          if (alive) setPhotos((current) => ({ ...current, ...found }));
+        })
+        .catch(() => {
+          for (const id of part) asked.current.delete(id);
+        });
+    }
+    return () => {
+      alive = false;
+    };
   }, [idsKey]);
 
-  const saved = useCallback(
-    (update: CandidateStatusUpdate) => {
-      setColumns((current) => {
-        if (!current) return current;
-        const all = COLUMNS.flatMap((s) => current[s].rows);
-        const row = all.find((r) => r.id === update.id);
-        if (!row || row.revision >= update.revision) return current;
-        const moved: BoardCandidate = {
-          ...row,
-          ...update,
-          stage_changed_at:
-            update.status !== row.status ? new Date().toISOString() : row.stage_changed_at,
-        };
-        const next = { ...current };
+  /** Смена этапа без перечитывания: своя или пришедшая от коллеги. */
+  const apply = useCallback((update: CandidateStatusUpdate) => {
+    setColumns((current) => {
+      if (!current) return current;
+      const row = Object.values(current)
+        .flatMap((c) => c?.rows ?? [])
+        .find((r) => r.id === update.id);
+      if (!row || row.revision >= update.revision) return current;
+      const moved: BoardCandidate = {
+        ...row,
+        ...update,
+        stage_changed_at:
+          update.status !== row.status ? new Date().toISOString() : row.stage_changed_at,
+      };
+      const next: Columns = { ...current };
+      const source = current[row.status];
+      if (source)
         next[row.status] = {
-          rows: current[row.status].rows.filter((r) => r.id !== row.id),
-          total: Math.max(0, current[row.status].total - 1),
+          rows: source.rows.filter((r) => r.id !== row.id),
+          total: Math.max(0, source.total - 1),
         };
-        const target = next[moved.status];
+      // Принятый уходит из списка анкет; этап, которого нет на доске
+      // (отфильтрован), карточку не получает.
+      const target = next[moved.status];
+      if (moved.status !== "hired" && target) {
         const rows = [...target.rows.filter((r) => r.id !== row.id), moved].sort(
           ACTIVE.includes(moved.status) ? byStageAsc : byStageDesc,
         );
         next[moved.status] = { rows, total: target.total + 1 };
-        return next;
-      });
+      }
+      return next;
+    });
+  }, []);
+  // Коллега перенёс анкету — у нас сразу новая ревизия и место на доске,
+  // иначе следующий перенос упрётся в конфликт.
+  useEffect(() => {
+    const updated = (event: Event) => apply((event as CustomEvent<CandidateStatusUpdate>).detail);
+    window.addEventListener("candidates:row-updated", updated);
+    return () => window.removeEventListener("candidates:row-updated", updated);
+  }, [apply]);
+
+  const saved = useCallback(
+    (update: CandidateStatusUpdate) => {
+      apply(update);
       onStatusSaved(update);
     },
-    [onStatusSaved],
+    [apply, onStatusSaved],
   );
   const { change, pending, panel } = useCandidateStatusChange({
     options,
@@ -234,32 +251,56 @@ export function CandidateBoard({
     if (target === candidate.status) return null;
     if (target !== "hired") return null;
     if (!canHireSomewhere) return "Нет права принимать на работу";
-    if (candidate.status !== "trial" || candidate.hired_user_id) return "Сначала стажировка";
+    if (candidate.hired_user_id) return "Уже принят";
+    // Как в анкете: принять можно со стажировки или продолжить начатое оформление.
+    if (candidate.status !== "trial" && !reserved.has(candidate.id)) return "Сначала стажировка";
     return null;
   };
 
+  const reducedMotion = useReducedMotion();
   const [dragging, setDragging] = useState<BoardCandidate | null>(null);
   const [over, setOver] = useState<CandidateStatus | null>(null);
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
     // На телефоне — долгое нажатие, чтобы доска прокручивалась пальцем.
     useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } }),
-    // Enter оставляем ссылке на анкету: взять и положить — пробелом.
+    // Enter оставляем ссылке на анкету: взять и положить — пробелом,
+    // стрелки ставят карточку в соседнюю колонку.
     useSensor(KeyboardSensor, {
       keyboardCodes: { start: ["Space"], cancel: ["Escape"], end: ["Space"] },
+      coordinateGetter: toNextColumn,
     }),
   );
   const findRow = (id: string) =>
-    columns ? COLUMNS.flatMap((s) => columns[s].rows).find((r) => r.id === id) ?? null : null;
+    columns
+      ? Object.values(columns)
+          .flatMap((c) => c?.rows ?? [])
+          .find((r) => r.id === id) ?? null
+      : null;
   const onDragStart = (event: DragStartEvent) => setDragging(findRow(String(event.active.id)));
   const onDragOver = (event: DragOverEvent) =>
     setOver((event.over?.id as CandidateStatus | undefined) ?? null);
+  // После переноса с клавиатуры карточка рисуется в другой колонке заново —
+  // фокус возвращаем на её имя, чтобы не потерять место на странице.
+  const refocus = useRef<string | null>(null);
+  useEffect(() => {
+    const id = refocus.current;
+    if (!id) return;
+    const link = document.querySelector<HTMLElement>(`[data-candidate-link="${id}"]`);
+    if (link && document.activeElement !== link) {
+      link.focus();
+      refocus.current = null;
+    }
+  }, [columns]);
   const onDragEnd = (event: DragEndEvent) => {
     const row = findRow(String(event.active.id));
     const target = event.over?.id as CandidateStatus | undefined;
     setDragging(null);
     setOver(null);
     if (!row || !target || target === row.status) return;
+    // Встреча и оформление открывают свою панель — фокус уходит в неё.
+    if (event.activatorEvent instanceof KeyboardEvent && !["interview", "trial", "hired"].includes(target))
+      refocus.current = row.id;
     const reason = refusal(row, target);
     if (reason) {
       toast.error(reason);
@@ -302,7 +343,7 @@ export function CandidateBoard({
           announcements,
           screenReaderInstructions: {
             draggable:
-              "Чтобы перенести анкету на другой этап, нажмите пробел, выберите колонку стрелками и нажмите пробел ещё раз. Escape — отмена.",
+              "Enter — открыть анкету. Чтобы перенести её на другой этап, нажмите пробел, выберите колонку стрелками влево и вправо и нажмите пробел ещё раз. Escape — отмена.",
           },
         }}
       >
@@ -319,7 +360,7 @@ export function CandidateBoard({
               <BoardColumn
                 key={status}
                 status={status}
-                count={status === "hired" ? null : column ? column.total : null}
+                count={column ? column.total : null}
                 refusal={over === status ? reason : null}
                 highlight={over === status && !!dragging && dragging.status !== status && !reason}
               >
@@ -339,7 +380,7 @@ export function CandidateBoard({
                       key={row.id}
                       candidate={{ ...row, ...photos[row.id] }}
                       index={i}
-                      busy={pending?.id === row.id || hireLoading === row.id}
+                      busy={pending.has(row.id) || hireLoading === row.id}
                       onOpen={() => router.push(`/people/candidates/${row.id}`)}
                     />
                   ))
@@ -355,7 +396,12 @@ export function CandidateBoard({
             );
           })}
         </div>
-        <DragOverlay dropAnimation={{ duration: 240, easing: "cubic-bezier(0.32, 0.72, 0, 1)" }}>
+        {/* Анимация возврата идёт через WAAPI и не слушает CSS reduced-motion. */}
+        <DragOverlay
+          dropAnimation={
+            reducedMotion ? null : { duration: 240, easing: "cubic-bezier(0.32, 0.72, 0, 1)" }
+          }
+        >
           {dragging ? (
             <CardBody candidate={{ ...dragging, ...photos[dragging.id] }} lifted />
           ) : null}
@@ -374,7 +420,8 @@ export function CandidateBoard({
           }}
           onSaved={() => {
             // Тост «Кандидат принят на работу» и конфетти — в самой панели.
-            refresh();
+            // Принятый уходит и из таблицы: перечитываем оба вида.
+            onListChanged();
             window.dispatchEvent(new Event("candidates:changed"));
           }}
         />
@@ -437,26 +484,22 @@ function BoardCard({
   busy: boolean;
   onOpen: () => void;
 }) {
-  // Принятых не переносим: этап меняется только оформлением, как в таблице.
-  const locked = candidate.status === "hired";
-  const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
+  const { setNodeRef, setActivatorNodeRef, attributes, listeners, isDragging } = useDraggable({
     id: candidate.id,
-    disabled: locked || busy,
+    disabled: busy,
   });
   return (
     <div
       ref={setNodeRef}
-      {...attributes}
+      // Мышью и пальцем карточку берут за любое место; с клавиатуры —
+      // за имя-ссылку: одна остановка Tab, Enter открывает анкету.
       {...listeners}
-      aria-roledescription="анкета"
-      aria-label={`${candidate.full_name}, ${STATUSES[candidate.status]}`}
       onClick={(e) => {
         if ((e.target as HTMLElement).closest("a,button")) return;
         onOpen();
       }}
       className={cn(
-        "rounded-lg outline-none transition-opacity duration-200 focus-visible:ring-2 focus-visible:ring-brand",
-        locked ? "cursor-pointer" : "cursor-grab active:cursor-grabbing",
+        "cursor-grab rounded-lg transition-opacity duration-200 active:cursor-grabbing [&:has(a:focus-visible)]:ring-2 [&:has(a:focus-visible)]:ring-brand",
         isDragging && "opacity-40",
         busy && "pointer-events-none opacity-60",
       )}
@@ -465,13 +508,31 @@ function BoardCard({
       {/* Появление — на внутреннем слое: анимация с fill both перекрыла бы
           прозрачность переносимой карточки. */}
       <div className="table-row-in" style={{ animationDelay: `${Math.min(index, 15) * 40}ms` }}>
-        <CardBody candidate={candidate} />
+        <CardBody
+          candidate={candidate}
+          nameRef={setActivatorNodeRef}
+          nameProps={{
+            "aria-describedby": attributes["aria-describedby"],
+            "aria-roledescription": "анкета",
+            "aria-disabled": attributes["aria-disabled"],
+          }}
+        />
       </div>
     </div>
   );
 }
 
-function CardBody({ candidate, lifted = false }: { candidate: BoardCandidate; lifted?: boolean }) {
+function CardBody({
+  candidate,
+  lifted = false,
+  nameRef,
+  nameProps,
+}: {
+  candidate: BoardCandidate;
+  lifted?: boolean;
+  nameRef?: (node: HTMLElement | null) => void;
+  nameProps?: React.AriaAttributes;
+}) {
   const age = stageAge(candidate.status, candidate.stage_changed_at);
   return (
     <article
@@ -488,7 +549,12 @@ function CardBody({ candidate, lifted = false }: { candidate: BoardCandidate; li
       />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <Link
+          ref={nameRef}
+          {...nameProps}
+          // Копия в переносимом слое — не цель для Tab.
+          tabIndex={lifted ? -1 : undefined}
           href={`/people/candidates/${candidate.id}`}
+          data-candidate-link={lifted ? undefined : candidate.id}
           onClick={(e) => e.stopPropagation()}
           className="truncate text-[13px] font-medium leading-5 transition-colors duration-200 hover:text-brand focus-visible:text-brand focus-visible:outline-none"
           data-tip={candidate.full_name}
@@ -519,4 +585,53 @@ function CardBody({ candidate, lifted = false }: { candidate: BoardCandidate; li
       </div>
     </article>
   );
+}
+
+/**
+ * Стрелки влево и вправо ставят карточку в середину соседней колонки:
+ * обычный шаг сенсора — 25 px, до соседней колонки пришлось бы жать
+ * больше десяти раз. Вверх и вниз внутри колонки переносить некуда.
+ */
+const toNextColumn: KeyboardCoordinateGetter = (event, { context, currentCoordinates }) => {
+  const step = event.code === "ArrowRight" ? 1 : event.code === "ArrowLeft" ? -1 : 0;
+  const { collisionRect, droppableRects, droppableContainers } = context;
+  if (!step || !collisionRect) return undefined;
+  event.preventDefault();
+  const rects = droppableContainers
+    .getEnabled()
+    .map((c) => droppableRects.get(c.id))
+    .filter((r): r is NonNullable<typeof r> => !!r)
+    .sort((a, b) => a.left - b.left);
+  if (!rects.length) return undefined;
+  const center = collisionRect.left + collisionRect.width / 2;
+  // Текущая колонка — та, над которой середина карточки, иначе ближайшая.
+  let index = rects.findIndex((r) => center >= r.left && center <= r.right);
+  if (index === -1)
+    index = rects.reduce(
+      (best, r, i) =>
+        Math.abs(r.left + r.width / 2 - center) <
+        Math.abs(rects[best].left + rects[best].width / 2 - center)
+          ? i
+          : best,
+      0,
+    );
+  const target = rects[index + step];
+  if (!target) return undefined;
+  return {
+    x: target.left + target.width / 2 - collisionRect.width / 2,
+    y: currentCoordinates.y,
+  };
+};
+
+/** `prefers-reduced-motion: reduce` с подпиской на смену настройки. */
+function useReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const sync = () => setReduced(query.matches);
+    sync();
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+  return reduced;
 }

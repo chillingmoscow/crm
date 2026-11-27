@@ -3,8 +3,8 @@
 import { createContext, useCallback, useContext, useState } from "react";
 
 import { cn } from "@/lib/utils";
-import { ScheduleDemo } from "./schedule-demo";
 import { SheerlyLogo } from "./sheerly-logo";
+import { VenueDemo } from "./venue-demo";
 
 const LEAVE_MS = 200;
 
@@ -23,8 +23,8 @@ export function useAuthLeave() {
 }
 
 /**
- * Каркас страниц входа, регистрации и восстановления пароля: слева форма,
- * справа (с `lg`) — живое демо расписания. На телефоне демо нет: форма
+ * Каркас страниц входа, регистрации и восстановления пароля: слева (с `xl`, от 1280px)
+ * — живое демо заведения, справа форма. На телефоне демо нет: форма
  * во всю ширину.
  */
 export function AuthShell({ children }: { children: React.ReactNode }) {
@@ -42,25 +42,27 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
           leaving && "pointer-events-none opacity-0",
         )}
       >
+        <aside className="sticky top-0 hidden h-dvh w-[56%] shrink-0 p-3 xl:flex">
+          <div className="flex flex-1 flex-col justify-center gap-8 overflow-hidden rounded-xl bg-muted px-12 py-12 2xl:px-16">
+            <div className="max-w-lg">
+              <h2 className="text-[32px] font-bold leading-tight tracking-tight">
+                Всё заведение — в одном окне
+              </h2>
+              <p className="mt-3 text-base text-muted-foreground">
+                Люди, смены, продажи, деньги и склад. Без таблиц и пересылки
+                скриншотов.
+              </p>
+            </div>
+            <VenueDemo />
+          </div>
+        </aside>
+
         <main className="flex min-w-0 flex-1 flex-col px-6 py-6 sm:px-12 sm:py-8">
           <SheerlyLogo className="h-8 w-auto self-start" />
           <div className="flex flex-1 items-center justify-center py-12">
             <div className="motion-rise w-full max-w-[400px]">{children}</div>
           </div>
         </main>
-
-        <aside className="sticky top-0 hidden h-dvh w-[52%] shrink-0 p-3 lg:flex">
-          <div className="flex flex-1 flex-col items-center justify-center gap-8 rounded-xl bg-muted px-12 py-12">
-            <ScheduleDemo />
-            <div className="max-w-sm text-center">
-              <h2 className="text-xl font-semibold">График смен за пару минут</h2>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Соберите неделю из шаблонов, опубликуйте команде и держите под
-                рукой замены, часы и выплаты.
-              </p>
-            </div>
-          </div>
-        </aside>
       </div>
     </AuthLeaveContext.Provider>
   );

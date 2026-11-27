@@ -12,16 +12,7 @@ import { toast } from "sonner";
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   hardDeleteKbPages,
@@ -207,30 +198,21 @@ export function KbTrashClient({ rows }: KbTrashClientProps) {
         </div>
       )}
 
-      <AlertDialog
+      <ConfirmDialog
         open={confirmBulkDelete}
         onOpenChange={setConfirmBulkDelete}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Удалить навсегда?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {selectedIds.length} {pageWord(selectedIds.length)} и все их
-              подстраницы будут удалены безвозвратно. Это действие нельзя
-              отменить.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => runHardDelete(selectedIds)}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Удалить навсегда
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title={`Удалить ${selectedIds.length} ${pageWord(selectedIds.length)} навсегда?`}
+        confirmLabel="Удалить навсегда"
+        destructive
+        consequences={[
+          { kind: "remove", text: "Подстраницы удалятся вместе с ними" },
+          { kind: "irreversible", text: "Удаление нельзя отменить" },
+        ]}
+        onConfirm={() => {
+          setConfirmBulkDelete(false);
+          runHardDelete(selectedIds);
+        }}
+      />
     </div>
   );
 }

@@ -257,7 +257,10 @@ export function BankAccountGroupsDrawer({
         title={
           removed.length === 1 ? `Удалить группу «${removed[0].name}»?` : `Удалить ${countRu(removed.length, "группу", "группы", "групп")}?`
         }
-        description={`${countRu(orphaned, "счёт останется", "счёта останутся", "счетов останутся")} без группы. Сами счета, их баланс и операции не изменятся`}
+        consequences={[
+          { kind: "unlink", text: `${countRu(orphaned, "счёт останется", "счёта останутся", "счетов останутся")} без группы` },
+          { kind: "keep", text: "Сами счета, их баланс и операции не изменятся" },
+        ]}
         confirmLabel={removed.length === 1 ? "Удалить группу" : "Удалить группы"}
         pendingLabel="Сохраняем…"
         destructive

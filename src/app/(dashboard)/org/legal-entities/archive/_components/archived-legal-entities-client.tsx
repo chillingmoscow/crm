@@ -387,6 +387,7 @@ export function ArchivedLegalEntitiesClient({ rows }: { rows: ArchivedLegalEntit
       )}
 
       <ConfirmDialog
+        icon={ArchiveRestore}
         open={!!restoreTarget}
         onOpenChange={(open) => {
           if (!open) {

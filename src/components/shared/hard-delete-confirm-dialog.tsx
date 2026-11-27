@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { Trash2 } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { deleteImpactToConsequences } from "@/components/ui/dialog-tone";
 
 export type DeleteImpact = {
   label: string;
@@ -40,22 +42,6 @@ type Props = {
   onConfirm: () => Promise<{ error: string | null } | void>;
 };
 
-function ImpactList({ title, rows }: { title: string; rows: DeleteImpact[] }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <p className="text-xs text-muted-foreground">{title}</p>
-      <ul className="divide-y rounded-[10px] border text-sm">
-        {rows.map((row) => (
-          <li key={row.label} className="flex justify-between gap-4 px-3 py-2">
-            <span className="text-muted-foreground">{row.label}</span>
-            <span className="font-medium tabular-nums">{row.count}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 /**
  * Безвозвратное удаление на общем `ConfirmDialog`: что удалится вместе с
  * записью, что отвяжется, что мешает удалить. Название вводится руками.
@@ -74,9 +60,6 @@ export function HardDeleteConfirmDialog({
   const [isPending, startTransition] = useTransition();
   const matches = input.trim() === entityName.trim();
   const blocked = restrictedBy.length > 0;
-  const visibleImpact = impact.filter((row) => row.count > 0);
-  const cascade = visibleImpact.filter((row) => row.tone === "cascade");
-  const unbind = visibleImpact.filter((row) => row.tone === "unbind");
 
   useEffect(() => {
     if (!open) {
@@ -93,8 +76,10 @@ export function HardDeleteConfirmDialog({
       description={
         blocked
           ? "Сейчас удалить нельзя: к записи привязаны данные, которые без неё потеряют смысл. Архив скроет запись и сохранит историю"
-          : "Действие нельзя отменить. Если сомневаетесь, отправьте запись в архив: она скроется, а данные сохранятся"
+          : "Если сомневаетесь, отправьте запись в архив."
       }
+      icon={Trash2}
+      consequences={blocked ? undefined : deleteImpactToConsequences(impact)}
       confirmLabel="Удалить навсегда"
       pendingLabel="Удаляем…"
       destructive
@@ -126,26 +111,18 @@ export function HardDeleteConfirmDialog({
           </ul>
         </div>
       ) : (
-        <>
-          {cascade.length > 0 ? (
-            <ImpactList title="Удалится вместе с записью" rows={cascade} />
-          ) : null}
-          {unbind.length > 0 ? (
-            <ImpactList title="Отвяжется, но сохранится" rows={unbind} />
-          ) : null}
-          <Field id="hard-delete-confirm-input" label="Введите название для подтверждения">
-            {(control) => (
-              <Input
-                {...control}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={entityName}
-                autoComplete="off"
-                spellCheck={false}
-              />
-            )}
-          </Field>
-        </>
+        <Field id="hard-delete-confirm-input" label="Введите название для подтверждения">
+          {(control) => (
+            <Input
+              {...control}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={entityName}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          )}
+        </Field>
       )}
     </ConfirmDialog>
   );

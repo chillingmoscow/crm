@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { Archive } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { archiveImpactToConsequences } from "@/components/ui/dialog-tone";
 
 export type ArchiveImpact = {
   label: string;
@@ -58,8 +60,6 @@ export function ArchiveConfirmDialog({
     }
   }, [open]);
 
-  const visibleImpact = impact.filter((row) => row.count > 0);
-
   return (
     <ConfirmDialog
       open={open}
@@ -67,8 +67,11 @@ export function ArchiveConfirmDialog({
       title={`Архивировать ${entityGenitive} «${entityName}»?`}
       description={
         description ??
-        "Это не удаление: запись скроется из списков и выборов, связанные данные сохранятся. Вернуть её можно из архива раздела в любой момент"
+        "Это не удаление: запись скроется из списков, связанные данные сохранятся. Вернуть её можно из архива раздела."
       }
+      tone="warning"
+      icon={Archive}
+      consequences={archiveImpactToConsequences(impact)}
       confirmLabel={`Архивировать ${entityGenitive}`}
       pendingLabel="Архивируем…"
       busy={isPending}
@@ -82,19 +85,6 @@ export function ArchiveConfirmDialog({
         });
       }}
     >
-      {visibleImpact.length > 0 ? (
-        <div className="flex flex-col gap-1.5">
-          <p className="text-xs text-muted-foreground">Сохранится в архиве</p>
-          <ul className="divide-y rounded-[10px] border text-sm">
-            {visibleImpact.map((row) => (
-              <li key={row.label} className="flex justify-between gap-4 px-3 py-2">
-                <span className="text-muted-foreground">{row.label}</span>
-                <span className="font-medium tabular-nums">{row.count}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
       <Field id="archive-confirm-input" label="Введите название для подтверждения">
         {(control) => (
           <Input

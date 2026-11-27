@@ -96,6 +96,7 @@ export function RecountSplitDialog({ documentId, documentInvoiceDate, flaggedCou
         Отправить на пересчёт{flaggedCount > 0 ? ` · ${flaggedCount}` : ""}
       </Button>
       <ConfirmDialog
+        icon={RotateCcw}
         open={open}
         onOpenChange={(next) => {
           setOpen(next);

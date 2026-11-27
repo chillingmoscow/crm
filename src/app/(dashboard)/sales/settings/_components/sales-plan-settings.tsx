@@ -147,7 +147,10 @@ function PlanForm({
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
         title={`Удалить план на ${monthLabel(month)}?`}
-        description="Кольцо и прогноз на «Сменах» для этого месяца пропадут. План можно задать заново"
+        consequences={[
+          { kind: "remove", text: "Кольцо и прогноз на «Сменах» для этого месяца пропадут" },
+          { kind: "info", text: "План можно задать заново" },
+        ]}
         confirmLabel="Удалить план"
         pendingLabel="Удаляем…"
         destructive

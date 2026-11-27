@@ -3,7 +3,7 @@
 import { useExitValue } from "@/hooks/use-exit-value";
 import { useId, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronRight, Download, Loader2, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Loader2, Plus, Ban, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -594,6 +594,7 @@ export function StaffPaySheet({
         />
       )}
       <ConfirmDialog
+        icon={cancelPayment ? Trash2 : Ban}
         open={Boolean(cancelPayment) || Boolean(cancelTransfer)}
         onOpenChange={(open) => {
           if (!open && !cancelBusy) {

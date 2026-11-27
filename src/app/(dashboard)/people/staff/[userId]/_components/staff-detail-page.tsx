@@ -40,6 +40,8 @@ import {
   Trash2,
   Upload,
   X,
+  ArchiveRestore,
+  UserMinus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -1877,7 +1879,10 @@ export function StaffDetailPage({
           if (!open) setDocToDelete(null);
         }}
         title={`Удалить документ «${docToDelete?.name ?? ""}»?`}
-        description="Файл удалится из карточки сотрудника. Вернуть его можно будет только повторной загрузкой."
+        consequences={[
+          { kind: "remove", text: "Файл удалится из карточки сотрудника" },
+          { kind: "info", text: "Вернуть его можно будет только повторной загрузкой" },
+        ]}
         confirmLabel="Удалить документ"
         pendingLabel="Удаляем…"
         destructive
@@ -1888,6 +1893,7 @@ export function StaffDetailPage({
       />
 
       <ConfirmDialog
+        icon={UserMinus}
         open={confirmFire}
         onOpenChange={(open) => {
           setConfirmFire(open);
@@ -1898,7 +1904,12 @@ export function StaffDetailPage({
           }
         }}
         title={`Уволить «${displayName}»?`}
-        description="Сотрудник потеряет доступ к этому заведению. Если это последнее заведение аккаунта, удалим связанные записи Quick Resto и отзовём код замка. Профиль и история сохраняются. Повторный найм потребует нового оформления доступа."
+        consequences={[
+          { kind: "remove", text: "Сотрудник потеряет доступ к этому заведению" },
+          { kind: "info", text: "Если это последнее заведение аккаунта, удалим связанные записи Quick Resto и отзовём код замка" },
+          { kind: "keep", text: "Профиль и история сохраняются" },
+          { kind: "info", text: "Повторный найм потребует нового оформления доступа" },
+        ]}
         confirmLabel="Уволить сотрудника"
         pendingLabel="Увольняем…"
         destructive
@@ -1948,10 +1959,14 @@ export function StaffDetailPage({
       </ConfirmDialog>
 
       <ConfirmDialog
+        icon={ArchiveRestore}
         open={confirmRestore}
         onOpenChange={setConfirmRestore}
         title={`Восстановить «${displayName}»?`}
-        description="Сотрудник вернётся в список действующих и снова получит доступ к заведению. Для него будут созданы записи в Quick Resto и выдан код замка."
+        consequences={[
+          { kind: "info", text: "Сотрудник вернётся в список действующих и снова получит доступ к заведению" },
+          { kind: "info", text: "Для него будут созданы записи в Quick Resto и выдан код замка" },
+        ]}
         confirmLabel="Восстановить сотрудника"
         pendingLabel="Восстанавливаем…"
         busy={isPending}
@@ -1962,7 +1977,10 @@ export function StaffDetailPage({
         open={confirmPhotoDelete}
         onOpenChange={setConfirmPhotoDelete}
         title={`Удалить фото «${displayName}»?`}
-        description="Фото пропадёт из карточки и списка сотрудников. Вернуть его можно будет только повторной загрузкой."
+        consequences={[
+          { kind: "remove", text: "Фото пропадёт из карточки и списка сотрудников" },
+          { kind: "info", text: "Вернуть его можно будет только повторной загрузкой" },
+        ]}
         confirmLabel="Удалить фото"
         pendingLabel="Удаляем…"
         destructive

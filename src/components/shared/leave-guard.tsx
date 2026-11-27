@@ -1,5 +1,6 @@
 "use client";
 
+import { Undo2 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
@@ -76,6 +77,8 @@ export function useLeaveGuard(active: boolean): ReactNode {
 
   return (
     <ConfirmDialog
+      icon={Undo2}
+      cancelLabel="Продолжить редактирование"
       open={pendingHref !== null}
       onOpenChange={(open) => {
         if (!open) setPendingHref(null);

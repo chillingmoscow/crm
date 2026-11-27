@@ -130,7 +130,10 @@ export function NomenclaturePhotoDialog({
           if (!next) setRemoveError(null);
         }}
         title="Удалить фото позиции?"
-        description="Фото пропадёт из каталога и из формы акта. Потом можно загрузить новое"
+        consequences={[
+          { kind: "remove", text: "Фото пропадёт из каталога и из формы акта" },
+          { kind: "info", text: "Потом можно загрузить новое" },
+        ]}
         confirmLabel="Удалить фото"
         pendingLabel="Удаляем…"
         destructive

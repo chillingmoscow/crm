@@ -381,6 +381,7 @@ export function ArchivedVenuesClient({ rows }: { rows: ArchivedVenueRow[] }) {
       )}
 
       <ConfirmDialog
+        icon={ArchiveRestore}
         open={!!restoreTarget}
         onOpenChange={(open) => {
           if (!open) {

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Banknote, Loader2 } from "lucide-react";
+import { Banknote, Loader2, SkipForward } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -251,12 +251,16 @@ export function OfficialMonthCard({ item, draft, onDraftChange, onResolved, bank
       </div>
 
       <ConfirmDialog
+        icon={SkipForward}
         open={confirmSkip}
         onOpenChange={(open) => {
           if (!open && busy !== "skip") setConfirmSkip(false);
         }}
         title={`Пропустить официальную выплату: ${item.employee_name}, ${month}?`}
-        description="Карточка уйдёт из очереди, выплата не появится. Провести её можно будет вручную из формы выплаты в «Зарплате»."
+        consequences={[
+          { kind: "remove", text: "Карточка уйдёт из очереди, выплата не появится" },
+          { kind: "info", text: "Провести её можно будет вручную из формы выплаты в «Зарплате»" },
+        ]}
         destructive
         confirmLabel="Пропустить"
         pendingLabel="Пропускаем…"

@@ -96,6 +96,7 @@ export function StaffChatInvites({
     >
       <p className="text-sm text-muted-foreground">{status}</p>
       <ConfirmDialog
+        icon={Send}
         open={confirming}
         onOpenChange={(open) => {
           if (!busy) setConfirming(open);

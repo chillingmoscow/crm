@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { FileBadge2, RotateCcw } from "lucide-react";
+import { FileBadge2, RotateCcw, ArchiveRestore } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -215,6 +215,7 @@ export function LegalEntityDetailClient({
       </ProfilePageFrame>
 
       <ConfirmDialog
+        icon={ArchiveRestore}
         open={restoreOpen}
         onOpenChange={(open) => {
           setRestoreOpen(open);

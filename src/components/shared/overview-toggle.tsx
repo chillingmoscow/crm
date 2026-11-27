@@ -5,33 +5,50 @@ import { ChartNoAxesColumnIncreasing, ChevronDown } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { overviewCookieName } from "@/lib/ui/overview-pref";
 
 /**
  * Открыт ли «Обзор» страницы (design-system, «Page header»): по умолчанию
  * открыт, выбор запоминается в браузере под ключом `storageKey`
- * («payroll.overview», «people.overview.staff»…).
+ * («payroll.overview», «people.overview.staff»…) — в localStorage и в cookie.
  *
- * Выбор читается до первой отрисовки (layout-эффект), поэтому свёрнутый
- * «Обзор» не мелькает открытым. Третье значение — `known`: выбор уже
- * прочитан; пока его нет, данные обзора не запрашиваем.
+ * `initialOpen` — выбор из cookie, прочитанный сервером
+ * (`readOverviewOpen` из `@/lib/ui/overview-pref-server`): с ним страница
+ * сразу рисуется в нужном состоянии, и свёрнутый «Обзор» не мелькает
+ * открытым до загрузки скриптов. Без него выбор читается из localStorage
+ * в layout-эффекте (после гидратации — с мельканием).
+ *
+ * Третье значение — `known`: выбор уже известен; пока его нет, данные обзора
+ * не запрашиваем.
  */
-export function useOverviewOpen(storageKey: string) {
-  const [open, setOpenState] = useState(true);
-  const [known, setKnown] = useState(false);
+export function useOverviewOpen(storageKey: string, initialOpen?: boolean) {
+  const [open, setOpenState] = useState(initialOpen ?? true);
+  const [known, setKnown] = useState(initialOpen !== undefined);
   useLayoutEffect(() => {
-    if (window.localStorage.getItem(storageKey) === "closed") setOpenState(false);
-    setKnown(true);
-  }, [storageKey]);
+    const stored = window.localStorage.getItem(storageKey);
+    if (initialOpen === undefined) {
+      if (stored === "closed") setOpenState(false);
+      setKnown(true);
+    }
+    // Выбор, сделанный до появления cookie, переносим в неё — со следующего
+    // захода сервер нарисует страницу сразу правильно.
+    if ((stored === "open" || stored === "closed") && initialOpen === undefined) writeCookie(storageKey, stored === "open");
+  }, [storageKey, initialOpen]);
   const setOpen = useCallback(
     (next: boolean | ((value: boolean) => boolean)) =>
       setOpenState((value) => {
         const resolved = typeof next === "function" ? next(value) : next;
         window.localStorage.setItem(storageKey, resolved ? "open" : "closed");
+        writeCookie(storageKey, resolved);
         return resolved;
       }),
     [storageKey],
   );
   return [open, setOpen, known] as const;
+}
+
+function writeCookie(storageKey: string, open: boolean) {
+  document.cookie = `${overviewCookieName(storageKey)}=${open ? "open" : "closed"}; path=/; max-age=31536000; samesite=lax`;
 }
 
 /**

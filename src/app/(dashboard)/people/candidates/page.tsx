@@ -1,3 +1,5 @@
+import { readOverviewOpen } from "@/lib/ui/overview-pref-server";
+import { OVERVIEW_KEYS } from "@/lib/ui/overview-pref";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getCachedUser } from "@/lib/supabase/server";
@@ -19,9 +21,10 @@ export default async function CandidatesPage({
   if ((await searchParams).settings === "1")
     redirect("/settings/integrations/tilda");
   const s = await candidateScope();
-  const [list, options] = await Promise.all([
+  const [list, options, overviewOpen] = await Promise.all([
     candidateList(),
     candidateOptions(),
+    readOverviewOpen(OVERVIEW_KEYS.candidates),
   ]);
   return (
     <CandidatesClient
@@ -31,6 +34,7 @@ export default async function CandidatesPage({
       preferenceKey={`${s.accountId}:${s.user.id}`}
       options={options}
       permissions={s.permissions}
+      initialOverviewOpen={overviewOpen}
     />
   );
 }

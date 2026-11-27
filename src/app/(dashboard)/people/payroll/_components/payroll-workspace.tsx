@@ -75,6 +75,7 @@ import { TableFilterChip, TablePageHeader } from "@/components/shared/table";
 import { Money, formatRub } from "@/components/shared/money";
 import { AnimatedMoney } from "@/components/shared/animated-money";
 import { ExpandPanel, OverviewToggle, TabsRow, useOverviewOpen } from "@/components/shared/overview-toggle";
+import { OVERVIEW_KEYS } from "@/lib/ui/overview-pref";
 import { formatAmount, toKopecks } from "@/lib/format/amount";
 import { countRu } from "@/lib/format/plural";
 import { downloadBlob, xlsxBlob, type XlsxSheet } from "@/lib/export/xlsx";
@@ -135,9 +136,12 @@ export function PayrollWorkspace({
   data: initial,
   initialMonth,
   venueName = null,
+  initialOverviewOpen,
 }: {
   data: PayrollData;
   initialMonth: string;
+  /** Выбор «Обзора» из cookie — сервер рисует его сразу в нужном состоянии. */
+  initialOverviewOpen?: boolean;
   /** Для шапки выгрузки ведомости. */
   venueName?: string | null;
 }) {
@@ -198,7 +202,7 @@ export function PayrollWorkspace({
   const [tab, setTab] = useState("statement");
   // «Обзор» (график и стоимость команды) по умолчанию открыт; если его закрыть,
   // это запоминается в браузере.
-  const [overviewOpen, setOverviewOpen] = useOverviewOpen("payroll.overview");
+  const [overviewOpen, setOverviewOpen] = useOverviewOpen(OVERVIEW_KEYS.payroll, initialOverviewOpen);
   // План выплат грузится заранее, пока смотрят ведомость: вкладка открывается сразу.
   const [planView, setPlanView] = useState<PayoutPlanView | null>(() => cachedPayoutPlan(initial.venueId));
   useEffect(() => {

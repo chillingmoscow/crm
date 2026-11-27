@@ -1,4 +1,6 @@
 import { redirect } from "next/navigation";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { TablePageHeader } from "@/components/shared/table/table-page-header";
 import { Trash2 } from "lucide-react";
 
 import {
@@ -7,7 +9,6 @@ import {
 } from "@/lib/supabase/server";
 import { listDeletedKbPages } from "@/lib/knowledge/pages";
 import { EmptyState } from "@/components/ui/empty-state";
-import { KbSectionHeader } from "@/app/(dashboard)/knowledge/_components/kb-section-header";
 import { KbTrashClient } from "@/app/(dashboard)/knowledge/trash/_components/kb-trash-client";
 import { KbEmptyTrashButton } from "@/app/(dashboard)/knowledge/trash/_components/kb-empty-trash-button";
 import type { TrashRow } from "@/app/(dashboard)/knowledge/trash/_components/trash-item-row";
@@ -63,9 +64,14 @@ export default async function KnowledgeTrashPage() {
     <div className="flex-1 flex flex-col">
       <div className="px-6 md:px-8 pt-4 pb-8 w-full">
         <div className="mx-auto w-full max-w-[1100px] flex flex-col gap-6">
-          <KbSectionHeader
+          <Breadcrumbs
+            items={[
+              { label: "База знаний", href: "/knowledge" },
+              { label: "Корзина" },
+            ]}
+          />
+          <TablePageHeader
             title="Корзина"
-            description="Удалённые страницы хранятся 30 дней. Восстановите их вместе с подстраницами или удалите навсегда."
             actions={
               rows.length > 0 ? (
                 <KbEmptyTrashButton count={rows.length} />

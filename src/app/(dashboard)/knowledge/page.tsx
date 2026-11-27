@@ -16,9 +16,9 @@ import {
   getMyRecentlyViewedKbPages,
 } from "@/lib/knowledge/landing";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { CreateRootPageButton } from "@/app/(dashboard)/knowledge/_components/create-root-page-button";
-import { KbSearchTrigger } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
 import { KbLandingSection } from "@/app/(dashboard)/knowledge/_components/kb-landing-section";
 
 /**
@@ -86,6 +86,7 @@ export default async function KnowledgeLandingPage() {
 
   return (
     <div className="px-6 md:px-8 pt-5 pb-10 w-full flex flex-col gap-7">
+      <Breadcrumbs items={[{ label: "База знаний" }]} />
       <header className="flex flex-col gap-3">
         <div className="flex items-end justify-between gap-4">
           <div className="flex flex-col gap-1.5 min-w-0">
@@ -101,7 +102,6 @@ export default async function KnowledgeLandingPage() {
           </div>
           {canCreate && <CreateRootPageButton />}
         </div>
-        <KbSearchTrigger />
       </header>
 
       {isAllEmpty ? (

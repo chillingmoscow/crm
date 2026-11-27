@@ -1,9 +1,8 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, CheckCircle2, Clock, BookCheck } from "lucide-react";
+import { CheckCircle2, Clock } from "lucide-react";
 
 import { getCachedPermissionChecker } from "@/lib/supabase/server";
-import { PageBreadcrumb } from "@/components/shared/page-header-actions";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { getKbPageBySlug } from "@/lib/knowledge/pages";
 import {
@@ -52,22 +51,16 @@ export default async function KbRequiredReadingAdminPage({
 
   return (
     <div className="flex-1 flex flex-col">
-      <PageBreadcrumb>
-        <span className="text-sm font-medium text-foreground inline-flex items-center gap-2">
-          <BookCheck className="size-4 text-muted-foreground" />
-          Кто прочитал
-        </span>
-      </PageBreadcrumb>
+      <Breadcrumbs
+        items={[
+          { label: "База знаний", href: "/knowledge" },
+          { label: page.title || "Без названия", href: `/knowledge/${page.slug}` },
+          { label: "Кто прочитал" },
+        ]}
+      />
 
       <div className="px-6 md:px-8 pt-6 pb-8 w-full flex flex-col gap-6">
         <div className="mx-auto w-full max-w-[760px] flex flex-col gap-6">
-          <Link
-            href={`/knowledge/${page.slug}`}
-            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground self-start"
-          >
-            <ArrowLeft className="size-4" />К странице
-          </Link>
-
           <header className="flex items-start gap-3">
             <KbPageIcon icon={page.icon} color={page.icon_color} size={28} />
             <div className="flex flex-col gap-1.5 min-w-0">

@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { TablePageHeader } from "@/components/shared/table/table-page-header";
 import { redirect } from "next/navigation";
 
 import {
@@ -6,9 +8,7 @@ import {
   getCachedActiveAccountId,
   getCachedPermissionChecker,
 } from "@/lib/supabase/server";
-import { PageHeaderActions } from "@/components/shared/page-header-actions";
 import { KbStatCard } from "@/components/knowledge/kb-stat-card";
-import { KbSectionHeader } from "@/app/(dashboard)/knowledge/_components/kb-section-header";
 import { KbTimeMetricHint } from "@/app/(dashboard)/knowledge/_components/kb-time-metric-hint";
 import { KbReindexAiButton } from "@/app/(dashboard)/knowledge/_components/kb-reindex-ai-button";
 import { KbMonthlyTrend } from "@/app/(dashboard)/knowledge/_components/kb-monthly-trend";
@@ -187,17 +187,16 @@ export default async function KbDashboardPage({
     <div className="flex-1 flex flex-col">
       <div className="px-6 md:px-8 pt-4 pb-8 w-full">
         <div className="mx-auto w-full max-w-[1100px] flex flex-col gap-6">
-          <PageHeaderActions>
-            {aiReindexEnabled && <KbReindexAiButton />}
-            <KbTimeMetricHint />
-          </PageHeaderActions>
-
-          <KbSectionHeader
-            title="Дашборд"
-            hideBreadcrumb
-            description="Сводка по базе знаний: активность чтения, обязательное чтение и последние изменения."
-            actions={
-              <div className="flex flex-wrap items-center gap-3">
+          <Breadcrumbs
+            items={[
+              { label: "База знаний", href: "/knowledge" },
+              { label: "Обзор" },
+            ]}
+          />
+          <TablePageHeader
+            title="Обзор"
+            period={
+              <>
                 <KbAnalyticsViewTabs
                   current={view}
                   period={period}
@@ -208,7 +207,13 @@ export default async function KbDashboardPage({
                   basePath="/knowledge/dashboard"
                   view={view}
                 />
-              </div>
+              </>
+            }
+            actions={
+              <>
+                <KbTimeMetricHint />
+                {aiReindexEnabled && <KbReindexAiButton />}
+              </>
             }
           />
 

@@ -37,7 +37,6 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { createKbPage, moveKbPageInTree } from "@/lib/knowledge/pages";
-import { KbSearchTrigger } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
 import { KbImportDialog } from "@/app/(dashboard)/knowledge/_components/kb-import-dialog";
 import { KbTemplatePicker } from "@/app/(dashboard)/knowledge/_components/kb-template-picker";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
@@ -613,7 +612,6 @@ function KbTreeHeader({
         Страницы
       </span>
       <div className="flex items-center gap-0.5">
-        <KbSearchTrigger />
         {canCreate && (
           <KbTemplatePicker
             parentId={null}

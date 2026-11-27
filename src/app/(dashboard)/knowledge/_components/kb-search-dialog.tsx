@@ -12,6 +12,7 @@ import {
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { anotherDialogOpen } from "@/lib/dom/open-dialog";
+import { openCommandPalette } from "@/components/shared/command-palette";
 import { Loader2, Search, Sparkles, ArrowLeft } from "lucide-react";
 
 import { Command as CommandPrimitive } from "cmdk";
@@ -40,6 +41,12 @@ type SearchCtx = {
 };
 
 const KbSearchContext = createContext<SearchCtx | null>(null);
+
+/** То же, но без ошибки вне провайдера — для общих компонентов (кнопка
+ *  поиска в верхней панели), которые живут и вне базы знаний. */
+export function useKbSearchOptional(): SearchCtx | null {
+  return useContext(KbSearchContext);
+}
 
 export function useKbSearch(): SearchCtx {
   const ctx = useContext(KbSearchContext);
@@ -409,11 +416,23 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
             )}
           </CommandList>
 
-          {/* Footer hints */}
-          <div
-            aria-hidden="true"
-            className="flex items-center justify-end gap-[18px] border-t bg-accent px-5 py-3 text-[11px] font-medium tracking-[0.2px] text-muted-foreground"
-          >
+          {/* Footer: переход в общий поиск + подсказки клавиш. Поиск в
+              верхней панели в базе ищет по страницам; всё остальное
+              приложение — отсюда, одной строкой. */}
+          <div className="flex items-center gap-4 border-t bg-accent px-5 py-2 text-xs font-medium text-muted-foreground">
+            <button
+              type="button"
+              onClick={() => {
+                onOpenChange(false);
+                requestAnimationFrame(() => openCommandPalette());
+              }}
+              className="-ml-2 inline-flex h-8 items-center gap-2 rounded-md px-2 text-[13px] transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
+            >
+              <Search className="size-4" />
+              Искать во всём приложении
+            </button>
+            <div className="flex-1" />
+          <div aria-hidden="true" className="flex items-center gap-4">
             <span className="inline-flex items-center gap-1.5">
               <kbd className="inline-flex items-center rounded border bg-background px-1 py-0.5 text-[10px]">↑↓</kbd>
               навигация
@@ -426,6 +445,7 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
               <kbd className="inline-flex items-center rounded border bg-background px-1 py-0.5 text-[10px]">Esc</kbd>
               закрыть
             </span>
+          </div>
           </div>
         </Command>
       </DialogContent>
@@ -464,27 +484,4 @@ function SnippetMarks({ raw }: { raw: string }) {
     );
   });
   return <>{out}</>;
-}
-
-// ─── Trigger button (used in the tree header) ──────────────────────
-
-import { IconTooltip } from "@/components/ui/icon-tooltip";
-
-export function KbSearchTrigger() {
-  const { open } = useKbSearch();
-  return (
-    <IconTooltip label="Поиск (⌘K)">
-      <button
-        type="button"
-        onClick={open}
-        aria-label="Поиск (Cmd+K)"
-        className="inline-flex items-center justify-center size-6 rounded-md
-                   text-muted-foreground hover:bg-accent hover:text-foreground
-                   transition-colors
-                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <Search className="size-3.5" />
-      </button>
-    </IconTooltip>
-  );
 }

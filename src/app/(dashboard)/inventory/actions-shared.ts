@@ -373,6 +373,19 @@ export function actionErrorMessage(error: unknown, fallback: string) {
   return userFacingErrorMessage(normalized, fallback);
 }
 
+/**
+ * Текст ошибки Quick Resto для пользователя. Клиент QR бросает исключения с
+ * английским телом ответа («Quick Resto вернул ошибку 400: {…}») — это только
+ * в лог. Пропускаем лишь наши собственные подсказки о настройке доступа.
+ */
+export function quickRestoUserError(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : "";
+  if (/^(Настройте back-office|Неверный логин или пароль|Не удалось сохранить токен)/.test(message)) {
+    return message;
+  }
+  return fallback;
+}
+
 export async function getActiveContext(permission?: string | string[]) {
   const supabase = await createClient();
   const user = await getCachedUser();

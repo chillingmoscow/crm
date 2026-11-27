@@ -194,10 +194,12 @@ test("addActItems: после 429 пауза, сверка с актом и пр
   const items = plannedItems(6);
   const inQr = new Set<string>(["SingleProduct#1"]);
   const sleeps: number[] = [];
+  const progress: number[] = [];
   let calls = 0;
   const result = await addActItems({
     items,
     existingKeys: new Set(inQr),
+    onProgress: (inAct) => progress.push(inAct),
     pausesMs: [5, 10],
     sleep: async (ms) => {
       sleeps.push(ms);
@@ -220,6 +222,10 @@ test("addActItems: после 429 пауза, сверка с актом и пр
   assert.equal(inQr.size, 6);
   assert.deepEqual(sleeps, [5]);
   assert.equal(calls, 5);
+  // Ход не убывает и доходит до всех позиций.
+  assert.equal(progress[0], 1);
+  assert.equal(progress.at(-1), 6);
+  assert.ok(progress.every((value, i) => i === 0 || value >= progress[i - 1]), progress.join(","));
 });
 
 test("addActItems: паузы кончились — стоп с ошибкой и числом позиций в акте", async () => {

@@ -96,7 +96,7 @@ export async function MyAccruedBlock() {
   if (!data) return null;
   const month = MONTHS_NOMINATIVE[Number(data.month.slice(5, 7)) - 1];
   return (
-    <MetricStrip label={`Начислено за ${month}`} columns={data.tips > 0 ? 2 : 1} className="motion-rise">
+    <MetricStrip label={`Начислено за ${month}`} className="motion-rise">
       <Metric
         primary
         label={`Начислено за ${month}`}

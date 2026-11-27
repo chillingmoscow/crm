@@ -1,37 +1,27 @@
 import Link from "next/link";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import s from "./metric-strip.module.css";
 
 /**
  * Итоги периода — одна полоса на списке «Зарплаты» и на странице расчёта
  * сотрудника (DS → «Показатели и период»). Число не крупнее 28px, на узком
- * контейнере 2×2 и 20px.
+ * контейнере 2×2 и 20px. Раскладка сама подстраивается под число показателей
+ * (1–3 — без пустых клеток), передавать его не нужно.
  */
 export function MetricStrip({
   label,
   children,
-  columns = 4,
   className,
 }: {
   /** Подпись области для скринридера: «Итоги за месяц». */
   label: string;
   children: ReactNode;
-  /**
-   * Сколько показателей в ряд на широком контейнере (по умолчанию 4). Меньше
-   * — когда показателей меньше, чтобы справа не оставалась пустая ячейка.
-   * На узком контейнере всё равно 2 в ряд (1 — если показатель один).
-   */
-  columns?: 1 | 2 | 3 | 4;
   className?: string;
 }) {
   return (
     <section aria-label={label} className={cn(s.wrap, className)}>
-      <div
-        className={s.strip}
-        data-single={columns === 1 ? "true" : undefined}
-        style={{ "--metric-columns": columns } as CSSProperties}
-      >
+      <div className={s.strip}>
         {children}
       </div>
     </section>

@@ -5,7 +5,7 @@
 }
 .strip {
   display: grid;
-  grid-template-columns: repeat(var(--metric-columns, 4), minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
   border-radius: 12px;
@@ -88,16 +88,6 @@ a.primary:hover {
   .metric:nth-child(-n + 2) {
     border-bottom: 1px solid hsl(var(--border));
   }
-  /* Нечётный последний показатель (3 из 3) — на всю строку, без пустой ячейки. */
-  .metric:last-child:nth-child(odd) {
-    grid-column: 1 / -1;
-  }
-  .strip[data-single="true"] {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .strip[data-single="true"] .metric {
-    border-bottom: 0;
-  }
   .value {
     font-size: 20px;
     letter-spacing: -0.3px;
@@ -107,8 +97,8 @@ a.primary:hover {
   }
 }
 
-/* Меньше четырёх показателей (шапка карточки сотрудника) — без пустых
-   клеток: один, два или три в ряд. Три на совсем узком контейнере —
+/* Меньше четырёх показателей (шапка карточки сотрудника, главная) — без
+   пустых клеток: один, два или три в ряд, и на узком тоже. Три на совсем узком контейнере —
    главный во всю ширину сверху, два под ним. */
 .strip:has(> :only-child) {
   grid-template-columns: minmax(0, 1fr);

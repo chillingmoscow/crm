@@ -94,7 +94,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Композитный FK требует композитного индекса.** Если FK = `(account_id, X)` на `(account_id, id)` родителя, single-column `(X)` index НЕ покрывает FK lookup для cascade delete. Создавай `(account_id, X)` именно в том порядке.
 
 ### Дизайн-система — источник истины
-Первая остановка для любой UI-работы — [`docs/design-system.md`](docs/design-system.md): правила ведутся там, текстом. `sheerly.pen` (node `Q4FzoZ`) — архив исходных макетов, он не обновляется и при расхождении не действует. Токены/размеры/отступы/скругления не выдумывать. См. memory `feedback_design_system_first.md`.
+Первая остановка для любой UI-работы — [`docs/design-system.md`](docs/design-system.md): правила ведутся там, текстом. Подтверждения — только `ConfirmDialog` (или `useConfirm()` из обработчика) из `src/components/shared/confirm-dialog.tsx` с тоном по смыслу действия; `AlertDialog` удалён, `window.confirm` и голый `Dialog` с двумя кнопками не используем (раздел «Modal»). `sheerly.pen` (node `Q4FzoZ`) — архив исходных макетов, он не обновляется и при расхождении не действует. Токены/размеры/отступы/скругления не выдумывать. См. memory `feedback_design_system_first.md`.
 
 ### Мобильная версия — грабли и решения
 Перед правкой мобильной вёрстки (тулбары, таблицы, сайдбар, инпуты, overflow) — [`docs/mobile-web.md`](docs/mobile-web.md). Там уже пойманные баги iOS Safari (горизонтальное переполнение, зум при фокусе на input), флекс-трапы (`min-w-0`), поведение shadcn-сайдбара в мобильном `Sheet` и адаптивные конвенции. Легко повторить заново, если не знать про них.

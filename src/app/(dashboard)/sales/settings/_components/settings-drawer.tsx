@@ -12,16 +12,8 @@ import { ExpandPanel } from "@/components/shared/overview-toggle";
 import type { SalesConfiguration } from "@/lib/sales/types";
 import { saveSalesSettings } from "@/app/(dashboard)/sales/shifts/actions";
 import { toast } from "sonner";
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogCancel,
-  AlertDialogAction,
-} from "@/components/ui/alert-dialog";
+import { Undo2 } from "lucide-react";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 export function SettingsDrawer({
   data,
   open,
@@ -285,22 +277,20 @@ export function SettingsDrawer({
           </p>
         )}
       </EditDrawer>
-      <AlertDialog open={discard} onOpenChange={setDiscard}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Отменить изменения настроек?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Несохранённые изменения будут потеряны.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Продолжить редактирование</AlertDialogCancel>
-            <AlertDialogAction onClick={onClose}>
-              Отменить изменения
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={discard}
+        onOpenChange={setDiscard}
+        title="Отменить изменения настроек?"
+        description="Несохранённые изменения будут потеряны."
+        confirmLabel="Отменить изменения"
+        cancelLabel="Продолжить редактирование"
+        destructive
+        icon={Undo2}
+        onConfirm={() => {
+          setDiscard(false);
+          onClose();
+        }}
+      />
     </>
   );
 }

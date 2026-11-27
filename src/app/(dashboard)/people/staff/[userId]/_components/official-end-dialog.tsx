@@ -1,5 +1,6 @@
 "use client";
 
+import { UserMinus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -50,6 +51,7 @@ export function OfficialEndDialog({
 
   return (
     <ConfirmDialog
+      icon={UserMinus}
       open={open}
       onOpenChange={(open) => {
         if (!open) onClose();

@@ -3,7 +3,7 @@
 import { useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeftRight, RotateCcw } from "lucide-react";
+import { ArrowLeftRight, RotateCcw, ArchiveRestore } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -289,6 +289,7 @@ export function BankAccountDetail({
       </ProfilePageFrame>
 
       <ConfirmDialog
+        icon={ArchiveRestore}
         open={restoreOpen}
         onOpenChange={(open) => {
           setRestoreOpen(open);

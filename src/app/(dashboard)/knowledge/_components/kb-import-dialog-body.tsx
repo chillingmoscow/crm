@@ -16,8 +16,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   DialogContent,
   DialogTitle,
-  DialogClose,
   DialogDescription,
+  DialogHeader,
+  DialogFooter,
+  DialogIcon,
 } from "@/components/ui/dialog";
 import {
   BlockNoteSchema,
@@ -1240,32 +1242,17 @@ export default function KbImportDialogBody({
     (notionResult ? selectedCount > 0 : files.length > 0);
 
   return (
-    <DialogContent className="max-w-[560px] p-0 gap-0 [&>button:last-child]:hidden">
-      <div className="flex items-start gap-3.5 px-7 pt-7 pb-4">
-        <span className="inline-flex shrink-0 items-center justify-center size-10 rounded-full bg-brand/10 text-brand">
-          <Upload className="size-[18px]" />
-        </span>
-        <div className="flex-1 flex flex-col gap-1.5 min-w-0">
-          <DialogTitle className="text-[17px] font-semibold leading-tight tracking-tight text-foreground">
-            Импорт из Markdown / Notion
-          </DialogTitle>
-          <DialogDescription className="text-sm leading-snug text-muted-foreground">
-            Загрузите ZIP-экспорт из Notion или отдельные
-            {" "}<span className="font-mono text-[12px]">.md</span>-файлы.
-          </DialogDescription>
-        </div>
-        <DialogClose asChild>
-          <button
-            type="button"
-            aria-label="Закрыть"
-            className="inline-flex shrink-0 items-center justify-center size-7 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-          >
-            <X className="size-4" />
-          </button>
-        </DialogClose>
-      </div>
+    <DialogContent className="max-w-[560px]">
+      <DialogHeader>
+        <DialogIcon tone="default" icon={Upload} />
+        <DialogTitle>Импорт из Markdown / Notion</DialogTitle>
+        <DialogDescription>
+          Загрузите ZIP-экспорт из Notion или отдельные
+          {" "}<span className="font-mono text-[12px]">.md</span>-файлы.
+        </DialogDescription>
+      </DialogHeader>
       <div
-        className="px-7 pb-5 flex flex-col gap-3.5"
+        className="flex flex-col gap-3.5"
         onDrop={(e) => void onDrop(e)}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
@@ -1430,7 +1417,7 @@ export default function KbImportDialogBody({
           </div>
         )}
       </div>
-      <div className="flex justify-end gap-2 px-7 py-4 border-t">
+      <DialogFooter>
         <Button variant="outline" onClick={onClose} disabled={pending}>
           Отмена
         </Button>
@@ -1448,7 +1435,7 @@ export default function KbImportDialogBody({
                 ? `Импортировать (${files.length})`
                 : "Импортировать"}
         </Button>
-      </div>
+      </DialogFooter>
     </DialogContent>
   );
 }

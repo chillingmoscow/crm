@@ -19,7 +19,7 @@ import { countRu } from "@/lib/format/plural";
 import { signedAmountClass } from "@/lib/format/amount";
 import { addDays } from "@/lib/sales/time";
 import { payDayChoices, payoutRowState, type PayoutRowState, type PayoutScheduleCode } from "@/lib/payroll/payout-plan";
-import { Banknote, CalendarClock, Check, ListChecks, Loader2, MoreHorizontal, RefreshCw, X } from "lucide-react";
+import { Banknote, CalendarClock, Check, ListChecks, Loader2, MoreHorizontal, RefreshCw, X, Ban } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   loadPayoutPlan,
@@ -386,10 +386,14 @@ export function PayoutPlan({
         <PayoutIssueDialog open={issueOpen} planId={plan.id} onClose={() => setIssueOpen(false)} onDone={refresh} />
       )}
       <ConfirmDialog
+        icon={Ban}
         open={cancelOpen}
         onOpenChange={setCancelOpen}
         title="Отменить план выплат?"
-        description="Уже проведённые выплаты останутся. Новый план можно будет сформировать заново."
+        consequences={[
+          { kind: "keep", text: "Уже проведённые выплаты останутся" },
+          { kind: "info", text: "Новый план можно будет сформировать заново" },
+        ]}
         confirmLabel="Отменить план"
         destructive
         busy={busy}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { Banknote, CalendarClock, Loader2 } from "lucide-react";
+import { Banknote, CalendarClock, Loader2, SkipForward } from "lucide-react";
 import { ru } from "date-fns/locale/ru";
 
 import { Button } from "@/components/ui/button";
@@ -373,12 +373,16 @@ export function OccurrenceCard({
       ) : null}
 
       <ConfirmDialog
+        icon={SkipForward}
         open={confirmSkip}
         onOpenChange={(open) => {
           if (!open && busy !== "skip") setConfirmSkip(false);
         }}
         title={`Пропустить платёж «${occurrence.name}»?`}
-        description={`Платёж за ${formatDue(occurrence.due_date, today)} уйдёт из очереди, операция не появится. Следующий платёж придёт в свой срок.`}
+        consequences={[
+          { kind: "remove", text: `Платёж за ${formatDue(occurrence.due_date, today)} уйдёт из очереди, операция не появится` },
+          { kind: "keep", text: "Следующий платёж придёт в свой срок" },
+        ]}
         destructive
         confirmLabel="Пропустить платёж"
         pendingLabel="Пропускаем…"

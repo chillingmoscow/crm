@@ -28,7 +28,8 @@ export const metadata: Metadata = { title: "На разбор" };
  * - finance.create_transaction — разбор (без него карточки только для чтения);
  * - finance.view_all_venues — без него заведение выбирается только активное;
  * - payroll.pay — карточки официальной части зарплаты активного заведения
- *   (разбор — вместе с finance.create_transaction).
+ *   (разбор — вместе с finance.create_transaction) и карточки выплат по плану
+ *   (сверка с кассой, нехватка наличных, перенос остатка; закрыть — с payroll.pay).
  */
 export default async function InboxServerPage() {
   const can = await getCachedPermissionChecker();
@@ -37,6 +38,7 @@ export default async function InboxServerPage() {
   const canResolve = !!can("finance.create_transaction");
   const viewAllVenues = !!can("finance.view_all_venues");
   const canResolveOfficial = !!can("payroll.pay") && canResolve;
+  const canResolvePayout = !!can("payroll.pay");
 
   const [
     inbox,
@@ -64,6 +66,8 @@ export default async function InboxServerPage() {
       items={inbox.items}
       official={inbox.official}
       canResolveOfficial={canResolveOfficial}
+      payout={inbox.payout}
+      canResolvePayout={canResolvePayout}
       loadError={inbox.error}
       bankAccounts={bankAccounts}
       categories={categories}

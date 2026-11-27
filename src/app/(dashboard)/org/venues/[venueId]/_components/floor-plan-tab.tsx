@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
+  ArrowLeftRight,
   Loader2,
   Maximize2,
   Pencil,
@@ -10,9 +11,11 @@ import {
   RotateCw,
   Save,
   Settings2,
+  RotateCcw,
   Trash2,
   X,
 } from "lucide-react";
+import { useConfirm } from "@/components/shared/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -227,6 +230,7 @@ function HallNameDialog({
 // ── Component ────────────────────────────────────────────────
 
 export function FloorPlanTab({ venueId }: { venueId: string }) {
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const [halls, setHalls] = useState<Hall[]>([]);
   const [selectedHallId, setSelectedHallId] = useState<string | null>(null);
   const [layout, setLayout] = useState<HallLayout | null>(null);
@@ -522,9 +526,18 @@ export function FloorPlanTab({ venueId }: { venueId: string }) {
 
   // ── Hall CRUD handlers ────────────────────────────────────
 
-  const onSelectHall = (hallId: string) => {
+  const onSelectHall = async (hallId: string) => {
     if (hallId === selectedHallId) return;
-    if (isDirty && !window.confirm("Есть несохранённые изменения. Переключить зал без сохранения?")) {
+    if (
+      isDirty &&
+      !(await confirm({
+        title: "Переключить зал?",
+        description:
+          "Несохранённые изменения останутся черновиком на этом устройстве и вернутся, когда вы снова откроете этот зал.",
+        confirmLabel: "Переключить",
+        icon: ArrowLeftRight,
+      }))
+    ) {
       return;
     }
     persistCurrentDraftNow();
@@ -579,11 +592,19 @@ export function FloorPlanTab({ venueId }: { venueId: string }) {
     }
   };
 
-  const onDeleteHall = () => {
+  const onDeleteHall = async () => {
     if (!selectedHallId) return;
     const hall = halls.find((item) => item.id === selectedHallId);
     if (!hall) return;
-    if (!window.confirm(`Удалить зал «${hall.name}»?`)) return;
+    if (
+      !(await confirm({
+        title: `Удалить зал «${hall.name}»?`,
+        confirmLabel: "Удалить зал",
+        destructive: true,
+      }))
+    ) {
+      return;
+    }
     startTransition(async () => {
       const deletingId = selectedHallId;
       const result = await deleteVenueHall(deletingId);
@@ -658,9 +679,19 @@ export function FloorPlanTab({ venueId }: { venueId: string }) {
     });
   };
 
-  const onResetDraft = () => {
+  const onResetDraft = async () => {
     if (!selectedHallId) return;
-    if (!window.confirm("Сбросить локальный черновик и загрузить данные из базы?")) return;
+    if (
+      !(await confirm({
+        title: "Сбросить черновик схемы?",
+        description: "Несохранённые правки на этом устройстве пропадут, схема загрузится из базы.",
+        confirmLabel: "Сбросить черновик",
+        destructive: true,
+        icon: RotateCcw,
+      }))
+    ) {
+      return;
+    }
     clearDraftFromLocalStorage(selectedHallId);
     setDraftSavedAt(null);
     loadHallLayout(selectedHallId, false);
@@ -671,6 +702,7 @@ export function FloorPlanTab({ venueId }: { venueId: string }) {
 
   return (
     <div className="mt-4 space-y-3">
+      {confirmDialog}
       {/* ── Toolbar ── */}
       <div className="flex flex-wrap items-center gap-2 pb-1">
         {/* Hall selector */}

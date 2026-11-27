@@ -464,7 +464,10 @@ export function RoleDetailPage({
           if (!open) setDeleteError(null);
         }}
         title={`Удалить должность «${role.name}»?`}
-        description="Действие нельзя отменить. Сотрудники этой должности потеряют доступ."
+        consequences={[
+          { kind: "info", text: "Сотрудники этой должности потеряют доступ" },
+          { kind: "irreversible", text: "Удаление нельзя отменить" },
+        ]}
         confirmLabel="Удалить должность"
         pendingLabel="Удаляем…"
         destructive

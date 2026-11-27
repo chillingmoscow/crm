@@ -107,9 +107,16 @@ export function TildaSettings({ initial, recent, notifyChat, siteUrl }: { initia
       </Field>}
     </EditDrawer>
 
-    <ConfirmDialog open={rotate} onOpenChange={setRotate} busy={busy} error={error || undefined}
+    <ConfirmDialog
+      tone="warning"
+      icon={KeyRound}
+      open={rotate} onOpenChange={setRotate} busy={busy} error={error || undefined}
       title="Выпустить новый ключ Tilda?" confirmLabel="Выпустить ключ" pendingLabel="Выпускаем…"
-      description="Нужно, только если ключ потерян или попал к посторонним. Старый ключ перестанет работать сразу: пока новый не вставлен в Tilda, анкеты приходить не будут"
+      description="Нужно, только если ключ потерян или попал к посторонним."
+      consequences={[
+        { kind: "remove", text: "Старый ключ перестанет работать сразу" },
+        { kind: "info", text: "Пока новый не вставлен в Tilda, анкеты приходить не будут" },
+      ]}
       onConfirm={() => save({ rotate: true }, s => { if (s) setSecret(s); setRotate(false); toast.success("Новый ключ выпущен. Вставьте его в Tilda"); })} />
   </IntegrationLayout>;
 }

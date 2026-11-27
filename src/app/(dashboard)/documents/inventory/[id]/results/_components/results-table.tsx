@@ -28,6 +28,8 @@ import {
   Undo2,
   WandSparkles,
   XCircle,
+  ClipboardCheck,
+  LockOpen,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -2131,6 +2133,7 @@ export function InventoryResultsTable({
           Quick Resto: исключения и пересорты её не уменьшают, а раньше тайл
           «К списанию» читался как решение по деньгам. */}
       <ConfirmDialog
+        icon={ClipboardCheck}
         open={confirmFinalize}
         onOpenChange={(open) => {
           setConfirmFinalize(open);
@@ -2194,6 +2197,8 @@ export function InventoryResultsTable({
           остаётся отметка «итоги правились после проведения». Поэтому — только
           через подтверждение с причиной, она уходит в журнал акта. */}
       <ConfirmDialog
+        tone="warning"
+        icon={LockOpen}
         open={confirmReopen}
         onOpenChange={(open) => {
           setConfirmReopen(open);
@@ -2285,7 +2290,10 @@ export function InventoryResultsTable({
           }
         }}
         title={`Удалить автоисключение «${deleteRuleItem?.product_name ?? ""}»?`}
-        description="Позиция вернётся в итоги этого акта и прошлых актов незакрытых месяцев, где её исключало это правило. Причина попадёт в журнал акта."
+        consequences={[
+          { kind: "info", text: "Позиция вернётся в итоги этого акта и прошлых актов незакрытых месяцев, где её исключало это правило" },
+          { kind: "info", text: "Причина попадёт в журнал акта" },
+        ]}
         confirmLabel="Удалить автоисключение"
         pendingLabel="Удаляем…"
         destructive
@@ -2315,6 +2323,7 @@ export function InventoryResultsTable({
       </ConfirmDialog>
 
       <ConfirmDialog
+        icon={Ban}
         open={Boolean(voidingResort)}
         onOpenChange={(open) => {
           if (!open) {
@@ -2323,7 +2332,10 @@ export function InventoryResultsTable({
           }
         }}
         title={`Отменить пересорт «${voidingResort?.group_name ?? "Группа"}»?`}
-        description="Расхождения по его позициям снова попадут в итоги. Решение и причина попадут в журнал акта."
+        consequences={[
+          { kind: "info", text: "Расхождения по его позициям снова попадут в итоги" },
+          { kind: "info", text: "Решение и причина попадут в журнал акта" },
+        ]}
         confirmLabel="Отменить пересорт"
         pendingLabel="Отменяем…"
         destructive

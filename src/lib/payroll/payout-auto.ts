@@ -1,6 +1,5 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { loadTelegramBot } from "@/lib/integrations/telegram-bot";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { businessDate } from "@/lib/sales/time";
@@ -15,13 +14,15 @@ import {
   type VenueHandle,
 } from "./payout-engine";
 import { loadVenuePayoutData } from "./payout-source";
+import { raiseAlert, reportToChat as report } from "./payout-alerts";
+import { failedAlert, messageAlert, movedScheduleAlert } from "./payout-alert-text";
 
 // Автовыдача по утверждённому плану: раз в день (14:00 по Москве, cron на хосте)
 // для заведений, где она включена в «Графике выплат», — кассы, распределение,
 // проведение с кэшбокса, сообщение менеджерам. Без пользователя: выплаты и
 // журнал пишутся от «Системы». Всё, что требует внимания человека, уходит
-// отчётом в чат отчётов; если и он не дошёл — маршрут отвечает 500, и это
-// видно в логе хоста.
+// отчётом в чат отчётов и карточкой в «Финансы → На разбор» (этап 3); если
+// отчёт не дошёл — маршрут отвечает 500, и это видно в логе хоста.
 //
 // Выключатель на весь сервер: PAYROLL_PAYOUT_AUTO=off.
 
@@ -44,26 +45,6 @@ export function dayKey(planId: string, day: string): string {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
 }
 
-/**
- * Отчёт в чат отчётов. В лог сервера пишем только заведение и причину сбоя
- * доставки: имена и суммы остаются в Telegram, не в логах.
- */
-async function report(s: VenueHandle, text: string): Promise<boolean> {
-  try {
-    const bot = await loadTelegramBot(s.admin, s.accountId);
-    if (!bot?.reportsChatId) {
-      console.error(`[payroll-payout-auto] ${s.venueId}: не настроен чат отчётов, отчёт не отправлен`);
-      return false;
-    }
-    const sent = await bot.sendMessage(bot.reportsChatId, text);
-    if (!sent.ok) console.error(`[payroll-payout-auto] ${s.venueId}: отчёт не дошёл (${sent.description ?? "Telegram"})`);
-    return sent.ok;
-  } catch {
-    console.error(`[payroll-payout-auto] ${s.venueId}: отчёт не отправлен (Telegram не ответил)`);
-    return false;
-  }
-}
-
 async function runPlan(s: VenueHandle, data: Awaited<ReturnType<typeof loadVenuePayoutData>>, plan: PlanRecord, today: string, venueName: string): Promise<AutoPlanResult> {
   const base = { venueId: s.venueId, planId: plan.id };
   const key = dayKey(plan.id, today);
@@ -80,6 +61,7 @@ async function runPlan(s: VenueHandle, data: Awaited<ReturnType<typeof loadVenue
       .eq("account_id", s.accountId).eq("venue_id", s.venueId).maybeSingle()).data?.chat_id ?? null;
     const messageState = await sendIssueMessage(s, existing.data.id, chat).catch(() => "failed" as const);
     if (messageState !== "failed") return { ...base, outcome: "already", messageState, attention: false };
+    await raiseAlert(s, { kind: "message", key: existing.data.id, planId: plan.id, businessDate: today, copyText: existing.data.message, ...messageAlert(today) });
     const text = autoIssuedReportText(today, { messageFailed: true, message: existing.data.message ?? "", notMoved: [], movedSchedule: [] });
     return { ...base, outcome: "already", messageState, attention: true, reportSent: text ? await report(s, text) : false };
   }
@@ -88,6 +70,7 @@ async function runPlan(s: VenueHandle, data: Awaited<ReturnType<typeof loadVenue
   const decision = autoIssueDecision(preview);
   if (decision === "skip") {
     if (!preview.movedSchedule.length) return { ...base, outcome: "skipped", attention: false };
+    await raiseAlert(s, { kind: "failed", key: `moved:${plan.id}:${today}`, planId: plan.id, businessDate: today, ...movedScheduleAlert(today, preview.movedSchedule) });
     const text = autoIssuedReportText(today, { messageFailed: false, message: "", notMoved: [], movedSchedule: preview.movedSchedule });
     return { ...base, outcome: "skipped", attention: true, reportSent: text ? await report(s, text) : false };
   }
@@ -100,6 +83,7 @@ async function runPlan(s: VenueHandle, data: Awaited<ReturnType<typeof loadVenue
       waiting,
       moved_schedule: preview.movedSchedule,
     });
+    await raiseAlert(s, { kind: "failed", key: `${plan.id}:${today}`, planId: plan.id, businessDate: today, ...failedAlert(today, preview.problem ?? "", waiting) });
     const text = [autoReportText(venueName, today, preview.problem ?? "", waiting),
       preview.movedSchedule.length ? `На другом графике выплат, по плану не выдано: ${preview.movedSchedule.join(", ")}.` : null]
       .filter(Boolean).join("\n");
@@ -115,7 +99,14 @@ async function runPlan(s: VenueHandle, data: Awaited<ReturnType<typeof loadVenue
     if (r.error) throw new Error(r.error.message);
     return r.data as string;
   });
-  // Дальше деньги уже записаны: всё, что требует человека, — отчётом, не ошибкой.
+  // Дальше деньги уже записаны: всё, что требует человека, — отчётом и карточкой, не ошибкой.
+  // «Не хватило наличных» заводит сама выдача (executeCashIssue) — и для кнопки, и для автовыдачи.
+  if (result.messageState === "failed") {
+    await raiseAlert(s, { kind: "message", key: result.issueId, planId: plan.id, businessDate: today, copyText: preview.message, ...messageAlert(today) });
+  }
+  if (preview.movedSchedule.length) {
+    await raiseAlert(s, { kind: "failed", key: `moved:${plan.id}:${today}`, planId: plan.id, businessDate: today, ...movedScheduleAlert(today, preview.movedSchedule) });
+  }
   const text = autoIssuedReportText(today, {
     messageFailed: result.messageState === "failed",
     message: preview.message,
@@ -171,6 +162,8 @@ export async function runPayoutAuto(now = new Date()): Promise<AutoPlanResult[]>
     } catch (e) {
       const reason = e instanceof Error ? e.message : "неизвестная ошибка";
       console.error(`[payroll-payout-auto] ${v.venue_id}: ${reason}`);
+      const day = businessDate(now, "Europe/Moscow", 0);
+      await raiseAlert(s, { kind: "failed", key: `venue:${day}`, businessDate: day, ...failedAlert(day, `Автовыдача не запустилась: ${reason}`, []) });
       const sent = await report(s, `Зарплата, ${venueName}: автовыдача по плану не запустилась: ${reason}. Выдайте вручную кнопкой «Выдать сейчас».`);
       results.push({ venueId: v.venue_id, outcome: "error", reason, attention: true, reportSent: sent });
       continue;
@@ -183,6 +176,7 @@ export async function runPayoutAuto(now = new Date()): Promise<AutoPlanResult[]>
         // Сюда попадают только сбои ДО проведения (после него — отчётом в runPlan).
         const reason = e instanceof Error ? e.message : "неизвестная ошибка";
         console.error(`[payroll-payout-auto] ${v.venue_id}/${plan.id}: ${reason}`);
+        await raiseAlert(s, { kind: "failed", key: `${plan.id}:${today}`, planId: plan.id, businessDate: today, ...failedAlert(today, reason, []) });
         const sent = await report(s, `Зарплата, ${venueName}: автовыдача по плану не проведена: ${reason}. Выдайте вручную кнопкой «Выдать сейчас».`);
         results.push({ venueId: v.venue_id, planId: plan.id, outcome: "error", reason, attention: true, reportSent: sent });
       }

@@ -542,6 +542,8 @@ export function SupplyPaymentPanel({
       )}
 
       <ConfirmDialog
+        tone="warning"
+        icon={Unlink}
         open={unlinking}
         onOpenChange={(open) => {
           if (!open && !saving) reset();
@@ -551,7 +553,10 @@ export function SupplyPaymentPanel({
             ? `Убрать связь с расходом №${selection.publicId}?`
             : "Убрать связь с расходом?"
         }
-        description="Сам расход и остаток счёта сохранятся. Изменится только подтверждение оплаты этой накладной"
+        consequences={[
+          { kind: "keep", text: "Сам расход и остаток счёта сохранятся" },
+          { kind: "info", text: "Изменится только подтверждение оплаты этой накладной" },
+        ]}
         confirmLabel="Убрать связь"
         pendingLabel="Убираем…"
         busy={saving}

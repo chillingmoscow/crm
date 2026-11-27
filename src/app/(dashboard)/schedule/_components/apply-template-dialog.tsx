@@ -1,17 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ConfirmDialog, ConsequenceList } from "@/components/shared/confirm-dialog";
 import { shiftTemplateLabel, type Shift, type ShiftTemplate } from "@/lib/schedule/types";
 import { addDays, dateInZone, dayLabel, weekStart } from "@/lib/schedule/utils";
 import { applyTemplateToShifts, countTemplateShifts } from "../actions";
@@ -92,48 +86,57 @@ export function ApplyTemplateDialog({
     }
   };
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && !busy && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Обновить смены по шаблону?</DialogTitle>
-          <DialogDescription>
-            Шаблон «{shiftTemplateLabel(template)}» сохранён. Уже созданные по нему смены
-            пока остались прежними — можно перенести в них новое время, название, цвет и
-            должность.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-3">
-          <Label htmlFor="apply-template-from">Обновить смены с даты</Label>
-          <DatePicker id="apply-template-from" clearable={false} value={from} onChange={(v) => v && setFrom(v)} />
-          <div className="flex flex-wrap gap-1.5">
-            {presets.map((p) => (
-              <Button
-                key={p.label}
-                type="button"
-                size="sm"
-                variant={from === p.value ? "secondary" : "ghost"}
-                className="h-7 px-2 text-xs"
-                onClick={() => setFrom(p.value)}
-              >
-                {p.label}
-              </Button>
-            ))}
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {affected
-              ? `Смен по шаблону с ${dayLabel(from)}: ${affected}${counting ? "…" : ""}. Сотрудники и заметки не изменятся. Зарплата, опоздания и отметки пересчитаются по новому времени. Смены с начатым чек-листом будут пропущены.`
-              : counting ? "Считаем смены…" : `С ${dayLabel(from)} смен по этому шаблону нет.`}
-          </p>
+    <ConfirmDialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+      title="Обновить смены по шаблону?"
+      description={`Шаблон «${shiftTemplateLabel(template)}» сохранён. Созданные по нему смены пока прежние — можно перенести в них новое время, название, цвет и должность.`}
+      icon={RefreshCw}
+      confirmLabel={`Обновить смены · ${affected}`}
+      pendingLabel="Обновление…"
+      cancelLabel="Не обновлять"
+      busy={busy}
+      confirmDisabled={counting || !affected}
+      onConfirm={() => void apply()}
+    >
+      <div className="grid gap-3">
+        <Label htmlFor="apply-template-from">Обновить смены с даты</Label>
+        <DatePicker id="apply-template-from" clearable={false} value={from} onChange={(v) => v && setFrom(v)} />
+        <div className="flex flex-wrap gap-1.5">
+          {presets.map((p) => (
+            <Button
+              key={p.label}
+              type="button"
+              size="sm"
+              variant={from === p.value ? "secondary" : "ghost"}
+              className="h-7 px-2 text-xs"
+              onClick={() => setFrom(p.value)}
+            >
+              {p.label}
+            </Button>
+          ))}
         </div>
-        <DialogFooter>
-          <Button variant="outline" disabled={busy} onClick={onClose}>
-            Не обновлять
-          </Button>
-          <Button disabled={busy || counting || !affected} onClick={apply}>
-            {busy ? "Обновление…" : `Обновить смены · ${affected}`}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        {affected ? (
+          <ConsequenceList
+            items={[
+              {
+                kind: "info",
+                text: `Смен по шаблону с ${dayLabel(from)}${counting ? "…" : ""}`,
+                count: affected,
+              },
+              { kind: "keep", text: "Сотрудники и заметки не изменятся" },
+              { kind: "info", text: "Зарплата, опоздания и отметки пересчитаются по новому времени" },
+              { kind: "info", text: "Смены с начатым чек-листом будут пропущены" },
+            ]}
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {counting ? "Считаем смены…" : `С ${dayLabel(from)} смен по этому шаблону нет.`}
+          </p>
+        )}
+      </div>
+    </ConfirmDialog>
   );
 }

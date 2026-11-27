@@ -980,18 +980,20 @@ export function StoresClient({
       />
 
       <ConfirmDialog
+        tone="warning"
+        icon={Archive}
         open={Boolean(archiveTarget)}
         onOpenChange={(open) => {
           if (!open && !archiveBusy) setArchiveTarget(null);
         }}
         title={archiveTarget ? `Отправить склад «${archiveTarget.title}» в архив?` : "Отправить склад в архив?"}
-        description={
-          <>
-            Склад пропадёт из списка складов. Это не удаление: акты, итоги и расчёт недостачи по нему не
-            изменятся, синхронизация с Quick Resto его не вернёт. Найти склад можно по кнопке «Архив» в ряду
-            инструментов.
-          </>
-        }
+        description="Это не удаление."
+        consequences={[
+          { kind: "archive", text: "Склад пропадёт из списка складов" },
+          { kind: "keep", text: "Акты, итоги и расчёт недостачи по нему не изменятся" },
+          { kind: "keep", text: "Синхронизация с Quick Resto его не вернёт" },
+          { kind: "info", text: "Найти склад можно по кнопке «Архив» в ряду инструментов" },
+        ]}
         confirmLabel="В архив"
         pendingLabel="Отправляем…"
         busy={archiveBusy}

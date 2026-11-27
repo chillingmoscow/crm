@@ -27,7 +27,6 @@ import {
   DialogClose,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
@@ -676,7 +675,7 @@ function VersionPreviewDialog({
             <p className="text-sm text-muted-foreground">
               Восстановление создаст новую текущую версию страницы
             </p>
-            <DialogFooter className="gap-2 p-0">
+            <div className="flex items-center gap-2">
               <DialogClose asChild>
                 <Button variant="outline">Закрыть</Button>
               </DialogClose>
@@ -690,7 +689,7 @@ function VersionPreviewDialog({
                   Восстановить эту версию
                 </Button>
               )}
-            </DialogFooter>
+            </div>
           </div>
         </div>
       </DialogContent>

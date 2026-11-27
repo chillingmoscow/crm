@@ -10,7 +10,7 @@ import {
 } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Camera, Check as CheckIcon, ListChecks, Loader2, Scale, Send, Trash2, X } from "lucide-react";
+import { Camera, Check as CheckIcon, ListChecks, Loader2, Scale, Send, Trash2, Undo2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fileLabelFocusClass } from "@/components/ui/field-styles";
 import { Input } from "@/components/ui/input";
@@ -380,6 +380,8 @@ export function TaskScreen({
       )}
       {/* Тот же текст, что у общего useLeaveGuard: один вопрос на весь продукт. */}
       <ConfirmDialog
+        icon={Undo2}
+        cancelLabel="Продолжить редактирование"
         open={confirmExit}
         onOpenChange={setConfirmExit}
         title="Не сохранять изменения?"

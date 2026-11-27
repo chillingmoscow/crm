@@ -153,7 +153,7 @@ export function CommandPaletteProvider({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent
         // Палитра — у верхней трети экрана, как поиск базы знаний.
-        className="top-[12vh] w-[calc(100%-24px)] max-w-[640px] translate-y-0 gap-0 overflow-hidden rounded-xl p-0 sm:top-[14vh]"
+        className="top-[12vh] w-[calc(100%-24px)] max-w-[640px] translate-y-0 gap-0 overflow-hidden rounded-xl p-0 shadow-lg sm:top-[14vh]"
         aria-describedby={undefined}
         data-command-palette=""
         hideClose

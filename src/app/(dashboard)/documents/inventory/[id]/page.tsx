@@ -10,7 +10,11 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import { chunk } from "@/lib/supabase/fetch-all";
 import { mediaUrl } from "@/lib/storage/media";
 import { canFillInventoryAct } from "@/lib/inventory/act-status";
-import { isActCreationActive, type ActCreationJobState } from "@/lib/inventory/act-creation-job";
+import {
+  actCreationProgressText,
+  isActCreationActive,
+  type ActCreationJobState,
+} from "@/lib/inventory/act-creation-job";
 import { getCachedInventoryDocumentBasics, getCachedStoreTitle } from "./layout";
 import { InventoryDocumentEditor } from "./_components/document-editor";
 
@@ -169,7 +173,7 @@ export default async function InventoryDocumentPage({
     .eq("document_id", document.id)
     .maybeSingle();
   const creation = isActCreationActive(creationJob) && creationJob
-    ? { done: creationJob.done, total: creationJob.total }
+    ? { progress: actCreationProgressText({ ...creationJob, error: null }) }
     : null;
 
   const [{ data: store }, { data: itemsRaw }, { data: groupsRaw }] = await Promise.all([

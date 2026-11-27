@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   ACT_CREATION_MAX_ATTEMPTS,
   actCreationLabel,
+  actCreationProgressText,
   actCreationRetryDelayMs,
   isActCreationActive,
   isActCreationStuck,
@@ -30,10 +31,20 @@ test("actCreationRetryDelayMs: растёт и упирается в 10 мину
   assert.equal(actCreationRetryDelayMs(20), 600_000);
 });
 
-test("actCreationLabel", () => {
-  assert.equal(actCreationLabel({ state: "working", done: 55, total: 313, attempts: 1, error: null }), "Создаётся · 55 из 313");
+test("actCreationLabel: в колонке — только короткий статус", () => {
+  assert.equal(actCreationLabel({ state: "working", attempts: 1 }), "Создаётся");
+  assert.equal(actCreationLabel({ state: "error", attempts: 2 }), "Создаётся");
+  assert.equal(actCreationLabel({ state: "error", attempts: ACT_CREATION_MAX_ATTEMPTS }), "Не все позиции");
+});
+
+test("actCreationProgressText: ход и оставшееся время — в подсказке", () => {
+  const plain = (text: string) => text.replace(/\u00a0/g, " ");
   assert.equal(
-    actCreationLabel({ state: "error", done: 120, total: 313, attempts: ACT_CREATION_MAX_ATTEMPTS, error: "x" }),
-    "Не все позиции · 120 из 313",
+    plain(actCreationProgressText({ state: "working", done: 55, total: 313, attempts: 1, error: null })),
+    "Добавлено 55 из 313 · осталось около 1 мин 30 с",
+  );
+  assert.equal(
+    actCreationProgressText({ state: "error", done: 120, total: 313, attempts: ACT_CREATION_MAX_ATTEMPTS, error: "x" }),
+    "Добавлено 120 из 313",
   );
 });

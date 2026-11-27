@@ -3,6 +3,8 @@
 //
 // Pure-модуль без импортов из `@/...`: его читает node:test напрямую.
 
+import { CREATE_ACT_SECONDS_PER_ITEM, formatDurationRu } from "./act-create-progress.ts";
+
 export type ActCreationJobState = "pending" | "working" | "error" | "complete";
 
 /** Столько попыток делает обработчик, дальше задание ждёт «Повторить». */
@@ -44,8 +46,18 @@ export function actCreationRetryDelayMs(attempts: number): number {
 
 export const ACT_CREATING_LOCK_REASON = "Акт ещё создаётся — дождитесь, пока все позиции добавятся в Quick Resto";
 
-/** Подпись хода в списке актов: «Создаётся · 55 из 313». */
-export function actCreationLabel(job: ActCreationJobStatus): string {
-  if (isActCreationStuck(job)) return `Не все позиции · ${job.done} из ${job.total}`;
-  return `Создаётся · ${job.done} из ${job.total}`;
+/**
+ * Короткий статус для колонки: «Создаётся» или «Не все позиции». Колонка
+ * узкая, ход — в подсказке (`actCreationProgressText`).
+ */
+export function actCreationLabel(job: Pick<ActCreationJobStatus, "state" | "attempts">): string {
+  return isActCreationStuck(job) ? "Не все позиции" : "Создаётся";
+}
+
+/** Ход для подсказки и карточки акта: «Добавлено 55 из 313 · осталось около 1 мин 30 с». */
+export function actCreationProgressText(job: ActCreationJobStatus): string {
+  const added = `Добавлено ${job.done} из ${job.total}`;
+  if (isActCreationStuck(job)) return added;
+  const remaining = Math.max(0, job.total - job.done) * CREATE_ACT_SECONDS_PER_ITEM + 3;
+  return `${added} · осталось около ${formatDurationRu(remaining)}`;
 }

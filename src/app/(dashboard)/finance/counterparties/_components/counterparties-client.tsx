@@ -621,6 +621,7 @@ export function CounterpartiesClient({
     ) : (
       <EmptyState
         icon={Users}
+        illustration="empty"
         title="Контрагентов пока нет"
         description={
           archivedRows.length > 0

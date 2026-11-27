@@ -32,7 +32,7 @@ export const HOTKEY_GROUPS: HotkeyGroup[] = [
     section: "global",
     entries: [
       { keys: ["Shift", "?"], description: "Открыть справку по горячим клавишам" },
-      { keys: ["Mod", "K"], description: "Поиск по Базе знаний" },
+      { keys: ["Mod", "K"], description: "Поиск и команды: разделы, люди, акты, операции" },
       { keys: ["Mod", "B"], description: "Свернуть / развернуть боковое меню" },
     ],
   },

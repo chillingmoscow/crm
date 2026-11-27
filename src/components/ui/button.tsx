@@ -3,6 +3,7 @@ import { Slot } from "@radix-ui/react-slot"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
+import { ButtonStatusContent, type ButtonStatus } from "@/components/ui/button-status"
 
 const buttonVariants = cva(
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
@@ -13,8 +14,9 @@ const buttonVariants = cva(
         // For non-CTA "neutral primary" actions, use `secondary` or `outline`.
         // Неактивная заливная кнопка серая, а не выцветшая синяя/красная:
         // так видно, что действие недоступно, а не «почти доступно».
-        default: "bg-brand text-brand-foreground hover:bg-brand-hover disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100",
-        brand: "bg-brand text-brand-foreground hover:bg-brand-hover disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100",
+        // Пока идёт действие (status), кнопка неактивна, но остаётся синей.
+        default: "bg-brand text-brand-foreground hover:bg-brand-hover disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 data-[status]:disabled:bg-brand data-[status]:disabled:text-brand-foreground",
+        brand: "bg-brand text-brand-foreground hover:bg-brand-hover disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 data-[status]:disabled:bg-brand data-[status]:disabled:text-brand-foreground",
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100",
         outline:
@@ -42,17 +44,34 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean
+  /**
+   * Состояние действия: «pending» — вместо подписи индикатор загрузки
+   * (кнопка неактивна, ширина не меняется); «success» — индикатор
+   * превращается в галочку, через мгновение возвращается подпись. Берётся
+   * из `useSaveStatus`. С `asChild` не работает.
+   */
+  status?: ButtonStatus
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  ({ className, variant, size, asChild = false, status, children, disabled, ...props }, ref) => {
     const Comp = asChild ? Slot : "button"
+    const busy = status === "pending" || status === "success"
     return (
       <Comp
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
+        disabled={disabled || (!asChild && busy) || undefined}
+        aria-busy={status === "pending" || undefined}
+        data-status={status && status !== "idle" ? status : undefined}
         {...props}
-      />
+      >
+        {asChild || status === undefined ? (
+          children
+        ) : (
+          <ButtonStatusContent status={status}>{children}</ButtonStatusContent>
+        )}
+      </Comp>
     )
   }
 )

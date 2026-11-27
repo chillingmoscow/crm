@@ -707,6 +707,7 @@ export function AccountsList({
         ) : (
           <EmptyState
             icon={Wallet}
+            illustration="empty"
             title="Счетов пока нет"
             description={
               archivedRows.length > 0

@@ -26,6 +26,7 @@ export default function LegalEntityCardError({
     <ProfilePageFrame>
       <EmptyState
         icon={FileBadge2}
+        illustration="error"
         title="Не удалось открыть юрлицо"
         description="Повторите попытку. Если ошибка не пропадает, вернитесь к списку и откройте карточку снова"
         action={(

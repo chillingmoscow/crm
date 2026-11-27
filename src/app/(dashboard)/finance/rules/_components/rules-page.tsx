@@ -130,6 +130,7 @@ export function RulesPage({
     body = (
       <EmptyState
         icon={Wand2}
+        illustration="empty"
         title="Правил пока нет"
         description="Правило само заполнит статью, контрагента или заведение, когда вы вводите операцию"
         action={

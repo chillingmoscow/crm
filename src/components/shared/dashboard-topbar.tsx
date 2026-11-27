@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { NotificationBell } from "@/components/shared/notification-bell";
+import { CommandPaletteTrigger } from "@/components/shared/command-palette-trigger";
 import { PageHelpButton } from "@/app/(dashboard)/_components/page-help-button";
 import {
   PageHeaderActionsSlot,
@@ -26,6 +27,7 @@ export function DashboardTopbar() {
       <SidebarTrigger className="md:hidden" />
       <PageHeaderBreadcrumbSlot />
       <div className="flex-1" />
+      <CommandPaletteTrigger />
       <PageHeaderActionsSlot />
       <PageHelpButton />
       <NotificationBell />

@@ -377,6 +377,7 @@ export function LegalEntitiesClient({
       {rows.length === 0 ? (
         <EmptyState
           icon={FileBadge2}
+          illustration="empty"
           title="Юрлиц пока нет"
           description={
             canManage

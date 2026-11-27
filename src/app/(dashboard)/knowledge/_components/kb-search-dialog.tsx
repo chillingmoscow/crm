@@ -10,7 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Loader2, Search, Sparkles, ArrowLeft } from "lucide-react";
 
 import { Command as CommandPrimitive } from "cmdk";
@@ -76,8 +76,13 @@ export function KbSearchProvider({ children, aiAskEnabled = false }: KbSearchPro
   const open = useCallback(() => setOpen(true), []);
   const close = useCallback(() => setOpen(false), []);
 
-  // Global Cmd+K / Ctrl+K toggle.
+  // Cmd+K / Ctrl+K — в базе знаний. В остальных разделах то же сочетание
+  // открывает общую палитру (components/shared/command-palette.tsx), а
+  // этот поиск — её действием «Поиск по базе знаний».
+  const pathname = usePathname() ?? "";
+  const onKnowledge = pathname === "/knowledge" || pathname.startsWith("/knowledge/");
   useEffect(() => {
+    if (!onKnowledge) return;
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -86,7 +91,7 @@ export function KbSearchProvider({ children, aiAskEnabled = false }: KbSearchPro
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [onKnowledge]);
 
   const value = useMemo<SearchCtx>(
     () => ({ open, close, isOpen }),

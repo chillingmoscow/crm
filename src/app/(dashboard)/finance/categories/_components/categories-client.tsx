@@ -611,6 +611,7 @@ export function CategoriesClient({
     body = (
       <EmptyState
         icon={Tags}
+        illustration="empty"
         title="Статей пока нет"
         description={
           canManage

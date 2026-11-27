@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { CircleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { countRu } from "@/lib/format/plural";
 import { cn } from "@/lib/utils";
 import { loadAttendanceAttention } from "../actions";
 import { unwrapAction } from "@/lib/actions/result";
+import { attentionKey, serverDataFresh, type AttentionSnapshot } from "@/lib/payroll/attention-snapshot";
 
 const monthName = (month: string) =>
   new Date(`${month}-15T12:00:00Z`).toLocaleDateString("ru-RU", { month: "long", timeZone: "UTC" });
@@ -17,33 +18,45 @@ const monthName = (month: string) =>
  * «Зарплатой». Считает то же, что список «На проверке» в «Сверке отметок»,
  * и ведёт туда. Пересчитывается при смене месяцев, по `refreshKey` (решение
  * по смене) и раз в минуту, пока вкладка открыта. Нет выходов — нет блока.
+ *
+ * `initial` — счётчики, посчитанные сервером при отрисовке страницы: с ними
+ * уведомление есть в первой же разметке и не сдвигает страницу, появляясь
+ * после загрузки скриптов.
  */
 export function AttendanceAttentionNotice({
   months,
   refreshKey = 0,
+  initial,
   className,
 }: {
   months: string[];
   refreshKey?: number;
+  initial?: AttentionSnapshot;
   className?: string;
 }) {
-  const key = [...new Set(months)].sort().join(",");
-  const [state, setState] = useState<{ key: string; items: { month: string; count: number }[] } | null>(null);
+  const key = attentionKey(months);
+  const [state, setState] = useState<AttentionSnapshot | null>(initial ?? null);
+  // Свежие серверные счётчики — первое чтение пропускаем (и при повторном
+  // запуске эффекта), дальше по таймеру, при смене месяцев или решении.
+  // Старые (возврат «Назад», повторное монтирование) — перечитываем сразу.
+  const serverKey = useRef(initial?.key ?? null);
   useEffect(() => {
     if (!key) return;
     let active = true;
+    const skipFirst = serverKey.current === key && refreshKey === 0 && serverDataFresh(initial?.at);
     const load = () => {
+      serverKey.current = null;
       void loadAttendanceAttention(key.split(","))
         .then(unwrapAction)
         .then((items) => {
-          if (active) setState({ key, items });
+          if (active) setState({ key, items, at: Date.now() });
         })
         .catch(() => {
           // Уведомление вспомогательное: при сбое просто не показываем его.
           if (active) setState(null);
         });
     };
-    load();
+    if (!skipFirst) load();
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") load();
     }, 60000);
@@ -51,7 +64,7 @@ export function AttendanceAttentionNotice({
       active = false;
       clearInterval(timer);
     };
-  }, [key, refreshKey]);
+  }, [key, refreshKey, initial?.at]);
 
   const items = state?.key === key ? state.items.filter((item) => item.count > 0) : [];
   if (!items.length) return null;

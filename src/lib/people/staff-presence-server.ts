@@ -12,8 +12,9 @@ import {
 /**
  * Кто сейчас на смене в заведении — для точки на аватаре в «Сотрудниках» и
  * в карточке. Источник — опубликованный график (его видит любой сотрудник
- * заведения, `schedule_team_shifts`) и отметки прихода из кассы. Сами
- * отметки наружу не уходят: только «на смене / нет». Читаем service-role,
+ * заведения, `schedule_team_shifts`) и открытые отметки прихода из кассы
+ * (правило — `onShiftNow`). Сами отметки наружу не уходят: только «на смене
+ * / нет». Читаем service-role,
  * потому что страница уже закрыта правом `people.view_staff`.
  *
  * `userIds` — сотрудники Sheerly, `employeeIds` — зарплатные карточки
@@ -40,13 +41,14 @@ export async function loadOnShift(
     if (onlyUserId) shiftsQuery = shiftsQuery.eq("user_id", onlyUserId);
     type Employee = { id: string; local_user_id: string | null };
     type ClockRow = { employee_id: string | null; starts_at: string; ends_at: string | null };
-    // Отметки за последние 16 часов: открытые и закрытые (ушёл раньше).
+    // Открытые отметки за последние 16 часов: закрытые со смены не снимают.
     const clockQuery = () =>
       admin
         .from<ClockRow[]>("payroll_attendance")
         .select("employee_id, starts_at, ends_at")
         .eq("venue_id", venueId)
         .gte("starts_at", since)
+        .is("ends_at", null)
         .neq("status", "ignored");
     const employeesByIds = async (ids: string[]) =>
       (
@@ -80,7 +82,7 @@ export async function loadOnShift(
         ? await fetchAllRows(() => clockQuery().in("employee_id", ids))
         : [];
     } else {
-      // Всё заведение: сначала отметки за 16 часов, потом только те
+      // Всё заведение: сначала открытые отметки за 16 часов, потом только те
       // зарплатные карточки, что в них встречаются.
       clockRows = await fetchAllRows(clockQuery);
       employees = await employeesByIds([

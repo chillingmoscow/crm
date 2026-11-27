@@ -26,10 +26,14 @@ export const OPEN_CLOCK_MAX_HOURS = 16;
 const HOUR = 3_600_000;
 
 /**
- * Кто на смене в момент `now`. Отметка — факт: открытая отметка прихода
- * (не старше `OPEN_CLOCK_MAX_HOURS`) значит «на смене». Опубликованная смена,
- * которая идёт сейчас, — тоже, если человек с неё уже не ушёл (закрытая
- * отметка после начала смены).
+ * Кто на смене в момент `now` — то же, что «идёт сейчас» в «Расписании»:
+ * опубликованная смена, которая уже началась и ещё не закончилась. Плюс
+ * открытая отметка прихода (не старше `OPEN_CLOCK_MAX_HOURS`) — человек
+ * работает и без смены в графике.
+ *
+ * Закрытая отметка со смены не снимает. В кассе часто отмечаются приходом и
+ * сразу уходом (через секунды): отметка лишь подтверждает выход, а время
+ * смены задаёт график — так же их понимает и зарплата.
  */
 export function onShiftNow(
   now: number,
@@ -42,14 +46,6 @@ export function onShiftNow(
     if (userId) users.add(userId);
     if (employeeId) employees.add(employeeId);
   };
-  const samePerson = (
-    clock: PresenceClock,
-    userId: string | null,
-    employeeId: string | null,
-  ) =>
-    (!!userId && clock.user_id === userId) ||
-    (!!employeeId && clock.employee_id === employeeId);
-
   for (const clock of clocks) {
     const start = Date.parse(clock.starts_at);
     if (clock.ends_at !== null || start > now) continue;
@@ -57,24 +53,8 @@ export function onShiftNow(
     mark(clock.user_id, clock.employee_id);
   }
   for (const shift of shifts) {
-    const start = Date.parse(shift.starts_at);
-    const end = Date.parse(shift.ends_at);
-    if (start > now || end <= now) continue;
-    const left = clocks.some(
-      (clock) =>
-        clock.ends_at !== null &&
-        samePerson(clock, shift.user_id, shift.payroll_employee_id) &&
-        Date.parse(clock.ends_at) > start &&
-        Date.parse(clock.ends_at) <= now &&
-        // Ушёл и вернулся — открытая отметка уже отметила его выше.
-        !clocks.some(
-          (open) =>
-            open.ends_at === null &&
-            samePerson(open, shift.user_id, shift.payroll_employee_id) &&
-            Date.parse(open.starts_at) >= Date.parse(clock.ends_at!),
-        ),
-    );
-    if (!left) mark(shift.user_id, shift.payroll_employee_id);
+    if (Date.parse(shift.starts_at) > now || Date.parse(shift.ends_at) <= now) continue;
+    mark(shift.user_id, shift.payroll_employee_id);
   }
   return { userIds: [...users], employeeIds: [...employees] };
 }

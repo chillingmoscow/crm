@@ -2,6 +2,7 @@
 
 import { useExitValue } from "@/hooks/use-exit-value";
 import { AttendanceAttentionNotice } from "./attendance-attention";
+import type { AttentionSnapshot } from "@/lib/payroll/attention-snapshot";
 import {
   useCallback,
   useEffect,
@@ -138,11 +139,14 @@ export function PayrollWorkspace({
   initialMonth,
   venueName = null,
   initialOverviewOpen,
+  initialAttention,
 }: {
   data: PayrollData;
   initialMonth: string;
   /** Выбор «Обзора» из cookie — сервер рисует его сразу в нужном состоянии. */
   initialOverviewOpen?: boolean;
+  /** «Ждут проверки» за месяц — сервером, чтобы уведомление не сдвигало страницу. */
+  initialAttention?: AttentionSnapshot;
   /** Для шапки выгрузки ведомости. */
   venueName?: string | null;
 }) {
@@ -721,7 +725,7 @@ export function PayrollWorkspace({
               <RefreshFailedNotice className="mb-4" {...autoRefresh} />
             )}
             {can("view") && (
-              <AttendanceAttentionNotice className="mb-4" months={[monthStart.slice(0, 7)]} />
+              <AttendanceAttentionNotice className="mb-4" months={[monthStart.slice(0, 7)]} initial={initialAttention} />
             )}
             {/* Итоги вкладки мягко всплывают и досчитываются заново при её смене. */}
             <div key={tab} className="motion-rise">

@@ -25,13 +25,16 @@ import {
   MoreHorizontal,
   Plus,
   Quote,
+  Redo2,
   Sparkles,
   Strikethrough,
   Trash2,
   Type,
   Underline,
+  Undo2,
   type LucideIcon,
 } from "lucide-react";
+import { redoDepth, undoDepth } from "prosemirror-history";
 
 import { runKbAiCommand, type KbAiCommand } from "@/lib/knowledge/ai-commands";
 import {
@@ -199,6 +202,13 @@ export function KbMobileToolbar({
   onComment?: () => void;
 }) {
   const activeStyles = useActiveStyles(editor) as ActiveStyles;
+  // Перерисовка на каждую правку — чтобы «Отменить»/«Вернуть» включались
+  // сразу после ввода, а не после следующего сдвига курсора.
+  const [, setHistoryTick] = useState(0);
+  useEffect(
+    () => editor.onChange(() => setHistoryTick((t) => t + 1)),
+    [editor],
+  );
   const activeTextColor = activeStyles.textColor ?? "default";
   const activeBgColor = activeStyles.backgroundColor ?? "default";
 
@@ -763,6 +773,26 @@ export function KbMobileToolbar({
       </button>
 
       <div className="kb-mobile-toolbar-marks">
+        {/* На телефоне нет ⌘Z — отмена и повтор только здесь. */}
+        <button
+          type="button"
+          className="kb-mobile-toolbar-btn"
+          aria-label="Отменить"
+          disabled={undoDepth(editor._tiptapEditor.state) === 0}
+          onClick={() => editor.undo()}
+        >
+          <Undo2 className="size-[18px]" />
+        </button>
+        <button
+          type="button"
+          className="kb-mobile-toolbar-btn"
+          aria-label="Вернуть"
+          disabled={redoDepth(editor._tiptapEditor.state) === 0}
+          onClick={() => editor.redo()}
+        >
+          <Redo2 className="size-[18px]" />
+        </button>
+
         {MARKS.map((mark) => {
           const Icon = mark.icon;
           return (

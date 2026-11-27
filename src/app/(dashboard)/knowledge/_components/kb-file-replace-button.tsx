@@ -62,7 +62,7 @@ export function KbFileReplaceButton() {
         <Components.FormattingToolbar.Button
           mainTooltip="Заменить"
           label="Заменить"
-          icon={<RefreshCw className="size-4" strokeWidth={1.75} />}
+          icon={<RefreshCw className="size-4" />}
           onClick={() => setOpen((v) => !v)}
         />
       </PopoverTrigger>

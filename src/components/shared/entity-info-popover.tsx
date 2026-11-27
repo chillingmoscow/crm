@@ -21,6 +21,7 @@
  * - relativeUpdatedAt — «Изменена» как «5 мин назад» вместо даты
  */
 
+import type { ReactNode } from "react";
 import { Info } from "lucide-react";
 import {
   Popover,
@@ -65,6 +66,9 @@ interface EntityInfoPopoverProps {
   extraRows?: { label: string; value: string | null }[];
   /** Когда true — «Изменена» отображается относительно («5 мин назад»). */
   relativeUpdatedAt?: boolean;
+  /** Под таблицей, через линию: ссылка на связанный экран
+   *  (база знаний — «Статистика страницы»). */
+  footer?: ReactNode;
 }
 
 function formatDate(iso: string | null, withTime: boolean): string {
@@ -146,6 +150,7 @@ export function EntityInfoPopover({
   showTime = false,
   relativeUpdatedAt = false,
   extraRows = [],
+  footer,
 }: EntityInfoPopoverProps) {
   const candidates: (Omit<Row, "value"> & { value: string | null })[] = [
     { label: "ID", value: id.slice(0, 8) },
@@ -224,6 +229,12 @@ export function EntityInfoPopover({
             </div>
           ))}
         </dl>
+        {footer && (
+          <>
+            <div className="h-px bg-border -mx-5 mt-3.5 mb-3" />
+            {footer}
+          </>
+        )}
       </PopoverContent>
     </Popover>
   );

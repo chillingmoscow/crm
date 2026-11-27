@@ -133,10 +133,10 @@ export function PageCommentComposer({
         <img
           src={avatarImageUrl(currentUserAvatarUrl, 96)}
           alt=""
-          className="size-6 rounded-full object-cover bg-muted shrink-0"
+          className="size-7 rounded-full object-cover bg-muted shrink-0"
         />
       ) : (
-        <span className="size-6 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-[11px] font-semibold shrink-0">
+        <span className="size-7 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-xs font-semibold shrink-0">
           {initials}
         </span>
       )}
@@ -151,7 +151,7 @@ export function PageCommentComposer({
           disabled={submitting}
           className={cn(
             "flex-1 min-w-0 resize-none bg-transparent outline-none",
-            "text-[13px] text-foreground placeholder:text-muted-foreground/70",
+            "text-base sm:text-sm text-foreground placeholder:text-muted-foreground",
             "leading-snug py-1",
             "max-h-40 overflow-y-auto",
           )}

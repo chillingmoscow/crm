@@ -88,8 +88,10 @@ export function KbDeletedPageBanner({
   };
 
   return (
-    <div className="w-full border-b border-destructive/30 bg-destructive/5 px-6 py-3 md:px-8">
-      <div className="mx-auto flex w-full max-w-[1100px] flex-wrap items-center justify-center gap-x-5 gap-y-2">
+    // Плашка в колонке документа, в рецепте встроенного предупреждения DS
+    // с тоном destructive (docs/design-system.md → «Состояния»).
+    <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3">
+      <div className="flex w-full flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <div className="flex min-w-0 items-center gap-2.5">
           <Trash2 className="size-4 shrink-0 text-destructive" />
           <div className="min-w-0">

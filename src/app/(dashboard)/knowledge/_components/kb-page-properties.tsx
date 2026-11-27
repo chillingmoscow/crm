@@ -938,7 +938,7 @@ export function KbPageProperties({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-[220px]">
-                <div className="px-2 py-1.5 text-[12px] font-medium text-muted-foreground/70">
+                <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
                   Добавить свойство
                 </div>
                 <DropdownMenuSeparator />
@@ -990,19 +990,19 @@ function PropertyGroupHeader({
   return (
     <div
       className={cn(
-        "flex min-h-6 items-center gap-2 px-1.5 text-[12px] text-muted-foreground",
+        "flex min-h-6 items-center gap-2 px-1.5 text-xs text-muted-foreground",
         className,
       )}
     >
       <Icon className="size-3.5 shrink-0 text-muted-foreground/70" />
       <span className="font-medium leading-none">{label}</span>
       {meta && (
-        <span className="min-w-0 truncate rounded-full bg-muted/55 px-1.5 py-0.5 text-[11px] leading-none text-muted-foreground/75">
+        <span className="min-w-0 truncate rounded-full bg-muted/55 px-1.5 py-0.5 text-xs leading-none text-muted-foreground">
           {meta}
         </span>
       )}
       {typeof count === "number" && (
-        <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10px] font-medium leading-none text-muted-foreground/70">
+        <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-xs font-medium leading-none text-muted-foreground tabular-nums">
           {count}
         </span>
       )}

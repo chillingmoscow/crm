@@ -328,7 +328,7 @@ export function PropertyEditorPopover({
                 "absolute right-1 top-1/2 size-6 -translate-y-1/2 inline-flex items-center justify-center rounded-full transition-colors",
                 descOpen
                   ? "bg-foreground/10 text-foreground"
-                  : "text-muted-foreground/60 hover:bg-foreground/[0.06] hover:text-foreground",
+                  : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground",
               )}
             >
               <KB_PROPERTY_UI_ICONS.description className="size-3.5" />
@@ -680,7 +680,7 @@ export { PropertyEditorPopover as OptionEditorPopover };
 // ── Section label (без uppercase — sentence-case, по просьбе юзера) ──────────
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="pb-1.5 text-[12px] font-semibold text-muted-foreground/70">
+    <div className="pb-1.5 text-xs font-medium text-muted-foreground">
       {children}
     </div>
   );
@@ -895,7 +895,7 @@ function ViewCards({
             </span>
             <span
               className={cn(
-                "text-[11px] leading-none",
+                "text-xs leading-none",
                 isCurrent
                   ? "font-medium text-brand"
                   : "text-muted-foreground",

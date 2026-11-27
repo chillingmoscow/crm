@@ -189,7 +189,7 @@ export function KbFileCaptionButton() {
         <Components.FormattingToolbar.Button
           mainTooltip={captionLabel}
           label={captionLabel}
-          icon={<Pencil className="size-4" strokeWidth={1.75} />}
+          icon={<Pencil className="size-4" />}
           onClick={() => setOpen((v) => !v)}
         />
       }
@@ -241,7 +241,7 @@ export function KbFileRenameButton() {
         <Components.FormattingToolbar.Button
           mainTooltip="Переименовать"
           label="Переименовать"
-          icon={<ClipboardType className="size-4" strokeWidth={1.75} />}
+          icon={<ClipboardType className="size-4" />}
           onClick={() => setOpen((v) => !v)}
         />
       }
@@ -263,7 +263,7 @@ export function KbFileDeleteButton() {
     <Components.FormattingToolbar.Button
       mainTooltip="Удалить"
       label="Удалить"
-      icon={<Trash2 className="size-4" strokeWidth={1.75} />}
+      icon={<Trash2 className="size-4" />}
       onClick={() => {
         editor.focus();
         editor.removeBlocks([block.id]);
@@ -312,9 +312,9 @@ export function KbFileDownloadButton() {
       : "Скачать";
   const icon =
     isImage || external ? (
-      <ExternalLink className="size-4" strokeWidth={1.75} />
+      <ExternalLink className="size-4" />
     ) : (
-      <Download className="size-4" strokeWidth={1.75} />
+      <Download className="size-4" />
     );
 
   const handleClick = () => {

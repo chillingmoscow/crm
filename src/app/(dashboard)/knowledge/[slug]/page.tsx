@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { FileX, ShieldAlert } from "lucide-react";
@@ -15,6 +16,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { getKbTreeRows } from "@/lib/knowledge/tree";
 import { kbCrumbs } from "@/lib/knowledge/shell";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { PageFrame } from "@/components/shared/page-frame";
 import { PageHeaderActions } from "@/components/shared/page-header-actions";
 import { KbDeletedPageBanner } from "@/app/(dashboard)/knowledge/_components/kb-deleted-page-banner";
 import { KbPageEditor } from "@/app/(dashboard)/knowledge/_components/kb-page-editor";
@@ -22,8 +24,13 @@ import { KbBacklinks } from "@/app/(dashboard)/knowledge/_components/kb-backlink
 import { KbChildrenList } from "@/app/(dashboard)/knowledge/_components/kb-children-list";
 import { KbRequiredReadingBanner } from "@/app/(dashboard)/knowledge/_components/kb-required-reading-banner";
 import { KbPageMenu } from "@/app/(dashboard)/knowledge/_components/kb-page-menu";
+import { KbFavoriteToggle } from "@/app/(dashboard)/knowledge/_components/kb-favorite-toggle";
+import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 import { KbLockHeaderChip } from "@/app/(dashboard)/knowledge/_components/kb-lock-header-chip";
-import { getKbMyActiveSeconds } from "@/lib/knowledge/required-reading";
+import {
+  getKbMyActiveSeconds,
+  getKbRequiredReadingStats,
+} from "@/lib/knowledge/required-reading";
 import { estimateReadingMinutes } from "@/lib/knowledge/reading-time";
 import { kbPropertiesSchema } from "@/lib/knowledge/schemas";
 import type {
@@ -72,13 +79,13 @@ export default async function KbPageView({ params }: PageProps) {
     return (
       <>
         <Breadcrumbs items={kbCrumbs([{ slug: row.slug, title: row.title }])} />
-        <div className="mx-auto w-full max-w-[760px] px-4 py-6 md:px-8">
+        <PageFrame>
           <EmptyState
             icon={FileX}
             title="Материал недоступен"
-            description="При переносе из Notion не удалось получить содержимое этой страницы."
+            description="При переносе из Notion не удалось получить содержимое этой страницы"
           />
-        </div>
+        </PageFrame>
       </>
     );
   }
@@ -178,10 +185,29 @@ export default async function KbPageView({ params }: PageProps) {
   // странице (иначе лишний RPC). Read-gate стартует с этого значения,
   // а не с нуля — повторный заход / обновление страницы не требуют
   // вычитывать порог заново.
-  const accumulatedActiveSeconds =
+  //
+  // Руководителю с правом обязательного чтения — «Прочитали N из M» на
+  // плашке (вместо пункта «Кто прочитал» в меню ⋯). Оба запроса зависят
+  // только от readStatus — идут параллельно.
+  const [accumulatedActiveSeconds, readingStats] = await Promise.all([
     readStatus.required && !readStatus.myReadAt
-      ? await getKbMyActiveSeconds(row.id)
-      : 0;
+      ? getKbMyActiveSeconds(row.id)
+      : Promise.resolve(0),
+    readStatus.required && permissionCodes.includes("kb.manage_required_reading")
+      ? getKbRequiredReadingStats(row.id).then(({ rows, error }) => {
+          if (error) {
+            // Без счётчика плашка остаётся рабочей, ссылка «Кто прочитал»
+            // видна по праву; ошибку оставляем в логе сервера.
+            console.error("[kb] статистика обязательного чтения:", error);
+            return null;
+          }
+          return {
+            read: rows.filter((r) => r.read_at !== null).length,
+            total: rows.length,
+          };
+        })
+      : Promise.resolve(null),
+  ]);
 
   const chain = pageViewData?.breadcrumbs ?? [];
   const backlinkRows = pageViewData?.backlinks ?? [];
@@ -318,21 +344,48 @@ export default async function KbPageView({ params }: PageProps) {
           canEditBase={canEditBase}
           canLock={canLock}
         />
-        {/* Notion-style ⋯-меню: все page-level действия (избранное,
-         *  required-reading, lock, undo/redo, дублировать, экспорт,
-         *  импорт, аналитика, история версий, удалить) свернуты в один
-         *  dropdown. Дизайн: sheerly.pen frame 09 · DOgqX. */}
+        {/* Справа налево: колокольчик, «?», ⋯, ⓘ, ☆, чип блокировки. */}
+        <KbFavoriteToggle pageId={row.id} initialFavorited={favorited} />
+        <EntityInfoPopover
+          title="О странице"
+          id={row.id}
+          createdAt={row.created_at}
+          createdByName={createdByName}
+          createdByAvatarUrl={createdByAvatarUrl}
+          updatedAt={row.updated_at}
+          updatedByName={updatedByName}
+          updatedByAvatarUrl={updatedByEntry?.avatarUrl ?? null}
+          createdLabel="Создана"
+          updatedLabel="Изменена"
+          showTime
+          extraRows={[
+            {
+              label: "Время чтения",
+              value:
+                row.plain_text && row.plain_text.trim().length > 0
+                  ? `≈ ${estimateReadingMinutes(row.plain_text)} мин`
+                  : null,
+            },
+          ]}
+          footer={
+            canViewAnalytics ? (
+              <Link
+                href={`/knowledge/dashboard/${row.slug}`}
+                className="text-[13px] font-medium text-brand hover:underline"
+              >
+                Статистика страницы
+              </Link>
+            ) : undefined
+          }
+        />
         <KbPageMenu
           pageId={row.id}
           pageSlug={row.slug}
           pageTitle={row.title}
           childCount={descendantsCount}
           initialShowChildren={row.show_children !== false}
-          initialFavorited={favorited}
           initialRequiredReading={readStatus.required}
           initialLocked={isLocked}
-          updatedAt={row.updated_at}
-          updatedByName={updatedByName}
           canEditBase={canEditBase}
           canDelete={canDelete}
           canDuplicate={canDuplicate}
@@ -341,40 +394,41 @@ export default async function KbPageView({ params }: PageProps) {
           canManageTemplates={canManageTemplates}
           canManageRequiredReading={canManageRequiredReading}
           canLock={canLock}
-          canViewAnalytics={canViewAnalytics}
           canViewVersionHistory={hasViewVersionHistory}
         />
       </PageHeaderActions>
 
-      {/* Required-reading баннер — edge-to-edge (как плашка корзины в
-          Notion): во всю ширину области, до центрированного тела. */}
-      <KbRequiredReadingBanner
-        pageId={row.id}
-        required={readStatus.required}
-        initialReadAt={readStatus.myReadAt}
-        needsReread={readStatus.needsReread}
-        accumulatedActiveSeconds={accumulatedActiveSeconds}
-        readingMinutes={
-          row.plain_text && row.plain_text.trim().length > 0
-            ? estimateReadingMinutes(row.plain_text)
-            : null
-        }
-      />
-
-      {/* Page body — full-width container; editor itself is centred
-          to ~720px for Notion-like reading width. */}
-      <div className="pl-10 pr-4 md:px-8 pt-6 pb-8 w-full flex flex-col gap-3">
-        <div className="mx-auto w-full max-w-[760px] flex flex-col gap-6">
-          {/*
-            Key by (id, updated_at). Normal auto-save doesn't bump
-            updated_at in the current view (no router.refresh after save),
-            so the cursor survives typing. Version restore DOES call
-            router.refresh, which re-fetches the row with new updated_at →
-            editor remounts with the restored content.
-          */}
+      {/* Тело — общая рамка и колонка 720 (DS → «База знаний» →
+          «Документ»). Ручка блоков стоит слева от колонки, в поле рамки. */}
+      <PageFrame className="flex-1">
+        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6">
           <KbPageEditor
             key={`${row.id}-${row.updated_at ?? row.created_at}`}
             pageId={row.id}
+            afterTitle={
+              <KbRequiredReadingBanner
+                pageId={row.id}
+                pageSlug={row.slug}
+                stats={readingStats}
+                canSeeReaders={hasManageRequiredReading}
+                required={readStatus.required}
+                initialReadAt={readStatus.myReadAt}
+                needsReread={readStatus.needsReread}
+                accumulatedActiveSeconds={accumulatedActiveSeconds}
+                readingMinutes={
+                  row.plain_text && row.plain_text.trim().length > 0
+                    ? estimateReadingMinutes(row.plain_text)
+                    : null
+                }
+              />
+            }
+            afterContent={
+              <KbChildrenList
+                pageId={row.id}
+                allPages={allPages}
+                initialVisible={row.show_children !== false}
+              />
+            }
             initialTitle={row.title}
             initialIcon={row.icon}
             initialIconColor={row.icon_color}
@@ -400,15 +454,9 @@ export default async function KbPageView({ params }: PageProps) {
                 : null
             }
           />
-
-          <KbChildrenList
-            pageId={row.id}
-            allPages={allPages}
-            initialVisible={row.show_children !== false}
-          />
           <KbBacklinks rows={backlinkRows} />
         </div>
-      </div>
+      </PageFrame>
     </div>
   );
 }
@@ -492,19 +540,18 @@ async function DeletedKbPageView({ row }: { row: KbPageRow }) {
         ]}
       />
 
-      {/* Edge-to-edge плашка «в корзине» (как красная плашка Notion) */}
-      <KbDeletedPageBanner
-        pageId={row.id}
-        pageSlug={row.slug}
-        title={row.title}
-        deletedAt={row.deleted_at}
-        deletedByName={deletedByName}
-        descendantsCount={descendantsCount}
-        canManage={canManage}
-      />
-
-      <div className="pl-10 pr-4 md:px-8 pt-6 pb-8 w-full flex flex-col gap-3">
-        <div className="mx-auto w-full max-w-[760px] flex flex-col gap-6">
+      <PageFrame className="flex-1">
+        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6">
+          {/* «В корзине» — плашкой в колонке документа */}
+          <KbDeletedPageBanner
+            pageId={row.id}
+            pageSlug={row.slug}
+            title={row.title}
+            deletedAt={row.deleted_at}
+            deletedByName={deletedByName}
+            descendantsCount={descendantsCount}
+            canManage={canManage}
+          />
           <KbPageEditor
             key={`${row.id}-deleted`}
             pageId={row.id}
@@ -517,7 +564,7 @@ async function DeletedKbPageView({ row }: { row: KbPageRow }) {
             initialLocked={row.locked_at !== null}
           />
         </div>
-      </div>
+      </PageFrame>
     </div>
   );
 }
@@ -539,27 +586,13 @@ function DeletedPageAccessDenied() {
         ]}
       />
 
-      <div className="pl-10 pr-4 md:px-8 pt-6 pb-8 w-full flex flex-col gap-3">
-        <div className="mx-auto w-full max-w-[760px]">
-          <div
-            className="flex items-start gap-3 rounded-lg border border-yellow-200 bg-yellow-50 p-4
-                       dark:border-yellow-900 dark:bg-yellow-950"
-          >
-            <span className="shrink-0 inline-flex items-center justify-center size-8 rounded-full bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300">
-              <ShieldAlert className="size-4" />
-            </span>
-            <div className="flex-1 flex flex-col gap-1 min-w-0">
-              <div className="text-sm font-semibold text-yellow-900 dark:text-yellow-100">
-                Недостаточно прав
-              </div>
-              <div className="text-[13px] leading-snug text-yellow-800 dark:text-yellow-200">
-                Эта страница перемещена в корзину. У вас недостаточно
-                прав для её просмотра — обратитесь к администратору.
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <PageFrame>
+        <EmptyState
+          icon={ShieldAlert}
+          title="Страница в корзине"
+          description="Чтобы открыть её, нужно право удалять страницы. Попросите доступ у руководителя"
+        />
+      </PageFrame>
     </div>
   );
 }

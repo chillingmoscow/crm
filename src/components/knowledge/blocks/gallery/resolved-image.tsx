@@ -42,7 +42,7 @@ export function GalleryResolvedImage({
   if (failed) {
     return (
       <div className="kb-gallery-image-fallback">
-        <ImageIcon className="size-6" strokeWidth={1.5} />
+        <ImageIcon className="size-6" />
       </div>
     );
   }

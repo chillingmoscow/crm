@@ -117,7 +117,7 @@ export function OptionMenuPopover({
                 "absolute right-1 top-1/2 size-6 -translate-y-1/2 inline-flex items-center justify-center rounded-full transition-colors",
                 descOpen
                   ? "bg-foreground/10 text-foreground"
-                  : "text-muted-foreground/60 hover:bg-foreground/[0.06] hover:text-foreground",
+                  : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground",
               )}
             >
               <KB_PROPERTY_UI_ICONS.description className="size-3.5" />
@@ -176,7 +176,7 @@ export function OptionMenuPopover({
         </button>
 
         <div className="mt-1 border-t border-border px-1 py-1">
-          <div className="pb-1.5 pl-1 text-[12px] font-semibold text-muted-foreground/70">
+          <div className="pb-1.5 pl-1 text-xs font-medium text-muted-foreground">
             Цвета
           </div>
           {PALETTE_GRID.map((c) => {

@@ -24,7 +24,10 @@ import { KbChildrenList } from "@/app/(dashboard)/knowledge/_components/kb-child
 import { KbRequiredReadingBanner } from "@/app/(dashboard)/knowledge/_components/kb-required-reading-banner";
 import { KbPageMenu } from "@/app/(dashboard)/knowledge/_components/kb-page-menu";
 import { KbLockHeaderChip } from "@/app/(dashboard)/knowledge/_components/kb-lock-header-chip";
-import { getKbMyActiveSeconds } from "@/lib/knowledge/required-reading";
+import {
+  getKbMyActiveSeconds,
+  getKbRequiredReadingStats,
+} from "@/lib/knowledge/required-reading";
 import { estimateReadingMinutes } from "@/lib/knowledge/reading-time";
 import { kbPropertiesSchema } from "@/lib/knowledge/schemas";
 import type {
@@ -183,6 +186,15 @@ export default async function KbPageView({ params }: PageProps) {
     readStatus.required && !readStatus.myReadAt
       ? await getKbMyActiveSeconds(row.id)
       : 0;
+  // Руководителю с правом обязательного чтения — «Прочитали N из M» на
+  // плашке (вместо пункта «Кто прочитал» в меню ⋯).
+  const readingStats =
+    readStatus.required && permissionCodes.includes("kb.manage_required_reading")
+      ? await getKbRequiredReadingStats(row.id).then(({ rows }) => ({
+          read: rows.filter((r) => r.read_at !== null).length,
+          total: rows.length,
+        }))
+      : null;
 
   const chain = pageViewData?.breadcrumbs ?? [];
   const backlinkRows = pageViewData?.backlinks ?? [];
@@ -356,17 +368,19 @@ export default async function KbPageView({ params }: PageProps) {
             pageId={row.id}
             afterTitle={
               <KbRequiredReadingBanner
-                    pageId={row.id}
-                    required={readStatus.required}
-                    initialReadAt={readStatus.myReadAt}
-                    needsReread={readStatus.needsReread}
-                    accumulatedActiveSeconds={accumulatedActiveSeconds}
-                    readingMinutes={
-                      row.plain_text && row.plain_text.trim().length > 0
-                        ? estimateReadingMinutes(row.plain_text)
-                        : null
-                    }
-                  />
+                pageId={row.id}
+                pageSlug={row.slug}
+                stats={readingStats}
+                required={readStatus.required}
+                initialReadAt={readStatus.myReadAt}
+                needsReread={readStatus.needsReread}
+                accumulatedActiveSeconds={accumulatedActiveSeconds}
+                readingMinutes={
+                  row.plain_text && row.plain_text.trim().length > 0
+                    ? estimateReadingMinutes(row.plain_text)
+                    : null
+                }
+              />
             }
             afterContent={
               <KbChildrenList

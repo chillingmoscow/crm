@@ -66,41 +66,54 @@ async function getOfficialEmploymentImpl(userId: string): Promise<OfficialEmploy
   z.string().uuid("Сотрудник не найден").parse(userId);
   const s = await scope("payroll.view");
   const canEdit = s.permissions.includes("payroll.configure");
+  // Зарплатная карточка, её периоды оформления и оклады — одним запросом
+  // (встроенная выборка по FK, каждая таблица под своим RLS), а не тремя
+  // по очереди. Периодов у сотрудника единицы, берём последний.
+  type Row = {
+    id: string;
+    active: boolean;
+    payroll_official_employments: (OfficialEmploymentPeriod & {
+      payroll_official_salaries: { valid_from: string; gross: number | string }[];
+    })[];
+  };
   const employee = await s.db
-    .from<{ id: string; active: boolean }>("payroll_employees")
-    .select("id,active")
+    .from<Row>("payroll_employees")
+    .select(
+      "id,active,payroll_official_employments!payroll_official_employments_employee_fkey(id,starts_on,ends_on,position,contract_number,contract_date,contract_path,agency,payroll_official_salaries(valid_from,gross))",
+    )
     .eq("venue_id", s.venueId)
     .eq("local_user_id", userId)
+    .is("payroll_official_employments.archived_at", null)
+    .order("starts_on", { referencedTable: "payroll_official_employments", ascending: false })
+    .order("valid_from", {
+      referencedTable: "payroll_official_employments.payroll_official_salaries",
+      ascending: true,
+    })
     .maybeSingle();
   if (employee.error) throw new Error(employee.error.message);
   if (!employee.data) return { employeeId: null, employeeActive: false, employment: null, salaries: [], canEdit };
 
-  const employment = await s.db
-    .from<OfficialEmploymentPeriod>("payroll_official_employments")
-    .select("id,starts_on,ends_on,position,contract_number,contract_date,contract_path,agency")
-    .eq("venue_id", s.venueId)
-    .eq("employee_id", employee.data.id)
-    .is("archived_at", null)
-    .order("starts_on", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (employment.error) throw new Error(employment.error.message);
-
-  let salaries: OfficialEmploymentData["salaries"] = [];
-  if (employment.data) {
-    const rows = await s.db
-      .from<{ valid_from: string; gross: number | string }[]>("payroll_official_salaries")
-      .select("valid_from,gross")
-      .eq("venue_id", s.venueId)
-      .eq("employment_id", employment.data.id)
-      .order("valid_from", { ascending: true });
-    if (rows.error) throw new Error(rows.error.message);
-    salaries = (rows.data ?? []).map((r) => ({ valid_from: r.valid_from, gross: Number(r.gross) }));
-  }
+  const latest = employee.data.payroll_official_employments[0] ?? null;
+  const employment: OfficialEmploymentPeriod | null = latest
+    ? {
+        id: latest.id,
+        starts_on: latest.starts_on,
+        ends_on: latest.ends_on,
+        position: latest.position,
+        contract_number: latest.contract_number,
+        contract_date: latest.contract_date,
+        contract_path: latest.contract_path,
+        agency: latest.agency === true,
+      }
+    : null;
+  const salaries = (latest?.payroll_official_salaries ?? []).map((r) => ({
+    valid_from: r.valid_from,
+    gross: Number(r.gross),
+  }));
   return {
     employeeId: employee.data.id,
     employeeActive: employee.data.active,
-    employment: employment.data ? { ...employment.data, agency: employment.data.agency === true } : null,
+    employment,
     salaries,
     canEdit,
   };

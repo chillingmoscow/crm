@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import {
   createClient,
+  getCachedActiveAccountId,
   getCachedPermissionChecker,
   getCachedUser,
 } from "@/lib/supabase/server";
@@ -16,10 +17,14 @@ export default async function StaffPage({
 }: {
   searchParams: Promise<{ add?: string }>;
 }) {
-  // Phase 1 — auth + DB client in parallel (independent async operations)
-  const [user, supabase] = await Promise.all([
+  // Волна 1: пользователь, права и активное заведение — параллельно (раньше
+  // профиль за заведением читался вторым шагом).
+  const supabase = await createClient();
+  const [user, can, { data: activeVenueId }, accountId] = await Promise.all([
     getCachedUser(),
-    createClient(),
+    getCachedPermissionChecker(),
+    supabase.rpc("get_active_venue_id"),
+    getCachedActiveAccountId(),
   ]);
   type LooseQueryBuilder = {
   select: (columns: string) => LooseQueryBuilder;
@@ -29,18 +34,8 @@ export default async function StaffPage({
 
 const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder };
   if (!user) redirect("/login");
-
-  const [{ data: profile }, can] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select("active_venue_id")
-      .eq("id", user.id)
-      .maybeSingle(),
-    getCachedPermissionChecker(),
-  ]);
-
-  if (!profile?.active_venue_id) redirect("/onboarding");
-  const venueId = profile.active_venue_id;
+  if (!activeVenueId) redirect("/onboarding");
+  const venueId = activeVenueId as string;
 
   // Гейт доступа к разделу «Сотрудники». Данные ниже тянутся через
   // service-role (getStaff и т.п., в обход RLS), поэтому страницу обязательно
@@ -51,10 +46,13 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
   // по active venue. Owner — единственная system role (venue_id IS NULL),
   // в дроп фильтра по должностям на этой странице её не показываем —
   // она не имеет отдельного департамента и не выбирается как фильтр.
+  const canEdit = can("people.edit_staff");
+  // PIN кассы — одно правило в списке (штатные и разовые) и в карточке: его
+  // видит и меняет тот, кто ведёт сотрудников (people.edit_staff).
+  const canSeePins = canEdit;
   const [
     { data: roles },
     { data: departments },
-    { data: uvr },
     staff,
     invitations,
     firedStaff,
@@ -62,22 +60,18 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     pinResult,
     casual,
   ] = await Promise.all([
+    // Архивные должности не предлагаются ни в «Добавить», ни в фильтре.
     supabase
       .from("roles")
       .select("id, name, code")
       .eq("venue_id", venueId)
+      .is("archived_at", null)
       .order("name"),
     supabase
       .from("departments")
       .select("id, name")
       .eq("venue_id", venueId)
       .order("name"),
-    supabase
-      .from("user_venue_roles")
-      .select("roles(code)")
-      .eq("user_id", user.id)
-      .eq("venue_id", venueId)
-      .maybeSingle(),
     getStaff(venueId),
     getPendingInvitations(venueId),
     getFiredStaff(venueId),
@@ -85,31 +79,27 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     can("payroll.view") ? getOfficialStaffUserIds(venueId) : Promise.resolve<string[]>([]),
     // PIN кассы и разовые — в той же волне, а не следом: каждый запрос к базе
     // с сервера стоит 20–50 мс, и цепочка заметно тормозила переход в раздел.
-    // PIN читаем всегда, а показываем только старшим ролям (ниже).
-    db
-      .from("user_venue_roles")
-      .select("id, terminal_pin")
-      .eq("venue_id", venueId) as unknown as Promise<{ data: { id: string; terminal_pin: string | null }[] | null }>,
+    canSeePins
+      ? (db
+          .from("user_venue_roles")
+          .select("id, terminal_pin")
+          .eq("venue_id", venueId) as unknown as Promise<{ data: { id: string; terminal_pin: string | null }[] | null }>)
+      : Promise.resolve({ data: null }),
     // Unavailable until the database update for casual workers is applied.
-    getCasualStaff(venueId, can("people.edit_staff")).catch((error: unknown) => {
+    (accountId ? getCasualStaff(venueId, canSeePins, accountId) : Promise.resolve(null)).catch((error: unknown) => {
       console.error("casual staff unavailable:", error instanceof Error ? error.message : error);
       return null;
     }),
   ]);
 
-  const activeRoleCode =
-    (uvr?.roles as { code: string } | null)?.code ?? null;
-  // То же право, что проверяют карточка сотрудника и серверные действия:
-  // раньше здесь сверялся код должности, и человек с правом на своей должности
-  // не видел «Добавить» в списке.
-  const canEdit = can("people.edit_staff");
+  // «Пригласить» и «Разовый» — по праву приглашать: его же проверяют база
+  // (invitations, payroll_casual_scope) и серверные действия.
+  const canInvite = can("people.invite_staff");
   // Тот же набор, что открывает карточку сотрудника: без него сервер не отдаёт
   // контакты и даты коллег (миграция 359), а карточка редиректит.
   const canSeeStaffDetails =
     can("people.view_staff") && can("people.view_staff_details");
-  // The till PIN column: codes are shown only to the venue's senior roles.
-  const canSeePins = ["owner", "manager", "admin"].includes(activeRoleCode ?? "");
-  const pins = new Map(canSeePins ? (pinResult.data ?? []).map((row) => [row.id, row.terminal_pin]) : []);
+  const pins = new Map((pinResult.data ?? []).map((row) => [row.id, row.terminal_pin]));
 
   // Email'ы с неотозванным приглашением — надёжный признак «приглашён, но ещё
   // не активировал» для сотрудника, который уже в списке staff (импортированный
@@ -147,11 +137,15 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       venueId={venueId}
       currentUserId={user.id}
       canEditStaff={canEdit}
-      canConvertCasual={canEdit && can("payroll.configure")}
+      canInviteStaff={canInvite}
+      canViewPayroll={can("payroll.view")}
+      // Перевод разового без кода заводит его в Quick Resto — это право
+      // приглашать; плюс карточка (edit_staff) и зарплата (payroll.configure).
+      canConvertCasual={canEdit && canInvite && can("payroll.configure")}
       canSeeStaffDetails={canSeeStaffDetails}
       casual={casual}
       officialUserIds={officialUserIds}
-      openAddCasual={(await searchParams).add === "casual" && canEdit && !!casual}
+      openAddCasual={(await searchParams).add === "casual" && canInvite && !!casual}
     />
   );
 }

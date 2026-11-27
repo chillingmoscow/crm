@@ -213,8 +213,12 @@ export async function provisionCasualQuickResto(employeeId: string): Promise<{ p
     // reused — the worker gets a new one, otherwise the code would open
     // nothing. A live employee without a readable PIN is an error: creating a
     // second one would duplicate the person in the till.
+    // Список сотрудников кассы — один раз на проверку привязки и подбор PIN:
+    // каждый проход — несколько запросов по 200 записей подряд.
+    let staffList: Promise<Obj[]> | null = null;
+    const allEmployees = () => (staffList ??= rows("personnel.employee/select", { showDeleted: "true" }));
     if (claim.quickresto_id && !steps.employee) {
-      const existing = (await rows("personnel.employee/select", { showDeleted: "true" })).find(
+      const existing = (await allEmployees()).find(
         (e) => Number(e.id) === claim.quickresto_id,
       );
       if (existing && existing.deleted !== true) {
@@ -225,9 +229,7 @@ export async function provisionCasualQuickResto(employeeId: string): Promise<{ p
       }
     }
     if (!steps.employee?.pin) {
-      const used = new Set(
-        (await rows("personnel.employee/select", { showDeleted: "true" })).map((e) => String(e.pin ?? "")),
-      );
+      const used = new Set((await allEmployees()).map((e) => String(e.pin ?? "")));
       let pin = "";
       for (let i = 0; i < 100 && !pin; i++) {
         const p = String(randomInt(1000, 10000));

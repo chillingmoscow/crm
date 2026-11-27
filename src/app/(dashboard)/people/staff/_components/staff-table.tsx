@@ -12,7 +12,7 @@ import {
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table";
-import { RotateCcw, SearchX, UserCheck, UserX, Users, X } from "lucide-react";
+import { RotateCcw, SearchX, UserX, Users, X } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import type {
   StaffMember,
@@ -28,7 +28,6 @@ import {
   TableControls,
   TableFilterChip,
   TablePagination,
-  TableRowMenu,
   TableSortPicker,
   useTableState,
 } from "@/components/shared/table";
@@ -227,10 +226,10 @@ export function StaffTable({
   overviewPanel,
   canEdit,
   canSeeDetails,
+  canOpenCasual = false,
   isPending,
   onCancelInvitation,
   onRestore,
-  onConvertCasual,
 }: {
   staff: StaffMember[];
   casual: CasualStaffRow[];
@@ -255,11 +254,11 @@ export function StaffTable({
   /** people.view_staff + people.view_staff_details: личные данные коллег и
    *  карточка сотрудника. Без права строки штатных и уволенных не открываются. */
   canSeeDetails: boolean;
+  /** payroll.view: строка разового ведёт в его расчёт в «Зарплате». */
+  canOpenCasual?: boolean;
   isPending: boolean;
   onCancelInvitation: (id: string) => void;
   onRestore: (id: string) => void;
-  /** «Перевести в штат» в меню строки разового; нет — нет права. */
-  onConvertCasual?: (row: CasualStaffRow) => void;
 }) {
   const router = useRouter();
   const definitions = canSeeDetails
@@ -402,19 +401,6 @@ export function StaffTable({
             <RotateCcw className="size-3.5" />
             Восстановить
           </Button>
-        ) : row.original.kind === "casual" && onConvertCasual ? (
-          <TableRowMenu
-            label={`Действия: ${row.original.casual.name}`}
-            actions={[
-              {
-                label: "Перевести в штат",
-                icon: <UserCheck className="size-4" />,
-                onSelect: () => {
-                  if (row.original.kind === "casual") onConvertCasual(row.original.casual);
-                },
-              },
-            ]}
-          />
         ) : row.original.kind === "invitation" && canEdit ? (
           <Button
             variant="ghost"
@@ -433,12 +419,12 @@ export function StaffTable({
     },
   ];
   // Карточка штатного/уволенного требует права на детали (иначе редирект);
-  // разовые открываются в «Зарплате» по своим правам.
+  // разовые открываются в «Зарплате» — только с правом на неё.
   const opensCard = (
     row: Row,
   ): row is Exclude<Row, { kind: "invitation" }> =>
-    row.kind === "casual" ||
-    (row.kind !== "invitation" && canSeeDetails);
+    (row.kind === "casual" && canOpenCasual) ||
+    (row.kind !== "invitation" && row.kind !== "casual" && canSeeDetails);
   const table = useReactTable({
     data: rows,
     columns,
@@ -446,9 +432,8 @@ export function StaffTable({
       columnVisibility: {
         ...st.columnVisibility,
         name: true,
-        actions: showFired
-          ? canEdit && fired.length > 0
-          : (canEdit && invitations.length > 0) || (!!onConvertCasual && casual.length > 0),
+        actions:
+          canEdit && (showFired ? fired.length > 0 : invitations.length > 0),
       },
       columnOrder: [...st.columnOrder, "actions"],
       columnSizing: st.columnSizing,

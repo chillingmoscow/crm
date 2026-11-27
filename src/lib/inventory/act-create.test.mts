@@ -157,6 +157,7 @@ const valid = {
   attemptId: "11111111-1111-4111-8111-111111111111",
   storeId: "22222222-2222-4222-8222-222222222222",
   date: "2026-11-27",
+  time: "23:30",
   groupIds: ["33333333-3333-4333-8333-333333333333"],
   comment: "Еда",
   assignedTo: "44444444-4444-4444-8444-444444444444",
@@ -167,6 +168,9 @@ test("проверка формы", () => {
   assert.equal(validateCreateActInput(valid), null);
   assert.equal(validateCreateActInput({ ...valid, groupIds: [] }), "Выберите хотя бы одну группу.");
   assert.equal(validateCreateActInput({ ...valid, date: "27.11.2026" }), "Укажите дату акта.");
+  assert.equal(validateCreateActInput({ ...valid, date: "2026-02-30" }), "Укажите дату акта.");
+  assert.match(validateCreateActInput({ ...valid, time: "24:00" }) ?? "", /время акта/);
+  assert.match(validateCreateActInput({ ...valid, time: "" }) ?? "", /время акта/);
   assert.equal(validateCreateActInput({ ...valid, storeId: "" }), "Выберите склад.");
   assert.match(
     validateCreateActInput({ ...valid, reviewerId: valid.assignedTo }) ?? "",

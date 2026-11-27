@@ -210,8 +210,9 @@ Content-Type: application/json; charset=utf-8
 | «Добавить группы» | `warehouse.inventory.items/action` `AddGroups` | POST | из API **не работает**: тело как у интерфейса (`data: {className: "AddSingleGroups", nomenclature: <узел warehouse.inventory.nomenclature.total>, movement}`, `owner`) отвечает 400 `{"type":"UnknownWebClientBehaviour"}` при любых вариантах (2026-11-27). Состав групп берём из своего каталога и кладём позиции по одной |
 | Изменить факт | `warehouse.inventory.items/update` | POST | см. `updateInventoryItemBackOffice` |
 | Удалить позицию | `warehouse.inventory.items/remove` | **DELETE с телом** | обязательны `ownerContextId`, `regTime`, `hash` строки. Без тела — `Object doesn't exist`, POST — 405, `/delete` — 404 |
-| Удалить акт | `warehouse.inventory.document.v2/remove` | **DELETE с телом** | обязательны `regTime`, `contextModule=warehouse.inventory.items`. После удаления акт пропадает из `list`, но прямое чтение по id всё ещё отдаёт объект — ориентироваться надо на список |
-| Провести акт | `warehouse.inventory.document.v2/action` | POST | `{actionName:"process", ids:[id], data:{…}}`, нужен Keycloak Bearer |
+| Удалить акт | `warehouse.inventory.document.v2/remove` | **DELETE с телом** | обязательны `regTime`, `contextModule=warehouse.inventory.items`. Удаление мягкое: прямое чтение по id отдаёт объект с `deleted:true`, повторный remove — 200. Тело — акт из back-office `read` (с `version`). Акт с позициями удаляется целиком |
+| Провести акт | `warehouse.inventory.document.v2/action` | POST | `{actionName:"process", ids:[id], data:{…}}`, нужен Keycloak Bearer. **Внимание (2026-11-27, тестовый акт 10975):** с `timeZone=0` в адресе проведение сдвинуло `invoiceDate` на +3 ч (09:00Z → 12:00Z) |
+| Отменить проведение | `warehouse.inventory.document.v2/action` | POST | `{actionName:"unprocess", …}` — то же тело, право `action_cancel` (у Sheerly Bot есть). Сразу после ответа акт `processed:false` и `processingState:"CANCELLING"`, через ~1 с — `UNPROCESSED`; удалять — только после этого. Остатки Quick Resto пересчитывает сам. Проверено 2026-11-27 на пустом тестовом акте (process → unprocess → remove) |
 
 Ключевой нюанс: `remove` — это **DELETE с телом запроса**. Именно так делает
 интерфейс QR; ни POST, ни DELETE без тела не работают. Хелперы —

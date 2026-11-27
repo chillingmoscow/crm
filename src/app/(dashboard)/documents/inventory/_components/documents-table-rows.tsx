@@ -1,8 +1,14 @@
 "use client";
 
+import {
+  ACT_CREATING_LOCK_REASON,
+  isActCreationActive,
+  isActCreationStuck,
+} from "@/lib/inventory/act-creation-job";
+import { retryInventoryActCreation } from "@/app/(dashboard)/inventory/_actions/create";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
-import { ClipboardCheck, FileX2, Inbox, RefreshCw, Trash2 } from "lucide-react";
+import { ClipboardCheck, FileX2, Inbox, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -176,11 +182,14 @@ export function DeleteActDialog({
   onOpenChange,
   onDeleted,
 }: {
-  doc: Pick<DocumentListRow, "id" | "document_number">;
+  doc: Pick<DocumentListRow, "id" | "document_number" | "status">;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onDeleted: () => void;
 }) {
+  // Проведённый акт удаляется через отмену проведения: окно говорит об этом
+  // прямо, и только с этим согласием сервер отменит проведение.
+  const processed = doc.status === "processed";
   const [isDeleting, startDelete] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -188,12 +197,14 @@ export function DeleteActDialog({
     setError(null);
     startDelete(async () => {
       try {
-        const result = await deleteInventoryDocument({ documentId: doc.id });
+        const result = await deleteInventoryDocument({ documentId: doc.id, allowUnprocess: processed });
         if (result.error) {
           setError(result.error);
           return;
         }
-        toast.success(`Акт № ${doc.document_number} удалён`);
+        toast.success(`Акт № ${doc.document_number} удалён`, {
+          description: result.notice ?? (processed ? "Проведение в Quick Resto отменено, остатки пересчитаны." : undefined),
+        });
         onOpenChange(false);
         onDeleted();
       } catch {
@@ -209,14 +220,22 @@ export function DeleteActDialog({
         if (!next) setError(null);
         onOpenChange(next);
       }}
-      title={`Удалить акт № ${doc.document_number}?`}
+      title={processed ? `Отменить проведение и удалить акт № ${doc.document_number}?` : `Удалить акт № ${doc.document_number}?`}
       consequences={[
+        ...(processed
+          ? [
+              {
+                kind: "unlink" as const,
+                text: "Проведение акта в Quick Resto отменится: остатки склада пересчитаются, недостача и излишки по акту уйдут",
+              },
+            ]
+          : []),
         { kind: "remove", text: "Акт и все его позиции удалятся здесь и в Quick Resto" },
         { kind: "info", text: "Если Quick Resto не подтвердит удаление, акт останется и там, и здесь" },
         { kind: "irreversible", text: "Нельзя отменить" },
       ]}
-      confirmLabel="Удалить акт"
-      pendingLabel="Удаляем…"
+      confirmLabel={processed ? "Отменить проведение и удалить" : "Удалить акт"}
+      pendingLabel={processed ? "Отменяем проведение…" : "Удаляем…"}
       destructive
       busy={isDeleting}
       error={error}
@@ -237,10 +256,12 @@ export function DocumentRowMenu({
 }) {
   const router = useRouter();
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-  const deleteLockReason = getDeleteLockReason({
-    status: doc.status,
-    resultsSnapshotAt: doc.results_snapshot_at,
-  });
+  const deleteLockReason = isActCreationActive(doc.creation)
+    ? ACT_CREATING_LOCK_REASON
+    : getDeleteLockReason({
+        status: doc.status,
+        resultsSnapshotAt: doc.results_snapshot_at,
+      });
 
   const actions = useMemo(() => {
     const items: TableRowMenuAction[] = [
@@ -250,8 +271,26 @@ export function DocumentRowMenu({
         onSelect: () => router.push(getDocHref(doc, canViewResults)),
       },
     ];
-    // Проведённый акт и акт с зафиксированными итогами удалить нельзя —
-    // серверный экшен всё равно откажет. Пункт меню, который заведомо
+    // Позиции добавились не все и попытки кончились — повторить отсюда:
+    // добавятся только недостающие.
+    if (canManage && isActCreationStuck(doc.creation)) {
+      items.push({
+        label: "Повторить добавление позиций",
+        icon: <RotateCcw className="h-4 w-4" />,
+        onSelect: () => {
+          void retryInventoryActCreation({ documentId: doc.id }).then((result) => {
+            if (result.error) {
+              toast.error(result.error);
+              return;
+            }
+            toast.success("Добавление позиций продолжается");
+            router.refresh();
+          });
+        },
+      });
+    }
+    // Акт с утверждёнными итогами и акт, который ещё создаётся, удалить
+    // нельзя — серверный экшен всё равно откажет. Пункт меню, который заведомо
     // закончится ошибкой, не показываем.
     if (canManage && deleteLockReason === null) {
       items.push({

@@ -2,6 +2,7 @@
 // (вынесены из actions.ts). НЕ "use server" — обычный server-only модуль,
 // который импортируют файлы экшенов.
 
+import { isActCreationActive, type ActCreationJobState } from "@/lib/inventory/act-creation-job";
 import "server-only";
 
 import { revalidatePath } from "next/cache";
@@ -1827,4 +1828,25 @@ export async function notifyInventoryDocumentEvent(input: {
   } catch (e) {
     console.error(`[inventory notify ${input.type}] threw:`, e);
   }
+}
+
+/**
+ * Акты из списка, в которые ещё досылаются позиции (фоновое создание,
+ * миграция 411). Такие акты не назначают, не заполняют, не переносят и не
+ * удаляют, пока задание не закончится.
+ */
+export async function documentsBeingCreated(
+  admin: LooseDb,
+  accountId: string,
+  documentIds: string[],
+): Promise<Set<string>> {
+  if (documentIds.length === 0) return new Set();
+  const { data, error } = await admin
+    .from<Array<{ document_id: string; state: ActCreationJobState; attempts: number }>>("inventory_act_creation_jobs")
+    .select("document_id, state, attempts")
+    .eq("account_id", accountId)
+    .in("document_id", documentIds)
+    .neq("state", "complete");
+  if (error) throw new Error(error.message);
+  return new Set((data ?? []).filter(isActCreationActive).map((row) => row.document_id));
 }

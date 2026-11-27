@@ -60,10 +60,12 @@ import {
 } from "@/lib/format/amount";
 import {
   getAssigneeLockReason,
-  getDeleteLockReason,
+  isBulkDeletable,
   getReviewerLockReason,
   hasCountedResults,
 } from "@/lib/inventory/act-status";
+import { ACT_CREATING_LOCK_REASON, isActCreationActive } from "@/lib/inventory/act-creation-job";
+import { ActCreationStatus } from "./act-creation-status";
 import { bulkAssignInventoryDocuments } from "@/app/(dashboard)/inventory/_actions/assignment";
 import { bulkDeleteInventoryDocuments } from "@/app/(dashboard)/inventory/_actions/documents";
 import { syncQuickRestoInventory } from "@/app/(dashboard)/inventory/_actions/sync";
@@ -111,7 +113,16 @@ export type { StoreOption, VenueOption } from "./documents-table-utils";
 
 const SEARCH_DEBOUNCE_MS = 250;
 /** Окно склейки realtime-событий: синхронизация меняет акты пачкой. */
+// Акт, в который ещё досылаются позиции, не назначают и не удаляют.
+const creating = (row: DocumentListRow) => isActCreationActive(row.creation);
+const assigneeLock = (row: DocumentListRow) =>
+  creating(row) ? ACT_CREATING_LOCK_REASON : getAssigneeLockReason(row.status);
+const reviewerLock = (row: DocumentListRow) =>
+  creating(row) ? ACT_CREATING_LOCK_REASON : getReviewerLockReason(row.status);
+
 const REALTIME_REFRESH_DELAY_MS = 400;
+/** Как часто перечитывать список, пока какой-то акт создаётся. */
+const CREATION_REFRESH_MS = 4000;
 // v2: служебные столбцы (выбор, «⋯») больше не хранятся в настройках, а
 // ширины по умолчанию пересчитаны под общий каркас — старые сохранённые
 // ширины сжимали «Номер» до многоточия.
@@ -285,6 +296,16 @@ export function DocumentsTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
+  // ── Ход фонового создания актов ────────────────────────────
+  // Задание пишет ход в свою таблицу, realtime по актам его не видит —
+  // пока какой-то акт на странице создаётся, перечитываем список.
+  const anyCreating = initial.rows.some((row) => isActCreationActive(row.creation));
+  useEffect(() => {
+    if (!anyCreating) return;
+    const timer = window.setInterval(() => router.refresh(), CREATION_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [anyCreating, router]);
+
   // ── Realtime ───────────────────────────────────────────────
   // Синхронизация обновляет акты пачкой: 20 актов = 20 событий подряд, и
   // каждое дёргало router.refresh() — полный ре-рендер серверного дерева со
@@ -400,15 +421,14 @@ export function DocumentsTable({
   const selectedTotals = useMemo(() => netResultsTotal(selectedRowsList), [selectedRowsList]);
 
   const canBulkAssignee =
-    selectedRowsList.length > 0 &&
-    selectedRowsList.every((row) => getAssigneeLockReason(row.status) === null);
+    selectedRowsList.length > 0 && selectedRowsList.every((row) => assigneeLock(row) === null);
   const canBulkReviewer =
-    selectedRowsList.length > 0 &&
-    selectedRowsList.every((row) => getReviewerLockReason(row.status) === null);
+    selectedRowsList.length > 0 && selectedRowsList.every((row) => reviewerLock(row) === null);
   // Удаление шире замков назначения: его блокирует ещё и снимок итогов,
   // который переживает распроведение.
   const isDeletable = (row: DocumentListRow) =>
-    getDeleteLockReason({ status: row.status, resultsSnapshotAt: row.results_snapshot_at }) === null;
+    !creating(row) &&
+    isBulkDeletable({ status: row.status, resultsSnapshotAt: row.results_snapshot_at });
   const canBulkDelete = selectedRowsList.length > 0 && selectedRowsList.every(isDeletable);
 
   const clearSelection = () => setRowSelection({});
@@ -418,8 +438,7 @@ export function DocumentsTable({
     const ids = selectedRowsList
       .filter(
         (row) =>
-          (role === "assignee" ? getAssigneeLockReason(row.status) : getReviewerLockReason(row.status)) ===
-          null,
+          (role === "assignee" ? assigneeLock(row) : reviewerLock(row)) === null,
       )
       .map((row) => row.id);
     if (ids.length === 0) return;
@@ -498,7 +517,11 @@ export function DocumentsTable({
         const doc = row.original;
         return (
           <div className="flex min-w-0 items-center gap-1.5">
-            <InventoryStatusBadge status={doc.status} />
+            {doc.creation ? (
+              <ActCreationStatus creation={doc.creation} />
+            ) : (
+              <InventoryStatusBadge status={doc.status} />
+            )}
             {doc.recount_of_document_id ? (
               <StatusBadge tone="info" tip="Акт пересчёта: позиции вынесены из другого акта">
                 Пересчёт
@@ -576,7 +599,7 @@ export function DocumentsTable({
       },
       assigned_to: ({ row }) => {
         const doc = row.original;
-        const lockReason = getAssigneeLockReason(doc.status);
+        const lockReason = assigneeLock(doc);
         return canManage ? (
           <AssigneeSelect
             documentId={doc.id}
@@ -598,7 +621,7 @@ export function DocumentsTable({
       },
       reviewer_id: ({ row }) => {
         const doc = row.original;
-        const lockReason = getReviewerLockReason(doc.status);
+        const lockReason = reviewerLock(doc);
         return canManage ? (
           <ReviewerSelect
             documentId={doc.id}

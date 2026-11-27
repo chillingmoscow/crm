@@ -2,6 +2,7 @@
 
 // Смена даты акта инвентаризации с отправкой в Quick Resto.
 
+import { ACT_CREATING_LOCK_REASON } from "@/lib/inventory/act-creation-job";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
@@ -34,6 +35,7 @@ import {
   listBackOfficeInventoryItemsWithSession,
   refreshLocalInventoryDocumentFromPayload,
   withBackOfficeSession,
+  documentsBeingCreated,
 } from "../actions-shared";
 
 /** Пояс, если у заведения он не задан: заведения аккаунта — в Москве. */
@@ -100,6 +102,9 @@ export async function updateInventoryDocumentDate(input: {
       .eq("account_id", ctx.accountId)
       .maybeSingle();
     if (!document?.id) return { error: "Акт не найден" };
+    if ((await documentsBeingCreated(admin, ctx.accountId, [document.id])).size > 0) {
+      return { error: ACT_CREATING_LOCK_REASON };
+    }
 
     const lockReason = getInventoryDateLockReason(document);
     if (lockReason) return { error: lockReason };

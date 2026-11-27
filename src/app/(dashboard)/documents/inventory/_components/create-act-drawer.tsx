@@ -12,6 +12,7 @@ import { DrawerSection } from "@/components/ui/drawer-blocks";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { TimeInput, normalizeTimeInput } from "@/components/ui/time-input";
 import { OptionSelect } from "@/components/ui/option-select";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { cn } from "@/lib/utils";
@@ -31,13 +32,8 @@ import {
   groupTreeRows,
   groupsWithSelectedDescendants,
 } from "@/lib/inventory/act-create";
-import {
-  estimateCreateActSeconds,
-  formatDurationRu,
-  progressFraction,
-  remainingSeconds,
-  type CreateActProgress,
-} from "@/lib/inventory/act-create-progress";
+import { estimateCreateActSeconds, formatDurationRu } from "@/lib/inventory/act-create-progress";
+import { invoiceTimeInZone } from "@/lib/inventory/act-date";
 import {
   createInventoryAct,
   loadCreateActOptions,
@@ -52,16 +48,28 @@ function todayLocal(): string {
   return `${now.getFullYear()}-${m}-${d}`;
 }
 
+/** Время сейчас, `HH:mm` — по умолчанию акт на момент создания; с поясом — по часам заведения. */
+function nowTime(timeZone?: string): string {
+  if (timeZone) {
+    const inZone = invoiceTimeInZone(new Date().toISOString(), timeZone);
+    if (inZone) return inZone;
+  }
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+}
+
 function newAttemptId(): string {
   return crypto.randomUUID();
 }
 
 /**
- * Панель «Новый акт инвентаризации»: склад, дата, группы каталога, исполнитель
- * и проверяющий. Акт создаётся в Quick Resto и сразу появляется в списке.
+ * Панель «Новый акт инвентаризации»: склад, дата и время, группы каталога,
+ * исполнитель и проверяющий. Панель закрывается, как только акт заведён в
+ * Quick Resto и у нас; позиции добавляются в фоне, ход виден в списке
+ * («Создаётся · N из M»), по готовности приходит уведомление.
  *
  * Id попытки живёт, пока панель открыта: повторное «Создать акт» после сбоя
- * продолжает тот же акт, а не заводит второй (см. createInventoryAct).
+ * связи второй акт не заводит (см. createInventoryAct).
  */
 export function CreateActDrawer({
   open,
@@ -83,6 +91,11 @@ export function CreateActDrawer({
   const [attemptId, setAttemptId] = useState(newAttemptId);
   const [storeId, setStoreId] = useState("");
   const [date, setDate] = useState(todayLocal);
+  const [time, setTime] = useState(() => nowTime());
+  const [timeTouched, setTimeTouched] = useState(false);
+  // Для загрузки опций: она не должна сбивать время, которое уже поменяли.
+  const timeTouchedRef = useRef(false);
+  timeTouchedRef.current = timeTouched;
   const [selected, setSelected] = useState<string[]>([]);
   const [comment, setComment] = useState("");
   const [commentTouched, setCommentTouched] = useState(false);
@@ -93,9 +106,6 @@ export function CreateActDrawer({
   const [pending, setPending] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
-  const [progress, setProgress] = useState<CreateActProgress | null>(null);
-  const [elapsed, setElapsed] = useState(0);
-  const startedAt = useRef(0);
 
   // Данные панели — при каждом открытии: каталог могли синхронизировать.
   useEffect(() => {
@@ -111,9 +121,9 @@ export function CreateActDrawer({
           return;
         }
         setOptions(result.options);
-        setStoreId((current) =>
-          current || (result.options && result.options.stores.length === 1 ? result.options.stores[0].id : ""),
-        );
+        const only = result.options.stores.length === 1 ? result.options.stores[0] : null;
+        setStoreId((current) => current || (only ? only.id : ""));
+        if (only) setTime((current) => (timeTouchedRef.current ? current : nowTime(only.timeZone)));
       })
       .catch(() => {
         if (!cancelled) setLoadError("Не удалось загрузить данные для нового акта.");
@@ -130,6 +140,8 @@ export function CreateActDrawer({
     setAttemptId(newAttemptId());
     setStoreId("");
     setDate(todayLocal());
+    setTime(nowTime());
+    setTimeTouched(false);
     setSelected([]);
     setComment("");
     setCommentTouched(false);
@@ -155,42 +167,6 @@ export function CreateActDrawer({
     () => countSelectedItems({ groups, productCountByGroup: counts, selectedGroupIds: selected }),
     [groups, counts, selected],
   );
-
-  // Пока акт создаётся: часы для расчётного времени, опрос хода (маршрутом —
-  // серверное действие занято самим созданием) и предупреждение при закрытии
-  // вкладки. Ход может не прийти — тогда полоса идёт по расчёту.
-  useEffect(() => {
-    if (!pending) return;
-    const tick = window.setInterval(() => setElapsed((Date.now() - startedAt.current) / 1000), 1000);
-    let stopped = false;
-    const poll = async () => {
-      try {
-        const response = await fetch(
-          `/api/inventory/create-act-progress?attempt=${encodeURIComponent(attemptId)}`,
-          { cache: "no-store" },
-        );
-        if (!response.ok || stopped) return;
-        const body = (await response.json()) as { progress: CreateActProgress | null };
-        if (!stopped && body.progress) setProgress(body.progress);
-      } catch {
-        // Ход — подсказка, а не условие: без него остаётся расчёт по времени.
-      }
-    };
-    const timer = window.setInterval(poll, 1500);
-    void poll();
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      // Старые браузеры спрашивают только при непустом returnValue.
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", warn);
-    return () => {
-      stopped = true;
-      window.clearInterval(tick);
-      window.clearInterval(timer);
-      window.removeEventListener("beforeunload", warn);
-    };
-  }, [pending, attemptId]);
 
   const estimatedSeconds = estimateCreateActSeconds(itemCount);
 
@@ -221,8 +197,15 @@ export function CreateActDrawer({
     });
 
   const tooMany = itemCount > CREATE_ACT_MAX_ITEMS;
+  const normalizedTime = normalizeTimeInput(time);
   const canSubmit =
-    Boolean(options) && Boolean(storeId) && Boolean(date) && selected.length > 0 && !tooMany && !pending;
+    Boolean(options) &&
+    Boolean(storeId) &&
+    Boolean(date) &&
+    Boolean(normalizedTime) &&
+    selected.length > 0 &&
+    !tooMany &&
+    !pending;
   const dirty = selected.length > 0 || Boolean(assignedTo) || Boolean(reviewerId) || commentTouched;
 
   const close = () => {
@@ -232,7 +215,7 @@ export function CreateActDrawer({
 
   const requestClose = (next: boolean) => {
     if (next) return onOpenChange(true);
-    if (pending) return; // акт создаётся — закрыть нельзя, иначе не увидим результат
+    if (pending) return; // акт заводится в Quick Resto — дождаться ответа
     if (dirty) return setConfirmClose(true);
     close();
   };
@@ -250,9 +233,6 @@ export function CreateActDrawer({
 
   const submit = async () => {
     if (!canSubmit) return;
-    startedAt.current = Date.now();
-    setElapsed(0);
-    setProgress(null);
     setPending(true);
     setSaveError(null);
     try {
@@ -260,6 +240,7 @@ export function CreateActDrawer({
         attemptId,
         storeId,
         date,
+        time: normalizedTime ?? "",
         groupIds: selected,
         comment: effectiveComment,
         assignedTo: assignedTo || null,
@@ -270,10 +251,11 @@ export function CreateActDrawer({
         router.refresh();
         return;
       }
-      const documentId = result.documentId;
-      toast.success("Акт создан", {
-        description: result.warning,
-        action: { label: "Открыть", onClick: () => router.push(`/documents/inventory/${documentId}`) },
+      // Позиции добавляются в фоне: о готовности скажет уведомление.
+      toast.success(`Акт № ${result.number ?? ""} создаётся`, {
+        description:
+          result.warning ??
+          "Позиции добавляются в Quick Resto в фоне — ход виден в списке. Когда всё будет готово, придёт уведомление.",
       });
       close();
       router.refresh();
@@ -312,7 +294,7 @@ export function CreateActDrawer({
         open={open}
         onOpenChange={requestClose}
         title="Новый акт инвентаризации"
-        description="Акт появится в Quick Resto и сразу в этом списке"
+        description="Акт появится в Quick Resto и сразу в этом списке, позиции добавятся в фоне"
         footer={
           <>
             <Button variant="outline" onClick={() => requestClose(false)} disabled={pending}>
@@ -343,13 +325,6 @@ export function CreateActDrawer({
               Повторить
             </Button>
           </div>
-        ) : pending ? (
-          <CreateActProgressView
-            progress={progress}
-            itemCount={itemCount}
-            fraction={progressFraction({ progress, elapsedSeconds: elapsed, estimatedSeconds })}
-            remaining={remainingSeconds({ progress, elapsedSeconds: elapsed, estimatedSeconds })}
-          />
         ) : options ? (
           <>
             <DrawerSection title="Акт">
@@ -362,6 +337,9 @@ export function CreateActDrawer({
                       setStoreId(value);
                       setAssignedTo("");
                       setReviewerId("");
+                      // Время по умолчанию — по часам заведения склада, пока его не меняли.
+                      const zone = options.stores.find((option) => option.id === value)?.timeZone;
+                      if (!timeTouched && zone) setTime(nowTime(zone));
                     }}
                     placeholder={options.stores.length === 0 ? "Нет складов" : "Выберите склад"}
                     options={options.stores.map((option) => ({ value: option.id, label: option.title }))}
@@ -369,11 +347,26 @@ export function CreateActDrawer({
                   />
                 )}
               </Field>
-              <Field label="Дата акта" required>
-                {(control) => (
-                  <DatePicker {...control} value={date} onChange={setDate} clearable={false} disabled={pending} />
-                )}
-              </Field>
+              <div className="grid grid-cols-[minmax(0,1fr)_8rem] gap-3">
+                <Field label="Дата акта" required>
+                  {(control) => (
+                    <DatePicker {...control} value={date} onChange={setDate} clearable={false} disabled={pending} />
+                  )}
+                </Field>
+                <Field label="Время" required>
+                  {(control) => (
+                    <TimeInput
+                      {...control}
+                      value={time}
+                      onChange={(value) => {
+                        setTimeTouched(true);
+                        setTime(value);
+                      }}
+                      disabled={pending}
+                    />
+                  )}
+                </Field>
+              </div>
               <Field label="Комментарий">
                 {(control) => (
                   <Input
@@ -514,8 +507,8 @@ export function CreateActDrawer({
 
             {selected.length > 0 && !tooMany ? (
               <p className="text-xs text-muted-foreground">
-                Позиции уходят в Quick Resto по одной: акт будет готов примерно через{" "}
-                {formatDurationRu(estimatedSeconds)}.
+                Акт появится в списке сразу, позиции добавятся в фоне примерно за{" "}
+                {formatDurationRu(estimatedSeconds)} — придёт уведомление.
               </p>
             ) : null}
             {saveError ? <p className="text-sm text-destructive">{saveError}</p> : null}
@@ -541,52 +534,3 @@ export function CreateActDrawer({
   );
 }
 
-/**
- * Ход создания акта вместо формы: форму в это время менять нельзя, панель не
- * закрывается. Полоса — по числу добавленных позиций, а пока его нет — по
- * расчётному времени (не дальше 95%).
- */
-function CreateActProgressView({
-  progress,
-  itemCount,
-  fraction,
-  remaining,
-}: {
-  progress: CreateActProgress | null;
-  itemCount: number;
-  fraction: number;
-  remaining: number;
-}) {
-  const total = progress?.total ?? itemCount;
-  const title =
-    progress?.phase === "items"
-      ? `Добавляем позиции: ${progress.done} из ${total}`
-      : progress?.phase === "finishing"
-        ? "Сверяем акт с Quick Resto"
-        : "Создаём акт в Quick Resto";
-  return (
-    <div className="motion-rise space-y-4 py-2" role="status" aria-live="polite">
-      <div className="flex items-start gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
-          <Loader2 className="h-5 w-5 animate-spin" />
-        </span>
-        <div className="min-w-0 space-y-0.5">
-          <p className="text-sm font-medium">{title}</p>
-          <p className="text-sm text-muted-foreground">
-            {`В акте будет ${countRu(total, "позиция", "позиции", "позиций")}. Осталось около ${formatDurationRu(remaining)}.`}
-          </p>
-        </div>
-      </div>
-      <div className="shift-now-track h-2 overflow-hidden rounded-full text-brand">
-        <div
-          className="shift-now-fill h-full rounded-full"
-          style={{ transform: `scaleX(${Math.max(0.02, fraction)})` }}
-        />
-      </div>
-      <p className="text-xs text-muted-foreground">
-        Позиции уходят в Quick Resto по одной — чаще он запросы не принимает. Не закрывайте вкладку: панель закроется
-        сама, когда акт будет готов.
-      </p>
-    </div>
-  );
-}

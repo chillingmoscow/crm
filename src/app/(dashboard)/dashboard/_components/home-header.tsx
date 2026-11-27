@@ -7,8 +7,8 @@ import { CompareSwitch } from "@/components/shared/compare-switch";
 import type { CompareMode } from "@/lib/finance/dashboard-compare";
 
 /**
- * Шапка главной: приветствие по времени суток и дата одной строкой
- * («Доброе утро, Павел · пятница, 27 ноября»), справа — с чем сравнивать
+ * Шапка главной: приветствие по времени суток («Доброе утро, Павел»), под
+ * ним серым сегодняшняя дата («Пятница, 27 ноября»), справа — с чем сравнивать
  * показатели недели. Выбор живёт в адресе (`?compare=year`), как на
  * финансовом дашборде; по умолчанию — прошлая неделя.
  */
@@ -37,12 +37,10 @@ export function HomeHeader({
 
   return (
     <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-      <h1 className="min-w-0 text-[28px] font-bold leading-[1.2] tracking-[-0.5px] sm:text-[36px]">
-        {greeting}
-        <span className="text-muted-foreground"> · </span>
-        {/* На телефоне дата уходит на вторую строку целиком, а не рвётся посередине. */}
-        <span className="whitespace-nowrap text-muted-foreground">{date}</span>
-      </h1>
+      <div className="min-w-0">
+        <h1 className="text-[28px] font-bold leading-[1.2] tracking-[-0.5px] sm:text-[36px]">{greeting}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{date}</p>
+      </div>
       {compare ? (
         <div className="shrink-0" aria-busy={pending}>
           <CompareSwitch value={compare} previousLabel="Прошлая неделя" onChange={change} disabled={pending} />

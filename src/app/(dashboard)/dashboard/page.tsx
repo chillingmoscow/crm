@@ -89,7 +89,8 @@ export default async function DashboardPage({
 
   const firstName = profile.first_name?.trim();
   const greeting = firstName ? `${greetingFor(ctx.hour)}, ${firstName}` : greetingFor(ctx.hour);
-  const date = formatWeekdayDayMonth(ctx.calendarDay) ?? ctx.calendarDay;
+  const weekday = formatWeekdayDayMonth(ctx.calendarDay) ?? ctx.calendarDay;
+  const date = weekday.charAt(0).toUpperCase() + weekday.slice(1);
 
   const perms = ctx.permissions;
   const showWeek = canSeeWeek(perms);

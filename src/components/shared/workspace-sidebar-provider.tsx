@@ -3,15 +3,16 @@
 import { useCallback, useState, type CSSProperties, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 
-import { SidebarProvider } from "@/components/ui/sidebar";
+import {
+  SIDEBAR_COOKIE_MAX_AGE,
+  SIDEBAR_COOKIE_NAME,
+  SidebarProvider,
+} from "@/components/ui/sidebar";
 import {
   KB_MENU_COOKIE,
   isKnowledgePath,
   resolveMenuOpen,
 } from "@/lib/knowledge/shell";
-
-const APP_MENU_COOKIE = "sidebar_state";
-const COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 
 /**
  * Меню приложения с двумя запомненными состояниями: обычное и в базе
@@ -39,9 +40,9 @@ export function WorkspaceSidebarProvider({
 
   const onOpenChange = useCallback(
     (next: boolean) => {
-      const cookie = onKnowledge ? KB_MENU_COOKIE : APP_MENU_COOKIE;
+      const cookie = onKnowledge ? KB_MENU_COOKIE : SIDEBAR_COOKIE_NAME;
       (onKnowledge ? setKbOpen : setAppOpen)(next);
-      document.cookie = `${cookie}=${next}; path=/; max-age=${COOKIE_MAX_AGE}`;
+      document.cookie = `${cookie}=${next}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
     },
     [onKnowledge],
   );

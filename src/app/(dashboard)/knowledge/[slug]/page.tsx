@@ -3,9 +3,9 @@ import { notFound, redirect } from "next/navigation";
 import { FileX, ShieldAlert } from "lucide-react";
 
 import { createClient, getCachedActiveAccountId, getCachedPermissions } from "@/lib/supabase/server";
+import { getKbPageBySlugCached } from "@/lib/knowledge/page-by-slug";
 import {
   getDeletedKbPageBySlug,
-  getKbPageBySlug,
   getKbPageViewData,
   resolveKbMentionTargets,
 } from "@/lib/knowledge/pages";
@@ -39,13 +39,13 @@ interface PageProps {
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
-  const { row } = await getKbPageBySlug(slug);
+  const { row } = await getKbPageBySlugCached(slug);
   return { title: row?.title?.trim() || "База знаний" };
 }
 
 export default async function KbPageView({ params }: PageProps) {
   const { slug } = await params;
-  const { row, error } = await getKbPageBySlug(slug);
+  const { row, error } = await getKbPageBySlugCached(slug);
   if (error) notFound();
   if (!row) {
     // Notion-style: страница из корзины не 404-ит, а открывается

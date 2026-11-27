@@ -4,10 +4,7 @@ import { ArrowRight, BookMarked, BookOpen, Clock, Star } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 
-import {
-  createClient,
-  getCachedPermissions,
-} from "@/lib/supabase/server";
+import { getCachedPermissions } from "@/lib/supabase/server";
 import { listRecentKbPages } from "@/lib/knowledge/pages";
 import { listMyKbFavorites } from "@/lib/knowledge/favorites";
 import {
@@ -39,26 +36,18 @@ export default async function KnowledgeLandingPage() {
   const perms = new Set(await getCachedPermissions());
   const canCreate = perms.has("kb.create_pages");
 
-  const supabase = await createClient();
   const [
     { rows: recentTeam },
     { pages: favorites },
-    { rows: requiredUnread },
+    { rows: requiredUnread, total: requiredTotal },
     { rows: recentlyViewed },
-    requiredCountRes,
   ] = await Promise.all([
     listRecentKbPages(8),
     listMyKbFavorites(),
     getKbRequiredUnreadForUser(),
     getMyRecentlyViewedKbPages(7),
-    supabase
-      .from("kb_pages")
-      .select("id", { count: "exact", head: true })
-      .eq("required_reading", true)
-      .is("deleted_at", null),
   ]);
 
-  const requiredTotal = requiredCountRes.count ?? 0;
   const readCount = Math.max(0, requiredTotal - requiredUnread.length);
   const progressPct =
     requiredTotal > 0 ? Math.round((readCount / requiredTotal) * 100) : 0;

@@ -7,7 +7,7 @@ import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { ProfilePageFrame } from "@/components/shared/page-frame";
 import { TablePageHeader } from "@/components/shared/table/table-page-header";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
-import { getKbPageBySlug } from "@/lib/knowledge/pages";
+import { getKbPageBySlugCached } from "@/lib/knowledge/page-by-slug";
 import {
   getKbRequiredReadingStats,
   type KbRequiredReadingStatsRow,
@@ -38,7 +38,7 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const { row } = await getKbPageBySlug(slug);
+  const { row } = await getKbPageBySlugCached(slug);
   return { title: `Кто прочитал — ${row?.title?.trim() || "Без названия"}` };
 }
 
@@ -52,7 +52,7 @@ export default async function KbRequiredReadingAdminPage({
   const can = await getCachedPermissionChecker();
   if (!can("kb.manage_required_reading")) redirect(`/knowledge/${slug}`);
 
-  const { row: page, error: pageError } = await getKbPageBySlug(slug);
+  const { row: page, error: pageError } = await getKbPageBySlugCached(slug);
   if (pageError || !page) notFound();
 
   const { rows, error } = await getKbRequiredReadingStats(page.id);

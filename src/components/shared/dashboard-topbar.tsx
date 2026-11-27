@@ -42,7 +42,8 @@ export function DashboardTopbar({
         "flex h-14 items-center gap-2 px-6",
         // В документе действия страницы (⋯, «Сохранено») нужны и в конце
         // длинного текста — в базе плашка прилипает к верху.
-        inKnowledge && "sticky top-0 z-30",
+        // Под баннером режима просмотра (он fixed сверху) — с его отступом.
+        inKnowledge && "sticky top-[var(--impersonation-offset,0px)] z-30",
       )}
     >
       <SidebarTrigger className="md:hidden" />

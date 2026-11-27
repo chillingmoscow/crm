@@ -1,7 +1,6 @@
 import "server-only";
 import { cache } from "react";
 
-import { createClient } from "@/lib/supabase/server";
 import { getKbRequiredUnreadForUser } from "@/lib/knowledge/landing";
 
 /**
@@ -15,15 +14,7 @@ import { getKbRequiredUnreadForUser } from "@/lib/knowledge/landing";
  */
 export const getKbRequiredReadingSummary = cache(
   async (): Promise<{ total: number; unread: number }> => {
-    const supabase = await createClient();
-    const [countRes, { rows }] = await Promise.all([
-      supabase
-        .from("kb_pages")
-        .select("id", { count: "exact", head: true })
-        .eq("required_reading", true)
-        .is("deleted_at", null),
-      getKbRequiredUnreadForUser(),
-    ]);
-    return { total: countRes.count ?? 0, unread: rows.length };
+    const { rows, total } = await getKbRequiredUnreadForUser();
+    return { total, unread: rows.length };
   },
 );

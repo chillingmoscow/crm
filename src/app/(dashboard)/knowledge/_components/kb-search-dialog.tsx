@@ -95,7 +95,10 @@ export function KbSearchProvider({ children, aiAskEnabled = false }: KbSearchPro
       // e.code — та же клавиша в русской раскладке (там e.key — «л»).
       if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === "k" || e.code === "KeyK")) {
         // Поверх другого окна (палитра из кнопки поиска, панель) не
-        // открываемся; своё окно ⌘K закрывает.
+        // открываемся; своё окно ⌘K закрывает. Если палитра только что
+        // закрылась этим же нажатием (она слушает раньше и уже вызвала
+        // preventDefault), поиск базы не открываем.
+        if (e.defaultPrevented) return;
         if (anotherDialogOpen("data-kb-search")) return;
         e.preventDefault();
         setOpen((prev) => !prev);
@@ -432,20 +435,20 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
               Искать во всём приложении
             </button>
             <div className="flex-1" />
-          <div aria-hidden="true" className="flex items-center gap-4">
-            <span className="inline-flex items-center gap-1.5">
-              <kbd className="inline-flex items-center rounded border bg-background px-1 py-0.5 text-[10px]">↑↓</kbd>
-              навигация
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <kbd className="inline-flex items-center rounded border bg-background px-1 py-0.5 text-[10px]">⏎</kbd>
-              открыть
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <kbd className="inline-flex items-center rounded border bg-background px-1 py-0.5 text-[10px]">Esc</kbd>
-              закрыть
-            </span>
-          </div>
+            <div aria-hidden="true" className="flex items-center gap-4">
+              <span className="inline-flex items-center gap-1.5">
+                <kbd className="inline-flex items-center rounded-sm border bg-background px-1 py-0.5 text-xs">↑↓</kbd>
+                навигация
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <kbd className="inline-flex items-center rounded-sm border bg-background px-1 py-0.5 text-xs">⏎</kbd>
+                открыть
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <kbd className="inline-flex items-center rounded-sm border bg-background px-1 py-0.5 text-xs">Esc</kbd>
+                закрыть
+              </span>
+            </div>
           </div>
         </Command>
       </DialogContent>

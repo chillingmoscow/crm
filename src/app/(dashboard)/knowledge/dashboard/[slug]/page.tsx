@@ -7,7 +7,7 @@ import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { PageFrame } from "@/components/shared/page-frame";
 import { TablePageHeader } from "@/components/shared/table/table-page-header";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
-import { getKbPageBySlug } from "@/lib/knowledge/pages";
+import { getKbPageBySlugCached } from "@/lib/knowledge/page-by-slug";
 import {
   getKbAnalyticsPageViewers,
   type KbAnalyticsPeriod,
@@ -35,7 +35,7 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const { row } = await getKbPageBySlug(slug);
+  const { row } = await getKbPageBySlugCached(slug);
   return { title: `Статистика — ${row?.title?.trim() || "Без названия"}` };
 }
 
@@ -57,7 +57,7 @@ export default async function KbDashboardPageDrilldown({
   const can = await getCachedPermissionChecker();
   if (!can("kb.view_analytics")) redirect("/knowledge");
 
-  const { row: page, error: pageError } = await getKbPageBySlug(slug);
+  const { row: page, error: pageError } = await getKbPageBySlugCached(slug);
   if (pageError || !page) notFound();
 
   const { rows: viewers, error: viewersError } =
@@ -81,9 +81,6 @@ export default async function KbDashboardPageDrilldown({
               </span>
             }
           />
-          <p className="-mt-2 text-sm text-muted-foreground">
-            Кто и сколько времени читал страницу {PERIOD_LABEL[period]}
-          </p>
 
           {viewersError && (
             <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
@@ -94,7 +91,7 @@ export default async function KbDashboardPageDrilldown({
           <section className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
             <div className="flex items-baseline justify-between">
               <h2 className="text-sm font-semibold text-foreground">
-                Читавшие
+                Читавшие {PERIOD_LABEL[period]}
               </h2>
               <span className="text-xs text-muted-foreground">
                 {viewers.length}{" "}

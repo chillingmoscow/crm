@@ -92,7 +92,8 @@ export function KbSidebarShell({
     return (
       <aside
         aria-label="Дерево страниц"
-        className="hidden md:flex sticky top-0 h-svh shrink-0
+        className="hidden md:flex sticky top-[var(--impersonation-offset,0px)]
+                   h-[calc(100svh_-_var(--impersonation-offset,0px))] shrink-0
                    flex-col border-r bg-sidebar"
       >
         <KbSidebarResizer initialWidth={sidebarInitialWidth}>

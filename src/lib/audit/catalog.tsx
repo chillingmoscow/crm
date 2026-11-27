@@ -199,6 +199,11 @@ export const catalogAuditSpecs: Record<string, AuditEventSpec> = {
       удалил(а) акт инвентаризации{" "}
       <strong className="font-medium">{documentLabel(e)}</strong>
       {e.details.store_title ? ` · ${String(e.details.store_title)}` : ""}
+      {e.details.quickresto === "deleted"
+        ? " · и в Quick Resto"
+        : e.details.quickresto === "unprocessed_and_deleted"
+          ? " · с отменой проведения, и в Quick Resto"
+          : ""}
     </>
   )),
   "inventory.document_date_updated": spec(

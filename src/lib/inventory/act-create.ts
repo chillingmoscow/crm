@@ -11,6 +11,8 @@
 // Pure-модуль без импортов из `@/...`: его читает node:test напрямую, а
 // используют и серверное действие, и боковая панель.
 
+import { isCalendarDay, isClockTime } from "./act-date.ts";
+
 export type CreateActNomenclatureKind = "ingredient" | "dish" | "semi_finished" | "modifier" | "product";
 
 export type CreateActGroup = {
@@ -168,6 +170,87 @@ export function pendingActItems(items: readonly ActItemPlan[], existingKeys: Rea
   return items.filter((item) => !existingKeys.has(item.key));
 }
 
+/**
+ * Паузы после отказа Quick Resto по частоте запросов (429), по порядку. Темп
+ * самих запросов задаёт очередь клиента; это запас на случай, когда лимит
+ * съел кто-то ещё (синхронизация, второй пользователь).
+ */
+export const CREATE_ACT_RATE_LIMIT_PAUSES_MS: readonly number[] = [5_000, 10_000, 20_000, 30_000];
+
+/**
+ * Положить позиции в акт по одной. После 429 — пауза и сверка с тем, что
+ * реально лежит в акте: создание позиции не повторяем вслепую, чтобы не
+ * положить её дважды. Другая ошибка (или кончились паузы) — стоп, `failure`.
+ */
+export async function addActItems(input: {
+  items: readonly ActItemPlan[];
+  existingKeys: ReadonlySet<string>;
+  add: (item: ActItemPlan) => Promise<void>;
+  readKeys: () => Promise<Set<string>>;
+  isRateLimit: (error: unknown) => boolean;
+  sleep: (ms: number) => Promise<void>;
+  pausesMs?: readonly number[];
+  /** Сколько позиций плана уже в акте — для хода создания. */
+  onProgress?: (inAct: number) => void | Promise<void>;
+  /**
+   * Пора отпустить задание (кончилось время тика, аренду перехватили) —
+   * остановиться без ошибки. `waitMs` — сколько ещё собираемся ждать (пауза
+   * после 429): если ожидание не помещается в тик, лучше отпустить сейчас.
+   */
+  shouldStop?: (waitMs?: number) => boolean;
+}): Promise<{ present: Set<string>; added: number; failure: unknown; inAct: number; stopped: boolean }> {
+  const pauses = input.pausesMs ?? CREATE_ACT_RATE_LIMIT_PAUSES_MS;
+  let present = new Set(input.existingKeys);
+  let queue = pendingActItems(input.items, present);
+  let added = 0;
+  let failure: unknown = null;
+  let pause = 0;
+  let index = 0;
+  let stopped = false;
+  const report = () => input.onProgress?.(input.items.length - queue.length + index);
+  await report();
+  for (; index < queue.length; ) {
+    if (input.shouldStop?.()) {
+      stopped = true;
+      break;
+    }
+    const item = queue[index];
+    try {
+      await input.add(item);
+      present.add(item.key);
+      added += 1;
+      index += 1;
+      await report();
+    } catch (error) {
+      if (!input.isRateLimit(error) || pause >= pauses.length) {
+        failure = error;
+        break;
+      }
+      if (input.shouldStop?.(pauses[pause])) {
+        stopped = true;
+        break;
+      }
+      await input.sleep(pauses[pause]);
+      pause += 1;
+      try {
+        present = await input.readKeys();
+      } catch (readError) {
+        failure = readError;
+        break;
+      }
+      queue = pendingActItems(input.items, present);
+      index = 0;
+      await report();
+      if (input.shouldStop?.()) {
+        stopped = true;
+        break;
+      }
+    }
+  }
+  const inAct = input.items.filter((item) => present.has(item.key)).length;
+  return { present, added, failure, inAct, stopped };
+}
+
 /** Комментарий акта по умолчанию — названия выбранных групп, как разделы у CHILLING. */
 export function defaultActComment(groupNames: readonly string[]): string {
   const text = groupNames.map((name) => name.trim()).filter(Boolean).join(" / ");
@@ -177,8 +260,10 @@ export function defaultActComment(groupNames: readonly string[]): string {
 export type CreateActInput = {
   attemptId: string;
   storeId: string;
-  /** YYYY-MM-DD */
+  /** YYYY-MM-DD — день в поясе заведения. */
   date: string;
+  /** HH:mm — время акта в поясе заведения: на этот момент Quick Resto считает расчётный остаток. */
+  time: string;
   groupIds: string[];
   comment: string;
   assignedTo: string | null;
@@ -195,9 +280,8 @@ export function isUuid(value: unknown): value is string {
 export function validateCreateActInput(input: CreateActInput): string | null {
   if (!isUuid(input.attemptId)) return "Обновите страницу и попробуйте ещё раз.";
   if (!isUuid(input.storeId)) return "Выберите склад.";
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || Number.isNaN(Date.parse(`${input.date}T09:00:00.000Z`))) {
-    return "Укажите дату акта.";
-  }
+  if (!isCalendarDay(input.date)) return "Укажите дату акта.";
+  if (!isClockTime(input.time)) return "Укажите время акта в формате ЧЧ:ММ.";
   if (input.groupIds.length === 0) return "Выберите хотя бы одну группу.";
   if (input.groupIds.some((id) => !isUuid(id))) return "Обновите страницу и выберите группы заново.";
   if (input.comment.trim().length > CREATE_ACT_COMMENT_MAX) {
@@ -209,11 +293,6 @@ export function validateCreateActInput(input: CreateActInput): string | null {
     return "Исполнитель и проверяющий должны быть разными людьми";
   }
   return null;
-}
-
-/** Время акта для Quick Resto: 09:00 UTC — безопасная точка внутри суток заведения. */
-export function actInvoiceDateMs(date: string): number {
-  return Date.parse(`${date}T09:00:00.000Z`);
 }
 
 export type CreateActGroupNode = CreateActGroup & {
@@ -268,6 +347,82 @@ export function buildGroupTree(input: {
     }
   };
   walk(null, 0);
+  return out;
+}
+
+export type CreateActGroupRow = {
+  node: CreateActGroupNode;
+  hasChildren: boolean;
+  open: boolean;
+};
+
+/**
+ * Строки дерева групп для панели: подгруппы видны, когда группа раскрыта.
+ * При поиске видны найденные группы и их родители (родители раскрыты сами);
+ * подгруппы найденной группы — по раскрытию, как без поиска.
+ *
+ * `nodes` — результат buildGroupTree (порядок обхода: родитель перед детьми).
+ */
+export function groupTreeRows(input: {
+  nodes: readonly CreateActGroupNode[];
+  expanded: ReadonlySet<string>;
+  query: string;
+}): CreateActGroupRow[] {
+  const ids = new Set(input.nodes.map((node) => node.id));
+  const parentOf = (node: CreateActGroupNode) => (node.parentId && ids.has(node.parentId) ? node.parentId : null);
+  const hasChildren = new Set<string>();
+  for (const node of input.nodes) {
+    const parent = parentOf(node);
+    if (parent) hasChildren.add(parent);
+  }
+
+  const query = input.query.trim().toLocaleLowerCase("ru");
+  const matches = new Set<string>();
+  const forcedOpen = new Set<string>();
+  if (query) {
+    const byId = new Map(input.nodes.map((node) => [node.id, node]));
+    for (const node of input.nodes) {
+      if (!node.name.toLocaleLowerCase("ru").includes(query)) continue;
+      matches.add(node.id);
+      let parent = parentOf(node);
+      while (parent && !forcedOpen.has(parent)) {
+        forcedOpen.add(parent);
+        const parentNode = byId.get(parent);
+        parent = parentNode ? parentOf(parentNode) : null;
+      }
+    }
+  }
+
+  const isOpen = (id: string) => hasChildren.has(id) && (forcedOpen.has(id) || input.expanded.has(id));
+  const shown = new Set<string>();
+  const underMatch = new Set<string>();
+  const rows: CreateActGroupRow[] = [];
+  for (const node of input.nodes) {
+    const parent = parentOf(node);
+    if (parent && (!shown.has(parent) || !isOpen(parent))) continue;
+    if (matches.has(node.id) || (parent && underMatch.has(parent))) underMatch.add(node.id);
+    const visible = !query || matches.has(node.id) || forcedOpen.has(node.id) || (parent !== null && underMatch.has(parent));
+    if (!visible) continue;
+    shown.add(node.id);
+    rows.push({ node, hasChildren: hasChildren.has(node.id), open: isOpen(node.id) });
+  }
+  return rows;
+}
+
+/** Группы, у которых выбрана какая-то подгруппа, — для «частичной» галочки свёрнутого родителя. */
+export function groupsWithSelectedDescendants(
+  groups: readonly CreateActGroup[],
+  selectedIds: readonly string[],
+): Set<string> {
+  const byId = new Map(groups.map((group) => [group.id, group]));
+  const out = new Set<string>();
+  for (const id of selectedIds) {
+    let parent = byId.get(id)?.parentId ?? null;
+    while (parent && byId.has(parent) && !out.has(parent)) {
+      out.add(parent);
+      parent = byId.get(parent)?.parentId ?? null;
+    }
+  }
   return out;
 }
 

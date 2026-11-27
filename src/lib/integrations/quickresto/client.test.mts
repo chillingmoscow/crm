@@ -9,6 +9,7 @@ import {
   readInventoryDocument,
   updateInventoryItemBackOffice,
   callQuickRestoBackOfficeData,
+  createInventoryItemBackOffice,
   QuickRestoRateLimitError,
 } from "./client.ts";
 
@@ -29,6 +30,24 @@ test("inventory item update retries a rejected 429 with the same absolute quanti
   assert.equal(result.actualAmount, 1.6);
   assert.equal(bodies.length, 2);
   assert.equal(bodies[0], bodies[1]);
+});
+
+test("inventory item creates are spaced so nginx does not answer 429", async (t) => {
+  const times: number[] = [];
+  t.mock.method(globalThis, "fetch", () => {
+    times.push(Date.now());
+    return Promise.resolve(Response.json({ id: times.length }));
+  });
+  for (let index = 0; index < 3; index += 1) {
+    await createInventoryItemBackOffice({
+      layerName: "paced-create", authorization: "Bearer hidden", documentId: 7,
+      sample: { product: { id: index } } as never,
+    });
+  }
+  assert.equal(times.length, 3);
+  for (let index = 1; index < times.length; index += 1) {
+    assert.ok(times[index] - times[index - 1] >= 290, `gap ${times[index] - times[index - 1]} ms`);
+  }
 });
 
 test("public inventory read recovers from nginx 429", async (t) => {

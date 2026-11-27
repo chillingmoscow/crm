@@ -484,6 +484,8 @@ export async function splitDocumentForRecount(input: {
             authorization,
             storeId: externalStoreId,
             invoiceDate,
+            // Как было до явного параметра: пояс процесса (на проде UTC).
+            timeZoneOffset: new Date().getTimezoneOffset(),
             comment: `Пересчёт по акту ${document.document_number}`,
           }),
       });

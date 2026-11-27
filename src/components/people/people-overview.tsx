@@ -2,6 +2,7 @@
 import { useEffect, useId, useState } from "react";
 import { ChevronUp, Info, RotateCcw } from "lucide-react";
 import { getPeopleOverview } from "@/app/(dashboard)/people/overview-actions";
+import { OVERVIEW_KEYS } from "@/lib/ui/overview-pref";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -380,11 +381,11 @@ export function usePeopleOverview(
   kind: OverviewKind,
   scopeId: string,
   revision = "",
+  /** Выбор «Обзора» из cookie (сервер, `readOverviewOpen`). */
+  initialOpen?: boolean,
 ) {
   const id = useId();
-  const [open, setOpen, known] = useOverviewOpen(
-    kind === "staff" ? "people.overview.staff" : "people.overview.candidates",
-  );
+  const [open, setOpen, known] = useOverviewOpen(kind === "staff" ? OVERVIEW_KEYS.staff : OVERVIEW_KEYS.candidates, initialOpen);
   const [period, setPeriod] = useState<string | null>(null),
     [refresh, setRefresh] = useState(0);
   const [data, setData] = useState<PeopleOverviewData | null>(null),

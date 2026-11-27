@@ -54,3 +54,28 @@ test("two shifts that working day and no overlap: the mark is not guessed", () =
   assert.equal(items[0].shift_id, null);
   assert.equal(items[0].status, "unplanned");
 });
+
+test("a mark hours before the only shift is not taken as early arrival", () => {
+  // Утром 07:00–12:00, смена в 17:30 — это не «пришёл раньше».
+  const { items } = reconcileAttendance(
+    [clock(1, "2026-11-25T04:00:00.000Z", "2026-11-25T09:00:00.000Z")], [staff], [shift()], date, tz, hour);
+  assert.equal(items[0].shift_id, null);
+  assert.equal(items[0].status, "unplanned");
+});
+
+test("after converting a casual, past shifts on the payroll record still use Quick Resto marks", () => {
+  // Смена разового на записи зарплаты; после перевода casual=false, учётная запись есть.
+  const converted = { ...staff, casual: false, local_user_id: "u" } as PayEmployee;
+  const past = shift({ user_id: null, payroll_employee_id: "e", payroll_model_id: "m" });
+  const { items } = reconcileAttendance(
+    [clock(1, "2026-11-25T15:10:00.000Z", "2026-11-26T00:00:00.000Z")], [converted], [past], date, tz, hour);
+  // Отметка кассы — факт смены (опоздание видно), а не плановая запись графика.
+  assert.deepEqual(items.map((i) => [i.external_id, i.shift_id]), [[1, "s"]]);
+});
+
+test("a converted employee with the schedule source: payroll shifts go by the schedule", () => {
+  const bySchedule = { ...staff, casual: false, attendance_source: "schedule" } as PayEmployee;
+  const past = shift({ user_id: null, payroll_employee_id: "e", payroll_model_id: "m" });
+  const { items } = reconcileAttendance([], [bySchedule], [past], date, tz, hour);
+  assert.deepEqual(items.map((i) => [i.external_id, i.shift_id]), [[-7, "s"]]);
+});

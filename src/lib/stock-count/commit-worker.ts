@@ -47,6 +47,7 @@ import {
   type QuickRestoInventoryItem2,
 } from "@/lib/integrations/quickresto/client";
 import { loadTelegramBot } from "@/lib/integrations/telegram-bot";
+import { backOfficeTimeZoneParam } from "@/lib/inventory/act-date";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
 import {
@@ -295,6 +296,7 @@ async function commitSteps(ctx: Ctx): Promise<void> {
   }
 
   const storeExternalId = await loadStoreExternalId(db, accountId, config.storeId);
+  const timeZone = (await venueTimeZone(db, commit.venue_id)) ?? DEFAULT_TIME_ZONE;
   const lines = await loadSectionLines(db, accountId, config, netKg);
   const wanted: WantedLine[] = lines.map((line) => ({ externalProductId: line.externalProductId, kg: line.kg }));
   const nameOf = (productId: number) =>
@@ -364,6 +366,9 @@ async function commitSteps(ctx: Ctx): Promise<void> {
             authorization,
             storeId: storeExternalId,
             invoiceDate: invoiceDateMs,
+            // Пояс заведения: с поясом сервера (UTC) Quick Resto сдвинул бы
+            // дату акта на 3 часа раньше, а расчётный остаток берётся на неё.
+            timeZoneOffset: backOfficeTimeZoneParam(invoiceDateMs, timeZone),
             comment: `${employeeName} · ${marker}`,
           }),
       });
@@ -1012,6 +1017,17 @@ async function failCommit(input: {
 }
 
 /** Пользователи заведения с правом проверять задачи — им сообщаем об ошибке проведения. */
+const DEFAULT_TIME_ZONE = "Europe/Moscow";
+
+async function venueTimeZone(db: LooseDb, venueId: string): Promise<string | null> {
+  const { data } = await db
+    .from<{ timezone: string | null }>("venues")
+    .select("timezone")
+    .eq("id", venueId)
+    .maybeSingle();
+  return data?.timezone ?? null;
+}
+
 async function reviewerIds(db: LooseDb, venueId: string): Promise<string[]> {
   const perm = await db.from<Array<{ id: string }>>("permissions").select("id").eq("code", "schedule.review");
   if (perm.error) throw new Error(perm.error.message);

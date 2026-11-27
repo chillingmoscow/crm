@@ -64,14 +64,17 @@ export function CandidatesClient({
   accountId,
   options,
   permissions,
+  initialOverviewOpen,
 }: {
   initialList: CandidatePage;
   preferenceKey: string;
   accountId: string;
   options: HiringOptions;
   permissions: CandidatePermissions;
+  /** Выбор «Обзора» из cookie — сервер рисует его сразу в нужном состоянии. */
+  initialOverviewOpen?: boolean;
 }) {
-  const overview = usePeopleOverview("candidates", accountId);
+  const overview = usePeopleOverview("candidates", accountId, "", initialOverviewOpen);
   // Вид списка — таблица или доска по этапам; выбор помнится в этом браузере.
   const viewKey = `candidates.view.${preferenceKey}`;
   // null — выбор ещё не прочитан: список не рисуем, чтобы при выбранной доске

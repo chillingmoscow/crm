@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Search, Undo2 } from "lucide-react";
+import { ChevronRight, Loader2, Search, Undo2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { DrawerSection } from "@/components/ui/drawer-blocks";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { TimeInput, normalizeTimeInput } from "@/components/ui/time-input";
 import { OptionSelect } from "@/components/ui/option-select";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { cn } from "@/lib/utils";
@@ -28,19 +29,38 @@ import {
   collectGroupSubtree,
   countSelectedItems,
   defaultActComment,
+  groupTreeRows,
+  groupsWithSelectedDescendants,
 } from "@/lib/inventory/act-create";
+import { estimateCreateActSeconds, formatDurationRu } from "@/lib/inventory/act-create-progress";
+import { invoiceDayInZone, invoiceTimeInZone } from "@/lib/inventory/act-date";
 import {
   createInventoryAct,
   loadCreateActOptions,
   type CreateActOptions,
 } from "@/app/(dashboard)/inventory/_actions/create";
-import type { AssigneeOption } from "./assignee-select";
+import { AssigneeAvatar, type AssigneeOption } from "./assignee-select";
 
-function todayLocal(): string {
+/** Сегодня, `YYYY-MM-DD`; с поясом — по часам заведения, без него — браузера. */
+function todayIn(timeZone?: string): string {
+  if (timeZone) {
+    const inZone = invoiceDayInZone(new Date().toISOString(), timeZone);
+    if (inZone) return inZone;
+  }
   const now = new Date();
   const m = String(now.getMonth() + 1).padStart(2, "0");
   const d = String(now.getDate()).padStart(2, "0");
   return `${now.getFullYear()}-${m}-${d}`;
+}
+
+/** Время сейчас, `HH:mm` — по умолчанию акт на момент создания; с поясом — по часам заведения. */
+function nowTime(timeZone?: string): string {
+  if (timeZone) {
+    const inZone = invoiceTimeInZone(new Date().toISOString(), timeZone);
+    if (inZone) return inZone;
+  }
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 }
 
 function newAttemptId(): string {
@@ -48,11 +68,13 @@ function newAttemptId(): string {
 }
 
 /**
- * Панель «Новый акт инвентаризации»: склад, дата, группы каталога, исполнитель
- * и проверяющий. Акт создаётся в Quick Resto и сразу появляется в списке.
+ * Панель «Новый акт инвентаризации»: склад, дата и время, группы каталога,
+ * исполнитель и проверяющий. Панель закрывается, как только акт заведён в
+ * Quick Resto и у нас; позиции добавляются в фоне, ход виден в списке
+ * («Создаётся · N из M»), по готовности приходит уведомление.
  *
  * Id попытки живёт, пока панель открыта: повторное «Создать акт» после сбоя
- * продолжает тот же акт, а не заводит второй (см. createInventoryAct).
+ * связи второй акт не заводит (см. createInventoryAct).
  */
 export function CreateActDrawer({
   open,
@@ -73,13 +95,25 @@ export function CreateActDrawer({
 
   const [attemptId, setAttemptId] = useState(newAttemptId);
   const [storeId, setStoreId] = useState("");
-  const [date, setDate] = useState(todayLocal);
+  const [date, setDate] = useState(() => todayIn());
+  const [time, setTime] = useState(() => nowTime());
+  // Дата и время по умолчанию — «сейчас» по часам заведения склада, пока их
+  // не меняли руками.
+  const [whenTouched, setWhenTouched] = useState(false);
+  // Для загрузки опций: она не должна сбивать уже выбранные дату и время.
+  const whenTouchedRef = useRef(false);
+  whenTouchedRef.current = whenTouched;
+  const applyNow = (timeZone: string) => {
+    setDate(todayIn(timeZone));
+    setTime(nowTime(timeZone));
+  };
   const [selected, setSelected] = useState<string[]>([]);
   const [comment, setComment] = useState("");
   const [commentTouched, setCommentTouched] = useState(false);
   const [assignedTo, setAssignedTo] = useState("");
   const [reviewerId, setReviewerId] = useState("");
   const [query, setQuery] = useState("");
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [pending, setPending] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
@@ -98,9 +132,9 @@ export function CreateActDrawer({
           return;
         }
         setOptions(result.options);
-        setStoreId((current) =>
-          current || (result.options && result.options.stores.length === 1 ? result.options.stores[0].id : ""),
-        );
+        const only = result.options.stores.length === 1 ? result.options.stores[0] : null;
+        setStoreId((current) => current || (only ? only.id : ""));
+        if (only && !whenTouchedRef.current) applyNow(only.timeZone);
       })
       .catch(() => {
         if (!cancelled) setLoadError("Не удалось загрузить данные для нового акта.");
@@ -116,13 +150,16 @@ export function CreateActDrawer({
   const reset = () => {
     setAttemptId(newAttemptId());
     setStoreId("");
-    setDate(todayLocal());
+    setDate(todayIn());
+    setTime(nowTime());
+    setWhenTouched(false);
     setSelected([]);
     setComment("");
     setCommentTouched(false);
     setAssignedTo("");
     setReviewerId("");
     setQuery("");
+    setExpanded(new Set());
     setSaveError(null);
   };
 
@@ -142,6 +179,8 @@ export function CreateActDrawer({
     [groups, counts, selected],
   );
 
+  const estimatedSeconds = estimateCreateActSeconds(itemCount);
+
   const selectedNames = selected
     .map((id) => groupById.get(id)?.name)
     .filter((name): name is string => Boolean(name));
@@ -156,14 +195,28 @@ export function CreateActDrawer({
     ? filterEligibleOptions({ options: staff, eligibility, role: "reviewer", venueIds })
     : staff;
 
-  const normalizedQuery = query.trim().toLocaleLowerCase("ru");
-  const visibleGroups = normalizedQuery
-    ? groups.filter((group) => group.name.toLocaleLowerCase("ru").includes(normalizedQuery))
-    : groups;
+  // Свёрнутое дерево: подгруппы (бренды внутри «Табака» и т. п.) видны по
+  // раскрытию; поиск сам раскрывает родителей найденной группы.
+  const rows = useMemo(() => groupTreeRows({ nodes: groups, expanded, query }), [groups, expanded, query]);
+  const partial = useMemo(() => groupsWithSelectedDescendants(groups, selected), [groups, selected]);
+  const toggleExpanded = (id: string) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const tooMany = itemCount > CREATE_ACT_MAX_ITEMS;
+  const normalizedTime = normalizeTimeInput(time);
   const canSubmit =
-    Boolean(options) && Boolean(storeId) && Boolean(date) && selected.length > 0 && !tooMany && !pending;
+    Boolean(options) &&
+    Boolean(storeId) &&
+    Boolean(date) &&
+    Boolean(normalizedTime) &&
+    selected.length > 0 &&
+    !tooMany &&
+    !pending;
   const dirty = selected.length > 0 || Boolean(assignedTo) || Boolean(reviewerId) || commentTouched;
 
   const close = () => {
@@ -173,14 +226,20 @@ export function CreateActDrawer({
 
   const requestClose = (next: boolean) => {
     if (next) return onOpenChange(true);
-    if (pending) return; // акт создаётся — закрыть нельзя, иначе не увидим результат
+    if (pending) return; // акт заводится в Quick Resto — дождаться ответа
     if (dirty) return setConfirmClose(true);
     close();
   };
 
   const toggle = (id: string, checked: boolean) => {
     setSaveError(null);
-    setSelected((current) => (checked ? [...current, id] : current.filter((value) => value !== id)));
+    setSelected((current) => {
+      if (!checked) return current.filter((value) => value !== id);
+      // Родитель включает подгруппы: отдельно отмеченные подгруппы больше не нужны
+      // (и не попадут в комментарий акта второй раз).
+      const inside = collectGroupSubtree(groups, [id]);
+      return [...current.filter((value) => !inside.has(value)), id];
+    });
   };
 
   const submit = async () => {
@@ -192,6 +251,7 @@ export function CreateActDrawer({
         attemptId,
         storeId,
         date,
+        time: normalizedTime ?? "",
         groupIds: selected,
         comment: effectiveComment,
         assignedTo: assignedTo || null,
@@ -202,10 +262,11 @@ export function CreateActDrawer({
         router.refresh();
         return;
       }
-      const documentId = result.documentId;
-      toast.success("Акт создан", {
-        description: result.warning,
-        action: { label: "Открыть", onClick: () => router.push(`/documents/inventory/${documentId}`) },
+      // Позиции добавляются в фоне: о готовности скажет уведомление.
+      toast.success(`Акт № ${result.number ?? ""} создаётся`, {
+        description:
+          result.warning ??
+          "Позиции добавляются в Quick Resto в фоне — ход виден в списке. Когда всё будет готово, придёт уведомление.",
       });
       close();
       router.refresh();
@@ -217,8 +278,25 @@ export function CreateActDrawer({
   };
 
   const staffOptions = (list: AssigneeOption[], blocked: string) => [
-    { value: "", label: "Не назначен" },
-    ...list.map((person) => ({ value: person.id, label: person.name, disabled: person.id === blocked })),
+    {
+      value: "",
+      label: (
+        <span className="inline-flex items-center gap-2 text-muted-foreground">
+          <UserPlus className="h-4 w-4" />
+          Не назначен
+        </span>
+      ),
+    },
+    ...list.map((person) => ({
+      value: person.id,
+      label: (
+        <span className="inline-flex min-w-0 items-center gap-2">
+          <AssigneeAvatar name={person.name} src={person.avatarUrl} />
+          <span className="truncate">{person.name}</span>
+        </span>
+      ),
+      disabled: person.id === blocked,
+    })),
   ];
 
   return (
@@ -227,7 +305,7 @@ export function CreateActDrawer({
         open={open}
         onOpenChange={requestClose}
         title="Новый акт инвентаризации"
-        description="Акт появится в Quick Resto и сразу в этом списке"
+        description="Акт появится в Quick Resto и сразу в этом списке, позиции добавятся в фоне"
         footer={
           <>
             <Button variant="outline" onClick={() => requestClose(false)} disabled={pending}>
@@ -270,6 +348,9 @@ export function CreateActDrawer({
                       setStoreId(value);
                       setAssignedTo("");
                       setReviewerId("");
+                      // Дата и время по умолчанию — по часам заведения склада, пока их не меняли.
+                      const zone = options.stores.find((option) => option.id === value)?.timeZone;
+                      if (!whenTouched && zone) applyNow(zone);
                     }}
                     placeholder={options.stores.length === 0 ? "Нет складов" : "Выберите склад"}
                     options={options.stores.map((option) => ({ value: option.id, label: option.title }))}
@@ -277,11 +358,35 @@ export function CreateActDrawer({
                   />
                 )}
               </Field>
-              <Field label="Дата акта" required>
-                {(control) => (
-                  <DatePicker {...control} value={date} onChange={setDate} clearable={false} disabled={pending} />
-                )}
-              </Field>
+              <div className="grid grid-cols-[minmax(0,1fr)_8rem] gap-3">
+                <Field label="Дата акта" required>
+                  {(control) => (
+                    <DatePicker
+                      {...control}
+                      value={date}
+                      onChange={(value) => {
+                        setWhenTouched(true);
+                        setDate(value);
+                      }}
+                      clearable={false}
+                      disabled={pending}
+                    />
+                  )}
+                </Field>
+                <Field label="Время" required>
+                  {(control) => (
+                    <TimeInput
+                      {...control}
+                      value={time}
+                      onChange={(value) => {
+                        setWhenTouched(true);
+                        setTime(value);
+                      }}
+                      disabled={pending}
+                    />
+                  )}
+                </Field>
+              </div>
               <Field label="Комментарий">
                 {(control) => (
                   <Input
@@ -321,41 +426,64 @@ export function CreateActDrawer({
                   </div>
                   <div className="max-h-80 overflow-y-auto rounded-md border border-border py-1">
                     {CREATE_ACT_KINDS.map((kind) => {
-                      const ofKind = visibleGroups.filter((group) => group.kind === kind);
+                      const ofKind = rows.filter((row) => row.node.kind === kind);
                       if (ofKind.length === 0) return null;
                       return (
                         <div key={kind} className="py-1">
                           <p className="px-3 py-1 text-xs font-medium text-muted-foreground">
                             {CREATE_ACT_KIND_LABELS[kind]}
                           </p>
-                          {ofKind.map((group) => {
+                          {ofKind.map(({ node: group, hasChildren, open: isOpen }) => {
                             const isImplied = implied.has(group.id);
-                            const checked = isImplied || selected.includes(group.id);
+                            const isSelected = isImplied || selected.includes(group.id);
+                            const checked = isSelected ? true : partial.has(group.id) ? "indeterminate" : false;
                             return (
-                              <label
+                              <div
                                 key={group.id}
                                 className={cn(
-                                  "flex cursor-pointer items-center gap-2 py-1.5 pr-3 text-sm hover:bg-accent",
-                                  isImplied && "cursor-default text-muted-foreground hover:bg-transparent",
+                                  "flex items-center gap-1 pr-3 text-sm hover:bg-accent",
+                                  isImplied && "text-muted-foreground hover:bg-transparent",
                                 )}
-                                style={{ paddingLeft: 12 + (normalizedQuery ? 0 : group.depth * 20) }}
+                                style={{ paddingLeft: 4 + group.depth * 20 }}
                               >
-                                <Checkbox
-                                  checked={checked}
-                                  disabled={isImplied || pending}
-                                  onCheckedChange={(value) => toggle(group.id, value === true)}
-                                />
-                                <span className="min-w-0 flex-1 truncate">{group.name}</span>
-                                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                                  {group.itemCount}
-                                </span>
-                              </label>
+                                {hasChildren ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleExpanded(group.id)}
+                                    aria-expanded={isOpen}
+                                    aria-label={isOpen ? `Свернуть «${group.name}»` : `Показать подгруппы «${group.name}»`}
+                                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
+                                  >
+                                    <ChevronRight
+                                      className={cn("h-4 w-4 transition-transform duration-200", isOpen && "rotate-90")}
+                                    />
+                                  </button>
+                                ) : (
+                                  <span className="h-7 w-7 shrink-0" aria-hidden="true" />
+                                )}
+                                <label
+                                  className={cn(
+                                    "flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5",
+                                    isImplied && "cursor-default",
+                                  )}
+                                >
+                                  <Checkbox
+                                    checked={checked}
+                                    disabled={isImplied || pending}
+                                    onCheckedChange={(value) => toggle(group.id, value === true)}
+                                  />
+                                  <span className="min-w-0 flex-1 truncate">{group.name}</span>
+                                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                                    {group.itemCount}
+                                  </span>
+                                </label>
+                              </div>
                             );
                           })}
                         </div>
                       );
                     })}
-                    {visibleGroups.length === 0 ? (
+                    {rows.length === 0 ? (
                       <p className="px-3 py-2 text-sm text-muted-foreground">Ничего не нашли</p>
                     ) : null}
                   </div>
@@ -397,9 +525,10 @@ export function CreateActDrawer({
               </Field>
             </DrawerSection>
 
-            {pending ? (
+            {selected.length > 0 && !tooMany ? (
               <p className="text-xs text-muted-foreground">
-                Добавляем позиции в Quick Resto по одной — большой раздел занимает пару минут. Не закрывайте панель.
+                Акт появится в списке сразу, позиции добавятся в фоне примерно за{" "}
+                {formatDurationRu(estimatedSeconds)} — придёт уведомление.
               </p>
             ) : null}
             {saveError ? <p className="text-sm text-destructive">{saveError}</p> : null}
@@ -424,3 +553,4 @@ export function CreateActDrawer({
     </>
   );
 }
+

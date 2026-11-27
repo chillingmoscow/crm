@@ -106,7 +106,7 @@ export function ReviewerSelect({
       >
         {reviewer ? (
           <>
-            <AssigneeAvatar name={reviewer.name} />
+            <AssigneeAvatar name={reviewer.name} src={reviewer.avatarUrl} />
             <span className="truncate text-sm">{reviewer.name}</span>
           </>
         ) : (
@@ -128,7 +128,7 @@ export function ReviewerSelect({
           return (
             <SelectItem key={member.id} value={member.id} disabled={blocked}>
               <span className="inline-flex items-center gap-2">
-                <AssigneeAvatar name={member.name} muted={blocked} />
+                <AssigneeAvatar name={member.name} src={member.avatarUrl} muted={blocked} />
                 <span className="flex flex-col">
                   <span>{member.name}</span>
                   {blocked ? (

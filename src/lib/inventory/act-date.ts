@@ -3,10 +3,10 @@
  * (`YYYY-MM-DD`, его выбирает пользователь) и моментом `invoiceDate`, который
  * хранит Quick Resto.
  *
- * Расчётный остаток в Quick Resto считается на момент `invoiceDate`, поэтому при
- * смене дня время суток акта сохраняем как было: меняется только день. Если
- * исходной даты нет, ставим полдень по времени заведения — так же акт пересчёта
- * создаётся на 12:00 по Москве (см. recount.ts).
+ * Расчётный остаток в Quick Resto считается на момент `invoiceDate`, поэтому
+ * время акта пользователь задаёт вместе с днём (`HH:mm` в поясе заведения).
+ * Если время не передано — сохраняем время суток исходной даты, без исходной —
+ * полдень по времени заведения.
  *
  * Без импортов из `@/...`: node:test импортирует файл напрямую.
  */
@@ -88,23 +88,57 @@ export function invoiceDayInZone(value: string | null | undefined, timeZone: str
   return `${String(w.year).padStart(4, "0")}-${String(w.month).padStart(2, "0")}-${String(w.day).padStart(2, "0")}`;
 }
 
+const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+/** Валидно ли `HH:mm` как время суток. */
+export function isClockTime(value: string): boolean {
+  return TIME_RE.test(value);
+}
+
+/** Время суток момента `value` в поясе заведения: `HH:mm`. */
+export function invoiceTimeInZone(value: string | null | undefined, timeZone: string): string | null {
+  if (!value) return null;
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) return null;
+  const w = wallClock(at, timeZone);
+  return `${String(w.hour).padStart(2, "0")}:${String(w.minute).padStart(2, "0")}`;
+}
+
 /**
- * Новый `invoiceDate` (мс) для дня `day`: время суток берётся из исходной
- * даты акта в поясе заведения, без исходной даты — 12:00.
- * Невалидный день → null.
+ * Дата и время акта в поясе заведения для журнала: `YYYY-MM-DD HH:mm`
+ * (местные часы, без сдвига в пояс читателя).
  */
-export function moveInvoiceDateToDay(input: {
+export function invoiceWallInZone(value: string | null | undefined, timeZone: string): string | null {
+  const day = invoiceDayInZone(value, timeZone);
+  const time = invoiceTimeInZone(value, timeZone);
+  return day && time ? `${day} ${time}` : null;
+}
+
+/**
+ * Новый `invoiceDate` (мс) для дня `day` и времени `time` (`HH:mm`) в поясе
+ * заведения. Без `time` время суток берётся из исходной даты акта, без
+ * исходной — 12:00. Если `time` совпадает с исходным до минуты, секунды
+ * исходной даты сохраняются — тогда неизменённое время не сдвигает акт.
+ * Невалидный день или время → null.
+ */
+export function moveInvoiceDate(input: {
   original: string | null | undefined;
   day: string;
+  time?: string | null;
   timeZone: string;
 }): number | null {
   if (!isCalendarDay(input.day)) return null;
+  if (input.time != null && !isClockTime(input.time)) return null;
   const [y, m, d] = input.day.split("-").map(Number);
   const original = input.original ? new Date(input.original) : null;
-  const time =
-    original && !Number.isNaN(original.getTime())
-      ? wallClock(original, input.timeZone)
-      : { hour: 12, minute: 0, second: 0, millisecond: 0 };
+  const originalWall =
+    original && !Number.isNaN(original.getTime()) ? wallClock(original, input.timeZone) : null;
+  let time = originalWall ?? { hour: 12, minute: 0, second: 0, millisecond: 0 };
+  if (input.time != null) {
+    const [hour, minute] = input.time.split(":").map(Number);
+    const sameMinute = originalWall && originalWall.hour === hour && originalWall.minute === minute;
+    time = sameMinute ? originalWall : { hour, minute, second: 0, millisecond: 0 };
+  }
   return zonedWallToInstant(
     {
       year: y,

@@ -2,6 +2,7 @@
 
 // Форма акта: начало заполнения и отправка факта в Quick Resto.
 
+import { ACT_CREATING_LOCK_REASON } from "@/lib/inventory/act-creation-job";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
@@ -40,7 +41,8 @@ import {
   syncDocumentItems,
   transitionDocumentStatus,
   withBackOfficeSession,
-  writeInventoryResultEvent
+  writeInventoryResultEvent,
+  documentsBeingCreated,
 } from "../actions-shared";
 
 /**
@@ -91,6 +93,7 @@ export async function markInventoryDraftStarted(input: {
     // в QR (архивный).
     if (!document?.id) return { error: null };
     if (document.archived_at) return { error: null };
+    if ((await documentsBeingCreated(admin, ctx.accountId, [document.id])).size > 0) return { error: null };
     const allowed = canFillInventoryAct({
       permissions,
       userId: ctx.user.id,
@@ -188,6 +191,9 @@ export async function submitInventoryDocumentDraft(input: {
   });
   if (!allowed) return { resultsHasLineAmounts: false, error: "Заполнять этот акт может исполнитель, проверяющий или управляющий актами" };
   if (document.processed) return { resultsHasLineAmounts: false, error: "Акт уже проведен в Quick Resto" };
+  if ((await documentsBeingCreated(admin, ctx.accountId, [document.id])).size > 0) {
+    return { resultsHasLineAmounts: false, error: ACT_CREATING_LOCK_REASON };
+  }
   // Заполнение закрыто, когда акт уже ушёл на проверку / финализирован /
   // не синкнулся (статусная машина). recount_pending — НЕ заблокирован
   // (легитимный перерасчёт исполнителем).

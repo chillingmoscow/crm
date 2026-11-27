@@ -8,13 +8,15 @@ import {
 } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { ProfileSection } from "@/components/shared/profile-section";
-import { formatDayMonth, formatDayMonthTime } from "@/lib/format/date";
+import { formatDayMonthTime } from "@/lib/format/date";
 
 import { getCachedStoreTitle, getCachedVenueTimezone } from "../layout";
 import { ActCommentEditor } from "../_components/act-comment-editor";
 import { ActDateEditor } from "../_components/act-date-editor";
-import { getInventoryDateLockReason, invoiceDayInZone } from "@/lib/inventory/act-date";
+import { getInventoryDateLockReason, invoiceDayInZone, invoiceTimeInZone } from "@/lib/inventory/act-date";
 import { hasCountedResults } from "@/lib/inventory/act-status";
+import { ACT_CREATING_LOCK_REASON } from "@/lib/inventory/act-creation-job";
+import { documentsBeingCreated } from "@/app/(dashboard)/inventory/actions-shared";
 import { WeighingBlock } from "../_components/weighing-block";
 
 type DocumentOverviewRow = {
@@ -69,9 +71,11 @@ export default async function InventoryDocumentOverviewPage({
     .maybeSingle();
   if (!document) notFound();
 
-  const [storeTitle, timeZone] = await Promise.all([
+  const [storeTitle, timeZone, creating] = await Promise.all([
     document.store_id ? getCachedStoreTitle(document.store_id) : Promise.resolve(null),
     document.venue_id ? getCachedVenueTimezone(document.venue_id) : Promise.resolve(null),
+    // Пока позиции досылаются в фоне, дату менять нельзя (сервер тоже откажет).
+    accountId ? documentsBeingCreated(admin, accountId, [document.id]) : Promise.resolve(new Set<string>()),
   ]);
   const canEdit =
     !document.archived_at &&
@@ -82,7 +86,7 @@ export default async function InventoryDocumentOverviewPage({
   // Дата акта: менять может управляющий актами, пока акт не проведён.
   // Проведённый (и удалённый в QR) акт — только чтение; у зафиксированных
   // итогов кнопка есть, а диалог объясняет, что сначала их переоткрывают.
-  const dateLockReason = getInventoryDateLockReason(document);
+  const dateLockReason = creating.size > 0 ? ACT_CREATING_LOCK_REASON : getInventoryDateLockReason(document);
   const dateReadOnly =
     !canManage ||
     !document.external_id ||
@@ -113,6 +117,7 @@ export default async function InventoryDocumentOverviewPage({
               documentId={document.id}
               documentNumber={document.document_number}
               currentDay={invoiceDayInZone(document.invoice_date, venueTimeZone)}
+              currentTime={invoiceTimeInZone(document.invoice_date, venueTimeZone)}
               hasEnteredAmounts={hasEnteredAmounts}
               hasResults={hasCountedResults(document.status)}
               restriction={dateLockReason}
@@ -122,9 +127,12 @@ export default async function InventoryDocumentOverviewPage({
       >
         <dl className="grid gap-4 sm:grid-cols-2">
           <Item label="Склад" value={storeTitle} />
-          <Item label="Дата акта" value={formatDayMonth(document.invoice_date, now, timeZone ?? undefined)} />
+          {/* Время акта важно: Quick Resto считает расчётный остаток на этот момент. */}
+          <Item label="Дата акта" value={formatDayMonthTime(document.invoice_date, now, timeZone ?? undefined)} />
+          {/* Когда акт последний раз сохраняли в Quick Resto (`lastUpdateDate`) —
+              не дата акта: прежняя подпись «Изменён в Quick Resto» читалась как она. */}
           <Item
-            label="Изменён в Quick Resto"
+            label="Последнее изменение в Quick Resto"
             value={formatDayMonthTime(document.last_qr_update_date, now, timeZone ?? undefined)}
           />
           {qrComment ? (

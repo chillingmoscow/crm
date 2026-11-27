@@ -32,11 +32,11 @@ export async function getCasualStaff(
   const db = asLooseDb(createAdminClient());
   // Связи должностей с Quick Resto — в той же волне по аккаунту, который знает
   // вызывающий (раньше — отдельный шаг за аккаунтом заведения).
-  const [employees, dismissals, roles, departments, models, links] = await Promise.all([
+  const [employees, dismissals, contacts, roles, departments, models, links] = await Promise.all([
     // Неактивные тоже читаем: среди них уволенные с незакрытым доступом.
     db
-      .from<{ id: string; name: string; role_id: string | null; role_name: string; quickresto_pin: string | null; telegram_id: string | null; active: boolean }[]>("payroll_employees")
-      .select("id,name,role_id,role_name,quickresto_pin,telegram_id,active")
+      .from<{ id: string; name: string; role_id: string | null; role_name: string; quickresto_pin: string | null; active: boolean }[]>("payroll_employees")
+      .select("id,name,role_id,role_name,quickresto_pin,active")
       .eq("venue_id", venueId)
       .eq("casual", true),
     db
@@ -44,6 +44,13 @@ export async function getCasualStaff(
       .select("employee_id,state,error")
       .eq("venue_id", venueId)
       .neq("state", "complete"),
+    // Telegram ID — в служебной таблице (миграция 412): читается только сервером.
+    showContacts
+      ? db
+          .from<{ employee_id: string; telegram_id: string | null }[]>("payroll_casual_contacts")
+          .select("employee_id,telegram_id")
+          .eq("venue_id", venueId)
+      : Promise.resolve({ data: [] as { employee_id: string; telegram_id: string | null }[], error: null }),
     db
       .from<{ id: string; name: string; department_id: string | null }[]>("roles")
       .select("id,name,department_id")
@@ -60,7 +67,8 @@ export async function getCasualStaff(
       .eq("provider", "quickresto")
       .eq("entity_type", "role"),
   ]);
-  for (const r of [employees, dismissals, roles, departments, models, links]) if (r.error) throw new Error(r.error.message);
+  for (const r of [employees, dismissals, contacts, roles, departments, models, links]) if (r.error) throw new Error(r.error.message);
+  const telegramIds = new Map((contacts.data ?? []).map((c) => [c.employee_id, c.telegram_id]));
   const open = new Map((dismissals.data ?? []).map((d) => [d.employee_id, d]));
   const people = (employees.data ?? []).filter((p) => p.active || open.has(p.id));
   const eligible = casualRoleIds(models.data ?? [], (links.data ?? []).map((l) => l.local_id));
@@ -76,7 +84,7 @@ export async function getCasualStaff(
       departmentId: role?.department_id ?? null,
       departmentName: (role?.department_id && departmentName.get(role.department_id)) || null,
       pin: p.quickresto_pin === null ? null : showPins ? p.quickresto_pin : "••••",
-      telegramId: showContacts ? p.telegram_id : null,
+      telegramId: telegramIds.get(p.id) ?? null,
       dismissal: open.has(p.id) ? { state: open.get(p.id)!.state, error: open.get(p.id)!.error } : null,
     };
   });

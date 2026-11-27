@@ -1,3 +1,5 @@
+import { readOverviewOpen } from "@/lib/ui/overview-pref-server";
+import { OVERVIEW_KEYS } from "@/lib/ui/overview-pref";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { loadPayrollOverview } from "@/app/(dashboard)/people/payroll/actions";
@@ -24,13 +26,17 @@ export default async function PayrollPage({
   if (query.tab === "attendance") redirect(`/schedule?date=${month}-01`);
   // Название заведения (для шапки выгрузки ведомости) приходит в том же
   // запросе к venues, что и часовой пояс, — без отдельного шага после обзора.
-  const data = unwrapAction(await loadPayrollOverview(month));
+  const [data, overviewOpen] = await Promise.all([
+    loadPayrollOverview(month).then(unwrapAction),
+    readOverviewOpen(OVERVIEW_KEYS.payroll),
+  ]);
   return (
     <PayrollWorkspace
       key={`${data.venueId}:${month}`}
       data={data}
       initialMonth={month}
       venueName={data.venueName ?? null}
+      initialOverviewOpen={overviewOpen}
     />
   );
 }

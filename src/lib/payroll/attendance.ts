@@ -42,13 +42,22 @@ export function reconcileBoundaryClocks(
   }
   return { unresolved, countable };
 }
+/** Насколько отметка может отстоять от единственной смены дня, чтобы считаться ею. */
+const SAME_DAY_GAP = 4 * 3_600_000;
 export function attendanceRuleAtDate(rules:AttendanceRule[],employeeId:string,date:string) {
  return rules.filter(r=>r.employee_id===employeeId&&r.valid_from<=date).sort((a,b)=>b.valid_from.localeCompare(a.valid_from)||b.created_at.localeCompare(a.created_at)||b.id.localeCompare(a.id))[0]??null;
 }
 // A casual worker with a personal Quick Resto code clocks in like staff: the
 // mark is the fact, the schedule is only a fallback when there is no mark.
-export function casualWithQuickResto(e:PayEmployee|undefined) {
- return !!e?.casual&&e.quickresto_id!==null&&e.attendance_source!=="excluded";
+// Смены на записи зарплаты (`payroll_employee_id`) бывают у разового и у
+// того, кого перевели из разовых в штат: прошлые смены остаются на записи
+// (миграция 396), а признак «разовый» снят. Факт по ним, как и раньше, даёт
+// отметка кассы — иначе пересчёт дня после перевода засчитывал бы их по
+// графику и терял реальные часы и опоздания. Штатный с источником «график»
+// — по графику.
+export function clocksOnPayrollShifts(e:PayEmployee|undefined) {
+ if(!e||e.quickresto_id===null||e.attendance_source==="excluded")return false;
+ return e.casual||e.attendance_source!=="schedule";
 }
 // The employee a shift belongs to in payroll, regardless of the fact source.
 function shiftEmployee(shift:Shift,employees:PayEmployee[]) {
@@ -56,7 +65,7 @@ function shiftEmployee(shift:Shift,employees:PayEmployee[]) {
 }
 // The employee whose fact for this shift comes from the published schedule.
 function plannedEmployee(shift:Shift,employees:PayEmployee[]) {
- return shift.payroll_employee_id?employees.find(e=>e.id===shift.payroll_employee_id&&e.attendance_source!=="excluded"&&!casualWithQuickResto(e)):employees.find(e=>e.local_user_id&&e.local_user_id===shift.user_id&&e.attendance_source==="schedule");
+ return shift.payroll_employee_id?employees.find(e=>e.id===shift.payroll_employee_id&&e.attendance_source!=="excluded"&&!clocksOnPayrollShifts(e)):employees.find(e=>e.local_user_id&&e.local_user_id===shift.user_id&&e.attendance_source==="schedule");
 }
 function scheduledAttendance(shift: Shift, employee: PayEmployee | undefined, date: string): AttendanceDraft {
   if (!Number.isSafeInteger(shift.payroll_fact_id) || shift.payroll_fact_id! >= 0)
@@ -106,11 +115,14 @@ export function reconcileAttendance(
       const e = employees.find(
         (e) => Number(e.quickresto_id) === Number(r.owner?.id),
       );
-      const own = e?.local_user_id || casualWithQuickResto(e)
+      // Свои смены: на учётной записи и — у разового или бывшего разового —
+      // на записи зарплаты.
+      const own = e
         ? shifts.filter(
             (s) =>
-              (casualWithQuickResto(e) ? s.payroll_employee_id === e!.id : s.user_id === e!.local_user_id) &&
-              s.published,
+              s.published &&
+              ((clocksOnPayrollShifts(e) && s.payroll_employee_id === e.id) ||
+                (!!e.local_user_id && s.user_id === e.local_user_id)),
           )
         : [];
       const overlapping = own.filter(
@@ -121,10 +133,15 @@ export function reconcileAttendance(
       // Пришёл раньше смены или открыл личную смену ещё раз после закрытия:
       // отметка не пересекается со сменой, но это тот же рабочий день и
       // единственная смена сотрудника в нём — значит, она и есть.
+      // Не дальше SAME_DAY_GAP от смены: утренняя отметка при вечерней смене —
+      // не «пришёл раньше», её разбирает управляющий.
+      const clockEnd = r.endTime ?? r.startTime;
       const sameDay = overlapping.length
         ? []
         : own.filter((s) => businessDate(new Date(s.starts_at), timezone, hour) === date);
-      const candidates = overlapping.length ? overlapping : sameDay.length === 1 ? sameDay : [];
+      const near = (s: Shift) =>
+        clockEnd >= Date.parse(s.starts_at) - SAME_DAY_GAP && r.startTime <= Date.parse(s.ends_at) + SAME_DAY_GAP;
+      const candidates = overlapping.length ? overlapping : sameDay.length === 1 && near(sameDay[0]) ? sameDay : [];
       const shift = candidates.length === 1 ? candidates[0] : null;
       if (shift) matched.add(shift.id);
       let status: Attendance["status"] = "confirmed",
@@ -174,7 +191,7 @@ export function reconcileAttendance(
           (s) => {
             const owner = shiftEmployee(s, employees);
             return s.published &&
-            (s.payroll_employee_id ? casualWithQuickResto(owner) : !!s.user_id &&
+            (s.payroll_employee_id ? clocksOnPayrollShifts(owner) : !!s.user_id &&
               !employees.some(e=>e.local_user_id===s.user_id&&(e.attendance_source==="schedule"||e.attendance_source==="excluded"))) &&
             Date.parse(s.ends_at) <= Date.now() &&
             !matched.has(s.id) &&
@@ -262,7 +279,7 @@ export function applyScheduleReviews(
     const reviewedExclusion = previousFact?.status === "ignored" && !!previousFact.reviewed_by;
     // A casual worker without a mark is still paid by the schedule, as before
     // the worker had a Quick Resto code.
-    const automatic = casualWithQuickResto(employee)
+    const automatic = shift.payroll_employee_id && clocksOnPayrollShifts(employee)
       ? !hasQuickResto
       : fallbackFrom && Date.parse(shift.starts_at) >= Date.parse(fallbackFrom) &&
         (employee?.active || previousFact?.status === "confirmed") && !hasQuickResto;

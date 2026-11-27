@@ -4,6 +4,8 @@
  * мог импортировать напрямую (тест-раннер не резолвит alias из tsconfig).
  */
 
+import type { ActCreationJobStatus } from "./act-creation-job";
+
 export type DocumentSortMode =
   | "date_desc"
   | "date_asc"
@@ -123,6 +125,9 @@ export type DocumentListRow = {
   qr_surplus_sum?: number | null;
   /** Управленческий итог посчитать не удалось — показываем прочерк, а не 0 ₽. */
   totals_unavailable?: boolean;
+  /** Акт из Sheerly, в который ещё досылаются позиции (миграция 411). Не из
+      RPC — дозагружается в list-documents.ts; null — создание завершено. */
+  creation?: ActCreationJobStatus | null;
 };
 
 export type ListDocumentsResult = {

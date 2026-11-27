@@ -24,21 +24,29 @@ async function employeeIds(venueId: string, userId: string): Promise<string[]> {
   return (data ?? []).map((e) => e.id);
 }
 
-/** Опубликованные смены сотрудника, начавшиеся в окне `[from, to)`. */
+/**
+ * Опубликованные смены сотрудника, начавшиеся в окне `[from, to)`. Смены, на
+ * которые человек выходил разовым до перевода в штат, стоят на его записи в
+ * зарплате (`payroll_employee_id`), а не на учётной записи — считаем и их.
+ */
 async function publishedShifts(
   venueId: string,
   userId: string,
+  employeeIds: string[],
   from: number,
   to: number,
 ): Promise<ShiftRow[]> {
   const db = asLooseDb(createAdminClient());
+  const owner = employeeIds.length
+    ? `user_id.eq.${userId},payroll_employee_id.in.(${employeeIds.join(",")})`
+    : `user_id.eq.${userId}`;
   try {
     return await fetchAllRows(() =>
       db
         .from<ShiftRow[]>("schedule_shifts")
         .select("id, starts_at, ends_at")
         .eq("venue_id", venueId)
-        .eq("user_id", userId)
+        .or(owner)
         .eq("published", true)
         .gte("starts_at", new Date(from).toISOString())
         .lt("starts_at", new Date(to).toISOString())
@@ -101,14 +109,17 @@ export async function loadStaffMonthStats(input: {
   const month = `${today.slice(0, 7)}-01`;
   const lastDay = addDays(`${addDays(month, 32).slice(0, 7)}-01`, -1);
   const now = Date.now();
+  // Записи зарплаты нужны и сменам (история разового), и начислениям — один запрос.
+  const ids = employeeIds(venueId, userId);
   const [shifts, earned] = await Promise.all([
     canViewSchedule
-      ? publishedShifts(
+      ? ids.then((employees) => publishedShifts(
           venueId,
           userId,
+          employees,
           dayWindow(month, clock.timezone, clock.dayStartHour).start,
           dayWindow(lastDay, clock.timezone, clock.dayStartHour).end,
-        ).then((rows) => {
+        )).then((rows) => {
           let done = 0;
           let upcoming = 0;
           let hours = 0;
@@ -125,7 +136,7 @@ export async function loadStaffMonthStats(input: {
         })
       : Promise.resolve(null),
     canViewPayroll
-      ? employeeIds(venueId, userId).then(async (ids) => {
+      ? ids.then(async (ids) => {
           // Не участвует в зарплатном учёте — показателя нет.
           if (!ids.length) return undefined;
           const db = asLooseDb(createAdminClient());
@@ -177,14 +188,17 @@ export async function loadShiftHeatmap(input: {
   const from = heatmapStart(today);
   const dayOf = (iso: string) => businessDate(new Date(iso), clock.timezone, clock.dayStartHour);
   const db = asLooseDb(createAdminClient());
+  const employees =
+    canViewSchedule || canViewPayroll ? employeeIds(venueId, userId) : Promise.resolve<string[]>([]);
   const [planned, payroll] = await Promise.all([
     canViewSchedule
-      ? publishedShifts(
+      ? employees.then((list) => publishedShifts(
           venueId,
           userId,
+          list,
           dayWindow(from, clock.timezone, clock.dayStartHour).start,
           now,
-        ).then(async (rows) => {
+        )).then(async (rows) => {
           const excluded = await excludedShiftIds(venueId, rows.map((r) => r.id));
           return rows
             .filter((r) => !excluded.has(r.id))
@@ -195,7 +209,7 @@ export async function loadShiftHeatmap(input: {
         })
       : Promise.resolve([]),
     canViewPayroll
-      ? employeeIds(venueId, userId).then(async (ids) => {
+      ? employees.then(async (ids) => {
           if (!ids.length) return { marked: [], verified: new Set<string>() };
           const [marks, days, rules] = await Promise.all([
             fetchAllRows(() =>

@@ -3,12 +3,11 @@
 // Создание акта инвентаризации из Sheerly: акт заводится в Quick Resto и сразу
 // появляется у нас, без ожидания синхронизации.
 
+import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
 import { chunk, fetchAllRows } from "@/lib/supabase/fetch-all";
-import { writeAuditEvent } from "@/lib/audit/write";
-import { countRu } from "@/lib/format/plural";
 import {
   getAssignmentConflictReason,
   ineligibleAssigneeMessage,
@@ -18,12 +17,9 @@ import { loadAssignmentEligibility } from "@/lib/inventory/assignment-eligibilit
 import {
   CREATE_ACT_KINDS,
   CREATE_ACT_MAX_ITEMS,
-  actInvoiceDateMs,
   buildGroupTree,
   collectGroupSubtree,
-  pendingActItems,
   planActItems,
-  quickRestoProductKey,
   validateCreateActInput,
   type CreateActGroup,
   type CreateActGroupNode,
@@ -31,33 +27,44 @@ import {
   type CreateActNomenclatureKind,
   type CreateActProduct,
 } from "@/lib/inventory/act-create";
+import { backOfficeTimeZoneParam, moveInvoiceDate } from "@/lib/inventory/act-date";
+import { processActCreationJob } from "../act-creation-worker";
 import {
+  ACT_CREATION_INLINE_HEAD_START_MS,
+  isActCreationStuck,
+  type ActCreationJobState,
+} from "@/lib/inventory/act-creation-job";
+import {
+  QuickRestoRateLimitError,
   createInventoryDocumentBackOffice,
-  createInventoryItemBackOffice,
+  listInventoryDocuments,
   readInventoryDocument,
   removeInventoryDocumentBackOffice,
-  type QuickRestoInventoryItem2,
+  type QuickRestoInventoryDocument2,
 } from "@/lib/integrations/quickresto/client";
+import { isBackOfficePermissionError } from "@/lib/integrations/quickresto/auth-state";
+import { isDeletedQuickRestoRow } from "@/lib/integrations/quickresto/normalize";
 import {
+  assertDocumentVisible,
   connectionPassword,
   dateText,
   getActiveContext,
   getConnection,
   inventoryDocumentNumber,
-  listBackOfficeInventoryItemsWithSession,
-  notifyInventoryDocumentEvent,
-  refreshLocalInventoryDocumentFromPayload,
-  revalidateInventoryResultPages,
+  quickRestoUserError,
   withBackOfficeSession,
   type QuickRestoConnection,
 } from "../actions-shared";
 
 const MANAGE = "inventory.manage_documents";
 
+
 export type CreateActStoreOption = {
   id: string;
   title: string;
   venueId: string | null;
+  /** Пояс заведения склада: в нём панель ставит время акта по умолчанию. */
+  timeZone: string;
 };
 
 export type CreateActOptions = {
@@ -130,6 +137,17 @@ export async function loadCreateActOptions(): Promise<{ error: string | null; op
       return { error: "Не удалось загрузить склады. Попробуйте ещё раз." };
     }
 
+    const venueIds = Array.from(
+      new Set((stores ?? []).map((store) => store.local_venue_id).filter((id): id is string => Boolean(id))),
+    );
+    const { data: venueRows } = venueIds.length
+      ? await admin
+          .from<Array<{ id: string; timezone: string | null }>>("venues")
+          .select("id, timezone")
+          .in("id", venueIds)
+      : { data: [] as Array<{ id: string; timezone: string | null }> };
+    const timeZoneByVenue = new Map((venueRows ?? []).map((venue) => [venue.id, venue.timezone]));
+
     const productCountByGroup = new Map<string, number>();
     for (const row of counts) {
       if (!row.group_id) continue;
@@ -141,7 +159,12 @@ export async function loadCreateActOptions(): Promise<{ error: string | null; op
         stores: (stores ?? [])
           // Склад без числового id Quick Resto акт не примет.
           .filter((store) => Number.isInteger(Number(store.external_id)) && Boolean(store.external_id))
-          .map((store) => ({ id: store.id, title: store.title, venueId: store.local_venue_id })),
+          .map((store) => ({
+            id: store.id,
+            title: store.title,
+            venueId: store.local_venue_id,
+            timeZone: (store.local_venue_id && timeZoneByVenue.get(store.local_venue_id)) || DEFAULT_TIME_ZONE,
+          })),
         groups: buildGroupTree({ groups, productCountByGroup }),
         productCountByGroup: Object.fromEntries(productCountByGroup),
       },
@@ -152,20 +175,6 @@ export async function loadCreateActOptions(): Promise<{ error: string | null; op
   }
 }
 
-/**
- * Текст ошибки Quick Resto для пользователя. Клиент QR бросает исключения с
- * английским телом ответа («Quick Resto вернул ошибку 400: {…}») — это только
- * в лог. Пропускаем лишь наши собственные подсказки о настройке доступа.
- */
-function quickRestoUserError(error: unknown, fallback: string): string {
-  const message = error instanceof Error ? error.message : "";
-  if (/^(Настройте back-office|Неверный логин или пароль|Не удалось сохранить токен)/.test(message)) {
-    return message;
-  }
-  return fallback;
-}
-
-const QR_UNAVAILABLE = "Quick Resto не ответил. Попробуйте ещё раз через минуту.";
 
 type DocumentRow = {
   id: string;
@@ -181,23 +190,20 @@ type DocumentRow = {
 const DOCUMENT_COLUMNS = "id, external_id, document_number, processed, archived_at, venue_id, store_id, invoice_date";
 
 /**
- * Создать акт инвентаризации в Quick Resto и сразу у нас.
+ * Создать акт инвентаризации: акт в Quick Resto (номер — из preinit, как в
+ * интерфейсе QR) и у нас — сразу, а позиции выбранных групп досылает в фоне
+ * задание `inventory_act_creation_jobs` (см. act-creation-worker.ts). Панель
+ * закрывается, как только акт заведён; в списке он «Создаётся · N из M»,
+ * по готовности создателю приходит уведомление, исполнителю и проверяющему —
+ * назначение.
  *
- * Шаги: акт в QR (номер — как в интерфейсе QR, из preinit) → строка у нас →
- * позиции выбранных групп по одной → перечитать акт из QR → журнал и
- * уведомления.
- *
- * Повтор после сбоя (тот же `attemptId` — панель держит его, пока открыта)
- * продолжает тот же акт: дополняет недостающие позиции, второй акт не
- * заводится. Если не удалось добавить ни одной позиции, пустой акт удаляется
- * и в QR, и у нас.
- *
- * Синхронизация дубля не создаст: акт у нас лежит с тем же id Quick Resto
- * (`external_id`), а синк ищет строку именно по нему.
+ * Повтор той же попытки (тот же `attemptId`, пока панель открыта) второй акт
+ * не заводит. Синхронизация дубля не создаст: акт у нас лежит с тем же id
+ * Quick Resto (`external_id`), а синк ищет строку именно по нему.
  */
 export async function createInventoryAct(
   input: CreateActInput,
-): Promise<{ error: string | null; documentId?: string; warning?: string }> {
+): Promise<{ error: string | null; documentId?: string; number?: string; warning?: string }> {
   const log = (message: string, extra?: unknown) =>
     console.warn(`[createInventoryAct] ${message}`, { attemptId: input.attemptId, extra });
   try {
@@ -290,225 +296,154 @@ export async function createInventoryAct(
     if (!connection) return { error: "Подключение к Quick Resto не настроено." };
     const qrAuth = { layerName: connection.login, baseUrl: connection.backoffice_base_url };
 
-    // ── Акт: продолжить прошлую попытку или завести новый ───────────────────
+    // Дата и время — в поясе заведения склада, как в окне смены даты акта.
+    const timeZone = (await venueTimeZone(admin, store.local_venue_id)) ?? DEFAULT_TIME_ZONE;
+    const invoiceDate = moveInvoiceDate({ original: null, day: normalized.date, time: normalized.time, timeZone });
+    if (invoiceDate === null) return { error: "Укажите дату и время акта." };
+
+    // ── Повтор той же попытки (двойное нажатие, обрыв связи) ────────────────
+    // Акт уже заведён — второй не создаём, отвечаем тем же актом.
     const { data: previous } = await admin
       .from<DocumentRow>("documents")
       .select(DOCUMENT_COLUMNS)
       .eq("account_id", accountId)
       .eq("creation_attempt_id", normalized.attemptId)
       .maybeSingle();
-    if (previous && (previous.processed || previous.archived_at)) {
-      return { error: "Этот акт уже проведён или удалён в Quick Resto. Закройте панель и создайте новый." };
-    }
-    // Повтор дополняет акт прошлой попытки. Если склад или дату за это время
-    // поменяли, дописывать в тот акт нельзя — позиции ушли бы не туда.
-    if (
-      previous &&
-      (previous.store_id !== store.id || (previous.invoice_date ?? "").slice(0, 10) !== normalized.date)
-    ) {
-      return {
-        error: `Акт № ${previous.document_number} уже создан на прежний склад и дату. Закройте панель и откройте её снова, чтобы создать ещё один акт.`,
-      };
-    }
-
-    let document: DocumentRow;
-    let createdNow = false;
     if (previous) {
-      document = previous;
-    } else {
-      let createdDoc;
-      try {
-        createdDoc = await withBackOfficeSession({
-          connection,
-          admin,
-          run: (authorization) =>
-            createInventoryDocumentBackOffice({
-              ...qrAuth,
-              authorization,
-              storeId: externalStoreId,
-              invoiceDate: actInvoiceDateMs(normalized.date),
-              comment: normalized.comment,
-            }),
-        });
-      } catch (error) {
-        console.error("[createInventoryAct] Quick Resto не создал акт", error);
-        return { error: quickRestoUserError(error, "Quick Resto не создал акт. Попробуйте ещё раз.") };
-      }
-      if (typeof createdDoc?.id !== "number") {
-        log("create вернул акт без id", createdDoc);
-        return { error: "Quick Resto не создал акт. Попробуйте ещё раз." };
-      }
-
-      const { data: saved, error: saveError } = await admin
-        .from<DocumentRow>("documents")
-        .upsert(
-          {
-            account_id: accountId,
-            external_id: String(createdDoc.id),
-            document_kind: "inventory",
-            document_number: inventoryDocumentNumber(createdDoc),
-            invoice_date: dateText(createdDoc.invoiceDate) ?? `${normalized.date}T09:00:00.000Z`,
-            store_id: store.id,
-            external_store_id: String(externalStoreId),
-            status: normalized.assignedTo ? "assigned" : "synced",
-            processed: false,
-            results_has_line_amounts: false,
-            comment: normalized.comment || null,
-            synced_at: new Date().toISOString(),
-            assigned_to: normalized.assignedTo,
-            reviewer_id: normalized.reviewerId,
-            creation_attempt_id: normalized.attemptId,
-          },
-          { onConflict: "account_id,external_id" },
-        )
-        .select(DOCUMENT_COLUMNS)
-        .single();
-      if (saveError || !saved?.id) {
-        // Чаще всего — двойное нажатие: эту же попытку уже сохранил другой
-        // запрос. Пустой акт, который создали мы, убираем, чтобы не плодить
-        // пустышки в Quick Resto.
-        console.error("[createInventoryAct] акт не сохранён у нас", saveError);
-        await removeEmptyQuickRestoAct({ connection, admin, externalId: createdDoc.id });
-        return { error: "Не удалось сохранить акт. Обновите страницу и проверьте список актов." };
-      }
-      document = saved;
-      createdNow = true;
+      const { data: previousJob } = await admin
+        .from<{ id: string }>("inventory_act_creation_jobs")
+        .select("id")
+        .eq("account_id", accountId)
+        .eq("document_id", previous.id)
+        .maybeSingle();
+      if (previousJob) after(() => runJobInBackground(previousJob.id));
+      return { error: null, documentId: previous.id, number: previous.document_number };
     }
-    const externalId = Number(document.external_id);
 
-    // ── Позиции ─────────────────────────────────────────────────────────────
-    // Снимок того, что уже лежит в акте: повтор после обрыва не должен класть
-    // позицию второй раз.
-    let existingKeys: Set<string>;
+    // ── Акт в Quick Resto и у нас ───────────────────────────────────────────
+    let createdDoc;
     try {
-      const present = await listBackOfficeInventoryItemsWithSession({
+      createdDoc = await withBackOfficeSession({
         connection,
         admin,
-        documentExternalId: externalId,
+        run: (authorization) =>
+          createInventoryDocumentBackOffice({
+            ...qrAuth,
+            authorization,
+            storeId: externalStoreId,
+            invoiceDate,
+            timeZoneOffset: backOfficeTimeZoneParam(invoiceDate, timeZone),
+            comment: normalized.comment,
+          }),
       });
-      existingKeys = new Set(
-        present
-          .map((item) => {
-            const product = (item as { product?: { className?: string; id?: unknown } }).product;
-            return quickRestoProductKey(product?.className, product?.id);
-          })
-          .filter((key): key is string => Boolean(key)),
-      );
     } catch (error) {
-      console.error("[createInventoryAct] позиции акта не прочитаны", error);
-      if (createdNow) {
-        // Новый акт заведомо пуст — читать его было незачем, идём дальше.
-        existingKeys = new Set();
-      } else {
-        return { error: QR_UNAVAILABLE };
-      }
+      console.error("[createInventoryAct] Quick Resto не создал акт", error);
+      // Ответ мог потеряться (таймаут, обрыв связи), а акт в Quick Resto —
+      // создаться. Без этой проверки повтор завёл бы второй акт, а первый,
+      // пустой, позже пришёл бы синхронизацией.
+      const lost =
+        error instanceof QuickRestoRateLimitError || isBackOfficePermissionError(error)
+          ? null
+          : await findActAfterLostResponse({
+              connection,
+              admin,
+              accountId,
+              externalStoreId,
+              invoiceDate,
+              comment: normalized.comment,
+            });
+      if (!lost) return { error: quickRestoUserError(error, "Quick Resto не создал акт. Попробуйте ещё раз.") };
+      log("ответ create потерян, акт найден в Quick Resto", { externalId: lost.id });
+      createdDoc = lost;
+    }
+    if (typeof createdDoc?.id !== "number") {
+      log("create вернул акт без id", createdDoc);
+      return { error: "Quick Resto не создал акт. Попробуйте ещё раз." };
+    }
+    const savedInvoiceDate = dateText(createdDoc.invoiceDate);
+    if (savedInvoiceDate && Date.parse(savedInvoiceDate) !== invoiceDate) {
+      // Не ошибка для пользователя: акт создан, а синхронизация и карточка
+      // покажут дату Quick Resto. Но сдвиг — повод проверить пояс.
+      log("Quick Resto сохранил другое время акта", { sent: invoiceDate, saved: savedInvoiceDate, timeZone });
     }
 
-    const pending = pendingActItems(plan.items, existingKeys);
-    const alreadyInAct = plan.items.length - pending.length;
-    let added = 0;
-    let failure: unknown = null;
-    for (const item of pending) {
-      try {
-        await withBackOfficeSession({
-          connection,
-          admin,
-          run: (authorization) =>
-            createInventoryItemBackOffice({
-              ...qrAuth,
-              authorization,
-              documentId: externalId,
-              sample: item.sample as unknown as QuickRestoInventoryItem2,
-              actualAmount: 0,
-            }),
-        });
-        added += 1;
-      } catch (error) {
-        failure = error;
-        console.error("[createInventoryAct] позиция не добавлена", { name: item.name, error });
-        break;
-      }
+    const { data: document, error: saveError } = await admin
+      .from<DocumentRow>("documents")
+      .upsert(
+        {
+          account_id: accountId,
+          external_id: String(createdDoc.id),
+          document_kind: "inventory",
+          document_number: inventoryDocumentNumber(createdDoc),
+          invoice_date: savedInvoiceDate ?? new Date(invoiceDate).toISOString(),
+          store_id: store.id,
+          external_store_id: String(externalStoreId),
+          status: normalized.assignedTo ? "assigned" : "synced",
+          processed: false,
+          results_has_line_amounts: false,
+          comment: normalized.comment || null,
+          synced_at: new Date().toISOString(),
+          assigned_to: normalized.assignedTo,
+          reviewer_id: normalized.reviewerId,
+          creation_attempt_id: normalized.attemptId,
+        },
+        { onConflict: "account_id,external_id" },
+      )
+      .select(DOCUMENT_COLUMNS)
+      .single();
+    if (saveError || !document?.id) {
+      // Чаще всего — двойное нажатие: эту же попытку уже сохранил другой
+      // запрос. Пустой акт, который создали мы, убираем, чтобы не плодить
+      // пустышки в Quick Resto.
+      console.error("[createInventoryAct] акт не сохранён у нас", saveError);
+      await removeEmptyQuickRestoAct({ connection, admin, externalId: createdDoc.id });
+      return { error: "Не удалось сохранить акт. Обновите страницу и проверьте список актов." };
     }
 
-    if (failure) {
-      if (added === 0 && existingKeys.size === 0) {
-        // В акте ни одной позиции — пустой акт не оставляем ни в QR, ни у нас.
-        await removeEmptyQuickRestoAct({ connection, admin, externalId, localId: document.id, accountId });
-        return { error: quickRestoUserError(failure, "Quick Resto не принял позиции, акт не создан. Попробуйте ещё раз.") };
-      }
-      await refreshFromQuickResto({ connection, admin, accountId, documentId: document.id, externalId });
-      revalidatePath("/documents/inventory");
-      return {
-        error:
-          `Акт № ${document.document_number} создан, но в нём ${alreadyInAct + added} из ${countRu(plan.items.length, "позиции", "позиций", "позиций")}: ` +
-          "Quick Resto перестал отвечать. Нажмите «Создать акт» ещё раз — оставшиеся позиции добавятся в этот же акт.",
-      };
-    }
-
-    await refreshFromQuickResto({ connection, admin, accountId, documentId: document.id, externalId });
-    const { data: fresh } = await admin
-      .from<{ document_number: string; venue_id: string | null }>("documents")
-      .select("document_number, venue_id")
-      .eq("id", document.id)
-      .eq("account_id", accountId)
-      .maybeSingle();
-    const number = fresh?.document_number ?? document.document_number;
-    const venueId = fresh?.venue_id ?? document.venue_id ?? store.local_venue_id;
-
-    // Журнал — одна запись на акт, а не на позицию. При повторе после сбоя
-    // пишем её тогда, когда акт наконец собран.
+    // ── Задание: позиции досылаются в фоне ──────────────────────────────────
     const groupNames = groups
       .filter((group) => normalized.groupIds.includes(group.id))
       .map((group) => group.name);
-    await writeAuditEvent({
-      accountId,
-      venueId,
-      userId: actorId,
-      actionCode: "inventory.document.created",
-      entityType: "inventory_document",
-      entityId: document.id,
-      details: {
-        number,
-        date: normalized.date,
-        store_title: store.title,
-        item_count: plan.items.length,
-        groups: groupNames,
-        comment: normalized.comment || null,
-        assigned_to: normalized.assignedTo,
-        reviewer_id: normalized.reviewerId,
-        skipped_items: plan.skipped.slice(0, 20),
-      },
-    });
+    const { data: job, error: jobError } = await admin
+      .from<{ id: string }>("inventory_act_creation_jobs")
+      .insert({
+        account_id: accountId,
+        document_id: document.id,
+        actor_id: actorId,
+        external_id: createdDoc.id,
+        items: plan.items,
+        total: plan.items.length,
+        // Первым задание берёт этот процесс (after() ниже); cron — только если
+        // тот не взял, иначе тик мог перехватить его раньше.
+        available_at: new Date(Date.now() + ACT_CREATION_INLINE_HEAD_START_MS).toISOString(),
+        details: {
+          date: normalized.date,
+          time: normalized.time,
+          store_title: store.title,
+          groups: groupNames,
+          comment: normalized.comment || null,
+          skipped_items: plan.skipped.slice(0, 20),
+        },
+      })
+      .select("id")
+      .single();
+    if (jobError || !job?.id) {
+      console.error("[createInventoryAct] задание не записано", jobError);
+      await removeEmptyQuickRestoAct({ connection, admin, externalId: createdDoc.id, localId: document.id, accountId });
+      return { error: "Не удалось создать акт. Попробуйте ещё раз." };
+    }
 
-    // Уведомляем, когда акт собран: после сбоя на середине — на успешном повторе.
-    await notifyInventoryDocumentEvent({
-      admin,
-      recipientId: normalized.assignedTo,
-      actorId,
-      venueId,
-      documentId: document.id,
-      type: "inventory.document.assigned",
-      title: `Вам назначен акт инвентаризации № ${number}`,
-      body: "Откройте акт, проверьте позиции и заполните фактические остатки.",
-    });
-    await notifyInventoryDocumentEvent({
-      admin,
-      recipientId: normalized.reviewerId,
-      actorId,
-      venueId,
-      documentId: document.id,
-      type: "inventory.document.review_assigned",
-      title: `Вы назначены проверяющим по акту № ${number}`,
-      body: "Когда исполнитель завершит акт, проверьте итоги и при необходимости верните на пересчёт.",
-    });
-
-    revalidateInventoryResultPages(document.id);
+    // Позиции — после ответа: панель закрывается, акт уже в списке со
+    // статусом «Создаётся». Если процесс упадёт, задание подхватит cron.
+    after(() => runJobInBackground(job.id));
+    revalidatePath("/documents/inventory");
     return {
       error: null,
       documentId: document.id,
+      number: document.document_number,
       ...(plan.skipped.length > 0
         ? {
-            warning: `Не попали в акт ${plan.skipped.length} позиций без данных Quick Resto: ${plan.skipped
+            warning: `Не попадут в акт ${plan.skipped.length} позиций без данных Quick Resto: ${plan.skipped
               .slice(0, 3)
               .join(", ")}${plan.skipped.length > 3 ? " и другие" : ""}. Синхронизируйте номенклатуру.`,
           }
@@ -520,40 +455,25 @@ export async function createInventoryAct(
   }
 }
 
-/** Перечитать акт из Quick Resto — позиции и расчётные остатки берём у источника. */
-async function refreshFromQuickResto(input: {
-  connection: QuickRestoConnection;
-  admin: LooseDb;
-  accountId: string;
-  documentId: string;
-  externalId: number;
-}) {
+async function runJobInBackground(jobId: string) {
   try {
-    const qrDoc = await readInventoryDocument({
-      layerName: input.connection.login,
-      login: input.connection.login,
-      password: connectionPassword(input.connection),
-      objectId: input.externalId,
-    });
-    const items = await listBackOfficeInventoryItemsWithSession({
-      connection: input.connection,
-      admin: input.admin,
-      documentExternalId: input.externalId,
-    });
-    await refreshLocalInventoryDocumentFromPayload({
-      admin: input.admin,
-      accountId: input.accountId,
-      documentId: input.documentId,
-      document: { ...qrDoc, effectedItems: items },
-      keepStatus: true,
-    });
+    await processActCreationJob({ id: jobId });
   } catch (error) {
-    // Акт в QR уже собран; позиции подтянет синхронизация или «Обновить итоги».
-    console.error("[createInventoryAct] акт не перечитан из Quick Resto", {
-      documentId: input.documentId,
-      error,
-    });
+    // Задание останется в очереди — его подхватит cron.
+    console.error("[createInventoryAct] фоновое добавление позиций", { jobId, error });
   }
+}
+
+const DEFAULT_TIME_ZONE = "Europe/Moscow";
+
+async function venueTimeZone(admin: LooseDb, venueId: string | null): Promise<string | null> {
+  if (!venueId) return null;
+  const { data } = await admin
+    .from<{ timezone: string | null }>("venues")
+    .select("timezone")
+    .eq("id", venueId)
+    .maybeSingle();
+  return data?.timezone ?? null;
 }
 
 /** Удалить пустой акт в Quick Resto (и нашу строку, если она есть). Ошибка — только в лог. */
@@ -590,5 +510,92 @@ async function removeEmptyQuickRestoAct(input: {
       externalId: input.externalId,
       error,
     });
+  }
+}
+
+/**
+ * «Повторить» у акта, в который не все позиции добавились (попытки кончились):
+ * задание снова в очередь, первая попытка — сразу. Уже добавленные позиции
+ * не повторяются — обработчик сверяется с актом.
+ */
+export async function retryInventoryActCreation(input: { documentId: string }): Promise<{ error: string | null }> {
+  try {
+    const ctx = await getActiveContext(MANAGE);
+    if (ctx.error || !ctx.accountId) return { error: ctx.error ?? "Не удалось определить аккаунт" };
+    await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
+    const admin = asLooseDb(createAdminClient());
+    const { data: job } = await admin
+      .from<{ id: string; state: ActCreationJobState; attempts: number; lease_until: string | null }>(
+        "inventory_act_creation_jobs",
+      )
+      .select("id, state, attempts, lease_until")
+      .eq("account_id", ctx.accountId)
+      .eq("document_id", input.documentId)
+      .maybeSingle();
+    if (!job || job.state === "complete") return { error: "Все позиции уже в акте. Обновите страницу." };
+    if (!isActCreationStuck(job)) return { error: "Позиции ещё добавляются — дождитесь окончания." };
+    // Сравнение со снимком (состояние, попытки, аренда): если задание за это
+    // время кто-то взял, перезапуска не будет. Застрявшее `working` (обработчик
+    // последней попытки остановился вместе с процессом) — аренда истекла.
+    let reset = admin
+      .from<Array<{ id: string }>>("inventory_act_creation_jobs")
+      .update({ state: "pending", attempts: 0, error: null, lease_until: null, available_at: new Date().toISOString() })
+      .eq("id", job.id)
+      .eq("state", job.state)
+      .eq("attempts", job.attempts);
+    reset = job.lease_until ? reset.eq("lease_until", job.lease_until) : reset.is("lease_until", null);
+    const { data: updated } = await reset.select("id");
+    if (!updated?.length) return { error: "Задание уже перезапущено. Обновите страницу." };
+    after(() => runJobInBackground(job.id));
+    revalidatePath("/documents/inventory");
+    return { error: null };
+  } catch (error) {
+    console.error("[retryInventoryActCreation] исключение", error);
+    return { error: "Не удалось перезапустить добавление позиций. Попробуйте ещё раз." };
+  }
+}
+
+/**
+ * Акт, который Quick Resto создал, но ответ до нас не дошёл: тот же склад,
+ * та же дата до миллисекунды и тот же комментарий, не проведён, не удалён, ещё
+ * не связан ни с одним нашим актом и обновлялся в последние 15 минут. Ровно
+ * один такой — он наш; ноль или несколько — не гадаем (null).
+ */
+async function findActAfterLostResponse(input: {
+  connection: QuickRestoConnection;
+  admin: LooseDb;
+  accountId: string;
+  externalStoreId: number;
+  invoiceDate: number;
+  comment: string;
+}): Promise<QuickRestoInventoryDocument2 | null> {
+  try {
+    const list = await listInventoryDocuments({
+      layerName: input.connection.login,
+      login: input.connection.login,
+      password: connectionPassword(input.connection),
+    });
+    const freshSince = Date.now() - 15 * 60_000;
+    const candidates = (list ?? []).filter((doc) => {
+      if (typeof doc.id !== "number" || doc.processed || isDeletedQuickRestoRow(doc)) return false;
+      if (doc.store?.id !== input.externalStoreId) return false;
+      const date = dateText(doc.invoiceDate);
+      if (!date || Date.parse(date) !== input.invoiceDate) return false;
+      if ((typeof doc.comment === "string" ? doc.comment.trim() : "") !== input.comment) return false;
+      const updated = dateText(doc.lastUpdateDate);
+      return !updated || Date.parse(updated) >= freshSince;
+    });
+    if (candidates.length === 0) return null;
+    const { data: linked } = await input.admin
+      .from<Array<{ external_id: string }>>("documents")
+      .select("external_id")
+      .eq("account_id", input.accountId)
+      .in("external_id", candidates.map((doc) => String(doc.id)));
+    const taken = new Set((linked ?? []).map((row) => row.external_id));
+    const free = candidates.filter((doc) => !taken.has(String(doc.id)));
+    return free.length === 1 ? free[0] : null;
+  } catch (error) {
+    console.error("[createInventoryAct] акт после потерянного ответа не найден", error);
+    return null;
   }
 }

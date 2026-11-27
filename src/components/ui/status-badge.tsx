@@ -25,6 +25,7 @@ export function StatusBadge({
   tone = "neutral",
   icon,
   tip,
+  tipSub,
   children,
   className,
 }: {
@@ -36,12 +37,15 @@ export function StatusBadge({
    * обёртку снаружи: вложенный data-tip перехватил бы внешний.
    */
   tip?: string;
+  /** Серая вторая строка подсказки (`data-tip-sub`). */
+  tipSub?: string;
   children: ReactNode;
   className?: string;
 }) {
   return (
     <span
       data-tip={tip}
+      data-tip-sub={tip ? tipSub : undefined}
       className={cn(
         "inline-flex max-w-full items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium [&_svg]:size-3 [&_svg]:shrink-0",
         statusTones[tone],

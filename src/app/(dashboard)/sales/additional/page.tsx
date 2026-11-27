@@ -1,3 +1,5 @@
+import { readOverviewOpen } from "@/lib/ui/overview-pref-server";
+import { OVERVIEW_KEYS } from "@/lib/ui/overview-pref";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import {
@@ -15,6 +17,9 @@ export default async function AdditionalPage() {
   if (!(await getCachedUser())) redirect("/login");
   if (!(await getCachedPermissionChecker())("sales.view_shifts"))
     return <SalesNoAccess page="Допродажи" />;
-  const data = unwrapAction(await loadAdditional());
-  return <AdditionalClient key={data.venueId} initial={data} />;
+  const [data, overviewOpen] = await Promise.all([
+    loadAdditional().then(unwrapAction),
+    readOverviewOpen(OVERVIEW_KEYS.salesAdditional),
+  ]);
+  return <AdditionalClient key={data.venueId} initial={data} initialOverviewOpen={overviewOpen} />;
 }

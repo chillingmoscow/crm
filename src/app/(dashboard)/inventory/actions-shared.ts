@@ -2,6 +2,7 @@
 // (вынесены из actions.ts). НЕ "use server" — обычный server-only модуль,
 // который импортируют файлы экшенов.
 
+import { isActCreationActive, type ActCreationJobState } from "@/lib/inventory/act-creation-job";
 import "server-only";
 
 import { revalidatePath } from "next/cache";
@@ -371,6 +372,19 @@ export function actionErrorMessage(error: unknown, fallback: string) {
       ? new Error(error.message)
       : error;
   return userFacingErrorMessage(normalized, fallback);
+}
+
+/**
+ * Текст ошибки Quick Resto для пользователя. Клиент QR бросает исключения с
+ * английским телом ответа («Quick Resto вернул ошибку 400: {…}») — это только
+ * в лог. Пропускаем лишь наши собственные подсказки о настройке доступа.
+ */
+export function quickRestoUserError(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : "";
+  if (/^(Настройте back-office|Неверный логин или пароль|Не удалось сохранить токен)/.test(message)) {
+    return message;
+  }
+  return fallback;
 }
 
 export async function getActiveContext(permission?: string | string[]) {
@@ -1836,4 +1850,28 @@ export async function notifyInventoryDocumentEvent(input: {
   } catch (e) {
     console.error(`[inventory notify ${input.type}] threw:`, e);
   }
+}
+
+/**
+ * Акты из списка, в которые ещё досылаются позиции (фоновое создание,
+ * миграция 411). Такие акты не назначают, не заполняют, не переносят и не
+ * удаляют, пока задание не закончится.
+ */
+export async function documentsBeingCreated(
+  admin: LooseDb,
+  accountId: string,
+  documentIds: string[],
+): Promise<Set<string>> {
+  if (documentIds.length === 0) return new Set();
+  const { data, error } = await admin
+    .from<Array<{ document_id: string; state: ActCreationJobState; attempts: number; lease_until: string | null }>>(
+      "inventory_act_creation_jobs",
+    )
+    .select("document_id, state, attempts, lease_until")
+    .eq("account_id", accountId)
+    .in("document_id", documentIds)
+    .neq("state", "complete");
+  if (error) throw new Error(error.message);
+  const now = Date.now();
+  return new Set((data ?? []).filter((row) => isActCreationActive(row, now)).map((row) => row.document_id));
 }

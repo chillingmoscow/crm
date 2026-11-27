@@ -329,8 +329,14 @@ const queueQuickRestoRequest = createQuickRestoRequestQueue();
 
 function fetchQuickRestoData(url: string, init: RequestInit) {
   const method = init.method ?? "GET";
+  const pathname = new URL(url).pathname;
   const inventoryUpdate = method === "POST" &&
-    new URL(url).pathname === "/platform/data/warehouse.inventory.items/update";
+    pathname === "/platform/data/warehouse.inventory.items/update";
+  // Позиции акта создаются по одной: без паузы запросы идут раз в ~30 мс, и
+  // nginx Quick Resto после пары десятков отвечает 429. С паузой 300 мс 265
+  // позиций прошли без единого отказа (прод, 27.11.2026).
+  const inventoryItemCreate = method === "POST" &&
+    pathname === "/platform/data/warehouse.inventory.items/create";
   return queueQuickRestoRequest(url, async () => {
     // The timeout belongs to the HTTP attempt, not time spent in the queue.
     const controller = new AbortController();
@@ -349,7 +355,7 @@ function fetchQuickRestoData(url: string, init: RequestInit) {
     // Absolute item quantities can be retried after a rejected request. Do not
     // replay creates, processing actions, ambiguous timeouts or network errors.
     retryRateLimit: method === "GET" || inventoryUpdate,
-    intervalMs: inventoryUpdate ? 250 : 0,
+    intervalMs: inventoryUpdate ? 250 : inventoryItemCreate ? 300 : 0,
   });
 }
 
@@ -659,6 +665,12 @@ export async function createInventoryDocumentBackOffice(input: {
   storeId: number;
   /** Дата акта в миллисекундах. QR трактует её в таймзоне заведения. */
   invoiceDate: number;
+  /**
+   * Параметр `timeZone` (`backOfficeTimeZoneParam` из act-date): QR сдвигает
+   * `invoiceDate` на разницу с поясом заведения. С −180 для Москвы дата
+   * сохраняется ровно как прислана (проверено на проде 27.11.2026).
+   */
+  timeZoneOffset: number;
   comment?: string | null;
 }) {
   // Номер акта create сам не ставит: без него акт приходит с
@@ -679,7 +691,7 @@ export async function createInventoryDocumentBackOffice(input: {
     query: {
       regTime: Date.now(),
       businessDayOffsetInMs: 32_400_000,
-      timeZone: new Date().getTimezoneOffset(),
+      timeZone: input.timeZoneOffset,
     },
     body: {
       className: INVENTORY_DOCUMENT_CREATE_CLASS,
@@ -1593,10 +1605,50 @@ export async function processInventoryDocumentBackOffice(input: {
   authorization: string;
   documentId: number;
 }) {
+  return runInventoryDocumentAction(input, "process");
+}
+
+/**
+ * Backoffice-action «распровести акт» — кнопка «Отменить проведение» в
+ * интерфейсе Quick Resto (право `action_cancel`). Тот же вызов, что и
+ * проведение, с `actionName: "unprocess"`. Проверено на проде 27.11.2026 на
+ * пустом тестовом акте: ответ 200, сразу после него акт `processed: false` с
+ * `processingState: "CANCELLING"`, через секунду — UNPROCESSED. Остатки склада
+ * Quick Resto пересчитывает сам, как при отмене проведения из интерфейса.
+ */
+export async function unprocessInventoryDocumentBackOffice(input: {
+  layerName: string;
+  baseUrl?: string | null;
+  /** Authorization-заголовок сессии: «Bearer <access_token>». */
+  authorization: string;
+  documentId: number;
+  /**
+   * `backOfficeTimeZoneParam` пояса заведения — как у остальных записей акта.
+   * Хранимую дату действие не меняет ни с 0, ни с −180 (проверено на проде
+   * 28.11.2026, тестовые акты 10975 и 10977); с 0 только дата в самом ответе
+   * приходит сдвинутой на +3 ч.
+   */
+  timeZoneOffset: number;
+}) {
+  return runInventoryDocumentAction(input, "unprocess");
+}
+
+async function runInventoryDocumentAction(
+  input: {
+    layerName: string;
+    baseUrl?: string | null;
+    authorization: string;
+    documentId: number;
+    /** Без него — 0, как исторически шлёт проведение. */
+    timeZoneOffset?: number;
+  },
+  actionName: "process" | "unprocess",
+) {
+  const timeZone = input.timeZoneOffset ?? 0;
   const origin = buildQuickRestoBackOfficeOrigin(input);
   const url =
     `${origin}/platform/data/warehouse.inventory.document.v2/action` +
-    `?businessDayOffsetInMs=32400000&timeZone=0`;
+    `?businessDayOffsetInMs=32400000&timeZone=${timeZone}`;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), QUICK_RESTO_REQUEST_TIMEOUT_MS);
@@ -1610,7 +1662,7 @@ export async function processInventoryDocumentBackOffice(input: {
         "Content-Type": "application/json; charset=utf-8",
       },
       body: JSON.stringify({
-        actionName: "process",
+        actionName,
         ids: [input.documentId],
         data: {
           start: 0,
@@ -1618,7 +1670,7 @@ export async function processInventoryDocumentBackOffice(input: {
           mode: "previous30Days",
           sortField: ["invoiceDate"],
           sortOrder: ["desc"],
-          timeZone: 0,
+          timeZone,
         },
       }),
       cache: "no-store",

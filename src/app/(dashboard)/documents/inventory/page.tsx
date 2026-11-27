@@ -34,6 +34,7 @@ import type { AssigneeOption } from "./_components/assignee-select";
 type ProfileRow = {
   first_name: string | null;
   last_name: string | null;
+  avatar_url: string | null;
 };
 
 type MembershipRow = {
@@ -67,6 +68,11 @@ const VALID_SORTS = new Set<DocumentSortMode>(DOCUMENT_SORT_MODES);
 const VALID_STATUSES = new Set<DocumentStatus>(DOCUMENT_STATUSES);
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function staffAvatar(row: MembershipRow): string | null {
+  const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+  return profile?.avatar_url ?? null;
+}
 
 function staffName(row: MembershipRow): string {
   const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
@@ -283,7 +289,7 @@ async function loadStaff(
       ? await admin
           .from<MembershipRow[]>("user_venue_roles")
           .select(
-            "user_id, profiles!user_venue_roles_user_id_fkey(first_name, last_name)",
+            "user_id, profiles!user_venue_roles_user_id_fkey(first_name, last_name, avatar_url)",
           )
           .in("venue_id", venueIds)
           .eq("status", "active")
@@ -301,19 +307,20 @@ async function loadStaff(
   if (ownerId && (!allowed || allowed.has(ownerId))) {
     const { data: ownerProfile } = await admin
       .from<ProfileRow>("profiles")
-      .select("first_name, last_name")
+      .select("first_name, last_name, avatar_url")
       .eq("id", ownerId)
       .maybeSingle();
     staffById.set(ownerId, {
       id: ownerId,
       name: staffName({ user_id: ownerId, profiles: ownerProfile ?? null }),
+      avatarUrl: ownerProfile?.avatar_url ?? null,
     });
   }
 
   for (const row of memberships ?? []) {
     if (allowed && !allowed.has(row.user_id)) continue;
     if (!staffById.has(row.user_id)) {
-      staffById.set(row.user_id, { id: row.user_id, name: staffName(row) });
+      staffById.set(row.user_id, { id: row.user_id, name: staffName(row), avatarUrl: staffAvatar(row) });
     }
   }
 

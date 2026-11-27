@@ -12,6 +12,7 @@ import { asLooseDb } from "@/lib/supabase/loose";
 
 import { PageFrame } from "@/components/shared/page-frame";
 import { canFillInventoryAct, getDeleteLockReason } from "@/lib/inventory/act-status";
+import { isActCreationActive, type ActCreationJobState } from "@/lib/inventory/act-creation-job";
 import { formatDayMonth } from "@/lib/format/date";
 
 import { DocumentActHeader } from "./_components/document-act-header";
@@ -193,12 +194,14 @@ export default async function InventoryDocumentLayout({
 
   // «Опасная зона» — только когда удаление сейчас доступно: вкладку, где
   // ничего нельзя сделать, не показываем (design-system § «Опасная зона»).
+  // Пока акт создаётся (позиции досылаются в фоне), удалить его нельзя.
   const canDelete =
     Boolean(canManage) &&
     getDeleteLockReason({
       status: document.status,
       resultsSnapshotAt: document.results_snapshot_at,
-    }) === null;
+    }) === null &&
+    !(await isDocumentBeingCreated(document.account_id, document.id));
 
   return (
     <PageFrame className="flex flex-col gap-6">
@@ -222,4 +225,15 @@ export default async function InventoryDocumentLayout({
       {children}
     </PageFrame>
   );
+}
+
+/** Позиции акта ещё досылаются в фоне (задание миграции 411). */
+async function isDocumentBeingCreated(accountId: string, documentId: string): Promise<boolean> {
+  const { data } = await asLooseDb(createAdminClient())
+    .from<{ state: ActCreationJobState; attempts: number; lease_until: string | null }>("inventory_act_creation_jobs")
+    .select("state, attempts, lease_until")
+    .eq("account_id", accountId)
+    .eq("document_id", documentId)
+    .maybeSingle();
+  return isActCreationActive(data);
 }

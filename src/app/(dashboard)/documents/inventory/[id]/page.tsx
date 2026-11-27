@@ -10,6 +10,7 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import { chunk } from "@/lib/supabase/fetch-all";
 import { mediaUrl } from "@/lib/storage/media";
 import { canFillInventoryAct } from "@/lib/inventory/act-status";
+import { isActCreationActive, type ActCreationJobState } from "@/lib/inventory/act-creation-job";
 import { getCachedInventoryDocumentBasics, getCachedStoreTitle } from "./layout";
 import { InventoryDocumentEditor } from "./_components/document-editor";
 
@@ -160,6 +161,17 @@ export default async function InventoryDocumentPage({
   });
   if (!canView && !canFillDocument) redirect("/documents/inventory");
 
+  // Позиции ещё досылаются в фоне — форму не открываем до конца задания.
+  const { data: creationJob } = await admin
+    .from<{ state: ActCreationJobState; attempts: number; done: number; total: number }>("inventory_act_creation_jobs")
+    .select("state, attempts, done, total")
+    .eq("account_id", accountId)
+    .eq("document_id", document.id)
+    .maybeSingle();
+  const creation = isActCreationActive(creationJob) && creationJob
+    ? { done: creationJob.done, total: creationJob.total }
+    : null;
+
   const [{ data: store }, { data: itemsRaw }, { data: groupsRaw }] = await Promise.all([
     // Название склада тоже уже в кэше layout'а.
     document.store_id
@@ -226,7 +238,8 @@ export default async function InventoryDocumentPage({
 
   return (
     <InventoryDocumentEditor
-      canFill={canFillDocument}
+      canFill={canFillDocument && !creation}
+      creation={creation}
       currentUserId={user.id}
       document={{
         id: document.id,

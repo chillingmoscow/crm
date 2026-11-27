@@ -15,6 +15,7 @@
  * list-documents-shared.ts.
  */
 
+import type { ActCreationJobStatus } from "./act-creation-job";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
@@ -299,6 +300,29 @@ export async function listInventoryDocuments(
       // нули: в колонке «Итоги» будет прочерк, а не выдуманная сумма.
       console.error("[listInventoryDocuments] управленческие итоги не посчитаны", totalsError);
       for (const row of rows) row.totals_unavailable = true;
+    }
+  }
+
+  // Ход фонового создания акта («Создаётся · 55 из 313»). Таблица заданий
+  // закрыта от пользователей — читаем admin-клиентом только по актам, которые
+  // RPC уже отдал этому пользователю.
+  if (rows.length > 0) {
+    try {
+      const admin = asLooseDb(createAdminClient());
+      const { data: jobs } = await admin
+        .from<Array<{ document_id: string } & ActCreationJobStatus>>("inventory_act_creation_jobs")
+        .select("document_id, state, done, total, attempts, error")
+        .in("document_id", rows.map((row) => row.id))
+        .neq("state", "complete");
+      const byDocument = new Map((jobs ?? []).map((job) => [job.document_id, job]));
+      for (const row of rows) {
+        const job = byDocument.get(row.id);
+        row.creation = job
+          ? { state: job.state, done: job.done, total: job.total, attempts: job.attempts, error: job.error }
+          : null;
+      }
+    } catch (jobsError) {
+      console.error("[listInventoryDocuments] ход создания актов не прочитан", jobsError);
     }
   }
 

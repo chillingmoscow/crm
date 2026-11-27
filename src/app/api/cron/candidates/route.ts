@@ -4,6 +4,7 @@ import { processCandidateJobs } from "@/lib/candidates/jobs";
 import { processStaffTerminations } from "@/lib/people/termination";
 import { processStaffRestores } from "@/lib/people/restore";
 import { processCasualDismissals } from "@/lib/payroll/casual-dismissal";
+import { processActCreationJobs } from "@/app/(dashboard)/inventory/act-creation-worker";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -21,5 +22,10 @@ export async function POST(request: NextRequest) {
   const terminations = await processStaffTerminations();
   const restorations = await processStaffRestores();
   const casualDismissals = await processCasualDismissals();
-  return NextResponse.json({...await processCandidateJobs(),terminations,restorations,casualDismissals});
+  const candidates = await processCandidateJobs();
+  // Позиции акта, созданного из Sheerly: подхват, если процесс, который
+  // начал их добавлять, упал. Последним и не дольше 40 с: входящие кандидаты
+  // не ждут. Обычно задание держит процесс, создавший акт, — тогда здесь пусто.
+  const actCreation = await processActCreationJobs();
+  return NextResponse.json({...candidates,terminations,restorations,casualDismissals,actCreation});
 }

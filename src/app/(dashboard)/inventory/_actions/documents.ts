@@ -2,6 +2,7 @@
 
 // Жизненный цикл акта: удаление, заметка, привязка склада к точке.
 
+import { ACT_CREATING_LOCK_REASON } from "@/lib/inventory/act-creation-job";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
@@ -12,17 +13,21 @@ import { isBackOfficePermissionError } from "@/lib/integrations/quickresto/auth-
 import {
   readInventoryDocumentBackOffice,
   removeInventoryDocumentBackOffice,
+  unprocessInventoryDocumentBackOffice,
   type QuickRestoInventoryDocument2,
 } from "@/lib/integrations/quickresto/client";
 import {
   deletedOnlyInQuickRestoMessage,
-  processedInQuickRestoMessage,
+  processedNeedsConfirmMessage,
+  quickRestoBusyMessage,
+  unprocessedNotDeletedMessage,
   quickRestoActId,
   quickRestoDeleteFailedMessage,
   quickRestoDeleteStep,
   type QuickRestoDeleteOutcome,
 } from "@/lib/inventory/act-delete";
 import { countRu } from "@/lib/format/plural";
+import { businessMonthOf } from "@/lib/stock/monthly-snapshot";
 import {
   actionErrorMessage,
   assertDocumentVisible,
@@ -33,23 +38,29 @@ import {
   text,
   withBackOfficeSession,
   type QuickRestoConnection,
+  documentsBeingCreated,
 } from "../actions-shared";
 
 /**
- * Проведённый акт удалять нельзя: вместе со строкой documents каскадом уходят
- * снимок утверждённых итогов, пересорты и журнал решений — то есть вся
- * доказательная база по уже закрытой инвентаризации. Право
+ * Акт с утверждёнными итогами удалять нельзя: вместе со строкой documents
+ * каскадом уходят снимок итогов, пересорты и журнал решений — вся
+ * доказательная база по закрытой инвентаризации. Право
  * inventory.manage_documents такого разрешения не подразумевает.
  *
- * Условие живёт в самом DELETE (см. deleteInventoryDocument), а не в
- * предварительном SELECT: отдельная проверка «сначала прочитали, потом
- * удалили» и открывала окно, в котором акт успевали провести между этими
- * двумя шагами, и падала бы открытой при ошибке чтения (data=null читалось
- * как «блокировать нечего»). Сколько строк реально удалено, DELETE сообщает
- * сам — по нему и считаем пропущенные.
+ * Проведённый акт без утверждённых итогов удалить можно, но только по одному
+ * и с явным согласием: сначала проведение отменяется в Quick Resto (остатки
+ * склада пересчитаются), потом акт удаляется. Массовое удаление проведённые
+ * пропускает.
+ *
+ * Условие живёт в самом DELETE, а не только в предварительном SELECT: акт
+ * могли зафиксировать между чтением и удалением. Сколько строк реально
+ * удалено, DELETE сообщает сам — по нему и считаем пропущенные.
  */
 const DELETE_BLOCKED_MESSAGE =
-  "Проведённый акт удалить нельзя — вместе с ним пропадут утверждённые итоги и журнал решений. Если акт больше не нужен, удалите его в Quick Resto: синхронизация уберёт его и здесь.";
+  "У акта утверждены итоги — удалить его нельзя: вместе с ним пропадут итоги, пересорты и журнал решений.";
+
+const BULK_PROCESSED_MESSAGE =
+  "Проведённые акты удаляются по одному — из меню «⋯» акта: сначала отменяется проведение в Quick Resto.";
 
 /**
  * Удаление акта инвентаризации — у нас и в Quick Resto. Право
@@ -67,7 +78,10 @@ const DELETE_BLOCKED_MESSAGE =
  */
 export async function deleteInventoryDocument(input: {
   documentId: string;
-}): Promise<{ error: string | null }> {
+  /** Пользователь согласился отменить проведение (окно предупредило, что
+   *  остатки склада пересчитаются). Без него проведённый акт не трогаем. */
+  allowUnprocess?: boolean;
+}): Promise<{ error: string | null; notice?: string }> {
   try {
     const ctx = await getActiveContext("inventory.manage_documents");
     if (ctx.error || !ctx.accountId) {
@@ -88,25 +102,34 @@ export async function deleteInventoryDocument(input: {
       .maybeSingle();
     if (readError) return { error: actionErrorMessage(readError, "Не удалось удалить акт") };
     if (!document) return { error: "Акт не найден" };
-    // До похода в Quick Resto: проведённый у нас акт не удаляем и там.
-    if (!isLocallyDeletable(document)) return { error: DELETE_BLOCKED_MESSAGE };
+    // До похода в Quick Resto: акт с утверждёнными итогами не удаляем и там.
+    if (document.results_snapshot_at) return { error: DELETE_BLOCKED_MESSAGE };
+    const allowUnprocess = input.allowUnprocess === true;
+    if (document.status === "processed" && !allowUnprocess) {
+      return { error: "Акт проведён. Чтобы удалить его, подтвердите отмену проведения в окне удаления." };
+    }
+    if ((await documentsBeingCreated(admin, accountId, [document.id])).size > 0) {
+      return { error: ACT_CREATING_LOCK_REASON };
+    }
 
-    const quickResto = await removeFromQuickResto({ admin, connection, document });
+    const quickResto = await removeFromQuickResto({ admin, connection, document, allowUnprocess });
     if ("error" in quickResto) return { error: quickResto.error };
 
+    // Статус — тот же, что прочитали: акт, который за это время провели
+    // или зафиксировали, не удаляем.
     const { data: deleted, error } = await admin
       .from<DeletedDocument[]>("documents")
       .delete()
       .eq("id", input.documentId)
       .eq("account_id", accountId)
-      .neq("status", "processed")
+      .eq("status", document.status)
       .is("results_snapshot_at", null)
       .select(DELETED_DOCUMENT_COLUMNS);
     if (error) return { error: actionErrorMessage(error, "Не удалось удалить акт") };
     // Ноль удалённых строк при видимом акте = сработало условие: акт успели
     // провести или зафиксировать между проверкой и удалением.
     if ((deleted ?? []).length === 0) {
-      if (quickResto.outcome === "deleted") {
+      if (quickResto.outcome === "deleted" || quickResto.outcome === "unprocessed_and_deleted") {
         console.error("[deleteInventoryDocument] акт удалён в Quick Resto, но у нас его успели провести", {
           documentId: input.documentId,
         });
@@ -118,7 +141,11 @@ export async function deleteInventoryDocument(input: {
       await logDeletedDocuments(admin, ctx, deleted ?? [], new Map([[input.documentId, quickResto.outcome]]));
     }
     revalidatePath("/documents/inventory");
-    return { error: null };
+    // Проведённый акт входил в удержания месяца — пересчитать (по умолчанию
+    // выключено: INVENTORY_DEDUCTION_AUTOPOST). Удаление уже прошло и от
+    // пересчёта не зависит.
+    const notice = document.status === "processed" ? await recalculateDeductionsAfterDelete(admin, deleted ?? []) : null;
+    return { error: null, ...(notice ? { notice } : {}) };
   } catch (e) {
     console.error("[deleteInventoryDocument] unhandled error:", e);
     return { error: actionErrorMessage(e, "Не удалось удалить акт. Подробности в логах.") };
@@ -156,9 +183,13 @@ export async function bulkDeleteInventoryDocuments(input: {
       .eq("account_id", accountId)
       .in("id", visibleIds);
     if (readError) return { deleted: 0, error: actionErrorMessage(readError, "Не удалось удалить акты") };
-    const deletable = (documents ?? []).filter(isLocallyDeletable);
+    const creating = await documentsBeingCreated(admin, accountId, (documents ?? []).map((doc) => doc.id));
+    const deletable = (documents ?? []).filter((doc) => isLocallyDeletable(doc) && !creating.has(doc.id));
     const blocked = visibleIds.length - deletable.length;
-    if (deletable.length === 0) return { deleted: 0, error: DELETE_BLOCKED_MESSAGE };
+    const processedSkipped = (documents ?? []).some((doc) => doc.status === "processed" && !doc.results_snapshot_at);
+    if (deletable.length === 0) {
+      return { deleted: 0, error: processedSkipped ? BULK_PROCESSED_MESSAGE : DELETE_BLOCKED_MESSAGE };
+    }
 
     // По одному: запросы к Quick Resto идут через общую очередь, и отказ по
     // одному акту не должен останавливать остальные.
@@ -180,7 +211,7 @@ export async function bulkDeleteInventoryDocuments(input: {
           continue;
         }
       }
-      const result = await removeFromQuickResto({ admin, connection, document });
+      const result = await removeFromQuickResto({ admin, connection, document, allowUnprocess: false });
       if ("error" in result) failures.push(result.error);
       else outcomes.set(document.id, result.outcome);
     }
@@ -206,9 +237,14 @@ export async function bulkDeleteInventoryDocuments(input: {
     const deletedIds = new Set(deletedRows.map((row) => row.id));
     const lateBlocked = deletable.filter((doc) => outcomes.has(doc.id) && !deletedIds.has(doc.id));
     const skipped = blocked + blockedOnTheWay + lateBlocked.length;
-    if (skipped > 0) notes.push(`Пропущено проведённых актов: ${skipped}. ${DELETE_BLOCKED_MESSAGE}`);
+    if (skipped > 0) {
+      notes.push(
+        `Пропущено актов: ${skipped}. ${processedSkipped ? BULK_PROCESSED_MESSAGE : DELETE_BLOCKED_MESSAGE}`,
+      );
+    }
     for (const doc of lateBlocked) {
-      if (outcomes.get(doc.id) !== "deleted") continue;
+      const outcome = outcomes.get(doc.id);
+      if (outcome !== "deleted" && outcome !== "unprocessed_and_deleted") continue;
       console.error("[bulkDeleteInventoryDocuments] акт удалён в Quick Resto, но у нас его успели провести", {
         documentId: doc.id,
       });
@@ -241,14 +277,22 @@ function isLocallyDeletable(document: DeletableDocument): boolean {
   return document.status !== "processed" && !document.results_snapshot_at;
 }
 
+/** Сколько ждать, пока Quick Resto закончит отмену проведения (CANCELLING). */
+const UNPROCESS_WAIT_STEPS_MS = [500, 1_000, 1_000, 2_000, 2_000, 3_000, 3_000];
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
- * Удалить акт в Quick Resto (если он оттуда). Ошибка — русским текстом для
- * пользователя; английский ответ Quick Resto — только в лог.
+ * Удалить акт в Quick Resto (если он оттуда). Проведённый — только с
+ * `allowUnprocess`: сначала отмена проведения, ожидание, пока Quick Resto её
+ * закончит, сверка перечитыванием и только потом удаление. Ошибка — русским
+ * текстом для пользователя; английский ответ Quick Resto — только в лог.
  */
 async function removeFromQuickResto(input: {
   admin: ReturnType<typeof asLooseDb>;
   connection: QuickRestoConnection | null;
   document: DeletableDocument;
+  allowUnprocess: boolean;
 }): Promise<{ outcome: QuickRestoDeleteOutcome } | { error: string }> {
   const externalId = quickRestoActId(input.document.external_id);
   if (externalId === null) return { outcome: "not_linked" };
@@ -257,35 +301,89 @@ async function removeFromQuickResto(input: {
   if (!connection) {
     return { error: `${quickRestoDeleteFailedMessage(number)} Подключение к Quick Resto не настроено.` };
   }
+  let unprocessed = false;
   try {
-    const step = await withBackOfficeSession({
+    const result = await withBackOfficeSession({
       connection,
       admin: input.admin,
-      // Сбой сети — повтор целиком: чтение заново, а удаление в Quick Resto
-      // повторять безопасно (повторный remove отвечает 200).
+      // Сбой сети — повтор целиком: чтение заново (уже распроведённый акт
+      // прочитается как непроведённый), удаление повторять безопасно.
       retryTransient: true,
       run: async (authorization) => {
         const qrAuth = { layerName: connection.login, baseUrl: connection.backoffice_base_url, authorization };
-        const backOfficeDocument = await readInventoryDocumentBackOffice({ ...qrAuth, id: externalId });
-        const decided = quickRestoDeleteStep(backOfficeDocument, externalId);
-        if (decided === "remove") {
-          await removeInventoryDocumentBackOffice({ ...qrAuth, document: backOfficeDocument as unknown as QuickRestoInventoryDocument2 });
+        const read = () => readInventoryDocumentBackOffice({ ...qrAuth, id: externalId });
+        let current = await read();
+        let step = quickRestoDeleteStep(current, externalId);
+        if (step === "unprocess") {
+          if (!input.allowUnprocess) return { step: "needs_confirm" as const };
+          await unprocessInventoryDocumentBackOffice({ ...qrAuth, documentId: externalId });
+          unprocessed = true;
+          step = "busy";
         }
-        return decided;
+        // Отмена проведения идёт в Quick Resto не мгновенно (CANCELLING):
+        // ждём, пока акт перечитается непроведённым.
+        if (step === "busy" && unprocessed) {
+          for (const wait of UNPROCESS_WAIT_STEPS_MS) {
+            await sleep(wait);
+            current = await read();
+            step = quickRestoDeleteStep(current, externalId);
+            if (step !== "busy") break;
+          }
+        }
+        if (step === "remove") {
+          await removeInventoryDocumentBackOffice({
+            ...qrAuth,
+            document: current as unknown as QuickRestoInventoryDocument2,
+          });
+        }
+        return { step };
       },
     });
-    if (step === "processed") return { error: processedInQuickRestoMessage(number) };
-    if (step === "unknown") {
-      console.error("[deleteInventoryDocument] Quick Resto не сказал, проведён ли акт", { externalId });
-      return { error: quickRestoDeleteFailedMessage(number) };
+    const step = result.step;
+    if (step === "needs_confirm") return { error: processedNeedsConfirmMessage(number) };
+    if (step === "busy") {
+      return { error: unprocessed ? unprocessedNotDeletedMessage(number) : quickRestoBusyMessage(number) };
     }
-    return { outcome: step === "remove" ? "deleted" : step };
+    if (step === "unknown" || step === "unprocess") {
+      console.error("[deleteInventoryDocument] Quick Resto не сказал, проведён ли акт", { externalId, step });
+      return { error: unprocessed ? unprocessedNotDeletedMessage(number) : quickRestoDeleteFailedMessage(number) };
+    }
+    if (step === "remove") return { outcome: unprocessed ? "unprocessed_and_deleted" : "deleted" };
+    return { outcome: step };
   } catch (error) {
-    console.error("[deleteInventoryDocument] Quick Resto не удалил акт", { externalId, error });
+    console.error("[deleteInventoryDocument] Quick Resto не удалил акт", { externalId, unprocessed, error });
+    if (unprocessed) return { error: unprocessedNotDeletedMessage(number) };
     if (isBackOfficePermissionError(error)) {
-      return { error: "У пользователя Sheerly Bot в Quick Resto нет прав удалять акты инвентаризации." };
+      return {
+        error: "У пользователя Sheerly Bot в Quick Resto нет прав удалять акты инвентаризации или отменять их проведение.",
+      };
     }
     return { error: quickRestoUserError(error, quickRestoDeleteFailedMessage(number)) };
+  }
+}
+
+/** Удержания месяца удалённого проведённого акта — пересчитать. */
+async function recalculateDeductionsAfterDelete(
+  admin: ReturnType<typeof asLooseDb>,
+  rows: DeletedDocument[],
+): Promise<string | null> {
+  try {
+    const items: Array<{ venueId: string; month: string }> = [];
+    for (const row of rows) {
+      if (!row.venue_id || !row.invoice_date) continue;
+      const { data: venue } = await admin
+        .from<{ timezone: string | null }>("venues")
+        .select("timezone")
+        .eq("id", row.venue_id)
+        .maybeSingle();
+      if (!venue?.timezone) continue;
+      items.push({ venueId: row.venue_id, month: `${businessMonthOf(row.invoice_date, venue.timezone)}-01` });
+    }
+    if (items.length === 0) return null;
+    return await autoRecalculateInventoryDeduction({ kind: "months", items });
+  } catch (error) {
+    console.error("[deleteInventoryDocument] удержания не пересчитаны", error);
+    return null;
   }
 }
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  processedInQuickRestoMessage,
+  processedNeedsConfirmMessage,
   quickRestoActId,
   quickRestoDeleteFailedMessage,
   quickRestoDeleteStep,
@@ -24,11 +24,17 @@ test("quickRestoDeleteStep: без явного «не проведён» не �
   assert.equal(quickRestoDeleteStep({ id: 7 }, 7), "unknown");
   assert.equal(quickRestoDeleteStep({ id: 7, processingState: "UNPROCESSED" }, 7), "unknown");
   assert.equal(quickRestoDeleteStep({ id: 7, processed: "false" }, 7), "unknown");
+  assert.equal(quickRestoDeleteStep({ id: 7, processed: false, processingState: 1 }, 7), "unknown");
 });
 
-test("quickRestoDeleteStep: проведённый и проводимый акт не трогаем", () => {
-  assert.equal(quickRestoDeleteStep({ id: 7, processed: true }, 7), "processed");
-  assert.equal(quickRestoDeleteStep({ id: 7, processed: false, processingState: "PROCESSING" }, 7), "processed");
+test("quickRestoDeleteStep: проведённый — распровести, промежуточные состояния — ждать", () => {
+  assert.equal(quickRestoDeleteStep({ id: 7, processed: true }, 7), "unprocess");
+  assert.equal(quickRestoDeleteStep({ id: 7, processed: true, processingState: "PROCESSED" }, 7), "unprocess");
+  assert.equal(quickRestoDeleteStep({ id: 7, processed: false, processingState: "PROCESSING" }, 7), "busy");
+  // Так Quick Resto отвечает сразу после «распровести» (проверено на проде).
+  assert.equal(quickRestoDeleteStep({ id: 7, processed: false, processingState: "CANCELLING" }, 7), "busy");
+  assert.equal(quickRestoDeleteStep({ id: 7, processed: false, processingState: "PROCESSED" }, 7), "busy");
+  assert.equal(quickRestoDeleteStep({ id: 7, processed: true, processingState: "UNPROCESSED" }, 7), "busy");
 });
 
 test("quickRestoDeleteStep: уже удалён или не найден — удаляем только у нас", () => {
@@ -38,7 +44,7 @@ test("quickRestoDeleteStep: уже удалён или не найден — у�
 });
 
 test("тексты ошибок: номер акта как есть", () => {
-  assert.match(processedInQuickRestoMessage("СВ397"), /^Акт № СВ397 проведён в Quick Resto/);
+  assert.match(processedNeedsConfirmMessage("СВ397"), /^Акт № СВ397 проведён в Quick Resto/);
   assert.match(quickRestoDeleteFailedMessage("СВ397"), /^Quick Resto не удалил акт № СВ397 — у нас он тоже остался/);
   assert.match(quickRestoDeleteFailedMessage(null), /^Quick Resto не удалил акт — у нас/);
 });

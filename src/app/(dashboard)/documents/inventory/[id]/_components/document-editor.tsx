@@ -409,6 +409,7 @@ export function InventoryDocumentEditor({
   items,
   canFill,
   currentUserId,
+  creation = null,
 }: {
   document: EditorDocument;
   groups: EditorGroup[];
@@ -419,8 +420,16 @@ export function InventoryDocumentEditor({
       назначенный исполнитель (та же проверка, что у отправки). Иначе форма
       только для чтения, а черновик на устройстве не читается и не пишется. */
   canFill: boolean;
+  /** Позиции ещё досылаются в фоне (акт создан из Sheerly): форма закрыта,
+      страница перечитывается, пока задание не закончится. */
+  creation?: { done: number; total: number } | null;
 }) {
   const router = useRouter();
+  useEffect(() => {
+    if (!creation) return;
+    const timer = window.setInterval(() => router.refresh(), 5000);
+    return () => window.clearInterval(timer);
+  }, [creation, router]);
   // Акт вернули на пересчёт: отмеченные строки перезаполняются с нуля, и
   // отправляются в Quick Resto тоже только они (см. submit).
   const isRecountPending = document.status === "recount_pending";
@@ -908,7 +917,20 @@ export function InventoryDocumentEditor({
 
       {/* Баннер «заполнение закрыто»: акт ушёл на проверку / проведён /
           финализирован — форма только для чтения. */}
-      {formLocked ? (
+      {creation ? (
+        <div className="mb-4 flex items-start gap-3 rounded-lg border bg-muted/40 p-3 text-sm" role="status">
+          <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-brand" />
+          <div className="min-w-0">
+            <div className="font-medium">
+              Акт ещё создаётся: {creation.done} из {creation.total} позиций в Quick Resto
+            </div>
+            <p className="mt-0.5 text-muted-foreground">
+              Позиции добавляются в фоне. Заполнять акт можно будет, когда добавятся все, — придёт
+              уведомление.
+            </p>
+          </div>
+        </div>
+      ) : formLocked ? (
         <div className="mb-4 flex items-start gap-3 rounded-lg border bg-muted/40 p-3 text-sm">
           <Lock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0">

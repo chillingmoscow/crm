@@ -11,6 +11,8 @@
 // Pure-модуль без импортов из `@/...`: его читает node:test напрямую, а
 // используют и серверное действие, и боковая панель.
 
+import { isCalendarDay, isClockTime } from "./act-date.ts";
+
 export type CreateActNomenclatureKind = "ingredient" | "dish" | "semi_finished" | "modifier" | "product";
 
 export type CreateActGroup = {
@@ -188,9 +190,11 @@ export async function addActItems(input: {
   isRateLimit: (error: unknown) => boolean;
   sleep: (ms: number) => Promise<void>;
   pausesMs?: readonly number[];
-  /** Сколько позиций плана уже в акте — для хода создания в панели. */
-  onProgress?: (inAct: number) => void;
-}): Promise<{ present: Set<string>; added: number; failure: unknown; inAct: number }> {
+  /** Сколько позиций плана уже в акте — для хода создания. */
+  onProgress?: (inAct: number) => void | Promise<void>;
+  /** Пора отпустить задание (кончилось время тика) — остановиться без ошибки. */
+  shouldStop?: () => boolean;
+}): Promise<{ present: Set<string>; added: number; failure: unknown; inAct: number; stopped: boolean }> {
   const pauses = input.pausesMs ?? CREATE_ACT_RATE_LIMIT_PAUSES_MS;
   let present = new Set(input.existingKeys);
   let queue = pendingActItems(input.items, present);
@@ -198,16 +202,21 @@ export async function addActItems(input: {
   let failure: unknown = null;
   let pause = 0;
   let index = 0;
+  let stopped = false;
   const report = () => input.onProgress?.(input.items.length - queue.length + index);
-  report();
+  await report();
   for (; index < queue.length; ) {
+    if (input.shouldStop?.()) {
+      stopped = true;
+      break;
+    }
     const item = queue[index];
     try {
       await input.add(item);
       present.add(item.key);
       added += 1;
       index += 1;
-      report();
+      await report();
     } catch (error) {
       if (!input.isRateLimit(error) || pause >= pauses.length) {
         failure = error;
@@ -223,11 +232,11 @@ export async function addActItems(input: {
       }
       queue = pendingActItems(input.items, present);
       index = 0;
-      report();
+      await report();
     }
   }
   const inAct = input.items.filter((item) => present.has(item.key)).length;
-  return { present, added, failure, inAct };
+  return { present, added, failure, inAct, stopped };
 }
 
 /** Комментарий акта по умолчанию — названия выбранных групп, как разделы у CHILLING. */
@@ -239,8 +248,10 @@ export function defaultActComment(groupNames: readonly string[]): string {
 export type CreateActInput = {
   attemptId: string;
   storeId: string;
-  /** YYYY-MM-DD */
+  /** YYYY-MM-DD — день в поясе заведения. */
   date: string;
+  /** HH:mm — время акта в поясе заведения: на этот момент Quick Resto считает расчётный остаток. */
+  time: string;
   groupIds: string[];
   comment: string;
   assignedTo: string | null;
@@ -257,9 +268,8 @@ export function isUuid(value: unknown): value is string {
 export function validateCreateActInput(input: CreateActInput): string | null {
   if (!isUuid(input.attemptId)) return "Обновите страницу и попробуйте ещё раз.";
   if (!isUuid(input.storeId)) return "Выберите склад.";
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || Number.isNaN(Date.parse(`${input.date}T09:00:00.000Z`))) {
-    return "Укажите дату акта.";
-  }
+  if (!isCalendarDay(input.date)) return "Укажите дату акта.";
+  if (!isClockTime(input.time)) return "Укажите время акта в формате ЧЧ:ММ.";
   if (input.groupIds.length === 0) return "Выберите хотя бы одну группу.";
   if (input.groupIds.some((id) => !isUuid(id))) return "Обновите страницу и выберите группы заново.";
   if (input.comment.trim().length > CREATE_ACT_COMMENT_MAX) {
@@ -271,11 +281,6 @@ export function validateCreateActInput(input: CreateActInput): string | null {
     return "Исполнитель и проверяющий должны быть разными людьми";
   }
   return null;
-}
-
-/** Время акта для Quick Resto: 09:00 UTC — безопасная точка внутри суток заведения. */
-export function actInvoiceDateMs(date: string): number {
-  return Date.parse(`${date}T09:00:00.000Z`);
 }
 
 export type CreateActGroupNode = CreateActGroup & {

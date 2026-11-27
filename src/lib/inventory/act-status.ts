@@ -264,24 +264,28 @@ export function nextStatusAfterAssign(currentStatus: string, assignedTo: string 
  */
 /**
  * Можно ли УДАЛИТЬ акт. Повторяет условие серверного экшена
- * deleteInventoryDocument, который удаляет строку только пока акт не
- * проведён и у него нет снимка утверждённых итогов.
+ * deleteInventoryDocument: нельзя только при снимке утверждённых итогов —
+ * вместе с актом каскадом ушли бы итоги, пересорты и журнал решений.
  *
- * Это ограничение по состоянию акта, а не по правам: `inventory.manage_documents`
- * законно разрешает удалять черновики. Просто вместе с проведённым актом
- * каскадом уходят снимок итогов, пересорты и журнал решений — вся
- * доказательная база по закрытой инвентаризации.
+ * Проведённый акт без утверждённых итогов удалить можно, но по одному: окно
+ * удаления предупреждает, что сначала отменится проведение в Quick Resto и
+ * остатки склада пересчитаются. Массовое удаление проведённые пропускает
+ * (`isBulkDeletable`).
  *
- * Снимок проверяем отдельно от статуса: распроведение возвращает акт в
- * ready_for_review, но снимок остаётся, и удалять такой акт по-прежнему нельзя.
+ * Снимок переживает распроведение: распроведённый акт со снимком удалять по-
+ * прежнему нельзя.
  */
 export function getDeleteLockReason(input: {
   status: string;
   resultsSnapshotAt?: string | null;
 }): string | null {
-  if (input.status === "processed") return "Проведённый акт удалить нельзя";
   if (input.resultsSnapshotAt) return "У акта есть утверждённые итоги — удалить нельзя";
   return null;
+}
+
+/** Массовое удаление — без проведённых: их удаляют по одному, с отменой проведения. */
+export function isBulkDeletable(input: { status: string; resultsSnapshotAt?: string | null }): boolean {
+  return input.status !== "processed" && getDeleteLockReason(input) === null;
 }
 
 export function getReviewerLockReason(status: string): string | null {

@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { toast } from "sonner";
 import { Archive, Bell, CheckCheck, ListFilter, MoreHorizontal, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -229,6 +230,19 @@ export function NotificationBell({
               prev.some((n) => n.id === row.id) ? prev : [row, ...prev],
             );
             if (row.type === "candidate.new") window.dispatchEvent(new Event("candidates:changed"));
+            // Фоновое создание акта закончилось — сказать сразу, где бы
+            // пользователь ни был. id тоста = id уведомления: колокольчиков на
+            // странице может быть два (меню и мобильная шапка), тост один.
+            if (row.type === "inventory.document.creation_done" || row.type === "inventory.document.creation_failed") {
+              const show = row.type === "inventory.document.creation_done" ? toast.success : toast.error;
+              const link = row.link;
+              show(row.title, {
+                id: row.id,
+                description: row.body ?? undefined,
+                duration: 10_000,
+                ...(link ? { action: { label: "Открыть акт", onClick: () => router.push(link) } } : {}),
+              });
+            }
             if (row.actor_user_id) {
               void ensureActorsForList([row]);
             }

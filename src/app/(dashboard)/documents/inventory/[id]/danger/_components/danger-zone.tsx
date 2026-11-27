@@ -15,9 +15,11 @@ import { DeleteActDialog } from "../../../_components/documents-table-rows";
 export function DangerZone({
   documentId,
   documentNumber,
+  processed,
 }: {
   documentId: string;
   documentNumber: string;
+  processed: boolean;
 }) {
   const router = useRouter();
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -27,12 +29,16 @@ export function DangerZone({
       <ProfileDangerAction
         icon={Trash2}
         title="Удалить акт"
-        description="Акт и все его позиции удалятся здесь и в Quick Resto. Проведённый в Quick Resto акт удалить нельзя."
+        description={
+          processed
+            ? "Акт проведён: сначала его проведение в Quick Resto отменится — остатки склада пересчитаются, — потом акт и все его позиции удалятся здесь и в Quick Resto."
+            : "Акт и все его позиции удалятся здесь и в Quick Resto."
+        }
         actionLabel="Удалить акт"
         onAction={() => setConfirmOpen(true)}
       />
       <DeleteActDialog
-        doc={{ id: documentId, document_number: documentNumber }}
+        doc={{ id: documentId, document_number: documentNumber, status: processed ? "processed" : "" }}
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         onDeleted={() => {

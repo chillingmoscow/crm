@@ -2,6 +2,7 @@
 
 // Назначение исполнителя и проверяющего акта.
 
+import { ACT_CREATING_LOCK_REASON } from "@/lib/inventory/act-creation-job";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
@@ -25,7 +26,8 @@ import {
   filterVisibleDocumentIds,
   getActiveContext,
   notifyInventoryDocumentEvent,
-  writeInventoryResultEvent
+  writeInventoryResultEvent,
+  documentsBeingCreated,
 } from "../actions-shared";
 
 /** Полное имя профиля (для сообщений журнала). null если нет. */
@@ -118,6 +120,9 @@ export async function assignInventoryReviewer(input: {
       return { error: actionErrorMessage(beforeError, "Не удалось прочитать акт. Попробуйте ещё раз") };
     }
     if (!before) return { error: "Акт не найден" };
+    if ((await documentsBeingCreated(admin, ctx.accountId, [input.documentId])).size > 0) {
+      return { error: ACT_CREATING_LOCK_REASON };
+    }
 
     // Инвариант: проверяющего нельзя менять у проведённого акта.
     const reviewerLock = getReviewerLockReason(before.status);
@@ -231,6 +236,9 @@ export async function assignInventoryDocument(input: {
       return { error: "Не удалось прочитать акт. Попробуйте ещё раз" };
     }
     if (!before) return { error: "Акт не найден" };
+    if ((await documentsBeingCreated(admin, ctx.accountId, [input.documentId])).size > 0) {
+      return { error: ACT_CREATING_LOCK_REASON };
+    }
 
     // Инвариант: исполнителя нельзя менять после ухода акта на проверку /
     // проведения. Передать другому — через «Отправить на пересчёт».
@@ -387,6 +395,7 @@ export async function bulkAssignInventoryDocuments(input: {
     // Codex P1 #407: read-ошибку нельзя глотать — иначе ложный успех.
     if (readError) throw new Error(readError.message);
     const docs = docsRaw ?? [];
+    const creating = await documentsBeingCreated(admin, ctx.accountId, docs.map((d) => d.id));
     // Пропускаем залоченные по статусу для соответствующей роли (исполнитель
     // строже: лок уже на ready_for_review/results_blocked; проверяющий — лишь
     // на processed) и no-op'ы, где значение уже стоит — чтобы не
@@ -394,8 +403,9 @@ export async function bulkAssignInventoryDocuments(input: {
     let noPermission = 0;
     let conflicts = 0;
     const eligible = docs.filter((d) => {
-      const lock =
-        input.role === "assignee"
+      const lock = creating.has(d.id)
+        ? ACT_CREATING_LOCK_REASON
+        : input.role === "assignee"
           ? getAssigneeLockReason(d.status)
           : getReviewerLockReason(d.status);
       if (lock !== null) return false;

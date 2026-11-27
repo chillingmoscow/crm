@@ -1,4 +1,4 @@
-import { ArrowRightLeft, Banknote, CalendarCheck, CheckCheck, CircleSlash, ClipboardList, Pencil, ScanSearch, Settings2 } from "lucide-react";
+import { ArrowRightLeft, Banknote, CalendarCheck, CheckCheck, CircleSlash, ClipboardList, Pencil, ScanSearch, Settings2, Target, Wine } from "lucide-react";
 
 import type { AuditEvent } from "@/lib/audit/list";
 import type { AuditEventSpec } from "./format";
@@ -9,6 +9,9 @@ import { formatAuditDate as formatDate } from "./labels";
 // настройки графика выплат. Пишут действия из people/payroll/payout-actions.ts.
 // Этап 3 (миграция 409): утренняя сверка с изъятием из кассы, автоперенос
 // остатка месяца, закрытие карточки «На разбор».
+// KPI старших (миграция 410): условия KPI должности, итоги месяца, план
+// продаж алкоголя — пишет база в payroll_kpi_terms_save, payroll_kpi_save и
+// sales_alcohol_plan_save.
 
 const INFO = "text-brand bg-brand/10";
 const CREATED = "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
@@ -180,6 +183,44 @@ export const payrollPayoutAuditSpecs: Record<string, AuditEventSpec> = {
           : <>Минимум в кэшбоксе {money(e.details.min_cash)}</>}
         {e.details.chat_id !== e.details.previous_chat_id && <> · чат менеджеров изменён</>}
         {Number(e.details.assignments) > 0 && <> · графиков сотрудников изменено: {Number(e.details.assignments)}</>}
+      </p>
+    ),
+  },
+  "payroll.kpi_terms.changed": {
+    icon: Target,
+    iconClass: INFO,
+    buildHeadline: (e) => <>изменил(а) условия KPI должности «{String(e.details.role_name ?? "")}»</>,
+    buildDetails: (e) => {
+      const items = Array.isArray(e.details.after) ? (e.details.after as { label?: string }[]) : [];
+      return (
+        <div className="space-y-0.5 text-xs text-muted-foreground">
+          <p>С {monthName(e.details.valid_from)} · {typeof e.details.reason === "string" ? e.details.reason : ""}</p>
+          {items.length > 0 && <p>{items.map((i) => i.label ?? "").filter(Boolean).join(", ")}</p>}
+        </div>
+      );
+    },
+  },
+  "payroll.kpi.saved": {
+    icon: Target,
+    iconClass: CREATED,
+    buildHeadline: (e) => <>подвёл(а) итоги KPI: {String(e.details.employee_name ?? "сотрудник")}</>,
+    buildDetails: (e) => (
+      <p className="text-xs text-muted-foreground">
+        За {monthName(e.details.month)} · {money(e.details.total)}
+        {e.details.before_total != null && <> · было {money(e.details.before_total)}</>}
+      </p>
+    ),
+  },
+  "sales.plan.alcohol_set": {
+    icon: Wine,
+    iconClass: INFO,
+    buildHeadline: (e) => <>{e.details.after == null ? "убрал(а) план продаж алкоголя" : "задал(а) план продаж алкоголя"}</>,
+    buildDetails: (e) => (
+      <p className="text-xs text-muted-foreground">
+        На {monthName(e.details.month)} · {money(e.details.after)}
+        {e.details.before != null && <> · было {money(e.details.before)}</>}
+        {e.details.suggested != null && <> · предложение {money(e.details.suggested)}</>}
+        {e.details.price_increase_percent != null && <> · цены +{String(e.details.price_increase_percent)}%</>}
       </p>
     ),
   },

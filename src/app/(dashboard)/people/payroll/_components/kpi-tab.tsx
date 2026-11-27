@@ -22,7 +22,7 @@ export function KpiTab({ month }: { month: string }) {
   const [view, setView] = useState<KpiMonthView | null>(null);
   const [error, setError] = useState("");
   const [open, setOpen] = useState<string | null>(null);
-  const [planOpen, setPlanOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState<"this" | "next" | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -94,6 +94,19 @@ export function KpiTab({ month }: { month: string }) {
           </li>
         ))}
       </ul>
+      {hasPlanItem && view.plan.target == null && (
+        <section aria-label={`План продаж алкоголя на ${label}`} className="flex min-w-0 flex-wrap items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">План продаж алкоголя на {label} не задан</p>
+            <p className="text-[13px] text-muted-foreground">
+              {done > 0 ? "Итоги месяца уже подведены — план этого месяца больше не меняется" : "Без плана пункт «План продаж алкоголя» не засчитается"}
+            </p>
+          </div>
+          {view.canSave && done === 0 && (
+            <Button size="sm" variant="outline" onClick={() => setPlanOpen("this")}>Задать план</Button>
+          )}
+        </section>
+      )}
       {hasPlanItem && (
         <section aria-label="План продаж алкоголя" className="flex min-w-0 flex-wrap items-center gap-3 rounded-lg border p-4">
           <div className="min-w-0 flex-1">
@@ -105,7 +118,7 @@ export function KpiTab({ month }: { month: string }) {
               )}
             </p>
           </div>
-          <Button size="sm" variant="outline" onClick={() => setPlanOpen(true)}>
+          <Button size="sm" variant="outline" onClick={() => setPlanOpen("next")}>
             {!view.canSave ? "Открыть" : view.next.current != null ? "Изменить план" : "Задать план"}
           </Button>
         </section>
@@ -121,16 +134,18 @@ export function KpiTab({ month }: { month: string }) {
             setView(next);
             setOpen(null);
             // План следующего месяца задаём сразу после итогов, если его ещё нет.
-            if (next.next.current == null && hasPlanItem) setPlanOpen(true);
+            if (next.next.current == null && hasPlanItem) setPlanOpen("next");
           }}
         />
       )}
       {planOpen && (
         <AlcoholPlanDialog
+          key={planOpen}
           open
-          onOpenChange={(v) => { if (!v) setPlanOpen(false); }}
+          which={planOpen}
+          onOpenChange={(v) => { if (!v) setPlanOpen(null); }}
           view={view}
-          onSaved={(next) => { setView(next); setPlanOpen(false); }}
+          onSaved={(next) => { setView(next); setPlanOpen(null); }}
         />
       )}
     </div>

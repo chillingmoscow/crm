@@ -22,27 +22,28 @@ const shift = (month: string, by: number) => {
 const ratio = (n: number) => `×${n.toLocaleString("ru-RU", { maximumFractionDigits: 2 })}`;
 
 /** План продаж алкоголя на следующий месяц: предложение приложения и правка. */
-export function AlcoholPlanDialog({ open, onOpenChange, view, onSaved }: {
+export function AlcoholPlanDialog({ open, onOpenChange, view, which = "next", onSaved }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   view: KpiMonthView;
+  /** План месяца итогов (если его не задали вовремя) или следующего. */
+  which?: "this" | "next";
   onSaved: (next: KpiMonthView) => void;
 }) {
-  const target = view.next.month;
-  const [raised, setRaised] = useState(view.next.priceIncreasePercent != null);
-  const [percent, setPercent] = useState(view.next.priceIncreasePercent != null ? String(view.next.priceIncreasePercent) : "");
+  const target = which === "this" ? view.month : view.next.month;
+  const initialPercent = which === "this" ? null : view.next.priceIncreasePercent;
+  const initialPlan = which === "this" ? view.plan.target : view.next.current;
+  const [raised, setRaised] = useState(initialPercent != null);
+  const [percent, setPercent] = useState(initialPercent != null ? String(initialPercent) : "");
   const history = useMemo(() => new Map(view.next.history), [view.next.history]);
   const percentValue = raised && percent !== "" ? Number(percent.replace(",", ".")) : null;
   const suggestion = useMemo(
     () => suggestAlcoholPlan(history, target, percentValue !== null && Number.isFinite(percentValue) ? percentValue : null),
     [history, target, percentValue],
   );
-  const [amount, setAmount] = useState(() => {
-    const start = view.next.current ?? view.next.suggestion.amount;
-    return start != null ? String(start) : "";
-  });
+  const [amount, setAmount] = useState(() => (initialPlan != null ? String(initialPlan) : ""));
   // Пока человек сам не менял сумму, она идёт за предложением.
-  const [touched, setTouched] = useState(view.next.current != null);
+  const [touched, setTouched] = useState(initialPlan != null);
   const shown = touched ? amount : suggestion.amount != null ? String(suggestion.amount) : amount;
   const [busy, setBusy] = useState(false);
 
@@ -55,6 +56,7 @@ export function AlcoholPlanDialog({ open, onOpenChange, view, onSaved }: {
     try {
       const next = unwrapAction(await saveAlcoholPlan({
         viewMonth: view.month.slice(0, 7),
+        target: which,
         amount: value,
         priceIncreasePercent: raised ? percentValue : null,
       }));

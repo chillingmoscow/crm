@@ -89,20 +89,22 @@ async function saveKpiReviewImpl(input: { employeeId: string; month: string; ter
   return view(s, m);
 }
 
-async function saveAlcoholPlanImpl(input: { viewMonth: string; amount: number | null; priceIncreasePercent: number | null }) {
+async function saveAlcoholPlanImpl(input: { viewMonth: string; target: "this" | "next"; amount: number | null; priceIncreasePercent: number | null }) {
   const s = await viewScope();
   const parsed = z.object({
     viewMonth: MONTH,
+    target: z.enum(["this", "next"]),
     amount: z.number().finite().positive("План должен быть больше нуля").lt(1e12, "Слишком большая сумма").nullable(),
     priceIncreasePercent: z.number().finite().min(0.1, "Повышение цен — от 0,1 до 100%").max(100, "Повышение цен — от 0,1 до 100%").nullable(),
   }).parse(input);
   const m = `${parsed.viewMonth}-01`;
-  // Месяц плана и предложение — с сервера: план всегда на месяц после месяца
-  // итогов, а предложение пересчитываем по истории, а не берём из браузера.
+  // Месяц плана и предложение — с сервера: план этого месяца или следующего
+  // за месяцем итогов, предложение пересчитываем по истории, а не берём из браузера.
   const current = await view(s, m);
-  const suggested = suggestAlcoholPlan(new Map(current.next.history), current.next.month, parsed.priceIncreasePercent).amount;
+  const month = parsed.target === "this" ? m : current.next.month;
+  const suggested = suggestAlcoholPlan(new Map(current.next.history), month, parsed.priceIncreasePercent).amount;
   const r = await s.db.rpc("sales_alcohol_plan_save", {
-    p_month: current.next.month,
+    p_month: month,
     p_input: {
       alcohol: parsed.amount === null ? null : Math.round(parsed.amount * 100) / 100,
       suggested,
@@ -166,7 +168,7 @@ export async function loadKpiMonth(month: string) {
 export async function saveKpiReview(input: { employeeId: string; month: string; termsId: string; answers: KpiAnswers; requestKey: string }) {
   return actionResult(() => saveKpiReviewImpl(input), "Не удалось сохранить итоги KPI");
 }
-export async function saveAlcoholPlan(input: { viewMonth: string; amount: number | null; priceIncreasePercent: number | null }) {
+export async function saveAlcoholPlan(input: { viewMonth: string; target: "this" | "next"; amount: number | null; priceIncreasePercent: number | null }) {
   return actionResult(() => saveAlcoholPlanImpl(input), "Не удалось сохранить план продаж");
 }
 export async function loadKpiTerms(roleId: string) {

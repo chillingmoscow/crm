@@ -6,8 +6,10 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import { financeSource } from "@/lib/sales/finance-source";
 import { cashMovementDefaults, normalizeCashMovements } from "@/lib/sales/cash-movements";
 import { addDays, businessDate } from "@/lib/sales/time";
-import { attention, closeAlert, closePlanAlerts } from "./payout-alerts";
-import { carryAlert, reconcileAlert, rub, transferAlert } from "./payout-alert-text";
+import { attention, closeAlert, closePlanAlerts, raiseAlert } from "./payout-alerts";
+import { carryAlert, kpiAlert, kpiPlanAlert, reconcileAlert, rub, transferAlert } from "./payout-alert-text";
+import { KPI_START } from "./kpi";
+import { alcoholMonth, kpiMonthPeople, termsWithPlan } from "./kpi-month";
 import { carryItems, carryWaiting } from "./payout-carry";
 import { buildContext, cashPlan, money, payoutAudit, plan, planRows, type PayoutSourceData, type VenueHandle } from "./payout-engine";
 import { scheduleWindow, type PayoutNo } from "./payout-plan";
@@ -43,6 +45,8 @@ export type CheckResult = {
   reconciled: { date: string; state: "matched" | "mismatch" }[];
   transfersMissing: number;
   carried: { planId: string; people: number; done: boolean }[];
+  /** Сколько старших ждут итогов KPI за прошлый месяц. */
+  kpiMissing: number;
   /** Сбой части проверки: причина без имён и сумм. */
   errors: string[];
   /** Проблема, о которой человек не узнает: ни карточки, ни отчёта. */
@@ -348,6 +352,52 @@ async function carry(s: VenueHandle, initial: PayoutSourceData, today: string, v
   }
 }
 
+const monthBefore = (month: string) => {
+  const d = new Date(`${month}T12:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() - 1);
+  return d.toISOString().slice(0, 10);
+};
+
+/**
+ * KPI старших: с 1-го числа — карточка «KPI за прошлый месяц не подведены»,
+ * пока не сохранены итоги всех; и «План продаж алкоголя не задан», пока у
+ * условий текущего месяца есть пункт плана, а плана нет. Без сообщения в чат.
+ */
+async function checkKpi(s: VenueHandle, _data: PayoutSourceData, today: string, _venueName: string, out: CheckResult) {
+  const venue = { admin: s.admin, accountId: s.accountId, venueId: s.venueId };
+  const current = `${today.slice(0, 7)}-01`;
+  const month = monthBefore(current);
+  if (month >= KPI_START) {
+    const base = await kpiMonthPeople(venue, month);
+    const missing = base.people.filter((p) => !base.reviews.has(p.employeeId));
+    out.kpiMissing = missing.length;
+    if (missing.length) {
+      const roleIds = [...new Set(missing.map((p) => p.roleId))];
+      const roles = await s.admin.from<{ id: string; name: string }[]>("roles").select("id,name").in("id", roleIds);
+      if (roles.error) throw new Error(roles.error.message);
+      const names = new Map((roles.data ?? []).map((r) => [r.id, r.name]));
+      const text = kpiAlert(month, missing.map((p) => ({
+        name: base.employees.get(p.employeeId)?.name ?? "Сотрудник",
+        role: names.get(p.roleId) ?? "",
+      })));
+      if ((await raiseAlert(s, { kind: "kpi", key: month, businessDate: month, ...text })) === "failed") out.unseen = true;
+    } else {
+      await closeAlert(s, "kpi", month);
+    }
+  }
+  if (current >= KPI_START) {
+    const now = await kpiMonthPeople(venue, current);
+    const needsPlan = termsWithPlan(now.terms, now.people.map((p) => p.termsId));
+    const { plan } = await alcoholMonth(venue, current);
+    if (needsPlan && plan.target === null) {
+      // Ссылка ведёт во вкладку «KPI» этого месяца: там план месяца задаётся строкой «План не задан».
+      if ((await raiseAlert(s, { kind: "kpi_plan", key: current, businessDate: current, ...kpiPlanAlert(current) })) === "failed") out.unseen = true;
+    } else {
+      await closeAlert(s, "kpi_plan", current);
+    }
+  }
+}
+
 export async function runPayoutChecks(now = new Date()): Promise<CheckResult[]> {
   if (process.env.PAYROLL_PAYOUT_AUTO === "off") return [];
   const admin = asLooseDb(createAdminClient());
@@ -365,7 +415,7 @@ export async function runPayoutChecks(now = new Date()): Promise<CheckResult[]> 
   for (const v of (venues.data ?? []).filter((x) => names.has(x.venue_id))) {
     const s: VenueHandle = { db: admin, admin, accountId: v.account_id, venueId: v.venue_id };
     const venueName = names.get(v.venue_id) ?? "заведение";
-    const out: CheckResult = { venueId: v.venue_id, reconciled: [], transfersMissing: 0, carried: [], errors: [], unseen: false };
+    const out: CheckResult = { venueId: v.venue_id, reconciled: [], transfersMissing: 0, carried: [], kpiMissing: 0, errors: [], unseen: false };
     results.push(out);
     let data: PayoutSourceData;
     let today: string;
@@ -377,7 +427,7 @@ export async function runPayoutChecks(now = new Date()): Promise<CheckResult[]> 
       continue;
     }
     // Каждая проверка — отдельно: сбой Quick Resto не мешает переносу.
-    for (const [label, step] of [["сверка", reconcile], ["переводы", checkTransfers], ["перенос", carry]] as const) {
+    for (const [label, step] of [["сверка", reconcile], ["переводы", checkTransfers], ["перенос", carry], ["KPI", checkKpi]] as const) {
       try {
         await step(s, data, today, venueName, out);
       } catch (e) {

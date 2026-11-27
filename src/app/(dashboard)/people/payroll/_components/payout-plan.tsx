@@ -502,6 +502,12 @@ function PayoutRowDrawer({
                   options: g.days.map((d) => ({ value: d.date, label: formatDayMonth(d.date) ?? d.date, disabled: d.past })),
                 }))}
               />
+              {/* День по графику идёт за сменами сам; выбранный руками — закреплён. */}
+              <p className="text-[13px] text-muted-foreground">
+                {row.dayManual || (day || null) !== row.pay_date
+                  ? "Выбранный вручную день не переносится при заменах."
+                  : "День по графику: при замене или новой смене переносится сам."}
+              </p>
             </div>
           </div>
         )}

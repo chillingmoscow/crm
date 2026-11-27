@@ -9,6 +9,8 @@ import { formatAuditDate as formatDate } from "./labels";
 // настройки графика выплат. Пишут действия из people/payroll/payout-actions.ts.
 // Этап 3 (миграция 409): утренняя сверка с изъятием из кассы, автоперенос
 // остатка месяца, закрытие карточки «На разбор».
+// Миграция 417: дни выплат, поставленные планом, переносятся по графику
+// (замены, новые смены, пропущенная выдача) — payout-engine.followPlanDays.
 // KPI старших (миграция 415): условия KPI должности, итоги месяца, план
 // продаж алкоголя — пишет база в payroll_kpi_terms_save, payroll_kpi_save и
 // sales_alcohol_plan_save.
@@ -161,6 +163,24 @@ export const payrollPayoutAuditSpecs: Record<string, AuditEventSpec> = {
         <div className="space-y-0.5 text-xs text-muted-foreground">
           <p>За {monthName(e.details.month)} · {money(e.details.total)}</p>
           {lines.length > 0 && <p>{lines.map((l) => `${l.name ?? "Сотрудник"} ${money(l.amount)}`).join(", ")}</p>}
+        </div>
+      );
+    },
+  },
+  "payroll.payout_plan.days_moved": {
+    icon: CalendarCheck,
+    iconClass: INFO,
+    buildHeadline: () => <>дни выплат перенесены по графику</>,
+    buildDetails: (e) => {
+      const moves = Array.isArray(e.details.moves)
+        ? (e.details.moves as { employee_name?: string; from?: string | null; to?: string | null }[])
+        : [];
+      const day = (d: string | null | undefined) => (d ? formatDate(d) : "без дня");
+      return (
+        <div className="space-y-0.5 text-xs text-muted-foreground">
+          {moves.map((m, i) => (
+            <p key={i}>{m.employee_name ?? "Сотрудник"}: {day(m.from)} → {day(m.to)}</p>
+          ))}
         </div>
       );
     },

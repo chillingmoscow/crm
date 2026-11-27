@@ -11,7 +11,18 @@ import { carryAlert, kpiAlert, kpiPlanAlert, reconcileAlert, rub, transferAlert 
 import { KPI_START, kpiNeedsRecount } from "./kpi";
 import { alcoholMonth, kpiMonthPeople, termsWithPlan } from "./kpi-month";
 import { carryItems, carryWaiting } from "./payout-carry";
-import { buildContext, cashPlan, money, payoutAudit, plan, planRows, type PayoutSourceData, type VenueHandle } from "./payout-engine";
+import {
+  buildContext,
+  cashPlan,
+  followPlanDays,
+  money,
+  payoutAudit,
+  plan,
+  planRows,
+  type PayoutSourceData,
+  type PlanRecord,
+  type VenueHandle,
+} from "./payout-engine";
 import { scheduleWindow, type PayoutNo } from "./payout-plan";
 import { reconcileDay } from "./payout-reconcile";
 import { loadVenuePayoutData } from "./payout-source";
@@ -22,6 +33,9 @@ import { loadVenuePayoutData } from "./payout-source";
 // 1. Сверка: выдача наличными за прошлые дни ↔ изъятие из кассы Quick Resto.
 // 2. Выплаты переводом: окно прошло, а выплаты за месяц нет.
 // 3. Автоперенос остатка месяца после второй выплаты.
+// 4. Дни выплат по графику: план, который ещё идёт, сверяется с расписанием
+//    (замены, пропущенная вчера выдача), чтобы главная и план с утра
+//    показывали верный день, даже если план никто не открывал.
 //
 // Что требует человека — карточка «Финансы → На разбор» и сообщение в чат
 // отчётов (один раз, когда карточка появилась). Причина ушла сама — карточка
@@ -47,6 +61,8 @@ export type CheckResult = {
   carried: { planId: string; people: number; done: boolean }[];
   /** Сколько старших ждут итогов KPI за прошлый месяц. */
   kpiMissing: number;
+  /** Сколько строк плана перенесено на смену по графику. */
+  daysMoved: number;
   /** Сбой части проверки: причина без имён и сумм. */
   errors: string[];
   /** Проблема, о которой человек не узнает: ни карточки, ни отчёта. */
@@ -423,6 +439,21 @@ async function checkKpi(s: VenueHandle, _data: PayoutSourceData, today: string, 
   }
 }
 
+/** Идущие планы наличными: дни выплат — по текущему графику (`followPlanDays`). */
+async function followDays(s: VenueHandle, data: PayoutSourceData, today: string, _venueName: string, out: CheckResult) {
+  const plans = await s.admin
+    .from<PlanRecord[]>("payroll_payout_plans")
+    .select("id,schedule,month,payout_no,window_from,window_to,state,version")
+    .eq("account_id", s.accountId)
+    .eq("venue_id", s.venueId)
+    .neq("state", "cancelled")
+    .gte("window_to", today);
+  if (plans.error) throw new Error(plans.error.message);
+  for (const p of plans.data ?? []) {
+    out.daysMoved += await followPlanDays(s, await buildContext(s, data, p.month), p);
+  }
+}
+
 export async function runPayoutChecks(now = new Date()): Promise<CheckResult[]> {
   if (process.env.PAYROLL_PAYOUT_AUTO === "off") return [];
   const admin = asLooseDb(createAdminClient());
@@ -440,7 +471,7 @@ export async function runPayoutChecks(now = new Date()): Promise<CheckResult[]> 
   for (const v of (venues.data ?? []).filter((x) => names.has(x.venue_id))) {
     const s: VenueHandle = { db: admin, admin, accountId: v.account_id, venueId: v.venue_id };
     const venueName = names.get(v.venue_id) ?? "заведение";
-    const out: CheckResult = { venueId: v.venue_id, reconciled: [], transfersMissing: 0, carried: [], kpiMissing: 0, errors: [], unseen: false };
+    const out: CheckResult = { venueId: v.venue_id, reconciled: [], transfersMissing: 0, carried: [], kpiMissing: 0, daysMoved: 0, errors: [], unseen: false };
     results.push(out);
     let data: PayoutSourceData;
     let today: string;
@@ -452,7 +483,7 @@ export async function runPayoutChecks(now = new Date()): Promise<CheckResult[]> 
       continue;
     }
     // Каждая проверка — отдельно: сбой Quick Resto не мешает переносу.
-    for (const [label, step] of [["сверка", reconcile], ["переводы", checkTransfers], ["перенос", carry], ["KPI", checkKpi]] as const) {
+    for (const [label, step] of [["сверка", reconcile], ["переводы", checkTransfers], ["перенос", carry], ["KPI", checkKpi], ["дни", followDays]] as const) {
       try {
         await step(s, data, today, venueName, out);
       } catch (e) {

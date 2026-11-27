@@ -118,6 +118,21 @@ function SalesPlanDetails({ details }: { details: Record<string, unknown> }) {
   );
 }
 
+/** План месяца v2: оборот и доля алкоголя, было → стало. */
+function SalesMonthPlanDetails({ details }: { details: Record<string, unknown> }) {
+  const month = String(details.month ?? "");
+  const side = (v: unknown) => (v && typeof v === "object" ? (v as { turnover?: unknown; alcohol_share?: unknown }) : {});
+  const before = side(details.before), after = side(details.after);
+  const share = (v: unknown) => (v == null ? "—" : `${Number(v).toLocaleString("ru-RU")}%`);
+  return (
+    <div className="space-y-0.5 text-xs text-muted-foreground">
+      <p>{/^\d{4}-\d{2}/.test(month) ? monthLabel(month).replace(/^./, (c) => c.toUpperCase()) : "Месяц"}</p>
+      <p>Оборот: {before.turnover != null ? <>{formatAmount(before.turnover)} → </> : null}{after.turnover != null ? formatAmount(after.turnover) : "без плана"}</p>
+      <p>Доля алкоголя: {before.alcohol_share != null ? <>{share(before.alcohol_share)} → </> : null}{share(after.alcohol_share)}</p>
+    </div>
+  );
+}
+
 function KbPageTitle({ event, text }: { event: AuditEvent; text: string }) {
   const label = `«${text || "Без названия"}»`;
   const e = event.entity;
@@ -571,6 +586,34 @@ const SPECS: Record<string, AuditEventSpec> = {
     // До разведения кодов создание и удаление тоже писались как `updated`.
     buildHeadline: (e) => <>{e.details.after == null ? "удалил(а) план продаж" : e.details.before == null ? "задал(а) план продаж" : "изменил(а) план продаж"}</>,
     buildDetails: (e) => <SalesPlanDetails details={e.details} />,
+  },
+  "sales.plan.saved": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>утвердил(а) план продаж месяца</>,
+    buildDetails: (e) => <SalesMonthPlanDetails details={e.details} />,
+  },
+  "sales.price_change.created": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>записал(а) изменение цен</>,
+    buildDetails: (e) => (
+      <p className="text-xs text-muted-foreground">
+        С {String(e.details.date ?? "").split("-").reverse().join(".")} · {Number(e.details.percent) > 0 ? "+" : ""}{Number(e.details.percent).toLocaleString("ru-RU")}%
+        {e.details.note ? <> · {String(e.details.note)}</> : null}
+      </p>
+    ),
+  },
+  "sales.price_change.deleted": {
+    icon: Settings2, iconClass: "text-muted-foreground bg-muted",
+    buildHeadline: () => <>удалил(а) изменение цен</>,
+    buildDetails: (e) => (
+      <p className="text-xs text-muted-foreground">
+        С {String(e.details.date ?? "").split("-").reverse().join(".")} · {Number(e.details.percent).toLocaleString("ru-RU")}%
+      </p>
+    ),
+  },
+  "sales.seasonality.changed": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: (e) => <>{e.details.after == null ? "вернул(а) сезонность по умолчанию" : "изменил(а) сезонность заведения"}</>,
   },
   "sales.plan.deleted": {
     icon: Settings2, iconClass: "text-muted-foreground bg-muted",

@@ -79,6 +79,11 @@ export function flyToStaffCard(info: FlightInfo, navigate: () => void) {
     return;
   }
   pending = info;
+  // Метка «идёт view transition» для анимации смены страницы в каркасе
+  // (page-transition.tsx): она пропускает свой ход, чтобы не было двойного
+  // движения. Нужна браузерам без document.activeViewTransition.
+  const root = document.documentElement;
+  root.setAttribute("data-view-transition", "");
   // Крупная копия фото, которую покажет шапка, — заранее, чтобы она не
   // догружалась на глазах после посадки.
   if (info.src) new Image().src = avatarImageUrl(info.src, 128);
@@ -91,6 +96,7 @@ export function flyToStaffCard(info: FlightInfo, navigate: () => void) {
     return waitForTarget(info.userId);
   });
   transition.finished.finally(() => {
+    root.removeAttribute("data-view-transition");
     if (pending === info) pending = null;
   });
 }

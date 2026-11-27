@@ -315,6 +315,10 @@ export async function dismissCasualEmployee(input: {
 }): Promise<DismissCasualResult> {
   const parsed = z.string().uuid().safeParse(input.id);
   if (!parsed.success) return { done: false, pending: null, error: "Разовый сотрудник не найден" };
+  // Как у штатных: увольняет тот, кто ведёт сотрудников (база проверит то же).
+  const can = await getCachedPermissionChecker();
+  if (!can("people.edit_staff") || !can("people.invite_staff"))
+    return { done: false, pending: null, error: "Нет права увольнять сотрудников" };
   const tgError = telegramIdError(input.telegramId, false);
   if (tgError) return { done: false, pending: null, error: tgError };
   const started = await asLooseDb(await createClient()).rpc("payroll_casual_dismiss", {

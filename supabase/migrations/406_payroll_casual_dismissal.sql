@@ -45,6 +45,23 @@ alter table public.payroll_casual_dismissals enable row level security;
 revoke all on public.payroll_casual_dismissals from public, anon, authenticated;
 grant all on public.payroll_casual_dismissals to service_role;
 
+-- Telegram ID, вписанный руками, решает, кого бот исключит из чатов. Чужой ID
+-- (действующего сотрудника аккаунта или другого разового) не принимаем —
+-- иначе увольнение разового выгнало бы из чатов другого человека.
+create or replace function private.payroll_casual_telegram_taken(p_account uuid, p_employee uuid, p_telegram_id text)
+returns boolean language sql stable security definer
+set search_path = public, pg_catalog as $$
+  select exists(select 1 from public.payroll_employees x
+                 where x.account_id = p_account and x.id <> p_employee and x.telegram_id = p_telegram_id
+                   and (x.active or exists(select 1 from public.payroll_casual_dismissals d
+                                            where d.employee_id = x.id and d.state <> 'complete')))
+      or exists(select 1 from public.profiles p
+                  join public.user_venue_roles u on u.user_id = p.id and u.status = 'active'
+                  join public.venues v on v.id = u.venue_id and v.account_id = p_account
+                 where nullif(trim(p.telegram_id), '') = p_telegram_id);
+$$;
+revoke all on function private.payroll_casual_telegram_taken(uuid, uuid, text) from public, anon, authenticated;
+
 -- Telegram ID разового: вписывают при заведении или позже, в том числе для
 -- уволенного, у которого исключение из чатов ещё не подтверждено.
 create or replace function public.payroll_casual_set_telegram_id(p_employee_id uuid, p_telegram_id text)
@@ -57,6 +74,10 @@ declare
 begin
   if tg is not null and tg !~ '^[0-9]{1,15}$' then
     raise exception 'Telegram ID — только цифры, до 15 знаков';
+  end if;
+  if tg is not null and private.payroll_casual_telegram_taken(
+       (select account_id from public.venues where id = venue), p_employee_id, tg) then
+    raise exception 'Этот Telegram ID уже указан у другого сотрудника';
   end if;
   update public.payroll_employees set telegram_id = tg
    where id = p_employee_id and venue_id = venue and casual
@@ -84,11 +105,18 @@ declare
   qr bigint;
   no_chats boolean;
 begin
+  -- Увольняет, как и штатных, тот, кто ведёт сотрудников (scope выше — право приглашать).
+  if not public.has_permission('people.edit_staff') then
+    raise exception 'Нет права увольнять сотрудников';
+  end if;
   if tg is not null and tg !~ '^[0-9]{1,15}$' then
     raise exception 'Telegram ID — только цифры, до 15 знаков';
   end if;
   select * into e from public.payroll_employees where id = p_employee_id and venue_id = venue for update;
   if not found or not e.casual then raise exception 'Разовый сотрудник не найден'; end if;
+  if tg is not null and private.payroll_casual_telegram_taken(e.account_id, e.id, tg) then
+    raise exception 'Этот Telegram ID уже указан у другого сотрудника';
+  end if;
   if tg is not null and tg is distinct from e.telegram_id then
     update public.payroll_employees set telegram_id = tg where id = e.id;
   end if;
@@ -286,7 +314,8 @@ begin
      or has_function_privilege('authenticated', 'public.payroll_casual_claim_dismissal(uuid)', 'execute')
      or not has_function_privilege('service_role', 'public.payroll_casual_claim_dismissal(uuid)', 'execute')
      or has_function_privilege('anon', 'public.payroll_casual_create(text, text, uuid)', 'execute')
-     or has_function_privilege('anon', 'public.schedule_payroll_options()', 'execute') then
+     or has_function_privilege('anon', 'public.schedule_payroll_options()', 'execute')
+     or has_function_privilege('authenticated', 'private.payroll_casual_telegram_taken(uuid, uuid, text)', 'execute') then
     raise exception '406: права на функции увольнения разового не выставились';
   end if;
   if has_table_privilege('authenticated', 'public.payroll_casual_dismissals', 'select')

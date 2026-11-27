@@ -22,7 +22,13 @@ export type CasualStaffRow = {
 };
 
 // Casual workers of a venue for the staff page. The caller checks access.
-export async function getCasualStaff(venueId: string, showPins: boolean, accountId: string) {
+// `showContacts` — Telegram ID, как контакты штатных: с правом на детали
+// сотрудников или на их ведение; иначе null.
+export async function getCasualStaff(
+  venueId: string,
+  { showPins, showContacts }: { showPins: boolean; showContacts: boolean },
+  accountId: string,
+) {
   const db = asLooseDb(createAdminClient());
   // Связи должностей с Quick Resto — в той же волне по аккаунту, который знает
   // вызывающий (раньше — отдельный шаг за аккаунтом заведения).
@@ -70,7 +76,7 @@ export async function getCasualStaff(venueId: string, showPins: boolean, account
       departmentId: role?.department_id ?? null,
       departmentName: (role?.department_id && departmentName.get(role.department_id)) || null,
       pin: p.quickresto_pin === null ? null : showPins ? p.quickresto_pin : "••••",
-      telegramId: p.telegram_id,
+      telegramId: showContacts ? p.telegram_id : null,
       dismissal: open.has(p.id) ? { state: open.get(p.id)!.state, error: open.get(p.id)!.error } : null,
     };
   });

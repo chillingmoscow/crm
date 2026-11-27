@@ -852,7 +852,9 @@ export function StaffClient({
         officialUserIds={officialUserIds}
         renderCasualCell={renderCasualCell}
         renderCasualActions={
-          canInviteStaff
+          // Увольнение — как у штатных, с правом вести сотрудников (и
+          // приглашать: им же заводят разовых).
+          canEdit && canInviteStaff
             ? (c) => (
                 <TableRowMenu
                   label={`Действия: ${c.name}`}

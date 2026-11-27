@@ -60,9 +60,11 @@ export async function dropStaffChatInvites(userId: string) {
 export async function queueAcceptedInvitationChats(input: {
   userId: string;
   email: string;
-  invitations: { id: string; venue_id: string; role_id: string }[];
+  invitations: { id: string; venue_id: string; role_id: string; chat_invites?: boolean | null }[];
 }) {
-  if (!input.invitations.length) return;
+  // Только те, где пригласивший включил «Пригласить в чаты Telegram».
+  const invitations = input.invitations.filter((inv) => inv.chat_invites === true);
+  if (!invitations.length) return;
   const { data: who } = await createAdminClient()
     .from("profiles")
     .select("first_name, last_name")
@@ -70,7 +72,7 @@ export async function queueAcceptedInvitationChats(input: {
     .maybeSingle();
   const name = [who?.first_name, who?.last_name].filter(Boolean).join(" ") || input.email;
   await Promise.all(
-    input.invitations.map((inv) =>
+    invitations.map((inv) =>
       queueStaffChatInvites({
         venueId: inv.venue_id,
         userId: input.userId,

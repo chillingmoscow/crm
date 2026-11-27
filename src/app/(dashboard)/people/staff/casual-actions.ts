@@ -13,19 +13,45 @@ import { zonedParts } from "@/lib/sales/time";
 import { getActiveAccountTimezone } from "@/lib/settings/account";
 import { assignPayrollPositionOnly, requeuePayrollFrom } from "@/app/(dashboard)/people/payroll/actions";
 import { createStaffWithoutEmail } from "./actions";
-import { dropStaffChatInvites } from "@/lib/people/chat-invites-queue";
+import { dropStaffChatInvites, queueStaffChatInvites } from "@/lib/people/chat-invites-queue";
 
-export type CasualResult = { id: string | null; pin: string | null; error: string | null };
+export type CasualResult = {
+  id: string | null;
+  pin: string | null;
+  error: string | null;
+  /** Предупреждение: разовый заведён, но приглашения в чаты не поставлены. */
+  notice?: string | null;
+};
 
 const nameSchema = z.object({
   firstName: z.string().trim().min(1, "Укажите имя").max(80),
   lastName: z.string().trim().min(1, "Укажите фамилию").max(80),
 });
 
-async function provision(id: string): Promise<CasualResult> {
+async function provision(id: string, chatInvites: boolean): Promise<CasualResult> {
   try {
     const { pin } = await provisionCasualQuickResto(id);
-    return { id, pin, error: null };
+    // Разовых в чаты зовут только по переключателю в форме (по умолчанию
+    // выключен). Учётной записи у разового нет — в журнале приглашений он
+    // записан идентификатором своей записи в зарплате.
+    let notice: string | null = null;
+    if (chatInvites) {
+      const row = await asLooseDb(createAdminClient())
+        .from<{ venue_id: string; role_id: string | null; name: string }>("payroll_employees")
+        .select("venue_id,role_id,name")
+        .eq("id", id)
+        .single();
+      notice = row.data
+        ? await queueStaffChatInvites({
+            venueId: row.data.venue_id,
+            userId: id,
+            roleId: row.data.role_id,
+            name: row.data.name,
+            eventKey: `casual-hire:${id}`,
+          })
+        : "Приглашения в чаты Telegram не отправлены — пригласите сотрудника вручную";
+    }
+    return { id, pin, error: null, notice };
   } catch (e) {
     console.error("[provisionCasual] Quick Resto provisioning failed:", e);
     return { id, pin: null, error: `Не удалось завести сотрудника в Quick Resto: ${quickRestoReason(e)}` };
@@ -40,6 +66,8 @@ export async function createCasualEmployee(input: {
   firstName: string;
   lastName: string;
   roleId: string;
+  /** Пригласить в Telegram-чаты должности (по умолчанию нет). */
+  chatInvites?: boolean;
 }): Promise<CasualResult> {
   const parsed = nameSchema.extend({ roleId: z.string().uuid("Выберите должность") }).safeParse(input);
   if (!parsed.success) return { id: null, pin: null, error: parsed.error.issues[0]?.message ?? "Проверьте поля" };
@@ -51,7 +79,7 @@ export async function createCasualEmployee(input: {
   });
   if (created.error || typeof created.data !== "string")
     return { id: null, pin: null, error: errorText(created.error, "Не удалось добавить разового сотрудника") };
-  return provision(created.data);
+  return provision(created.data, input.chatInvites === true);
 }
 
 // For a casual worker created earlier without a Quick Resto code, or a retry
@@ -60,6 +88,7 @@ export async function provisionCasualEmployee(input: {
   id: string;
   firstName: string;
   lastName: string;
+  chatInvites?: boolean;
 }): Promise<CasualResult> {
   const parsed = nameSchema.extend({ id: z.string().uuid() }).safeParse(input);
   if (!parsed.success) return { id: null, pin: null, error: parsed.error.issues[0]?.message ?? "Проверьте поля" };
@@ -70,7 +99,7 @@ export async function provisionCasualEmployee(input: {
     p_last_name: parsed.data.lastName,
   });
   if (requested.error) return { id: parsed.data.id, pin: null, error: errorText(requested.error, "Не удалось подготовить заведение в Quick Resto") };
-  return provision(parsed.data.id);
+  return provision(parsed.data.id, input.chatInvites === true);
 }
 
 const convertSchema = nameSchema.extend({
@@ -78,6 +107,7 @@ const convertSchema = nameSchema.extend({
   gender: genderSchema,
   phone: z.string().trim().max(40).optional(),
   roleId: z.string().uuid("Выберите должность"),
+  chatInvites: z.boolean().optional(),
 });
 
 export type ConvertCasualResult = {
@@ -185,6 +215,7 @@ export async function convertCasualToStaff(input: z.input<typeof convertSchema>)
     phone: value.phone || null,
     roleId: value.roleId,
     venueId,
+    chatInvites: value.chatInvites === true,
   });
   const userId = created.member?.user_id ?? null;
   if (created.error || !userId)
@@ -217,7 +248,7 @@ export async function convertCasualToStaff(input: z.input<typeof convertSchema>)
   } catch {
     notices.push("Пересчёт зарплаты поставьте вручную (Зарплата → Обновить)");
   }
-  // Приглашения в Telegram-чаты поставил createStaffWithoutEmail.
+  // Приглашения в Telegram-чаты (если включены) поставил createStaffWithoutEmail.
   if (created.notice) notices.push(created.notice);
   revalidatePath("/people/staff");
   revalidatePath("/people/payroll");

@@ -312,6 +312,8 @@ export async function inviteStaff(data: {
   email:   string;
   roleId:  string;
   venueId: string;
+  /** Пригласить в Telegram-чаты должности, когда сотрудник примет приглашение. */
+  chatInvites?: boolean;
 }): Promise<{ error: string | null; invitation: PendingInvitation | null }> {
   const supabase = await createClient();
   const {
@@ -428,6 +430,7 @@ export async function inviteStaff(data: {
       invited_by: user.id,
       status:     "pending",
       token,
+      chat_invites: data.chatInvites === true,
     })
     .select("id")
     .single();
@@ -497,6 +500,8 @@ export async function createStaffWithoutEmail(data: {
   phone:     string | null;
   roleId:    string;
   venueId:   string;
+  /** Пригласить в Telegram-чаты должности (переключатель в форме). */
+  chatInvites?: boolean;
 }): Promise<{ error: string | null; member: StaffMember | null; notice?: string | null }> {
   const supabase = await createClient();
   const {
@@ -593,14 +598,16 @@ export async function createStaffWithoutEmail(data: {
     .eq("id", data.roleId)
     .maybeSingle();
 
-  // Приглашения в Telegram-чаты должности — как при найме кандидата.
-  const chatNotice = await queueStaffChatInvites({
-    venueId: data.venueId,
-    userId: newUserId,
-    roleId: data.roleId,
-    name: `${firstName} ${lastName}`,
-    eventKey: `staff:${newUserId}`,
-  });
+  // Приглашения в Telegram-чаты должности — если их включили в форме.
+  const chatNotice = data.chatInvites
+    ? await queueStaffChatInvites({
+        venueId: data.venueId,
+        userId: newUserId,
+        roleId: data.roleId,
+        name: `${firstName} ${lastName}`,
+        eventKey: `staff:${newUserId}`,
+      })
+    : null;
 
   revalidatePath("/people/staff");
 

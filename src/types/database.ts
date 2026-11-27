@@ -1476,6 +1476,7 @@ export type Database = {
       }
       invitations: {
         Row: {
+          chat_invites: boolean
           created_at: string
           email: string
           expires_at: string
@@ -1486,6 +1487,7 @@ export type Database = {
           venue_id: string
         }
         Insert: {
+          chat_invites?: boolean
           created_at?: string
           email: string
           expires_at?: string
@@ -1496,6 +1498,7 @@ export type Database = {
           venue_id: string
         }
         Update: {
+          chat_invites?: boolean
           created_at?: string
           email?: string
           expires_at?: string

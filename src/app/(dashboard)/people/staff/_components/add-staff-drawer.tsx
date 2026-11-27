@@ -20,6 +20,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { useDiscardGuard } from "@/components/shared/discard-changes-dialog";
+import { ChatInvitesSwitch } from "./chat-invites-switch";
 import { GENDER_OPTIONS, genderFormField, type Gender } from "@/lib/people/gender";
 import {
   createStaffWithoutEmail,
@@ -86,6 +87,8 @@ function useCasualCreate(roles: Role[], onIssued: (value: CasualIssued) => void)
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [roleId, setRoleId] = useState("");
+  // Разового в чаты зовут осознанно: по умолчанию выключено.
+  const [chatInvites, setChatInvites] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -95,14 +98,15 @@ function useCasualCreate(roles: Role[], onIssued: (value: CasualIssued) => void)
     startTransition(async () => {
       setError(null);
       const result = savedId
-        ? await provisionCasualEmployee({ id: savedId, firstName, lastName })
-        : await createCasualEmployee({ firstName, lastName, roleId });
+        ? await provisionCasualEmployee({ id: savedId, firstName, lastName, chatInvites })
+        : await createCasualEmployee({ firstName, lastName, roleId, chatInvites });
       if (result.id) setSavedId(result.id);
       if (!result.pin) {
         setError(result.error ?? "Quick Resto не ответил");
         return;
       }
       router.refresh();
+      if (result.notice) toast.warning(result.notice);
       onIssued({
         name: `${firstName.trim()} ${lastName.trim()}`,
         roleName: roles.find((r) => r.id === roleId)?.name ?? "",
@@ -118,6 +122,8 @@ function useCasualCreate(roles: Role[], onIssued: (value: CasualIssued) => void)
     setLastName,
     roleId,
     setRoleId,
+    chatInvites,
+    setChatInvites,
     retry: savedId !== null,
     error,
     pending,
@@ -187,6 +193,12 @@ function CasualCreateFields({ form }: { form: CasualCreate }) {
           />
         )}
       </Field>
+      <ChatInvitesSwitch
+        id="casual-chats"
+        checked={form.chatInvites}
+        onCheckedChange={form.setChatInvites}
+        disabled={form.pending}
+      />
       {form.error ? (
         <div
           role="alert"
@@ -267,6 +279,9 @@ export function AddStaffDrawer({
   );
   const [issued, setIssued] = useState<CasualIssued | null>(null);
   const [pending, startTransition] = useTransition();
+  // Штатного в чаты должности обычно зовут сразу — включено по умолчанию.
+  const [manualChats, setManualChats] = useState(true);
+  const [inviteChats, setInviteChats] = useState(true);
 
   const manual = useForm<CreateForm>({
     resolver: zodResolver(createSchema),
@@ -300,6 +315,7 @@ export function AddStaffDrawer({
         phone: values.phone || null,
         roleId: values.roleId,
         venueId,
+        chatInvites: manualChats,
       });
       if (result.error) {
         toast.error(result.error);
@@ -318,6 +334,7 @@ export function AddStaffDrawer({
         email: values.email,
         roleId: values.roleId,
         venueId,
+        chatInvites: inviteChats,
       });
       if (result.error) {
         toast.error(result.error);
@@ -505,6 +522,12 @@ export function AddStaffDrawer({
                     />
                   )}
                 </Field>
+                <ChatInvitesSwitch
+                  id="create-chats"
+                  checked={manualChats}
+                  onCheckedChange={setManualChats}
+                  disabled={busy}
+                />
                 <p className="text-xs text-muted-foreground">
                   Без входа в Sheerly. Доступ можно выдать позже в карточке
                 </p>
@@ -556,6 +579,13 @@ export function AddStaffDrawer({
                     />
                   )}
                 </Field>
+                <ChatInvitesSwitch
+                  id="inv-chats"
+                  checked={inviteChats}
+                  onCheckedChange={setInviteChats}
+                  disabled={busy}
+                  hint="Когда сотрудник примет приглашение, бот пришлёт в чат приглашений ссылки в чаты должности"
+                />
                 <p className="text-xs text-muted-foreground">
                   Сотрудник получит письмо и сам заполнит профиль
                 </p>

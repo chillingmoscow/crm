@@ -13,6 +13,7 @@ import { PhoneInput } from "@/components/ui/phone-input";
 import { GENDER_OPTIONS, type Gender } from "@/lib/people/gender";
 import { splitCasualName } from "@/lib/payroll/casual-name";
 import { convertCasualToStaff } from "../casual-actions";
+import { ChatInvitesSwitch } from "./chat-invites-switch";
 
 /**
  * «Перевести в штат» у разового в списке сотрудников (меню строки). Поля — как
@@ -37,6 +38,7 @@ export function CasualToStaffDrawer({
   const [gender, setGender] = useState<Gender | "">("");
   const [phone, setPhone] = useState("");
   const [roleId, setRoleId] = useState(employee.role_id ?? "");
+  const [chatInvites, setChatInvites] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const ready = Boolean(firstName.trim() && lastName.trim() && gender && roleId);
@@ -52,6 +54,7 @@ export function CasualToStaffDrawer({
         gender: gender as Gender,
         phone: phone || undefined,
         roleId,
+        chatInvites,
       });
       if (result.error || !result.userId) {
         setError(result.error ?? "Не удалось перевести сотрудника в штат");
@@ -148,6 +151,7 @@ export function CasualToStaffDrawer({
             />
           )}
         </Field>
+        <ChatInvitesSwitch id="convert-chats" checked={chatInvites} onCheckedChange={setChatInvites} />
         </fieldset>
         {pending && (
           <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">

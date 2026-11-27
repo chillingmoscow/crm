@@ -318,14 +318,21 @@ function SidebarBody({
   const navRef = useRef<HTMLDivElement>(null);
   useActiveNavGlide(navRef, pathname, !collapsed);
 
+  // Раскрыт один раздел: открываем другой — прежний сворачивается.
   const toggleSection = (label: string) => {
-    setOpenSections((prev) => {
-      const next = new Set(prev);
-      if (next.has(label)) next.delete(label);
-      else next.add(label);
-      return next;
-    });
+    setOpenSections((prev) => (prev.has(label) ? new Set() : new Set([label])));
   };
+
+  // Переход в другой раздел (⌘K, ссылка на странице) раскрывает его в меню.
+  const activeSection = visibleSections.find((section) =>
+    section.items.some((item) =>
+      item.exact ? pathname === item.href : pathname.startsWith(item.href),
+    ),
+  )?.label;
+  useEffect(() => {
+    if (activeSection)
+      setOpenSections((prev) => (prev.has(activeSection) ? prev : new Set([activeSection])));
+  }, [activeSection]);
 
   return (
     <>
@@ -504,7 +511,7 @@ function FlatExpandedLink({
         isActive && "bg-sidebar-accent text-sidebar-accent-foreground",
       )}
     >
-      <Icon className="w-[18px] h-[18px] shrink-0" />
+      <Icon className="nav-icon w-[18px] h-[18px] shrink-0" />
       <span className="flex-1 text-left">{section.label}</span>
     </Link>
   );
@@ -538,6 +545,23 @@ function FlatCollapsedLink({
   );
 }
 
+/**
+ * Иконка раздела при раскрытии мягко «вдыхает»: из чуть меньшего и
+ * повёрнутого положения на место, без отскока (docs/motion.md). Только по
+ * нажатию — при загрузке страницы раскрытый раздел не анимируется.
+ */
+function popNavIcon(el: SVGSVGElement | null) {
+  if (!el || typeof el.animate !== "function") return;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  el.animate(
+    [
+      { transform: "scale(0.78) rotate(-12deg)" },
+      { transform: "none" },
+    ],
+    { duration: 460, easing: "cubic-bezier(0.32, 0.72, 0, 1)" },
+  );
+}
+
 // ── Expanded mode: section trigger that toggles inline children ─
 
 function ExpandedSection({
@@ -567,12 +591,17 @@ function ExpandedSection({
   const candidateBadge = section.items.find(item => item.href === "/people/candidates")?.badge;
   // Candidate attention has the same meaning on the parent and on the tab.
   const sectionBadge = typeof candidateBadge === "number" && candidateBadge > 0 ? candidateBadge : (isOpen ? 0 : collapsedBadgeSum);
+  const icon = useRef<SVGSVGElement>(null);
+  const toggle = () => {
+    if (!isOpen) popNavIcon(icon.current);
+    onToggle();
+  };
   return (
     // Group · gap 4px between Trigger and Nested
     <div className="flex flex-col" data-nav-section>
       <button
         type="button"
-        onClick={onToggle}
+        onClick={toggle}
         aria-expanded={isOpen}
         className={cn(
           // Trigger: padding [8,10], gap 10, font 14/500, rounded 8
@@ -580,7 +609,7 @@ function ExpandedSection({
           hasActiveChild && !isOpen && "bg-sidebar-accent",
         )}
       >
-        <SectionIcon className="w-[18px] h-[18px] shrink-0" />
+        <SectionIcon ref={icon} className="nav-icon w-[18px] h-[18px] shrink-0" />
         <span className="flex-1 text-left">{section.label}</span>
         {sectionBadge > 0 && (
           <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-primary text-primary-foreground text-xs font-semibold px-1.5">

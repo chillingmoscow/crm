@@ -46,8 +46,10 @@ export function CandidateAppointmentDetails({ open = true, candidateId, appointm
   const change = (field: keyof Report, value: string) => setReport((current) => ({ ...current, [field]: value }));
   const payload = reportPayload(a, report);
   const dirty = JSON.stringify(payload) !== JSON.stringify(reportPayload(a, initialReport(a)));
-  const commentRequired = a.kind === "interview" && ["passed", "rejected"].includes(report.outcome);
-  const futureResult = commentRequired && !!a.starts_at && new Date(a.starts_at).getTime() > Date.now();
+  const interviewResult = a.kind === "interview" && ["passed", "rejected"].includes(report.outcome);
+  // «Не прошёл» переводит кандидата в «Не подходит» — причина обязательна и у стажировки.
+  const commentRequired = interviewResult || report.outcome === "rejected";
+  const futureResult = interviewResult && !!a.starts_at && new Date(a.starts_at).getTime() > Date.now();
   const { guard, dialog } = useDiscardGuard(editable && dirty, "В результате есть несохранённые изменения.");
   const requestAction = (action: "close" | "schedule") => {
     if (busy) return;

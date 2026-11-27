@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Check, ChevronsUpDown } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -86,6 +86,7 @@ export function Combobox({
   "aria-describedby": ariaDescribedBy,
 }: Props) {
   const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
 
   const selected = useMemo(
     () => options.find((o) => o.value === value) ?? null,
@@ -96,6 +97,7 @@ export function Combobox({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          ref={trigger}
           type="button"
           variant="outline"
           role="combobox"
@@ -120,7 +122,13 @@ export function Combobox({
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className={cn("p-0 w-[--radix-popover-trigger-width]", className)} align="start">
+      {/* В окне или панели список рисуется внутрь неё: модальное окно гасит
+          прокрутку колёсиком и пальцем за своими пределами. */}
+      <PopoverContent
+        portalContainer={trigger.current?.closest<HTMLElement>('[role="dialog"]')}
+        className={cn("p-0 w-[--radix-popover-trigger-width]", className)}
+        align="start"
+      >
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
           <CommandList>

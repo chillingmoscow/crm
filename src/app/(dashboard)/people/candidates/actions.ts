@@ -119,6 +119,18 @@ async function commentCandidateImpl(
     request_key: uuid.parse(requestKey),
   });
 }
+/** «Не подходит» — только с комментарием: этап и комментарий пишет база одной транзакцией. */
+async function rejectCandidateImpl(id: string, revision: number, body: string, requestKey: string) {
+  const s = await candidateScope();
+  const data = result(await s.db.rpc("candidate_reject", {
+    p_candidate: uuid.parse(id),
+    p_revision: z.number().int().parse(revision),
+    p_comment: z.string().trim().min(1, "Напишите, почему кандидат не подходит").max(12000).parse(body),
+    p_request_key: uuid.parse(requestKey),
+  })) as { id: string; revision: number; status: CandidateStatus };
+  revalidatePath("/schedule");
+  return data;
+}
 const interviewFeedback = z.object({
   punctuality: z.enum(["early", "on_time", "late_warned", "late"]).optional(),
   appearance: z.string().trim().max(2000).optional(),
@@ -431,6 +443,9 @@ export async function getCandidateAppointments(id: string) {
 }
 export async function updateCandidate(id: string, input: unknown) {
   return actionResult(() => updateCandidateImpl(id, input), "Не удалось сохранить анкету");
+}
+export async function rejectCandidate(id: string, revision: number, body: string, requestKey: string) {
+  return actionResult(() => rejectCandidateImpl(id, revision, body, requestKey), "Не удалось перевести кандидата в «Не подходит»");
 }
 export async function commentCandidate(id: string, body: string, requestKey: string) {
   return actionResult(() => commentCandidateImpl(id, body, requestKey), "Не удалось отправить комментарий");

@@ -287,12 +287,22 @@ export async function POST(request: NextRequest) {
       } catch {
         additionalErrors++;
       }
-      try {
-        const r = await processUpsellDay();
-        if (!r.idle) additionalReports++;
-        if (r.error) additionalErrors++;
-      } catch {
-        additionalErrors++;
+      // Несколько дней за проход: открытый день встаёт в очередь с каждой
+      // загрузкой чеков (~15 мин) по каждому подразделению, и по одному дню
+      // за проход очередь не успевала до закрытых дней.
+      for (let i = 0; i < 6 && Date.now() - started < 25000; i++) {
+        try {
+          const r = await processUpsellDay();
+          if (r.idle) break;
+          additionalReports++;
+          if (r.error) {
+            additionalErrors++;
+            break;
+          }
+        } catch {
+          additionalErrors++;
+          break;
+        }
       }
     } else if (lane === 1) {
       try {

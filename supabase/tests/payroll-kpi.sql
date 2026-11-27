@@ -211,27 +211,8 @@ begin
     pg_temp.fx('terms')) is not null, 'условия со следующего месяца сохраняются');
 end $$;
 
--- ── i. План алкоголя не теряется при пустом обороте ───────
-do $$
-declare pid uuid;
-begin
-  perform set_config('app.sales_plan_write', '1', true);
-  insert into public.sales_month_plans(account_id, venue_id, month, turnover, created_by, updated_by)
-  values (pg_temp.fx('a'), pg_temp.fx('v'), '2027-01-01', 5000000, pg_temp.fx('owner'), pg_temp.fx('owner'))
-  on conflict (account_id, venue_id, month) do update set turnover = 5000000, alcohol = null returning sales_month_plans.id into pid;
-  perform set_config('app.sales_plan_write', '', true);
-  perform public.sales_alcohol_plan_save('2027-01-01', jsonb_build_object('alcohol', 416000, 'suggested', 416000, 'price_increase_percent', 5));
-  perform pg_temp.check((select alcohol = 416000 and price_increase_percent = 5 from public.sales_month_plans where sales_month_plans.id = pid), 'план алкоголя записан в строку месяца');
-  perform public.sales_alcohol_plan_save('2027-01-01', jsonb_build_object('alcohol', null));
-  perform pg_temp.check((select alcohol is null and turnover = 5000000 from public.sales_month_plans where sales_month_plans.id = pid), 'стёрт план алкоголя — оборот остался');
-  perform public.sales_alcohol_plan_save('2027-02-01', jsonb_build_object('alcohol', 300000));
-  perform pg_temp.check((select turnover is null and alcohol = 300000 from public.sales_month_plans where venue_id = pg_temp.fx('v') and month = '2027-02-01'), 'план алкоголя без плана оборота');
-  perform public.sales_alcohol_plan_save('2027-02-01', jsonb_build_object('alcohol', null));
-  perform pg_temp.check(not exists (select 1 from public.sales_month_plans where venue_id = pg_temp.fx('v') and month = '2027-02-01'), 'оба плана пусты — строки нет');
-  perform pg_temp.check(exists (select 1 from public.audit_logs where action_code = 'sales.plan.alcohol_set' and entity_id = pid), 'журнал: план алкоголя');
-  perform pg_temp.expect_error('select public.sales_alcohol_plan_save(''2026-11-01'', ''{"alcohol":1000}'')',
-    '%уже подведены%', 'план месяца с итогами KPI не меняется');
-end $$;
+-- ── i. План алкоголя (рублёвый, 415) — с 418 заменён планом месяца в «Статистике»,
+--     проверки — в supabase/tests/sales-plan-forecast.sql.
 
 -- ── l. Прямая запись плана алкоголя пользователем отклоняется ─
 do $$

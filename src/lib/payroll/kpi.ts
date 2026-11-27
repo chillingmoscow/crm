@@ -135,6 +135,14 @@ export function kpiNeedsRecount(lines: Pick<KpiLine, "type" | "counted" | "note"
   return lines.some((l) => l.type === "plan" && !l.counted && (l.note === KPI_WAITING_REPORT || l.note === KPI_WAITING_MONTH));
 }
 
+/**
+ * Итог сохранили по другим условиям KPI (их поменяли в идущем месяце) —
+ * его нужно пересохранить: пункты и суммы могли измениться.
+ */
+export function kpiReviewOutdated(review: { termsId: string; items: unknown }, current: { id: string; items: unknown }): boolean {
+  return review.termsId !== current.id || JSON.stringify(review.items) !== JSON.stringify(current.items);
+}
+
 /** Основание премии: «KPI за ноябрь 2026: Инвентаризация до 20-го, Сезонные позиции ×2». */
 export function kpiReason(month: string, lines: KpiLine[]): string {
   const parts = lines.filter((l) => l.counted).map((l) => (l.type === "each" && l.note ? `${l.label} ${l.note}` : l.label));

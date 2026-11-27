@@ -148,6 +148,26 @@ begin
     'plan_target', 99)), '%План продаж за месяц изменился%', 'итог по устаревшей доле — отказ');
 end $$;
 
+-- ── k. Каскадное удаление заведения не упирается в охрану плана ─
+do $$
+declare acc uuid; ven uuid;
+begin
+  insert into public.accounts(name, owner_id) values ('План тест каскад', pg_temp.fx('owner')) returning id into acc;
+  insert into public.venues(account_id, name) values (acc, 'Каскад') returning id into ven;
+  perform set_config('app.sales_plan_write', '1', true);
+  insert into public.sales_month_plans(account_id, venue_id, month, turnover) values (acc, ven, '2027-01-01', 1000);
+  perform set_config('app.sales_plan_write', '', true);
+  delete from public.venues where id = ven;
+  perform pg_temp.check(not exists (select 1 from public.sales_month_plans where venue_id = ven), 'удаление заведения уносит его план');
+  delete from public.accounts where id = acc;
+end $$;
+
+-- ── l. Рублёвый план 415 закрыт ───────────────────────────
+do $$
+begin
+  perform pg_temp.check(not has_function_privilege('authenticated', 'public.sales_alcohol_plan_save(date,jsonb)', 'execute'), 'sales_alcohol_plan_save закрыта');
+end $$;
+
 -- ── f. Цены ───────────────────────────────────────────────
 do $$
 declare pid uuid;

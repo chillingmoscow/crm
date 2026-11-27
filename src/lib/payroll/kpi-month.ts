@@ -6,7 +6,7 @@ import { alcoholShareStatus } from "@/lib/sales/alcohol-plan";
 import { statisticsRevenueShare } from "@/lib/sales/statistics-view";
 import type { StatisticsReport } from "@/lib/sales/statistics-reports";
 import type { SalesDay } from "@/lib/sales/types";
-import { kpiNeedsRecount, kpiPeople, parseKpiItems, type KpiAnswers, type KpiItem, type KpiLine, type KpiPlanFact } from "./kpi";
+import { kpiNeedsRecount, kpiPeople, kpiReviewOutdated, parseKpiItems, type KpiAnswers, type KpiItem, type KpiLine, type KpiPlanFact } from "./kpi";
 import { transferMonthLabel } from "./transfer-reason";
 import type { PayAssignment, PayEmployee, PayModel } from "./types";
 
@@ -70,7 +70,7 @@ function check<T>(r: { data: T | null; error: { message: string } | null }): T {
 }
 
 type TermsRow = { id: string; role_id: string; valid_from: string; items: unknown };
-type ReviewRow = { employee_id: string; answers: KpiAnswers; lines: KpiLine[]; total: number; saved_at: string; saved_by: string | null };
+type ReviewRow = { employee_id: string; terms_id: string; items: unknown; answers: KpiAnswers; lines: KpiLine[]; total: number; saved_at: string; saved_by: string | null };
 
 /** Люди и условия месяца — общая часть для вкладки и утренней проверки. */
 export async function kpiMonthPeople(s: KpiVenue, month: string) {
@@ -83,7 +83,7 @@ export async function kpiMonthPeople(s: KpiVenue, month: string) {
     scoped<PayAssignment>("payroll_employee_models", "id,employee_id,model_id,valid_from"),
     scoped<PayModel>("payroll_models"),
     scoped<TermsRow>("payroll_kpi_terms", "id,role_id,valid_from,items"),
-    admin.from<ReviewRow[]>("payroll_kpi_reviews").select("employee_id,answers,lines,total,saved_at,saved_by")
+    admin.from<ReviewRow[]>("payroll_kpi_reviews").select("employee_id,terms_id,items,answers,lines,total,saved_at,saved_by")
       .eq("account_id", accountId).eq("venue_id", venueId).eq("month", month),
     fetchAllRows<{ employee_id: string }>(() =>
       admin.from<{ employee_id: string }[]>("payroll_accruals").select("employee_id")
@@ -101,6 +101,15 @@ export async function kpiMonthPeople(s: KpiVenue, month: string) {
     reviews: new Map(check(reviews).map((r) => [r.employee_id, r])),
     anyTerms: terms.length > 0,
   };
+}
+
+/**
+ * Итог нужно досчитать: план ещё не засчитан (месяц идёт или нет отчёта) или
+ * итог сохранили по другим условиям KPI (их поменяли в идущем месяце).
+ */
+export function reviewNeedsRecount(review: ReviewRow, terms: TermsRow | undefined): boolean {
+  return kpiNeedsRecount(Array.isArray(review.lines) ? review.lines : [])
+    || (terms ? kpiReviewOutdated({ termsId: review.terms_id, items: review.items }, terms) : false);
 }
 
 /** Есть ли в действующих на месяц условиях пункт плана продаж алкоголя. */
@@ -228,7 +237,7 @@ export async function loadKpiMonthView(
             total: Number(review.total),
             savedAt: review.saved_at,
             savedBy: review.saved_by ? names.get(review.saved_by) ?? null : null,
-            needsRecount: kpiNeedsRecount(Array.isArray(review.lines) ? review.lines : []),
+            needsRecount: reviewNeedsRecount(review, terms),
           }
         : null,
       manual: adjustments

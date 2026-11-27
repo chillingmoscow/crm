@@ -225,7 +225,7 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
     if (detail) setShownDetail(detail);
   }, [detail]);
   const st = useTableState({
-    tableId: `sales-statistics.v4.${initial.venueId}`,
+    tableId: `sales-statistics.v3.${initial.venueId}`,
     columns: columnConfig,
   });
   const can = (p: string) => data.permissions.includes(`sales.${p}_shifts`);

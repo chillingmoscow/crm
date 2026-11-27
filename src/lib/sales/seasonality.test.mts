@@ -31,3 +31,14 @@ test("ownSeasonIndex: удвоенный декабрь виден, месяцы
   assert.ok(Math.abs(mean(idx as number[]) - 1) < 0.001);
   assert.deepEqual(ownSeasonIndex(days.filter((d) => d.date >= "2026-06-01")), Array(12).fill(null));
 });
+
+test("ownSeasonIndex: идущий месяц не считается полным", () => {
+  const days: { date: string; turnover: number }[] = [];
+  for (let d = new Date(Date.UTC(2025, 10, 1)); d < new Date(Date.UTC(2026, 11, 1)); d.setUTCDate(d.getUTCDate() + 1)) {
+    const date = d.toISOString().slice(0, 10);
+    days.push({ date, turnover: date >= "2026-11-01" ? 500 : 100 });
+  }
+  // Ноябрь 2026 ещё идёт (пусть и с полным числом дней) — берётся прошлогодний ноябрь.
+  const idx = ownSeasonIndex(days, "2026-11-01");
+  assert.ok(Math.abs(idx[10]! - 1) < 0.001);
+});

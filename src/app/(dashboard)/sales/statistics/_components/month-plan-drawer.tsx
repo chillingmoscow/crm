@@ -88,7 +88,7 @@ export function MonthPlanDrawer({ open, onOpenChange, month: initialMonth, curre
   function apply(v: MonthPlanView) {
     setView(v);
     setTurnover(String(v.turnover.plan ?? v.turnover.forecast.value ?? ""));
-    setShare(String(v.alcoholShare.plan ?? v.alcoholShare.forecast.value ?? ""));
+    setShare(String(v.alcoholShare.plan ?? (v.alcoholShare.frozen ? "" : v.alcoholShare.forecast.value ?? "")));
     setSeason(v.season.index.map((x) => String(x)));
   }
 
@@ -106,7 +106,8 @@ export function MonthPlanDrawer({ open, onOpenChange, month: initialMonth, curre
   };
 
   const save = () => {
-    const t = num(turnover), sh = num(share);
+    // Замороженная доля (итоги KPI подведены) уходит как есть, а не прогнозом из поля.
+    const t = num(turnover), sh = view?.alcoholShare.frozen ? view.alcoholShare.plan : num(share);
     if (t !== null && (!Number.isFinite(t) || t <= 0)) return toast.error("План оборота должен быть больше нуля");
     if (sh !== null && (!Number.isFinite(sh) || sh < 0.1 || sh > 100)) return toast.error("Доля алкоголя — от 0,1 до 100%");
     void run(async () => unwrapAction(await saveMonthPlan({ month, turnover: t, alcoholShare: sh })), `План на ${monthLabel(month)} утверждён`);

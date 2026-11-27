@@ -9,8 +9,8 @@ import { addDays, businessDate } from "@/lib/sales/time";
 import { attention, closeAlert, closePlanAlerts, raiseAlert } from "./payout-alerts";
 import { carryAlert, kpiAlert, reconcileAlert, rub, salesPlanAlert, transferAlert } from "./payout-alert-text";
 import { permissionRecipients } from "@/lib/notifications/recipients";
-import { KPI_START, kpiNeedsRecount } from "./kpi";
-import { kpiMonthPeople, termsWithPlan } from "./kpi-month";
+import { KPI_START } from "./kpi";
+import { kpiMonthPeople, reviewNeedsRecount, termsWithPlan } from "./kpi-month";
 import { carryItems, carryWaiting } from "./payout-carry";
 import {
   buildContext,
@@ -438,7 +438,7 @@ async function checkPlansAndKpi(s: VenueHandle, _data: PayoutSourceData, today: 
     // Не подведены — нет итога или итог сохранили до отчёта продаж (план не досчитан).
     const missing = base.people.filter((p) => {
       const review = base.reviews.get(p.employeeId);
-      return !review || kpiNeedsRecount(Array.isArray(review.lines) ? review.lines : []);
+      return !review || reviewNeedsRecount(review, base.terms.get(p.termsId));
     });
     out.kpiMissing = missing.length;
     if (missing.length) {
@@ -477,7 +477,7 @@ async function checkPlansAndKpi(s: VenueHandle, _data: PayoutSourceData, today: 
       const old = await kpiMonthPeople(venue, a.key);
       const waiting = old.people.some((p) => {
         const review = old.reviews.get(p.employeeId);
-        return !review || kpiNeedsRecount(Array.isArray(review.lines) ? review.lines : []);
+        return !review || reviewNeedsRecount(review, old.terms.get(p.termsId));
       });
       if (!waiting) await closeAlert(s, "kpi", a.key);
     }

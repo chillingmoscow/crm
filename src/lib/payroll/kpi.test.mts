@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { KPI_WAITING_MONTH, kpiNeedsRecount, kpiPeople, kpiReason, kpiResult, kpiSummary, parseKpiItems, SENIOR_BAR, type KpiPlanFact } from "./kpi.ts";
+import { KPI_WAITING_MONTH, kpiNeedsRecount, kpiReviewOutdated, kpiPeople, kpiReason, kpiResult, kpiSummary, parseKpiItems, SENIOR_BAR, type KpiPlanFact } from "./kpi.ts";
 import type { PayAssignment, PayEmployee, PayModel } from "./types.ts";
 
 const all = { inventory: true, purchasing: true, team_event: true, seasonal: 2 };
@@ -121,4 +121,10 @@ test("parseKpiItems: metric alcohol читается как alcohol_share", () =
 test("kpiResult: месяц идёт и плана нет — ждём конца месяца, а не «план не задан»", () => {
   const line = kpiResult(SENIOR_BAR, {}, { target: null, actual: null, pending: "month" }).lines.find((l) => l.id === "alcohol_plan")!;
   assert.equal(line.note, KPI_WAITING_MONTH);
+});
+
+test("kpiReviewOutdated: итог по старым условиям — устарел", () => {
+  assert.equal(kpiReviewOutdated({ termsId: "t1", items: SENIOR_BAR }, { id: "t1", items: SENIOR_BAR }), false);
+  assert.equal(kpiReviewOutdated({ termsId: "t0", items: SENIOR_BAR }, { id: "t1", items: SENIOR_BAR }), true);
+  assert.equal(kpiReviewOutdated({ termsId: "t1", items: SENIOR_BAR }, { id: "t1", items: SENIOR_BAR.slice(1) }), true);
 });

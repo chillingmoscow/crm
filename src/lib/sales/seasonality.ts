@@ -41,7 +41,7 @@ const daysIn = (ym: string) => new Date(Date.UTC(Number(ym.slice(0, 4)), Number(
  * Индекс по своим дням: для каждого месяца года — последний полный такой месяц.
  * Пока нет полного года (любого месяца не хватает) — все `null`.
  */
-export function ownSeasonIndex(daily: { date: string; turnover: number }[]): (number | null)[] {
+export function ownSeasonIndex(daily: { date: string; turnover: number }[], currentMonth?: string): (number | null)[] {
   const byMonth = new Map<string, { sum: number; days: number }>();
   for (const d of daily) {
     if (!Number.isFinite(d.turnover)) continue;
@@ -54,7 +54,7 @@ export function ownSeasonIndex(daily: { date: string; turnover: number }[]): (nu
   const perDay: (number | null)[] = Array(12).fill(null);
   for (const ym of [...byMonth.keys()].sort()) {
     const m = byMonth.get(ym)!;
-    if (m.days !== daysIn(ym)) continue;
+    if (m.days !== daysIn(ym) || (currentMonth && ym >= currentMonth.slice(0, 7))) continue;
     perDay[Number(ym.slice(5, 7)) - 1] = m.sum / m.days;
   }
   if (perDay.some((v) => v === null || v <= 0)) return Array(12).fill(null);

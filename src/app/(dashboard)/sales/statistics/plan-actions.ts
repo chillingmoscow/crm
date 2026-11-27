@@ -44,20 +44,38 @@ async function saveMonthPlanImpl(input: { month: string; turnover: number | null
     alcoholShare: z.number().finite().min(0.1, "Доля алкоголя — от 0,1 до 100%").max(100, "Доля алкоголя — от 0,1 до 100%").nullable(),
   }).parse(input);
   const month = `${parsed.month}-01`;
-  // Снимок прогноза — с сервера, на момент утверждения.
+  // Снимок прогноза — с сервера, на момент утверждения; прогноз от плана не зависит,
+  // поэтому после сохранения тот же экран отдаём с новыми цифрами плана.
   const before = await loadMonthPlanView(s.venue, month);
+  const turnover = parsed.turnover === null ? null : Math.round(parsed.turnover * 100) / 100;
+  const alcoholShare = parsed.alcoholShare === null ? null : Math.round(parsed.alcoholShare * 100) / 100;
   const r = await s.db.rpc("sales_month_plan_save", {
     p_month: month,
     p_input: {
-      turnover: parsed.turnover === null ? null : Math.round(parsed.turnover * 100) / 100,
-      alcohol_share: parsed.alcoholShare === null ? null : Math.round(parsed.alcoholShare * 100) / 100,
+      turnover,
+      alcohol_share: alcoholShare,
       forecast: { turnover: before.turnover.forecast, alcohol_share: before.alcoholShare.forecast },
     },
   });
   if (r.error) throw new Error(r.error.message);
+  // Карточку «План продаж не задан» закрываем сразу, не дожидаясь утренней проверки
+  // (если KPI долю не требуют, а её нет, утренняя проверка решит сама).
+  if (turnover !== null && alcoholShare !== null) {
+    const now = new Date().toISOString();
+    const closed = await s.venue.admin.from("payroll_payout_alerts")
+      .update({ status: "resolved", resolved_by: null, resolved_at: now, updated_at: now })
+      .eq("account_id", s.venue.accountId).eq("venue_id", s.venue.venueId)
+      .eq("kind", "sales_plan").eq("key", month).eq("status", "open");
+    if (closed.error) console.error(`[sales-plan] карточка плана не закрыта: ${closed.error.message}`);
+  }
   revalidatePath("/sales/statistics");
   revalidatePath("/sales/shifts");
-  return loadMonthPlanView(s.venue, month);
+  revalidatePath("/finance/inbox");
+  return {
+    ...before,
+    turnover: { ...before.turnover, plan: turnover },
+    alcoholShare: { ...before.alcoholShare, plan: alcoholShare },
+  };
 }
 
 async function savePriceChangeImpl(input: { month: string; date: string; percent: number; note: string }): Promise<MonthPlanView> {

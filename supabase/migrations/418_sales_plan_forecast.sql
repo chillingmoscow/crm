@@ -21,10 +21,14 @@ cross join public.permissions n
 where n.code = 'sales.plan' and rp.granted
 on conflict (role_id, permission_id) do update set granted = excluded.granted;
 
--- ── Текущий месяц заведения (по его часовому поясу) ───────
+-- ── Текущий месяц заведения: по его рабочему дню (часовой пояс и час начала дня) ─
+-- Тот же рабочий день, что businessDate в приложении: до начала дня 1-го числа
+-- ещё идёт прошлый месяц.
 create or replace function private.venue_current_month(p_venue uuid)
 returns date language sql stable security definer set search_path = public, pg_catalog as $$
-  select date_trunc('month', now() at time zone coalesce((select timezone from public.venues where id = p_venue), 'Europe/Moscow'))::date
+  select date_trunc('month',
+    (now() at time zone coalesce((select timezone from public.venues where id = p_venue), 'Europe/Moscow'))
+    - make_interval(hours => coalesce((select day_start_hour from public.sales_settings where venue_id = p_venue), 9)))::date
 $$;
 revoke all on function private.venue_current_month(uuid) from public, anon, authenticated;
 
@@ -46,8 +50,9 @@ drop function if exists private.sales_alcohol_plan_guard();
 create or replace function private.sales_month_plan_guard()
 returns trigger language plpgsql set search_path = public, pg_catalog as $$
 begin
-  if coalesce(current_setting('app.sales_plan_write', true), '') <> '1'
-     and coalesce(current_setting('app.alcohol_plan_write', true), '') <> '1' then
+  -- Каскадное удаление (заведение, аккаунт) идёт из триггера внешнего ключа — пропускаем.
+  if tg_op = 'DELETE' and pg_trigger_depth() > 1 then return old; end if;
+  if coalesce(current_setting('app.sales_plan_write', true), '') <> '1' then
     raise exception 'План продаж задаётся в «Статистике»';
   end if;
   return case when tg_op = 'DELETE' then old else new end;
@@ -199,6 +204,7 @@ begin
   if u is null or a is null or v is null then raise exception 'Войдите в аккаунт и выберите заведение'; end if;
   if not public.has_permission('sales.plan') then raise exception 'Нет доступа к планам продаж'; end if;
   select index into before from public.sales_seasonality where venue_id = v and account_id = a;
+  if before is not distinct from (case when p_index = 'null'::jsonb then null else p_index end) then return true; end if;
   if p_index is null or p_index = 'null'::jsonb then
     delete from public.sales_seasonality where venue_id = v and account_id = a;
   else
@@ -428,6 +434,9 @@ begin
   return jsonb_build_object('review_id', r.id, 'adjustment_id', adj.id, 'total', v_total);
 end $$;
 
+-- Рублёвый план алкоголя из 415 больше не пишется: его функцию закрываем.
+revoke all on function public.sales_alcohol_plan_save(date, jsonb) from public, anon, authenticated;
+
 -- ── Карточка «План продаж не задан» ───────────────────────
 alter table public.payroll_payout_alerts drop constraint payroll_payout_alerts_kind_check;
 alter table public.payroll_payout_alerts add constraint payroll_payout_alerts_kind_check
@@ -462,6 +471,9 @@ begin
     if has_function_privilege('anon', f, 'execute') then raise exception 'План: у anon остался доступ к %', f; end if;
     if not has_function_privilege('authenticated', f, 'execute') then raise exception 'План: у authenticated нет доступа к %', f; end if;
   end loop;
+  if has_function_privilege('authenticated', 'public.sales_alcohol_plan_save(date,jsonb)', 'execute') then
+    raise exception 'План: функция рублёвого плана из 415 доступна пользователю';
+  end if;
   if has_function_privilege('authenticated', 'private.venue_current_month(uuid)', 'execute') then
     raise exception 'План: служебная функция доступна пользователю';
   end if;

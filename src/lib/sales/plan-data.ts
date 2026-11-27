@@ -25,6 +25,8 @@ export type MonthPlanView = {
   season: { index: SeasonIndex; custom: boolean; industry: SeasonIndex; own: (number | null)[]; source: string; note: string };
 };
 
+type DayRow = Pick<SalesDay, "venue_id" | "business_date" | "status" | "calculated" | "overrides"> & { settings: unknown };
+
 const daysIn = (m: string) => new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0)).getUTCDate();
 
 function check<T>(r: { data: T | null; error: { message: string } | null }): T {
@@ -36,7 +38,10 @@ function check<T>(r: { data: T | null; error: { message: string } | null }): T {
 export async function loadPlanSources(s: PlanVenue) {
   const { admin, accountId, venueId } = s;
   const [days, reports, archive, plans, prices, season, venue, settings] = await Promise.all([
-    fetchAllRows<SalesDay>(() => admin.from<SalesDay[]>("sales_days").select("*").eq("account_id", accountId).eq("venue_id", venueId)),
+    // Только нужные поля: история за годы, а экран открывают часто.
+    fetchAllRows<DayRow>(() => admin.from<DayRow[]>("sales_days")
+      .select("venue_id,business_date,status,calculated,overrides,settings:source_summary->settings")
+      .eq("account_id", accountId).eq("venue_id", venueId)),
     admin.from<StatisticsReport[]>("sales_month_reports")
       .select("id,venue_id,month,kind,metrics,period_start,period_end,through_date,synced_at,state,last_error")
       .eq("account_id", accountId).eq("venue_id", venueId).eq("kind", "alcohol"),
@@ -59,7 +64,8 @@ export async function loadPlanSources(s: PlanVenue) {
     custom = null;
   }
   return {
-    days,
+    // statisticsRevenueShare сверяет рабочий период по source_summary.settings.
+    days: days.map((d) => ({ ...d, source_summary: { settings: d.settings } }) as unknown as SalesDay),
     reports: check(reports) ?? [],
     archive: check(archive) ?? [],
     plans: new Map((check(plans) ?? []).map((p) => [p.month.slice(0, 10), p])),
@@ -84,15 +90,17 @@ export function planSeries(src: PlanSources) {
   const currentMonth = `${src.today.slice(0, 7)}-01`;
   for (const [m, list] of byMonth) {
     const values = list.map((d) => effectiveMetrics(d).turnover).filter((v): v is number => v !== null && Number.isFinite(v));
-    turnover.set(m, values.reduce((s, v) => s + v, 0));
-    if (m < currentMonth && list.length === daysIn(m) && values.length === list.length && !list.some((d) => d.status === "preliminary"))
+    const sum = values.reduce((s, v) => s + v, 0);
+    turnover.set(m, sum);
+    // Нулевой «полный» месяц — пустая догрузка, а не продажи: в базы не идёт.
+    if (m < currentMonth && sum > 0 && list.length === daysIn(m) && values.length === list.length && !list.some((d) => d.status === "preliminary"))
       complete.add(m);
   }
-  // Архив Glide — запасной источник месяца, где своих дней нет.
+  // Архив Glide — запасной источник месяца, где свои дни неполные или их нет.
   for (const a of src.archive) {
     const m = `${a.month.slice(0, 7)}-01`;
     const v = a.metrics?.turnover;
-    if (!byMonth.has(m) && typeof v === "number" && v > 0 && m < currentMonth) {
+    if (!complete.has(m) && typeof v === "number" && v > 0 && m < currentMonth) {
       turnover.set(m, v);
       complete.add(m);
     }
@@ -104,12 +112,12 @@ export function planSeries(src: PlanSources) {
     const value = statisticsRevenueShare(r, src.days, src.timezone, src.hour).value;
     if (value === null || !Number.isFinite(value)) continue;
     share.set(m, value);
-    if (m < currentMonth && r.through_date && r.through_date.slice(0, 10) >= `${m.slice(0, 8)}${daysIn(m)}`) shareComplete.add(m);
+    if (m < currentMonth && r.state === "ready" && r.through_date && r.through_date.slice(0, 10) >= `${m.slice(0, 8)}${daysIn(m)}`) shareComplete.add(m);
   }
   for (const a of src.archive) {
     const m = `${a.month.slice(0, 7)}-01`;
     const v = a.metrics?.alcoholShare;
-    if (!share.has(m) && typeof v === "number" && v > 0 && m < currentMonth) {
+    if (!shareComplete.has(m) && typeof v === "number" && v > 0 && m < currentMonth) {
       share.set(m, v);
       shareComplete.add(m);
     }
@@ -138,7 +146,7 @@ export async function loadMonthPlanView(s: PlanVenue, month: MonthKey): Promise<
   const own = ownSeasonIndex(src.days.flatMap((d) => {
     const v = effectiveMetrics(d).turnover;
     return v === null || !Number.isFinite(v) || d.status === "preliminary" ? [] : [{ date: d.business_date, turnover: v }];
-  }));
+  }), `${src.today.slice(0, 7)}-01`);
   const plan = src.plans.get(month);
   const report = src.reports.find((r) => r.month.slice(0, 10) === month);
   const shareNow = report ? statisticsRevenueShare(report, src.days, src.timezone, src.hour).value : null;

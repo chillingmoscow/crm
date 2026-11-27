@@ -16,8 +16,19 @@ export type VenueOption = { id: string; name: string; timezone?: string | null }
  */
 export const DEFAULT_ACT_TIME_ZONE = "Europe/Moscow";
 
+/** Пояс из базы, который понимает Intl; иначе — Москва, а не падение страницы. */
+function validTimeZone(zone: string | null | undefined): string {
+  if (!zone) return DEFAULT_ACT_TIME_ZONE;
+  try {
+    new Intl.DateTimeFormat("ru-RU", { timeZone: zone });
+    return zone;
+  } catch {
+    return DEFAULT_ACT_TIME_ZONE;
+  }
+}
+
 export function actTimeZones(venues: VenueOption[]): (venueId: string | null) => string {
-  const byVenue = new Map(venues.map((venue) => [venue.id, venue.timezone || DEFAULT_ACT_TIME_ZONE]));
+  const byVenue = new Map(venues.map((venue) => [venue.id, validTimeZone(venue.timezone)]));
   return (venueId) => (venueId ? byVenue.get(venueId) : undefined) ?? DEFAULT_ACT_TIME_ZONE;
 }
 export type StoreOption = { id: string; title: string };

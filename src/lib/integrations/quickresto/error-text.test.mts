@@ -69,6 +69,30 @@ test("причина отказа из ответа Quick Resto остаётся
   );
 });
 
+test("из ответа сервера показывается только короткая фраза без адресов и идентификаторов", () => {
+  assert.equal(
+    quickRestoErrorText(
+      "Quick Resto вернул ошибку 400: Ошибка в https://chilling.quickresto.ru/platform/online/api. Документ уже проведён. Обратитесь к администратору",
+    ),
+    "Quick Resto отклонил запрос: Документ уже проведён",
+  );
+  assert.equal(
+    quickRestoErrorText("Quick Resto вернул ошибку 400: Объект 3f2b9c1a-1111-2222-3333-444455556666 не найден"),
+    "Quick Resto отклонил запрос",
+  );
+});
+
+test("техническая вставка в скобках не делает фразу своей", () => {
+  assert.equal(
+    quickRestoErrorText("Не удалось прочитать ответ Quick Resto (SyntaxError: Unexpected token < in JSON at position 0)"),
+    "Quick Resto вернул ошибку",
+  );
+  assert.equal(
+    quickRestoErrorText("Quick Resto не вернул склад (https://chilling.quickresto.ru/api/read?id=5)"),
+    "Quick Resto вернул ошибку",
+  );
+});
+
 test("своя русская фраза с названием или кодом в скобках и кавычках не перехватывается", () => {
   const own = [
     "Не удалось проверить гостя Quick Resto (HTTP 404)",

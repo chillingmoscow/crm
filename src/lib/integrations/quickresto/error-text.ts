@@ -62,16 +62,26 @@ const withoutPeriod = (text: string) => text.replace(/\.\s*$/, "");
 /**
  * Русская часть ответа сервера («Документ уже проведён» из тела 400 или из
  * JSON `{"message": "…"}`) — её стоит показать, в ней причина отказа.
+ * Берётся одна короткая фраза без адресов, путей и идентификаторов: тело
+ * ответа целиком остаётся в журнале сервера.
  */
 function serverReason(body: string | undefined): string | null {
   if (!body) return null;
-  const parts = body
-    .split(/["{}[\]<>]|\\n/)
-    .map((part) => part.replace(/^[\s:,]+|[\s:,]+$/g, ""))
-    .filter((part) => CYRILLIC.test(part));
-  if (parts.length === 0) return null;
-  const reason = withoutPeriod(parts.join(". ").replace(/\s+/g, " ").trim());
-  return reason.length > 200 ? `${reason.slice(0, 199).trimEnd()}…` : reason;
+  const reason = body
+    // Делим и по разметке JSON, и по предложениям: фраза с адресом
+    // отбрасывается, соседняя без него остаётся.
+    .split(/["{}[\]<>]|\\n|(?<=[.!?])\s+/)
+    .map((part) => part.replace(/^[\s:,]+|[\s:,]+$/g, "").replace(/\s+/g, " "))
+    .find(
+      (part) =>
+        CYRILLIC.test(part) &&
+        // Ссылки, пути, почта, ключи и длинные латинские или цифровые
+        // вставки — признак технического текста, его не показываем.
+        !/https?:|www\.|[/\\@=?]|[A-Za-z]{16,}|\d{7,}|[0-9a-f]{8}-[0-9a-f]{4}/i.test(part),
+    );
+  if (!reason) return null;
+  const sentence = withoutPeriod(reason.trim());
+  return sentence.length > 160 ? `${sentence.slice(0, 159).trimEnd()}…` : sentence;
 }
 
 function statusErrorText(status: number, body: string | undefined): string {
@@ -83,10 +93,20 @@ function statusErrorText(status: number, body: string | undefined): string {
   return reason ? `Quick Resto отклонил запрос: ${reason}` : "Quick Resto отклонил запрос";
 }
 
-/** Латиница вне скобок и кавычек — признак английского технического текста. */
+/**
+ * Латиница вне скобок и кавычек — признак английского технического текста.
+ * В скобках и кавычках прощается только короткое название или код («HTTP
+ * 404», «Revenue»); вставка с адресом, путём, двоеточием или длинная строка
+ * считается технической.
+ */
+const SAFE_TOKEN = /^[A-Za-z][A-Za-z0-9 _.%-]{0,24}$/;
+
 function hasLooseLatin(message: string): boolean {
   const bare = message
-    .replace(/«[^»]*»|"[^"]*"|“[^”]*”|\([^)]*\)/g, " ")
+    .replace(/«([^»]*)»|"([^"]*)"|“([^”]*)”|\(([^)]*)\)/g, (whole, ...groups: unknown[]) => {
+      const inner = String(groups.slice(0, 4).find((group) => typeof group === "string") ?? "").trim();
+      return /[A-Za-z]/.test(inner) && !SAFE_TOKEN.test(inner) ? whole : " ";
+    })
     .replace(new RegExp(QUICK_RESTO.source, "gi"), " ");
   return /[A-Za-z]/.test(bare);
 }

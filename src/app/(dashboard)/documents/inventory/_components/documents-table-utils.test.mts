@@ -130,6 +130,7 @@ test("actTimeZones: день акта — в поясе заведения, бе
     { id: "msk", name: "Бар", timezone: "Europe/Moscow" },
     { id: "nsk", name: "Кухня", timezone: "Asia/Novosibirsk" },
     { id: "none", name: "Склад", timezone: null },
+    { id: "broken", name: "Цех", timezone: "Mars/Olympus" },
   ]);
   // 01:30 МСК 24.11 — на сервере в UTC это ещё 23.11.
   const night = "2026-11-23T22:30:00Z";
@@ -137,5 +138,6 @@ test("actTimeZones: день акта — в поясе заведения, бе
   assert.equal(formatDateCell(night, zoneOf("nsk")), "24.11.2026");
   assert.equal(zoneOf("none"), "Europe/Moscow");
   assert.equal(zoneOf(null), "Europe/Moscow");
+  assert.equal(zoneOf("broken"), "Europe/Moscow");
   assert.equal(zoneOf("unknown"), "Europe/Moscow");
 });

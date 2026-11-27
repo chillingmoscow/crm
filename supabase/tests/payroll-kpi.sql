@@ -85,7 +85,7 @@ begin
   values (a, v, 'Старший Тестовый', 'Бармен', r, m, true) returning id into e;
   insert into fx values ('role', r), ('model', m), ('senior', e);
   t := public.payroll_kpi_terms_save(r, jsonb_build_object('valid_from', '2026-11-01', 'reason', 'Условия для теста',
-    'items', '[{"id":"inventory","type":"done","label":"Инвентаризация","amount":7000}]'::jsonb), null);
+    'items', '[{"id":"inventory","type":"done","label":"Инвентаризация","amount":7000},{"id":"seasonal","type":"each","label":"Сезонные","price":1000}]'::jsonb), null);
   insert into fx values ('terms', t), ('k1', gen_random_uuid()), ('k2', gen_random_uuid()), ('k3', gen_random_uuid());
 end $$;
 
@@ -149,6 +149,12 @@ begin
   perform pg_temp.expect_error(format('select pg_temp.save(%L, 5000)', gen_random_uuid()), '%ноябрь 2026 уже перенесён%декабрь 2026%', 'после переноса остатка — отказ');
   delete from public.payroll_payout_rows where plan_id = p;
   delete from public.payroll_payout_plans where id = p;
+end $$;
+
+-- ── m. Итог больше условий отклоняется ────────────────────
+do $$
+begin
+  perform pg_temp.expect_error(format('select pg_temp.save(%L, 57000.01)', gen_random_uuid()), '%больше, чем дают условия%', 'итог больше условий — отказ');
 end $$;
 
 -- ── k. Месяц раньше ноября 2026 ───────────────────────────

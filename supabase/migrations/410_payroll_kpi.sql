@@ -248,6 +248,15 @@ begin
     raise exception 'Условия KPI изменились. Обновите страницу';
   end if;
 
+  -- Итог считает сервер приложения, но база не верит ему на слово: больше,
+  -- чем дают условия (все пункты + 50 штук «за каждую»), итог быть не может.
+  if v_total > (
+    select coalesce(sum(case when i->>'type' = 'each' then (i->>'price')::numeric * 50 else (i->>'amount')::numeric end), 0)
+    from jsonb_array_elements(t.items) i
+  ) then
+    raise exception 'Итог KPI больше, чем дают условия. Обновите страницу';
+  end if;
+
   select * into r from public.payroll_kpi_reviews where venue_id = v and employee_id = e.id and month = m for update;
   -- Повтор того же запроса (двойной клик, повторная отправка) — прежний результат.
   if r.id is not null and r.request_key = v_key then

@@ -2,10 +2,15 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Check, Loader2, AlertCircle } from "lucide-react";
+import { AlertCircle, Check } from "lucide-react";
+
 import { createClient } from "@/lib/supabase/client";
+import { Button } from "@/components/ui/button";
+import { useAuthLeave } from "../_components/auth-shell";
+import { AuthHeader, AuthLoading } from "../_components/auth-ui";
 
 export default function EmailConfirmedPage() {
+  const leave = useAuthLeave();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,67 +50,35 @@ export default function EmailConfirmedPage() {
     };
   }, []);
 
-  if (loading) {
-    return (
-      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white px-6">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo-full.svg" alt="Sheerly" className="h-8 mb-12" />
-        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-      </div>
-    );
-  }
+  if (loading) return <AuthLoading label="Подтверждаем почту" />;
 
   if (error) {
     return (
-      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white px-6">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo-full.svg" alt="Sheerly" className="h-8 mb-12" />
-        <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mb-6">
-          <AlertCircle className="w-8 h-8 text-red-600" />
-        </div>
-        <h1 className="text-[28px] leading-[36px] font-semibold text-gray-900 text-center mb-3">
-          Ошибка подтверждения
-        </h1>
-        <p className="text-[16px] leading-[24px] text-gray-500 text-center max-w-sm mb-10">
-          {error}
-        </p>
-        <Link href="/register">
-          <button className="h-[50px] px-10 bg-blue-600 hover:bg-blue-700 text-white text-base font-medium rounded-xl transition-colors duration-200">
-            Зарегистрироваться снова
-          </button>
-        </Link>
+      <div className="motion-rise">
+        <AuthHeader
+          icon={<AlertCircle />}
+          tone="danger"
+          title="Почта не подтверждена"
+          description={error}
+        />
+        <Button asChild className="w-full">
+          <Link href="/register">Зарегистрироваться снова</Link>
+        </Button>
       </div>
     );
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white px-6">
-
-      {/* Logo */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/logo-full.svg" alt="Sheerly" className="h-8 mb-12" />
-
-      {/* Green checkmark circle */}
-      <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mb-6">
-        <Check className="w-8 h-8 text-green-600" strokeWidth={2.5} />
-      </div>
-
-      {/* Heading */}
-      <h1 className="text-[32px] leading-[40px] font-semibold text-gray-900 text-center mb-3">
-        Электронная почта<br />подтверждена
-      </h1>
-
-      {/* Subtext */}
-      <p className="text-[16px] leading-[24px] text-gray-500 text-center max-w-sm mb-10">
-        Ваш аккаунт активирован. Добро пожаловать в Sheerly!
-      </p>
-
-      {/* Button */}
-      <Link href="/dashboard">
-        <button className="h-[50px] px-10 bg-blue-600 hover:bg-blue-700 text-white text-base font-medium rounded-xl transition-colors duration-200">
-          Войти в систему
-        </button>
-      </Link>
+    <div className="motion-rise">
+      <AuthHeader
+        icon={<Check />}
+        tone="success"
+        title="Почта подтверждена"
+        description="Аккаунт активирован. Добро пожаловать в Sheerly!"
+      />
+      <Button className="w-full" onClick={() => leave("/dashboard")}>
+        Войти в Sheerly
+      </Button>
     </div>
   );
 }

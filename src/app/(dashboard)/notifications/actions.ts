@@ -153,6 +153,46 @@ export async function unarchiveNotification(id: string): Promise<void> {
   if (error) console.error("[notifications] unarchiveNotification failed:", error.message);
 }
 
+/** Стопка однотипных уведомлений («13 новых анкет»): одна команда на
+ *  все её записи. RLS пускает UPDATE только на свои строки. */
+const STACK_IDS_LIMIT = 200;
+
+function stackIds(ids: string[]): string[] {
+  return [...new Set(ids)].slice(0, STACK_IDS_LIMIT);
+}
+
+export async function markNotificationsRead(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("notifications")
+    .update({ read: true })
+    .in("id", stackIds(ids))
+    .eq("read", false);
+  if (error) console.error("[notifications] markNotificationsRead failed:", error.message);
+}
+
+export async function archiveNotifications(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("notifications")
+    .update({ archived_at: new Date().toISOString() })
+    .in("id", stackIds(ids))
+    .is("archived_at", null);
+  if (error) console.error("[notifications] archiveNotifications failed:", error.message);
+}
+
+export async function unarchiveNotifications(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("notifications")
+    .update({ archived_at: null })
+    .in("id", stackIds(ids));
+  if (error) console.error("[notifications] unarchiveNotifications failed:", error.message);
+}
+
 /** Bulk-архивация всех прочитанных active rows юзера. Используется
  *  кнопкой «Архивировать прочитанные» в footer'е bell'а. */
 export async function archiveAllRead(): Promise<void> {

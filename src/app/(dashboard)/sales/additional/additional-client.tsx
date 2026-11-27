@@ -76,7 +76,9 @@ import {
   exportAdditional,
   loadAdditionalHistory,
   type AdditionalData,
+  type UpsellRanking,
 } from "./actions";
+import { additionalLatestMonth } from "@/lib/sales/additional-month";
 import { TARGET_LABEL } from "./upsell-labels";
 import { UpsellRankingCard } from "./upsell-ranking";
 import { legacyGroup } from "@/lib/sales/upsell-ranking";
@@ -462,23 +464,18 @@ function Detail({
 export function AdditionalClient({
   initial,
   initialOverviewOpen,
+  initialRanking,
 }: {
   initial: AdditionalData;
   /** Выбор «Обзора» из cookie — сервер рисует его сразу в нужном состоянии. */
   initialOverviewOpen?: boolean;
+  /** Рейтинг сотрудников за последний месяц — с сервера, если «Обзор» открыт. */
+  initialRanking?: UpsellRanking;
 }) {
   const router = useRouter();
   const [data, setData] = useState(initial),
     [tabId, setTabId] = useState<string | null>(null);
-  const latestMonth = (
-    [
-      ...initial.reports.map((r) => r.business_date),
-      ...initial.archives.map((r) => r.business_date),
-      ...initial.upsellDays.map((r) => r.business_date),
-    ]
-      .sort()
-      .at(-1) ?? initial.nextFrom
-  ).slice(0, 7);
+  const latestMonth = additionalLatestMonth(initial);
   const currentMonth = businessDate(new Date(), initial.timezone, initial.hour).slice(0, 7);
   const [month, setMonth] = useState(latestMonth);
   const [busy, setBusy] = useState(false),
@@ -925,6 +922,7 @@ export function AdditionalClient({
               <UpsellRankingCard
                 venueId={data.venueId}
                 month={month}
+                initial={initialRanking}
                 // Вкладка старого вида без подразделения сама называется «legacy:bar».
                 groups={[...new Set([tab.id, ...(kind ? [legacyGroup(kind)] : [])])]}
               />

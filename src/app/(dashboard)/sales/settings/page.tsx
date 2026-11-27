@@ -13,7 +13,13 @@ import { ProfileHeader } from "@/components/shared/profile-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { loadSalesConfiguration } from "../shifts/actions";
 import { SalesNoAccess } from "../_components/sales-no-access";
-import { SalesSettingsTab } from "./_components/sales-settings-tab";
+import { SalesSettingsTab, type SalesSettingsSections } from "./_components/sales-settings-tab";
+import { actionResult } from "@/lib/actions/result";
+import { loadSettlementConfiguration } from "../shifts/settlement-actions";
+import { loadCashConfiguration } from "../shifts/cash-control-actions";
+import { loadMovementConfiguration } from "../shifts/cash-movement-actions";
+import { loadFinanceExecutionConfiguration } from "../shifts/native-finance-actions";
+import { loadSalesPlans } from "../plan-actions";
 
 export const metadata: Metadata = { title: "Настройки продаж" };
 
@@ -47,6 +53,26 @@ export default async function SalesSettingsPage({
   const configuration = venueId
     ? await loadSalesConfiguration(venueId).then((r) => (r.ok ? r.data : null))
     : null;
+  // Разделы настроек — с сервера одной волной: раньше каждый грузился после
+  // открытия страницы, и разделы меняли высоту или исчезали.
+  const sections: SalesSettingsSections = configuration
+    ? await Promise.all([
+        loadSettlementConfiguration(configuration.venueId),
+        loadCashConfiguration(configuration.venueId),
+        actionResult(
+          () => loadMovementConfiguration(configuration.venueId),
+          "Не удалось загрузить правила инкассаций",
+        ),
+        loadFinanceExecutionConfiguration(configuration.venueId),
+        loadSalesPlans(configuration.venueId),
+      ]).then(([settlement, cash, movement, finance, plans]) => ({
+        settlement,
+        cash,
+        movement,
+        finance,
+        plans,
+      }))
+    : {};
   if (!configuration)
     return (
       <ProfilePageFrame>
@@ -80,6 +106,7 @@ export default async function SalesSettingsPage({
         key={configuration.venueId}
         initial={configuration}
         planMonth={typeof plan === "string" ? plan : undefined}
+        sections={sections}
       />
     </ProfilePageFrame>
   );

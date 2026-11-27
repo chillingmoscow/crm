@@ -7,7 +7,8 @@ import {
   getCachedPermissionChecker,
 } from "@/lib/supabase/server";
 import { unwrapAction } from "@/lib/actions/result";
-import { loadAdditional } from "./actions";
+import { loadAdditional, loadUpsellRanking } from "./actions";
+import { additionalLatestMonth } from "@/lib/sales/additional-month";
 import { AdditionalClient } from "./additional-client";
 import { SalesNoAccess } from "../_components/sales-no-access";
 
@@ -21,5 +22,20 @@ export default async function AdditionalPage() {
     loadAdditional().then(unwrapAction),
     readOverviewOpen(OVERVIEW_KEYS.salesAdditional),
   ]);
-  return <AdditionalClient key={data.venueId} initial={data} initialOverviewOpen={overviewOpen} />;
+  // Рейтинг в «Обзоре» — с сервера: иначе скелетон сменялся списком другой
+  // высоты, и таблица под ним уезжала. Сбой — карточка догрузит сама.
+  const ranking =
+    overviewOpen === false
+      ? undefined
+      : await loadUpsellRanking(data.venueId, additionalLatestMonth(data))
+          .then(unwrapAction)
+          .catch(() => undefined);
+  return (
+    <AdditionalClient
+      key={data.venueId}
+      initial={data}
+      initialOverviewOpen={overviewOpen}
+      initialRanking={ranking}
+    />
+  );
 }

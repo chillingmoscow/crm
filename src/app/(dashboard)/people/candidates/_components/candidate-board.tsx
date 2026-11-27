@@ -43,6 +43,8 @@ import {
   type HiringOptions,
   type ListFilters,
 } from "@/lib/candidates/types";
+import type { CandidateBoardData } from "@/lib/candidates/data";
+import { BOARD_STAGES } from "@/lib/candidates/view-pref";
 import { getCandidate, listCandidateBoard } from "../actions";
 import { HireDrawer } from "./hire-drawer";
 import {
@@ -53,7 +55,7 @@ import {
 /** Колонки доски — этапы по порядку воронки. «Принят на работу» колонкой не
  *  рисуется: принятые уходят в «Сотрудников», и колонка всегда пустая. Это
  *  плашка снизу, которая появляется, пока переносят анкету со стажировки. */
-const COLUMNS: CandidateStatus[] = ["new", "review", "interview", "trial", "rejected"];
+const COLUMNS: CandidateStatus[] = [...BOARD_STAGES];
 /** Этапы в работе: дольше всех ждущие — сверху. У «Не подходит» — последние. */
 const ACTIVE: CandidateStatus[] = ["new", "review", "interview", "trial"];
 
@@ -84,6 +86,7 @@ export function CandidateBoard({
   onStatusSaved,
   onListChanged,
   onTotal,
+  initial,
 }: {
   /** Поиск и условия списка — те же, что у таблицы; сортировка своя. */
   filters: Omit<ListFilters, "sort">;
@@ -96,10 +99,19 @@ export function CandidateBoard({
   onListChanged: () => void;
   /** Сколько анкет на доске — для счётчика в шапке страницы. */
   onTotal: (total: number) => void;
+  /**
+   * Доска с фильтрами по умолчанию, загруженная сервером (выбран вид «доска»):
+   * колонки приходят заполненными, без скелетонов, которые потом растут.
+   */
+  initial?: CandidateBoardData;
 }) {
   const router = useRouter();
-  const [columns, setColumns] = useState<Columns | null>(null);
-  const [reserved, setReserved] = useState<ReadonlySet<string>>(() => new Set());
+  const [columns, setColumns] = useState<Columns | null>(
+    initial ? (initial.columns as Columns) : null,
+  );
+  const [reserved, setReserved] = useState<ReadonlySet<string>>(
+    () => new Set(initial?.reserved ?? []),
+  );
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
   const refresh = useCallback(() => setReload((n) => n + 1), []);
@@ -109,7 +121,21 @@ export function CandidateBoard({
   const hireZone = visible.includes("trial");
   const filterKey = JSON.stringify(filters);
 
+  // Пока фильтры те же, что у доски с сервера, и перечитывать не просили —
+  // запрос не нужен (условие по состоянию — StrictMode его не ломает). После
+  // первой смены фильтров читаем всегда, и при возврате к исходным.
+  const [initialKey] = useState(filterKey);
+  const [initialReloadKey] = useState(reloadKey);
+  const [touched, setTouched] = useState(false);
+  const servedByServer =
+    !!initial &&
+    !touched &&
+    filterKey === initialKey &&
+    reload === 0 &&
+    reloadKey === initialReloadKey;
   useEffect(() => {
+    if (servedByServer) return;
+    setTouched(true);
     let cancelled = false;
     setError("");
     const stages = visible;
@@ -136,7 +162,7 @@ export function CandidateBoard({
     };
     // filterKey сериализует фильтры.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterKey, reload, reloadKey]);
+  }, [filterKey, reload, reloadKey, servedByServer]);
 
   useEffect(() => {
     if (columns)

@@ -66,7 +66,7 @@ type Scope = "active" | "archived";
 /** Единый фильтр (свёрнутые scope + read-filter), как в Notion. */
 type View = "all" | "unread" | "archived";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 50; // столько же грузит страница «Уведомления» на сервере
 const UPDATE_RELOAD_DEBOUNCE_MS = 300;
 
 const HDR_BTN =
@@ -83,9 +83,23 @@ const HDR_BTN =
  *     hover-действиями.
  *   • Realtime — INSERT'ы prepend'ятся в active-список.
  */
+/** Первая страница входящих, загруженная сервером (страница «Уведомления»). */
+export type NotificationsInitial = {
+  notifications: Notification[];
+  actors: NotificationActor[];
+};
+
 export function NotificationBell({
   mode = "popover",
-}: { mode?: "popover" | "inbox" } = {}) {
+  initial,
+}: {
+  mode?: "popover" | "inbox";
+  /**
+   * Входящие с сервера: список приходит в первой разметке, и страница не
+   * растёт, когда скелетон сменяется строками.
+   */
+  initial?: NotificationsInitial;
+} = {}) {
   const isInbox = mode === "inbox";
   const modern = useWorkspaceAppearance();
   const router = useRouter();
@@ -96,10 +110,15 @@ export function NotificationBell({
 
   // Раздельные state per-scope чтобы переключение фильтра не передёргивало
   // fetch и сохранялся scroll.
-  const [activeNotifs, setActiveNotifs] = useState<Notification[]>([]);
+  const [activeNotifs, setActiveNotifs] = useState<Notification[]>(
+    initial?.notifications ?? [],
+  );
+  // Прислал ли сервер первую страницу: тогда при монтировании её не
+  // перечитываем (подписка на новые всё равно включается).
+  const [servedInitial] = useState(!!initial);
   const [archiveNotifs, setArchiveNotifs] = useState<Notification[]>([]);
   const [actorsMap, setActorsMap] = useState<Map<string, NotificationActor>>(
-    new Map(),
+    () => new Map((initial?.actors ?? []).map((a) => [a.id, a])),
   );
   /** Фото кандидатов для уведомлений об анкетах: id → адрес (null — без фото). */
   const [candidatePhotos, setCandidatePhotos] = useState<
@@ -108,8 +127,11 @@ export function NotificationBell({
   const requestedPhotosRef = useRef<Set<string>>(new Set());
   /** Раскрытые стопки однотипных уведомлений. */
   const [openStacks, setOpenStacks] = useState<Set<string>>(new Set());
-  const [loaded, setLoaded] = useState({ active: false, archived: false });
-  const [hasMore, setHasMore] = useState({ active: true, archived: true });
+  const [loaded, setLoaded] = useState({ active: !!initial, archived: false });
+  const [hasMore, setHasMore] = useState({
+    active: initial ? initial.notifications.length === PAGE_SIZE : true,
+    archived: true,
+  });
   const [, startTransition] = useTransition();
 
   const ref = useRef<HTMLDivElement>(null);
@@ -197,7 +219,7 @@ export function NotificationBell({
       } = await supabase.auth.getUser();
       if (cancelled || !user) return;
 
-      await loadInitial("active");
+      if (!servedInitial) await loadInitial("active");
 
       channel = supabase
         .channel(`notifications:${user.id}:${mode}`)
@@ -275,7 +297,7 @@ export function NotificationBell({
       if (channel) void supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supabase, mode]);
+  }, [supabase, mode, servedInitial]);
 
   // Lazy-load archive scope при первом переключении фильтра на «Архив».
   useEffect(() => {

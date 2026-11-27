@@ -3,7 +3,7 @@ import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { Check, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
-import type { IntegrationVenue } from "@/lib/integrations/settings";
+import type { EmploymentSettings, IntegrationVenue } from "@/lib/integrations/settings";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Field } from "@/components/ui/field";
@@ -25,16 +25,25 @@ export function DoorCodesOwnerOnly() {
   </IntegrationLayout>;
 }
 
-export function DoorCodesSettings({ venues, activeVenue, initialPool }: { venues: IntegrationVenue[]; activeVenue: string; initialPool: DoorPool }) {
-  const [venue, setVenue] = useState(activeVenue), [ready, setReady] = useState(false), [loaded, setLoaded] = useState(false);
+export function DoorCodesSettings({ venues, activeVenue, initialPool, initialSettings }: {
+  venues: IntegrationVenue[]; activeVenue: string; initialPool: DoorPool;
+  /** Настройки активного заведения с сервера: статус и факты приходят в первой разметке. */
+  initialSettings?: EmploymentSettings | null;
+}) {
+  const served = initialSettings !== undefined;
+  const [venue, setVenue] = useState(activeVenue), [ready, setReady] = useState(initialSettings?.office_pool_initialized ?? false), [loaded, setLoaded] = useState(served);
   const [pool, setPool] = useState(initialPool), [adding, setAdding] = useState(false), [codes, setCodes] = useState("");
   const [empty, setEmpty] = useState(false), [error, setError] = useState(""), [saveError, setSaveError] = useState(""), [attempt, setAttempt] = useState(0), [busy, start] = useTransition();
   useEffect(() => {
+    // Настройки активного заведения прислал сервер — запрос не нужен, пока не
+    // сменили заведение и не нажали «Повторить» (условие по состоянию —
+    // двойной запуск эффектов в StrictMode его не ломает).
+    if (served && venue === activeVenue && attempt === 0) return;
     let active = true; setLoaded(false); setError("");
     if (!venue) return;
     getEmploymentSettings(venue).then(unwrapAction).then(value => { if (active) { setReady(value?.office_pool_initialized ?? false); setLoaded(true); } }).catch(e => { if (active) setError(candidateError(e, "Не удалось загрузить настройки кодов")); });
     return () => { active = false; };
-  }, [venue, attempt]);
+  }, [venue, attempt, served, activeVenue]);
   const hasPool = pool.reservedNumbers > 0 || pool.reservedPasswords > 0;
   const close = () => { if (!busy) { setAdding(false); setCodes(""); setEmpty(false); setSaveError(""); } };
 

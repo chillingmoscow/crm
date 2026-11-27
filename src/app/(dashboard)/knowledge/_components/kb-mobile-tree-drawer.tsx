@@ -74,7 +74,9 @@ export function KbMobileTreeDrawer({
       </SheetTrigger>
       <SheetContent
         side="left"
-        className="flex w-[88vw] max-w-sm flex-col bg-sidebar p-0"
+        // Крестик панели стоит в правом верхнем углу — «+» шапки дерева
+        // отодвигаем от него.
+        className="flex w-[88vw] max-w-sm flex-col bg-sidebar p-0 [&_[data-kb-tree-header]]:pr-10"
         // Не автофокусим первый элемент (кнопку «Поиск») — иначе на тач её
         // Tooltip раскрывается по фокусу и подсказка «Поиск (⌘K)» висит при
         // каждом открытии дровера.

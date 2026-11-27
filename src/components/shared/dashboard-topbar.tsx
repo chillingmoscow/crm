@@ -47,7 +47,15 @@ export function DashboardTopbar({
     >
       <SidebarTrigger className="md:hidden" />
       {leading}
-      <PageHeaderBreadcrumbSlot />
+      {inKnowledge ? (
+        // На телефоне рядом с «Страницы» путь не помещается и наезжает на
+        // значки справа; заголовок страницы и так виден под шапкой.
+        <div className="hidden min-w-0 items-center md:flex">
+          <PageHeaderBreadcrumbSlot />
+        </div>
+      ) : (
+        <PageHeaderBreadcrumbSlot />
+      )}
       {afterBreadcrumb}
       <div className="flex-1" />
       <CommandPaletteTrigger />

@@ -364,7 +364,7 @@ export function KbTreeNav({
     >
       <div className="flex h-full flex-col px-3.5 pb-3">
         {/* Шапка колонки — на высоте верхней панели (68px). */}
-        <div className="flex h-[68px] shrink-0 items-center gap-2 pl-3">
+        <div data-kb-tree-header className="flex h-[68px] shrink-0 items-center gap-2 pl-3">
           <span className="flex-1 truncate text-base font-semibold">База знаний</span>
           <KbTreeCreateMenu
             canCreate={canCreate}

@@ -212,7 +212,7 @@ export function OptionValuePicker({
           />
         </div>
         <div className="max-h-[260px] overflow-y-auto p-1">
-          <div className="px-2 py-1 text-[12px] font-semibold text-muted-foreground/60">
+          <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
             Выберите вариант или создайте
           </div>
           {filtered.map((o) => {
@@ -287,7 +287,7 @@ export function OptionValuePicker({
             </button>
           )}
           {filtered.length === 0 && !canCreate && (
-            <div className="px-2 py-2 text-[12px] text-muted-foreground">
+            <div className="px-2 py-2 text-xs text-muted-foreground">
               Ничего не найдено
             </div>
           )}

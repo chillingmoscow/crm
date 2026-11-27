@@ -45,7 +45,7 @@ export function UnitPickerItems({
         {isNone && <Check className="ml-auto size-3.5" />}
       </DropdownMenuItem>
       <DropdownMenuSeparator />
-      <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+      <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
         Штуки
       </div>
       <DropdownMenuItem onSelect={() => onChange({ kind: "piece" })}>
@@ -56,7 +56,7 @@ export function UnitPickerItems({
         {isPiece && <Check className="ml-auto size-3.5" />}
       </DropdownMenuItem>
       <DropdownMenuSeparator />
-      <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+      <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
         Масса
       </div>
       {MASS_UNITS.map((m) => (
@@ -72,7 +72,7 @@ export function UnitPickerItems({
         </DropdownMenuItem>
       ))}
       <DropdownMenuSeparator />
-      <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+      <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
         Объём
       </div>
       {VOLUME_UNITS.map((v) => (
@@ -88,7 +88,7 @@ export function UnitPickerItems({
         </DropdownMenuItem>
       ))}
       <DropdownMenuSeparator />
-      <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+      <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
         Валюта
       </div>
       {UNIT_CURRENCIES.map((c) => (

@@ -9,6 +9,7 @@ import "server-only";
 // /api/cron/sales-shifts раз в несколько часов.
 
 import { writeAuditEvent } from "@/lib/audit/write";
+import { quickRestoUserMessage } from "@/lib/integrations/quickresto/error-text";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
@@ -356,7 +357,7 @@ async function importNomenclatureKind(input: {
     for (const row of data ?? []) localByExternalId.set(String(row.external_id), row);
   }
   if (productRows.some((row) => !localByExternalId.has(row.external_id))) {
-    throw new Error(`Не удалось сохранить часть позиций Quick Resto (${spec.kind})`);
+    throw new Error(`Не удалось сохранить в каталог часть позиций (${spec.title})`);
   }
   // Ключ карты — пара «вид + id»: идентификаторы уникальны только внутри
   // класса, и общий словарь по голому id перемешал бы виды.
@@ -500,9 +501,11 @@ export async function syncQuickRestoNomenclature(input: {
   try {
     outcome = await importQuickRestoNomenclature({ admin, accountId, connection, syncedAt });
   } catch (error) {
+    // В состояние — текст для страницы каталога, сырой — в журнал сервера.
+    console.error("[nomenclature-sync] сверка не удалась:", error);
     await saveSyncResult(admin, connection.id, {
       ok: false,
-      error: error instanceof Error ? error.message : "Не удалось сверить номенклатуру",
+      error: quickRestoUserMessage(error, "Не удалось сверить номенклатуру"),
       trigger,
       finishedAt: new Date().toISOString(),
       added: 0,

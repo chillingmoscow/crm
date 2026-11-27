@@ -53,6 +53,7 @@ import {
   flattenCatalog,
   indexCatalog,
   type CatalogGroup,
+  type CatalogGroupStock,
   type CatalogProduct,
   type CatalogRow,
   type CatalogSortField,
@@ -306,6 +307,72 @@ function useRestoredView({
   }, [key, restored]);
 }
 
+const positions = (count: number) => countRu(count, "позиция", "позиции", "позиций");
+
+/**
+ * Остаток категории: сумма, если у позиций с остатком одна единица, иначе —
+ * сколько позиций с остатком (килограммы со штуками не складываются).
+ */
+function GroupQuantity({ stock }: { stock: CatalogGroupStock }) {
+  // Остатков в ветке нет (у блюд их не бывает) — ячейка пустая, как раньше:
+  // итожить нечего, а прочерки на карточках телефона были бы шумом.
+  if (stock.withStock === 0) return null;
+  if (stock.quantity !== null) {
+    return (
+      <span
+        className="whitespace-nowrap font-medium tabular-nums"
+        data-tip="Сумма остатков категории"
+        data-tip-sub={`Позиций с остатком: ${stock.withStock}. Отрицательные остатки не учитываются`}
+      >
+        {formatInventoryQuantity(stock.quantity, stock.unit)}
+      </span>
+    );
+  }
+  return (
+    <span
+      className="whitespace-nowrap text-muted-foreground"
+      data-tip={`Позиций с остатком: ${stock.withStock}`}
+      data-tip-sub="Единицы измерения разные, поэтому количество не складывается"
+    >
+      {positions(stock.withStock)}
+    </span>
+  );
+}
+
+/** Стоимость остатков категории: остаток × себестоимость по позициям ветки. */
+function GroupValue({ stock }: { stock: CatalogGroupStock }) {
+  if (stock.withStock === 0) return null;
+  if (stock.value === null) {
+    return (
+      <span className="text-muted-foreground" data-tip="У позиций с остатком нет себестоимости">
+        —
+      </span>
+    );
+  }
+  const priced = stock.withStock - stock.unpriced;
+  return (
+    <span
+      className="font-medium"
+      data-tip="Стоимость остатков: остаток × себестоимость"
+      data-tip-sub={
+        stock.unpriced > 0
+          ? `Позиций в сумме: ${priced}. Без себестоимости, не вошли: ${stock.unpriced}`
+          : `Позиций в сумме: ${priced}. Отрицательные остатки не учитываются`
+      }
+    >
+      <Money value={stock.value} />
+      {/* На телефоне подсказки нет, а подпись поля там — «Себестоимость». */}
+      <span className="ml-1 whitespace-nowrap font-normal text-muted-foreground sm:hidden">в остатках</span>
+      {/* Неполную сумму помечаем прямо в тексте: без подсказки она выглядела бы полной. */}
+      {stock.unpriced > 0 ? (
+        <span className="ml-1 whitespace-nowrap font-normal text-muted-foreground">
+          (без {countRu(stock.unpriced, "позиции", "позиций", "позиций")})
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 type Props = {
   config: CatalogKindConfig;
   groups: CatalogGroup[];
@@ -314,7 +381,7 @@ type Props = {
   canSync: boolean;
   lastSyncedAt: string | null;
   /** Предупреждения или ошибка последней сверки с Quick Resto; null — всё прошло. */
-  syncNotice: { at: string; messages: string[] } | null;
+  syncNotice: { at: string; messages: string[]; failed: boolean } | null;
   /** Переключатель «весь каталог / из актов заведения»; null — заведение одно. */
   scope: "venue" | "all" | null;
   /** Почему список «из актов заведения» пуст. */
@@ -525,12 +592,14 @@ export function CatalogTable({
       size: 140,
       minSize: 100,
       cell: ({ row }) =>
-        row.original.type === "product"
-          ? formatInventoryQuantity(
-              row.original.product.storeQuantity,
-              row.original.product.measureUnitName,
-            )
-          : null,
+        row.original.type === "product" ? (
+          formatInventoryQuantity(
+            row.original.product.storeQuantity,
+            row.original.product.measureUnitName,
+          )
+        ) : (
+          <GroupQuantity stock={row.original.stock} />
+        ),
     },
     {
       id: "cost",
@@ -538,10 +607,14 @@ export function CatalogTable({
       size: 150,
       minSize: 130,
       // Себестоимость грамма бывает в копейках: целые превратили бы её в ноль.
+      // У категории — стоимость остатков ветки: себестоимость единицы у
+      // папки смысла не имеет, а «сколько денег лежит в овощах» — имеет.
       cell: ({ row }) =>
         row.original.type === "product" ? (
           <Money value={row.original.product.currentPrimeCost} fraction="auto" />
-        ) : null,
+        ) : (
+          <GroupValue stock={row.original.stock} />
+        ),
     },
   ];
   if (canManage) {
@@ -767,15 +840,24 @@ export function CatalogTable({
       {syncNotice ? (
         // Сверка идёт и по расписанию, без человека у кнопки, — поэтому её
         // предупреждения висят здесь, пока следующий запуск не пройдёт чисто.
-        <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
-          <p className="font-medium">
-            Сверка с Quick Resto, <LocalDateTime value={syncNotice.at} variant="dayTime" />
-          </p>
-          {syncNotice.messages.map((issue) => (
-            <p key={issue} className="text-muted-foreground">
-              {issue}
+        // Сбой целиком — с повтором прямо здесь: искать кнопку в шапке не нужно.
+        <div
+          role="status"
+          className="flex flex-col gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm sm:flex-row sm:items-center"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">
+              Сверка с Quick Resto, <LocalDateTime value={syncNotice.at} variant="dayTime" />
             </p>
-          ))}
+            {syncNotice.messages.map((issue) => (
+              <p key={issue} className="text-muted-foreground">
+                {issue}
+              </p>
+            ))}
+          </div>
+          {syncNotice.failed ? (
+            <InventorySyncButton canSync={canSync} lastSyncedAt={lastSyncedAt} layout="retry" />
+          ) : null}
         </div>
       ) : null}
       <TableConditions

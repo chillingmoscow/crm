@@ -6,7 +6,7 @@ import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import confetti from "canvas-confetti";
+import { celebrate as fireConfetti } from "@/lib/celebrate";
 import {
   Camera,
   FileText,
@@ -150,36 +150,6 @@ const COMPLETION_FIELDS = [
 
 const TOTAL_WEIGHT = COMPLETION_FIELDS.length;
 
-function fireConfetti() {
-  // Конфетти из двух точек с боков экрана + центральный outburst — типичный
-  // canvas-confetti success preset. Длительность ~2.5с.
-  const end = Date.now() + 2500;
-  const colors = ["#1570EF", "#3b82f6", "#16a34a", "#f59e0b", "#ec4899"];
-  (function frame() {
-    confetti({
-      particleCount: 4,
-      angle: 60,
-      spread: 55,
-      origin: { x: 0, y: 0.6 },
-      colors,
-    });
-    confetti({
-      particleCount: 4,
-      angle: 120,
-      spread: 55,
-      origin: { x: 1, y: 0.6 },
-      colors,
-    });
-    if (Date.now() < end) requestAnimationFrame(frame);
-  })();
-  confetti({
-    particleCount: 80,
-    spread: 100,
-    origin: { y: 0.4 },
-    colors,
-  });
-}
-
 export function ProfileSettingsPage({
   profile,
   email,
@@ -265,7 +235,7 @@ export function ProfileSettingsPage({
       // Один тост: либо праздничный (с конфетти) если только что достигли 100%,
       // либо обычный «обновлено».
       if (completion.pct === 100 && prevCompletionRef.current < 100) {
-        fireConfetti();
+        void fireConfetti();
         toast.success("Профиль полностью заполнен!", { duration: 4000 });
         setMeterHidden(true);
       } else {

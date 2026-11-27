@@ -1,8 +1,9 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { flexRender, type Table, type Row } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
+import { groupConsecutiveRows } from "./group-rows";
 import { isRowNavigationClick } from "./row-click";
 import styles from "./data-table.module.css";
 
@@ -19,6 +20,7 @@ export function TableMobileCards<T>({
   empty,
   onOpen,
   actionsPlacement = "header",
+  groups,
 }: {
   table: Table<T>;
   label: string;
@@ -31,89 +33,97 @@ export function TableMobileCards<T>({
   empty: ReactNode;
   onOpen?: (row: Row<T>) => void;
   actionsPlacement?: "header" | "footer";
+  /** Заголовки групп над карточками — те же, что строки-подзаголовки таблицы. */
+  groups?: { key: (row: Row<T>) => string; header: (rows: Row<T>[], key: string) => ReactNode };
 }) {
   const rows = table.getRowModel().rows;
+  const rowGroups = groups ? groupConsecutiveRows(rows, groups.key) : [{ key: "", rows }];
   return (
     <section className={styles.mobileCards} aria-label={label}>
       {selection}
-      {rows.map((row) => {
-        const cells = row.getVisibleCells();
-        const render = (id: string | undefined) => {
-          if (!id) return null;
-          const cell = cells.find((c) => c.column.id === id);
-          return cell
-            ? flexRender(cell.column.columnDef.cell, cell.getContext())
-            : null;
-        };
-        const details = cells.filter(
-          (cell) =>
-            ![
-              nameColumn,
-              photoColumn,
-              roleColumn,
-              statusColumn,
-              "select",
-              "actions",
-            ].includes(cell.column.id),
-        );
-        const hasRole = !!roleColumn && cells.some((c) => c.column.id === roleColumn);
-        const hasStatus = cells.some((c) => c.column.id === statusColumn);
-        return (
-          <article
-            key={row.id}
-            className={cn(
-              styles.mobileCard,
-              row.getIsSelected() && styles.mobileCardSelected,
-            )}
-            onClick={(event) => {
-              if (isRowNavigationClick(event)) onOpen?.(row);
-            }}
-          >
-            <div className="flex items-start gap-3">
-              {render(photoColumn)}
-              <div className="min-w-0 flex-1 space-y-1.5">
-                <div className={styles.cardName}>{render(nameColumn)}</div>
-                {hasRole && (
-                  <div className="text-sm text-muted-foreground">
-                    {render(roleColumn)}
-                  </div>
+      {rowGroups.map((group, groupIndex) => (
+        <Fragment key={`group:${groupIndex}:${group.key}`}>
+          {groups ? <div className={styles.mobileGroupHeader}>{groups.header(group.rows, group.key)}</div> : null}
+          {group.rows.map((row) => {
+            const cells = row.getVisibleCells();
+            const render = (id: string | undefined) => {
+              if (!id) return null;
+              const cell = cells.find((c) => c.column.id === id);
+              return cell
+                ? flexRender(cell.column.columnDef.cell, cell.getContext())
+                : null;
+            };
+            const details = cells.filter(
+              (cell) =>
+                ![
+                  nameColumn,
+                  photoColumn,
+                  roleColumn,
+                  statusColumn,
+                  "select",
+                  "actions",
+                ].includes(cell.column.id),
+            );
+            const hasRole = !!roleColumn && cells.some((c) => c.column.id === roleColumn);
+            const hasStatus = cells.some((c) => c.column.id === statusColumn);
+            return (
+              <article
+                key={row.id}
+                className={cn(
+                  styles.mobileCard,
+                  row.getIsSelected() && styles.mobileCardSelected,
                 )}
-              </div>
-              {cells.some((cell) => cell.column.id === "select") ? (
-                <label className="flex size-9 shrink-0 cursor-pointer items-center justify-center -mr-2">
-                  {render("select")}
-                </label>
-              ) : actionsPlacement === "header" ? (
-                <div data-control-cell className="flex h-9 shrink-0 items-center">
-                  {render("actions")}
-                </div>
-              ) : null}
-            </div>
-            {hasStatus && <div className="mt-3">{render(statusColumn!)}</div>}
-            {details.length > 0 && (
-              <dl className={styles.cardFields}>
-                {details.map((cell) => (
-                  <div key={cell.id}>
-                    <dt>{labels[cell.column.id]}</dt>
-                    <dd>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
-                    </dd>
+                onClick={(event) => {
+                  if (isRowNavigationClick(event)) onOpen?.(row);
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  {render(photoColumn)}
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className={styles.cardName}>{render(nameColumn)}</div>
+                    {hasRole && (
+                      <div className="text-sm text-muted-foreground">
+                        {render(roleColumn)}
+                      </div>
+                    )}
                   </div>
-                ))}
-              </dl>
-            )}
-            {actionsPlacement === "footer" &&
-              cells.some((cell) => cell.column.id === "actions") && (
-                <div data-control-cell className="mt-4 flex justify-end">
-                  {render("actions")}
+                  {cells.some((cell) => cell.column.id === "select") ? (
+                    <label className="flex size-9 shrink-0 cursor-pointer items-center justify-center -mr-2">
+                      {render("select")}
+                    </label>
+                  ) : actionsPlacement === "header" ? (
+                    <div data-control-cell className="flex h-9 shrink-0 items-center">
+                      {render("actions")}
+                    </div>
+                  ) : null}
                 </div>
-              )}
-          </article>
-        );
-      })}
+                {hasStatus && <div className="mt-3">{render(statusColumn!)}</div>}
+                {details.length > 0 && (
+                  <dl className={styles.cardFields}>
+                    {details.map((cell) => (
+                      <div key={cell.id}>
+                        <dt>{labels[cell.column.id]}</dt>
+                        <dd>
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+                {actionsPlacement === "footer" &&
+                  cells.some((cell) => cell.column.id === "actions") && (
+                    <div data-control-cell className="mt-4 flex justify-end">
+                      {render("actions")}
+                    </div>
+                  )}
+              </article>
+            );
+          })}
+        </Fragment>
+      ))}
       {!rows.length && (
         <div className="rounded-lg border px-5 py-10 text-center text-sm text-muted-foreground">
           {empty}

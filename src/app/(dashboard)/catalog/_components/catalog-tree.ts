@@ -37,6 +37,23 @@ export type CatalogProduct = {
   archived: boolean;
 };
 
+/**
+ * Итог остатков категории — по тем же позициям, что видны в ветке (вложенные
+ * категории, архив и фильтры учтены). Считаются только положительные остатки:
+ * минус на складе — это расхождение учёта, а не товар.
+ */
+export type CatalogGroupStock = {
+  /** Позиций с остатком больше нуля. */
+  withStock: number;
+  /** Сумма остатков, если у всех позиций с остатком одна единица; иначе null. */
+  quantity: number | null;
+  unit: string | null;
+  /** Остаток × себестоимость по позициям, у которых она известна; null — таких нет. */
+  value: number | null;
+  /** Позиций с остатком, но без себестоимости: в сумму не вошли. */
+  unpriced: number;
+};
+
 export type CatalogRow =
   | {
       type: "group";
@@ -45,6 +62,7 @@ export type CatalogRow =
       depth: number;
       /** Позиции в группе и во вложенных — с учётом архива и фильтров. */
       productCount: number;
+      stock: CatalogGroupStock;
       expanded: boolean;
     }
   | { type: "product"; id: string; product: CatalogProduct; depth: number };
@@ -165,6 +183,66 @@ function matchesProduct(product: CatalogProduct, search: string) {
   );
 }
 
+type BranchStats = {
+  count: number;
+  withStock: number;
+  quantity: number;
+  /** Единицы позиций с остатком (ключ без регистра → как написано); больше одной — не складываются. */
+  units: Map<string, string>;
+  value: number;
+  priced: number;
+  unpriced: number;
+};
+
+const emptyBranch = (): BranchStats => ({
+  count: 0,
+  withStock: 0,
+  quantity: 0,
+  units: new Map(),
+  value: 0,
+  priced: 0,
+  unpriced: 0,
+});
+
+function addProduct(stats: BranchStats, product: CatalogProduct) {
+  stats.count += 1;
+  const quantity = product.storeQuantity;
+  if (typeof quantity !== "number" || !Number.isFinite(quantity) || quantity <= 0) return;
+  stats.withStock += 1;
+  stats.quantity += quantity;
+  const unit = (product.measureUnitName ?? "").trim();
+  stats.units.set(unit.toLocaleLowerCase("ru"), unit);
+  const cost = product.currentPrimeCost;
+  if (typeof cost === "number" && Number.isFinite(cost)) {
+    stats.value += quantity * cost;
+    stats.priced += 1;
+  } else {
+    stats.unpriced += 1;
+  }
+}
+
+function mergeBranch(into: BranchStats, from: BranchStats) {
+  into.count += from.count;
+  into.withStock += from.withStock;
+  into.quantity += from.quantity;
+  for (const [key, unit] of from.units) into.units.set(key, unit);
+  into.value += from.value;
+  into.priced += from.priced;
+  into.unpriced += from.unpriced;
+}
+
+function groupStock(stats: BranchStats): CatalogGroupStock {
+  // Позиция без единицы — тоже «другая» единица: с килограммами её не сложить.
+  const singleUnit = stats.units.size === 1 && !stats.units.has("");
+  return {
+    withStock: stats.withStock,
+    quantity: stats.withStock > 0 && singleUnit ? stats.quantity : null,
+    unit: singleUnit ? [...stats.units.values()][0] : null,
+    value: stats.priced > 0 ? stats.value : null,
+    unpriced: stats.unpriced,
+  };
+}
+
 /**
  * Видимые строки дерева. Пока есть поиск, фильтр или открыт архив, дерево
  * раскрыто целиком и показывает только ветки с совпадениями: искать
@@ -178,23 +256,26 @@ export function flattenCatalog(index: CatalogIndex, view: CatalogView): CatalogR
   const byProduct = compareProducts(view.sorting);
 
   // Сколько позиций проходит условия в ветке (с учётом совпадения названия
-  // категории-предка) — считаем один раз на ветку.
-  const countMemo = new Map<string, number>();
+  // категории-предка) и что у них на складе — считаем один раз на ветку.
+  const branchMemo = new Map<string, BranchStats>();
   const visibleProducts = (groupId: string | null, ancestorMatched: boolean) =>
     (index.productsByGroup.get(groupId) ?? []).filter(
       (product) =>
         passesFilters(product, view) &&
         (!search || ancestorMatched || matchesProduct(product, search)),
     );
-  const countBranch = (group: CatalogGroup, ancestorMatched: boolean): number => {
+  const branchStats = (group: CatalogGroup, ancestorMatched: boolean): BranchStats => {
     const matched = ancestorMatched || (Boolean(search) && includes(group.name, search));
     const key = `${group.id}:${matched ? 1 : 0}`;
-    const cached = countMemo.get(key);
+    const cached = branchMemo.get(key);
     if (cached !== undefined) return cached;
-    let count = visibleProducts(group.id, matched).length;
-    for (const child of index.groupsByParent.get(group.id) ?? []) count += countBranch(child, matched);
-    countMemo.set(key, count);
-    return count;
+    const stats = emptyBranch();
+    for (const product of visibleProducts(group.id, matched)) addProduct(stats, product);
+    for (const child of index.groupsByParent.get(group.id) ?? []) {
+      mergeBranch(stats, branchStats(child, matched));
+    }
+    branchMemo.set(key, stats);
+    return stats;
   };
 
   const rows: CatalogRow[] = [];
@@ -202,12 +283,21 @@ export function flattenCatalog(index: CatalogIndex, view: CatalogView): CatalogR
     const groups = [...(index.groupsByParent.get(parentId) ?? [])];
     if (sortGroupsDesc) groups.reverse();
     for (const group of groups) {
-      const productCount = countBranch(group, ancestorMatched);
+      const stats = branchStats(group, ancestorMatched);
+      const productCount = stats.count;
       // Пустые категории не показываем: в них нечего открыть и нечего искать.
       if (productCount === 0) continue;
       const matched = ancestorMatched || (Boolean(search) && includes(group.name, search));
       const expanded = narrowing || view.expanded.has(group.id);
-      rows.push({ type: "group", id: `group:${group.id}`, group, depth, productCount, expanded });
+      rows.push({
+        type: "group",
+        id: `group:${group.id}`,
+        group,
+        depth,
+        productCount,
+        stock: groupStock(stats),
+        expanded,
+      });
       if (!expanded) continue;
       walk(group.id, depth + 1, matched);
       for (const product of visibleProducts(group.id, matched).sort(byProduct)) {

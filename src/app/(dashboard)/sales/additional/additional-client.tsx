@@ -77,6 +77,8 @@ import {
   type AdditionalData,
 } from "./actions";
 import { TARGET_LABEL } from "./upsell-labels";
+import { UpsellRankingCard } from "./upsell-ranking";
+import { legacyGroup } from "@/lib/sales/upsell-ranking";
 
 const baseLabels: Record<string, string> = {
   date: "Дата",
@@ -833,7 +835,12 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
   const monthPoints = monthIds.has("points");
   const unknown = upsellUnknown(monthRows);
   const archiveDays = monthRows.filter((r) => r.archive).map((r) => r.date).sort();
-  const showOverview = allRows.length > 0 && groups.length > 0 && monthRows.length > 0;
+  const showOverview = allRows.length > 0 && monthRows.length > 0;
+  const showTrend =
+    groups.length > 0 &&
+    Object.values(chartSeries).some(
+      (s) => s.points.filter((p) => p.value !== null).length >= 3,
+    );
   const hintFor = (key: string) => {
     const sum = additionalTotal(rows, key);
     return sum.value === null
@@ -913,14 +920,24 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
       {/* График и таблица — без зазора между собой: свёрнутый «Обзор» не
           оставляет лишнего отступа. */}
       <div className="min-w-0">
-        {showOverview && (
+        {showOverview && tab && (
           <ExpandPanel id="additional-overview" open={overviewOpen} replayOnOpen>
-            <div className="pb-4">
-              <SalesTrend
-                key={tab?.id}
-                series={chartSeries}
-                title="Среднее количество в день с данными"
+            <div className="space-y-4 pb-4">
+              <UpsellRankingCard
+                venueId={data.venueId}
+                month={month}
+                // Вкладка старого вида без подразделения сама называется «legacy:bar».
+                groups={[...new Set([tab.id, ...(kind ? [legacyGroup(kind)] : [])])]}
               />
+              {/* По одной-двум точкам динамика ничего не говорит: график — от трёх месяцев. */}
+              {showTrend && (
+                <SalesTrend
+                  key={tab.id}
+                  series={chartSeries}
+                  highlight={month}
+                  title="Среднее количество в день с данными"
+                />
+              )}
             </div>
           </ExpandPanel>
         )}
@@ -1137,7 +1154,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
                   open={overviewOpen}
                   onOpenChange={setOverviewOpen}
                   controls="additional-overview"
-                  ariaLabel="Обзор: допродажи по месяцам"
+                  ariaLabel="Обзор: рейтинг сотрудников и динамика допродаж"
                 />
               )
             }

@@ -7,6 +7,7 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import {
   candidateScope,
   candidateList,
+  candidateBoard,
   candidateDetail,
   candidateOptions,
   candidateAppointments,
@@ -57,6 +58,17 @@ const listingFilters = z.object({
     )
     .optional(),
 });
+const boardInput = listingFilters
+  .pick({ search: true, position: true, from: true, to: true })
+  .extend({
+    stages: z
+      .array(z.enum(["new", "review", "interview", "trial", "rejected"]))
+      .max(5),
+  });
+async function listCandidateBoardImpl(input: unknown) {
+  const { stages, ...filters } = boardInput.parse(input);
+  return candidateBoard(filters, [...new Set(stages)]);
+}
 async function listCandidatesImpl(filters: ListFilters) {
   return candidateList(listingFilters.parse(filters));
 }
@@ -395,6 +407,15 @@ async function getCandidateDoorCodeImpl(userId: string) {
 // заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
 export async function listCandidates(filters: ListFilters) {
   return actionResult(() => listCandidatesImpl(filters), "Не удалось загрузить кандидатов");
+}
+export async function listCandidateBoard(input: {
+  search?: string;
+  position?: string;
+  from?: string;
+  to?: string;
+  stages: string[];
+}) {
+  return actionResult(() => listCandidateBoardImpl(input), "Не удалось загрузить доску кандидатов");
 }
 export async function countNewCandidates() {
   return actionResult(() => countNewCandidatesImpl(), "Не удалось посчитать новых кандидатов");

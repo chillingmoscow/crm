@@ -21,6 +21,25 @@ const descriptions: Record<ShiftAttendanceState, string> = {
   excluded: "Выход исключён из расчёта по решению управляющего.",
 };
 
+/**
+ * Заголовок и значок отметки выхода — общие для значка в углу смены и
+ * карточки при наведении на смену.
+ */
+export function attendanceView(mark: ShiftAttendanceMark) {
+  const heading = mark.state === "excluded"
+    ? "Смена не засчитана"
+    : mark.state === "included"
+      ? "Выход засчитан"
+      : mark.hasQuickResto
+      ? mark.state === "missing" ? "Отметка не связана со сменой" : "Выход проверен"
+      : "Нет отметки в Quick Resto";
+  // Значок по состоянию: внимание — янтарный, решённое — нейтральная
+  // галочка, исключённая из расчёта смена — приглушённый минус.
+  const attention = mark.sourceState === "error" || mark.crossBoundary || mark.state === "missing";
+  const Icon = attention ? CircleAlert : mark.state === "excluded" ? CircleMinus : CircleCheck;
+  return { heading, Icon, attention };
+}
+
 export function ShiftAttendancePopover({ shiftId, version, mark, canReview, onReviewed }: {
   shiftId: string;
   version: number;
@@ -47,17 +66,7 @@ export function ShiftAttendancePopover({ shiftId, version, mark, canReview, onRe
   const pending = mark.sourceState === "pending" || mark.sourceState === "loading" ||
     (mark.sourceState === "complete" && savedAt !== null && savedAt === mark.syncedAt);
   const failed = mark.sourceState === "error";
-  const heading = mark.state === "excluded"
-    ? "Смена не засчитана"
-    : mark.state === "included"
-      ? "Выход засчитан"
-      : mark.hasQuickResto
-      ? mark.state === "missing" ? "Отметка не связана со сменой" : "Выход проверен"
-      : "Нет отметки в Quick Resto";
-  // Значок по состоянию: внимание — янтарный, решённое — нейтральная
-  // галочка, исключённая из расчёта смена — приглушённый минус.
-  const attention = failed || mark.crossBoundary || mark.state === "missing";
-  const Icon = attention ? CircleAlert : mark.state === "excluded" ? CircleMinus : CircleCheck;
+  const { heading, Icon, attention } = attendanceView(mark);
   const tone = attention
     ? "text-amber-700 hover:bg-amber-500/15 dark:text-amber-300"
     : "text-muted-foreground hover:bg-accent";

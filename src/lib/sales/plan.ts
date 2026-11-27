@@ -96,3 +96,16 @@ export function planProgress(input: {
     },
   };
 }
+
+type PlanValues = { turnover: number | null; alcohol: number | null };
+
+/**
+ * Что сделать со строкой плана месяца: в одной строке живут план оборота и план
+ * алкоголя, поэтому стирание одного не удаляет строку, пока задан другой.
+ */
+export function planWrite(before: PlanValues | null, next: PlanValues): "noop" | "insert" | "update" | "delete" {
+  const empty = next.turnover === null && next.alcohol === null;
+  if (!before) return empty ? "noop" : "insert";
+  if (before.turnover === next.turnover && before.alcohol === next.alcohol) return "noop";
+  return empty ? "delete" : "update";
+}

@@ -309,7 +309,7 @@
 }
 .notificationsInbox [data-notification-bucket],
 .notificationsPopover [data-notification-bucket] {
-  padding: 13px 21px 8px;
+  padding: 12px 20px 8px;
   font-size: 12px;
   letter-spacing: 0.9px;
   font-weight: 500;
@@ -318,10 +318,15 @@
 .notificationsInbox [data-notification-row],
 .notificationsPopover [data-notification-row] {
   gap: 12px;
-  margin: 3px 9px;
-  padding: 15px 12px;
+  margin: 4px 8px;
+  padding: 12px;
   border: 0;
   border-radius: var(--radius);
+}
+/* Уведомление внутри раскрытой стопки — под заголовком стопки. */
+.notificationsInbox [data-notification-row][data-nested="true"],
+.notificationsPopover [data-notification-row][data-nested="true"] {
+  padding-left: 60px;
 }
 .notificationsInbox [data-notification-row][data-unread="true"],
 .notificationsPopover [data-notification-row][data-unread="true"] {
@@ -330,13 +335,6 @@
 .notificationsInbox [data-notification-row]:hover,
 .notificationsPopover [data-notification-row]:hover {
   background: hsl(var(--brand) / 0.065);
-}
-.notificationsInbox [data-notification-avatar],
-.notificationsPopover [data-notification-avatar] {
-  width: 35px;
-  height: 35px;
-  border-radius: var(--radius);
-  background: hsl(var(--brand) / 0.07);
 }
 .notificationsInbox [data-notification-title],
 .notificationsPopover [data-notification-title] {

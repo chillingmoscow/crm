@@ -5,7 +5,7 @@
 }
 .strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--metric-columns, 4), minmax(0, 1fr));
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
   border-radius: 12px;
@@ -88,11 +88,53 @@ a.primary:hover {
   .metric:nth-child(-n + 2) {
     border-bottom: 1px solid hsl(var(--border));
   }
+  /* Нечётный последний показатель (3 из 3) — на всю строку, без пустой ячейки. */
+  .metric:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+  .strip[data-single="true"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .strip[data-single="true"] .metric {
+    border-bottom: 0;
+  }
   .value {
     font-size: 20px;
     letter-spacing: -0.3px;
   }
   .label > svg {
     display: none;
+  }
+}
+
+/* Меньше четырёх показателей (шапка карточки сотрудника) — без пустых
+   клеток: один, два или три в ряд. Три на совсем узком контейнере —
+   главный во всю ширину сверху, два под ним. */
+.strip:has(> :only-child) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.strip:has(> :nth-child(2):last-child) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.strip:has(> :nth-child(3):last-child) {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@container (max-width: 720px) {
+  .strip:has(> :nth-child(-n + 3):last-child) > .metric {
+    border-bottom: 0;
+    border-right: 1px solid hsl(var(--border));
+  }
+  .strip:has(> :nth-child(-n + 3):last-child) > .metric:last-child {
+    border-right: 0;
+  }
+}
+@container (max-width: 520px) {
+  .strip:has(> :nth-child(3):last-child) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .strip:has(> :nth-child(3):last-child) > .metric:first-child {
+    grid-column: 1 / -1;
+    border-right: 0;
+    border-bottom: 1px solid hsl(var(--border));
   }
 }

@@ -17,8 +17,9 @@ type Props = {
    * ещё не приведённые к эталону шапки). `toolbar` — кнопка 36px для ряда
    * инструментов списка (docs/design-system.md, «Page header»): время
    * последней синхронизации уходит в подсказку, второй строки нет.
+   * `retry` — «Повторить» в плашке о неудачной сверке.
    */
-  layout?: "stacked" | "toolbar";
+  layout?: "stacked" | "toolbar" | "retry";
 };
 
 // Полная синхронизация QuickResto (группы, ингредиенты, склады, акты).
@@ -63,6 +64,23 @@ export function InventorySyncButton({ canSync, lastSyncedAt, layout = "stacked" 
       }
     });
   };
+
+  if (layout === "retry") {
+    if (!canSync) return null;
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-9 shrink-0 gap-2 self-start sm:self-auto"
+        onClick={runSync}
+        disabled={isPending}
+      >
+        {isPending ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+        {isPending ? "Синхронизируем…" : "Повторить"}
+      </Button>
+    );
+  }
 
   if (layout === "toolbar") {
     if (!canSync) return null;

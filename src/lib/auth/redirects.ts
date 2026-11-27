@@ -13,5 +13,8 @@ export function safeAuthRedirectPath(
   if (!value.startsWith("/")) return fallback;
   if (value.startsWith("//")) return fallback;
   if (value.includes("\\")) return fallback;
+  // Браузер вырезает из адреса табуляцию и переводы строк: «/\t/evil.com»
+  // превращается в «//evil.com» — чужой домен.
+  if (/[\u0000-\u001f\u007f]/.test(value)) return fallback;
   return value;
 }

@@ -19,6 +19,7 @@ import {
 import { Field, FieldSelect, dateLabel } from "./fields";
 import { GENDER_OPTIONS, isGender } from "@/lib/people/gender";
 import { unwrapAction } from "@/lib/actions/result";
+import { celebrate } from "@/lib/celebrate";
 export function HireDrawer({
   open = true,
   detail,
@@ -131,6 +132,8 @@ export function HireDrawer({
           },
         ));
         toast.success("Кандидат принят на работу");
+        // Большое событие — конфетти (без него при «Уменьшить движение»).
+        void celebrate();
         onSaved(result.user_id);
         onClose();
       } catch (e) {

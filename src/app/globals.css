@@ -4710,6 +4710,78 @@ html.theme-transition *::after {
   transition: transform 500ms var(--ease-soft);
 }
 
+/* Идущая смена в расписании: точка 6px, от неё спокойно расходится и
+   гаснет кольцо того же цвета. Цвет — фон точки (обычно bg-current).
+   Мигает не карточка, а только кольцо; reduce motion — точка стоит. */
+@keyframes shift-live-ring {
+  from { opacity: 0.5; scale: 1; }
+  to   { opacity: 0;   scale: 2.6; }
+}
+.shift-live-dot {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+}
+.shift-live-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: inherit;
+  animation: shift-live-ring 2400ms var(--ease-soft) infinite;
+}
+/* Отметка «сейчас» на идущей смене: полоска прошедшей части, цвет текста
+   карточки (цвет шаблона). Раз в минуту край мягко доезжает до нового места. */
+.shift-now-track {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+}
+.shift-now-fill {
+  background: color-mix(in srgb, currentColor 70%, transparent);
+  transform-origin: left center;
+  transition: transform 600ms var(--ease-soft);
+}
+@media (prefers-reduced-motion: reduce) {
+  .shift-live-dot::after { animation: none; opacity: 0; }
+}
+
+/* Перелёт аватара из списка «Сотрудников» в шапку карточки (View
+   Transitions, src/lib/people/avatar-flight.ts). Имя перехода у аватара —
+   staff-avatar-<id>, класс — staff-avatar. Круг сохраняется на всём пути. */
+::view-transition-group(*.staff-avatar) {
+  animation-duration: 520ms;
+  animation-timing-function: var(--ease-soft);
+}
+::view-transition-old(*.staff-avatar),
+::view-transition-new(*.staff-avatar) {
+  height: 100%;
+  border-radius: 9999px;
+  overflow: hidden;
+  animation-duration: 520ms;
+  animation-timing-function: var(--ease-soft);
+}
+
+/* Тепловая карта смен: недели проявляются слева направо (шаг задаётся
+   animationDelay), подъём 4px. */
+@keyframes heatmap-week-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.heatmap-week-in {
+  animation: heatmap-week-in 480ms var(--ease-soft) both;
+}
+/* Без движения — сразу вся карта: общий override укорачивает анимацию,
+   но не задержку из animationDelay (до ~0,6 с на последних неделях). */
+@media (prefers-reduced-motion: reduce) {
+  .heatmap-week-in {
+    animation: none;
+  }
+}
+
 /* ──── prefers-reduced-motion ────────────────────────────────────
    Глобальный override: уважаем настройку OS «уменьшить движение».
    Затрагивает наши крупные анимации: sidebar collapse (300ms),

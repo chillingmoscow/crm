@@ -20,8 +20,89 @@ import { getDeleteLockReason } from "@/lib/inventory/act-status";
 import { deleteInventoryDocument } from "@/app/(dashboard)/inventory/_actions/documents";
 import type { DocumentListRow } from "@/lib/inventory/list-documents-shared";
 
+import { formatDayMonth } from "@/lib/format/date";
+import { countRu } from "@/lib/format/plural";
+import {
+  formatSignedMoney,
+  signedAmountClass,
+  type AmountRoundingScale,
+} from "@/lib/format/amount";
+import { cn } from "@/lib/utils";
+
 import { PersonChip, inventoryPersonHref, type AssigneeOption } from "./assignee-select";
-import { getDocHref } from "./documents-table-utils";
+import { getDocHref, netResultsTotal } from "./documents-table-utils";
+
+/**
+ * Подзаголовок актов одной даты: «Среда, 18 ноября · 3 акта · Бар, Кухня» и
+ * общий итог справа. Итог — по актам этой даты на странице; сбой итога хотя
+ * бы по одному акту — прочерк, как у суммы по выделению.
+ */
+export function DocumentDateGroupHeader({
+  docs,
+  timeZone,
+  amountRoundingScale,
+}: {
+  docs: DocumentListRow[];
+  /** Пояс заведения: тот же, в котором считается ключ группы. */
+  timeZone: string;
+  amountRoundingScale: AmountRoundingScale;
+}) {
+  const date = docs[0]?.invoice_date ? new Date(docs[0].invoice_date) : null;
+  const valid = date && !Number.isNaN(date.getTime()) ? date : null;
+  const day = valid ? new Intl.DateTimeFormat("ru-RU", { weekday: "long", timeZone }).format(valid) : null;
+  const title =
+    valid && day
+      ? `${day.charAt(0).toLocaleUpperCase("ru")}${day.slice(1)}, ${formatDayMonth(valid, new Date(), timeZone)}`
+      : "Без даты";
+  const stores = Array.from(new Set(docs.map((doc) => doc.store_title).filter(Boolean))).join(", ");
+  const totals = netResultsTotal(docs);
+  // Итог — сразу за числом актов, а не у правого края: широкая таблица
+  // прокручивается вбок, и край подзаголовка уезжает из вида.
+  const total = totals.unavailable ? (
+    <span
+      className="shrink-0 text-muted-foreground"
+      data-tip="По части актов этой даты итог посчитать не удалось, обновите страницу"
+    >
+      итог —
+    </span>
+  ) : totals.counted > 0 ? (
+    <span
+      className="shrink-0 whitespace-nowrap text-muted-foreground"
+      data-tip="Итог по актам этой даты: излишки минус недостачи"
+      data-tip-sub={
+        totals.counted < docs.length
+          ? `Посчитано актов: ${totals.counted} из ${docs.length}. У остальных итогов ещё нет`
+          : "Без исключённых строк и с учётом пересортов"
+      }
+    >
+      итог{" "}
+      <span className={cn("font-medium tabular-nums", signedAmountClass(totals.net))}>
+        {formatSignedMoney(totals.net, "RUB", amountRoundingScale)}
+      </span>
+      {/* На телефоне подсказок нет: неполный итог помечаем прямо в тексте. */}
+      {totals.counted < docs.length ? (
+        <span className="tabular-nums"> ({totals.counted} из {docs.length})</span>
+      ) : null}
+    </span>
+  ) : null;
+  return (
+    <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+      <span className="shrink-0 font-medium text-foreground">{title}</span>
+      <span className="shrink-0 text-muted-foreground">· {countRu(docs.length, "акт", "акта", "актов")}</span>
+      {total ? <span className="shrink-0 text-muted-foreground">·</span> : null}
+      {total}
+      {stores ? (
+        <span
+          className="hidden min-w-0 max-w-[40ch] truncate text-muted-foreground sm:inline"
+          data-tip={stores}
+          data-tip-overflow
+        >
+          · {stores}
+        </span>
+      ) : null}
+    </div>
+  );
+}
 
 /**
  * Ячейка исполнителя/проверяющего для пользователя без права назначать.

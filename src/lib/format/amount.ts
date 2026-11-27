@@ -51,17 +51,22 @@ export function formatQuantityAmount(
  */
 export const INVENTORY_QUANTITY_MAX_FRACTION = 3;
 
+/** Количество без единицы: «13,505», «93», «—» для пустого. */
+export function formatInventoryNumber(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat("ru-RU", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: INVENTORY_QUANTITY_MAX_FRACTION,
+  }).format(value);
+}
+
 /** Количество с единицей измерения: «13,505 л», «93 шт», «—» для пустого. */
 export function formatInventoryQuantity(
   value: number | null | undefined,
   measureUnitName: string | null | undefined,
 ): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "—";
-  const formatted = new Intl.NumberFormat("ru-RU", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: INVENTORY_QUANTITY_MAX_FRACTION,
-  }).format(value);
-  return `${formatted} ${measureUnitName ?? "ед."}`;
+  return `${formatInventoryNumber(value)} ${measureUnitName ?? "ед."}`;
 }
 
 /** То же со знаком: тот же «−», что и у formatSignedMoney. */

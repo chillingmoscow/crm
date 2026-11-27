@@ -7,7 +7,7 @@ import { genderSchema } from "@/lib/people/gender";
 /**
  * Личные данные пользователя — те, что лежат на public.profiles и
  * управляются самим юзером через свой кабинет. Tenant-специфичное
- * (employment_date, медкнижка, PIN терминала, заметка HR) сюда НЕ
+ * (employment_date, медкнижка, PIN кассы, заметка HR) сюда НЕ
  * входят — это редактирует админ через карточку сотрудника.
  */
 export type OwnProfile = {

@@ -135,14 +135,23 @@ test("начальный остаток больше не скрывает ос�
 
 test("ожидаемая официальная часть — отдельной строкой и в остатке", () => {
   const official = [
-    { employee_id: "e1", employment_id: "oe1", month: "2026-10-01", kind: "full" as const, gross: 20000, days_paid: null, days_in_month: 31 },
+    { employee_id: "e1", employment_id: "oe1", month: "2026-10-01", kind: "full" as const, gross: 20000, days_paid: null, days_in_month: 31, agency: false },
   ];
   const p = buildPayslip(data(october, { officialExpected: official }), employee, "2026-10-01", () => "Бармен");
-  assert.deepEqual(p.officialExpected, { amount: 20000, kind: "full", days_paid: null, days_in_month: 31 });
+  assert.deepEqual(p.officialExpected, { amount: 20000, kind: "full", days_paid: null, days_in_month: 31, agency: false });
   assert.equal(p.remaining, p.earned - 20000);
   const none = buildPayslip(data(october), employee, "2026-10-01", () => "Бармен");
   assert.equal(none.officialExpected, null);
   assert.equal(none.remaining, none.earned);
+});
+
+test("через агентство: сумма месяца вычитается, метка доходит до листа", () => {
+  const official = [
+    { employee_id: "e1", employment_id: "oe1", month: "2026-10-01", kind: "full" as const, gross: 4350, days_paid: null, days_in_month: 31, agency: true },
+  ];
+  const p = buildPayslip(data(october, { officialExpected: official }), employee, "2026-10-01", () => "Бармен");
+  assert.equal(p.officialExpected?.agency, true);
+  assert.equal(p.remaining, p.earned - 4350);
 });
 
 test("имя файла", () => {

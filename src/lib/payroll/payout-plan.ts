@@ -22,7 +22,8 @@ export type PayoutSchedule = {
 
 export const DEFAULT_PAYOUT_SCHEDULES: Record<PayoutScheduleCode, PayoutSchedule> = {
   main: { method: "cash", first: [25, 1], second: [10, 16], step: 5000, reserve: 5000 },
-  cleaner: { method: "cash", first: [18, 22], second: [3, 7], step: 5000, reserve: 0 },
+  // Клинер: первая — с 20-го M, вторая — с 5-го M+1 (ближайшая смена с этого дня), Павел 27.11.
+  cleaner: { method: "cash", first: [20, 1], second: [5, 16], step: 5000, reserve: 0 },
   // Переводом — ровно половина месяца: без округления и запаса, счёт выбирают при каждой оплате.
   transfer: { method: "transfer", first: [25, 1], second: [10, 16], step: 0, reserve: 0, bank_account_id: null },
 };
@@ -47,22 +48,44 @@ const shiftMonth = (month: string, by: number) => {
   return iso(d);
 };
 
+export type PayoutNo = 1 | 2;
+
 /**
- * Окно первой выплаты (графики «Основной» и «Переводом»), в которое попадает
- * `today`: с 25-го M по 1-е M+1. Вне окна — null.
+ * Период плана, в который попадает `today`. Один план на выплату за месяц
+ * (все наличные графики, у каждого свой день — Павел, 27.11): первая выплата
+ * за M — 17-е M … 1-е M+1, вторая — 2-е … 16-е M+1. Любой день попадает в
+ * один из периодов, поэтому план можно сформировать заранее.
  */
-export function firstPayoutWindow(
-  today: string,
-): { month: string; from: string; to: string } | null {
+export function payoutPeriod(today: string): { month: string; payoutNo: PayoutNo; from: string; to: string } {
   const day = Number(today.slice(8, 10));
   const current = `${today.slice(0, 7)}-01`;
-  const month = day >= 25 ? current : day === 1 ? shiftMonth(current, -1) : null;
-  if (!month) return null;
-  return { month, from: `${month.slice(0, 7)}-25`, to: shiftMonth(month, 1) };
+  if (day >= 17) return { month: current, payoutNo: 1, from: `${today.slice(0, 7)}-17`, to: shiftMonth(current, 1) };
+  const month = shiftMonth(current, -1);
+  if (day === 1) return { month, payoutNo: 1, from: `${month.slice(0, 7)}-17`, to: current };
+  return { month, payoutNo: 2, from: `${today.slice(0, 7)}-02`, to: `${today.slice(0, 7)}-16` };
+}
+
+const dayOf = (month: string, day: number) => `${month.slice(0, 7)}-${String(day).padStart(2, "0")}`;
+
+/** Дни выплаты графика внутри периода: первая — [день M, день M+1], вторая — дни M+1. */
+export function scheduleWindow(config: PayoutSchedule, payoutNo: PayoutNo, month: string): { from: string; to: string } {
+  const next = shiftMonth(month, 1);
+  return payoutNo === 1
+    ? { from: dayOf(month, config.first[0]), to: dayOf(next, config.first[1]) }
+    : { from: dayOf(next, config.second[0]), to: dayOf(next, config.second[1]) };
 }
 
 export type PayoutFlag = "few_shifts" | "no_shift" | "unmoved_balance";
+/**
+ * Как посчитана сумма: половина прогноза месяца (первая, основной график),
+ * заработано за 1–15 (первая, клинер), остаток месяца (вторая выплата).
+ * В планах этапа 1 поля нет — это «half».
+ */
+export type PayoutMode = "half" | "first_earned" | "rest";
 export type PayoutBreakdown = {
+  mode?: PayoutMode;
+  /** Заработано за 1–15 число M — для первой выплаты клинера. */
+  earnedFirstHalf?: number;
   /** Остаток, уже перенесённый в M (C). */
   carried: number;
   /** Заработано в M за вычетом ожидающих штрафов (E). */
@@ -79,8 +102,10 @@ export type PayoutBreakdown = {
   half: number;
   /** half − P − официальная часть, до округления. */
   target: number;
-  /** Ожидаемая официальная часть месяца: её выплатит бухгалтерия. */
+  /** Ожидаемая официальная часть месяца: её выплатит бухгалтерия (или агентство). */
   official: number;
+  /** Официальную часть платит агентство («Платит агентство»). */
+  officialAgency?: boolean;
   /** C + E − P − R − официальная часть, до округления. */
   ceiling: number;
   flags: PayoutFlag[];
@@ -106,11 +131,16 @@ export function planFirstPayout(input: {
   schedule: PayoutScheduleCode;
   month: string;
   today: string;
+  /** Дни выплаты графика (scheduleWindow). */
   window: { from: string; to: string };
   /** Опубликованные смены, уже привязанные к сотруднику. */
   shifts: { employee_id: string; business_date: string }[];
+  /** Первая (по умолчанию) или вторая выплата за месяц. */
+  payoutNo?: PayoutNo;
 }): PlannedRow[] {
   const { data, month, today, window } = input;
+  const payoutNo = input.payoutNo ?? 1;
+  const mode: PayoutMode = payoutNo === 2 ? "rest" : input.schedule === "cleaner" ? "first_earned" : "half";
   // Переводом сумма — ровно половина месяца, сохранённые шаг и запас не действуют.
   const config =
     input.schedule === "transfer"
@@ -158,7 +188,7 @@ export function planFirstPayout(input: {
     const earned = round(row.earned - pendingFines);
 
     let forecast = 0, forecastShifts = 0, averageShift: number | null = null;
-    if (config.method === "cash") {
+    if (config.method === "cash" && mode === "half") {
       const own = data.accruals.filter((a) => a.employee_id === id);
       const history = own
         .filter(
@@ -192,13 +222,31 @@ export function planFirstPayout(input: {
       }
     }
 
-    const reserve = config.reserve;
     const official = row.officialExpected?.amount ?? 0;
-    const half = round((carried + earned + forecast - reserve) / 2);
+    // Вторая выплата — остаток месяца: без запаса и прогноза.
+    const reserve = mode === "rest" ? 0 : config.reserve;
+    // Первая выплата клинера — заработанное за 1–15 число (с удержаниями, без
+    // штрафов на подтверждении).
+    const midMonth = dayOf(month, 16);
+    const earnedFirstHalf = mode === "first_earned"
+      ? round(
+          data.accruals
+            .filter((a) => a.employee_id === id && a.business_date >= month && a.business_date < midMonth)
+            .reduce((s, a) => s + Number(a.salary), 0) -
+          data.adjustments
+            .filter((a) => a.employee_id === id && !a.approved && !a.deleted_at && a.amount < 0 &&
+              (a.medium ?? "money") === "money" && a.business_date >= month && a.business_date < midMonth)
+            .reduce((s, a) => s - Number(a.amount), 0),
+        )
+      : 0;
+    const half = mode === "half" ? round((carried + earned + forecast - reserve) / 2) : 0;
     // Официальная часть идёт в счёт первой половины месяца (Павел, 25.11): её
     // платим и при увольнении, поэтому подстраховываемся на первой выплате.
-    const target = round(half - paid - official);
     const ceiling = round(carried + earned - paid - reserve - official);
+    const target =
+      mode === "half" ? round(half - paid - official)
+      : mode === "first_earned" ? round(carried + earnedFirstHalf - paid)
+      : ceiling;
     const amount = Math.max(0, floorStep(Math.max(0, Math.min(target, ceiling)), config.step));
 
     let pay_date: string | null = null;
@@ -220,8 +268,10 @@ export function planFirstPayout(input: {
       pay_date,
       amount,
       breakdown: {
+        mode, ...(mode === "first_earned" ? { earnedFirstHalf } : {}),
         carried, earned, pendingFines, forecast, forecastShifts, averageShift,
         reserve, paid, half, target, official, ceiling, flags,
+        ...(row.officialExpected?.agency ? { officialAgency: true } : {}),
       },
     };
   });

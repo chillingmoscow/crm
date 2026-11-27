@@ -216,7 +216,7 @@ export function PayoutPlan({
             ) : <span className="text-muted-foreground">—</span>;
           if (id === "official")
             return r.breakdown.official ? (
-              <span data-tip="Выплатит бухгалтерия; идёт в счёт первой половины месяца">
+              <span data-tip={r.breakdown.officialAgency ? "Получит через агентство" : "Выплатит бухгалтерия; идёт в счёт первой половины месяца"}>
                 <Money value={-r.breakdown.official} signed />
               </span>
             ) : <span className="text-muted-foreground">—</span>;
@@ -243,7 +243,7 @@ export function PayoutPlan({
             return r.leftAfter === null ? <span className="text-muted-foreground">—</span> : (
               <span
                 data-tip={r.leftAfter < 0 ? "Переплатим за месяц после этой выплаты" : "Будем должны за месяц после этой выплаты"}
-                data-tip-sub={r.breakdown.official > 0 ? "С учётом официальной части, которую выплатит бухгалтерия" : undefined}
+                data-tip-sub={r.breakdown.official > 0 ? (r.breakdown.officialAgency ? "С учётом суммы, которую сотрудник получит через агентство" : "С учётом официальной части, которую выплатит бухгалтерия") : undefined}
               >
                 <Money value={r.leftAfter} className={r.leftAfter < 0 ? signedAmountClass(r.leftAfter) : undefined} />
               </span>
@@ -339,8 +339,8 @@ export function PayoutPlan({
       {view && !view.window && !plan && (
         <EmptyState
           icon={CalendarClock}
-          title="Сейчас не окно первой выплаты"
-          description="План первой выплаты формируется с 25-го по 1-е число."
+          title="Плана выплаты пока нет"
+          description="План выплаты появится, когда наступит её период."
         />
       )}
       {view && (view.window || plan) && (
@@ -426,7 +426,9 @@ function PayoutRowDrawer({
   const plan = view.plan;
   const editable = !!row.id && !!plan && plan.state !== "cancelled" && row.state !== "issued" && view.canPay;
   const days: string[] = [];
-  if (view.window) for (let d = view.window.from; d <= view.window.to; d = addDays(d, 1)) days.push(d);
+  // Дни — по графику сотрудника (основной 25–1 / 10–16, клинер с 20-го / с 5-го).
+  const span = row.dayWindow ?? view.window;
+  if (span) for (let d = span.from; d <= span.to; d = addDays(d, 1)) days.push(d);
   const parsed = Number(amount.replace(",", ".").replace(/\s/g, ""));
   const valid = Number.isFinite(parsed) && parsed >= 0;
   const changed = valid && (parsed !== row.amount || (day || null) !== row.pay_date);
@@ -435,7 +437,7 @@ function PayoutRowDrawer({
       open={open}
       onOpenChange={(open) => { if (!open && !busy) onClose(); }}
       title="Строка плана"
-      description={plan ? `${monthTitle(plan.month)}, первая выплата` : "Расчёт первой выплаты"}
+      description={`${monthTitle(plan?.month ?? view.window?.month ?? "")}, ${view.payoutNo === 2 ? "вторая" : "первая"} выплата`}
       employee={{ name: row.name, role: row.role, avatarUrl: row.avatarUrl }}
       amount={<Money value={row.amount} />}
       amountLabel="К выплате"
@@ -501,7 +503,7 @@ function PayoutRowDrawer({
         )}
         <section aria-label="Как посчитано" className="space-y-4 border-t pt-5">
           <h3 className="text-base font-semibold">Как посчитано</h3>
-          <PayoutBreakdown b={b} amount={row.amount} issued={row.issued} manual={row.manual} leftAfter={row.leftAfter} step={view.settings.schedules.main.step} month={plan?.month ?? view.window?.month ?? null} />
+          <PayoutBreakdown b={b} amount={row.amount} issued={row.issued} manual={row.manual} leftAfter={row.leftAfter} step={row.step} month={plan?.month ?? view.window?.month ?? null} />
         </section>
       </div>
     </PayrollDetailDialog>

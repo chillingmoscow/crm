@@ -292,6 +292,9 @@ export function statementWorkbook(input: StatementExportInput): XlsxSheet[] {
     official
       ? "Официальная часть (ожидается) — оклад по договору до вычета НДФЛ. Его выплатит бухгалтерия; после проведения сумма войдёт в «Выплачено»."
       : null,
+    input.rows.some((r) => r.officialExpected?.agency)
+      ? "У оформленных через агентство в этом столбце — сумма в месяц, которую сотрудник получит через агентство, без налога."
+      : null,
     known ? null : "Выплачено и К выплате появятся после сверки прежних выплат за месяц.",
   ].filter((n): n is string => !!n);
   rows.push(pad([]));

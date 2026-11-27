@@ -6,7 +6,9 @@ import type { LooseDb } from "@/lib/supabase/loose";
 import { addDays, businessDate } from "@/lib/sales/time";
 import {
   DEFAULT_PAYOUT_SCHEDULES,
-  firstPayoutWindow,
+  payoutPeriod,
+  scheduleWindow,
+  type PayoutNo,
   issueCap,
   planFirstPayout,
   recheckDue,
@@ -49,7 +51,7 @@ export type PlanRecord = {
   id: string;
   schedule: PayoutScheduleCode;
   month: string;
-  payout_no: number;
+  payout_no: PayoutNo;
   window_from: string;
   window_to: string;
   state: "draft" | "approved" | "cancelled";
@@ -109,6 +111,13 @@ export function mergeSettings(row: SettingsRecord | null, data: Pick<PayrollData
   const byName = (type: string, pattern: RegExp) =>
     data.banks.find((b) => b.type === type && pattern.test(b.name))?.id ?? null;
   schedules.transfer = { ...DEFAULT_PAYOUT_SCHEDULES.transfer };
+  // Дни клинера (20-е и 5-е) в настройках не правятся — берём из кода, даже
+  // если сохранены прежние 18–22 и 3–7.
+  schedules.cleaner = {
+    ...schedules.cleaner,
+    first: DEFAULT_PAYOUT_SCHEDULES.cleaner.first,
+    second: DEFAULT_PAYOUT_SCHEDULES.cleaner.second,
+  };
   return {
     auto_issue: row?.auto_issue === true,
     min_cash: Number(row?.min_cash ?? 120000),
@@ -142,10 +151,10 @@ export type Context = {
 export async function buildContext(s: VenueHandle, data: PayoutSourceData, month: string | null): Promise<Context> {
   const today = businessDate(new Date(), data.timezone, data.dayStartHour);
   const settings = mergeSettings(await loadSettingsRow(s), data);
-  const base = month ?? firstPayoutWindow(today)?.month ?? `${today.slice(0, 7)}-01`;
+  const base = month ?? payoutPeriod(today).month;
   const until = `${addDays(`${base.slice(0, 7)}-28`, 10).slice(0, 7)}-01`;
-  // Окно первой выплаты заходит на 1-е число следующего месяца.
-  const to = addDays(until, 2);
+  // Вторая выплата за M — до 16-го M+1: смены нужны и на эти дни.
+  const to = addDays(until, 17);
   const raw = await fetchAllRows<{ starts_at: string; user_id: string | null; payroll_employee_id: string | null }>(() =>
     s.db
       .from<{ starts_at: string; user_id: string | null; payroll_employee_id: string | null }[]>("schedule_shifts")
@@ -164,28 +173,42 @@ export async function buildContext(s: VenueHandle, data: PayoutSourceData, month
   return { s, data, today, settings, shifts };
 }
 
-export function plan(ctx: Context, schedule: PayoutScheduleCode, month: string, window: { from: string; to: string }) {
+/** План одного графика на выплату `payoutNo` за M: дни — по окну графика. */
+export function plan(ctx: Context, schedule: PayoutScheduleCode, month: string, payoutNo: PayoutNo = 1) {
   return planFirstPayout({
     data: ctx.data,
     schedules: ctx.settings.schedules,
     schedule,
     month,
     today: ctx.today,
-    window,
+    window: scheduleWindow(ctx.settings.schedules[schedule], payoutNo, month),
     shifts: ctx.shifts,
+    payoutNo,
   });
 }
 
-export async function findPlan(s: VenueHandle, schedule: PayoutScheduleCode, month: string | null) {
+/** Наличные графики в одном плане (Павел, 27.11): «Основной» и «Клинер». */
+export const CASH_PLAN_SCHEDULES: PayoutScheduleCode[] = ["main", "cleaner"];
+export function inPlan(employeeSchedule: PayoutScheduleCode | null | undefined, planSchedule: PayoutScheduleCode) {
+  const own = employeeSchedule ?? "main";
+  return own === planSchedule || (planSchedule === "main" && own === "cleaner");
+}
+/** Все строки плана: для плана наличных — по всем наличным графикам. */
+export function cashPlan(ctx: Context, schedule: PayoutScheduleCode, month: string, payoutNo: PayoutNo) {
+  const codes = schedule === "main" ? CASH_PLAN_SCHEDULES : [schedule];
+  return codes.flatMap((code) => plan(ctx, code, month, payoutNo));
+}
+
+export async function findPlan(s: VenueHandle, schedule: PayoutScheduleCode, month: string | null, payoutNo: PayoutNo | null = 1) {
   let query = s.db
     .from<PlanRecord[]>("payroll_payout_plans")
     .select("id,schedule,month,payout_no,window_from,window_to,state,version")
     .eq("venue_id", s.venueId)
     .eq("schedule", schedule)
-    .eq("payout_no", 1)
     .neq("state", "cancelled");
+  if (payoutNo) query = query.eq("payout_no", payoutNo);
   if (month) query = query.eq("month", month);
-  const r = await query.order("month", { ascending: false }).limit(1);
+  const r = await query.order("month", { ascending: false }).order("payout_no", { ascending: false }).limit(1);
   if (r.error) throw new Error(r.error.message);
   return r.data?.[0] ?? null;
 }
@@ -233,11 +256,11 @@ export async function buildPreview(
   if (schedule.method !== "cash") throw new Error("Этот график выдаётся переводом: отмечайте «Выплачено» по строке");
   const window = { from: current.window_from, to: current.window_to };
   // Свежий потолок: ручные выплаты и штрафы после утверждения. Саму сумму плана не пересчитываем.
-  const fresh = new Map(plan(ctx, current.schedule, current.month, window).map((r) => [r.employee_id, r.breakdown]));
+  const fresh = new Map(cashPlan(ctx, current.schedule, current.month, current.payout_no).map((r) => [r.employee_id, r.breakdown]));
   const todays = (await planRows(s, planId)).filter((row) => row.state !== "issued" && row.pay_date === ctx.today);
   const employeeOf = (id: string) => ctx.data.employees.find((e) => e.id === id);
   // Сотрудника перевели на другой график после утверждения — по этому плану не выдаём.
-  const moved = todays.filter((row) => (employeeOf(row.employee_id)?.payout_schedule ?? "main") !== current.schedule);
+  const moved = todays.filter((row) => !inPlan(employeeOf(row.employee_id)?.payout_schedule, current.schedule));
   const rows = todays.filter((row) => !moved.includes(row));
   // В сообщении — имя и фамилия, как в карточке сотрудника.
   const names = new Map(rows.map((row) => [row.employee_id, employeeOf(row.employee_id)?.name ?? "Сотрудник"]));

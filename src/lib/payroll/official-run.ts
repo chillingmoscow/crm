@@ -7,6 +7,8 @@ export type OfficialRunItem = {
   month: string;
   posted: number;
   review: number;
+  /** Сколько из проведённых — записи «Получено через агентство» (398). */
+  agency?: number;
   amount: number;
   errors?: { employment_id?: string; message?: string }[];
   /** Заведение упало целиком. */
@@ -38,6 +40,7 @@ export function processOfficialRun(raw: unknown): OfficialRunOutcome {
   for (const item of items) {
     const posted = Number(item.posted) || 0;
     const review = Number(item.review) || 0;
+    const agency = Number(item.agency) || 0;
     const amount = Number(item.amount) || 0;
     const errors = Array.isArray(item.errors) ? item.errors : [];
     const venueError = typeof item.error === "string" && item.error ? item.error : null;
@@ -52,6 +55,7 @@ export function processOfficialRun(raw: unknown): OfficialRunOutcome {
     if (hasErrors) failed = true;
 
     const details: Record<string, unknown> = { month: item.month, posted, review, amount };
+    if (agency > 0) details.agency = agency;
     if (errors.length > 0) details.errors = errors;
     if (venueError) details.error = venueError;
     events.push({

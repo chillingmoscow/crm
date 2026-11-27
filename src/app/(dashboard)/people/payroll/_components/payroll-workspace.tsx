@@ -23,6 +23,7 @@ import {
   Gift,
   Users,
   Plus,
+  CalendarDays,
 } from "lucide-react";
 import {
   Dialog,
@@ -287,6 +288,10 @@ export function PayrollWorkspace({
   // вместо нулевого графика и пустой ведомости одно пустое состояние.
   const emptyMonth = tab === "statement" && active.length === 0;
   const planTab = tab === "plan";
+  const planMonthIso = planView?.plan?.month ?? planView?.window?.month ?? null;
+  const planMonth = planMonthIso
+    ? `${new Intl.DateTimeFormat("ru-RU", { month: "long", timeZone: "UTC" }).format(new Date(`${planMonthIso.slice(0, 7)}-01T12:00:00Z`))} ${planMonthIso.slice(0, 4)}`
+    : null;
   const paid = rows.reduce((sum, r) => sum + r.paid, 0);
   const tips = rows.reduce((sum, r) => sum + r.tips, 0);
   const shifts = rows.reduce((sum, r) => sum + r.shifts, 0);
@@ -644,7 +649,19 @@ export function PayrollWorkspace({
             <TablePageHeader
               className={s.pageHeader}
               title="Зарплата"
-              period={
+              period={planTab ? (
+                // План выплат всегда про текущую выплату: месяц видно, но не
+                // переключаем (Павел, 26.11).
+                planMonth && (
+                  <span
+                    className="inline-flex h-9 items-center gap-2 rounded-lg border border-brand/20 bg-brand/[0.06] px-3 text-[13px] font-medium text-brand"
+                    data-tip="Месяц плана выплат"
+                  >
+                    <CalendarDays size={15} aria-hidden />
+                    {planMonth}
+                  </span>
+                )
+              ) : (
                 <PeriodStepper
                   previous="Предыдущий месяц"
                   next="Следующий месяц"
@@ -663,7 +680,7 @@ export function PayrollWorkspace({
                     onChange={(value) => changeMonth(value.slice(0, 7))}
                   />
                 </PeriodStepper>
-              }
+              )}
               actions={
                 <div id="payroll-workspace-controls" className={s.functionalControls} />
               }
@@ -1170,14 +1187,14 @@ function PlanMetrics({ view }: { view: PayoutPlanView | null }) {
   const todaySum = todayRows.reduce((sum, r) => sum + r.amount - r.issued, 0);
   const window = view?.window;
   const state = view?.plan?.state === "approved" ? "утверждён" : view?.plan?.state === "draft" ? "черновик" : "не сформирован";
-  const title = window ? `Первая выплата за ${PLAN_MONTHS[Number(window.month.slice(5, 7)) - 1]}` : "План выплат";
+  const title = window ? `${view?.payoutNo === 2 ? "Вторая" : "Первая"} выплата за ${PLAN_MONTHS[Number(window.month.slice(5, 7)) - 1]}` : "План выплат";
   return (
     <MetricStrip label="Итоги плана выплат">
       <Metric
         primary
         label={title}
         value={<AnimatedMoney value={view ? total : null} />}
-        hint={window ? `${dm(window.from)} – ${dm(window.to)} · ${state}` : "Окно первой выплаты — с 25-го по 1-е"}
+        hint={window ? `${dm(window.from)} – ${dm(window.to)} · ${state}` : "План выплаты ещё не сформирован"}
       />
       <Metric
         label="Выдано"

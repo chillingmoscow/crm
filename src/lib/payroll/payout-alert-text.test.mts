@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { carryAlert, kpiAlert, kpiPlanAlert, reconcileAlert, shortAlert, transferAlert } from "./payout-alert-text.ts";
+import { carryAlert, kpiAlert, reconcileAlert, salesPlanAlert, shortAlert, transferAlert } from "./payout-alert-text.ts";
 
 test("карточка сверки: сколько проведено и сколько изъято", () => {
   const a = reconcileAlert({
@@ -38,16 +38,18 @@ test("карточка KPI: кто не подведён за месяц", () =>
   });
 });
 
-test("карточка плана алкоголя: на какой месяц нет плана", () => {
-  assert.deepEqual(kpiPlanAlert("2026-12-01"), {
-    title: "План продаж алкоголя на декабрь 2026 не задан",
-    lines: ["Задайте план во вкладке «KPI» зарплаты"],
-  });
-});
 
 test("карточка KPI: итог без плана — досчитать", () => {
   assert.deepEqual(kpiAlert("2026-11-01", [{ name: "Гамлет", role: "Старший бармен", recount: true }]), {
     title: "KPI за ноябрь 2026 не подведены",
     lines: ["Гамлет — Старший бармен: досчитайте план, когда придёт отчёт продаж"],
   });
+});
+
+test("карточка плана продаж: чего не хватает", () => {
+  assert.deepEqual(salesPlanAlert("2026-12-01", ["turnover", "alcohol_share"]), {
+    title: "План продаж на декабрь 2026 не задан",
+    lines: ["Оборот", "Доля алкоголя"],
+  });
+  assert.deepEqual(salesPlanAlert("2026-12-01", ["alcohol_share"]).lines, ["Доля алкоголя"]);
 });

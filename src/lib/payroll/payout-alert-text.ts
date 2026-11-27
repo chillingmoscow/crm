@@ -102,10 +102,10 @@ export function kpiAlert(month: string, people: { name: string; role: string; re
   };
 }
 
-/** Плана продаж алкоголя на текущий месяц нет, а KPI старших от него зависят. */
-export function kpiPlanAlert(month: string): AlertText {
+/** План продаж месяца не задан — чего не хватает (оборот, доля алкоголя). */
+export function salesPlanAlert(month: string, missing: ("turnover" | "alcohol_share")[]): AlertText {
   return {
-    title: `План продаж алкоголя на ${monthName(month)} ${month.slice(0, 4)} не задан`,
-    lines: ["Задайте план во вкладке «KPI» зарплаты"],
+    title: `План продаж на ${monthName(month)} ${month.slice(0, 4)} не задан`,
+    lines: missing.map((m) => (m === "turnover" ? "Оборот" : "Доля алкоголя")),
   };
 }

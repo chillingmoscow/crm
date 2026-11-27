@@ -7,9 +7,10 @@ import { financeSource } from "@/lib/sales/finance-source";
 import { cashMovementDefaults, normalizeCashMovements } from "@/lib/sales/cash-movements";
 import { addDays, businessDate } from "@/lib/sales/time";
 import { attention, closeAlert, closePlanAlerts, raiseAlert } from "./payout-alerts";
-import { carryAlert, kpiAlert, kpiPlanAlert, reconcileAlert, rub, transferAlert } from "./payout-alert-text";
+import { carryAlert, kpiAlert, reconcileAlert, rub, salesPlanAlert, transferAlert } from "./payout-alert-text";
+import { permissionRecipients } from "@/lib/notifications/recipients";
 import { KPI_START, kpiNeedsRecount } from "./kpi";
-import { alcoholMonth, kpiMonthPeople, termsWithPlan } from "./kpi-month";
+import { kpiMonthPeople, termsWithPlan } from "./kpi-month";
 import { carryItems, carryWaiting } from "./payout-carry";
 import {
   buildContext,
@@ -374,15 +375,64 @@ const monthBefore = (month: string) => {
   return d.toISOString().slice(0, 10);
 };
 
+/** Колокольчик тем, кто может разобраться: один раз — когда карточка появилась. */
+async function bell(s: VenueHandle, codes: string[], n: { type: string; title: string; body: string; link: string }) {
+  try {
+    const users = await permissionRecipients(s.admin, s.venueId, codes);
+    if (!users.length) return;
+    const r = await s.admin.from("notifications").insert(users.map((user_id) => ({
+      user_id, venue_id: s.venueId, type: n.type, category: n.type.startsWith("sales.") ? "finance" : "staff",
+      title: n.title, body: n.body, link: n.link, actor_user_id: null, entity_type: "venue", entity_id: s.venueId,
+    })));
+    if (r.error) console.error(`[payroll-payout-check] ${s.venueId}: уведомление ${n.type} не записано (${r.error.message})`);
+  } catch (e) {
+    console.error(`[payroll-payout-check] ${s.venueId}: уведомление ${n.type}: ${e instanceof Error ? e.message : e}`);
+  }
+}
+
+const ym = (m: string) => m.slice(0, 7);
+const monthAfter = (month: string) => {
+  const d = new Date(`${month}T12:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() + 1);
+  return d.toISOString().slice(0, 10);
+};
+
 /**
- * KPI старших: с 1-го числа — карточка «KPI за прошлый месяц не подведены»,
- * пока не сохранены итоги всех; и «План продаж алкоголя не задан», пока у
- * условий текущего месяца есть пункт плана, а плана нет. Без сообщения в чат.
+ * План продаж и KPI старших (KPI v2):
+ * - с 1-го — «План продаж на <месяц> не задан» про текущий месяц, с 25-го — и про
+ *   следующий; доля алкоголя нужна, если в условиях KPI месяца есть пункт плана;
+ * - с 1-го — «KPI за <прошлый месяц> не подведены», пока итог не сохранён или
+ *   не досчитан план;
+ * - карточки прошлых месяцев закрываются; колокольчик — когда карточка новая.
  */
-async function checkKpi(s: VenueHandle, _data: PayoutSourceData, today: string, _venueName: string, out: CheckResult) {
+async function checkPlansAndKpi(s: VenueHandle, _data: PayoutSourceData, today: string, _venueName: string, out: CheckResult) {
   const venue = { admin: s.admin, accountId: s.accountId, venueId: s.venueId };
   const current = `${today.slice(0, 7)}-01`;
   const month = monthBefore(current);
+
+  // ── План продаж ──
+  const planMonths = Number(today.slice(8, 10)) >= 25 ? [current, monthAfter(current)] : [current];
+  for (const m of planMonths) {
+    const plan = await s.admin.from<{ turnover: number | null; alcohol_share: number | null }>("sales_month_plans")
+      .select("turnover,alcohol_share").eq("account_id", s.accountId).eq("venue_id", s.venueId).eq("month", m).maybeSingle();
+    if (plan.error) throw new Error(plan.error.message);
+    const people = m >= KPI_START ? await kpiMonthPeople(venue, m) : null;
+    const needsShare = people ? termsWithPlan(people.terms, people.people.map((p) => p.termsId)) : false;
+    const missing: ("turnover" | "alcohol_share")[] = [];
+    if (plan.data?.turnover == null) missing.push("turnover");
+    if (needsShare && plan.data?.alcohol_share == null) missing.push("alcohol_share");
+    if (missing.length) {
+      const text = salesPlanAlert(m, missing);
+      const raised = await raiseAlert(s, { kind: "sales_plan", key: m, businessDate: m, ...text });
+      if (raised === "failed") out.unseen = true;
+      if (raised === "created")
+        await bell(s, ["sales.plan"], { type: "sales.plan_missing", title: text.title, body: `Не хватает: ${text.lines.join(", ").toLowerCase()}`, link: `/sales/statistics?plan=${ym(m)}` });
+    } else {
+      await closeAlert(s, "sales_plan", m);
+    }
+  }
+
+  // ── KPI прошлого месяца ──
   if (month >= KPI_START) {
     const base = await kpiMonthPeople(venue, month);
     // Не подведены — нет итога или итог сохранили до отчёта продаж (план не досчитан).
@@ -401,22 +451,28 @@ async function checkKpi(s: VenueHandle, _data: PayoutSourceData, today: string, 
         role: names.get(p.roleId) ?? "",
         recount: base.reviews.has(p.employeeId),
       })));
-      if ((await raiseAlert(s, { kind: "kpi", key: month, businessDate: month, ...text })) === "failed") out.unseen = true;
+      const raised = await raiseAlert(s, { kind: "kpi", key: month, businessDate: month, ...text });
+      if (raised === "failed") out.unseen = true;
+      if (raised === "created")
+        await bell(s, ["payroll.review", "payroll.pay"], { type: "staff.kpi_due", title: text.title, body: text.lines.join("; "), link: `/people/payroll?tab=kpi&month=${ym(month)}` });
     } else {
       await closeAlert(s, "kpi", month);
     }
   }
-  // Карточки прошлых месяцев: итоги подвели позже — закрыть; план прошлого месяца уже не нужен.
+
+  // ── Карточки прошлых месяцев ──
   const open = await s.admin
     .from<{ kind: string; key: string }[]>("payroll_payout_alerts")
     .select("kind,key")
     .eq("account_id", s.accountId)
     .eq("venue_id", s.venueId)
     .eq("status", "open")
-    .in("kind", ["kpi", "kpi_plan"]);
+    .in("kind", ["kpi", "kpi_plan", "sales_plan"]);
   if (open.error) throw new Error(open.error.message);
   for (const a of open.data ?? []) {
-    if (a.kind === "kpi_plan" && a.key < current) await closeAlert(s, "kpi_plan", a.key);
+    // «План алкоголя не задан» из первой версии заменён карточкой плана продаж.
+    if (a.kind === "kpi_plan") await closeAlert(s, "kpi_plan", a.key);
+    if (a.kind === "sales_plan" && a.key < current) await closeAlert(s, "sales_plan", a.key);
     if (a.kind === "kpi" && a.key < month) {
       const old = await kpiMonthPeople(venue, a.key);
       const waiting = old.people.some((p) => {
@@ -424,17 +480,6 @@ async function checkKpi(s: VenueHandle, _data: PayoutSourceData, today: string, 
         return !review || kpiNeedsRecount(Array.isArray(review.lines) ? review.lines : []);
       });
       if (!waiting) await closeAlert(s, "kpi", a.key);
-    }
-  }
-  if (current >= KPI_START) {
-    const now = await kpiMonthPeople(venue, current);
-    const needsPlan = termsWithPlan(now.terms, now.people.map((p) => p.termsId));
-    const { plan } = await alcoholMonth(venue, current);
-    if (needsPlan && plan.target === null) {
-      // Ссылка ведёт во вкладку «KPI» этого месяца: там план месяца задаётся строкой «План не задан».
-      if ((await raiseAlert(s, { kind: "kpi_plan", key: current, businessDate: current, ...kpiPlanAlert(current) })) === "failed") out.unseen = true;
-    } else {
-      await closeAlert(s, "kpi_plan", current);
     }
   }
 }
@@ -483,7 +528,7 @@ export async function runPayoutChecks(now = new Date()): Promise<CheckResult[]> 
       continue;
     }
     // Каждая проверка — отдельно: сбой Quick Resto не мешает переносу.
-    for (const [label, step] of [["сверка", reconcile], ["переводы", checkTransfers], ["перенос", carry], ["KPI", checkKpi], ["дни", followDays]] as const) {
+    for (const [label, step] of [["сверка", reconcile], ["переводы", checkTransfers], ["перенос", carry], ["планы и KPI", checkPlansAndKpi], ["дни", followDays]] as const) {
       try {
         await step(s, data, today, venueName, out);
       } catch (e) {

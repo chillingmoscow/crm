@@ -1,17 +1,12 @@
 import { ProfilePageFrame } from "@/components/shared/page-frame";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StaffCardLoadingHeader } from "./_components/staff-card-loading-header";
 
 /** Скелетон карточки сотрудника: шапка, вкладки и секции «Основного». */
 export default function StaffCardLoading() {
   return (
     <ProfilePageFrame aria-label="Загружаем карточку сотрудника" aria-busy>
-      <div className="flex min-w-0 items-center gap-4">
-        <Skeleton className="size-14 shrink-0 rounded-full" />
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <Skeleton className="h-8 w-56 max-w-full" />
-          <Skeleton className="h-5 w-40 max-w-full" />
-        </div>
-      </div>
+      <StaffCardLoadingHeader />
       <div className="flex justify-center gap-6 border-b pb-3">
         <Skeleton className="h-5 w-20" />
         <Skeleton className="h-5 w-20" />

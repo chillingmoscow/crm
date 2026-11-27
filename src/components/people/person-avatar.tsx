@@ -1,7 +1,8 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { Lock } from "lucide-react";
 import {
   HoverCard,
   HoverCardContent,
@@ -17,6 +18,11 @@ import { avatarThumbUrl } from "@/lib/people/avatar-thumb";
  * `fallbackSrc` the original, used when a resized copy fails to load.
  * A public original passed as `src` is shrunk automatically (`avatarThumbUrl`):
  * the circle loads a 96px copy, the hover card and a failed copy use the original.
+ *
+ * Метки на аватаре (DS → «Аватары и цвет»): `onShift` — зелёная точка
+ * справа внизу «Сейчас на смене», `noAccount` — значок замка слева внизу
+ * «Без аккаунта». У каждой своя подсказка. `flightId` — id сотрудника для
+ * перелёта аватара в шапку карточки (`src/lib/people/avatar-flight.ts`).
  */
 export function PersonAvatar({
   src: requestedSrc,
@@ -24,12 +30,21 @@ export function PersonAvatar({
   fallbackSrc,
   name,
   faded = false,
+  onShift = false,
+  noAccount = false,
+  flightId,
 }: {
   src?: string | null;
   previewSrc?: string | null;
   fallbackSrc?: string | null;
   name: string;
   faded?: boolean;
+  /** Сейчас на смене: зелёная точка с подсказкой. */
+  onShift?: boolean;
+  /** У сотрудника нет аккаунта в Sheerly: значок замка с подсказкой. */
+  noAccount?: boolean;
+  /** id сотрудника: отсюда аватар перелетает в шапку его карточки. */
+  flightId?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set());
@@ -53,13 +68,22 @@ export function PersonAvatar({
       {initial}
     </span>
   );
+  const marked = (circle: ReactNode) => (
+    <AvatarMarks
+      onShift={onShift}
+      noAccount={noAccount}
+      flightId={flightId}
+    >
+      {circle}
+    </AvatarMarks>
+  );
   if (!hasPhoto)
-    return (
+    return marked(
       <span className={cn("inline-flex", faded && "opacity-50")}>
         {fallback}
-      </span>
+      </span>,
     );
-  return (
+  return marked(
     <HoverCard
       open={open}
       onOpenChange={setOpen}
@@ -115,6 +139,50 @@ export function PersonAvatar({
           height={360}
         />
       </HoverCardContent>
-    </HoverCard>
+    </HoverCard>,
+  );
+}
+
+/**
+ * Обёртка аватара с метками. Метки — соседи круга, а не его дети: у
+ * кнопки-фото своя подсказка (крупное фото), у метки — своя.
+ */
+function AvatarMarks({
+  onShift,
+  noAccount,
+  flightId,
+  children,
+}: {
+  onShift: boolean;
+  noAccount: boolean;
+  flightId?: string;
+  children: ReactNode;
+}) {
+  if (!onShift && !noAccount && !flightId) return <>{children}</>;
+  return (
+    <span
+      className="relative inline-flex shrink-0 rounded-full"
+      data-avatar-flight-source={flightId}
+    >
+      {children}
+      {noAccount && (
+        <span
+          role="img"
+          aria-label="Без аккаунта"
+          data-tip="Без аккаунта. Чтобы дать доступ, впишите email в карточке и отправьте приглашение"
+          className="absolute -bottom-0.5 -left-0.5 flex size-4 items-center justify-center rounded-full bg-background text-muted-foreground ring-1 ring-border"
+        >
+          <Lock className="size-2.5" aria-hidden />
+        </span>
+      )}
+      {onShift && (
+        <span
+          role="img"
+          aria-label="Сейчас на смене"
+          data-tip="Сейчас на смене"
+          className="absolute -bottom-px -right-px size-3 rounded-full bg-green-500 ring-2 ring-background"
+        />
+      )}
+    </span>
   );
 }

@@ -17,6 +17,8 @@ import type { StaffProfile, StaffAccountDetails } from "../actions";
 import { staffProfileIdentitySchema } from "@/lib/people/staff-identity";
 import { getOfficialEmployment } from "../official-actions";
 import { getActiveAccountTimezone } from "@/lib/settings/account";
+import { loadOnShift } from "@/lib/people/staff-presence-server";
+import { loadStaffMonthStats } from "@/lib/people/staff-card-stats";
 
 export const metadata: Metadata = { title: "Сотрудник" };
 
@@ -144,6 +146,15 @@ export default async function StaffMemberPage({
     .eq("hired_user_id", userId)
     .limit(1)
     .maybeSingle();
+  // «Сегодня» в часовом поясе заведения — дефолт даты смены должности и
+  // месяц показателей в шапке.
+  const salesSettingsPromise = adminDb
+    .from<{ timezone: string; day_start_hour: number }>("sales_settings")
+    .select("timezone, day_start_hour")
+    .eq("venue_id", venueId)
+    .maybeSingle()
+    .then(({ data }) => data);
+  const canViewSchedule = can("schedule.view_all");
   const uvrState = (uvr: TargetVenueRole | null) =>
     uvr ? { id: uvr.id, fired: uvr.status === "fired" } : null;
 
@@ -164,6 +175,8 @@ export default async function StaffMemberPage({
     salesSettings,
     officialEmployment,
     officialTermination,
+    onShift,
+    monthStats,
   ] = await Promise.all([
     admin
       .from("profiles")
@@ -274,13 +287,7 @@ export default async function StaffMemberPage({
             .then(({ data }) => data)
         : null,
     ),
-    // «Сегодня» в часовом поясе заведения — дефолт даты смены должности.
-    adminDb
-      .from<{ timezone: string; day_start_hour: number }>("sales_settings")
-      .select("timezone, day_start_hour")
-      .eq("venue_id", venueId)
-      .maybeSingle()
-      .then(({ data }) => data),
+    salesSettingsPromise,
     // Официальное трудоустройство — только с правом просмотра зарплаты.
     canViewPayroll ? getOfficialEmployment(userId) : null,
     // Окно «Уволить сотрудника» спрашивает дату официального увольнения, если
@@ -293,6 +300,30 @@ export default async function StaffMemberPage({
         ? loadOpenOfficialStart(accountId, venueId, userId)
         : null,
     ),
+    // Точка «Сейчас на смене» у аватара — для работающих.
+    uvrPromise.then((uvr) =>
+      uvr && uvr.status !== "fired" ? loadOnShift(venueId, userId) : null,
+    ),
+    // Смены и «Начислено» за текущий месяц в шапке — по правам на график и
+    // зарплату; у уволенного не показываем.
+    Promise.all([uvrPromise, salesSettingsPromise]).then(([uvr, settings]) => {
+      if (!uvr || uvr.status === "fired") return null;
+      const clock = {
+        timezone: settings?.timezone ?? "Europe/Moscow",
+        dayStartHour: settings?.day_start_hour ?? 9,
+      };
+      return loadStaffMonthStats({
+        venueId,
+        userId,
+        today: businessDate(new Date(), clock.timezone, clock.dayStartHour),
+        clock,
+        canViewSchedule,
+        canViewPayroll,
+      }).catch((error: unknown) => {
+        console.error("staff month stats unavailable:", error instanceof Error ? error.message : error);
+        return null;
+      });
+    }),
   ]);
 
   if (!profileRow) redirect("/people/staff");
@@ -362,7 +393,7 @@ export default async function StaffMemberPage({
         roleCode={targetUvr.roles?.code ?? ""}
         departmentId={targetUvr.roles?.departments?.id ?? null}
         departmentName={targetUvr.roles?.departments?.name ?? null}
-        // PIN терминала — только с правом редактировать сотрудников.
+        // PIN кассы — только с правом редактировать сотрудников.
         terminalPin={canEdit ? targetUvr.terminal_pin : null}
         venueId={venueId}
         roles={roles ?? []}
@@ -385,6 +416,9 @@ export default async function StaffMemberPage({
         officialEmployment={officialEmployment}
         officialTermination={officialTermination}
         canViewPay={canViewPayroll || user.id === userId}
+        onShift={Boolean(onShift?.userIds.includes(userId))}
+        monthStats={monthStats}
+        canViewShiftHeatmap={canViewSchedule || canViewPayroll}
         initialTab={tab === "documents" || tab === "pay" ? tab : "main"}
         backHref={back?.href}
         backLabel={back?.label}

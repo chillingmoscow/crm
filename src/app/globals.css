@@ -4726,6 +4726,41 @@ html.theme-transition *::after {
   .shift-live-dot::after { animation: none; opacity: 0; }
 }
 
+/* Перелёт аватара из списка «Сотрудников» в шапку карточки (View
+   Transitions, src/lib/people/avatar-flight.ts). Имя перехода у аватара —
+   staff-avatar-<id>, класс — staff-avatar. Круг сохраняется на всём пути. */
+::view-transition-group(*.staff-avatar) {
+  animation-duration: 520ms;
+  animation-timing-function: var(--ease-soft);
+}
+::view-transition-old(*.staff-avatar),
+::view-transition-new(*.staff-avatar) {
+  height: 100%;
+  border-radius: 9999px;
+  overflow: hidden;
+  animation-duration: 520ms;
+  animation-timing-function: var(--ease-soft);
+}
+
+/* Тепловая карта смен: недели проявляются слева направо (шаг задаётся
+   animationDelay), подъём 4px. */
+@keyframes heatmap-week-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.heatmap-week-in {
+  animation: heatmap-week-in 480ms var(--ease-soft) both;
+}
+/* Без движения — сразу вся карта: общий override укорачивает анимацию,
+   но не задержку из animationDelay (до ~0,6 с на последних неделях). */
+@media (prefers-reduced-motion: reduce) {
+  .heatmap-week-in {
+    animation: none;
+  }
+}
+
 /* ──── prefers-reduced-motion ────────────────────────────────────
    Глобальный override: уважаем настройку OS «уменьшить движение».
    Затрагивает наши крупные анимации: sidebar collapse (300ms),

@@ -93,6 +93,14 @@ import { saveStaffCard, type StaffCardChanges } from "../save-actions";
 import type { StaffProfile, StaffAccountDetails } from "../../actions";
 import type { OfficialEmploymentData } from "../../official-actions";
 import type { ActionResult } from "@/lib/actions/result";
+import { MetricStrip, Metric } from "@/components/shared/metric-strip";
+import { AnimatedMoney, AnimatedNumber } from "@/components/shared/animated-money";
+import { ShiftHeatmap, formatHours } from "@/components/people/shift-heatmap";
+import { tenureLabel } from "@/lib/people/staff-activity";
+import { countRu } from "@/lib/format/plural";
+import type { StaffMonthStats } from "@/lib/people/staff-card-stats";
+import type { ShiftHeatmapData } from "@/lib/people/staff-card-stats";
+import { getStaffShiftHeatmap } from "../activity-actions";
 
 const schema = z.object({
   // Тир 1+2 — personal (profiles)
@@ -192,6 +200,12 @@ interface Props {
   /** Показывать ли вкладку «Оплата»: право на зарплату или своя карточка. */
   canViewPay: boolean;
   initialTab?: "main" | "documents" | "pay";
+  /** Сейчас на смене (график и отметки): точка на аватаре. */
+  onShift?: boolean;
+  /** Смены и «Начислено» за текущий месяц — по правам на график и зарплату. */
+  monthStats?: StaffMonthStats | null;
+  /** Право на график или зарплату: тепловая карта смен во вкладке «Активность». */
+  canViewShiftHeatmap?: boolean;
   /** Куда ведёт хлебная крошка «назад». По умолчанию — список сотрудников.
    *  Может переопределяться контекстом перехода (например, из акта
    *  инвентаризации через ?from=inventory). */
@@ -200,6 +214,10 @@ interface Props {
 }
 
 // ── Helpers ───────────────────────────────────────────────────
+const monthFormat = new Intl.DateTimeFormat("ru-RU", { month: "long", timeZone: "UTC" });
+/** «ноябрь» для «Начислено за ноябрь». */
+const monthName = (month: string) => monthFormat.format(new Date(`${month.slice(0, 7)}-15T12:00:00Z`));
+
 /** Что входит в журнал сотрудника (см. `listAuditEvents` для `staff`):
  *  сама карточка, участие в зарплатном учёте, медкнижка и сведения для
  *  автоматизаций, рабочая форма. Варианты фильтра «Раздел». */
@@ -321,6 +339,9 @@ export function StaffDetailPage({
   officialTermination = null,
   canViewPay,
   initialTab = "main",
+  onShift = false,
+  monthStats = null,
+  canViewShiftHeatmap = false,
   backHref = "/people/staff",
   backLabel = "Сотрудники",
 }: Props) {
@@ -377,6 +398,33 @@ export function StaffDetailPage({
     if (activeTab === "history" || activeTab === "activity")
       loadJournal(activeTab);
   };
+  // Тепловая карта смен — при открытии «Активности», как и лента событий.
+  // denied — сервер ответил «нечего показать» (права на график и зарплату
+  // сняли, пока карточка была открыта): иначе скелетон висел бы вечно.
+  const [heatmap, setHeatmap] = useState<{
+    data: ShiftHeatmapData | null;
+    failed: boolean;
+    denied?: boolean;
+  }>({ data: null, failed: false });
+  const heatmapRequested = useRef(false);
+  const loadHeatmap = useCallback(() => {
+    if (!canViewShiftHeatmap) return;
+    heatmapRequested.current = true;
+    setHeatmap((prev) => (prev.failed ? { data: null, failed: false } : prev));
+    getStaffShiftHeatmap(profile.id)
+      .then((result) =>
+        setHeatmap((prev) =>
+          result.ok
+            ? result.data
+              ? { data: result.data, failed: false }
+              : { data: null, failed: false, denied: true }
+            : prev.data
+              ? prev
+              : { data: null, failed: true },
+        ),
+      )
+      .catch(() => setHeatmap((prev) => (prev.data ? prev : { data: null, failed: true })));
+  }, [canViewShiftHeatmap, profile.id]);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(profile.avatar_url);
   const [passportPhotos, setPassportPhotos] = useState<string[]>(
     accountDetails.passport_photos ?? [],
@@ -453,6 +501,10 @@ export function StaffDetailPage({
   const displayName =
     [profile.first_name, profile.last_name].filter(Boolean).join(" ") ||
     (isPlaceholderUser ? "Без имени" : contactEmail);
+  // Стаж — от даты трудоустройства, без неё — с прихода в заведение.
+  const tenure = isFired
+    ? null
+    : tenureLabel(accountDetails.employment_date ?? joinedAt, venueToday);
 
   // Уволенный сотрудник — карточку можно открыть и просмотреть, но
   // редактировать поля нельзя (кроме явных действий типа «Восстановить»).
@@ -480,7 +532,7 @@ export function StaffDetailPage({
   // уволить нельзя, себя тоже, владельца аккаунта — тоже (база откажет).
   const canFire = canEdit && !isMe && !isAccountOwner;
 
-  // PIN терминала видит и меняет только тот, кто может редактировать
+  // PIN кассы видит и меняет только тот, кто может редактировать
   // сотрудников (то же правило, что в списке). Сервер без этого права PIN
   // в карточку не передаёт.
   const canSeePin = canManageStaff;
@@ -990,6 +1042,22 @@ export function StaffDetailPage({
         <ProfileHeader
           name={displayName}
           avatarUrl={avatarUrl}
+          flightId={profile.id}
+          avatarBadge={
+            onShift && !isFired ? (
+              <span
+                role="img"
+                aria-label="Сейчас на смене"
+                data-tip="Сейчас на смене"
+                className={
+                  // Справа внизу у редактируемого аватара — значок камеры.
+                  canEditPersonal
+                    ? "absolute right-0 top-0 size-3.5 rounded-full bg-green-500 ring-2 ring-background"
+                    : "absolute bottom-0 right-0 size-3.5 rounded-full bg-green-500 ring-2 ring-background"
+                }
+              />
+            ) : null
+          }
           wrapName
           avatarEdit={
             canEditPersonal
@@ -1017,6 +1085,7 @@ export function StaffDetailPage({
                 )}
               </>
             )}
+            {tenure && ` · ${tenure}`}
           </span>
           {isFired ? (
             <StatusBadge>
@@ -1034,11 +1103,51 @@ export function StaffDetailPage({
           )}
         </ProfileHeader>
 
+        {monthStats && (monthStats.shifts || monthStats.earned !== undefined) && (
+          <MetricStrip label={`Итоги за ${monthName(monthStats.month)}`}>
+            {monthStats.earned !== undefined && (
+              <Metric
+                primary
+                label={`Начислено за ${monthName(monthStats.month)}`}
+                value={<AnimatedMoney value={monthStats.earned} />}
+                hint={monthStats.earned === null ? "Часть начислений ещё не рассчитана" : undefined}
+                onClick={canViewPay ? () => setActiveTab("pay") : undefined}
+                ariaLabel={canViewPay ? "Начислено за месяц: открыть оплату" : undefined}
+              />
+            )}
+            {monthStats.shifts && (
+              <Metric
+                label="Смены"
+                value={<AnimatedNumber value={monthStats.shifts.done} />}
+                hint={
+                  monthStats.shifts.upcoming > 0
+                    ? `Ещё ${countRu(monthStats.shifts.upcoming, "смена", "смены", "смен")} по графику`
+                    : "По графику"
+                }
+              />
+            )}
+            {monthStats.shifts && (
+              <Metric
+                label="Часы"
+                value={
+                  <AnimatedNumber
+                    value={monthStats.shifts.hours}
+                    digits={1}
+                    format={formatHours}
+                  />
+                }
+                hint="Отработано по графику"
+              />
+            )}
+          </MetricStrip>
+        )}
+
         <Tabs
           value={activeTab}
           onValueChange={(v) => {
             if (v === "documents") setDocumentsVisited(true);
             if (v === "history" || v === "activity") loadJournal(v);
+            if (v === "activity" && !heatmapRequested.current) loadHeatmap();
             setActiveTab(v as TabKey);
           }}
         >
@@ -1046,11 +1155,9 @@ export function StaffDetailPage({
             <TabsTrigger value="main">Основное</TabsTrigger>
             <TabsTrigger value="documents">Документы</TabsTrigger>
             {canViewPay && <TabsTrigger value="pay">Оплата</TabsTrigger>}
-            {canViewAudit && (
-              <>
-                <TabsTrigger value="history">Журнал</TabsTrigger>
-                <TabsTrigger value="activity">Активность</TabsTrigger>
-              </>
+            {canViewAudit && <TabsTrigger value="history">Журнал</TabsTrigger>}
+            {(canViewAudit || canViewShiftHeatmap) && (
+              <TabsTrigger value="activity">Активность</TabsTrigger>
             )}
             {canFire && (
               <TabsTrigger value="danger">Опасная зона</TabsTrigger>
@@ -1447,7 +1554,7 @@ export function StaffDetailPage({
                         htmlFor="terminal_pin"
                         className="text-[13px] font-medium"
                       >
-                        PIN терминала
+                        PIN кассы
                       </Label>
                       <Input
                         id="terminal_pin"
@@ -1680,23 +1787,55 @@ export function StaffDetailPage({
             </TabsContent>
           )}
 
-          {/* ── Активность (что этот сотрудник делал сам) ────── */}
-          {canViewAudit && (
+          {/* ── Активность: год смен и что сотрудник делал сам ── */}
+          {(canViewAudit || canViewShiftHeatmap) && (
             <TabsContent value="activity">
-              {journal.activity.page ? (
-                <EntityAuditTab
-                  mode="actor"
-                  actorId={profile.id}
-                  canView={canViewAudit}
-                  initialEvents={journal.activity.page.events}
-                  initialHasMore={journal.activity.page.hasMore}
-                />
-              ) : (
-                <JournalPlaceholder
-                  failed={journal.activity.failed}
-                  onRetry={() => loadJournal("activity")}
-                />
-              )}
+              <div className="flex flex-col gap-5">
+                {canViewShiftHeatmap && (
+                  <div className="mx-auto w-full max-w-[720px]">
+                    <FormSection title="Смены за год">
+                      {heatmap.data ? (
+                        <ShiftHeatmap hours={heatmap.data.hours} today={heatmap.data.today} />
+                      ) : heatmap.denied ? (
+                        <p className="text-sm text-muted-foreground">
+                          Смены видны с доступом к графику или к зарплате
+                        </p>
+                      ) : heatmap.failed ? (
+                        <div
+                          role="alert"
+                          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+                        >
+                          Не удалось загрузить смены
+                          <Button type="button" size="sm" variant="outline" onClick={loadHeatmap}>
+                            <RotateCcw className="mr-2 size-3.5" />
+                            Повторить
+                          </Button>
+                        </div>
+                      ) : (
+                        <div aria-busy aria-label="Загружаем смены" className="flex flex-col gap-4">
+                          <Skeleton className="h-4 w-48" />
+                          <Skeleton className="h-[98px] w-full rounded-md" />
+                        </div>
+                      )}
+                    </FormSection>
+                  </div>
+                )}
+                {canViewAudit &&
+                  (journal.activity.page ? (
+                    <EntityAuditTab
+                      mode="actor"
+                      actorId={profile.id}
+                      canView={canViewAudit}
+                      initialEvents={journal.activity.page.events}
+                      initialHasMore={journal.activity.page.hasMore}
+                    />
+                  ) : (
+                    <JournalPlaceholder
+                      failed={journal.activity.failed}
+                      onRetry={() => loadJournal("activity")}
+                    />
+                  ))}
+              </div>
             </TabsContent>
           )}
 

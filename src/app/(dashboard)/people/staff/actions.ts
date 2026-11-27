@@ -289,7 +289,7 @@ export async function changeStaffDocument(input: {
   return { paths: result.data as string[], error: null };
 }
 
-// PIN терминала — venue-specific, лежит на UVR.
+// PIN кассы — venue-specific, лежит на UVR.
 export async function updateStaffTerminalPin(
   uvrId: string,
   pin: string | null,
@@ -302,8 +302,8 @@ export async function updateStaffTerminalPin(
     .update({ terminal_pin: trimmed })
     .eq("id", uvrId)
     .select("id");
-  if (error) return { error: errorText(error, "Не удалось сохранить PIN-код") };
-  if (!updated?.length) return { error: "PIN-код не сохранён: нет права или сотрудник уже не в заведении" };
+  if (error) return { error: errorText(error, "Не удалось сохранить PIN кассы") };
+  if (!updated?.length) return { error: "PIN кассы не сохранён: нет права или сотрудник уже не в заведении" };
   revalidatePath("/people/staff");
   return { error: null };
 }

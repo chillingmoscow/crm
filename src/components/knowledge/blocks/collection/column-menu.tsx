@@ -614,6 +614,7 @@ export function CollectionColumnMenu({
         <ArrowRight className="size-4" />
         <span>Вставить справа</span>
       </button>
+      <div className="kb-collection-column-menu-separator" role="separator" />
       <button
         type="button"
         className="kb-collection-column-menu-row text-destructive"

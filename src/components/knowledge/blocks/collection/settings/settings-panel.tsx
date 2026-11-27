@@ -490,6 +490,7 @@ export function CollectionSettings({
               <span />
               <span />
             </button>
+            <div className="kb-collection-column-menu-separator" role="separator" />
             <button
               type="button"
               className="kb-collection-settings-nav-row text-destructive"

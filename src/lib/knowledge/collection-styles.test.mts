@@ -50,3 +50,59 @@ test("no own box-shadow on toolbar buttons", () => {
   );
   assert.deepEqual(shadows, []);
 });
+
+const POPOVER_PARTS = [
+  "-create-view",
+  "-view-menu",
+  "-view-overflow",
+  "-view-icon",
+  "-view-description",
+  "-view-row",
+  "-view-list",
+  "-view-actions",
+  "-views-editor",
+  "-view-source-row",
+  "-layout-",
+  "-settings",
+  "-field-select",
+  "-field-toggle",
+  "-filter",
+  "-sort",
+  "-grouping",
+  "-property-visibility",
+  "-properties-editor",
+  "-field-editor",
+  "-field-type",
+  "-native-select",
+  "-column-menu",
+  "-column-description",
+  "-column-insert",
+  "-column-type",
+  "-column-create-btn",
+  "-add-field-row",
+  "-inline-icon-picker",
+];
+
+test("popovers and menus are on the DS scale", () => {
+  const found = offScaleDeclarations(collectionRules(POPOVER_PARTS));
+  assert.deepEqual(found, [], report(found));
+});
+
+test("popovers keep PopoverContent radius and shadow", () => {
+  const shells = [
+    ".kb-collection-create-view-menu",
+    ".kb-collection-view-menu",
+    ".kb-collection-view-overflow-menu",
+    ".kb-collection-settings",
+    ".kb-collection-field-select-menu",
+    ".kb-collection-column-menu",
+  ];
+  const own = rules
+    .filter((rule) => shells.some((shell) => rule.selector.split(",").some((s) => s.trim() === shell)))
+    .flatMap((rule) =>
+      rule.declarations
+        .filter((d) => d.prop === "border-radius" || d.prop === "box-shadow")
+        .map((d) => `${rule.selector} → ${d.prop}`),
+    );
+  assert.deepEqual(own, []);
+});

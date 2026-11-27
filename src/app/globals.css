@@ -2642,9 +2642,7 @@ button.kb-gallery-menu-item {
 }
 .kb-collection-create-view-menu {
   width: min(560px, calc(100vw - 24px));
-  border-radius: 12px;
   padding: 16px;
-  box-shadow: 0 18px 42px hsl(var(--foreground) / 0.15);
 }
 .kb-collection-create-view-panel {
   display: grid;
@@ -2653,7 +2651,7 @@ button.kb-gallery-menu-item {
 .kb-collection-create-view-title {
   color: hsl(var(--muted-foreground));
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
 }
 .kb-collection-create-view-grid {
   display: grid;
@@ -2665,10 +2663,10 @@ button.kb-gallery-menu-item {
   min-height: 88px;
   place-items: center;
   gap: 8px;
-  border-radius: 12px;
+  border-radius: 8px;
   color: hsl(var(--foreground));
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 500;
 }
 .kb-collection-create-view-option:hover:not(:disabled) {
   background-color: hsl(var(--accent) / 0.62);
@@ -2753,9 +2751,7 @@ button.kb-gallery-menu-item {
 }
 .kb-collection-view-menu {
   width: min(300px, calc(100vw - 24px));
-  border-radius: 12px;
   padding: 10px;
-  box-shadow: 0 18px 42px hsl(var(--foreground) / 0.15);
 }
 .kb-collection-view-source-row {
   color: hsl(var(--muted-foreground));
@@ -2766,7 +2762,7 @@ button.kb-gallery-menu-item {
   padding: 8px 4px 2px;
   color: hsl(var(--muted-foreground));
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
 }
 .kb-collection-view-description-input,
 .bn-sheerly .kb-collection-settings-description-input {
@@ -2774,7 +2770,7 @@ button.kb-gallery-menu-item {
   min-height: 64px;
   resize: none;
   border: 1px solid hsl(var(--border) / 0.72);
-  border-radius: 9px;
+  border-radius: 6px;
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
   padding: 8px 10px;
@@ -2794,7 +2790,7 @@ button.kb-gallery-menu-item {
 }
 .bn-sheerly .kb-collection-settings-description-compact {
   height: 36px;
-  border-radius: 9px;
+  border-radius: 6px;
 }
 .bn-sheerly .kb-collection-view-description-trigger,
 .bn-sheerly .kb-collection-view-icon-picker,
@@ -2807,7 +2803,7 @@ button.kb-gallery-menu-item {
   align-items: center;
   justify-content: center;
   border: 1px solid hsl(var(--border) / 0.74);
-  border-radius: 9px;
+  border-radius: 6px;
   background-color: hsl(var(--background));
   color: hsl(var(--muted-foreground));
 }
@@ -2845,12 +2841,12 @@ button.kb-gallery-menu-item {
   background-color: hsl(var(--muted-foreground));
   color: hsl(var(--background));
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
   line-height: 1;
 }
 .kb-collection-view-icon-menu {
   width: max-content;
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 6px;
 }
 .kb-collection-view-icon-option {
@@ -2876,9 +2872,7 @@ button.kb-gallery-menu-item {
 }
 .kb-collection-view-overflow-menu {
   width: min(420px, calc(100vw - 24px));
-  border-radius: 12px;
   padding: 10px;
-  box-shadow: 0 18px 42px hsl(var(--foreground) / 0.15);
 }
 .kb-collection-view-overflow-panel {
   display: flex;
@@ -2887,7 +2881,7 @@ button.kb-gallery-menu-item {
 }
 .kb-collection-view-overflow-search {
   height: 36px;
-  border-radius: 9px;
+  border-radius: 6px;
 }
 .kb-collection-view-overflow-list {
   display: flex;
@@ -2902,11 +2896,11 @@ button.kb-gallery-menu-item {
   min-height: 36px;
   align-items: center;
   gap: 8px;
-  border-radius: 9px;
+  border-radius: 6px;
   padding: 0 8px;
   color: hsl(var(--foreground));
-  font-size: 13.5px;
-  font-weight: 560;
+  font-size: 14px;
+  font-weight: 400;
   text-align: left;
   cursor: grab;
 }
@@ -2934,7 +2928,7 @@ button.kb-gallery-menu-item {
   height: 24px;
   align-items: center;
   justify-content: center;
-  border-radius: 7px;
+  border-radius: 6px;
   color: hsl(var(--muted-foreground));
 }
 .kb-collection-view-overflow-more-btn:hover,
@@ -2947,11 +2941,11 @@ button.kb-gallery-menu-item {
   min-height: 36px;
   align-items: center;
   gap: 9px;
-  border-radius: 9px;
+  border-radius: 6px;
   padding: 0 8px;
   color: hsl(var(--foreground));
-  font-size: 13.5px;
-  font-weight: 560;
+  font-size: 14px;
+  font-weight: 400;
   text-align: left;
 }
 .kb-collection-view-overflow-new:hover {
@@ -3043,10 +3037,9 @@ button.kb-gallery-menu-item {
   background-color: hsl(var(--background));
   color: hsl(var(--muted-foreground));
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 500;
   line-height: 1;
-  transition:
-    background-color 120ms ease,
+  transition: background-color 120ms ease,
     border-color 120ms ease,
     color 120ms ease,
     box-shadow 120ms ease;
@@ -3079,7 +3072,7 @@ button.kb-gallery-menu-item {
   gap: 12px;
   color: hsl(var(--foreground));
   font-size: 14px;
-  font-weight: 570;
+  font-weight: 400;
 }
 /* Кнопки-инструменты — как в ряду инструментов списков (DS «Кнопки»):
  * 36px, рамка, радиус 6, без своей тени; включённый фильтр, сортировка
@@ -3660,9 +3653,7 @@ button.kb-gallery-menu-item {
 }
 .kb-collection-settings {
   width: min(440px, calc(100vw - 24px));
-  border-radius: 12px;
   padding: 10px;
-  box-shadow: 0 18px 44px hsl(var(--foreground) / 0.14);
 }
 .kb-collection-settings-panel {
   display: flex;
@@ -3672,8 +3663,8 @@ button.kb-gallery-menu-item {
 .kb-collection-settings-title {
   padding: 2px 6px 6px;
   color: hsl(var(--muted-foreground));
-  font-size: 12.5px;
-  font-weight: 650;
+  font-size: 13px;
+  font-weight: 500;
 }
 .kb-collection-settings-name-row {
   display: grid;
@@ -3688,11 +3679,11 @@ button.kb-gallery-menu-item {
 .kb-collection-settings-name-input {
   width: 100%;
   height: 36px;
-  border-radius: 10px;
+  border-radius: 6px;
   background-color: hsl(var(--background));
   padding-right: 40px;
   font-size: 14px;
-  font-weight: 560;
+  font-weight: 400;
 }
 .kb-collection-settings-name-input-wrap {
   position: relative;
@@ -3709,14 +3700,13 @@ button.kb-gallery-menu-item {
   min-height: 38px;
   align-items: center;
   gap: 9px;
-  border-radius: 9px;
+  border-radius: 6px;
   padding: 0 8px;
   color: hsl(var(--foreground));
-  font-size: 13.5px;
-  font-weight: 550;
+  font-size: 14px;
+  font-weight: 400;
   text-align: left;
-  transition:
-    background-color 120ms ease,
+  transition: background-color 120ms ease,
     color 120ms ease;
 }
 .kb-collection-settings-nav-row:hover {
@@ -3739,7 +3729,7 @@ button.kb-gallery-menu-item {
   gap: 5px;
   color: hsl(var(--muted-foreground));
   font-size: 12px;
-  font-weight: 550;
+  font-weight: 500;
   white-space: nowrap;
 }
 .kb-collection-field-toggle input {
@@ -3748,8 +3738,8 @@ button.kb-gallery-menu-item {
 .kb-collection-settings-section-title {
   padding: 8px 6px 0;
   color: hsl(var(--muted-foreground));
-  font-size: 11.5px;
-  font-weight: 650;
+  font-size: 12px;
+  font-weight: 500;
 }
 .kb-collection-settings-panel-head {
   display: flex;
@@ -3774,7 +3764,7 @@ button.kb-gallery-menu-item {
 .kb-collection-settings-panel-title {
   color: hsl(var(--foreground));
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
 }
 .kb-collection-settings-section {
   display: flex;
@@ -3787,7 +3777,7 @@ button.kb-gallery-menu-item {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 3px 4px;
 }
 .kb-collection-settings-row-label {
@@ -3805,7 +3795,7 @@ button.kb-gallery-menu-item {
 .kb-collection-settings-subtitle {
   color: hsl(var(--muted-foreground));
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
 }
 .kb-collection-views-editor,
 .kb-collection-view-list,
@@ -3820,11 +3810,11 @@ button.kb-gallery-menu-item {
   min-height: 36px;
   align-items: center;
   gap: 8px;
-  border-radius: 9px;
+  border-radius: 6px;
   padding: 0 8px;
   color: hsl(var(--foreground));
   font-size: 13px;
-  font-weight: 560;
+  font-weight: 400;
   text-align: left;
 }
 .kb-collection-view-row:hover {
@@ -3854,7 +3844,7 @@ button.kb-gallery-menu-item {
   min-height: 38px;
   align-items: center;
   gap: 6px;
-  border-radius: 9px;
+  border-radius: 6px;
   padding: 4px 5px;
 }
 .kb-collection-sort-row {
@@ -3874,7 +3864,7 @@ button.kb-gallery-menu-item {
   background-color: hsl(var(--background));
   padding-inline: 8px;
   color: hsl(var(--foreground));
-  font-size: 12.5px;
+  font-size: 13px;
 }
 .kb-collection-filter-placeholder {
   min-width: 0;
@@ -3885,7 +3875,7 @@ button.kb-gallery-menu-item {
   min-height: 38px;
   align-items: center;
   gap: 8px;
-  border-radius: 9px;
+  border-radius: 6px;
   padding: 4px 5px;
 }
 .kb-collection-grouping-row:hover {
@@ -3899,7 +3889,7 @@ button.kb-gallery-menu-item {
   background-color: hsl(var(--background));
   padding-inline: 8px;
   color: hsl(var(--foreground));
-  font-size: 12.5px;
+  font-size: 13px;
 }
 .kb-collection-field-select-trigger {
   display: grid;
@@ -3910,7 +3900,7 @@ button.kb-gallery-menu-item {
   align-items: center;
   gap: 8px;
   border: 1px solid hsl(var(--border) / 0.82);
-  border-radius: 9px;
+  border-radius: 6px;
   background-color: hsl(var(--background));
   padding: 0 8px;
   color: hsl(var(--foreground));
@@ -3925,12 +3915,10 @@ button.kb-gallery-menu-item {
 .kb-collection-field-select-menu {
   width: min(300px, calc(100vw - 24px));
   padding: 8px;
-  border-radius: 12px;
-  box-shadow: 0 18px 42px hsl(var(--foreground) / 0.15);
 }
 .kb-collection-field-select-search {
   height: 36px;
-  border-radius: 9px;
+  border-radius: 6px;
   font-size: 14px;
 }
 .kb-collection-field-select-list {
@@ -3950,8 +3938,8 @@ button.kb-gallery-menu-item {
   border-radius: 8px;
   padding: 0 7px;
   color: hsl(var(--foreground));
-  font-size: 13.5px;
-  font-weight: 540;
+  font-size: 14px;
+  font-weight: 400;
   text-align: left;
 }
 .kb-collection-field-select-option:hover,
@@ -3970,11 +3958,11 @@ button.kb-gallery-menu-item {
 .kb-collection-field-select-empty {
   padding: 12px 6px;
   color: hsl(var(--muted-foreground));
-  font-size: 12.5px;
+  font-size: 13px;
 }
 .kb-collection-settings-empty {
   border: 1px dashed hsl(var(--border));
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 12px;
   color: hsl(var(--muted-foreground));
   font-size: 12px;
@@ -3992,7 +3980,7 @@ button.kb-gallery-menu-item {
 }
 .kb-collection-property-visibility-search {
   height: 38px;
-  border-radius: 10px;
+  border-radius: 6px;
   font-size: 14px;
 }
 .kb-collection-property-visibility-section {
@@ -4007,7 +3995,7 @@ button.kb-gallery-menu-item {
   padding: 2px 2px 5px;
   color: hsl(var(--muted-foreground));
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
 }
 .kb-collection-property-visibility-heading button {
   color: hsl(var(--brand-text));
@@ -4019,7 +4007,7 @@ button.kb-gallery-menu-item {
   min-height: 34px;
   align-items: center;
   gap: 7px;
-  border-radius: 9px;
+  border-radius: 6px;
   padding: 0 4px;
   cursor: grab;
 }
@@ -4036,8 +4024,8 @@ button.kb-gallery-menu-item {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13.5px;
-  font-weight: 540;
+  font-size: 14px;
+  font-weight: 400;
 }
 .kb-collection-property-visibility-toggle {
   display: inline-flex;
@@ -4045,7 +4033,7 @@ button.kb-gallery-menu-item {
   height: 28px;
   align-items: center;
   justify-content: center;
-  border-radius: 7px;
+  border-radius: 6px;
   color: hsl(var(--muted-foreground));
 }
 .kb-collection-property-visibility-toggle:hover {
@@ -4055,7 +4043,7 @@ button.kb-gallery-menu-item {
 .kb-collection-property-visibility-empty {
   padding: 5px 4px;
   color: hsl(var(--muted-foreground));
-  font-size: 12.5px;
+  font-size: 13px;
 }
 .kb-collection-field-editor {
   display: grid;
@@ -4063,7 +4051,7 @@ button.kb-gallery-menu-item {
   min-height: 38px;
   align-items: center;
   gap: 6px;
-  border-radius: 9px;
+  border-radius: 6px;
   padding: 4px 5px;
 }
 .kb-collection-field-editor:hover {
@@ -4090,9 +4078,7 @@ button.kb-gallery-menu-item {
 }
 .kb-collection-column-menu {
   width: min(300px, calc(100vw - 24px));
-  border-radius: 12px;
   padding: 10px;
-  box-shadow: 0 18px 42px hsl(var(--foreground) / 0.15);
 }
 .kb-collection-column-menu:has(.kb-collection-column-insert-panel) {
   width: min(430px, calc(100vw - 24px));
@@ -4108,20 +4094,20 @@ button.kb-gallery-menu-item {
   align-items: center;
   gap: 7px;
   border: 1px solid hsl(var(--border) / 0.82);
-  border-radius: 10px;
+  border-radius: 6px;
   background-color: hsl(var(--background));
   padding: 2px 6px;
 }
 .kb-collection-column-description-input {
   height: 34px;
   margin-top: 3px;
-  border-radius: 9px;
+  border-radius: 6px;
   font-size: 13px;
 }
 .kb-collection-inline-icon-picker {
   overflow: hidden;
   border: 1px solid hsl(var(--border) / 0.82);
-  border-radius: 10px;
+  border-radius: 6px;
   background-color: hsl(var(--background));
 }
 .kb-collection-column-menu-name svg {
@@ -4134,11 +4120,11 @@ button.kb-gallery-menu-item {
   min-height: 36px;
   align-items: center;
   gap: 8px;
-  border-radius: 9px;
+  border-radius: 6px;
   padding: 0 8px;
   color: inherit;
-  font-size: 13.5px;
-  font-weight: 520;
+  font-size: 14px;
+  font-weight: 400;
   text-align: left;
   transition: background-color 120ms ease;
 }
@@ -4160,6 +4146,14 @@ button.kb-gallery-menu-item {
   text-align-last: right;
   outline: none;
 }
+/* Разрушительный пункт — красным вместе со значком (DS «Выпадающий
+ * список вариантов»): свой цвет пункта иначе перебивает text-destructive. */
+.kb-collection-column-menu-row.text-destructive,
+.kb-collection-settings-nav-row.text-destructive,
+.kb-collection-column-menu-row.text-destructive svg,
+.kb-collection-settings-nav-row.text-destructive svg {
+  color: hsl(var(--destructive));
+}
 .kb-collection-column-menu-separator {
   height: 1px;
   margin: 5px 4px;
@@ -4180,7 +4174,7 @@ button.kb-gallery-menu-item {
   padding: 3px 4px 0;
   color: hsl(var(--muted-foreground));
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
 }
 .kb-collection-column-type-grid {
   display: grid;
@@ -4204,10 +4198,9 @@ button.kb-gallery-menu-item {
   padding: 0 7px;
   color: hsl(var(--foreground));
   font-size: 13px;
-  font-weight: 540;
+  font-weight: 400;
   text-align: left;
-  transition:
-    background-color 120ms ease,
+  transition: background-color 120ms ease,
     color 120ms ease;
 }
 .kb-collection-column-type-option:hover,
@@ -4227,7 +4220,7 @@ button.kb-gallery-menu-item {
   background-color: hsl(var(--brand));
   color: hsl(var(--brand-foreground));
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 500;
 }
 .kb-collection-column-create-btn:hover {
   background-color: hsl(var(--brand-hover));

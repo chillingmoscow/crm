@@ -4,7 +4,7 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import { createClient, getCachedPermissionChecker } from "@/lib/supabase/server";
 
 // Карточки выплат зарплаты в очереди «На разбор» (план выплат, этап 3,
-// миграция 408): выдача не сошлась с изъятием, не хватило наличных, автовыдача
+// миграция 409): выдача не сошлась с изъятием, не хватило наличных, автовыдача
 // не прошла, сообщение менеджерам не ушло, выплата переводом не внесена,
 // перенос остатка ждёт. Заводит их сервер; здесь — только открытые карточки
 // активного заведения. Читает RLS (payroll.pay в активном заведении).
@@ -23,7 +23,7 @@ const KINDS = new Set<PayoutAlertItem["kind"]>(["reconcile", "short", "carry", "
 
 type PgError = { message: string; code?: string } | null;
 
-/** Таблицы ещё нет: приложение выкатили раньше миграции 408. */
+/** Таблицы ещё нет: приложение выкатили раньше миграции 409. */
 function isMissingTable(error: PgError): boolean {
   if (!error) return false;
   return error.code === "42P01" || error.code === "PGRST205" || /payroll_payout_alerts/.test(error.message);

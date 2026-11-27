@@ -244,7 +244,7 @@ function getKbCalloutSlashItems(editor: BlockNoteEditor<never, never, never>) {
       subtext: "Жёлтая плашка с восклицанием",
       aliases: ["warning", "warn", "preduprezhdenie"],
       group: "Подсказки",
-      icon: <AlertTriangle className="size-4 text-yellow-700 dark:text-yellow-400" />,
+      icon: <AlertTriangle className="size-4 text-amber-700 dark:text-amber-400" />,
       onItemClick: insert("warning"),
     },
     {

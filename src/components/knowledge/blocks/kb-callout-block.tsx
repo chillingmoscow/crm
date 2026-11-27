@@ -16,10 +16,9 @@ import { createReactBlockSpec } from "@blocknote/react";
  *  - success  → зелёная, CheckCircle
  *  - error    → красная (destructive из DS), XCircle
  *
- * Цвета фона — bg-{color}-50/20 (light tint), иконка — text-{color}-600.
- * info и error используют DS-токены (brand, destructive); warning и
- * success — стандартные Tailwind палитру (для них в DS нет semantic
- * tokens, добавим если попросят).
+ * Цвета — рецепт статусной палитры DS (одинаково в обеих темах):
+ * подложка `{c}-500/10` без рамки, значок тона (docs/design-system.md →
+ * «Статусные бейджи», «База знаний»).
  *
  * content: "inline" → пользователь типит обычный текст внутри плашки.
  */
@@ -31,22 +30,22 @@ const VARIANT_STYLES: Record<
   { container: string; icon: string; Icon: typeof Info }
 > = {
   info: {
-    container: "bg-brand/10 border-brand/20",
+    container: "bg-brand/10",
     icon: "text-brand",
     Icon: Info,
   },
   warning: {
-    container: "bg-yellow-100 dark:bg-yellow-900/30 border-yellow-200 dark:border-yellow-800",
-    icon: "text-yellow-700 dark:text-yellow-400",
+    container: "bg-amber-500/10",
+    icon: "text-amber-700 dark:text-amber-400",
     Icon: AlertTriangle,
   },
   success: {
-    container: "bg-emerald-100 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-800",
+    container: "bg-emerald-500/10",
     icon: "text-emerald-700 dark:text-emerald-400",
     Icon: CheckCircle2,
   },
   error: {
-    container: "bg-destructive/10 border-destructive/20",
+    container: "bg-destructive/10",
     icon: "text-destructive",
     Icon: XCircle,
   },
@@ -71,7 +70,7 @@ export const kbCalloutBlock = createReactBlockSpec(
       return (
         <div
           className={cn(
-            "flex w-full items-start gap-3 rounded-lg border px-4 py-3",
+            "flex w-full items-start gap-3 rounded-lg px-3.5 py-3",
             styles.container,
           )}
         >
@@ -81,7 +80,7 @@ export const kbCalloutBlock = createReactBlockSpec(
               styles.icon,
             )}
           >
-            <Icon className="size-[18px]" />
+            <Icon className="size-4" />
           </span>
           {/* contentRef — куда BlockNote рендерит inline-content
               ProseMirror'а. Без него callout будет неэдитируемым. */}

@@ -285,8 +285,9 @@ input:-webkit-autofill {
   --bn-colors-hovered-background: hsl(var(--accent));
 
   /* Selected-item state */
-  --bn-colors-selected-text:       hsl(var(--primary-foreground));
-  --bn-colors-selected-background: hsl(var(--primary));
+  /* Выбранный пункт — как активный пункт меню приложения (brand). */
+  --bn-colors-selected-text:       hsl(var(--brand-text));
+  --bn-colors-selected-background: hsl(var(--brand) / 0.1);
 
   /* Disabled */
   --bn-colors-disabled-text:       hsl(var(--muted-foreground));
@@ -300,12 +301,11 @@ input:-webkit-autofill {
   /* Geometry: пуш-через DS-радиус */
   --bn-border-radius: var(--radius);
 
-  /* Typography: Sheerly не задаёт явный font в DS — оставляем body
-     stack из tailwind (system-ui), убирая Inter из BlockNote. */
+  /* Typography: Inter, как во всём приложении (font-sans в
+     tailwind.config.ts) — docs/design-system.md → «Типографика». */
   --bn-font-family:
-    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans",
-    sans-serif;
+    var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 /* Highlight palette (BlockNote built-in /color command).
@@ -686,24 +686,27 @@ input:-webkit-autofill {
    Изменение через CSS-переменную --level, которую BlockNote
    подставляет в font-size; data-level селекторы остаются нативные. */
 .bn-sheerly [data-content-type="heading"] {
-  --level: 1.875em;
+  --level: 1.75em; /* 28px — шкала DS */
 }
 .bn-sheerly [data-content-type="heading"][data-level="2"] {
-  --level: 1.5em;
+  --level: 1.25em; /* 20px */
 }
 .bn-sheerly [data-content-type="heading"][data-level="3"] {
-  --level: 1.25em;
+  --level: 1em; /* 16px */
+}
+.bn-sheerly .bn-block-content[data-content-type="heading"] .bn-inline-content {
+  font-weight: 600;
 }
 /* Те же значения для prev-level (BlockNote использует их при
    определении высоты side-menu и заглушек до загрузки content). */
 .bn-sheerly [data-prev-level="1"] {
-  --prev-level: 1.875em;
+  --prev-level: 1.75em;
 }
 .bn-sheerly [data-prev-level="2"] {
-  --prev-level: 1.5em;
+  --prev-level: 1.25em;
 }
 .bn-sheerly [data-prev-level="3"] {
-  --prev-level: 1.25em;
+  --prev-level: 1em;
 }
 
 /* Side-menu (drag-handle + add-block buttons слева от блока). По
@@ -727,13 +730,13 @@ input:-webkit-autofill {
    эту цифру в side-menu, плюс небольшой visual offset чтобы кнопки
    стояли по центру первой строки заголовка, а не к её верху. */
 .bn-sheerly .bn-side-menu[data-block-type="heading"][data-level="1"] {
-  padding-top: 30px;
+  padding-top: 29px;
 }
 .bn-sheerly .bn-side-menu[data-block-type="heading"][data-level="2"] {
-  padding-top: 28px;
+  padding-top: 26px;
 }
 .bn-sheerly .bn-side-menu[data-block-type="heading"][data-level="3"] {
-  padding-top: 26px;
+  padding-top: 24px;
 }
 
 .bn-sheerly .bn-side-menu .bn-button {
@@ -772,7 +775,7 @@ input:-webkit-autofill {
   padding: 6px 12px !important;
   font-size: 12px !important;
   line-height: 1.2 !important;
-  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  box-shadow: theme('boxShadow.lg');
 }
 /* Arrow рендерится как <span> (PopperPrimitive.Arrow → span-обёртка
    над svg, см. @radix-ui/react-popper), а не svg. BlockNote назначает
@@ -855,36 +858,30 @@ input:-webkit-autofill {
   gap: 2px !important;
   display: flex !important;
   flex-direction: column !important;
-  border-radius: 12px !important;
+  border-radius: 10px !important;
   border: 1px solid hsl(var(--border)) !important;
   background-color: hsl(var(--popover)) !important;
-  box-shadow:
-    0 12px 32px rgb(0 0 0 / 0.12),
-    0 2px 6px rgb(0 0 0 / 0.05) !important;
+  box-shadow: theme('boxShadow.md') !important;
 }
 
-/* Group label («Заголовки», «Базовые блоки», ...): uppercase 11/600
- * с lettespacing 0.6 и горизонтальными padding'ами 8 — соответствует
- * `g1H/g2H/...` в дизайне. */
 .bn-suggestion-menu .bn-suggestion-menu-label {
-  font-size: 11px !important;
-  font-weight: 600 !important;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  /* Подпись группы — 12 / 500 обычным регистром (DS, «База знаний»). */
+  font-size: 12px !important;
+  font-weight: 500 !important;
   color: hsl(var(--muted-foreground)) !important;
-  padding: 8px 8px 4px 8px !important;
+  padding: 8px 12px 4px 12px !important;
 }
 
-/* Item: упрощённая компоновка (icon-chip 22×22 + title 13/500 в одну
+/* Item: упрощённая компоновка (значок 16 + title 14/400 в одну
  * строку, без subtext'а в основном списке). Subtext всё ещё в DOM —
  * скрываем display:none, чтобы будущий hover-hold tooltip мог его
  * вытащить, не меняя BN-render. */
 .bn-suggestion-menu .bn-suggestion-menu-item {
-  padding: 4px 8px !important;
+  padding: 8px 12px !important;
   gap: 10px !important;
   border-radius: 6px !important;
-  font-size: 13px !important;
-  font-weight: 500 !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
   /* iOS Safari НЕ синтезирует `click` по тапу на неинтерактивном
    * <div> без `cursor: pointer` (React вешает onClick через делегацию
    * на корень, а не inline onclick — для таких элементов iOS требует
@@ -896,24 +893,24 @@ input:-webkit-autofill {
   cursor: pointer !important;
 }
 .bn-suggestion-menu .bn-suggestion-menu-item > div[data-position="left"] {
-  width: 22px !important;
-  height: 22px !important;
+  /* Значок пункта — 16px серым, без подложки (как пункты меню приложения). */
+  width: 16px !important;
+  height: 16px !important;
   padding: 0 !important;
-  border-radius: 4px !important;
-  background-color: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
 .bn-suggestion-menu .bn-suggestion-menu-item > div[data-position="left"] svg {
-  width: 14px !important;
-  height: 14px !important;
+  width: 16px !important;
+  height: 16px !important;
 }
-/* Title row внутри `.flex-1` — оставляем text-base override на 13px. */
+/* Title row внутри `.flex-1` — 14px, как пункты меню приложения. */
 .bn-suggestion-menu .bn-suggestion-menu-item > .flex-1 > div:first-child {
-  font-size: 13px !important;
-  font-weight: 500;
+  font-size: 14px !important;
+  font-weight: 400;
   line-height: 1.3;
 }
 /* Subtext styling в общих SuggestionMenu (`@`-меню упоминаний). По
@@ -1001,9 +998,7 @@ input:-webkit-autofill {
   background-color: hsl(var(--card));
   border: 1px solid hsl(var(--border));
   color: hsl(var(--foreground));
-  box-shadow:
-    0 8px 20px rgb(0 0 0 / 0.10),
-    0 1px 4px rgb(0 0 0 / 0.05);
+  box-shadow: theme('boxShadow.md');
   pointer-events: none;
   animation: kb-slash-tip-in 120ms ease-out;
 }
@@ -1060,9 +1055,7 @@ input:-webkit-autofill {
   border-radius: 10px !important;
   padding: 6px !important;
   border: 1px solid hsl(var(--border)) !important;
-  box-shadow:
-    0 12px 24px rgb(0 0 0 / 0.12),
-    0 2px 6px rgb(0 0 0 / 0.05) !important;
+  box-shadow: theme('boxShadow.md') !important;
 }
 [data-slot="select-content"] [data-slot="select-item"] {
   border-radius: 6px;
@@ -1101,9 +1094,7 @@ input:-webkit-autofill {
   border-radius: 10px !important;
   border: 1px solid hsl(var(--border)) !important;
   background-color: hsl(var(--popover)) !important;
-  box-shadow:
-    0 8px 24px rgb(0 0 0 / 0.10),
-    0 2px 6px rgb(0 0 0 / 0.05) !important;
+  box-shadow: theme('boxShadow.md') !important;
 }
 /* Кнопки: компактнее, иконки приглушены (foreground при hover/active).
  *
@@ -1236,7 +1227,7 @@ input:-webkit-autofill {
   background-color: hsl(var(--popover));
   border-top: 1px solid hsl(var(--border));
   border-bottom: 1px solid hsl(var(--border));
-  box-shadow: 0 2px 16px rgb(0 0 0 / 0.12);
+  box-shadow: theme('boxShadow.md');
 }
 .kb-mobile-toolbar-blocktype {
   display: inline-flex;
@@ -1311,7 +1302,7 @@ input:-webkit-autofill {
   flex-direction: column;
   gap: 2px;
   padding: 6px;
-  border-radius: 14px;
+  border-radius: 10px;
   border: 1px solid hsl(var(--border));
   background-color: hsl(var(--popover));
   box-shadow:
@@ -1330,7 +1321,7 @@ input:-webkit-autofill {
   width: 100%;
   padding: 11px 12px;
   border-radius: 10px;
-  font-size: 15px;
+  font-size: 16px;
   color: hsl(var(--foreground));
   text-align: left;
 }
@@ -1359,7 +1350,7 @@ input:-webkit-autofill {
   display: flex;
   flex-direction: column;
   background-color: hsl(var(--background));
-  box-shadow: 0 -8px 30px rgb(0 0 0 / 0.18);
+  box-shadow: theme('boxShadow.lg');
   overscroll-behavior: contain;
   border-top-left-radius: 16px;
   border-top-right-radius: 16px;
@@ -1382,7 +1373,7 @@ input:-webkit-autofill {
   border-bottom: 1px solid hsl(var(--border));
 }
 .kb-mobile-comment-sheet-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   color: hsl(var(--foreground));
 }
@@ -1468,8 +1459,7 @@ input:-webkit-autofill {
 .kb-mobile-fullsheet-section {
   padding: 14px 16px 6px;
   font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: 500;
   color: hsl(var(--muted-foreground));
 }
 .kb-mobile-fullsheet-item {
@@ -1502,7 +1492,7 @@ input:-webkit-autofill {
   width: 30px;
   height: 30px;
   flex-shrink: 0;
-  border-radius: 7px;
+  border-radius: 6px;
   border: 1px solid hsl(var(--border));
   font-size: 16px;
   font-weight: 700;
@@ -1566,9 +1556,7 @@ input:-webkit-autofill {
   padding: 6px !important;
   border-radius: 10px !important;
   border: 1px solid hsl(var(--border)) !important;
-  box-shadow:
-    0 12px 24px rgb(0 0 0 / 0.12),
-    0 2px 6px rgb(0 0 0 / 0.05) !important;
+  box-shadow: theme('boxShadow.md') !important;
 }
 .bn-menu-dropdown.bn-drag-handle-menu .bn-menu-item,
 .bn-menu-dropdown.bn-drag-handle-menu [role="menuitem"] {
@@ -1620,9 +1608,7 @@ input:-webkit-autofill {
   padding: 8px !important;
   border-radius: 10px !important;
   border: 1px solid hsl(var(--border)) !important;
-  box-shadow:
-    0 12px 24px rgb(0 0 0 / 0.12),
-    0 2px 6px rgb(0 0 0 / 0.05) !important;
+  box-shadow: theme('boxShadow.md') !important;
   /* Tooltip chip'а рендерится НАД dropdown'ом (bottom:100%) — не
      обрезаем его краем контейнера. */
   overflow: visible !important;
@@ -1632,10 +1618,8 @@ input:-webkit-autofill {
 .bn-color-picker-dropdown.kb-color-picker
   [class*="DropdownMenuLabel"] {
   grid-column: 1 / -1;
-  font-size: 11px !important;
-  font-weight: 600 !important;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 12px !important;
+  font-weight: 500 !important;
   color: hsl(var(--muted-foreground)) !important;
   padding: 6px 4px 2px 4px !important;
 }
@@ -1714,11 +1698,9 @@ input:-webkit-autofill {
   max-width: calc(100vw - 32px);
   background-color: hsl(var(--card));
   border: 1px solid hsl(var(--border));
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 16px;
-  box-shadow:
-    0 12px 24px rgb(0 0 0 / 0.12),
-    0 2px 6px rgb(0 0 0 / 0.05);
+  box-shadow: theme('boxShadow.md');
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -1750,7 +1732,7 @@ input:-webkit-autofill {
 .kb-file-panel-tab[data-active] {
   color: hsl(var(--foreground));
   background-color: hsl(var(--card));
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+  box-shadow: theme('boxShadow.sm');
 }
 
 .kb-file-panel-body {
@@ -1790,7 +1772,7 @@ input:-webkit-autofill {
 }
 
 .kb-file-panel-hint {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   color: hsl(var(--muted-foreground));
 }
@@ -1842,7 +1824,7 @@ input:-webkit-autofill {
   height: 3px;
   width: 100%;
   background-color: hsl(var(--border));
-  border-radius: 2px;
+  border-radius: 4px;
   overflow: hidden;
 }
 .bn-sheerly .kb-upload-progress-bar-fill {
@@ -1850,7 +1832,7 @@ input:-webkit-autofill {
   inset: 0 auto 0 0;
   width: 30%;
   background-color: hsl(var(--brand) / 0.7);
-  border-radius: 2px;
+  border-radius: 4px;
   animation: kb-upload-progress-slide 1.4s ease-in-out infinite;
 }
 @keyframes kb-upload-progress-slide {
@@ -1997,7 +1979,7 @@ input:-webkit-autofill {
   width: 6px;
   height: 36px;
   background-color: hsl(var(--foreground) / 0.3);
-  border-radius: 3px;
+  border-radius: 4px;
   border: 1.5px solid hsl(var(--background));
   top: 50%;
   transform: translateY(-50%);

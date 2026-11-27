@@ -26,6 +26,7 @@ export default function VenueCardError({
     <ProfilePageFrame>
       <EmptyState
         icon={Building2}
+        illustration="error"
         title="Не удалось открыть заведение"
         description="Повторите попытку. Если ошибка не пропадает, вернитесь к списку и откройте карточку снова"
         action={(

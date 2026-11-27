@@ -21,6 +21,12 @@
   color: hsl(var(--brand-text));
   font-weight: 600;
 }
+/* Пока «призрак» подсветки едет к новому пункту (nav-glide.ts), своя
+   подсветка нового пункта спрятана. */
+.workspace [data-sidebar="content"] a[aria-current="page"][data-nav-arriving],
+.modernNavigation a[aria-current="page"][data-nav-arriving] {
+  background: transparent !important;
+}
 .workspace [data-sidebar="footer"] {
   height: 80px;
   padding: 12px;

@@ -350,6 +350,7 @@ export function VenuesClient({
       {venues.length === 0 ? (
         <EmptyState
           icon={Building2}
+          illustration="empty"
           title="Заведений пока нет"
           description={
             canCreate

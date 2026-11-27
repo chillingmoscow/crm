@@ -26,6 +26,7 @@ export default function CounterpartyCardError({
     <ProfilePageFrame>
       <EmptyState
         icon={Building2}
+        illustration="error"
         title="Не удалось открыть контрагента"
         description="Повторите попытку. Если ошибка не пропадает, вернитесь к списку и откройте карточку снова"
         action={(

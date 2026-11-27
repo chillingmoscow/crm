@@ -12,12 +12,15 @@ import { DashboardTopbar } from "@/components/shared/dashboard-topbar";
 import { PushPromptBanner } from "@/components/shared/push-prompt-banner";
 import { PageHeaderActionsProvider } from "@/components/shared/page-header-actions";
 import { HotkeysDialogProvider } from "@/components/shared/hotkeys-dialog";
+import { PageTransition } from "@/components/shared/page-transition";
+import { CommandPaletteProvider } from "@/components/shared/command-palette";
 import { KbSearchProvider } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
 import { ImpersonationBanner } from "@/components/shared/impersonation-banner";
 import { readActiveImpersonation } from "@/lib/impersonation/session";
 import { syncPendingInvitationsForUser } from "@/lib/people/invitations/sync-pending";
 import { countInbox } from "@/lib/finance/recurring";
 import { countCertificateAlerts } from "@/lib/finance/certificates-actions";
+import { countActsInWork } from "@/lib/inventory/acts-in-work";
 
 export default async function DashboardLayout({
   children,
@@ -101,7 +104,7 @@ export default async function DashboardLayout({
   const supabaseUntyped = supabase as unknown as {
     rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown }>;
   };
-  const [accountId, userPermissions, attentionRes, candidateCountRes, inboxCount, certificateAlertCount] = await Promise.all([
+  const [accountId, userPermissions, attentionRes, candidateCountRes, inboxCount, certificateAlertCount, actsInWorkCount] = await Promise.all([
     getCachedActiveAccountId(),
     getCachedPermissions(),
     supabaseUntyped.rpc("count_venue_staff_attention", { p_venue_id: activeVenueId }),
@@ -116,6 +119,8 @@ export default async function DashboardLayout({
     getCachedPermissions().then((codes) =>
       codes.includes("finance.view_counterparties") ? countCertificateAlerts().catch(() => 0) : 0,
     ),
+    // Бейдж «Акты инвентаризации»: акты заведения в работе (права — внутри).
+    countActsInWork(activeVenueId).catch(() => 0),
   ]);
   let accountName: string | null = null;
   // KB-поиск (Cmd+K) поднят на dashboard-layout, чтобы работать из
@@ -200,6 +205,7 @@ export default async function DashboardLayout({
         newCandidatesCount={typeof candidateCountRes?.data === "number" ? candidateCountRes.data : 0}
         inboxCount={inboxCount}
         certificateAlertCount={certificateAlertCount}
+        actsInWorkCount={actsInWorkCount}
         kbSidebarHidden={kbSidebarHidden}
         isImpersonating={Boolean(activeImpersonation)}
       />
@@ -219,7 +225,8 @@ export default async function DashboardLayout({
                 (см. components/shared/dashboard-topbar.tsx). */}
             {!activeImpersonation && <PushPromptBanner />}
             <DashboardTopbar />
-            <main className="flex min-w-0 flex-1 flex-col overflow-x-clip">{children}</main>
+            <CommandPaletteProvider userPermissions={userPermissions} activeRoleCode={activeRoleCode} />
+            <PageTransition className="flex min-w-0 flex-1 flex-col overflow-x-clip">{children}</PageTransition>
           </PageHeaderActionsProvider>
         </KbSearchProvider>
         <HotkeysDialogProvider />

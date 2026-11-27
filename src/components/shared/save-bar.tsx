@@ -13,6 +13,8 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
+import { useSaveStatusFromFlag } from "@/components/ui/button-status";
+import { useExitValue } from "@/hooks/use-exit-value";
 import { cn } from "@/lib/utils";
 import { useLeaveGuard } from "./leave-guard";
 
@@ -48,15 +50,34 @@ export function SaveBar({
   // Пока идёт сохранение (и обновление данных после него), уход не
   // спрашиваем: изменения уже отправлены.
   const leaveDialog = useLeaveGuard(dirty && !saving);
-  const message = blocked ?? notice;
+  // После успешного сохранения полоса не исчезает сразу: индикатор на
+  // кнопке превращается в галочку, через мгновение полоса уходит.
+  const status = useSaveStatusFromFlag(saving, !dirty);
+  const saved = status === "success" && !dirty;
+  const message = saved ? null : (blocked ?? notice);
+  const open = dirty || saved;
+  // Уходит полоса мягко (`.motion-float-up[data-state=closed]`), а не пропадает в тот же кадр.
+  const shown = useExitValue(open);
+  // Пока полоса уходит, она выглядит как в последний миг на экране (с
+  // галочкой), а не переключается обратно на «Сохранить».
+  const lastStatus = useRef(status);
+  const lastSaved = useRef(saved);
+  if (open) {
+    lastStatus.current = status;
+    lastSaved.current = saved;
+  }
+  const barStatus = open ? status : lastStatus.current;
+  const barSaved = open ? saved : lastSaved.current;
   return (
     <>
-      {dirty ? (
+      {shown ? (
         <div
           role="region"
-          aria-label="Несохранённые изменения"
+          aria-label={barSaved ? "Изменения сохранены" : "Несохранённые изменения"}
+          data-state={open ? "open" : "closed"}
+          inert={!open}
           className={cn(
-            "sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background/95 px-4 py-3 shadow-md backdrop-blur",
+            "motion-float-up sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background/95 px-4 py-3 shadow-md backdrop-blur",
             className,
           )}
         >
@@ -69,13 +90,13 @@ export function SaveBar({
                 : "text-muted-foreground",
             )}
           >
-            {message ?? "Есть несохранённые изменения"}
+            {barSaved ? "Изменения сохранены" : (message ?? "Есть несохранённые изменения")}
           </p>
           <div className="flex flex-1 justify-end gap-2 sm:flex-none">
             <Button
               type="button"
               variant="outline"
-              disabled={saving}
+              disabled={saving || saved}
               onClick={onReset}
             >
               Отменить
@@ -83,16 +104,17 @@ export function SaveBar({
             <span data-tip={blocked || undefined} className="inline-flex">
               <Button
                 type="button"
-                variant={blocked ? "secondary" : "default"}
-                disabled={saving || Boolean(blocked)}
+                variant={blocked && !saved ? "secondary" : "default"}
+                disabled={Boolean(blocked)}
+                status={barStatus}
                 onClick={onSave}
                 className={cn(
                   "min-w-32",
-                  blocked &&
+                  blocked && !saved &&
                     "cursor-default text-muted-foreground hover:bg-secondary disabled:opacity-100",
                 )}
               >
-                {saving ? "Сохраняем…" : "Сохранить"}
+                Сохранить
               </Button>
             </span>
           </div>

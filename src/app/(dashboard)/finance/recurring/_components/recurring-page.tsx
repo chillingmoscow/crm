@@ -529,6 +529,7 @@ export function RecurringPage({
     ) : (
       <EmptyState
         icon={Repeat}
+        illustration="empty"
         title="Повторяющихся платежей пока нет"
         description={
           archivedRows.length > 0

@@ -4582,6 +4582,27 @@ html.theme-transition *::after {
    transform, которым элемент центрирован. */
 @keyframes float-up { from { opacity: 0; translate: 0 16px; } to { opacity: 1; translate: 0 0; } }
 .motion-float-up { animation: float-up 360ms var(--ease-soft) both; }
+@keyframes float-out { to { opacity: 0; translate: 0 12px; } }
+.motion-float-up[data-state="closed"] { animation: float-out 180ms ease-in both; }
+
+/* ──── Кнопка с состоянием (Button status, button-status.tsx) ──────
+   Подпись, индикатор и галочка — в одной клетке сетки: ширина кнопки не
+   меняется. Индикатор загрузки уходит, галочка «вырастает» на его месте,
+   через ~1,2 с возвращается подпись. */
+.btn-status > * { grid-area: 1 / 1; }
+.btn-status-label { transition: opacity 200ms var(--ease-soft); }
+.btn-status-label[data-hidden] { opacity: 0; }
+.btn-status-icon {
+  display: inline-flex;
+  opacity: 0;
+  scale: 0.6;
+  transition: opacity 160ms ease-in, scale 160ms ease-in;
+}
+.btn-status-icon[data-shown] {
+  opacity: 1;
+  scale: 1;
+  transition: opacity 320ms var(--ease-soft), scale 420ms var(--ease-soft);
+}
 @keyframes slide-in-left { from { opacity: 0; translate: -8px 0; } to { opacity: 1; translate: 0 0; } }
 .motion-slide-in-left { animation: slide-in-left 320ms var(--ease-soft) both; }
 [data-radix-popper-content-wrapper] > [data-side="top"] { --popper-shift: 4px; }
@@ -4769,13 +4790,20 @@ html.theme-transition *::after {
    движение.
 
    `data-[state=open|closed]:animate-*` от Radix — это keyframes
-   animations, не transitions, поэтому отдельно их `animation:none`. */
+   animations, не transitions, поэтому отдельно их `animation:none`.
+
+   Задержки тоже обнуляем: иначе строки таблиц (`.table-row-in`),
+   столбики графиков и прочее с `fill-mode: both` и шагом
+   `animationDelay` проявляются по очереди до ~1 с, хотя каждое — мгновенно.
+   `!important` перекрывает и инлайновый `style={{ animationDelay }}`. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
     animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
   }

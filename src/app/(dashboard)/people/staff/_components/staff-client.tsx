@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type ReactNode } from "react";
+import { useEffect, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { flyToStaffCard, isPlainClick } from "@/lib/people/avatar-flight";
@@ -26,7 +26,7 @@ import { usePeopleOverview } from "@/components/people/people-overview";
 import { PersonAvatar } from "@/components/people/person-avatar";
 import { StaffTable, type StaffColKey as ColKey } from "./staff-table";
 import type { CasualStaffRow } from "@/lib/payroll/casual-list";
-import { AddStaffDrawer } from "./add-staff-drawer";
+import { AddStaffDrawer, type AddStaffMode } from "./add-staff-drawer";
 import { CasualToStaffDrawer } from "./casual-to-staff-drawer";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 
@@ -324,15 +324,28 @@ export function StaffClient({
     setInvitations(initialInvitations);
     setFired(initialFired);
   }
-  const [inviteOpen, setInviteOpen] = useState(openAddCasual);
+  const router = useRouter();
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [addMode, setAddMode] = useState<AddStaffMode>("manual");
   // Разовый, которого переводят в штат; держим, пока панель уезжает.
   const [converting, setConverting] = useState<CasualStaffRow | null>(null);
   const [convertOpen, setConvertOpen] = useState(false);
   const [addKey, setAddKey] = useState(0);
-  const openAdd = () => {
+  const openAdd = (mode: AddStaffMode = "manual") => {
+    setAddMode(mode);
     setAddKey((key) => key + 1);
     setInviteOpen(true);
   };
+  // `?add=casual` (график, палитра ⌘K) открывает панель на вкладке
+  // «Разовый» — и когда страница уже открыта — и убирается из адреса,
+  // чтобы обновление страницы не открывало панель снова.
+  useEffect(() => {
+    if (!openAddCasual) return;
+    router.replace("/people/staff", { scroll: false });
+    setAddMode("casual");
+    setAddKey((key) => key + 1);
+    setInviteOpen(true);
+  }, [openAddCasual, router]);
   const [isPending, startTransition] = useTransition();
   const [firedOpen, setFiredOpen] = useState(false);
   const overview = usePeopleOverview(
@@ -800,7 +813,7 @@ export function StaffClient({
   // «Добавить» есть, если доступен хоть один способ: создать или пригласить.
   const canAdd = canEdit || canInviteStaff;
   const addButton = canAdd ? (
-    <Button onClick={openAdd} size="sm" className="h-9 gap-2">
+    <Button onClick={() => openAdd()} size="sm" className="h-9 gap-2">
       <UserPlus className="size-4" />
       Добавить
     </Button>
@@ -877,7 +890,7 @@ export function StaffClient({
         primaryAction={addButton}
         emptyAction={
           canAdd ? (
-            <Button onClick={openAdd}>
+            <Button onClick={() => openAdd()}>
               <UserPlus />
               Добавить сотрудника
             </Button>
@@ -904,7 +917,7 @@ export function StaffClient({
         roles={roles}
         casualRoles={casual?.roles ?? null}
         venueId={venueId}
-        defaultMode={openAddCasual ? "casual" : "manual"}
+        defaultMode={addMode}
         canCreate={canEdit}
         canInvite={canInviteStaff}
         onInvited={(invitation) =>

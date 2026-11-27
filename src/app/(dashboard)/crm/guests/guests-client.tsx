@@ -30,6 +30,8 @@ import {
 import { toast } from "sonner";
 import { ExpandPanel } from "@/components/shared/overview-toggle";
 import { PageFrame } from "@/components/shared/page-frame";
+import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { personInitials } from "@/lib/format/initials";
 import {
   DataTable,
   TableColumnManager,
@@ -142,6 +144,8 @@ function birthday(g: Guest) {
     year: g.data.year ?? null,
   });
 }
+/** Пустое значение в таблице — один приглушённый «—» (design-system, «Деньги, числа, даты»). */
+const EMPTY = <span className="text-muted-foreground">—</span>;
 function GuestAvatar({
   guest,
   large = false,
@@ -153,8 +157,9 @@ function GuestAvatar({
   return (
     <span
       className={cn(
-        "flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 font-medium text-brand",
-        large ? "size-14 text-base" : "size-10 text-xs",
+        // Без фото — инициалы на bg-muted, как у людей (PersonAvatar).
+        "flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted font-medium text-muted-foreground",
+        large ? "size-14 text-base" : "size-9 text-xs",
       )}
     >
       {guest.photoUrl && failed !== guest.photoUrl ? (
@@ -165,11 +170,7 @@ function GuestAvatar({
           onError={() => setFailed(guest.photoUrl ?? null)}
         />
       ) : (
-        guest.data.name
-          ?.split(/\s+/)
-          .slice(0, 2)
-          .map((s) => s[0])
-          .join("") || "Г"
+        personInitials(guest.data.name)
       )}
     </span>
   );
@@ -268,7 +269,7 @@ function Value({ label, children }: { label: string; children: ReactNode }) {
     <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] gap-4 border-b py-3 last:border-0">
       <span className="text-muted-foreground">{label}</span>
       <span className="min-w-0 whitespace-pre-wrap break-words">
-        {children || "—"}
+        {children && children !== "—" ? children : EMPTY}
       </span>
     </div>
   );
@@ -457,6 +458,14 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
     setArchived((v) => !v);
     firstPage();
   };
+  // «Добавить гостя» из палитры ⌘K ведёт сюда с ?create=1: открываем ту же
+  // панель, что и кнопка, и убираем параметр из адреса.
+  const createRequested = params.get("create") === "1";
+  useEffect(() => {
+    if (!createRequested) return;
+    router.replace("/crm/guests", { scroll: false });
+    if (data.canManage) startCreate();
+  }, [createRequested, data.canManage, router]);
   function startCreate() {
     detailSequence.current++;
     setDetail(null);
@@ -642,7 +651,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
             {title}
           </span>
         ) : (
-          "—"
+          EMPTY
         );
       },
     },
@@ -654,27 +663,31 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
       cell: ({ row }) =>
         row.original.data.discountPercent != null
           ? `${row.original.data.discountPercent}%`
-          : "—",
+          : EMPTY,
     },
     {
       id: "birthday",
       header: labels.birthday,
       size: 170,
       minSize: 140,
-      cell: ({ row }) => (
-        <span className="tabular-nums">{birthday(row.original) || "—"}</span>
-      ),
+      cell: ({ row }) => {
+        const value = birthday(row.original);
+        return value && value !== "—" ? (
+          <span className="tabular-nums">{value}</span>
+        ) : (
+          EMPTY
+        );
+      },
     },
     {
       id: "updated",
       header: labels.updated,
       size: 150,
       minSize: 130,
-      cell: ({ row }) => (
-        <span className="tabular-nums">
-          {formatDateCell(row.original.updatedAt) ?? "—"}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const value = formatDateCell(row.original.updatedAt);
+        return value ? <span className="tabular-nums">{value}</span> : EMPTY;
+      },
     },
   ];
   const table = useReactTable({
@@ -703,6 +716,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
 
   return (
     <PageFrame className="flex min-w-0 flex-col gap-4">
+      <Breadcrumbs items={[{ label: "Гости" }]} />
       <TablePageHeader
         title={archived ? "Гости в архиве" : "Гости"}
         count={count}
@@ -880,6 +894,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
         ) : (
           <EmptyState
             icon={Users}
+            illustration="empty"
             title="Гостей пока нет"
             description={
               data.canConfigure

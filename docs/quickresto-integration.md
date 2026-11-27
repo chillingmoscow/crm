@@ -205,7 +205,9 @@ Content-Type: application/json; charset=utf-8
 | Операция | Путь | Метод | Особенности |
 | --- | --- | --- | --- |
 | Создать акт | `warehouse.inventory.document.v2/create` | POST | акт создаётся **пустым**; `className` = `…document.v2.InventoryDocument`; public API `update` без `objectId` отвечает 400 `entityNotFound` |
-| Добавить позицию | `warehouse.inventory.items/create` | POST | телом — объект-образец (raw_payload другой строки) без полей конкретной строки: `id`, `hash`, `version`, `seqNumber`, `delta`, `amountAtStore`, `actualAmount`, `costPriceSum` и т.п. Расчётный остаток QR посчитает сам, уже на дату этого акта |
+| Номер нового акта | `warehouse.inventory.document.v2/preinit?className=…v2.InventoryDocument` | GET | отдаёт черновик карточки со следующим номером («СВ397»); номер не резервирует. `create` без `documentNumber` заводит акт с пустым номером — поэтому `createInventoryDocumentBackOffice` сначала берёт номер отсюда (проверено 2026-11-27) |
+| Добавить позицию | `warehouse.inventory.items/create` | POST | телом — объект-образец (raw_payload другой строки) без полей конкретной строки: `id`, `hash`, `version`, `seqNumber`, `delta`, `amountAtStore`, `actualAmount`, `costPriceSum` и т.п. Расчётный остаток QR посчитает сам, уже на дату этого акта. Для позиции, которой ещё не было в актах, хватает `{className: …items.InventoryItem, product: {id, className, title}, measureUnit: {id, className}, actualAmount: 0}` — так собирает акт панель «Создать акт» (проверено 2026-11-27 на ингредиенте и блюде) |
+| «Добавить группы» | `warehouse.inventory.items/action` `AddGroups` | POST | из API **не работает**: тело как у интерфейса (`data: {className: "AddSingleGroups", nomenclature: <узел warehouse.inventory.nomenclature.total>, movement}`, `owner`) отвечает 400 `{"type":"UnknownWebClientBehaviour"}` при любых вариантах (2026-11-27). Состав групп берём из своего каталога и кладём позиции по одной |
 | Изменить факт | `warehouse.inventory.items/update` | POST | см. `updateInventoryItemBackOffice` |
 | Удалить позицию | `warehouse.inventory.items/remove` | **DELETE с телом** | обязательны `ownerContextId`, `regTime`, `hash` строки. Без тела — `Object doesn't exist`, POST — 405, `/delete` — 404 |
 | Удалить акт | `warehouse.inventory.document.v2/remove` | **DELETE с телом** | обязательны `regTime`, `contextModule=warehouse.inventory.items`. После удаления акт пропадает из `list`, но прямое чтение по id всё ещё отдаёт объект — ориентироваться надо на список |
@@ -248,7 +250,7 @@ Wrappers `listBackOfficeInventoryItemsWithSession` и
 | --- | --- | --- |
 | Проверка подключения, импорт заведений, должностей и сотрудников | `/platform/online/api` | API-логин и пароль, Basic |
 | Синхронизация номенклатуры, складов и актов; чтение акта перед отправкой и после проведения | `/platform/online/api` | API-логин и пароль, Basic |
-| Чтение и изменение строк акта, создание акта пересчёта, перенос позиций и проведение | `/platform/data` | Выделенный back-office пользователь, Keycloak Bearer |
+| Чтение и изменение строк акта, создание акта (панель «Создать акт» и акт пересчёта), перенос позиций и проведение | `/platform/data` | Выделенный back-office пользователь, Keycloak Bearer |
 
 Переход n8n с cookie-сессии на Keycloak не доказывает отключение отдельного
 Basic-доступа `/platform/online/api`. Перед его заменой требуется контрольный

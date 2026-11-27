@@ -3,6 +3,7 @@ import {
   Archive,
   CalendarDays,
   FileText,
+  FilePlus2,
   ImagePlus,
   RotateCcw,
   Store,
@@ -23,6 +24,7 @@ import type { AuditEventSpec } from "./format";
 
 const INFO = "text-brand bg-brand/10";
 const DANGER = "text-destructive bg-destructive/10";
+const CREATED = "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
 
 /** Вид позиции: падежи для фразы и раздел каталога для ссылки. */
 const KINDS: Record<string, { gen: string; dat: string; slug: string }> = {
@@ -239,4 +241,46 @@ export const catalogAuditSpecs: Record<string, AuditEventSpec> = {
     ),
     true,
   ),
+  "inventory.document.created": {
+    icon: FilePlus2,
+    iconClass: CREATED,
+    buildHeadline: (e) => (
+      <>
+        создал(а) акт инвентаризации{" "}
+        {e.entity?.type === "inventory_document" ? (
+          <Link
+            href={`/documents/inventory/${e.entity.id}`}
+            className="font-medium hover:underline"
+          >
+            {documentLabel(e)}
+          </Link>
+        ) : (
+          <strong className="font-medium">{documentLabel(e)}</strong>
+        )}
+        {e.details.store_title ? ` · ${String(e.details.store_title)}` : ""}
+      </>
+    ),
+    buildDetails: (e) => <CreatedActDetails event={e} />,
+  },
 };
+
+/** Что вошло в созданный акт: группы и число позиций. */
+function CreatedActDetails({ event }: { event: AuditEvent }) {
+  const groups = Array.isArray(event.details.groups)
+    ? event.details.groups.filter((value): value is string => typeof value === "string")
+    : [];
+  const count = typeof event.details.item_count === "number" ? event.details.item_count : null;
+  const lines: Array<[string, string]> = [];
+  if (groups.length > 0) lines.push([groups.length > 1 ? "Группы" : "Группа", groups.join(", ")]);
+  if (count !== null) lines.push(["Позиций", String(count)]);
+  if (lines.length === 0) return null;
+  return (
+    <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+      {lines.map(([label, value]) => (
+        <li key={label} className="leading-snug">
+          <span className="text-foreground">{label}:</span> {value}
+        </li>
+      ))}
+    </ul>
+  );
+}

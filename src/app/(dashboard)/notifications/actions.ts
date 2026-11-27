@@ -158,9 +158,22 @@ export async function unarchiveNotification(id: string): Promise<void> {
  *  все её записи. RLS пускает UPDATE только на свои строки. */
 /** id в `.in(...)` уходят в URL запроса — режем пачками (CLAUDE.md, PostgREST). */
 const STACK_IDS_CHUNK = 100;
+/**
+ * Предел на вызов: колокольчик грузит уведомления страницами по 50, стопка
+ * столько не наберёт. Больше — отказ целиком, а не тихая обрезка: иначе
+ * часть стопки осталась бы непрочитанной без объяснения.
+ */
+const STACK_IDS_MAX = 1000;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function stackIdChunks(ids: string[]): string[][] {
-  return chunk([...new Set(ids)], STACK_IDS_CHUNK);
+function stackIdChunks(ids: unknown): string[][] {
+  if (!Array.isArray(ids)) return [];
+  const unique = [...new Set(ids)];
+  if (unique.length > STACK_IDS_MAX || !unique.every((id) => typeof id === "string" && UUID_RE.test(id))) {
+    console.error("[notifications] rejected stack ids:", unique.length);
+    return [];
+  }
+  return chunk(unique as string[], STACK_IDS_CHUNK);
 }
 
 export async function markNotificationsRead(ids: string[]): Promise<void> {

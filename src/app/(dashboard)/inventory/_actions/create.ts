@@ -29,12 +29,21 @@ import {
 } from "@/lib/inventory/act-create";
 import { backOfficeTimeZoneParam, moveInvoiceDate } from "@/lib/inventory/act-date";
 import { processActCreationJob } from "../act-creation-worker";
-import { isActCreationStuck, type ActCreationJobState } from "@/lib/inventory/act-creation-job";
 import {
+  ACT_CREATION_INLINE_HEAD_START_MS,
+  isActCreationStuck,
+  type ActCreationJobState,
+} from "@/lib/inventory/act-creation-job";
+import {
+  QuickRestoRateLimitError,
   createInventoryDocumentBackOffice,
+  listInventoryDocuments,
   readInventoryDocument,
   removeInventoryDocumentBackOffice,
+  type QuickRestoInventoryDocument2,
 } from "@/lib/integrations/quickresto/client";
+import { isBackOfficePermissionError } from "@/lib/integrations/quickresto/auth-state";
+import { isDeletedQuickRestoRow } from "@/lib/integrations/quickresto/normalize";
 import {
   assertDocumentVisible,
   connectionPassword,
@@ -329,7 +338,23 @@ export async function createInventoryAct(
       });
     } catch (error) {
       console.error("[createInventoryAct] Quick Resto не создал акт", error);
-      return { error: quickRestoUserError(error, "Quick Resto не создал акт. Попробуйте ещё раз.") };
+      // Ответ мог потеряться (таймаут, обрыв связи), а акт в Quick Resto —
+      // создаться. Без этой проверки повтор завёл бы второй акт, а первый,
+      // пустой, позже пришёл бы синхронизацией.
+      const lost =
+        error instanceof QuickRestoRateLimitError || isBackOfficePermissionError(error)
+          ? null
+          : await findActAfterLostResponse({
+              connection,
+              admin,
+              accountId,
+              externalStoreId,
+              invoiceDate,
+              comment: normalized.comment,
+            });
+      if (!lost) return { error: quickRestoUserError(error, "Quick Resto не создал акт. Попробуйте ещё раз.") };
+      log("ответ create потерян, акт найден в Quick Resto", { externalId: lost.id });
+      createdDoc = lost;
     }
     if (typeof createdDoc?.id !== "number") {
       log("create вернул акт без id", createdDoc);
@@ -388,6 +413,9 @@ export async function createInventoryAct(
         external_id: createdDoc.id,
         items: plan.items,
         total: plan.items.length,
+        // Первым задание берёт этот процесс (after() ниже); cron — только если
+        // тот не взял, иначе тик мог перехватить его раньше.
+        available_at: new Date(Date.now() + ACT_CREATION_INLINE_HEAD_START_MS).toISOString(),
         details: {
           date: normalized.date,
           time: normalized.time,
@@ -497,20 +525,26 @@ export async function retryInventoryActCreation(input: { documentId: string }): 
     await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
     const admin = asLooseDb(createAdminClient());
     const { data: job } = await admin
-      .from<{ id: string; state: ActCreationJobState; attempts: number }>("inventory_act_creation_jobs")
-      .select("id, state, attempts")
+      .from<{ id: string; state: ActCreationJobState; attempts: number; lease_until: string | null }>(
+        "inventory_act_creation_jobs",
+      )
+      .select("id, state, attempts, lease_until")
       .eq("account_id", ctx.accountId)
       .eq("document_id", input.documentId)
       .maybeSingle();
     if (!job || job.state === "complete") return { error: "Все позиции уже в акте. Обновите страницу." };
     if (!isActCreationStuck(job)) return { error: "Позиции ещё добавляются — дождитесь окончания." };
-    const { data: updated } = await admin
+    // Сравнение со снимком (состояние, попытки, аренда): если задание за это
+    // время кто-то взял, перезапуска не будет. Застрявшее `working` (обработчик
+    // последней попытки остановился вместе с процессом) — аренда истекла.
+    let reset = admin
       .from<Array<{ id: string }>>("inventory_act_creation_jobs")
-      .update({ state: "pending", attempts: 0, error: null, available_at: new Date().toISOString() })
+      .update({ state: "pending", attempts: 0, error: null, lease_until: null, available_at: new Date().toISOString() })
       .eq("id", job.id)
-      .eq("state", "error")
-      .eq("attempts", job.attempts)
-      .select("id");
+      .eq("state", job.state)
+      .eq("attempts", job.attempts);
+    reset = job.lease_until ? reset.eq("lease_until", job.lease_until) : reset.is("lease_until", null);
+    const { data: updated } = await reset.select("id");
     if (!updated?.length) return { error: "Задание уже перезапущено. Обновите страницу." };
     after(() => runJobInBackground(job.id));
     revalidatePath("/documents/inventory");
@@ -518,5 +552,50 @@ export async function retryInventoryActCreation(input: { documentId: string }): 
   } catch (error) {
     console.error("[retryInventoryActCreation] исключение", error);
     return { error: "Не удалось перезапустить добавление позиций. Попробуйте ещё раз." };
+  }
+}
+
+/**
+ * Акт, который Quick Resto создал, но ответ до нас не дошёл: тот же склад,
+ * та же дата до миллисекунды и тот же комментарий, не проведён, не удалён, ещё
+ * не связан ни с одним нашим актом и обновлялся в последние 15 минут. Ровно
+ * один такой — он наш; ноль или несколько — не гадаем (null).
+ */
+async function findActAfterLostResponse(input: {
+  connection: QuickRestoConnection;
+  admin: LooseDb;
+  accountId: string;
+  externalStoreId: number;
+  invoiceDate: number;
+  comment: string;
+}): Promise<QuickRestoInventoryDocument2 | null> {
+  try {
+    const list = await listInventoryDocuments({
+      layerName: input.connection.login,
+      login: input.connection.login,
+      password: connectionPassword(input.connection),
+    });
+    const freshSince = Date.now() - 15 * 60_000;
+    const candidates = (list ?? []).filter((doc) => {
+      if (typeof doc.id !== "number" || doc.processed || isDeletedQuickRestoRow(doc)) return false;
+      if (doc.store?.id !== input.externalStoreId) return false;
+      const date = dateText(doc.invoiceDate);
+      if (!date || Date.parse(date) !== input.invoiceDate) return false;
+      if ((typeof doc.comment === "string" ? doc.comment.trim() : "") !== input.comment) return false;
+      const updated = dateText(doc.lastUpdateDate);
+      return !updated || Date.parse(updated) >= freshSince;
+    });
+    if (candidates.length === 0) return null;
+    const { data: linked } = await input.admin
+      .from<Array<{ external_id: string }>>("documents")
+      .select("external_id")
+      .eq("account_id", input.accountId)
+      .in("external_id", candidates.map((doc) => String(doc.id)));
+    const taken = new Set((linked ?? []).map((row) => row.external_id));
+    const free = candidates.filter((doc) => !taken.has(String(doc.id)));
+    return free.length === 1 ? free[0] : null;
+  } catch (error) {
+    console.error("[createInventoryAct] акт после потерянного ответа не найден", error);
+    return null;
   }
 }

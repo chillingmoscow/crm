@@ -19,6 +19,21 @@ test("isActCreationActive: идёт, пока не готово и попытк�
   assert.equal(isActCreationActive(null), false);
 });
 
+test("isActCreationStuck: последняя попытка остановилась вместе с процессом", () => {
+  const now = Date.parse("2026-11-28T12:00:00Z");
+  const expired = "2026-11-28T11:50:00Z";
+  const live = "2026-11-28T12:02:00Z";
+  const last = ACT_CREATION_MAX_ATTEMPTS;
+  assert.equal(isActCreationStuck({ state: "working", attempts: last, lease_until: expired }, now), true);
+  assert.equal(isActCreationStuck({ state: "working", attempts: last, lease_until: null }, now), true);
+  assert.equal(isActCreationActive({ state: "working", attempts: last, lease_until: expired }, now), false);
+  // Последняя попытка ещё идёт — акт создаётся.
+  assert.equal(isActCreationStuck({ state: "working", attempts: last, lease_until: live }, now), false);
+  assert.equal(isActCreationActive({ state: "working", attempts: last, lease_until: live }, now), true);
+  // Не последняя — её подхватит cron.
+  assert.equal(isActCreationStuck({ state: "working", attempts: 3, lease_until: expired }, now), false);
+});
+
 test("isActCreationStuck: только когда попытки кончились", () => {
   assert.equal(isActCreationStuck({ state: "error", attempts: ACT_CREATION_MAX_ATTEMPTS }), true);
   assert.equal(isActCreationStuck({ state: "error", attempts: 1 }), false);

@@ -28,11 +28,13 @@ import {
 } from "@/lib/inventory/act-delete";
 import { countRu } from "@/lib/format/plural";
 import { businessMonthOf } from "@/lib/stock/monthly-snapshot";
+import { backOfficeTimeZoneParam } from "@/lib/inventory/act-date";
 import {
   actionErrorMessage,
   assertDocumentVisible,
   filterVisibleDocumentIds,
   getActiveContext,
+  dateText,
   getConnection,
   quickRestoUserError,
   text,
@@ -263,7 +265,7 @@ export async function bulkDeleteInventoryDocuments(input: {
   }
 }
 
-const DELETABLE_DOCUMENT_COLUMNS = "id, external_id, document_number, status, results_snapshot_at";
+const DELETABLE_DOCUMENT_COLUMNS = "id, external_id, document_number, status, results_snapshot_at, venue_id";
 
 type DeletableDocument = {
   id: string;
@@ -271,6 +273,7 @@ type DeletableDocument = {
   document_number: string | null;
   status: string;
   results_snapshot_at: string | null;
+  venue_id: string | null;
 };
 
 function isLocallyDeletable(document: DeletableDocument): boolean {
@@ -302,6 +305,7 @@ async function removeFromQuickResto(input: {
     return { error: `${quickRestoDeleteFailedMessage(number)} Подключение к Quick Resto не настроено.` };
   }
   let unprocessed = false;
+  const timeZone = (await venueTimeZone(input.admin, input.document.venue_id)) ?? DEFAULT_TIME_ZONE;
   try {
     const result = await withBackOfficeSession({
       connection,
@@ -316,7 +320,12 @@ async function removeFromQuickResto(input: {
         let step = quickRestoDeleteStep(current, externalId);
         if (step === "unprocess") {
           if (!input.allowUnprocess) return { step: "needs_confirm" as const };
-          await unprocessInventoryDocumentBackOffice({ ...qrAuth, documentId: externalId });
+          const at = Date.parse(dateText(current.invoiceDate) ?? "");
+          await unprocessInventoryDocumentBackOffice({
+            ...qrAuth,
+            documentId: externalId,
+            timeZoneOffset: backOfficeTimeZoneParam(Number.isFinite(at) ? at : Date.now(), timeZone),
+          });
           unprocessed = true;
           step = "busy";
         }
@@ -360,6 +369,18 @@ async function removeFromQuickResto(input: {
     }
     return { error: quickRestoUserError(error, quickRestoDeleteFailedMessage(number)) };
   }
+}
+
+const DEFAULT_TIME_ZONE = "Europe/Moscow";
+
+async function venueTimeZone(admin: ReturnType<typeof asLooseDb>, venueId: string | null): Promise<string | null> {
+  if (!venueId) return null;
+  const { data } = await admin
+    .from<{ timezone: string | null }>("venues")
+    .select("timezone")
+    .eq("id", venueId)
+    .maybeSingle();
+  return data?.timezone ?? null;
 }
 
 /** Удержания месяца удалённого проведённого акта — пересчитать. */

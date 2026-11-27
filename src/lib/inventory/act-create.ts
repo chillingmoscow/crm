@@ -192,8 +192,12 @@ export async function addActItems(input: {
   pausesMs?: readonly number[];
   /** Сколько позиций плана уже в акте — для хода создания. */
   onProgress?: (inAct: number) => void | Promise<void>;
-  /** Пора отпустить задание (кончилось время тика) — остановиться без ошибки. */
-  shouldStop?: () => boolean;
+  /**
+   * Пора отпустить задание (кончилось время тика, аренду перехватили) —
+   * остановиться без ошибки. `waitMs` — сколько ещё собираемся ждать (пауза
+   * после 429): если ожидание не помещается в тик, лучше отпустить сейчас.
+   */
+  shouldStop?: (waitMs?: number) => boolean;
 }): Promise<{ present: Set<string>; added: number; failure: unknown; inAct: number; stopped: boolean }> {
   const pauses = input.pausesMs ?? CREATE_ACT_RATE_LIMIT_PAUSES_MS;
   let present = new Set(input.existingKeys);
@@ -222,6 +226,10 @@ export async function addActItems(input: {
         failure = error;
         break;
       }
+      if (input.shouldStop?.(pauses[pause])) {
+        stopped = true;
+        break;
+      }
       await input.sleep(pauses[pause]);
       pause += 1;
       try {
@@ -233,6 +241,10 @@ export async function addActItems(input: {
       queue = pendingActItems(input.items, present);
       index = 0;
       await report();
+      if (input.shouldStop?.()) {
+        stopped = true;
+        break;
+      }
     }
   }
   const inAct = input.items.filter((item) => present.has(item.key)).length;

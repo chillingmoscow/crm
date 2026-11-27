@@ -59,11 +59,6 @@ export function quickRestoDeleteStep(
   return "unknown";
 }
 
-export function actLabel(documentNumber: string | null | undefined): string {
-  const number = documentNumber?.trim();
-  return number ? `Акт № ${number}` : "Акт";
-}
-
 export function quickRestoDeleteFailedMessage(documentNumber: string | null | undefined): string {
   const number = documentNumber?.trim();
   return `Quick Resto не удалил акт${number ? ` № ${number}` : ""} — у нас он тоже остался. Попробуйте ещё раз через минуту.`;

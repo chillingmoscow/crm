@@ -312,3 +312,25 @@ test("groupsWithSelectedDescendants: все предки выбранной по
   assert.deepEqual([...groupsWithSelectedDescendants(tobacco, ["dogma"])].sort(), ["prem", "tob"]);
   assert.equal(groupsWithSelectedDescendants(tobacco, ["coffee2"]).size, 0);
 });
+
+test("addActItems: пауза после 429 не помещается в тик — отпустить задание, не ждать", () => {
+  const sleeps: number[] = [];
+  return addActItems({
+    items: plannedItems(3),
+    existingKeys: new Set(),
+    pausesMs: [30_000],
+    sleep: async (ms) => {
+      sleeps.push(ms);
+    },
+    isRateLimit: (error) => error instanceof RateLimit,
+    readKeys: async () => new Set(),
+    shouldStop: (waitMs = 0) => waitMs > 10_000,
+    add: async () => {
+      throw new RateLimit();
+    },
+  }).then((result) => {
+    assert.equal(result.stopped, true);
+    assert.equal(result.failure, null);
+    assert.deepEqual(sleeps, []);
+  });
+});

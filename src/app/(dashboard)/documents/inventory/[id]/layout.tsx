@@ -230,8 +230,8 @@ export default async function InventoryDocumentLayout({
 /** Позиции акта ещё досылаются в фоне (задание миграции 411). */
 async function isDocumentBeingCreated(accountId: string, documentId: string): Promise<boolean> {
   const { data } = await asLooseDb(createAdminClient())
-    .from<{ state: ActCreationJobState; attempts: number }>("inventory_act_creation_jobs")
-    .select("state, attempts")
+    .from<{ state: ActCreationJobState; attempts: number; lease_until: string | null }>("inventory_act_creation_jobs")
+    .select("state, attempts, lease_until")
     .eq("account_id", accountId)
     .eq("document_id", documentId)
     .maybeSingle();

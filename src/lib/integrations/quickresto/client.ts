@@ -1581,18 +1581,33 @@ export async function unprocessInventoryDocumentBackOffice(input: {
   /** Authorization-заголовок сессии: «Bearer <access_token>». */
   authorization: string;
   documentId: number;
+  /**
+   * `backOfficeTimeZoneParam` пояса заведения — как у остальных записей акта.
+   * Хранимую дату действие не меняет ни с 0, ни с −180 (проверено на проде
+   * 28.11.2026, тестовые акты 10975 и 10977); с 0 только дата в самом ответе
+   * приходит сдвинутой на +3 ч.
+   */
+  timeZoneOffset: number;
 }) {
   return runInventoryDocumentAction(input, "unprocess");
 }
 
 async function runInventoryDocumentAction(
-  input: { layerName: string; baseUrl?: string | null; authorization: string; documentId: number },
+  input: {
+    layerName: string;
+    baseUrl?: string | null;
+    authorization: string;
+    documentId: number;
+    /** Без него — 0, как исторически шлёт проведение. */
+    timeZoneOffset?: number;
+  },
   actionName: "process" | "unprocess",
 ) {
+  const timeZone = input.timeZoneOffset ?? 0;
   const origin = buildQuickRestoBackOfficeOrigin(input);
   const url =
     `${origin}/platform/data/warehouse.inventory.document.v2/action` +
-    `?businessDayOffsetInMs=32400000&timeZone=0`;
+    `?businessDayOffsetInMs=32400000&timeZone=${timeZone}`;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), QUICK_RESTO_REQUEST_TIMEOUT_MS);
@@ -1614,7 +1629,7 @@ async function runInventoryDocumentAction(
           mode: "previous30Days",
           sortField: ["invoiceDate"],
           sortOrder: ["desc"],
-          timeZone: 0,
+          timeZone,
         },
       }),
       cache: "no-store",

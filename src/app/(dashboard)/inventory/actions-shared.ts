@@ -1842,11 +1842,14 @@ export async function documentsBeingCreated(
 ): Promise<Set<string>> {
   if (documentIds.length === 0) return new Set();
   const { data, error } = await admin
-    .from<Array<{ document_id: string; state: ActCreationJobState; attempts: number }>>("inventory_act_creation_jobs")
-    .select("document_id, state, attempts")
+    .from<Array<{ document_id: string; state: ActCreationJobState; attempts: number; lease_until: string | null }>>(
+      "inventory_act_creation_jobs",
+    )
+    .select("document_id, state, attempts, lease_until")
     .eq("account_id", accountId)
     .in("document_id", documentIds)
     .neq("state", "complete");
   if (error) throw new Error(error.message);
-  return new Set((data ?? []).filter(isActCreationActive).map((row) => row.document_id));
+  const now = Date.now();
+  return new Set((data ?? []).filter((row) => isActCreationActive(row, now)).map((row) => row.document_id));
 }

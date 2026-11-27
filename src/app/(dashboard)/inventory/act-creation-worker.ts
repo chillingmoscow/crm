@@ -18,8 +18,10 @@ import { countRu } from "@/lib/format/plural";
 import { addActItems, quickRestoProductKey, type ActItemPlan } from "@/lib/inventory/act-create";
 import {
   ACT_CREATION_CRON_BUDGET_MS,
+  ACT_CREATION_HEARTBEAT_MS,
   ACT_CREATION_LEASE_MS,
   ACT_CREATION_MAX_ATTEMPTS,
+  ACT_CREATION_MIN_SLICE_MS,
   actCreationRetryDelayMs,
 } from "@/lib/inventory/act-creation-job";
 import {
@@ -55,7 +57,7 @@ type Job = {
 };
 
 /** Что записать в журнал по готовности акта. */
-export type ActCreationDetails = {
+type ActCreationDetails = {
   date?: string;
   store_title?: string | null;
   groups?: string[];
@@ -69,7 +71,7 @@ function checked<T>(result: { data: T | null; error: { message: string } | null 
 }
 
 /** Ключи позиций, которые уже лежат в акте Quick Resto. */
-export async function readActItemKeys(input: {
+async function readActItemKeys(input: {
   connection: QuickRestoConnection;
   admin: LooseDb;
   externalId: number;
@@ -90,7 +92,7 @@ export async function readActItemKeys(input: {
 }
 
 /** Перечитать акт из Quick Resto — позиции и расчётные остатки берём у источника. */
-export async function refreshActFromQuickResto(input: {
+async function refreshActFromQuickResto(input: {
   connection: QuickRestoConnection;
   admin: LooseDb;
   accountId: string;
@@ -134,15 +136,28 @@ function safeRevalidate(documentId: string) {
 /**
  * Взять задание и досылать позиции. `id` — конкретное задание (сразу после
  * создания акта, «Повторить»), без него — следующее доступное (cron).
- * `budgetMs` — сколько работать, потом отпустить задание следующему тику.
- * Возвращает false, если брать нечего.
+ * `deadline` — к какому моменту отпустить задание следующему тику (cron);
+ * без него — работать до конца. Возвращает false, если брать нечего.
  */
-export async function processActCreationJob(input: { id?: string; budgetMs?: number } = {}): Promise<boolean> {
+export async function processActCreationJob(input: { id?: string; deadline?: number } = {}): Promise<boolean> {
   const admin = asLooseDb(createAdminClient());
   const job = checked(await admin.rpc("inventory_act_creation_claim", { p_id: input.id ?? null })) as Job | null;
   if (!job) return false;
-  const startedAt = Date.now();
-  const deadline = input.budgetMs ? startedAt + input.budgetMs : null;
+  const deadline = input.deadline ?? null;
+
+  // Аренда продлевается и без новых позиций (паузы после 429, медленное
+  // чтение акта): иначе cron через 3 минуты взял бы то же задание
+  // параллельно. Перехватили или удалили — останавливаемся.
+  let leaseLost = false;
+  const heartbeat = setInterval(() => {
+    void leasedUpdate(admin, TABLE, job, {
+      lease_until: new Date(Date.now() + ACT_CREATION_LEASE_MS).toISOString(),
+    }).catch((error) => {
+      if (error instanceof LeaseLostError) leaseLost = true;
+      else console.error("[act-creation] аренда не продлена", { jobId: job.id, error });
+    });
+  }, ACT_CREATION_HEARTBEAT_MS);
+  const shouldStop = (waitMs = 0) => leaseLost || (deadline !== null && Date.now() + waitMs > deadline);
 
   let lastSavedAt = 0;
   let lastSavedDone = job.done;
@@ -164,6 +179,7 @@ export async function processActCreationJob(input: { id?: string; budgetMs?: num
     const readKeys = () => readActItemKeys({ connection, admin, externalId: job.external_id });
 
     const existingKeys = await readKeys();
+    if (leaseLost) throw new LeaseLostError();
     const result = await addActItems({
       items: job.items,
       existingKeys,
@@ -171,7 +187,7 @@ export async function processActCreationJob(input: { id?: string; budgetMs?: num
       isRateLimit: (error) => error instanceof QuickRestoRateLimitError,
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       onProgress: (inAct) => saveProgress(inAct),
-      shouldStop: () => deadline !== null && Date.now() > deadline,
+      shouldStop,
       add: (item) =>
         withBackOfficeSession({
           connection,
@@ -189,6 +205,7 @@ export async function processActCreationJob(input: { id?: string; budgetMs?: num
     if (result.failure instanceof LeaseLostError) throw result.failure;
     if (result.failure) throw result.failure;
 
+    if (leaseLost) throw new LeaseLostError();
     if (result.stopped) {
       // Время тика вышло: отпускаем задание, следующий тик продолжит. Попытку
       // не засчитываем — это не сбой.
@@ -244,17 +261,65 @@ export async function processActCreationJob(input: { id?: string; budgetMs?: num
     if (giveUp) await announceStuck(admin, job, message);
     safeRevalidate(job.document_id);
     return true;
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 
-/** Cron: одно задание за тик, не дольше ACT_CREATION_CRON_BUDGET_MS. */
-export async function processActCreationJobs() {
+/**
+ * Cron: собрать застрявшие задания и взять одно, не дольше ACT_CREATION_CRON_BUDGET_MS
+ * и не позже `deadline` тика (другие задания тика идут раньше).
+ */
+export async function processActCreationJobs(input: { deadline: number }) {
+  let stuck = 0;
   try {
-    return { processed: (await processActCreationJob({ budgetMs: ACT_CREATION_CRON_BUDGET_MS })) ? 1 : 0, errors: 0 };
+    stuck = await sweepStuckJobs();
+  } catch (error) {
+    console.error("[act-creation] застрявшие задания не собраны", error);
+  }
+  const deadline = Math.min(input.deadline, Date.now() + ACT_CREATION_CRON_BUDGET_MS);
+  if (deadline - Date.now() < ACT_CREATION_MIN_SLICE_MS) return { processed: 0, stuck, errors: 0 };
+  try {
+    return { processed: (await processActCreationJob({ deadline })) ? 1 : 0, stuck, errors: 0 };
   } catch (error) {
     console.error("[act-creation] cron", error);
-    return { processed: 0, errors: 1 };
+    return { processed: 0, stuck, errors: 1 };
   }
+}
+
+/**
+ * Последняя попытка остановилась вместе с процессом (редеплой, падение) или не
+ * смогла записать ошибку: задание осталось `working` с истёкшей арендой, и
+ * cron его больше не берёт. Переводим в ошибку — в списке «Не все позиции»
+ * с «Повторить», создателю — уведомление.
+ */
+async function sweepStuckJobs(): Promise<number> {
+  const admin = asLooseDb(createAdminClient());
+  const { data, error } = await admin
+    .from<Job[]>(TABLE)
+    .select("id, account_id, document_id, actor_id, external_id, total, done, attempts, details")
+    .eq("state", "working")
+    .gte("attempts", ACT_CREATION_MAX_ATTEMPTS)
+    .lt("lease_until", new Date().toISOString())
+    .limit(5);
+  if (error) throw new Error(error.message);
+  let swept = 0;
+  for (const job of data ?? []) {
+    const reason = "Обработчик остановился на последней попытке.";
+    const { data: updated } = await admin
+      .from<Array<{ id: string }>>(TABLE)
+      .update({ state: "error", error: reason, lease_until: null })
+      .eq("id", job.id)
+      .eq("state", "working")
+      .eq("attempts", job.attempts)
+      .lt("lease_until", new Date().toISOString())
+      .select("id");
+    if (!updated?.length) continue;
+    swept += 1;
+    await announceStuck(admin, job, reason);
+    safeRevalidate(job.document_id);
+  }
+  return swept;
 }
 
 type DocumentInfo = {

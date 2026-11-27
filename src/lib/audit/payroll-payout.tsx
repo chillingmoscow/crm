@@ -1,4 +1,4 @@
-import { Banknote, CalendarCheck, CircleSlash, ClipboardList, Pencil, Settings2 } from "lucide-react";
+import { ArrowRightLeft, Banknote, CalendarCheck, CheckCheck, CircleSlash, ClipboardList, Pencil, ScanSearch, Settings2 } from "lucide-react";
 
 import type { AuditEvent } from "@/lib/audit/list";
 import type { AuditEventSpec } from "./format";
@@ -7,6 +7,8 @@ import { formatAuditDate as formatDate } from "./labels";
 // План выплат зарплаты (миграция 391): формирование и пересчёт черновика,
 // правка строки, утверждение и отмена, выдача дня и «Выплачено» переводом,
 // настройки графика выплат. Пишут действия из people/payroll/payout-actions.ts.
+// Этап 3 (миграция 408): утренняя сверка с изъятием из кассы, автоперенос
+// остатка месяца, закрытие карточки «На разбор».
 
 const INFO = "text-brand bg-brand/10";
 const CREATED = "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
@@ -132,6 +134,40 @@ export const payrollPayoutAuditSpecs: Record<string, AuditEventSpec> = {
         </div>
       );
     },
+  },
+  "payroll.payout_plan.reconciled": {
+    icon: ScanSearch,
+    iconClass: INFO,
+    buildHeadline: (e) => (
+      <>{e.details.state === "matched" ? "выдача сверена с изъятием из кассы" : "выдача не сошлась с изъятием из кассы"}</>
+    ),
+    buildDetails: (e) => (
+      <p className="text-xs text-muted-foreground">
+        {e.details.business_date ? <>{formatDate(e.details.business_date)} · </> : null}
+        проведено {money(e.details.issued)} · изъято {money(e.details.withdrawn)}
+      </p>
+    ),
+  },
+  "payroll.payout_plan.carried": {
+    icon: ArrowRightLeft,
+    iconClass: INFO,
+    buildHeadline: () => <>перенесён остаток месяца после второй выплаты</>,
+    buildDetails: (e) => {
+      const lines = Array.isArray(e.details.lines) ? (e.details.lines as { name?: string; amount?: number }[]) : [];
+      return (
+        <div className="space-y-0.5 text-xs text-muted-foreground">
+          <p>За {monthName(e.details.month)} · {money(e.details.total)}</p>
+          {lines.length > 0 && <p>{lines.map((l) => `${l.name ?? "Сотрудник"} ${money(l.amount)}`).join(", ")}</p>}
+        </div>
+      );
+    },
+  },
+  "payroll.payout_alert.resolved": {
+    icon: CheckCheck,
+    iconClass: NEUTRAL,
+    buildHeadline: () => <>закрыл(а) карточку выплат «Всё верно»</>,
+    buildDetails: (e) =>
+      typeof e.details.title === "string" ? <p className="text-xs text-muted-foreground">{e.details.title}</p> : null,
   },
   "payroll.payout_settings.updated": {
     icon: Settings2,

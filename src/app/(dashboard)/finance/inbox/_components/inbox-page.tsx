@@ -16,6 +16,7 @@ import { notifyInboxChanged } from "@/lib/finance/use-inbox-count";
 import type { AmountRoundingScale } from "@/lib/format/amount";
 import { formatDayMonth } from "@/lib/format/date";
 import type { OfficialInbox } from "@/lib/finance/official-inbox-data";
+import type { PayoutAlertItem } from "@/lib/finance/payout-inbox-data";
 import type { AccountVenueRow } from "@/lib/org/legal-entities";
 import {
   initialOfficialDraft,
@@ -38,11 +39,13 @@ import {
   type OccurrenceResolution,
 } from "./occurrence-card";
 import { OfficialMonthCard, type OfficialResolution } from "./official-month-card";
+import { PayoutAlertCard, type PayoutAlertResolution } from "./payout-alert-card";
 
-/** Карточка очереди: ожидаемый платёж или официальная часть зарплаты. */
+/** Карточка очереди: ожидаемый платёж, официальная часть зарплаты или выплата по плану. */
 type QueueEntry =
   | { type: "occurrence"; id: string; due: string; row: RecurringOccurrenceRow }
-  | { type: "official"; id: string; due: string; row: OfficialReviewItem };
+  | { type: "official"; id: string; due: string; row: OfficialReviewItem }
+  | { type: "payout"; id: string; due: string; row: PayoutAlertItem };
 
 type Props = {
   /** Ожидаемые платежи по сроку, старые первыми. */
@@ -51,6 +54,10 @@ type Props = {
   official: OfficialInbox;
   /** Права на выплаты зарплаты и на операции в финансах. */
   canResolveOfficial: boolean;
+  /** Карточки выплат зарплаты по плану: сверка, нехватка наличных, перенос. */
+  payout: PayoutAlertItem[];
+  /** Право на выплаты зарплаты — закрыть карточку выплаты. */
+  canResolvePayout: boolean;
   loadError: string | null;
   /** Все счета, статьи и контрагенты — включая архивные (для подписей). */
   bankAccounts: BankAccountRow[];
@@ -78,6 +85,8 @@ export function InboxPage({
   items,
   official,
   canResolveOfficial,
+  payout,
+  canResolvePayout,
   loadError,
   bankAccounts,
   categories,
@@ -105,9 +114,12 @@ export function InboxPage({
             row,
           }),
         ),
+        ...payout.map(
+          (row): QueueEntry => ({ type: "payout", id: row.id, due: row.business_date ?? row.created_at.slice(0, 10), row }),
+        ),
         ...items.map((row): QueueEntry => ({ type: "occurrence", id: row.id, due: row.due_date, row })),
       ].sort((a, b) => a.due.localeCompare(b.due)),
-    [items, official],
+    [items, official, payout],
   );
   const [currentId, setCurrentId] = useState<string | null>(entries[0]?.id ?? null);
 
@@ -158,6 +170,16 @@ export function InboxPage({
     }
   };
 
+  const resolvePayout = (item: PayoutAlertItem, result: PayoutAlertResolution) => {
+    dismiss(item.id);
+    if (result.kind === "gone") {
+      toast("Карточка уже разобрана");
+      router.refresh();
+    } else {
+      toast.success("Карточка закрыта");
+    }
+  };
+
   const resolve = (occurrence: RecurringOccurrenceRow, result: OccurrenceResolution) => {
     dismiss(occurrence.id);
 
@@ -182,7 +204,18 @@ export function InboxPage({
   };
 
   let body: React.ReactNode;
-  if (current?.type === "official") {
+  if (current?.type === "payout") {
+    const item = current.row;
+    body = (
+      <PayoutAlertCard
+        key={item.id}
+        item={item}
+        canResolve={canResolvePayout}
+        onResolved={(result) => resolvePayout(item, result)}
+        today={today}
+      />
+    );
+  } else if (current?.type === "official") {
     const item = current.row;
     const fallback = () => initialOfficialDraft(item, official.settings, official.banks, today);
     body = (
@@ -231,7 +264,7 @@ export function InboxPage({
       <EmptyState
         icon={CheckCheck}
         title="Всё разобрано"
-        description="Здесь появляются повторяющиеся платежи, когда наступает их срок, и официальные выплаты, которые не провелись сами"
+        description="Здесь появляются повторяющиеся платежи, когда наступает их срок, официальные выплаты, которые не провелись сами, и всё, что требует внимания в выплатах зарплаты"
         action={
           <Button asChild variant="outline">
             <Link href="/finance/recurring">Открыть повторяющиеся платежи</Link>

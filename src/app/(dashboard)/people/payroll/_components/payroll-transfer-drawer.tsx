@@ -16,29 +16,15 @@ import type { PayrollData } from "@/lib/payroll/types";
 import { Money } from "@/components/shared/money";
 import { toKopecks } from "@/lib/format/amount";
 import { countRu } from "@/lib/format/plural";
+import { transferMonthLabel, transferReason } from "@/lib/payroll/transfer-reason";
 
-const monthLabel = (m: string) =>
-  new Date(`${m}T12:00:00Z`)
-    .toLocaleDateString("ru-RU", { month: "long", year: "numeric", timeZone: "UTC" })
-    .replace(" г.", "");
-
+const monthLabel = transferMonthLabel;
 /** «октября 2026»: месяц в родительном падеже, для «С … на …». */
 const monthFromLabel = (m: string) =>
   new Date(`${m}T12:00:00Z`)
     .toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })
     .replace(/^\d+\s*/, "")
     .replace(" г.", "");
-
-/**
- * Причина для журнала: база требует её, а выбирать здесь нечего. Остаток
- * бывает долгом (недоплатили — доплатим в следующем месяце) или переплатой
- * (выдали больше — удержим из следующего месяца), и причина говорит, какой.
- */
-export function transferReason(remaining: number, from: string, to: string) {
-  return remaining < 0
-    ? `Переплата за ${monthLabel(from)}: удерживается из выплаты за ${monthLabel(to)}`
-    : `Недоплата за ${monthLabel(from)}: переносится к выплате за ${monthLabel(to)}`;
-}
 
 /**
  * Кому есть что переносить за месяц: известный и ненулевой остаток.

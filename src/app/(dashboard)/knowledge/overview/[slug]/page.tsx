@@ -1,33 +1,33 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { Users } from "lucide-react";
 
 import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
-import { PageFrame } from "@/components/shared/page-frame";
+import { EmployeeIdentity } from "@/components/shared/employee-identity";
+import { Metric, MetricStrip } from "@/components/shared/metric-strip";
+import { ProfilePageFrame } from "@/components/shared/page-frame";
 import { TablePageHeader } from "@/components/shared/table/table-page-header";
+import { EmptyState } from "@/components/ui/empty-state";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
+import { KbOverviewPeriod } from "../_components/kb-overview-period";
 import { getKbPageBySlugCached } from "@/lib/knowledge/page-by-slug";
+import { getKbAnalyticsPageViewers } from "@/lib/knowledge/analytics";
 import {
-  getKbAnalyticsPageViewers,
-  type KbAnalyticsPeriod,
-} from "@/lib/knowledge/analytics";
-import { personInitials } from "@/lib/format/initials";
-import { avatarImageUrl } from "@/lib/people/avatar-thumb";
-
-const VALID_PERIODS: KbAnalyticsPeriod[] = ["day", "week", "month"];
-const PERIOD_LABEL: Record<KbAnalyticsPeriod, string> = {
-  day: "за сутки",
-  week: "за неделю",
-  month: "за месяц",
-};
+  kbOverviewPeriodLabel,
+  kbOverviewPeriodQuery,
+  kbOverviewWindow,
+  parseKbOverviewPeriod,
+} from "@/lib/knowledge/overview";
+import { countRu } from "@/lib/format/plural";
+import { formatDayMonth } from "@/lib/format/date";
+import { getActiveAccountTimezone } from "@/lib/settings/account";
 
 /**
- * Per-page drill-down — кто и сколько читал конкретную KB-страницу.
- * Доступ под `kb.view_analytics` (миграция 077). Раньше жил на
- * `/knowledge/analytics/[slug]`; после объединения Дашборда и
- * Аналитики переехал сюда (`/knowledge/analytics/*` 301-redirect'ится
- * в next.config). Slug в URL — для читаемости вместо UUID.
+ * Статистика одной страницы: кто и сколько её читал за период (неделя или
+ * месяц, как в «Обзоре»). Право `kb.view_analytics`; ссылка — из ⓘ
+ * документа и из «Обзора».
  */
 export async function generateMetadata({
   params,
@@ -39,20 +39,20 @@ export async function generateMetadata({
   return { title: `Статистика — ${row?.title?.trim() || "Без названия"}` };
 }
 
-export default async function KbDashboardPageDrilldown({
+function minutes(seconds: number): string {
+  const min = Math.round(seconds / 60);
+  return min < 1 ? "меньше минуты" : `${min} мин`;
+}
+
+export default async function KbPageStatsPage({
   params,
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ p?: string }>;
+  searchParams: Promise<{ period?: string; from?: string }>;
 }) {
   const { slug } = await params;
-  const { p } = await searchParams;
-  const period: KbAnalyticsPeriod = VALID_PERIODS.includes(
-    p as KbAnalyticsPeriod,
-  )
-    ? (p as KbAnalyticsPeriod)
-    : "week";
+  const query = await searchParams;
 
   const can = await getCachedPermissionChecker();
   if (!can("kb.view_analytics")) redirect("/knowledge");
@@ -60,149 +60,66 @@ export default async function KbDashboardPageDrilldown({
   const { row: page, error: pageError } = await getKbPageBySlugCached(slug);
   if (pageError || !page) notFound();
 
-  const { rows: viewers, error: viewersError } =
-    await getKbAnalyticsPageViewers({ pageId: page.id, period });
+  const timeZone = await getActiveAccountTimezone();
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date());
+  const period = parseKbOverviewPeriod(query, today);
+  const { rows: viewers, error } = await getKbAnalyticsPageViewers({
+    pageId: page.id,
+    window: kbOverviewWindow(period),
+  });
+  const title = page.title?.trim() || "Без названия";
+  const totalSeconds = viewers.reduce((sum, v) => sum + v.total_seconds, 0);
+  const visits = viewers.reduce((sum, v) => sum + v.session_count, 0);
 
   return (
-    <PageFrame className="flex flex-col gap-6">
+    <ProfilePageFrame>
       <Breadcrumbs
         items={[
           { label: "База знаний", href: "/knowledge" },
-          { label: "Обзор", href: `/knowledge/overview?p=${period}` },
-          { label: page.title || "Без названия" },
+          { label: "Обзор", href: `/knowledge/overview?${kbOverviewPeriodQuery(period)}` },
+          { label: title },
         ]}
       />
-
-          <TablePageHeader
-            title={
-              <span className="flex min-w-0 items-center gap-3">
-                <KbPageIcon icon={page.icon} color={page.icon_color} size={28} />
-                <span className="truncate">{page.title || "Без названия"}</span>
-              </span>
-            }
-          />
-
-          {viewersError && (
-            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-              Не удалось загрузить аналитику: {viewersError}
-            </div>
-          )}
-
-          <section className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
-            <div className="flex items-baseline justify-between">
-              <h2 className="text-sm font-semibold text-foreground">
-                Читавшие {PERIOD_LABEL[period]}
-              </h2>
-              <span className="text-xs text-muted-foreground">
-                {viewers.length}{" "}
-                {plural(viewers.length, "человек", "человека", "человек")}
-              </span>
-            </div>
-            <ViewersList rows={viewers} />
-          </section>
-
-          <Link
-            href={`/knowledge/${page.slug}`}
-            className="text-sm text-muted-foreground hover:text-foreground self-start"
-          >
-            ← Открыть страницу
-          </Link>
-    </PageFrame>
-  );
-}
-
-function ViewersList({
-  rows,
-}: {
-  rows: Array<{
-    user_id: string;
-    name: string;
-    avatar_url: string | null;
-    total_seconds: number;
-    session_count: number;
-    last_visit_at: string;
-  }>;
-}) {
-  if (rows.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground py-4 px-2">
-        За выбранный период страницу не открывали.
-      </p>
-    );
-  }
-  return (
-    <ul className="flex flex-col gap-px">
-      {rows.map((row) => (
-        <li
-          key={row.user_id}
-          className="flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent transition-colors"
-        >
-          <Avatar name={row.name} avatarUrl={row.avatar_url} />
-          <span className="flex-1 truncate text-sm font-medium">
-            {row.name}
-          </span>
-          <span className="hidden md:inline text-xs text-muted-foreground tabular-nums">
-            {row.session_count} сессий · посл.{" "}
-            {formatRelative(row.last_visit_at)}
-          </span>
-          <span className="w-20 text-right text-sm font-medium tabular-nums">
-            {formatDuration(row.total_seconds)}
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}с`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}м`;
-  const hours = Math.floor(minutes / 60);
-  const remMin = minutes % 60;
-  return remMin > 0 ? `${hours}ч ${remMin}м` : `${hours}ч`;
-}
-
-function formatRelative(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return "только что";
-  if (minutes < 60) return `${minutes} мин`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} ч`;
-  const days = Math.floor(hours / 24);
-  return `${days} ${plural(days, "день", "дня", "дней")}`;
-}
-
-function plural(n: number, one: string, few: string, many: string): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return one;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few;
-  return many;
-}
-
-function Avatar({
-  name,
-  avatarUrl,
-}: {
-  name: string;
-  avatarUrl: string | null;
-}) {
-  const initials = personInitials(name);
-  if (avatarUrl) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={avatarImageUrl(avatarUrl, 96)}
-        alt={name}
-        className="size-7 rounded-full object-cover bg-muted shrink-0"
+      <TablePageHeader
+        title="Статистика страницы"
+        period={<KbOverviewPeriod period={period} today={today} />}
       />
-    );
-  }
-  return (
-    <span className="size-7 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-xs font-semibold shrink-0">
-      {initials}
-    </span>
+
+      <Link
+        href={`/knowledge/${page.slug}`}
+        className="flex min-w-0 items-center gap-3 rounded-lg border bg-card p-4 transition-colors hover:border-foreground/20"
+      >
+        <KbPageIcon icon={page.icon} color={page.icon_color} size={20} />
+        <span className="truncate text-base font-semibold">{title}</span>
+      </Link>
+
+      <MetricStrip label={`Чтение за период: ${kbOverviewPeriodLabel(period)}`}>
+        <Metric primary label="Читателей" value={viewers.length} />
+        <Metric label="Время чтения" value={totalSeconds > 0 ? minutes(totalSeconds) : "—"} />
+        <Metric label="Визитов" value={visits} />
+      </MetricStrip>
+
+      {error ? (
+        <EmptyState illustration="error" title="Не удалось загрузить статистику" description="Обновите страницу позже." />
+      ) : viewers.length === 0 ? (
+        <EmptyState icon={Users} title="За этот период страницу не читали" />
+      ) : (
+        <ul className="flex flex-col divide-y rounded-lg border bg-card">
+          {viewers.map((v) => (
+            <li key={v.user_id} className="flex items-center gap-3 px-4 py-3">
+              <span className="min-w-0 flex-1">
+                <EmployeeIdentity name={v.name} avatarUrl={v.avatar_url} role={countRu(v.session_count, "визит", "визита", "визитов")} />
+              </span>
+              <span className="text-right">
+                <span className="block text-sm font-medium tabular-nums">{minutes(v.total_seconds)}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {formatDayMonth(v.last_visit_at, new Date(), timeZone)}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </ProfilePageFrame>
   );
 }

@@ -11,6 +11,7 @@ function formatFieldValue(field: string, value: unknown): string {
     field === "medical_book_date" ||
     field === "business_date" ||
     field === "shift_date" ||
+    field === "invoice_date" ||
     field === "starts_on" ||
     field === "ends_on" ||
     field === "enabled_from" ||

@@ -864,6 +864,57 @@ export async function removeInventoryDocumentBackOffice(input: {
   });
 }
 
+/** Массивы позиций в объекте акта: в back-office позиции — отдельные сущности
+ *  (`warehouse.inventory.items`), шапку акта сохраняем без них. */
+const INVENTORY_DOCUMENT_ITEM_ARRAYS = [
+  "effectedItems",
+  "prefabricatedItems",
+  "disassembledItems",
+] as const;
+
+/**
+ * Сменить дату (`invoiceDate`) непроведённого акта.
+ *
+ * Back-office `warehouse.inventory.document.v2/update` — тот же вызов, которым
+ * шапку акта сохраняет интерфейс Quick Resto: тело — объект акта целиком с
+ * новой датой плюс `original_entity_sent` (как у `items/update`). Позиции в
+ * тело не кладём: они живут отдельно и этим вызовом не меняются. Расчётный
+ * остаток Quick Resto после этого считает на новую дату — позиции нужно
+ * перечитать.
+ */
+export async function updateInventoryDocumentDateBackOffice(input: {
+  layerName: string;
+  baseUrl?: string | null;
+  /** Authorization-заголовок сессии: «Bearer <access_token>». */
+  authorization: string;
+  /** Акт, как его отдаёт Quick Resto (public `read`). */
+  document: QuickRestoInventoryDocument2;
+  /** Новая дата акта в миллисекундах. */
+  invoiceDate: number;
+}) {
+  const original = cloneJson(input.document) as Record<string, unknown>;
+  for (const field of INVENTORY_DOCUMENT_ITEM_ARRAYS) delete original[field];
+  original.className = INVENTORY_DOCUMENT_CREATE_CLASS;
+  const body = {
+    ...original,
+    invoiceDate: input.invoiceDate,
+    original_entity_sent: cloneJson(original),
+  };
+
+  return callQuickRestoBackOfficeData<QuickRestoInventoryDocument2>({
+    layerName: input.layerName,
+    baseUrl: input.baseUrl,
+    authorization: input.authorization,
+    path: "warehouse.inventory.document.v2/update",
+    query: {
+      regTime: Date.now(),
+      businessDayOffsetInMs: 32_400_000,
+      timeZone: new Date().getTimezoneOffset(),
+    },
+    body,
+  });
+}
+
 export async function updateInventoryItemBackOffice(input: {
   layerName: string;
   baseUrl?: string | null;

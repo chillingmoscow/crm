@@ -1,6 +1,7 @@
 import Link from "next/link";
 import {
   Archive,
+  CalendarDays,
   FileText,
   ImagePlus,
   RotateCcw,
@@ -198,6 +199,26 @@ export const catalogAuditSpecs: Record<string, AuditEventSpec> = {
       {e.details.store_title ? ` · ${String(e.details.store_title)}` : ""}
     </>
   )),
+  "inventory.document_date_updated": spec(
+    CalendarDays,
+    INFO,
+    (e) => (
+      <>
+        изменил(а) дату акта инвентаризации{" "}
+        {e.entity?.type === "inventory_document" ? (
+          <Link
+            href={`/documents/inventory/${e.entity.id}`}
+            className="font-medium hover:underline"
+          >
+            {documentLabel(e)}
+          </Link>
+        ) : (
+          <strong className="font-medium">{documentLabel(e)}</strong>
+        )}
+      </>
+    ),
+    true,
+  ),
   "inventory.document_note_updated": spec(
     FileText,
     INFO,

@@ -6,9 +6,9 @@ import { Button } from "@/components/ui/button";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { Field } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { ToolbarCountButton } from "./toolbar-count-button";
 import { DrawerAvatar, DrawerSection, DrawerSummaryItem } from "@/components/ui/drawer-blocks";
 import { cn } from "@/lib/utils";
 import { dateInZone, dayLabel, timeInZone } from "@/lib/schedule/utils";
@@ -238,11 +238,14 @@ export function SwapFooterActions({
 
 /** Панель «Замена смены»: автор выбирает коллегу из подходящих и свободных. */
 export function SwapRequestDrawer({
+  open = true,
   data,
   shift,
   onClose,
   refresh,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   data: ScheduleData;
   shift: Shift;
   onClose: () => void;
@@ -280,7 +283,7 @@ export function SwapRequestDrawer({
   };
   return (
     <EditDrawer
-      open
+      open={open}
       onOpenChange={(open) => !open && !busy && onClose()}
       title="Замена смены"
       description={[shiftSpan(data, shift), shift.title].join(" · ")}
@@ -351,7 +354,7 @@ export function SwapRequestDrawer({
   );
 }
 
-/** «Замены · N» в шапке расписания: открытые заявки за все дни. */
+/** Заявки на замену в ряду инструментов расписания: иконка со счётчиком, открытые заявки за все дни. */
 export function SwapRequestsButton({
   data,
   onOpen,
@@ -370,14 +373,13 @@ export function SwapRequestsButton({
     .sort((a, b) => a.shift.starts_at.localeCompare(b.shift.starts_at));
   if (pending.length === 0) return null;
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className="h-8 sm:h-9">
-          <ArrowLeftRight />
-          Замены · {pending.length}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="max-h-[70vh] w-96 max-w-[calc(100vw-32px)] overflow-y-auto p-3">
+    <ToolbarCountButton
+      icon={<ArrowLeftRight />}
+      count={pending.length}
+      label="Заявки на замену"
+      open={open}
+      onOpenChange={setOpen}
+    >
         <p className="mb-1 text-sm font-semibold">Заявки на замену</p>
         <p className="mb-3 text-[13px] text-muted-foreground">Ждут решения, за все дни</p>
         <div className="space-y-1">
@@ -408,7 +410,6 @@ export function SwapRequestsButton({
             );
           })}
         </div>
-      </PopoverContent>
-    </Popover>
+    </ToolbarCountButton>
   );
 }

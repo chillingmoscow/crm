@@ -32,7 +32,7 @@ function PageTitle({
     return (
       <Link
         href={`/knowledge/${event.page.slug}`}
-        className="font-medium text-foreground underline-offset-2 hover:underline"
+        className="font-medium text-foreground transition-colors duration-200 hover:text-brand"
       >
         {label}
       </Link>

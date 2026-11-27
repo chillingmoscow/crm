@@ -88,6 +88,18 @@ test("премии и удержания отдельно, всё вместе �
   assert.equal(p.earned, 22563);
 });
 
+test("оклад — отдельной строкой, не среди премий", () => {
+  const monthly = [
+    accrual("m", "2026-11-30", [c("monthly", 65000, "Оклад"), c("allowance", 3000, "Надбавка за месяц")], { kind: "monthly" }),
+    accrual("b", "2026-11-12", [c("bonus", 2000, "Премия")], { kind: "adjustment" }),
+  ];
+  const p = buildPayslip(data(monthly), employee, "2026-11-01", () => "Бармен");
+  assert.deepEqual(p.salary, [{ date: "2026-11-30", title: "Оклад за месяц", amount: 65000 }]);
+  assert.equal(p.salaryTotal, 65000);
+  assert.deepEqual(p.additions.map((e) => e.title), ["Премия", "Надбавка за месяц"]);
+  assert.equal(p.salaryTotal + p.additionsTotal + p.deductionsTotal, p.earned);
+});
+
 const detail = (x: { sales: unknown; rate: unknown; salesSource: unknown; extraPool: unknown; sharedWith: unknown }) => ({
   sales: x.sales, rate: x.rate, salesSource: x.salesSource, extraPool: x.extraPool, sharedWith: x.sharedWith,
 });
@@ -123,14 +135,23 @@ test("начальный остаток больше не скрывает ос�
 
 test("ожидаемая официальная часть — отдельной строкой и в остатке", () => {
   const official = [
-    { employee_id: "e1", employment_id: "oe1", month: "2026-10-01", kind: "full" as const, gross: 20000, days_paid: null, days_in_month: 31 },
+    { employee_id: "e1", employment_id: "oe1", month: "2026-10-01", kind: "full" as const, gross: 20000, days_paid: null, days_in_month: 31, agency: false },
   ];
   const p = buildPayslip(data(october, { officialExpected: official }), employee, "2026-10-01", () => "Бармен");
-  assert.deepEqual(p.officialExpected, { amount: 20000, kind: "full", days_paid: null, days_in_month: 31 });
+  assert.deepEqual(p.officialExpected, { amount: 20000, kind: "full", days_paid: null, days_in_month: 31, agency: false });
   assert.equal(p.remaining, p.earned - 20000);
   const none = buildPayslip(data(october), employee, "2026-10-01", () => "Бармен");
   assert.equal(none.officialExpected, null);
   assert.equal(none.remaining, none.earned);
+});
+
+test("через агентство: сумма месяца вычитается, метка доходит до листа", () => {
+  const official = [
+    { employee_id: "e1", employment_id: "oe1", month: "2026-10-01", kind: "full" as const, gross: 4350, days_paid: null, days_in_month: 31, agency: true },
+  ];
+  const p = buildPayslip(data(october, { officialExpected: official }), employee, "2026-10-01", () => "Бармен");
+  assert.equal(p.officialExpected?.agency, true);
+  assert.equal(p.remaining, p.earned - 4350);
 });
 
 test("имя файла", () => {

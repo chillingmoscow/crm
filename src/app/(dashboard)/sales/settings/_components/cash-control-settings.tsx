@@ -33,10 +33,13 @@ const NO_ACCESS = "Нет доступа к контролю кассы";
 const rub = (cents: number) => formatRub(cents / 100, { fraction: "auto" });
 
 function Form({
+  open,
   data,
   onClose,
   onSaved,
 }: {
+  /** Панель держат смонтированной, пока она уезжает: закрывают через `open`. */
+  open: boolean;
   data: CashConfiguration;
   onClose: () => void;
   onSaved: (d: CashConfiguration) => void;
@@ -94,7 +97,7 @@ function Form({
   };
   return (
     <EditDrawer
-      open
+      open={open}
       onOpenChange={(v) => {
         if (!v && !busy) onClose();
       }}
@@ -252,6 +255,13 @@ export function CashControlSettingsSection({ venueId }: { venueId: string }) {
   const [data, setData] = useState<CashConfiguration | null>(null),
     [error, setError] = useState<string | null>(null),
     [open, setOpen] = useState(false);
+  // Форму держим смонтированной, пока панель уезжает (docs/motion.md);
+  // каждое открытие — новый ключ, форма начинается с сохранённых данных.
+  const [session, setSession] = useState(0);
+  const openForm = () => {
+    setSession((n) => n + 1);
+    setOpen(true);
+  };
   useEffect(() => {
     let live = true;
     loadCashConfiguration(venueId)
@@ -284,7 +294,7 @@ export function CashControlSettingsSection({ venueId }: { venueId: string }) {
       }
       actions={
         data?.canManage ? (
-          <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+          <Button variant="outline" size="sm" onClick={() => openForm()}>
             <Settings2 />
             Настроить
           </Button>
@@ -321,8 +331,10 @@ export function CashControlSettingsSection({ venueId }: { venueId: string }) {
           </ol>
         </RuleHistory>
       )}
-      {open && data && (
+      {data && (
         <Form
+          key={session}
+          open={open}
           data={data}
           onClose={() => setOpen(false)}
           onSaved={(d) => {

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { queueAcceptedInvitationChats } from "@/lib/people/chat-invites-queue";
 
 /**
  * Invite acceptance page.
@@ -32,14 +33,14 @@ export default async function InvitePage({
   const nowIso = new Date().toISOString();
   const { data: pendingInvitations } = await db
     .from("invitations")
-    .select("id, venue_id, role_id, created_at")
+    .select("id, venue_id, role_id, created_at, chat_invites")
     .ilike("email", user.email!)
     .eq("status", "pending")
     .gt("expires_at", nowIso)
     .order("created_at", { ascending: false });
 
   const pending = (pendingInvitations ??
-    []) as Array<{ id: string; venue_id: string; role_id: string; created_at: string }>;
+    []) as Array<{ id: string; venue_id: string; role_id: string; created_at: string; chat_invites: boolean }>;
 
   if (pending.length === 0) redirect("/dashboard");
 
@@ -67,6 +68,7 @@ export default async function InvitePage({
       "id",
       pending.map((inv) => inv.id)
     );
+  await queueAcceptedInvitationChats({ userId: user.id, email: user.email!, invitations: pending });
 
   // Switch active venue to the one from the current invite link.
   await supabase

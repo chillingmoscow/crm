@@ -3,11 +3,19 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import {
+  getCoreRowModel,
+  useReactTable,
+  type ColumnDef,
+  type SortingState,
+} from "@tanstack/react-table";
+import { arrayMove } from "@dnd-kit/sortable";
 import {
   Plus,
   Settings2,
@@ -15,24 +23,34 @@ import {
   Camera,
   Archive,
   RotateCcw,
-  ArrowUpDown,
-  Cake,
   ChevronRight,
+  SearchX,
+  Users,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ExpandPanel } from "@/components/shared/overview-toggle";
 import { PageFrame } from "@/components/shared/page-frame";
 import {
-  TablePageHeader,
+  DataTable,
+  TableColumnManager,
+  TableConditions,
   TableControls,
+  TableFilterChip,
+  TableIconButton,
+  TablePageHeader,
   TablePagination,
+  TableSortPicker,
+  useTableState,
 } from "@/components/shared/table";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { TimePicker } from "@/components/ui/time-picker";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   DrawerAvatar,
   DrawerSection,
@@ -56,6 +74,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { formatDateCell } from "@/lib/format/date";
 import { formatGuestBirthday } from "@/lib/guests/source";
 import {
   defaultGuestRules,
@@ -77,16 +96,40 @@ import {
   saveGuestRules,
   readGuests,
 } from "./actions";
-const initialFilters: GuestFilters = {
-  search: "",
-  group: "",
-  birthday: "",
-  archived: false,
-  page: 0,
-  size: 25,
-  sort: "name",
-  desc: false,
+// ── Столбцы списка ───────────────────────────────────────────
+
+type ColKey = "photo" | "name" | "group" | "discount" | "birthday" | "updated";
+type SortKey = GuestFilters["sort"];
+
+const labels: Record<ColKey, string> = {
+  photo: "Фото",
+  name: "Гость",
+  group: "Группа",
+  discount: "Скидка",
+  birthday: "День рождения",
+  updated: "Обновлено",
 };
+const columnConfig = [
+  { id: "photo", defaultSize: 72 },
+  { id: "name", defaultSize: 300 },
+  { id: "group", defaultSize: 220 },
+  { id: "discount", defaultSize: 110 },
+  { id: "birthday", defaultSize: 170 },
+  { id: "updated", defaultSize: 150, defaultVisible: false },
+];
+/** Столбцы, по которым сортирует сервер (id столбца = ключ сортировки). */
+const sortFields: SortKey[] = ["name", "group", "birthday", "updated"];
+const pageSizes = [25, 50, 100] as const;
+
+function guestSource(g: Guest) {
+  return g.data.sourceMissing
+    ? "Нет в Quick Resto"
+    : g.data.regular
+      ? "Постоянный гость"
+      : g.qrId
+        ? "Quick Resto"
+        : "Карточка заведения";
+}
 const dateTime = (v: string) =>
   new Date(v).toLocaleString("ru-RU", {
     dateStyle: "medium",
@@ -162,8 +205,62 @@ function CollapsibleSection({
         </Button>
       }
     >
-      {open && children}
+      <ExpandPanel open={open}>{children}</ExpandPanel>
     </DrawerSection>
+  );
+}
+/** «Изменённые поля» в истории карточки: кнопка с шевроном и раскрытие. */
+function HistoryChanges({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-2 text-xs">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1 text-muted-foreground transition-colors duration-200 hover:text-foreground"
+      >
+        <ChevronRight
+          className={cn("motion-chevron size-3.5", open && "rotate-90")}
+        />
+        Изменённые поля
+      </button>
+      <ExpandPanel open={open}>{children}</ExpandPanel>
+    </div>
+  );
+}
+/** Заглушка карточки гостя, пока она загружается. */
+function GuestCardSkeleton() {
+  return (
+    <div role="status" aria-label="Загружаем карточку" className="space-y-6">
+      <div className="flex items-center gap-3">
+        <Skeleton className="size-14 shrink-0 rounded-full" />
+        <div className="min-w-0 flex-1 space-y-2">
+          <Skeleton className="h-5 w-1/2" />
+          <Skeleton className="h-4 w-1/3" />
+        </div>
+      </div>
+      <Skeleton className="h-9 w-full" />
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="space-y-1.5">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-4 w-2/3" />
+        </div>
+      ))}
+    </div>
+  );
+}
+/** Заглушка настроек гостей, пока они загружаются. */
+function SettingsSkeleton() {
+  return (
+    <div role="status" aria-label="Загружаем настройки" className="space-y-5">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="space-y-2">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-10 w-full" />
+        </div>
+      ))}
+    </div>
   );
 }
 function Value({ label, children }: { label: string; children: ReactNode }) {
@@ -177,9 +274,33 @@ function Value({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 export function GuestsClient({ initial }: { initial: GuestList }) {
+  const st = useTableState({ tableId: "crm.guests", columns: columnConfig });
+  const [group, setGroup] = useState(""),
+    [birthdayFilter, setBirthdayFilter] = useState<GuestFilters["birthday"]>(""),
+    [archived, setArchived] = useState(false),
+    [filtersOpen, setFiltersOpen] = useState(false),
+    // Сколько гостей в разделе без условий: счётчик у заголовка «N из M».
+    // Сервер считает только выборку, поэтому запоминаем ответ без условий.
+    [baseTotal, setBaseTotal] = useState<{ active?: number; archive?: number }>({
+      active: initial.total,
+    });
+  // Сервер сортирует по одному полю; пусто — по имени, это не активная сортировка.
+  const sort = st.sorting[0];
+  const pageSize = pageSizes.find((n) => n === st.pagination.pageSize) ?? 25;
+  const filters = useMemo<GuestFilters>(
+    () => ({
+      search: st.search,
+      group,
+      birthday: birthdayFilter,
+      archived,
+      page: st.pagination.pageIndex,
+      size: pageSize,
+      sort: (sort?.id as SortKey | undefined) ?? "name",
+      desc: sort?.desc ?? false,
+    }),
+    [st.search, group, birthdayFilter, archived, st.pagination.pageIndex, pageSize, sort?.id, sort?.desc],
+  );
   const [data, setData] = useState(initial),
-    [filters, setFilters] = useState(initialFilters),
-    [searchOpen, setSearchOpen] = useState(false),
     [loading, setLoading] = useState(false),
     [error, setError] = useState(""),
     [detail, setDetail] = useState<GuestDetail | null>(null),
@@ -225,6 +346,11 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
         if (seq === listSequence.current) {
           setData(next);
           setError("");
+          if (!f.search.trim() && !f.group && !f.birthday)
+            setBaseTotal((old) => ({
+              ...old,
+              [f.archived ? "archive" : "active"]: next.total,
+            }));
         }
       } catch (e) {
         if (seq === listSequence.current)
@@ -312,8 +438,35 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
     }
     setSettingsOpen(o);
   }
-  function change(p: Partial<GuestFilters>) {
-    setFilters((old) => ({ ...old, ...p, page: p.page ?? 0 }));
+  const firstPage = () => st.setPagination((p) => ({ ...p, pageIndex: 0 }));
+  const changeSorting = (next: SortingState) => {
+    // Сервер сортирует по одному полю: новое поле заменяет прежнее.
+    st.setSorting(next.slice(-1));
+    firstPage();
+  };
+  const hasFilters = !!group || !!birthdayFilter;
+  const isFiltered = hasFilters || !!st.search.trim();
+  const resetConditions = () => {
+    setGroup("");
+    setBirthdayFilter("");
+    st.setSearch("");
+    st.setSorting([]);
+    firstPage();
+  };
+  const toggleArchive = () => {
+    setArchived((v) => !v);
+    firstPage();
+  };
+  function startCreate() {
+    detailSequence.current++;
+    setDetail(null);
+    setDraft({ name: "" });
+    setPhotoUrl(null);
+    setReason("");
+    request.current = crypto.randomUUID();
+    setEditing(true);
+    setTab("details");
+    setCardOpen(true);
   }
   async function save() {
     setSaving(true);
@@ -442,288 +595,347 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
         : v == null
           ? "—"
           : String(v);
+
+  const columns: ColumnDef<Guest>[] = [
+    {
+      id: "photo",
+      header: labels.photo,
+      size: 72,
+      minSize: 72,
+      cell: ({ row }) => <GuestAvatar guest={row.original} />,
+    },
+    {
+      id: "name",
+      header: labels.name,
+      size: 300,
+      minSize: 200,
+      enableHiding: false,
+      cell: ({ row }) => {
+        const g = row.original;
+        return (
+          <div className="min-w-0">
+            {/* Настоящая кнопка в ячейке имени: карточку можно открыть с клавиатуры. */}
+            <button
+              type="button"
+              className="block max-w-full truncate text-left font-medium transition-colors duration-200 hover:text-brand"
+              data-tip={g.data.name}
+              onClick={() => void openGuest(g.id)}
+            >
+              {g.data.name}
+            </button>
+            <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+              {guestSource(g)}
+            </span>
+          </div>
+        );
+      },
+    },
+    {
+      id: "group",
+      header: labels.group,
+      size: 220,
+      minSize: 120,
+      cell: ({ row }) => {
+        const title = row.original.data.groupTitle;
+        return title ? (
+          <span className="block truncate" data-tip={title}>
+            {title}
+          </span>
+        ) : (
+          "—"
+        );
+      },
+    },
+    {
+      id: "discount",
+      header: labels.discount,
+      size: 110,
+      minSize: 90,
+      cell: ({ row }) =>
+        row.original.data.discountPercent != null
+          ? `${row.original.data.discountPercent}%`
+          : "—",
+    },
+    {
+      id: "birthday",
+      header: labels.birthday,
+      size: 170,
+      minSize: 140,
+      cell: ({ row }) => (
+        <span className="tabular-nums">{birthday(row.original) || "—"}</span>
+      ),
+    },
+    {
+      id: "updated",
+      header: labels.updated,
+      size: 150,
+      minSize: 130,
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          {formatDateCell(row.original.updatedAt) ?? "—"}
+        </span>
+      ),
+    },
+  ];
+  const table = useReactTable({
+    data: data.rows,
+    columns,
+    state: {
+      sorting: st.sorting,
+      columnVisibility: { ...st.columnVisibility, name: true },
+      columnOrder: st.columnOrder,
+      columnSizing: st.columnSizing,
+    },
+    manualSorting: true,
+    manualPagination: true,
+    onSortingChange: st.setSorting,
+    onColumnVisibilityChange: st.setColumnVisibility,
+    onColumnSizingChange: st.setColumnSizing,
+    getRowId: (g) => g.id,
+    getCoreRowModel: getCoreRowModel(),
+  });
+  const base = archived ? baseTotal.archive : baseTotal.active;
+  const count = isFiltered
+    ? base != null
+      ? `${data.total.toLocaleString("ru-RU")} из ${base.toLocaleString("ru-RU")}`
+      : data.total.toLocaleString("ru-RU")
+    : data.total.toLocaleString("ru-RU");
+
   return (
-    <PageFrame className="space-y-6">
+    <PageFrame className="flex min-w-0 flex-col gap-4">
       <TablePageHeader
-        title="Гости"
-        subtitle={`${filters.search || filters.group || filters.birthday ? "Найдено: " : ""}${data.total.toLocaleString("ru-RU")}${filters.search || filters.group || filters.birthday ? "" : filters.archived ? " в архиве" : " в базе"}`}
+        title={archived ? "Гости в архиве" : "Гости"}
+        count={count}
         actions={
-          <>
-            {data.canConfigure && (
-              <Button
-                variant="outline"
-                size="icon"
-                aria-label="Настройки гостей"
-                onClick={() => void settings()}
-              >
-                <Settings2 className="size-4" />
-              </Button>
-            )}
-            {data.canManage && (
-              <Button
-                onClick={() => {
-                  detailSequence.current++;
-                  setDetail(null);
-                  setDraft({ name: "" });
-                  setPhotoUrl(null);
-                  setReason("");
-                  request.current = crypto.randomUUID();
-                  setEditing(true);
-                  setTab("details");
-                  setCardOpen(true);
-                }}
-              >
-                <Plus className="mr-2 size-4" />
-                Добавить гостя
-              </Button>
-            )}
-          </>
+          <TableControls
+            search={{
+              value: st.search,
+              onChange: (v) => {
+                st.setSearch(v);
+                firstPage();
+              },
+              open: st.searchOpen,
+              onOpenChange: st.setSearchOpen,
+              placeholder: data.canDetails ? "Имя или контакт" : "Имя гостя",
+            }}
+            filters={{
+              active: hasFilters,
+              onClick: () => setFiltersOpen((v) => !v),
+            }}
+            sort={{
+              active: st.sorting.length > 0,
+              content: (
+                <TableSortPicker
+                  sorting={st.sorting}
+                  onChange={changeSorting}
+                  fields={sortFields}
+                  labels={labels}
+                />
+              ),
+            }}
+            columns={{
+              content: (
+                <TableColumnManager
+                  columns={st.columnOrder.map((id) => {
+                    const c = table.getColumn(id)!;
+                    return {
+                      id,
+                      label: labels[id as ColKey],
+                      visible: c.getIsVisible(),
+                      canHide: c.getCanHide(),
+                    };
+                  })}
+                  onVisibilityChange={(id, v) =>
+                    table.getColumn(id)?.toggleVisibility(v)
+                  }
+                  onMoveColumn={(a, b) =>
+                    st.setColumnOrder((order) =>
+                      arrayMove(order, order.indexOf(a), order.indexOf(b)),
+                    )
+                  }
+                  onReset={st.resetColumns}
+                />
+              ),
+            }}
+            secondaryActions={
+              <>
+                <TableIconButton
+                  label={
+                    archived ? "Вернуться к активным гостям" : "Архив гостей"
+                  }
+                  active={archived}
+                  pressed={archived}
+                  onClick={toggleArchive}
+                >
+                  <Archive />
+                </TableIconButton>
+                {data.canConfigure && (
+                  <TableIconButton
+                    label="Настройки гостей"
+                    onClick={() => void settings()}
+                  >
+                    <Settings2 />
+                  </TableIconButton>
+                )}
+              </>
+            }
+            primaryActions={
+              data.canManage && !archived ? (
+                <Button size="sm" className="h-9 gap-2" onClick={startCreate}>
+                  <Plus className="size-4" />
+                  Добавить гостя
+                </Button>
+              ) : null
+            }
+          />
         }
       />
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        <TableControls
-          filters={{
-            active: !!filters.group || !!filters.birthday || filters.archived,
-            content: (
-              <div className="flex flex-col gap-3">
-                <Select
-                  value={filters.group || "all"}
-                  onValueChange={(v) => change({ group: v === "all" ? "" : v })}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Все группы" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Все группы</SelectItem>
-                    {data.groups.map((g) => (
-                      <SelectItem key={g} value={g}>
-                        {g}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={filters.birthday || "all"}
-                  onValueChange={(v) =>
-                    change({
-                      birthday:
-                        v === "all" ? "" : (v as GuestFilters["birthday"]),
-                    })
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Дни рождения</SelectItem>
-                    <SelectItem value="today">Сегодня</SelectItem>
-                    <SelectItem value="upcoming">
-                      В ближайшие 14 дней
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={filters.archived ? "archive" : "active"}
-                  onValueChange={(v) => change({ archived: v === "archive" })}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="active">Активные</SelectItem>
-                    <SelectItem value="archive">Архив</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            ),
-          }}
-          search={{
-            value: filters.search,
-            onChange: (search) => change({ search }),
-            open: searchOpen,
-            onOpenChange: setSearchOpen,
-            placeholder: data.canDetails ? "Имя или контакт" : "Имя гостя",
-          }}
-          sort={{
-            active: filters.sort !== "name" || filters.desc,
-            content: (
-              <div className="space-y-3">
-                <Label>Сортировка</Label>
-                <Select
-                  value={filters.sort}
-                  onValueChange={(v) =>
-                    change({ sort: v as GuestFilters["sort"] })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="name">По имени</SelectItem>
-                    <SelectItem value="birthday">По дню рождения</SelectItem>
-                    <SelectItem value="group">По группе</SelectItem>
-                    <SelectItem value="updated">По обновлению</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button
-                  variant="outline"
-                  onClick={() => change({ desc: !filters.desc })}
-                >
-                  <ArrowUpDown className="mr-2 size-4" />
-                  {filters.desc ? "По убыванию" : "По возрастанию"}
-                </Button>
-              </div>
-            ),
-          }}
-        />
-      </div>
+      <TableConditions
+        label="Условия списка гостей"
+        open={filtersOpen}
+        hasFilters={hasFilters}
+        sorting={st.sorting}
+        onSortingChange={changeSorting}
+        sortFields={sortFields}
+        sortLabels={labels}
+        search={st.search}
+        onSearchClear={() => {
+          st.setSearch("");
+          firstPage();
+        }}
+        onReset={resetConditions}
+      >
+        {(filtersOpen || !!group) && (
+          <TableFilterChip
+            label="Группа"
+            value={group}
+            onChange={(v) => {
+              setGroup(v);
+              firstPage();
+            }}
+            searchPlaceholder={
+              data.groups.length > 8 ? "Найти группу" : undefined
+            }
+            options={[
+              { value: "", label: "Все группы" },
+              ...data.groups.map((g) => ({ value: g, label: g })),
+            ]}
+          />
+        )}
+        {(filtersOpen || !!birthdayFilter) && (
+          <TableFilterChip
+            label="День рождения"
+            value={birthdayFilter}
+            onChange={(v) => {
+              setBirthdayFilter(v as GuestFilters["birthday"]);
+              firstPage();
+            }}
+            options={[
+              { value: "", label: "Все гости" },
+              { value: "today", label: "Сегодня" },
+              { value: "upcoming", label: "В ближайшие 14 дней" },
+            ]}
+          />
+        )}
+      </TableConditions>
       {error && (
         <div
           role="alert"
-          className="rounded-lg border border-destructive/30 p-4 text-sm text-destructive"
+          className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/30 p-3 text-sm text-destructive"
         >
-          {error}
-          <Button variant="ghost" onClick={() => void refresh(filters)}>
+          <p className="min-w-0 flex-1">{error}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8"
+            onClick={() => void refresh(filters)}
+          >
             Повторить
           </Button>
         </div>
       )}
-      <div
-        aria-busy={loading}
-        className={cn("rounded-lg border", loading && "opacity-60")}
-      >
-        <table className="hidden w-full table-fixed text-sm sm:table">
-          <colgroup>
-            <col className="w-[52%] sm:w-[45%]" />
-            <col className="hidden sm:table-column sm:w-[25%]" />
-            <col className="w-[38%] sm:w-[25%]" />
-            <col className="w-[10%] sm:w-[5%]" />
-          </colgroup>
-          <thead className="sticky top-0 z-20 bg-muted [&_th]:bg-muted">
-            <tr className="border-b text-left text-xs text-muted-foreground">
-              <th className="rounded-tl-lg px-4 py-3 font-medium">Гость</th>
-              <th className="hidden px-4 py-3 font-medium sm:table-cell">
-                Группа · скидка
-              </th>
-              <th className="px-4 py-3 font-medium">День рождения</th>
-              <th className="rounded-tr-lg">
-                <span className="sr-only">Открыть</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.rows.map((g) => (
-              <tr
-                key={g.id}
-                className="group cursor-pointer border-b last:border-0 hover:bg-muted/40"
-                onClick={() => void openGuest(g.id)}
-              >
-                <td className="px-4 py-4">
-                  <button
-                    className="flex w-full min-w-0 items-center gap-3 text-left"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void openGuest(g.id);
-                    }}
-                  >
-                    <GuestAvatar guest={g} />
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium">
-                        {g.data.name}
-                      </span>
-                      <span className="mt-1 block truncate text-xs text-muted-foreground">
-                        {g.data.sourceMissing
-                          ? "Нет в Quick Resto"
-                          : g.data.regular
-                            ? "Постоянный гость"
-                            : g.qrId
-                              ? "Quick Resto"
-                              : "Карточка заведения"}
-                      </span>
-                      <span className="mt-1 block truncate text-xs text-muted-foreground sm:hidden">
-                        {g.data.groupTitle ?? "Без группы"}
-                        {g.data.discountPercent != null
-                          ? ` · ${g.data.discountPercent}%`
-                          : ""}
-                      </span>
-                    </span>
-                  </button>
-                </td>
-                <td className="hidden truncate px-4 py-4 sm:table-cell">
-                  {g.data.groupTitle ?? "—"}
-                  {g.data.discountPercent != null && (
-                    <span className="ml-2 rounded-full bg-brand/10 px-2 py-1 text-xs text-brand">
-                      {g.data.discountPercent}%
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-4 tabular-nums">{birthday(g)}</td>
-                <td>
-                  <ChevronRight className="size-4 text-muted-foreground" />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <div className="divide-y sm:hidden">
-          {data.rows.map((g) => (
-            <button
-              key={g.id}
-              onClick={() => void openGuest(g.id)}
-              className="block w-full p-4 text-left hover:bg-muted/40"
-            >
-              <span className="flex items-center gap-3">
-                <GuestAvatar guest={g} />
-                <span className="min-w-0 flex-1">
-                  <span className="block break-words text-sm font-medium">
-                    {g.data.name}
-                  </span>
-                  <span className="mt-1 block text-xs text-muted-foreground">
-                    {g.data.sourceMissing
-                      ? "Нет в Quick Resto"
-                      : g.data.regular
-                        ? "Постоянный гость"
-                        : g.qrId
-                          ? "Quick Resto"
-                          : "Карточка заведения"}
-                  </span>
-                </span>
-                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-              </span>
-              <span className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
-                <span>
-                  {g.data.groupTitle ?? "Без группы"}
-                  {g.data.discountPercent != null
-                    ? ` · скидка ${g.data.discountPercent}%`
-                    : ""}
-                </span>
-                {g.data.day && (
-                  <span className="flex items-center gap-1">
-                    <Cake className="size-3" />
-                    {birthday(g)}
-                  </span>
-                )}
-              </span>
-            </button>
-          ))}
-        </div>
-        {!data.rows.length && (
-          <div className="px-6 py-16 text-center text-sm text-muted-foreground">
-            {filters.search || filters.group || filters.birthday
-              ? "Гости не найдены. Попробуйте изменить фильтры."
-              : filters.archived
-                ? "В архиве пока нет гостей."
-                : "Пока нет гостей. Добавьте карточку или обновите базу в настройках."}
+      {data.rows.length === 0 ? (
+        isFiltered ? (
+          <EmptyState
+            icon={SearchX}
+            title="Гости не найдены"
+            description="Измените условия поиска или сбросьте фильтры"
+            action={
+              <Button variant="outline" onClick={resetConditions}>
+                Очистить все
+              </Button>
+            }
+          />
+        ) : archived ? (
+          <EmptyState
+            icon={Archive}
+            title="Архив пуст"
+            description="Сюда попадают карточки гостей, убранные из базы"
+            action={
+              <Button variant="outline" onClick={toggleArchive}>
+                К активным гостям
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={Users}
+            title="Гостей пока нет"
+            description={
+              data.canConfigure
+                ? "Добавьте карточку гостя или загрузите базу из Quick Resto в настройках"
+                : "Добавьте карточку гостя или попросите владельца загрузить базу из Quick Resto"
+            }
+            action={
+              data.canManage ? (
+                <Button onClick={startCreate}>
+                  <Plus className="mr-2 size-4" />
+                  Добавить гостя
+                </Button>
+              ) : undefined
+            }
+          />
+        )
+      ) : (
+        <>
+          <div
+            aria-busy={loading}
+            className={cn(
+              "transition-opacity duration-200",
+              loading && "opacity-60",
+            )}
+          >
+            <DataTable
+              table={table}
+              label={archived ? "Гости в архиве" : "Гости"}
+              labels={labels}
+              onColumnSizingChange={st.setColumnSizing}
+              sorting={st.sorting}
+              onSortingChange={changeSorting}
+              sortable={sortFields}
+              numeric={["discount"]}
+              onRowClick={(row) => void openGuest(row.original.id)}
+              empty={null}
+              mobile={{
+                label: "Карточки гостей",
+                nameColumn: "name",
+                photoColumn: "photo",
+              }}
+            />
           </div>
-        )}
-      </div>
-      <TablePagination
-        pageIndex={filters.page}
-        pageSize={filters.size}
-        total={data.total}
-        onPageChange={(page) => change({ page })}
-        onPageSizeChange={(size) => change({ size })}
-      />
+          <TablePagination
+            pageIndex={filters.page}
+            pageSize={filters.size}
+            total={data.total}
+            onPageChange={(pageIndex) =>
+              st.setPagination((p) => ({ ...p, pageIndex }))
+            }
+            onPageSizeChange={(size) =>
+              st.setPagination({ pageIndex: 0, pageSize: size })
+            }
+          />
+        </>
+      )}
       <EditDrawer
         open={cardOpen}
         onOpenChange={(o) => {
@@ -779,9 +991,9 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                 }}
               >
                 {detail.archived ? (
-                  <RotateCcw className="mr-2 size-4" />
+                  <RotateCcw className="size-4" />
                 ) : (
-                  <Archive className="mr-2 size-4" />
+                  <Archive className="size-4" />
                 )}
                 {detail.archived ? "Восстановить" : "В архив"}
               </Button>
@@ -839,7 +1051,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                 disabled={saving}
                 onClick={() => file.current?.click()}
               >
-                <Camera className="mr-2 size-4" />
+                <Camera className="size-4" />
                 {draft.photoPath ? "Изменить фото" : "Прикрепить фото"}
               </Button>
               {draft.photoPath && (
@@ -1070,10 +1282,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                         <p className="text-muted-foreground">{h.reason}</p>
                       )}
                       {h.before_data && (
-                        <details className="mt-2 text-xs">
-                          <summary className="cursor-pointer text-muted-foreground">
-                            Изменённые поля
-                          </summary>
+                        <HistoryChanges>
                           <div className="mt-3 space-y-1">
                             {Object.keys({ ...h.before_data, ...h.after_data })
                               .filter(
@@ -1096,7 +1305,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                                 </p>
                               ))}
                           </div>
-                        </details>
+                        </HistoryChanges>
                       )}
                     </DrawerTimelineItem>
                   ))}
@@ -1136,9 +1345,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
             </Tabs>
           </>
         ) : (
-          <div className="py-12 text-sm text-muted-foreground">
-            Загружаем карточку…
-          </div>
+          <GuestCardSkeleton />
         )}
       </EditDrawer>
       <Dialog
@@ -1275,7 +1482,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                     }
                   }}
                 >
-                  <RefreshCw className="mr-2 size-4" />
+                  <RefreshCw className="size-4" />
                   Обновить базу
                 </Button>
                 <Button
@@ -1455,7 +1662,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
             )}
           </>
         ) : (
-          <p className="text-sm text-muted-foreground">Загружаем настройки…</p>
+          <SettingsSkeleton />
         )}
       </EditDrawer>
     </PageFrame>

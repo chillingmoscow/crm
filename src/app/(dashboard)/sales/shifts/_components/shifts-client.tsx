@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { ColorDot } from "@/components/ui/color-dot";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { AnimatedMoney } from "@/components/shared/animated-money";
 import { Metric, MetricStrip } from "@/components/shared/metric-strip";
 import { Money, formatRub } from "@/components/shared/money";
 import { MonthPicker } from "@/components/shared/month-picker";
@@ -67,12 +68,14 @@ import {
   requestSalesSync,
 } from "../actions";
 import { DayDrawer } from "./day-drawer";
+import { MonthPlan } from "./month-plan";
 import {
   SalesStatusBadge,
   salesDayStatus,
   salesStatuses,
 } from "./sales-status-badge";
 import { ArchiveDayDrawer } from "../../_components/archive-day-drawer";
+import { SalesBodySkeleton } from "../../_components/sales-loading";
 import type { DayArchive } from "@/lib/sales/day-context";
 
 /** Подписи столбцов: заголовки таблицы, карточки на телефоне, экспорт. */
@@ -210,13 +213,38 @@ export function ShiftsClient({
   const [loading, setLoading] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [status, setStatus] = useState("");
-  const [drawer, setDrawer] = useState<{ day: SalesDay; tab: string } | null>(
+  // Панели дня держим смонтированными, пока они уезжают (docs/motion.md):
+  // `shown*` — последнее открытое значение. `n` — номер открытия: каждое
+  // открытие начинается с чистой формы, даже если это тот же день.
+  const openCount = useRef(0);
+  const [drawer, setDrawerState] = useState<{ day: SalesDay; tab: string; n: number } | null>(
     null,
   );
-  const [archiveDrawer, setArchiveDrawer] = useState<{
+  const setDrawer = useCallback(
+    (next: { day: SalesDay; tab: string } | null) =>
+      setDrawerState(next && { ...next, n: ++openCount.current }),
+    [],
+  );
+  const [archiveDrawer, setArchiveDrawerState] = useState<{
     archive: DayArchive;
     tab: string;
+    n: number;
   } | null>(null);
+  const setArchiveDrawer = useCallback(
+    (next: { archive: DayArchive; tab: string } | null) =>
+      setArchiveDrawerState(next && { ...next, n: ++openCount.current }),
+    [],
+  );
+  const [shownDrawer, setShownDrawer] = useState(drawer);
+  const [shownArchive, setShownArchive] = useState(archiveDrawer);
+  useEffect(() => {
+    if (drawer) setShownDrawer(drawer);
+  }, [drawer]);
+  useEffect(() => {
+    if (archiveDrawer) setShownArchive(archiveDrawer);
+  }, [archiveDrawer]);
+  const dayDrawer = drawer ?? shownDrawer;
+  const archiveDay = archiveDrawer ?? shownArchive;
 
   // Ссылка на день (`?day=…&tab=…`) открывает его панель один раз.
   const selectionKey = selection
@@ -241,7 +269,7 @@ export function ShiftsClient({
         ? { archive: selectedArchive, tab: selection!.tab }
         : null,
     );
-  }, [selectionKey, selection, initial.days, selectedArchive]);
+  }, [selectionKey, selection, initial.days, selectedArchive, setDrawer, setArchiveDrawer]);
 
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -377,7 +405,7 @@ export function ShiftsClient({
               {/* Настоящая кнопка в первой ячейке: смену можно открыть с клавиатуры. */}
               <button
                 type="button"
-                className="flex items-center gap-1.5 text-left font-medium tabular-nums hover:underline"
+                className="flex items-center gap-1.5 text-left font-medium tabular-nums transition-colors duration-200 hover:text-brand focus-visible:text-brand focus-visible:outline-none"
                 onClick={() => setDrawer({ day: d, tab: "values" })}
               >
                 {formatDateCell(d.business_date)}
@@ -513,7 +541,7 @@ export function ShiftsClient({
         ),
       },
     ],
-    [can, sync, busy, running, activeJobs, today, data.connected, data.timezone],
+    [can, sync, busy, running, activeJobs, today, data.connected, data.timezone, setDrawer],
   );
 
   const table = useReactTable({
@@ -630,7 +658,6 @@ export function ShiftsClient({
     >
       <Button
         size="sm"
-        className="h-9 gap-2"
         disabled={busy || currentRunning || !data.connected || !data.settings}
         onClick={() => void sync([today])}
       >
@@ -677,7 +704,6 @@ export function ShiftsClient({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-9"
                 onClick={() => setMonth(currentMonth)}
               >
                 Сегодня
@@ -787,7 +813,7 @@ export function ShiftsClient({
             Quick Resto не подключён: показатели смен не обновляются
           </p>
           {can("configure") && (
-            <Button variant="outline" size="sm" className="h-8" asChild>
+            <Button variant="outline" size="sm" asChild>
               <Link href="/settings/integrations">Подключить Quick Resto</Link>
             </Button>
           )}
@@ -800,9 +826,9 @@ export function ShiftsClient({
       )}
 
       {monthLoading && !monthDays.length ? (
-        <p role="status" className="py-12 text-center text-sm text-muted-foreground">
-          Загружаем смены…
-        </p>
+        <div role="status" aria-label="Загружаем смены" aria-busy className="flex flex-col gap-4">
+          <SalesBodySkeleton />
+        </div>
       ) : !data.hasDays ? (
         <EmptyState
           icon={CalendarDays}
@@ -841,7 +867,7 @@ export function ShiftsClient({
             <Metric
               primary
               label={metricLabels.turnover}
-              value={<Money value={totals.turnover.value} />}
+              value={<AnimatedMoney value={totals.turnover.value} />}
               hint={
                 metricHint("turnover") ??
                 (isFiltered
@@ -851,23 +877,30 @@ export function ShiftsClient({
             />
             <Metric
               label="Средний чек гостя"
-              value={<Money value={average.value} />}
+              value={<AnimatedMoney value={average.value} />}
               hint={averageHint}
             />
             <Metric
               label={metricLabels.tips_total}
-              value={<Money value={totals.tips_total.value} />}
+              value={<AnimatedMoney value={totals.tips_total.value} />}
               hint={metricHint("tips_total")}
             />
             <Metric
               label={metricLabels.deposits}
-              value={<Money value={totals.deposits.value} />}
+              value={<AnimatedMoney value={totals.deposits.value} />}
               hint={metricHint("deposits")}
             />
           </MetricStrip>
+          <MonthPlan
+            plan={monthLoading ? undefined : data.plan}
+            month={month}
+            today={today}
+            days={monthDays}
+            canConfigure={can("configure")}
+          />
           <div
             aria-busy={monthLoading}
-            className={monthLoading ? "opacity-60 transition-opacity" : undefined}
+            className={`transition-opacity duration-300 ease-[var(--ease-soft)] ${monthLoading ? "opacity-60" : ""}`}
           >
           <DataTable
             table={table}
@@ -919,11 +952,12 @@ export function ShiftsClient({
           />
         </>
       )}
-      {drawer && (
+      {dayDrawer && (
         <DayDrawer
-          key={drawer.day.id}
-          day={drawer.day}
-          tab={drawer.tab}
+          key={dayDrawer.n}
+          open={!!drawer}
+          day={dayDrawer.day}
+          tab={dayDrawer.tab}
           timezone={data.timezone}
           canAdjust={can("adjust")}
           onClose={() => setDrawer(null)}
@@ -936,11 +970,12 @@ export function ShiftsClient({
           }}
         />
       )}
-      {archiveDrawer && (
+      {archiveDay && (
         <ArchiveDayDrawer
-          key={archiveDrawer.archive.id}
-          archive={archiveDrawer.archive}
-          tab={archiveDrawer.tab}
+          key={archiveDay.n}
+          open={!!archiveDrawer}
+          archive={archiveDay.archive}
+          tab={archiveDay.tab}
           onClose={() => setArchiveDrawer(null)}
         />
       )}

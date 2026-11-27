@@ -27,10 +27,13 @@ const longFields = [
   ["plans", "Планы"],
 ] as const;
 export function CandidateForm({
+  open = true,
   candidate,
   onClose,
   onSaved,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   candidate: Candidate;
   onClose: () => void;
   onSaved: (id: string) => void;
@@ -70,7 +73,7 @@ export function CandidateForm({
     });
   return (
     <EditDrawer
-      open
+      open={open}
       onOpenChange={(v) => {
         if (!v && !busy) onClose();
       }}

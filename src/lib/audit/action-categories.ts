@@ -35,8 +35,9 @@ const CATEGORY_SUFFIXES: Record<AuditActionCategory, string[]> = {
   // `.issued` — выдача зарплаты по плану выплат (`payroll.payout_plan.issued`).
   created: [".created", ".sent", "_imported", "_requested", ".issued"],
   // Приём в команду (сотрудник, кандидат) и увольнение с закрытием доступов.
-  // `.ended` — официальное увольнение (`payroll.official_employment.ended`).
-  staffing: [".hired", ".fired", ".access_removed", ".ended"],
+  // `.ended` — официальное увольнение (`payroll.official_employment.ended`),
+  // `.converted_to_staff` — перевод разового в штат.
+  staffing: [".hired", ".fired", ".access_removed", ".ended", ".converted_to_staff"],
   changed: [
     ".edited",
     ".renamed",
@@ -79,8 +80,9 @@ const CATEGORY_SUFFIXES: Record<AuditActionCategory, string[]> = {
     ".posted",
     ".skipped",
     ".postponed",
-    // План выплат: пересчёт черновика.
+    // План выплат: пересчёт черновика; автовыдача, которая не прошла.
     ".recalculated",
+    ".auto_failed",
   ],
   deleted: [".deleted", ".archived", ".cancelled"],
   restored: [".restored"],

@@ -1,5 +1,7 @@
 // Официальная (бухгалтерская) часть зарплаты: НДФЛ и подписи ожидаемой части.
 // Чистые функции: те же числа, что считает база (payroll_official_gross).
+// Оформление «Платит агентство» — та же официальная часть, только сумму
+// сотрудник получает через агентство: без налога и без перевода с нашего счёта.
 import type { OfficialExpected } from "./types.ts";
 
 const cents = (n: number) => Math.round(n * 100);
@@ -42,17 +44,30 @@ export type OfficialExpectedView = {
   kind: OfficialExpected["kind"];
   days_paid: number | null;
   days_in_month: number;
+  /** «Платит агентство»: сумму сотрудник получит через агентство. */
+  agency?: boolean;
 };
+
+/** Название официальной части в строках расчёта: «Официальная часть» или «Через агентство». */
+export function officialPartLabel(agency: boolean | undefined): string {
+  return agency ? "Через агентство" : "Официальная часть";
+}
+
+/** Метка проведённой официальной записи: «Официальная» или «Через агентство». */
+export function officialPaymentLabel(agency: boolean | undefined): string {
+  return agency ? "Через агентство" : "Официальная";
+}
 
 const daysWord = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? "дня" : "дней");
 
 /**
- * Пояснение к ожидаемой части месяца: «выплатит бухгалтерия до 7 декабря»,
- * в первом месяце — «за 28 из 30 дней · …», в последнем — «сумма уточняется».
+ * Пояснение к ожидаемой части месяца: «выплатит бухгалтерия до 7 декабря»
+ * (через агентство — «получит через агентство»), в первом месяце —
+ * «за 28 из 30 дней · …», в последнем — «сумма уточняется».
  */
 export function officialExpectedNote(expected: OfficialExpectedView, month: string): string {
   if (expected.amount === null) return "сумма уточняется";
-  const payBy = `выплатит бухгалтерия ${officialPayBy(month)}`;
+  const payBy = expected.agency ? "получит через агентство" : `выплатит бухгалтерия ${officialPayBy(month)}`;
   if (expected.kind === "first" && expected.days_paid !== null)
     return `за ${expected.days_paid} из ${expected.days_in_month} ${daysWord(expected.days_in_month)} · ${payBy}`;
   return payBy;

@@ -476,7 +476,7 @@ export function DocumentsTable({
           <div className="min-w-0">
             <Link
               href={getDocHref(doc, canViewResults)}
-              className="block truncate font-medium hover:underline"
+              className="block truncate font-medium transition-colors duration-200 hover:text-brand"
               data-tip={`№ ${doc.document_number}`}
               data-tip-overflow
             >
@@ -806,7 +806,7 @@ export function DocumentsTable({
   );
 
   return (
-    <PageFrame className="space-y-6">
+    <PageFrame className="space-y-4">
       <Breadcrumbs items={[{ label: "Документы" }, { label: "Акты инвентаризации" }]} />
 
       <div className="space-y-3">

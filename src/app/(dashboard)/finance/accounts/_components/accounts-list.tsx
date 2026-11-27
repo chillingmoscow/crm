@@ -1,5 +1,6 @@
 "use client";
 
+import { useExitValue } from "@/hooks/use-exit-value";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -232,6 +233,9 @@ export function AccountsList({
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AccountView | null>(null);
   const [impact, setImpact] = useState<BankAccountArchiveImpact | null>(null);
+  // Окно держим смонтированным, пока оно закрывается (docs/motion.md): в нём
+  // остаются прежние название и последствия, а не сброшенные.
+  const shownDelete = useExitValue(deleteTarget && { target: deleteTarget, impact });
 
   const loadImpact = (account: AccountView) => {
     setImpact(null);
@@ -365,7 +369,7 @@ export function AccountsList({
             <div className="min-w-0">
               <Link
                 href={`/finance/accounts/${a.id}`}
-                className="block truncate font-medium hover:underline"
+                className="block truncate font-medium transition-colors duration-200 hover:text-brand"
                 data-tip={a.name}
               >
                 {a.name}
@@ -538,7 +542,7 @@ export function AccountsList({
   };
 
   const createButton = canManage && !showArchive ? (
-    <Button size="sm" className="h-9 gap-2" onClick={() => setCreateOpen(true)}>
+    <Button size="sm" onClick={() => setCreateOpen(true)}>
       <Plus className="size-4" />
       Добавить счёт
     </Button>
@@ -714,7 +718,7 @@ export function AccountsList({
             action={
               canManage && archivedRows.length === 0 ? (
                 <Button onClick={() => setCreateOpen(true)}>
-                  <Plus className="mr-2 size-4" />
+                  <Plus className="size-4" />
                   Добавить счёт
                 </Button>
               ) : undefined
@@ -829,9 +833,9 @@ export function AccountsList({
         }}
       />
 
-      {deleteTarget ? (
+      {shownDelete ? (
         <HardDeleteConfirmDialog
-          open
+          open={!!deleteTarget}
           onOpenChange={(open) => {
             if (!open) {
               setDeleteTarget(null);
@@ -839,9 +843,9 @@ export function AccountsList({
             }
           }}
           entityGenitive="счёт"
-          entityName={deleteTarget.name}
+          entityName={shownDelete.target.name}
           impact={[]}
-          restrictedBy={bankAccountDeleteRestrictions(impact)}
+          restrictedBy={bankAccountDeleteRestrictions(shownDelete.impact)}
           onConfirm={confirmDelete}
         />
       ) : null}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 import { personInitials } from "@/lib/format/initials";
 import { avatarImageUrl } from "@/lib/people/avatar-thumb";
@@ -10,10 +11,17 @@ export function EmployeeIdentity({
   name,
   role,
   avatarUrl,
+  href,
 }: {
   name: string;
   role?: string | null;
   avatarUrl?: string | null;
+  /**
+   * Куда ведёт имя. Правило дизайн-системы «Кликабельное имя»: имя — ссылка,
+   * при наведении синеет (text-brand), аватар и должность не меняются.
+   * Клик по имени не открывает то, что открывает строка.
+   */
+  href?: string;
 }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   return (
@@ -32,9 +40,19 @@ export function EmployeeIdentity({
         )}
       </span>
       <span className="flex min-w-0 flex-col gap-1">
-        <span className="truncate text-[13px] font-medium leading-5">
-          {name}
-        </span>
+        {href ? (
+          <Link
+            href={href}
+            onClick={(e) => e.stopPropagation()}
+            className="truncate text-[13px] font-medium leading-5 transition-colors duration-200 hover:text-brand focus-visible:text-brand focus-visible:outline-none"
+          >
+            {name}
+          </Link>
+        ) : (
+          <span className="truncate text-[13px] font-medium leading-5">
+            {name}
+          </span>
+        )}
         <span className="truncate text-[11px] font-normal leading-4 text-muted-foreground">
           {role || "Должность не указана"}
         </span>

@@ -56,10 +56,13 @@ function Picker({
   );
 }
 function Form({
+  open,
   data,
   onClose,
   onSaved,
 }: {
+  /** Панель держат смонтированной, пока она уезжает: закрывают через `open`. */
+  open: boolean;
   data: SettlementConfiguration;
   onClose: () => void;
   onSaved: (v: SettlementConfiguration) => void;
@@ -152,7 +155,7 @@ function Form({
     data.categories.filter((c) => c.type === type);
   return (
     <EditDrawer
-      open
+      open={open}
       onOpenChange={(v) => {
         if (!v && !busy) onClose();
       }}
@@ -432,6 +435,13 @@ export function SettlementSettingsSection({ venueId }: { venueId: string }) {
   const [data, setData] = useState<SettlementConfiguration | null>(null),
     [error, setError] = useState<string | null>(null),
     [open, setOpen] = useState(false);
+  // Форму держим смонтированной, пока панель уезжает (docs/motion.md);
+  // каждое открытие — новый ключ, форма начинается с сохранённых данных.
+  const [session, setSession] = useState(0);
+  const openForm = () => {
+    setSession((n) => n + 1);
+    setOpen(true);
+  };
   useEffect(() => {
     let live = true;
     loadSettlementConfiguration(venueId)
@@ -467,7 +477,7 @@ export function SettlementSettingsSection({ venueId }: { venueId: string }) {
                 .then(unwrapAction)
                 .then((d) => {
                   setData(d);
-                  setOpen(true);
+                  openForm();
                 })
                 .catch((e) => toast.error(e.message))
             }
@@ -499,8 +509,10 @@ export function SettlementSettingsSection({ venueId }: { venueId: string }) {
           </ol>
         </RuleHistory>
       )}
-      {open && data && (
+      {data && (
         <Form
+          key={session}
+          open={open}
           data={data}
           onClose={() => setOpen(false)}
           onSaved={(d) => {

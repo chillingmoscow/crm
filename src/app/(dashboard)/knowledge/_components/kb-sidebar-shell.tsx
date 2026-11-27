@@ -122,8 +122,8 @@ export function KbSidebarShell({
       className={cn(
         "fixed top-0 z-40 h-svh shrink-0 flex flex-col",
         "border-r bg-sidebar shadow-xl",
-        // Slide-in от main-сайдбара вправо. animate-in — tailwindcss-animate.
-        "animate-in fade-in slide-in-from-left-2 duration-150",
+        // Выезжает от основного меню вправо (docs/motion.md).
+        "motion-slide-in-left",
       )}
       style={{ left: leftOffset }}
     >

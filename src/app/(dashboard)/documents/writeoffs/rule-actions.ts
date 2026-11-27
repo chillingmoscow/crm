@@ -49,63 +49,61 @@ async function context(expected: string) {
 }
 async function loadStockRulesImpl(venueId: string): Promise<StockRuleData> {
   const s = await context(venueId);
-  const versions: DeductionRuleVersion[] = [];
-  for (let start = 0; start < 10000; start += 1000) {
-    const r = await s.db
-      .from<DeductionRuleVersion[]>("stock_deduction_rules")
-      .select(
-        "id,version,valid_from,config,reason,created_at,created_by,actor_name",
-      )
-      .eq("account_id", s.accountId)
-      .eq("venue_id", venueId)
-      .order("version", { ascending: false })
-      .range(start, start + 999);
-    if (r.error) throw new Error("Не удалось загрузить правила удержаний");
-    versions.push(...(r.data ?? []));
-    if ((r.data ?? []).length < 1000) break;
-    if (start === 9000)
-      throw new Error("Не удалось загрузить всю историю правил");
+  // Справочники постранично, но все разом: на проде каждая последовательная
+  // волна запросов стоит десятки миллисекунд, а здесь они независимы.
+  async function pages<T>(
+    build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+    failed: string,
+    tooMany: string,
+  ): Promise<T[]> {
+    const rows: T[] = [];
+    for (let start = 0; start < 10000; start += 1000) {
+      const r = await build(start, start + 999);
+      if (r.error) throw new Error(failed);
+      rows.push(...(r.data ?? []));
+      if ((r.data ?? []).length < 1000) return rows;
+    }
+    throw new Error(tooMany);
   }
-  const roles: StockRoleOption[] = [];
-  for (let start = 0; start < 10000; start += 1000) {
-    const r = await s.db
-      .from<StockRoleOption[]>("roles")
-      .select("id,name,archived_at,department_id")
-      .eq("venue_id", venueId)
-      .order("name")
-      .order("id")
-      .range(start, start + 999);
-    if (r.error) throw new Error("Не удалось загрузить должности");
-    roles.push(...(r.data ?? []));
-    if ((r.data ?? []).length < 1000) break;
-    if (start === 9000) throw new Error("Не удалось загрузить все должности");
-  }
-  // Archived assignments remain visible and removable, but cannot be newly saved.
-  const referenced = new Set(
-    versions.flatMap((v) => [
-      ...v.config.groups.flatMap((g) => g.roleIds),
-      ...v.config.excludedRoleIds,
-    ]),
-  );
-  const visibleRoles = roles.filter(
-    (r) => !r.archived_at || referenced.has(r.id),
-  );
-  const departments: StockDepartmentOption[] = [];
-  for (let start = 0; start < 10000; start += 1000) {
-    const r = await s.db
-      .from<StockDepartmentOption[]>("departments")
-      .select("id,name,archived_at")
-      .eq("venue_id", venueId)
-      .order("name")
-      .order("id")
-      .range(start, start + 999);
-    if (r.error) throw new Error("Не удалось загрузить подразделения");
-    departments.push(...(r.data ?? []));
-    if ((r.data ?? []).length < 1000) break;
-    if (start === 9000)
-      throw new Error("Не удалось загрузить все подразделения");
-  }
-  const [source, venue, account] = await Promise.all([
+  const [versions, roles, departments, source, venue, account] = await Promise.all([
+    pages<DeductionRuleVersion>(
+      (from, to) =>
+        s.db
+          .from<DeductionRuleVersion[]>("stock_deduction_rules")
+          .select(
+            "id,version,valid_from,config,reason,created_at,created_by,actor_name",
+          )
+          .eq("account_id", s.accountId)
+          .eq("venue_id", venueId)
+          .order("version", { ascending: false })
+          .range(from, to),
+      "Не удалось загрузить правила удержаний",
+      "Не удалось загрузить всю историю правил",
+    ),
+    pages<StockRoleOption>(
+      (from, to) =>
+        s.db
+          .from<StockRoleOption[]>("roles")
+          .select("id,name,archived_at,department_id")
+          .eq("venue_id", venueId)
+          .order("name")
+          .order("id")
+          .range(from, to),
+      "Не удалось загрузить должности",
+      "Не удалось загрузить все должности",
+    ),
+    pages<StockDepartmentOption>(
+      (from, to) =>
+        s.db
+          .from<StockDepartmentOption[]>("departments")
+          .select("id,name,archived_at")
+          .eq("venue_id", venueId)
+          .order("name")
+          .order("id")
+          .range(from, to),
+      "Не удалось загрузить подразделения",
+      "Не удалось загрузить все подразделения",
+    ),
     s.db
       .from<{ origin: Record<string, unknown> }>("stock_writeoff_sources")
       .select("origin")
@@ -120,6 +118,16 @@ async function loadStockRulesImpl(venueId: string): Promise<StockRuleData> {
       .single(),
     s.client.from("accounts").select("owner_id").eq("id", s.accountId).single(),
   ]);
+  // Archived assignments remain visible and removable, but cannot be newly saved.
+  const referenced = new Set(
+    versions.flatMap((v) => [
+      ...v.config.groups.flatMap((g) => g.roleIds),
+      ...v.config.excludedRoleIds,
+    ]),
+  );
+  const visibleRoles = roles.filter(
+    (r) => !r.archived_at || referenced.has(r.id),
+  );
   if (source.error || venue.error || account.error)
     throw new Error("Не удалось загрузить настройки заведения");
   const fallback: DeductionRules = {

@@ -102,3 +102,20 @@ export function formatDayMonthTime(
   }).format(date);
   return `${day}, ${time}`;
 }
+
+/**
+ * «пятница, 27 ноября» — день недели и дата в строке приветствия и лентах.
+ * С заглавной буквы — забота вызывающего (в начале строки «Пятница, …»).
+ */
+export function formatWeekdayDayMonth(
+  value: string | Date | null | undefined,
+  now: Date = new Date(),
+  timeZone?: string,
+): string | null {
+  const z = zoned(value, timeZone);
+  if (!z) return null;
+  return new Intl.DateTimeFormat("ru-RU", {
+    weekday: "long",
+    ...dayMonthParts(z.date, now, z.timeZone, timeZone),
+  }).format(z.date);
+}

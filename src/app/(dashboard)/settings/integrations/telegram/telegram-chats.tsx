@@ -1,6 +1,13 @@
 "use client";
 import { useState, useTransition } from "react";
-import { Archive, ArchiveRestore, MoreHorizontal, Pencil, ShieldCheck } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  ChevronRight,
+  MoreHorizontal,
+  Pencil,
+  ShieldCheck,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +19,7 @@ import { DrawerSection } from "@/components/ui/drawer-blocks";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { MultiOptionPicker } from "@/components/shared/multi-option-picker";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { ExpandPanel } from "@/components/shared/overview-toggle";
 import { ProfileSectionAddButton } from "@/components/shared/profile-section";
 import { candidateError } from "@/lib/candidates/errors";
 import { cn } from "@/lib/utils";
@@ -55,8 +63,10 @@ export function TelegramChats({ chats, roles }: { chats: TelegramChatRow[]; role
       actions={<ProfileSectionAddButton onClick={() => setDraft(empty)}>Добавить чат</ProfileSectionAddButton>}>
       {live.length ? <ul className="divide-y">{live.map(row)}</ul> : <IntegrationNotice>Чатов пока нет</IntegrationNotice>}
       {archived.length ? <div className="space-y-3 border-t pt-3">
-        <button type="button" className="text-[13px] text-muted-foreground hover:text-foreground" onClick={() => setShowArchive(v => !v)}>{showArchive ? "Скрыть архив" : `Архив · ${archived.length}`}</button>
-        {showArchive ? <ul className="divide-y">{archived.map(row)}</ul> : null}
+        <button type="button" aria-expanded={showArchive} className="inline-flex items-center gap-1 text-[13px] text-muted-foreground transition-colors duration-200 hover:text-foreground" onClick={() => setShowArchive(v => !v)}>
+          <ChevronRight className={cn("motion-chevron size-3.5", showArchive && "rotate-90")} />Архив · {archived.length}
+        </button>
+        <ExpandPanel open={showArchive}><ul className="divide-y">{archived.map(row)}</ul></ExpandPanel>
       </div> : null}
     </IntegrationSection>
     <EditDrawer open={!!draft} onOpenChange={o => { if (!o && !busy) close(); }} title={draft?.id ? `Чат «${draft.title || "без названия"}»` : "Новый чат"} description="Бот должен быть администратором чата с правом приглашать и блокировать участников"

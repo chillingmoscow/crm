@@ -1,4 +1,5 @@
 "use client";
+import { useExitValue } from "@/hooks/use-exit-value";
 import Link from "next/link";
 import Image from "next/image";
 import { useRef, useState, useTransition, type ReactNode } from "react";
@@ -7,7 +8,9 @@ import {
   Pencil,
   MoreHorizontal,
   CalendarPlus,
+  CalendarClock,
   UserCheck,
+  UserRound,
   Trash2,
   Phone,
   ExternalLink,
@@ -83,6 +86,13 @@ export function CandidateDetailClient({
     [removingFile, setRemovingFile] = useState<CandidateFile | null>(null),
     [removeError, setRemoveError] = useState<string | null>(null),
     [busy, start] = useTransition();
+  // Панели держим смонтированными, пока они уезжают (docs/motion.md).
+  const shownEditing = useExitValue(editing),
+    shownHiring = useExitValue(hiring),
+    viewingOpen = meeting === undefined ? viewing : null,
+    shownViewing = useExitValue(viewingOpen),
+    // undefined — панель закрыта, null — новое назначение.
+    shownMeeting = useExitValue(meeting === undefined ? null : { appointment: meeting });
   const fileInput = useRef<HTMLInputElement>(null);
   const c = data.candidate,
     photo = data.files.find((file) => file.url && file.mime_type?.startsWith("image/"))?.url,
@@ -127,13 +137,14 @@ export function CandidateDetailClient({
         <ProfileHeader name={c.full_name} avatarUrl={photo} wrapName actions={
           <>
             {canEdit && !c.hired_user_id && !data.hire && ["new", "review", "interview"].includes(c.status) && (
-              canTrial ? <Button onClick={() => openMeeting("trial")}><CalendarPlus className="mr-2 size-4" />Назначить стажировку</Button>
-                : latestInterview ? <Button onClick={() => setViewing(latestInterview)}>Открыть собеседование</Button>
-                  : <Button onClick={() => openMeeting("interview")}><CalendarPlus className="mr-2 size-4" />Назначить собеседование</Button>
+              canTrial ? <Button size="sm" onClick={() => openMeeting("trial")}><CalendarPlus />Назначить стажировку</Button>
+                : latestInterview ? <Button size="sm" onClick={() => setViewing(latestInterview)}><CalendarClock />Открыть собеседование</Button>
+                  : <Button size="sm" onClick={() => openMeeting("interview")}><CalendarPlus />Назначить собеседование</Button>
             )}
             {c.hired_user_id ? (
-              <Button asChild>
+              <Button size="sm" asChild>
                 <Link href={`/people/staff/${c.hired_user_id}`}>
+                  <UserRound />
                   Открыть сотрудника
                 </Link>
               </Button>
@@ -141,7 +152,7 @@ export function CandidateDetailClient({
               // Блок рисуется только на «Стажировке» или при начатом
               // оформлении — в обоих случаях кнопка доступна, поэтому ни
               // disabled, ни подсказки про этап здесь не нужно.
-              <Button onClick={() => setHiring(true)}>
+              <Button size="sm" onClick={() => setHiring(true)}>
                 <UserCheck />
                 {data.hire?.state === "reserved"
                   ? "Продолжить оформление"
@@ -151,7 +162,7 @@ export function CandidateDetailClient({
             {canEdit || permissions.owner ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="icon" aria-label="Действия с кандидатом" disabled={busy}>
+                  <Button variant="outline" size="icon" className="size-9" aria-label="Действия с кандидатом" disabled={busy}>
                     <MoreHorizontal className="size-4" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -472,8 +483,9 @@ export function CandidateDetailClient({
           });
         }}
       />
-      {editing ? (
+      {shownEditing ? (
         <CandidateForm
+          open={editing}
           candidate={c}
           onClose={() => setEditing(false)}
           onSaved={() => {
@@ -481,8 +493,9 @@ export function CandidateDetailClient({
           }}
         />
       ) : null}
-      {hiring ? (
+      {shownHiring ? (
         <HireDrawer
+          open={hiring}
           detail={data}
           options={options}
           onClose={() => setHiring(false)}
@@ -492,14 +505,16 @@ export function CandidateDetailClient({
           }}
         />
       ) : null}
-      {viewing && meeting === undefined && <CandidateAppointmentDetails key={viewing.id} candidateId={c.id} appointment={viewing} candidateName={c.full_name} options={options} editable={canEdit}
+      {shownViewing && <CandidateAppointmentDetails key={shownViewing.id} open={!!viewingOpen} candidateId={c.id} appointment={shownViewing} candidateName={c.full_name} options={options} editable={canEdit}
         onClose={() => setViewing(null)}
-        onSchedule={() => openMeeting(viewing.kind, viewing)}
-        onSaved={async () => { const next = await refresh(); setViewing(next.appointments.find((a) => a.id === viewing.id) ?? null); }} />}
-      {meeting !== undefined ? (
+        onSchedule={() => openMeeting(shownViewing.kind, shownViewing)}
+        onSaved={async () => { const next = await refresh(); setViewing(next.appointments.find((a) => a.id === shownViewing.id) ?? null); }} />}
+      {shownMeeting ? (
         <CandidateAppointmentDrawer
+          key={`${shownMeeting.appointment?.id ?? "new"}-${meetingKind}`}
+          open={meeting !== undefined}
           candidateId={c.id}
-          appointment={meeting}
+          appointment={shownMeeting.appointment}
           initialKind={meetingKind}
           canScheduleTrial={canTrial}
           options={options}

@@ -1,5 +1,6 @@
 "use client";
 
+import { MotionPresence } from "@/components/shared/motion-presence";
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -274,7 +275,7 @@ export function RolesClient({
               <div className="flex min-w-0 items-center gap-2">
                 <Link
                   href={`/people/roles/${role.id}`}
-                  className="truncate font-medium hover:underline"
+                  className="truncate font-medium transition-colors duration-200 hover:text-brand"
                   data-tip={role.name}
                 >
                   {role.name}
@@ -308,7 +309,7 @@ export function RolesClient({
         return name ? (
           <Link
             href={`/people/departments/${row.original.department_id}`}
-            className="block truncate hover:underline"
+            className="block truncate transition-colors duration-200 hover:text-brand"
             data-tip={name}
           >
             {name}
@@ -490,7 +491,7 @@ export function RolesClient({
         }}
         onReset={resetConditions}
       >
-        {(filtersOpen || !!filter.department) && (
+        <MotionPresence show={filtersOpen || !!filter.department}>
           <TableFilterChip
             label="Подразделение"
             value={filter.department}
@@ -504,8 +505,8 @@ export function RolesClient({
               ...departments.map((d) => ({ value: d.id, label: d.name })),
             ]}
           />
-        )}
-        {(filtersOpen || !!filter.imported) && (
+        </MotionPresence>
+        <MotionPresence show={filtersOpen || !!filter.imported}>
           <TableFilterChip
             label="Импорт из Quick Resto"
             value={filter.imported}
@@ -519,7 +520,7 @@ export function RolesClient({
               { value: "no", label: "Только созданные вручную" },
             ]}
           />
-        )}
+        </MotionPresence>
       </TableConditions>
 
       {roles.length === 0 ? (

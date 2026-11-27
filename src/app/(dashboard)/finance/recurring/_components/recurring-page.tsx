@@ -1,5 +1,6 @@
 "use client";
 
+import { useExitValue } from "@/hooks/use-exit-value";
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -16,6 +17,7 @@ import {
   Pause,
   PencilLine,
   Play,
+  Plus,
   Repeat,
   SearchX,
   Trash2,
@@ -215,6 +217,9 @@ export function RecurringPage({
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Row | null>(null);
   const [deleteImpact, setDeleteImpact] = useState<DeleteImpact[]>([]);
+  // Окно держим смонтированным, пока оно закрывается (docs/motion.md): в нём
+  // остаются прежние название и последствия, а не сброшенные.
+  const shownDelete = useExitValue(deleteTarget && { target: deleteTarget, impact: deleteImpact });
   const deleteRequest = useRef<string | null>(null);
 
   // Что уйдёт вместе с шаблоном — считаем при открытии диалога (как у контрагентов).
@@ -344,7 +349,7 @@ export function RecurringPage({
             ) : (
               <button
                 type="button"
-                className="block max-w-full truncate text-left font-medium hover:underline"
+                className="block max-w-full truncate text-left font-medium transition-colors duration-200 hover:text-brand"
                 data-tip={item.name}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -533,7 +538,12 @@ export function RecurringPage({
               : "Повторяющиеся платежи заводит сотрудник с правом создавать операции"
         }
         action={
-          canManage ? <Button onClick={() => setFormMode({ kind: "create" })}>Создать</Button> : undefined
+          canManage ? (
+            <Button onClick={() => setFormMode({ kind: "create" })}>
+              <Plus className="size-4" />
+              Новый платёж
+            </Button>
+          ) : undefined
         }
       />
     );
@@ -655,7 +665,10 @@ export function RecurringPage({
             }
             primaryActions={
               canManage && !showArchive ? (
-                <Button onClick={() => setFormMode({ kind: "create" })}>Создать</Button>
+                <Button size="sm" onClick={() => setFormMode({ kind: "create" })}>
+                  <Plus className="size-4" />
+                  Новый платёж
+                </Button>
               ) : null
             }
           />
@@ -735,9 +748,9 @@ export function RecurringPage({
         onConfirm={() => void confirmArchive()}
       />
 
-      {deleteTarget ? (
+      {shownDelete ? (
         <HardDeleteConfirmDialog
-          open
+          open={!!deleteTarget}
           onOpenChange={(open) => {
             if (!open) {
               deleteRequest.current = null;
@@ -745,15 +758,15 @@ export function RecurringPage({
             }
           }}
           entityGenitive="повторяющийся платёж"
-          entityName={deleteTarget.name}
-          impact={deleteImpact}
+          entityName={shownDelete.target.name}
+          impact={shownDelete.impact}
           restrictedBy={[]}
           onConfirm={async () => {
-            const result = await deleteRecurringTemplate(deleteTarget.id).catch(() => ({
+            const result = await deleteRecurringTemplate(shownDelete.target.id).catch(() => ({
               error: NETWORK_ERROR,
             }));
             if (result.error) return { error: result.error };
-            toast.success(`Платёж «${deleteTarget.name}» удалён`);
+            toast.success(`Платёж «${shownDelete.target.name}» удалён`);
             setDeleteTarget(null);
             router.refresh();
           }}

@@ -134,7 +134,7 @@ export function VenuesClient({
             </span>
             <Link
               href={`/org/venues/${v.id}`}
-              className="min-w-0 truncate font-medium hover:underline"
+              className="min-w-0 truncate font-medium transition-colors duration-200 hover:text-brand"
               data-tip={v.name}
             >
               {v.name}

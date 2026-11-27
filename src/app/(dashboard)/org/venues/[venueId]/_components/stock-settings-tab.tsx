@@ -83,7 +83,7 @@ function ShareSummary({
             >
               <Link
                 href={`/people/departments/${d.id}`}
-                className="min-w-0 truncate text-brand underline-offset-4 hover:underline"
+                className="min-w-0 truncate transition-colors duration-200 hover:text-brand"
               >
                 {d.name}
                 {d.archived_at ? " · в архиве" : ""}

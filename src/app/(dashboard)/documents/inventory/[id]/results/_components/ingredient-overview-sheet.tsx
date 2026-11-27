@@ -3,10 +3,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ExternalLink, Loader2 } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
 import { getInventoryIngredientOverview } from "@/app/(dashboard)/inventory/_actions/catalog";
 import type { IngredientDetail } from "@/lib/inventory/ingredients";
@@ -61,7 +62,7 @@ export function IngredientOverviewSheet({
         !loading && !error && data ? (
           <Button asChild variant="outline">
             <Link href={`/catalog/ingredients/${data.id}`}>
-              <ExternalLink className="mr-2 h-4 w-4" />
+              <ExternalLink className="h-4 w-4" />
               Открыть карточку
             </Link>
           </Button>
@@ -69,9 +70,17 @@ export function IngredientOverviewSheet({
       }
     >
       {loading ? (
-        <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Загрузка…
+        // Скелетон по форме обзора: фото и сетка полей 2×3.
+        <div role="status" aria-label="Загружаем ингредиент" className="space-y-4">
+          <Skeleton className="h-40 w-full rounded-lg" />
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            {Array.from({ length: 6 }, (_, i) => (
+              <div key={i} className="space-y-1.5">
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-4 w-24" />
+              </div>
+            ))}
+          </div>
         </div>
       ) : error ? (
         <div className="py-10 text-sm text-destructive">{error}</div>

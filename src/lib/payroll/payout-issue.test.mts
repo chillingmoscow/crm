@@ -2,6 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { CashControlReport } from "../sales/cash-control.ts";
 import {
+  autoIssueDecision,
+  autoIssuedReportText,
+  splitShortfall,
+  autoReportText,
   cashAvailable,
   distributeCash,
   payoutMessage,
@@ -96,14 +100,14 @@ test("distributeCash with available ≤ 0 → no lines", () => {
   assert.deepEqual(distributeCash([due("g", "Гамлет", 65000)], 4000, 5000).lines, []);
 });
 
-test("payoutMessage", () => {
+test("payoutMessage: заголовок, сотрудники списком, итог отдельно", () => {
   assert.equal(
     payoutMessage([{ name: "Гамлет Геворкян", amount: 65000 }, { name: "Хасият Алиева", amount: 7500 }]),
-    "Выдайте плиз и проведите:\nГамлет Геворкян — 65К\nХасият Алиева — 7 500\nИтого 72 500 — одним изъятием, в комментарии «ЗП»",
+    "Зарплата на сегодня — выдайте из кассы:\n\n• Гамлет Геворкян — 65К\n• Хасият Алиева — 7 500\n\nИтого: 72 500\nПроведите одним изъятием с комментарием «ЗП».",
   );
   assert.equal(
     payoutMessage([{ name: "Гамлет", amount: 65000 }, { name: "Филипп", amount: 45000 }]),
-    "Выдайте плиз и проведите:\nГамлет — 65К\nФилипп — 45К\nИтого 110К — одним изъятием, в комментарии «ЗП»",
+    "Зарплата на сегодня — выдайте из кассы:\n\n• Гамлет — 65К\n• Филипп — 45К\n\nИтого: 110К\nПроведите одним изъятием с комментарием «ЗП».",
   );
 });
 
@@ -113,4 +117,52 @@ test("distributeCash: a capped row given its whole due closes the row", () => {
   assert.deepEqual(lines.map((l) => [l.name, l.amount, l.close]), [["Гамлет", 10000, true], ["Филипп", 20000, false]]);
   // Частичная выдача урезанной строки её не закрывает.
   assert.equal(distributeCash([{ ...due("g", "Гамлет", 10000), capped: true }], 5000, 5000).lines[0].close, false);
+});
+
+test("autoIssueDecision: nobody due today is skipped silently, other problems are reported", () => {
+  assert.equal(autoIssueDecision({ problem: "Сегодня по плану выдавать некому" }), "skip");
+  assert.equal(autoIssueDecision({ problem: "Нет данных о наличных в кассах" }), "report");
+  assert.equal(autoIssueDecision({ problem: "В кассах меньше минимума" }), "report");
+  assert.equal(autoIssueDecision({ problem: null }), "issue");
+});
+
+test("autoReportText names the day, the reason and what to do", () => {
+  assert.equal(
+    autoReportText("CHILLING MOSCOW", "2026-11-25", "Нет данных о наличных в кассах", ["Филипп Смирнов", "Никита Волков"]),
+    "Зарплата 25.11, CHILLING MOSCOW: выдача по плану не проведена. Нет данных о наличных в кассах.\n" +
+      "Ждут выдачи: Филипп Смирнов, Никита Волков.\n" +
+      "Выдайте вручную: Зарплата → План выплат → «Выдать сейчас».",
+  );
+});
+
+test("splitShortfall: who moves to the next shift and who needs a day picked", () => {
+  const short = [
+    due("p", "Частичный без смены", 30000, null),
+    due("q", "Частичный со сменой", 30000, "2026-11-27"),
+    due("n", "Без выдачи без смены", 20000, null),
+    due("m", "Без выдачи со сменой", 20000, "2026-11-28"),
+  ];
+  const lines = [
+    { row_id: "p", employee_id: "p", name: "Частичный без смены", amount: 10000, next_pay_date: null, close: false },
+    { row_id: "q", employee_id: "q", name: "Частичный со сменой", amount: 10000, next_pay_date: "2026-11-27", close: false },
+  ];
+  const { moves, notMoved } = splitShortfall(lines, short);
+  assert.deepEqual(moves.map((r) => r.row_id), ["m"]);
+  assert.deepEqual(notMoved, ["Частичный без смены (остаток)", "Без выдачи без смены"]);
+});
+
+test("autoIssuedReportText: silent when all is fine, lists every problem otherwise", () => {
+  assert.equal(autoIssuedReportText("2026-11-25", { messageFailed: false, message: "x", notMoved: [], movedSchedule: [] }), null);
+  assert.equal(
+    autoIssuedReportText("2026-11-25", {
+      messageFailed: true,
+      message: "Выдайте плиз и проведите:\nГамлет Геворкян — 65К",
+      notMoved: ["Филипп Смирнов (остаток)"],
+      movedSchedule: ["Татьяна Явных"],
+    }),
+    "Зарплата 25.11: выдача по плану проведена.\n" +
+      "Сообщение менеджерам не ушло, отправьте сами:\nВыдайте плиз и проведите:\nГамлет Геворкян — 65К\n" +
+      "Нет следующей смены в окне, выберите день в плане: Филипп Смирнов (остаток).\n" +
+      "На другом графике выплат, по плану не выдано: Татьяна Явных.",
+  );
 });

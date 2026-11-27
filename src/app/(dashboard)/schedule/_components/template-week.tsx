@@ -9,6 +9,7 @@ import type { TaskOccurrence } from "@/lib/schedule/tasks";
 import { dateInZone, dayLabel } from "@/lib/schedule/utils";
 import { isoWeekday } from "./editors";
 import { TemplateName } from "./template-name";
+import { TodayClock } from "./shift-live";
 import { gridScrollClass, useGridFits } from "./use-grid-fits";
 import { DROP_OK_CELL_CLASS, DROP_REFUSED_CELL_CLASS, TODAY_CELL_CLASS } from "./grid-row-person";
 
@@ -24,12 +25,14 @@ export type SlotDrop = {
 };
 
 export function TemplateWeek({
-  days, today, timezone, templates, shifts, visibleShifts, tasks, showVacancies,
+  days, today, timezone, nowTime = null, templates, shifts, visibleShifts, tasks, showVacancies,
   onAssign, slotDrop, renderShift, renderTask, empty,
 }: {
   days: string[];
   today: string;
   timezone: string;
+  /** Время заведения сейчас («14:32») — рядом с сегодняшним днём. */
+  nowTime?: string | null;
   templates: ShiftTemplate[];
   shifts: Shift[];
   visibleShifts: Shift[];
@@ -157,6 +160,7 @@ export function TemplateWeek({
             <div className="border-b bg-muted/50 py-1.5 pl-4 pr-2">
               <h3 className={cn("py-1.5 text-sm font-medium first-letter:uppercase", day === today && "text-brand")}>
                 {dayLabel(day, { weekday: "long", day: "numeric", month: "long" })}
+                {day === today && <TodayClock time={nowTime} />}
               </h3>
             </div>
             <div className="grid gap-3 p-3">
@@ -212,6 +216,7 @@ export function TemplateWeek({
             {days.map((day) => (
               <th key={day} scope="col" className={cn("border-b border-l px-2 py-3 text-center text-xs font-medium", day === today && "bg-brand/10 text-brand")}>
                 {dayLabel(day, { weekday: "short", day: "numeric" })}
+                {day === today && <TodayClock time={nowTime} />}
               </th>
             ))}
           </tr>

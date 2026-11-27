@@ -337,7 +337,7 @@ export function PayrollJournal({
           if (id === "employee") {
             const e = data.employees.find((e) => e.id === r.employee_id);
             return (
-              <PayrollEmployeeCell name={e?.name ?? "Сотрудник"} role={e?.role_name} avatarUrl={e?.avatar_url} />
+              <PayrollEmployeeCell name={e?.name ?? "Сотрудник"} role={e?.role_name} avatarUrl={e?.avatar_url} href={e ? `/people/payroll/${e.id}?month=${month.slice(0, 7)}` : undefined} />
             );
           }
           if (id === "kind")
@@ -370,7 +370,7 @@ export function PayrollJournal({
           return <span className="line-clamp-2" data-tip={r.reason}>{r.reason}</span>;
         },
       })),
-    [data.employees, paidBonuses],
+    [data.employees, paidBonuses, month],
   );
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -437,7 +437,7 @@ export function PayrollJournal({
           <>
             {actions}
             {canWrite && (
-              <DropdownMenu><DropdownMenuTrigger asChild><Button><Plus size={15}/>Добавить запись</Button></DropdownMenuTrigger><DropdownMenuContent align="end"><PayrollEntryMenuItems onSelect={(kind) => {setCreateKind(kind);setCreating(true);}}/></DropdownMenuContent></DropdownMenu>
+              <DropdownMenu><DropdownMenuTrigger asChild><Button size="sm"><Plus size={16}/>Добавить запись</Button></DropdownMenuTrigger><DropdownMenuContent align="end"><PayrollEntryMenuItems onSelect={(kind) => {setCreateKind(kind);setCreating(true);}}/></DropdownMenuContent></DropdownMenu>
             )}
           </>
         }
@@ -805,7 +805,8 @@ export function PayrollEntryForm({
   data: PayrollData;
   month: string;
   employeeId?: string;
-  initialKind?: "deduction" | "allowance";
+  /** Премия открывает ту же форму сразу на вкладке «Премия». */
+  initialKind?: "deduction" | "allowance" | "bonus";
   onCreated: (ids: string[]) => Promise<void>;
 }) {
   const [kind, setKind] = useState<"bonus" | "deduction" | "warning" | "allowance">(initialKind),

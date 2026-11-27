@@ -14,7 +14,7 @@ export function CandidateAppointmentRow({ appointment: a, options, onOpen }: {
   const status = appointmentOutcomeLabel(a.kind, a.outcome);
   return <button type="button" onClick={onOpen}
     aria-label={`Открыть ${a.kind === "interview" ? "собеседование" : "стажировку"}: ${dateLabel(a.appointment_date)}, ${status}`}
-    className="group flex min-h-[76px] w-full min-w-0 items-center gap-3 rounded-lg px-3 py-3 text-left outline-none transition-colors duration-150 ease-out hover:bg-muted/40 active:bg-muted/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/60 motion-reduce:transition-none">
+    className="group flex min-h-[76px] w-full min-w-0 items-center gap-3 rounded-lg px-3 py-3 text-left outline-none transition-colors duration-200 hover:bg-muted/40 active:bg-muted/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/60 motion-reduce:transition-none">
     <span aria-hidden="true" className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground"><CalendarDays className="size-4" /></span>
     <span className="min-w-0 flex-1 space-y-1">
       <span className="block text-sm font-medium">{dateLabel(a.appointment_date)}</span>

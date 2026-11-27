@@ -1,10 +1,12 @@
 "use client";
+import { useExitValue } from "@/hooks/use-exit-value";
 import {
   officialAccountSelectable,
   paymentJournalRows,
   type PaymentJournalRow,
 } from "@/lib/payroll/payment-journal";
 import { canChangeOfficialAccount, checkingBanks } from "@/lib/payroll/official-payment";
+import { officialPaymentLabel } from "@/lib/payroll/official";
 import { countRu } from "@/lib/format/plural";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -122,7 +124,9 @@ export function PayrollPaymentsTable({
                 {row.original.kind}
                 {row.original.bonus && <small className="text-muted-foreground"> · Премия</small>}
               </span>
-              {row.original.official && <StatusBadge tone="info">Официальная</StatusBadge>}
+              {row.original.official && (
+                <StatusBadge tone="info">{officialPaymentLabel(row.original.agency)}</StatusBadge>
+              )}
             </span>
           ) : (
             row.original[id as "employee" | "kind" | "status"]
@@ -131,6 +135,8 @@ export function PayrollPaymentsTable({
     [data.timezone, data.adeskSync],
   );
   const selected = rows.find((row) => row.id === selectedId);
+  // Панели держим смонтированными, пока они уезжают (docs/motion.md).
+  const shownSelected = useExitValue(selected);
   // «Сменить счёт»: выбор только проведённых официальных выплат и только с
   // правами на проведение и удаление операций.
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
@@ -140,6 +146,8 @@ export function PayrollPaymentsTable({
   const selectedOfficial = selectable
     ? rows.filter((row) => rowSelection[row.id] && officialAccountSelectable(row))
     : [];
+  // Пока окно закрывается, в нём остаётся прежний выбор, а не сброшенный.
+  const shownAccountIds = useExitValue(accountOpen && selectedOfficial.map((row) => row.id));
   return (
     <div className={selectedOfficial.length ? "min-w-0 pb-28 md:pb-24" : "min-w-0"}>
       <PayrollTable
@@ -179,16 +187,17 @@ export function PayrollPaymentsTable({
           ),
         })}
       />
-      {selected && (
+      {shownSelected && (
         <PaymentDetails
-          key={`${selected.id}:${selected.posted}`}
-          row={selected}
+          key={`${shownSelected.id}:${shownSelected.posted}`}
+          open={!!selected}
+          row={shownSelected}
           data={data}
           busy={busy}
           onClose={() => setSelectedId(null)}
           onCancel={() => {
             setSelectedId(null);
-            void onCancel(selected.id);
+            void onCancel(shownSelected.id);
           }}
         />
       )}
@@ -205,10 +214,11 @@ export function PayrollPaymentsTable({
           }
         />
       )}
-      {accountOpen && (
+      {shownAccountIds && (
         <ChangeAccountDialog
+          open={accountOpen}
           data={data}
-          paymentIds={selectedOfficial.map((row) => row.id)}
+          paymentIds={shownAccountIds}
           onClose={() => setAccountOpen(false)}
           onDone={async () => {
             setAccountOpen(false);
@@ -223,11 +233,14 @@ export function PayrollPaymentsTable({
 
 /** Перенос выбранных официальных выплат на другой расчётный счёт. */
 function ChangeAccountDialog({
+  open = true,
   data,
   paymentIds,
   onClose,
   onDone,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   data: PayrollData;
   paymentIds: string[];
   onClose: () => void;
@@ -240,7 +253,7 @@ function ChangeAccountDialog({
   const count = countRu(paymentIds.length, "официальная выплата", "официальные выплаты", "официальных выплат");
   return (
     <ConfirmDialog
-      open
+      open={open}
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
@@ -387,12 +400,15 @@ function DetailSection({ title, children }: { title: string; children: React.Rea
 }
 
 export function PaymentDetails({
+  open = true,
   row,
   data,
   busy,
   onClose,
   onCancel,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   row: PaymentJournalRow;
   data: PayrollData;
   busy: boolean;
@@ -430,11 +446,19 @@ export function PaymentDetails({
   const adesk = data.adeskSync?.find((x) => x.payment_id === row.id);
   return (
     <PayrollDetailDialog
-      open
+      open={open}
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
-      title={row.bonus ? "Выплата премии" : row.official ? "Официальная выплата" : "Выплата"}
+      title={
+        row.bonus
+          ? "Выплата премии"
+          : row.agency
+            ? "Получено через агентство"
+            : row.official
+              ? "Официальная выплата"
+              : "Выплата"
+      }
       description={
         row.earningMonths.length
           ? `За ${row.earningMonths.map(monthName).join(", ")}`
@@ -446,7 +470,7 @@ export function PaymentDetails({
         avatarUrl: row.avatarUrl,
       }}
       amount={<Money value={row.amount} fraction />}
-      amountLabel="Выдано сотруднику"
+      amountLabel={row.agency ? "Получено через агентство" : "Выдано сотруднику"}
       status={<PaymentStatus posted={row.posted} />}
       footer={
         <div className="flex w-full items-center justify-between gap-2">
@@ -478,7 +502,12 @@ export function PaymentDetails({
           <TabsTrigger value="history">История</TabsTrigger>
         </TabsList>
         <TabsContent value="details" className="space-y-6">
-          {row.settledAmount !== undefined && (
+          {row.agency && (
+            <p className="text-sm text-muted-foreground">
+              Сотрудник получил деньги через агентство. Запись закрывает долг по зарплате без расхода в финансах и без налога.
+            </p>
+          )}
+          {row.settledAmount !== undefined && !row.agency && (
             <DetailSection title="Расчёт">
               <DetailRow label="Выдано на руки"><Money value={row.amount} fraction /></DetailRow>
               <DetailRow label="Удержан налог"><Money value={row.taxAmount ?? 0} fraction /></DetailRow>

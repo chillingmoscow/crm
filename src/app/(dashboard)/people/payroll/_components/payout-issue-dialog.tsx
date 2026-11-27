@@ -18,7 +18,13 @@ const time = (iso: string) =>
  * менеджеров. Проводит выплаты с кэшбокса и отправляет сообщение в чат.
  * Ключ выдачи живёт, пока открыта панель: повтор после сбоя не задвоит выплаты.
  */
-export function PayoutIssueDialog({ planId, onClose, onDone }: { planId: string; onClose: () => void; onDone: () => Promise<void> }) {
+export function PayoutIssueDialog({ open = true, planId, onClose, onDone }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
+  planId: string;
+  onClose: () => void;
+  onDone: () => Promise<void>;
+}) {
   const [preview, setPreview] = useState<IssuePreview | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -71,7 +77,7 @@ export function PayoutIssueDialog({ planId, onClose, onDone }: { planId: string;
 
   return (
     <PayrollDetailDialog
-      open
+      open={open}
       onOpenChange={(open) => { if (!open && !busy) onClose(); }}
       title="Выдать сегодня"
       description="Выплаты с кэшбокса и сообщение менеджерам"

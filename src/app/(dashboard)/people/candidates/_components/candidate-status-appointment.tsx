@@ -8,7 +8,9 @@ import { CandidateAppointmentDrawer } from "./candidate-appointment-drawer";
 import type { CandidateStatusUpdate } from "./candidate-status-cell";
 import { unwrapAction } from "@/lib/actions/result";
 
-export function CandidateStatusAppointment({ candidate, kind, options, onClose, onSaved }: {
+export function CandidateStatusAppointment({ open = true, candidate, kind, options, onClose, onSaved }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   candidate: Candidate;
   kind: Appointment["kind"];
   options: AppointmentOptions;
@@ -30,6 +32,7 @@ export function CandidateStatusAppointment({ candidate, kind, options, onClose, 
   }, [candidate.id, kind, retry]);
   return (
     <CandidateAppointmentDrawer
+      open={open}
       candidateId={candidate.id}
       appointment={kind === "interview" ? appointments?.find((a) => a.kind === "interview") ?? null : null}
       initialKind={kind}

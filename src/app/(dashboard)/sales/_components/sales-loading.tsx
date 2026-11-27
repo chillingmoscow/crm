@@ -28,9 +28,21 @@ export function SalesLoading({
         </div>
       </div>
       {tabs && <Skeleton className="h-9 w-48" />}
+      <SalesBodySkeleton chart={chart} />
+    </PageFrame>
+  );
+}
+
+/**
+ * Тело страницы «Продаж» без шапки: итоги, график и таблица. Тот же скелетон
+ * стоит на месте данных, пока грузится другой месяц или подразделение.
+ */
+export function SalesBodySkeleton({ chart = false }: { chart?: boolean }) {
+  return (
+    <>
       <Skeleton className="h-24 rounded-xl" />
       {chart && <Skeleton className="h-72 rounded-lg" />}
       <Skeleton className="h-80 rounded-lg" />
-    </PageFrame>
+    </>
   );
 }

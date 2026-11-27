@@ -164,6 +164,9 @@ export type ScheduleData = {
     role_id: string;
     role_name: string;
     model_id: string | null;
+    /** Разового перевели в штат: его прошлые смены подписаны этим именем,
+     *  а назначать на смены уже нужно штатного сотрудника. */
+    staff_user_id?: string | null;
   }[];
   payModels?: {
     id: string;

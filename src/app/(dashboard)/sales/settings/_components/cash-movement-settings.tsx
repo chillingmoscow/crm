@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { AmountInput } from "@/components/finance/amount-input";
 import { ProfileSection } from "@/components/shared/profile-section";
+import { ExpandPanel } from "@/components/shared/overview-toggle";
 import { countRu } from "@/lib/format/plural";
 import { formatDayMonthTime } from "@/lib/format/date";
 import {
@@ -58,10 +59,13 @@ function Choice({
   );
 }
 function Form({
+  open,
   data,
   onClose,
   onSaved,
 }: {
+  /** Панель держат смонтированной, пока она уезжает: закрывают через `open`. */
+  open: boolean;
   data: MovementConfiguration;
   onClose: () => void;
   onSaved: (d: MovementConfiguration) => void;
@@ -120,7 +124,7 @@ function Form({
     );
   return (
     <EditDrawer
-      open
+      open={open}
       onOpenChange={(v) => {
         if (!v && !busy) onClose();
       }}
@@ -250,13 +254,14 @@ function Form({
               variant="ghost"
               size="sm"
               aria-expanded={patternsOpen}
+              aria-controls="movement-patterns"
               onClick={() => setPatternsOpen(!patternsOpen)}
             >
               {patternsOpen ? "Скрыть" : "Показать"}
             </Button>
           }
         >
-          {patternsOpen && (
+          <ExpandPanel id="movement-patterns" open={patternsOpen}>
             <div className="space-y-4">
               {(
                 [
@@ -277,7 +282,7 @@ function Form({
                 </Field>
               ))}
             </div>
-          )}
+          </ExpandPanel>
         </DrawerSection>
         <DrawerSection
           title={`Ручные решения · ${rules.overrides.length}`}
@@ -287,13 +292,14 @@ function Form({
               variant="ghost"
               size="sm"
               aria-expanded={overridesOpen}
+              aria-controls="movement-overrides"
               onClick={() => setOverridesOpen(!overridesOpen)}
             >
               {overridesOpen ? "Скрыть" : "Показать"}
             </Button>
           }
         >
-          {overridesOpen && (
+          <ExpandPanel id="movement-overrides" open={overridesOpen}>
             <div className="space-y-4">
               {rules.overrides.length > 0 && (
                 <div className="divide-y">
@@ -440,7 +446,7 @@ function Form({
                   ])
                 }
               >
-                <Plus className="mr-2 size-4" />
+                <Plus className="size-4" />
                 Добавить решение
               </Button>
               <p className="text-xs text-muted-foreground">
@@ -448,7 +454,7 @@ function Form({
                 Изменившаяся операция требует новой проверки.
               </p>
             </div>
-          )}
+          </ExpandPanel>
         </DrawerSection>
         <Field id="movement-reason" label="Основание изменения правил" required>
           {(control) => (
@@ -474,6 +480,13 @@ export function CashMovementSettingsSection({ venueId }: { venueId: string }) {
   const [data, setData] = useState<MovementConfiguration | null>(null),
     [error, setError] = useState<string | null>(null),
     [open, setOpen] = useState(false);
+  // Форму держим смонтированной, пока панель уезжает (docs/motion.md);
+  // каждое открытие — новый ключ, форма начинается с сохранённых данных.
+  const [session, setSession] = useState(0);
+  const openForm = () => {
+    setSession((n) => n + 1);
+    setOpen(true);
+  };
   useEffect(() => {
     let live = true;
     loadMovementConfiguration(venueId)
@@ -495,7 +508,7 @@ export function CashMovementSettingsSection({ venueId }: { venueId: string }) {
       description="Переводы из кассы, такси и выдача чаевых"
       actions={
         data ? (
-          <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+          <Button variant="outline" size="sm" onClick={() => openForm()}>
             <Settings2 />
             Настроить
           </Button>
@@ -536,8 +549,10 @@ export function CashMovementSettingsSection({ venueId }: { venueId: string }) {
           </ol>
         </RuleHistory>
       )}
-      {open && data && (
+      {data && (
         <Form
+          key={session}
+          open={open}
           data={data}
           onClose={() => setOpen(false)}
           onSaved={(d) => {

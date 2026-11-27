@@ -35,7 +35,9 @@ function reportPayload(a: Appointment, report: Report) {
     ...(report.smiled ? { smiled: report.smiled === "occasionally" ? "occasionally" : report.smiled === "true" } : {}),
   } : {} };
 }
-export function CandidateAppointmentDetails({ candidateId, appointment: a, candidateName, options, editable, onClose, onSchedule, onSaved }: {
+export function CandidateAppointmentDetails({ open = true, candidateId, appointment: a, candidateName, options, editable, onClose, onSchedule, onSaved }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   candidateId: string; appointment: Appointment; candidateName: string; options: AppointmentOptions; editable: boolean;
   onClose: () => void; onSchedule: () => void; onSaved: () => Promise<void>;
 }) {
@@ -62,7 +64,7 @@ export function CandidateAppointmentDetails({ candidateId, appointment: a, candi
     } catch (error) { toast.error(appointmentError(error, a.kind)); }
   });
   return <>
-    <EditDrawer open title={APPOINTMENT_TITLES[a.kind]} description={candidateName}
+    <EditDrawer open={open} title={APPOINTMENT_TITLES[a.kind]} description={candidateName}
       titleAccessory={<DrawerStatus label={appointmentOutcomeLabel(a.kind, a.outcome)} tone={APPOINTMENT_OUTCOME_TONES[a.outcome]} />}
       onOpenChange={(open) => { if (!open) requestAction("close"); }}
       footer={<><Button variant="outline" disabled={busy} onClick={() => requestAction("close")}>Закрыть</Button>{editable && <Button disabled={busy || !dirty || !report.outcome || (commentRequired && !report.notes.trim()) || futureResult} onClick={save}>Сохранить</Button>}</>}>

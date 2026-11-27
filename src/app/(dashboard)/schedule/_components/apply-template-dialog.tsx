@@ -22,6 +22,7 @@ import { unwrapAction } from "@/lib/actions/result";
  * смены по нему — начиная с выбранной даты.
  */
 export function ApplyTemplateDialog({
+  open = true,
   template,
   previousTitle,
   shifts,
@@ -29,6 +30,8 @@ export function ApplyTemplateDialog({
   onClose,
   onApplied,
 }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   template: ShiftTemplate;
   previousTitle: string;
   shifts: Shift[];
@@ -89,7 +92,7 @@ export function ApplyTemplateDialog({
     }
   };
   return (
-    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
+    <Dialog open={open} onOpenChange={(next) => !next && !busy && onClose()}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Обновить смены по шаблону?</DialogTitle>

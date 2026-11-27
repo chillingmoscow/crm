@@ -116,11 +116,70 @@ export function formatPayoutAmount(amount: number): string {
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 }
 
+/**
+ * Сообщение менеджерам о выдаче: заголовок, сотрудники списком, итог
+ * отдельной строкой, как провести — последней (Павел, 26.11: «чтобы
+ * выглядело симпатично»). Обычный текст, без разметки: имена не экранируем.
+ */
 export function payoutMessage(lines: { name: string; amount: number }[]): string {
   const total = lines.reduce((s, l) => s + l.amount, 0);
   return [
-    "Выдайте плиз и проведите:",
-    ...lines.map((l) => `${l.name} — ${formatPayoutAmount(l.amount)}`),
-    `Итого ${formatPayoutAmount(total)} — одним изъятием, в комментарии «ЗП»`,
+    "Зарплата на сегодня — выдайте из кассы:",
+    "",
+    ...lines.map((l) => `• ${l.name} — ${formatPayoutAmount(l.amount)}`),
+    "",
+    `Итого: ${formatPayoutAmount(total)}`,
+    "Проведите одним изъятием с комментарием «ЗП».",
   ].join("\n");
+}
+
+export const NOBODY_DUE = "Сегодня по плану выдавать некому";
+
+/** Автовыдача: некому — молча пропускаем; другая причина — сообщаем; иначе выдаём. */
+export function autoIssueDecision(preview: { problem: string | null }): "skip" | "report" | "issue" {
+  if (!preview.problem) return "issue";
+  return preview.problem === NOBODY_DUE ? "skip" : "report";
+}
+
+/** Сообщение в чат отчётов, если автовыдача не прошла. */
+export function autoReportText(venue: string, day: string, reason: string, waiting: string[]): string {
+  return [
+    `Зарплата ${day.slice(8, 10)}.${day.slice(5, 7)}, ${venue}: выдача по плану не проведена. ${reason}.`,
+    waiting.length ? `Ждут выдачи: ${waiting.join(", ")}.` : null,
+    "Выдайте вручную: Зарплата → План выплат → «Выдать сейчас».",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * Кому не хватило наличных: без выдачи и со следующей сменой в окне —
+ * переносим; без следующей смены (и частично выданных, и вовсе без выдачи) —
+ * просим выбрать день вручную.
+ */
+export function splitShortfall(lines: IssueLine[], short: DueRow[]): { moves: DueRow[]; notMoved: string[] } {
+  const moves: DueRow[] = [];
+  const notMoved: string[] = [];
+  for (const row of short) {
+    const line = lines.find((l) => l.row_id === row.row_id);
+    if (line) {
+      if (!line.next_pay_date) notMoved.push(`${row.name} (остаток)`);
+    } else if (row.next_pay_date) moves.push(row);
+    else notMoved.push(row.name);
+  }
+  return { moves, notMoved };
+}
+
+/** Отчёт после автовыдачи: null — всё прошло, говорить не о чем. */
+export function autoIssuedReportText(
+  day: string,
+  o: { messageFailed: boolean; message: string; notMoved: string[]; movedSchedule: string[] },
+): string | null {
+  const parts = [
+    o.messageFailed ? `Сообщение менеджерам не ушло, отправьте сами:\n${o.message}` : null,
+    o.notMoved.length ? `Нет следующей смены в окне, выберите день в плане: ${o.notMoved.join(", ")}.` : null,
+    o.movedSchedule.length ? `На другом графике выплат, по плану не выдано: ${o.movedSchedule.join(", ")}.` : null,
+  ].filter(Boolean);
+  if (!parts.length) return null;
+  return [`Зарплата ${day.slice(8, 10)}.${day.slice(5, 7)}: выдача по плану проведена.`, ...parts].join("\n");
 }

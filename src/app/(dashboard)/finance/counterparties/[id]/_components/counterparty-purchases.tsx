@@ -61,7 +61,7 @@ export function CounterpartyPurchases({
                     {config ? (
                       <Link
                         href={`/catalog/${config.slug}/${item.ingredientId}`}
-                        className="truncate text-sm font-medium hover:underline"
+                        className="truncate text-sm font-medium transition-colors duration-200 hover:text-brand"
                         data-tip={item.name}
                       >
                         {item.name}

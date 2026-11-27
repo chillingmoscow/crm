@@ -13,19 +13,21 @@ import type { StaffStackMember } from "@/components/people/staff-stack-cell";
 export const metadata: Metadata = { title: "Подразделения" };
 
 export default async function DepartmentsPage() {
-  const [user, supabase] = await Promise.all([getCachedUser(), createClient()]);
-  if (!user) redirect("/login");
-
-  const can = await getCachedPermissionChecker();
-  if (!can("people.view_roles")) redirect("/dashboard");
-  const canManage = can("people.manage_roles");
-
-  const [{ data: accountId }, { data: activeVenueId }, departments] =
+  // Одной волной: проверки доступа и данные списка не зависят друг от друга,
+  // а каждая последовательная волна запросов на проде стоит десятки мс.
+  // Список под RLS, так что без прав он просто не уйдёт дальше редиректа.
+  const supabase = await createClient();
+  const [user, can, { data: accountId }, { data: activeVenueId }, departments] =
     await Promise.all([
+      getCachedUser(),
+      getCachedPermissionChecker(),
       supabase.rpc("get_active_account_id"),
       supabase.rpc("get_active_venue_id"),
       listDepartments(),
     ]);
+  if (!user) redirect("/login");
+  if (!can("people.view_roles")) redirect("/dashboard");
+  const canManage = can("people.manage_roles");
 
   // Люди подразделения — все, кто сейчас на его должностях: аватары и
   // список по наведению в «Сотрудниках», как в списке должностей.

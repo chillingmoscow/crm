@@ -19,3 +19,15 @@ test("фильтр по сотруднику", () => {
   assert.equal(normalizeOfficialExpected(rows).length, 2);
   assert.deepEqual(normalizeOfficialExpected(null), []);
 });
+
+test("agency: true только явно, без столбца — обычное оформление", () => {
+  const [plain, agency, missing] = normalizeOfficialExpected([
+    { ...row("a", 1), agency: false },
+    { ...row("b", "4350.00"), agency: true },
+    row("c", 2),
+  ]);
+  assert.equal(plain.agency, false);
+  assert.equal(agency.agency, true);
+  assert.equal(agency.gross, 4350);
+  assert.equal(missing.agency, false);
+});

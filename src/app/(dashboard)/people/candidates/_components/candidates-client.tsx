@@ -284,7 +284,9 @@ export function CandidatesClient({
   return (
     <PageFrame
       className={cn(
-        "flex min-w-0 flex-col gap-4",
+        // space-y, а не gap: свёрнутые «Обзор» и ряд условий не оставляют
+        // пустого отступа (у .motion-expand в закрытом виде margin 0).
+        "min-w-0 space-y-4",
         selectedRows.length > 0 && "pb-28 md:pb-24",
       )}
     >
@@ -520,7 +522,7 @@ export function CandidatesClient({
                   )
                 }
               >
-                <Trash2 className="mr-2 size-4" />
+                <Trash2 className="size-4" />
                 Удалить
               </Button>
             }

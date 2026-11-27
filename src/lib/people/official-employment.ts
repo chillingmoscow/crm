@@ -49,6 +49,8 @@ const position = z
   .max(200, "Должность по договору — до 200 символов");
 const contractNumber = z.string().trim().max(50, "Номер договора — до 50 символов").nullable().optional();
 const filePath = z.string().trim().min(1).max(500, "Проверьте файл").nullable().optional();
+/** «Платит агентство»: сотрудник получает сумму в месяц через агентство, без налога. */
+const agency = z.boolean({ invalid_type_error: "Укажите, платит ли агентство" }).optional();
 
 export const employOfficiallySchema = z.object({
   employee_id: id("Сотрудник не найден в зарплате заведения"),
@@ -58,6 +60,7 @@ export const employOfficiallySchema = z.object({
   contract_number: contractNumber,
   contract_date: optionalDate("Проверьте дату договора"),
   contract_path: filePath,
+  agency,
 });
 export type EmployOfficiallyInput = z.input<typeof employOfficiallySchema>;
 
@@ -68,6 +71,7 @@ export const updateOfficialEmploymentSchema = z.object({
   contract_number: contractNumber,
   contract_date: optionalDate("Проверьте дату договора"),
   contract_path: filePath,
+  agency,
 });
 export type UpdateOfficialEmploymentInput = z.input<typeof updateOfficialEmploymentSchema>;
 
@@ -112,6 +116,14 @@ export function contractDocumentName(number: string | null | undefined, date: st
 /** Название файла допсоглашения: «Допсоглашение от 01.12.2026» (с месяца нового оклада). */
 export function salaryDocumentName(validFrom: string): string {
   return `Допсоглашение от ${isoToCellDate(validFrom)}`;
+}
+
+/**
+ * Подпись суммы оформления: оклад по договору или, если платит агентство,
+ * сколько сотрудник получает в месяц (без налога).
+ */
+export function officialAmountLabel(agency: boolean): string {
+  return agency ? "Получает в месяц" : "Оклад по договору";
 }
 
 /** Строка договора в блоке: «№ 17 от 03.11.2026», «№ 17», «от 03.11.2026». */

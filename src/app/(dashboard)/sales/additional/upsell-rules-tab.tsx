@@ -32,14 +32,12 @@ import {
   prefillUpsell,
   upsellStartVersion,
   type UpsellPickerItem,
-  type UpsellPrefill,
 } from "@/lib/sales/upsell-prefill";
 import { unwrapAction } from "@/lib/actions/result";
 import { saveUpsellRules, type UpsellEditorData } from "./actions";
 import { TARGET_LABEL } from "./upsell-labels";
 
 const SEARCH_LIMIT = 50;
-const NAMES_SHOWN = 8;
 
 /** Ставка в редакторе: null — поле пустое. */
 type Row = {
@@ -63,7 +61,6 @@ type Draft = {
   version: number;
   nextFrom: string;
   lines: Row[];
-  prefill: UpsellPrefill | null;
   /** Дата другой версии, назначенной позже `nextFrom`. */
   laterFrom: string | null;
 };
@@ -80,13 +77,8 @@ function initialDraft(data: UpsellEditorData): Draft {
     nextFrom: data.nextFrom,
     laterFrom: later?.valid_from ?? null,
   };
-  if (start)
-    return {
-      ...base,
-      lines: start.lines.map((l) => ({ ...l })),
-      prefill: null,
-    };
-  if (!dep.legacyKind) return { ...base, lines: [], prefill: null };
+  if (start) return { ...base, lines: start.lines.map((l) => ({ ...l })) };
+  if (!dep.legacyKind) return { ...base, lines: [] };
   const prefill = prefillUpsell({
     legacyKind: dep.legacyKind,
     // Прежние правила, действующие на `nextFrom`.
@@ -95,19 +87,7 @@ function initialDraft(data: UpsellEditorData): Draft {
       defaultAdditionalRules,
     picker: data.picker,
   });
-  return { ...base, lines: prefill.lines.map((l) => ({ ...l })), prefill };
-}
-
-function NameList({ title, names }: { title: string; names: string[] }) {
-  if (!names.length) return null;
-  const shown = names.slice(0, NAMES_SHOWN).join(", ");
-  const rest = names.length - NAMES_SHOWN;
-  return (
-    <p>
-      <span className="font-medium">{title}:</span> {shown}
-      {rest > 0 && ` и ещё ${rest}`}
-    </p>
-  );
+  return { ...base, lines: prefill.lines.map((l) => ({ ...l })) };
 }
 
 function AddPosition({
@@ -229,7 +209,6 @@ export function UpsellRulesTab({
     JSON.stringify(lines) !== JSON.stringify(initial.lines) ||
     reason.trim() !== "" ||
     from !== initial.nextFrom;
-  const prefill = initial.prefill;
   const pickerByKey = useMemo(
     () => new Map(data.picker.map((p) => [p.key, p])),
     [data.picker],
@@ -308,11 +287,7 @@ export function UpsellRulesTab({
     <div className="flex flex-col gap-5">
       <ProfileSection
         title="Прибавка за продажу"
-        description={
-          prefill
-            ? "Первая версия: строки перенесены из прежних правил. Проверьте ставки, напишите причину и сохраните"
-            : "Рублей за одну проданную позицию. Ставка категории действует на каждую позицию внутри"
-        }
+        description="Рублей за одну проданную позицию. Ставка категории действует на каждую позицию внутри"
         actions={
           <AddPosition
             picker={data.picker}
@@ -336,22 +311,6 @@ export function UpsellRulesTab({
             С {formatDayMonth(initial.laterFrom)} запланирована другая версия
           </p>
         )}
-        {prefill &&
-          (prefill.notFound.length > 0 ||
-            prefill.taggedWithoutRate.length > 0 ||
-            prefill.ratedWithoutTag.length > 0) && (
-            <div className="space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
-              <NameList title="Нет в номенклатуре" names={prefill.notFound} />
-              <NameList
-                title="С тегом «Продажи / Бар», но без ставки"
-                names={prefill.taggedWithoutRate}
-              />
-              <NameList
-                title="Со ставкой, но без тега «Продажи / Бар»"
-                names={prefill.ratedWithoutTag}
-              />
-            </div>
-          )}
         {lines.length === 0 ? (
           <p className="text-[13px] text-muted-foreground">Позиций пока нет</p>
         ) : (
@@ -416,8 +375,8 @@ export function UpsellRulesTab({
         title="Новая версия"
         description="Правила меняются новой версией с выбранного дня. Уже посчитанные дни не меняются"
       >
-        <div className="grid gap-4 sm:grid-cols-[minmax(0,240px)_1fr]">
-          <Field id="upsell-from" label="Действует с" required>
+        <div className="flex flex-col gap-4">
+          <Field id="upsell-from" label="Действует с" required className="sm:max-w-60">
             {(control) => (
               <DatePicker
                 id={control.id}

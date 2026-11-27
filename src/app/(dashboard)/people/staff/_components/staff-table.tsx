@@ -1,5 +1,6 @@
 "use client";
 
+import { MotionPresence } from "@/components/shared/motion-presence";
 import { useEffect, useState, type ReactNode } from "react";
 import { isGender } from "@/lib/people/gender";
 import { useRouter } from "next/navigation";
@@ -225,6 +226,7 @@ export function StaffTable({
   overviewPanel,
   canEdit,
   canSeeDetails,
+  canOpenCasual = false,
   isPending,
   onCancelInvitation,
   onRestore,
@@ -252,6 +254,8 @@ export function StaffTable({
   /** people.view_staff + people.view_staff_details: личные данные коллег и
    *  карточка сотрудника. Без права строки штатных и уволенных не открываются. */
   canSeeDetails: boolean;
+  /** payroll.view: строка разового ведёт в его расчёт в «Зарплате». */
+  canOpenCasual?: boolean;
   isPending: boolean;
   onCancelInvitation: (id: string) => void;
   onRestore: (id: string) => void;
@@ -415,12 +419,12 @@ export function StaffTable({
     },
   ];
   // Карточка штатного/уволенного требует права на детали (иначе редирект);
-  // разовые открываются в «Зарплате» по своим правам.
+  // разовые открываются в «Зарплате» — только с правом на неё.
   const opensCard = (
     row: Row,
   ): row is Exclude<Row, { kind: "invitation" }> =>
-    row.kind === "casual" ||
-    (row.kind !== "invitation" && canSeeDetails);
+    (row.kind === "casual" && canOpenCasual) ||
+    (row.kind !== "invitation" && row.kind !== "casual" && canSeeDetails);
   const table = useReactTable({
     data: rows,
     columns,
@@ -555,7 +559,7 @@ export function StaffTable({
         }}
         onReset={reset}
       >
-        {(filtersVisible || !!filter.role) && (
+        <MotionPresence show={filtersVisible || !!filter.role}>
           <TableFilterChip
             label="Должность"
             value={filter.role}
@@ -575,8 +579,8 @@ export function StaffTable({
               ).map((r) => ({ value: r.id, label: r.name })),
             ]}
           />
-        )}
-        {!showFired && (filtersVisible || !!filter.department) && (
+        </MotionPresence>
+        <MotionPresence show={!showFired && (filtersVisible || !!filter.department)}>
           <TableFilterChip
             label="Подразделение"
             value={filter.department}
@@ -587,8 +591,8 @@ export function StaffTable({
               ...departments.map((r) => ({ value: r.id, label: r.name })),
             ]}
           />
-        )}
-        {!showFired && canSeeDetails && (filtersVisible || !!filter.gender) && (
+        </MotionPresence>
+        <MotionPresence show={!showFired && canSeeDetails && (filtersVisible || !!filter.gender)}>
           <TableFilterChip
             label="Пол"
             value={filter.gender}
@@ -600,8 +604,8 @@ export function StaffTable({
               { value: "__none__", label: "Пол не указан" },
             ]}
           />
-        )}
-        {!showFired && (filtersVisible || !!filter.kind) && (
+        </MotionPresence>
+        <MotionPresence show={!showFired && (filtersVisible || !!filter.kind)}>
           <TableFilterChip
             label="Тип"
             value={filter.kind}
@@ -615,7 +619,7 @@ export function StaffTable({
                 : []),
             ]}
           />
-        )}
+        </MotionPresence>
       </TableConditions>
       {rows.length === 0 ? (
         <EmptyState

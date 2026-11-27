@@ -11,7 +11,8 @@ import { formatAuditDate as formatDate } from "./labels";
 // staff_begin_termination (385, details.source = 'termination').
 // Официальные выплаты (384): ручное проведение, разбор и пропуск карточки
 // «На разбор», смена расчётного счёта; запуск крона — маршрут
-// /api/cron/payroll-official.
+// /api/cron/payroll-official. «Платит агентство» (398): details.agency у
+// оформления, оклада и записи «Получено через агентство».
 
 const INFO = "text-brand bg-brand/10";
 const CREATED = "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
@@ -57,12 +58,16 @@ const REASONS: Record<string, string> = {
   missed_month: "месяц не был проведён автоматически",
 };
 
+const agencyOf = (e: AuditEvent) => e.details.agency === true;
+
 function Payment({ e }: { e: AuditEvent }) {
   const reason = typeof e.details.reason === "string" ? REASONS[e.details.reason] : undefined;
   return (
     <div className="space-y-0.5 text-xs text-muted-foreground">
       <p>
-        За {monthName(e.details.month)} · на руки {money(e.details.net)} · НДФЛ {money(e.details.tax)}
+        {agencyOf(e)
+          ? `За ${monthName(e.details.month)} · получено через агентство ${money(e.details.gross)}`
+          : `За ${monthName(e.details.month)} · на руки ${money(e.details.net)} · НДФЛ ${money(e.details.tax)}`}
       </p>
       <p>
         {e.details.bank_name ? `Счёт «${String(e.details.bank_name)}» · ` : ""}дата {formatDate(e.details.date)}
@@ -78,9 +83,11 @@ const FIELDS: Record<string, string> = {
   contract_number: "Номер договора",
   contract_date: "Дата договора",
   contract_path: "Трудовой договор",
+  agency: "Платит агентство",
 };
 
 function fieldValue(field: string, value: unknown): string {
+  if (field === "agency") return value === true ? "да" : "нет";
   if (value === null || value === undefined || value === "") return "—";
   if (field === "starts_on" || field === "contract_date") return formatDate(value);
   if (field === "contract_path") return "файл прикреплён";
@@ -119,6 +126,7 @@ export const payrollOfficialAuditSpecs: Record<string, AuditEventSpec> = {
         <div className="space-y-0.5 text-xs text-muted-foreground">
           <p>
             За {String(e.details.month ?? "").slice(0, 7)} · проведено {Number(e.details.posted) || 0} на {money(e.details.amount)}
+            {Number(e.details.agency) > 0 && <> · из них через агентство {Number(e.details.agency)}</>}
             {Number(e.details.review) > 0 && <> · на разбор {Number(e.details.review)}</>}
           </p>
           {failed && <p className="text-destructive">Ошибка заведения: {failed}</p>}
@@ -130,13 +138,19 @@ export const payrollOfficialAuditSpecs: Record<string, AuditEventSpec> = {
   "payroll.official_payment.created": {
     icon: Banknote,
     iconClass: CREATED,
-    buildHeadline: (e) => <>провёл(а) официальную выплату{employee(e)}</>,
+    buildHeadline: (e) =>
+      agencyOf(e) ? <>отметил(а) получение через агентство{employee(e)}</> : <>провёл(а) официальную выплату{employee(e)}</>,
     buildDetails: (e) => <Payment e={e} />,
   },
   "payroll.official_month.resolved": {
     icon: Banknote,
     iconClass: CREATED,
-    buildHeadline: (e) => <>разобрал(а) официальную часть и провёл(а) выплату{employee(e)}</>,
+    buildHeadline: (e) =>
+      agencyOf(e) ? (
+        <>разобрал(а) официальную часть и отметил(а) получение через агентство{employee(e)}</>
+      ) : (
+        <>разобрал(а) официальную часть и провёл(а) выплату{employee(e)}</>
+      ),
     buildDetails: (e) => <Payment e={e} />,
   },
   "payroll.official_month.skipped": {
@@ -183,7 +197,8 @@ export const payrollOfficialAuditSpecs: Record<string, AuditEventSpec> = {
     buildDetails: (e) => (
       <div className="space-y-0.5 text-xs text-muted-foreground">
         <p>
-          С {formatDate(e.details.starts_on)} · {String(e.details.position ?? "")} · оклад {money(e.details.gross)}
+          С {formatDate(e.details.starts_on)} · {String(e.details.position ?? "")} ·{" "}
+          {agencyOf(e) ? `через агентство, получает в месяц ${money(e.details.gross)}` : `оклад ${money(e.details.gross)}`}
         </p>
         {contract(e) && <p>{contract(e)}</p>}
       </div>
@@ -198,7 +213,8 @@ export const payrollOfficialAuditSpecs: Record<string, AuditEventSpec> = {
   "payroll.official_salary.created": {
     icon: Banknote,
     iconClass: INFO,
-    buildHeadline: (e) => <>изменил(а) оклад по договору{employee(e)}</>,
+    buildHeadline: (e) =>
+      agencyOf(e) ? <>изменил(а) сумму в месяц через агентство{employee(e)}</> : <>изменил(а) оклад по договору{employee(e)}</>,
     buildDetails: (e) => (
       <div className="space-y-0.5 text-xs text-muted-foreground">
         <p>

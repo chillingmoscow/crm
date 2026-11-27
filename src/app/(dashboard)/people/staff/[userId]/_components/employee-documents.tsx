@@ -26,7 +26,7 @@ import {
   addUniform,
   cancelUniform,
 } from "../../../automations/actions";
-import { unwrapAction } from "@/lib/actions/result";
+import { actionErrorMessage, unwrapAction } from "@/lib/actions/result";
 import { updateStaffAccountDetails } from "../../actions";
 import {
   employeeMedicalSchema,
@@ -38,6 +38,7 @@ import {
   nextUniformPaymentDate,
 } from "@/lib/automations/payroll-rules";
 import { businessDate } from "@/lib/sales/time";
+import { Disclosure } from "@/components/shared/disclosure";
 
 const dateLabel = (v: string | null) =>
   v ? v.split("-").reverse().join(".") : "—";
@@ -265,9 +266,16 @@ function MedicalCard({
     JSON.stringify(form) !== JSON.stringify(initial) ||
     number !== (data.medicalNumber ?? "");
   async function save(): Promise<boolean> {
+    // safeParse: текст ZodError — JSON со списком ошибок, в тост он не годится.
+    // actionErrorMessage берёт первое русское сообщение проверки.
+    const parsed = employeeMedicalSchema.safeParse(form);
+    if (!parsed.success) {
+      toast.error(actionErrorMessage(parsed.error, "Проверьте данные медкнижки"));
+      return false;
+    }
+    const medical = parsed.data;
     setBusy(true);
     try {
-      const medical = employeeMedicalSchema.parse(form);
       unwrapAction(
         await saveEmployeeMedical({
           employeeId: data.employee.id,
@@ -525,12 +533,12 @@ function UniformCard({
                   Учтено в зарплате <Money value={i.deducted} fraction="auto" /> из{" "}
                   <Money value={total} fraction="auto" />
                 </p>
-                <details>
-                  <summary className="w-fit cursor-pointer text-sm text-muted-foreground">
-                    График удержаний
-                  </summary>
+                <Disclosure
+                  title="График удержаний"
+                  triggerClassName="text-sm text-muted-foreground"
+                >
                   <Installments items={i.installments} />
-                </details>
+                </Disclosure>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
                   {i.expense_transaction_id && (
                     <Link
@@ -559,10 +567,11 @@ function UniformCard({
           })}
         </div>
         {!!data.legacyUniform.length && (
-          <details className="border-t pt-4">
-            <summary className="w-fit cursor-pointer text-sm text-muted-foreground">
-              Прежние покупки · {data.legacyUniform.length}
-            </summary>
+          <Disclosure
+            className="border-t pt-4"
+            title={`Прежние покупки · ${data.legacyUniform.length}`}
+            triggerClassName="text-sm text-muted-foreground"
+          >
             <div className="mt-2 divide-y">
               {data.legacyUniform.map((i) => (
                 <div
@@ -576,7 +585,7 @@ function UniformCard({
                 </div>
               ))}
             </div>
-          </details>
+          </Disclosure>
         )}
       </ProfileSection>
       <EditDrawer

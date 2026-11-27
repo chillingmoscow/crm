@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   getCoreRowModel,
@@ -12,7 +12,6 @@ import { arrayMove } from "@dnd-kit/sortable";
 import {
   Archive,
   ChartNoAxesCombined,
-  ChevronDown,
   RefreshCw,
   SearchX,
 } from "lucide-react";
@@ -33,6 +32,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { AnimatedMoney, AnimatedNumber } from "@/components/shared/animated-money";
 import { Metric, MetricStrip } from "@/components/shared/metric-strip";
 import { Money } from "@/components/shared/money";
 import { PageFrame } from "@/components/shared/page-frame";
@@ -62,6 +62,7 @@ import {
   type StatisticsRow,
   type StatisticsValue,
 } from "@/lib/sales/statistics-view";
+import { businessDate } from "@/lib/sales/time";
 import { unwrapAction } from "@/lib/actions/result";
 import {
   loadStatistics,
@@ -163,6 +164,13 @@ function ValueText({ id, value }: { id: string; value: number | null | undefined
   return <Money value={value ?? null} />;
 }
 
+/** То же, что `ValueText`, но досчитывается — для итогов в `MetricStrip`. */
+function AnimatedValueText({ id, value }: { id: string; value: number | null | undefined }) {
+  if (id.endsWith("Share")) return <AnimatedNumber value={value} digits={1} format={formatShare} />;
+  if (countKeys.has(id)) return <AnimatedNumber value={value} format={formatCount} />;
+  return <AnimatedMoney value={value ?? null} />;
+}
+
 /** Ячейка месяца: значение и одна строка состояния под ним, если оно важно. */
 function Amount({ value, id }: { value?: StatisticsValue; id: string }) {
   const note =
@@ -197,11 +205,21 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
     [reportBusy, setReportBusy] = useState(false),
     [exporting, setExporting] = useState(false);
   const [detail, setDetail] = useState<StatisticsRow | null>(null);
+  // Панель закрывается с анимацией: пока она уезжает, показываем последний месяц.
+  const [shownDetail, setShownDetail] = useState(detail);
+  useEffect(() => {
+    if (detail) setShownDetail(detail);
+  }, [detail]);
   const st = useTableState({
     tableId: `sales-statistics.v3.${initial.venueId}`,
     columns: columnConfig,
   });
   const can = (p: string) => data.permissions.includes(`sales.${p}_shifts`);
+  const currentMonth = businessDate(
+    new Date(),
+    data.timezone,
+    data.settings?.day_start_hour ?? 9,
+  ).slice(0, 7);
   const years = [...new Set(months.map((m) => m.month.slice(0, 4)))];
   const query = st.search.toLowerCase().trim();
   const rows = useMemo(
@@ -244,7 +262,7 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
             <div className="min-w-0">
               <button
                 type="button"
-                className="block max-w-full truncate text-left font-medium first-letter:uppercase hover:underline"
+                className="block max-w-full truncate text-left font-medium transition-colors duration-200 first-letter:uppercase hover:text-brand focus-visible:text-brand focus-visible:outline-none"
                 onClick={() =>
                   r.archive ? setDetail(r) : router.push(shiftHref(r.month))
                 }
@@ -420,14 +438,13 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
     source === "native" && data.reportsConfigured && can("sync") ? (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button size="sm" className="h-9 gap-2" disabled={reportBusy || !nativeMonths.length}>
+          <Button size="sm" disabled={reportBusy || !nativeMonths.length}>
             <RefreshCw
               className={
                 reportBusy ? "size-4 animate-spin motion-reduce:animate-none" : "size-4"
               }
             />
             {reportBusy ? "Запрашиваем…" : "Обновить отчёты"}
-            <ChevronDown className="size-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="max-h-80 w-56 overflow-y-auto">
@@ -630,6 +647,8 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
         />
       ) : (
         <>
+          {/* Источник — как вкладка: итоги всплывают и досчитываются заново. */}
+          <div key={source} className="motion-rise">
           <MetricStrip label="Итоги за выбранные месяцы">
             {strip.map((key, i) => {
               const t = totalOf(key);
@@ -638,7 +657,7 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
                   key={key}
                   primary={i === 0}
                   label={labels[key]}
-                  value={<ValueText id={key} value={t.value} />}
+                  value={<AnimatedValueText id={key} value={t.value} />}
                   hint={
                     t.value === null
                       ? "Нет данных"
@@ -652,7 +671,8 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
               );
             })}
           </MetricStrip>
-          <StatisticsChart rows={rows} />
+          </div>
+          <StatisticsChart rows={rows} currentMonth={currentMonth} />
           <DataTable
             table={table}
             label="Статистика продаж по месяцам"
@@ -676,28 +696,28 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
         open={!!detail}
         onOpenChange={(open) => !open && setDetail(null)}
         title={
-          detail
-            ? monthLabel(detail.month).replace(/^./, (c) => c.toUpperCase())
+          shownDetail
+            ? monthLabel(shownDetail.month).replace(/^./, (c) => c.toUpperCase())
             : "Месяц из архива"
         }
         titleAccessory={<DrawerStatus label="Архив Glide" tone="neutral" />}
         description={
-          detail?.archive
-            ? `Снимок ${formatDayMonth(detail.archive.captured_at.slice(0, 10))} · суммы без пересчёта`
+          shownDetail?.archive
+            ? `Снимок ${formatDayMonth(shownDetail.archive.captured_at.slice(0, 10))} · суммы без пересчёта`
             : undefined
         }
       >
-        {detail?.archive && (
+        {shownDetail?.archive && (
           <>
             <DrawerSummary label="Итоги месяца">
               <DrawerSummaryTotal label={labels.turnover}>
-                <ValueText id="turnover" value={detail.values.turnover?.value} />
+                <ValueText id="turnover" value={shownDetail.values.turnover?.value} />
               </DrawerSummaryTotal>
             </DrawerSummary>
             <DrawerSection title="Показатели">
               <dl className="divide-y">
                 {valueColumns
-                  .filter((key) => key !== "turnover" && key in detail.values)
+                  .filter((key) => key !== "turnover" && key in shownDetail.values)
                   .map((key) => (
                     <div
                       key={key}
@@ -705,7 +725,7 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
                     >
                       <dt className="text-muted-foreground">{labels[key]}</dt>
                       <dd>
-                        <ValueText id={key} value={detail.values[key]?.value} />
+                        <ValueText id={key} value={shownDetail.values[key]?.value} />
                       </dd>
                     </div>
                   ))}
@@ -713,7 +733,7 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
             </DrawerSection>
             <DrawerSection title="Средний оборот по дням недели">
               <dl className="divide-y">
-                {detail.archive.weekday_turnover.map((v, i) => (
+                {shownDetail.archive.weekday_turnover.map((v, i) => (
                   <div key={i} className="flex justify-between gap-3 py-2.5 text-sm">
                     <dt className="text-muted-foreground">{weekdays[i]}</dt>
                     <dd>
@@ -723,15 +743,15 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
                 ))}
               </dl>
             </DrawerSection>
-            {detail.archive.note && (
+            {shownDetail.archive.note && (
               <DrawerSection title="Комментарий">
                 <p className="whitespace-pre-wrap break-words text-sm">
-                  {detail.archive.note}
+                  {shownDetail.archive.note}
                 </p>
               </DrawerSection>
             )}
             <p className="text-xs text-muted-foreground">
-              Строка архива: {detail.archive.origin.range}
+              Строка архива: {shownDetail.archive.origin.range}
             </p>
           </>
         )}

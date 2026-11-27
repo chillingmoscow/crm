@@ -2,7 +2,7 @@
 // the renderer is heavy and only needed when someone downloads a statement.
 import { Document, Font, Page, StyleSheet, Text, View, pdf } from "@react-pdf/renderer";
 import type { Payslip, PayslipEntry, PayslipShift } from "./payslip";
-import { officialExpectedNote } from "./official";
+import { officialExpectedNote, officialPartLabel } from "./official";
 
 const C = { text: "#1c1917", muted: "#a8a29e", line: "#d6d3d1", band: "#f5f5f4", zebra: "#fafaf9", accent: "#1570EF" };
 
@@ -76,7 +76,8 @@ type Link = { label: string; value: number; op: "+" | "−" | "" };
 /** The month as one sum: what was earned, what was carried and paid, what is left. */
 function formula(p: Payslip): Link[] {
   const links: Link[] = [];
-  if (p.shifts.length && p.shiftTotal !== null) links.push({ label: "смены", value: p.shiftTotal, op: "" });
+  if (p.salary.length) links.push({ label: "оклад", value: p.salaryTotal, op: "" });
+  if (p.shifts.length && p.shiftTotal !== null) links.push({ label: "смены", value: p.shiftTotal, op: links.length ? "+" : "" });
   if (p.additions.length) links.push({ label: "премии", value: p.additionsTotal, op: links.length ? "+" : "" });
   if (p.deductions.length) links.push({ label: "удержания", value: -p.deductionsTotal, op: "−" });
   if (p.opening) links.push({ label: p.opening < 0 ? "переплата" : "долг", value: Math.abs(p.opening), op: p.opening < 0 ? "−" : "+" });
@@ -84,7 +85,7 @@ function formula(p: Payslip): Link[] {
   if (p.paid) links.push({ label: "выплачено", value: p.paid, op: "−" });
   // Неизвестная сумма месяца увольнения в остаток не входит — её в цепочке нет.
   if (p.officialExpected?.amount)
-    links.push({ label: "официальная часть", value: p.officialExpected.amount, op: "−" });
+    links.push({ label: officialPartLabel(p.officialExpected.agency).toLowerCase(), value: p.officialExpected.amount, op: "−" });
   return links;
 }
 
@@ -215,7 +216,7 @@ export function PayslipDocument({ p, generatedAt }: { p: Payslip; generatedAt: D
 
         {p.officialExpected && (
           <Text style={{ marginTop: -12, marginBottom: 22 }}>
-            Официальная часть (ожидается):{" "}
+            {officialPartLabel(p.officialExpected.agency)} (ожидается):{" "}
             {p.officialExpected.amount === null ? "" : `${money(p.officialExpected.amount)}, `}
             <Text style={s.muted}>{officialExpectedNote(p.officialExpected, p.month)}</Text>
           </Text>
@@ -224,6 +225,7 @@ export function PayslipDocument({ p, generatedAt }: { p: Payslip; generatedAt: D
         {p.shifts.length > 0 && <ShiftTable shifts={p.shifts} total={p.shiftTotal} />}
 
         <View style={s.columns} wrap={false}>
+          {p.salary.length > 0 && <EntryColumn title="Оклад" entries={p.salary} signed />}
           <EntryColumn title="Премии и надбавки" entries={p.additions} signed />
           <EntryColumn title="Удержания" entries={p.deductions} signed />
           <EntryColumn

@@ -1,5 +1,6 @@
 "use client";
 
+import { useExitValue } from "@/hooks/use-exit-value";
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -85,6 +86,9 @@ export function ArchivedLegalEntitiesClient({ rows }: { rows: ArchivedLegalEntit
   const [restoring, startRestore] = useTransition();
   const [deleteTarget, setDeleteTarget] = useState<ArchivedLegalEntityRow | null>(null);
   const [deleteImpact, setDeleteImpact] = useState<LegalEntityArchiveImpact | null>(null);
+  // Окно держим смонтированным, пока оно закрывается (docs/motion.md): в нём
+  // остаются прежние название и последствия, а не сброшенные.
+  const shownDelete = useExitValue(deleteTarget && { target: deleteTarget, impact: deleteImpact });
 
   const q = st.search.toLocaleLowerCase("ru").trim();
   const filtered = useMemo(
@@ -143,7 +147,7 @@ export function ArchivedLegalEntitiesClient({ rows }: { rows: ArchivedLegalEntit
             <div className="min-w-0">
               <Link
                 href={`/org/legal-entities/${r.id}`}
-                className="block truncate font-medium hover:underline"
+                className="block truncate font-medium transition-colors duration-200 hover:text-brand"
                 data-tip={displayName(r)}
               >
                 {displayName(r)}
@@ -399,9 +403,9 @@ export function ArchivedLegalEntitiesClient({ rows }: { rows: ArchivedLegalEntit
         onConfirm={restore}
       />
 
-      {deleteTarget ? (
+      {shownDelete ? (
         <HardDeleteConfirmDialog
-          open
+          open={!!deleteTarget}
           onOpenChange={(open) => {
             if (!open) {
               setDeleteTarget(null);
@@ -409,15 +413,15 @@ export function ArchivedLegalEntitiesClient({ rows }: { rows: ArchivedLegalEntit
             }
           }}
           entityGenitive="юрлицо"
-          entityName={deleteTarget.name}
-          impact={deleteImpact ? legalEntityDeleteImpact(deleteImpact) : []}
-          restrictedBy={deleteImpact ? legalEntityDeleteRestrictions(deleteImpact) : []}
+          entityName={shownDelete.target.name}
+          impact={shownDelete.impact ? legalEntityDeleteImpact(shownDelete.impact) : []}
+          restrictedBy={shownDelete.impact ? legalEntityDeleteRestrictions(shownDelete.impact) : []}
           onConfirm={async () => {
-            const result = await deleteLegalEntity(deleteTarget.id, {
-              confirmName: deleteTarget.name,
+            const result = await deleteLegalEntity(shownDelete.target.id, {
+              confirmName: shownDelete.target.name,
             });
             if (result.error) return { error: result.error };
-            toast.success(`Юрлицо «${displayName(deleteTarget)}» удалено`);
+            toast.success(`Юрлицо «${displayName(shownDelete.target)}» удалено`);
             setDeleteTarget(null);
             setDeleteImpact(null);
             router.refresh();

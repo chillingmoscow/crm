@@ -5,17 +5,23 @@ import {
   createClient,
   getCachedPermissions,
   getCachedActiveAccountId,
+  getCachedUser,
 } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { actionResult } from "@/lib/actions/result";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import { chunk, fetchAllRows } from "@/lib/supabase/fetch-all";
 import {
   validateUpsellLines,
   type UpsellDayResult,
   type UpsellLine,
 } from "@/lib/sales/upsell";
 import { buildUpsellPicker, type UpsellPickerItem } from "@/lib/sales/upsell-prefill";
+import {
+  buildUpsellRanking,
+  type RankingAccrual,
+  type RankingEntry,
+} from "@/lib/sales/upsell-ranking";
 
 import type { DayArchive, DayReference } from "@/lib/sales/day-context";
 import {
@@ -25,14 +31,17 @@ import {
 } from "@/lib/sales/additional";
 
 async function scope(permission = "sales.view_shifts", expectedVenue?: string) {
+  // Всё независимо — одной волной. Пользователь — из кэша запроса: свой
+  // `auth.getUser()` здесь был лишним походом в GoTrue (на проде ~0,1 с)
+  // поверх того, что уже сделали страница и middleware.
   const client = await createClient();
-  const {
-    data: { user },
-  } = await client.auth.getUser();
-  const permissions = await getCachedPermissions();
-  const account = await getCachedActiveAccountId();
   const db = asLooseDb(client);
-  const venue = await db.rpc("get_active_venue_id");
+  const [user, permissions, account, venue] = await Promise.all([
+    getCachedUser(),
+    getCachedPermissions(),
+    getCachedActiveAccountId(),
+    db.rpc("get_active_venue_id"),
+  ]);
   if (
     !user ||
     !account ||
@@ -92,6 +101,7 @@ export type UpsellDay = {
   result: UpsellDayResult | null;
   last_error: string | null;
   computed_at: string | null;
+  provisional: boolean;
 };
 
 /**
@@ -239,7 +249,7 @@ async function loadAdditionalImpl(
       ),
       rows<UpsellDay>(
         "sales_upsell_days",
-        "id,department_id,business_date,state,result,last_error,computed_at",
+        "id,department_id,business_date,state,result,last_error,computed_at,provisional",
         "business_date",
       ),
       loadUpsellScope(s),
@@ -414,6 +424,91 @@ async function exportAdditionalImpl(venueId: string) {
   return loadAdditionalImpl(venueId);
 }
 
+export type UpsellRankingPerson = {
+  name: string;
+  position: string | null;
+  avatarUrl: string | null;
+  /** Карточка сотрудника — только если её можно открыть. */
+  href?: string;
+};
+export type UpsellRanking = {
+  /** Начисления видны с правом просмотра зарплаты; без него — только подпись. */
+  allowed: boolean;
+  month: string;
+  /** Подразделение (id или «legacy:bar») → сотрудники по убыванию прибавки. */
+  groups: Record<string, RankingEntry[]>;
+  people: Record<string, UpsellRankingPerson>;
+};
+/** Рейтинг прибавки за допродажи за месяц — из начислений зарплаты. */
+async function loadUpsellRankingImpl(venueId: string, month: string): Promise<UpsellRanking> {
+  const s = await scope("sales.view_shifts", venueId);
+  z.string().regex(/^20\d{2}-(0[1-9]|1[0-2])$/).parse(month);
+  if (!s.permissions.includes("payroll.view"))
+    return { allowed: false, month, groups: {}, people: {} };
+  const last = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0))
+    .toISOString()
+    .slice(0, 10);
+  const accruals = await fetchAllRows(() =>
+    s.db
+      .from<(RankingAccrual & { model_role?: string | null })[]>("payroll_accruals")
+      .select(
+        "employee_id,components,kind:calculation_snapshot->>kind,department_id:calculation_snapshot->extra_share->>department_id,role:calculation_snapshot->>role,model_role:calculation_snapshot->model->>role_name",
+      )
+      .eq("account_id", s.accountId)
+      .eq("venue_id", s.venueId)
+      .gte("business_date", `${month}-01`)
+      .lte("business_date", last),
+  ).catch(() => {
+    throw new Error("Не удалось загрузить начисления за месяц");
+  });
+  const ranking = buildUpsellRanking(
+    // Должность — из снимка расчёта, у старых начислений — из модели оплаты.
+    accruals.map((a) => ({ ...a, role: a.role ?? a.model_role ?? null })),
+  );
+  const ids = [...new Set([...ranking.values()].flat().map((e) => e.employeeId))];
+  const employees: { id: string; name: string; role_name: string | null; local_user_id: string | null }[] = [];
+  for (const part of chunk(ids, 100)) {
+    const r = await s.db
+      .from<typeof employees>("payroll_employees")
+      .select("id,name,role_name,local_user_id")
+      .eq("account_id", s.accountId)
+      .eq("venue_id", s.venueId)
+      .in("id", part);
+    if (r.error) throw new Error("Не удалось загрузить сотрудников");
+    employees.push(...(r.data ?? []));
+  }
+  const userIds = employees.flatMap((e) => (e.local_user_id ? [e.local_user_id] : []));
+  const photos = new Map<string, string | null>();
+  for (const part of chunk(userIds, 100)) {
+    const r = await s.db
+      .from<{ id: string; avatar_url: string | null }[]>("profiles")
+      .select("id,avatar_url")
+      .in("id", part);
+    // Без фото рейтинг остаётся: аватар покажет инициалы.
+    for (const p of r.data ?? []) photos.set(p.id, p.avatar_url);
+  }
+  const canOpenStaff =
+    s.permissions.includes("people.view_staff") &&
+    s.permissions.includes("people.view_staff_details");
+  return {
+    allowed: true,
+    month,
+    groups: Object.fromEntries(ranking),
+    people: Object.fromEntries(
+      employees.map((e) => [
+        e.id,
+        {
+          name: e.name,
+          position: e.role_name,
+          avatarUrl: e.local_user_id ? (photos.get(e.local_user_id) ?? null) : null,
+          href:
+            canOpenStaff && e.local_user_id ? `/people/staff/${e.local_user_id}` : undefined,
+        },
+      ]),
+    ),
+  };
+}
+
 // Действия возвращают ошибку текстом, а не исключением: в рабочей сборке Next.js
 // заменяет текст брошенного исключения английской заглушкой (см. lib/actions/result).
 export async function loadAdditional(expectedVenue?: string) {
@@ -450,5 +545,11 @@ export async function exportAdditional(venueId: string) {
   return actionResult(
     () => exportAdditionalImpl(venueId),
     "Не удалось выгрузить допродажи",
+  );
+}
+export async function loadUpsellRanking(venueId: string, month: string) {
+  return actionResult(
+    () => loadUpsellRankingImpl(venueId, month),
+    "Не удалось загрузить рейтинг сотрудников",
   );
 }

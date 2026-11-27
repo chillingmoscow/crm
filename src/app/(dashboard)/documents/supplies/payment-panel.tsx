@@ -6,10 +6,12 @@ import { ArrowUpRight, Link2, Pencil, Search, Unlink } from "lucide-react";
 import { toast } from "sonner";
 import { AmountInput } from "@/components/finance/amount-input";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { ExpandPanel } from "@/components/shared/overview-toggle";
 import { Button } from "@/components/ui/button";
 import { DrawerSection } from "@/components/ui/drawer-blocks";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { formatMoney } from "@/lib/format/amount";
 import { formatDateCell } from "@/lib/format/date";
@@ -371,7 +373,7 @@ export function SupplyPaymentPanel({
         </ul>
       )}
 
-      {picking && !selection && (
+      <ExpandPanel open={picking && !selection}>
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-medium">Выберите расход</p>
@@ -401,9 +403,11 @@ export function SupplyPaymentPanel({
             aria-busy={loading}
           >
             {loading ? (
-              <p role="status" className="py-4 text-sm text-muted-foreground">
-                Загружаем расходы…
-              </p>
+              <div role="status" aria-label="Загружаем расходы" className="space-y-1 py-1">
+                {[0, 1, 2].map((i) => (
+                  <Skeleton key={i} className="h-[4.5rem] w-full" />
+                ))}
+              </div>
             ) : loadError ? (
               <div
                 role="alert"
@@ -474,7 +478,7 @@ export function SupplyPaymentPanel({
             </div>
           )}
         </div>
-      )}
+      </ExpandPanel>
 
       {editing && selection && (
         <form

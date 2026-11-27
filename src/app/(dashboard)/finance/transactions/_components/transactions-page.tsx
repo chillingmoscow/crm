@@ -11,7 +11,6 @@ import {
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
-  ChevronDown,
   Copy,
   Download,
   Loader2,
@@ -707,7 +706,7 @@ export function TransactionsPage({
         // Настоящая кнопка в первой ячейке: строку можно открыть с клавиатуры.
         <button
           type="button"
-          className="tabular-nums hover:underline"
+          className="tabular-nums transition-colors duration-200 hover:text-brand"
           onClick={() => setFormMode({ kind: "edit", transaction: row.original })}
         >
           {formatDateCell(row.original.date, timeZone) ?? "—"}
@@ -954,10 +953,9 @@ export function TransactionsPage({
   const createMenu = permissions.create && !deletedMode && (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button className="h-8 gap-1.5 px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm">
+        <Button size="sm">
           <Plus className="size-4" />
           Добавить операцию
-          <ChevronDown className="size-4 opacity-80" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">

@@ -2,6 +2,8 @@
 import { ColorDot } from "@/components/ui/color-dot";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import type { SortingState } from "@tanstack/react-table";
 import dynamic from "next/dynamic";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -24,6 +26,7 @@ import {
   CalendarPlus,
   Clock,
   ArrowLeftRight,
+  ClipboardCheck,
 } from "lucide-react";
 import { TaskAssignDrawer } from "./task-assign-drawer";
 import {
@@ -40,7 +43,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { PeriodStepper, periodTriggerClass } from "@/components/shared/period-stepper";
-import { TableControls, TableIconButton, TablePageHeader } from "@/components/shared/table";
+import { TableConditions, TableControls, TableIconButton, TablePageHeader } from "@/components/shared/table";
+import { MotionPresence } from "@/components/shared/motion-presence";
+import { ExpandPanel } from "@/components/shared/overview-toggle";
 import { TableFilterChip } from "@/components/shared/table/table-filter-chip";
 import {
   Popover,
@@ -52,6 +57,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import tabStyle from "@/components/shared/workspace-tabs.module.css";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import { useExitValue } from "@/hooks/use-exit-value";
 import {
   Dialog,
   DialogContent,
@@ -93,6 +99,7 @@ import {
 import { EmployeePicker } from "./employee-picker";
 import { EmployeeStrip } from "./employee-strip";
 import { ApplyTemplateDialog } from "./apply-template-dialog";
+import { ToolbarCountButton } from "./toolbar-count-button";
 import { ShiftDetails } from "./shift-details";
 import {
   shiftSwap,
@@ -127,6 +134,10 @@ import {
 } from "@/lib/schedule/tasks";
 import { loadCalendarTasks } from "../tasks/actions";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { useCoarsePointer } from "@/hooks/use-mobile";
+import { useHydrated } from "@/hooks/use-hydrated";
+import { LiveDot, NowLine, ShiftNowMark, TodayClock, shiftElapsed, shiftRunning, useMinuteNow } from "./shift-live";
+import { ShiftHoverCard } from "./shift-hover-card";
 const CalendarTaskReport = dynamic(
   () => import("../tasks/tasks-client").then((module) => module.TaskReport),
   {
@@ -247,6 +258,8 @@ function MyTasks({
 
 /** Префикс id черновика, который ещё сохраняется. */
 const PENDING_SHIFT = "pending:";
+/** У расписания нет сортировки: ряд условий показывает только фильтры и поиск. */
+const NO_SORTING: SortingState = [];
 
 export function ScheduleClient({
   initial,
@@ -268,6 +281,8 @@ export function ScheduleClient({
   initialSwap?: string;
 }) {
   const [data, setData] = useState(initial);
+  // `?create=shift` из палитры ⌘K: открыть форму новой смены (ниже).
+  const searchParams = useSearchParams();
   const tab = section;
   const [screenTitle, setScreenTitle] = useState<string | null>(null);
   const [taskHeaderTarget, setTaskHeaderTarget] =
@@ -276,6 +291,14 @@ export function ScheduleClient({
     weekStart(initialDate ?? dateInZone(new Date(), initial.timezone)),
   );
   const [weekPickerOpen, setWeekPickerOpen] = useState(false);
+  // Текущий момент для «живой» сетки: идущие смены, отметка «сейчас».
+  // Раз в минуту и только на видимой вкладке.
+  const now = useMinuteNow();
+  const nowTime = now === null ? null : timeInZone(new Date(now).toISOString(), data.timezone);
+  // Карточка при наведении — только с мышью: на сенсорном экране нажатие
+  // открывает смену, как раньше. До гидратации — без неё (разметка SSR).
+  const coarsePointer = useCoarsePointer();
+  const hoverCards = useHydrated() && !coarsePointer;
   useEffect(() => {
     if (initialDate) setWeek(weekStart(initialDate));
   }, [initialDate]);
@@ -446,6 +469,16 @@ export function ScheduleClient({
   const [selected, setSelected] = useState<Shift | null>(null);
   /** Смена, для которой сотрудник ищет замену (панель «Замена смены»). */
   const [swapFor, setSwapFor] = useState<Shift | null>(null);
+  // Панели и окна держим смонтированными, пока они уезжают (docs/motion.md):
+  // в них остаётся последнее открытое значение.
+  const shownSelected = useExitValue(selected);
+  const shownSwapFor = useExitValue(swapFor);
+  const shownTaskAssign = useExitValue(taskAssign);
+  const shownShiftEditor = useExitValue(editor?.type === "shift" ? editor : null);
+  const shownTemplateEditor = useExitValue(editor?.type === "template" ? editor : null);
+  const shownTemplateOverlay = useExitValue(templateOverlay);
+  const applyTemplateOpen = applyTemplate && editor?.type !== "template" && !templateOverlay ? applyTemplate : null;
+  const shownApplyTemplate = useExitValue(applyTemplateOpen);
   const openedSwap = useRef(false);
   useEffect(() => {
     if (!initialSwap || openedSwap.current) return;
@@ -616,20 +649,21 @@ export function ScheduleClient({
     return saved;
   };
   useEffect(() => {
+    // Закрытие: историю не сбрасываем — панель уезжает с ней.
+    if (!selected) return;
     let alive = true;
     setHistory(null);
     setHistoryHasMore(false);
-    if (selected)
-      shiftHistoryPage(selected.id)
-        .then(unwrapAction)
-        .then((page) => {
-          if (!alive) return;
-          setHistory(page.events);
-          setHistoryHasMore(page.hasMore);
-        })
-        .catch(() => {
-          if (alive) setHistory([]);
-        });
+    shiftHistoryPage(selected.id)
+      .then(unwrapAction)
+      .then((page) => {
+        if (!alive) return;
+        setHistory(page.events);
+        setHistoryHasMore(page.hasMore);
+      })
+      .catch(() => {
+        if (alive) setHistory([]);
+      });
     return () => {
       alive = false;
     };
@@ -1215,15 +1249,15 @@ export function ScheduleClient({
   // момент создания, и после перекраски шаблона она устаревает.
   const shiftTemplate = (shift: Shift) =>
     shift.template_id ? templatesById.get(shift.template_id) : undefined;
-  const selectedTemplate = selected ? shiftTemplate(selected) : undefined;
-  const selectedSwap = selected ? shiftSwap(data.swaps, selected.id) : null;
+  const selectedTemplate = shownSelected ? shiftTemplate(shownSelected) : undefined;
+  const selectedSwap = shownSelected ? shiftSwap(data.swaps, shownSelected.id) : null;
   const selectedSwapActive =
-    !!selectedSwap && selectedSwap.status === "pending" && Date.parse(selected!.ends_at) > Date.now();
+    !!selectedSwap && selectedSwap.status === "pending" && Date.parse(shownSelected!.ends_at) > Date.now();
   // У управляющего главная кнопка при открытой заявке — «Утвердить замену».
   const selectedSwapDecision = selectedSwapActive && can("shift_assign");
   const selectedCanRequestSwap =
-    !!selected && !selectedSwapActive && canRequestSwap(selected, data.userId, false, Date.now()) &&
-    !data.runs.some((run) => run.shift_id === selected.id);
+    !!shownSelected && !selectedSwapActive && canRequestSwap(shownSelected, data.userId, false, Date.now()) &&
+    !data.runs.some((run) => run.shift_id === shownSelected.id);
   /**
    * Смена в виде «Список» — как в календаре: время колонкой слева, полоска
    * цвета шаблона, название и сотрудник; статус — только у черновика
@@ -1241,7 +1275,7 @@ export function ScheduleClient({
       </span>
     );
   };
-  const listCardBody = (s: Shift, assignee: string | null, mark: unknown) => {
+  const listCardBody = (s: Shift, assignee: string | null, mark: unknown, running: boolean) => {
     const template = shiftTemplate(s);
     const title = template ? template.name : s.title;
     const subtitle = template?.subtitle ?? null;
@@ -1262,6 +1296,7 @@ export function ScheduleClient({
             <span className={cn("truncate text-sm font-semibold", !assignee && "font-normal text-muted-foreground")}>
               {person}
             </span>
+            {running && <LiveDot className={paletteText(template?.color ?? s.color)} />}
             {swapMark(s)}
             {/* На телефоне бейдж — в этой строке, справа он резал бы имя. */}
             {!s.published && (
@@ -1294,10 +1329,31 @@ export function ScheduleClient({
     const dragged = dragItem?.kind === "shift" && dragItem.shift.id === s.id;
     // Заглушка до ответа сервера: у неё ещё нет настоящего id.
     const pending = s.id.startsWith(PENDING_SHIFT);
+    // Идёт сейчас: опубликованная смена с сотрудником (черновик и пустой
+    // слот — не «работа сейчас»).
+    const running = !pending && s.published && !!assignee && shiftRunning(s, now);
+    const startTime = timeInZone(s.starts_at, data.timezone);
+    const endTime = timeInZone(s.ends_at, data.timezone);
+    const person = assignee ? roster.find((p) => p.user_id === assignee) : undefined;
     return (
     <ContextMenu key={s.id} modal={false}>
     <ContextMenuTrigger asChild>
     <div className="relative min-w-0">
+    <ShiftHoverCard
+      enabled={hoverCards && !!assignee}
+      suppressed={!!dragItem}
+      info={{
+        name: name(assignee),
+        role: person?.role_name,
+        avatar: person?.avatar_url,
+        time: `${startTime}–${endTime}`,
+        hours: Math.round(shiftHours(s.starts_at, s.ends_at) * 10) / 10,
+        template: template ? { name: shiftTemplateLabel(template), color: template.color } : null,
+        draft: !s.published,
+        running,
+        attendance: mark,
+      }}
+    >
     <button
       draggable={can("shift_edit") && !pending}
       disabled={pending}
@@ -1323,10 +1379,13 @@ export function ScheduleClient({
         dragged && "opacity-40",
         mode === "list"
           ? "flex items-stretch gap-3 px-2 py-1.5 transition-colors hover:bg-muted/60"
-          : cn("grid gap-1 px-1.5 py-2 transition-opacity hover:opacity-80", paletteBg(template?.color ?? s.color), paletteText(template?.color ?? s.color)),
+          // Наведение — лёгкая подложка поверх цвета шаблона (тень внутрь),
+          // а не прозрачность: цвет шаблона не бледнеет, в тёмной теме — светлее.
+          // relative — для отметки «сейчас» у нижнего края идущей смены.
+          : cn("relative grid gap-1 px-1.5 py-2 transition-shadow duration-200 hover:shadow-[inset_0_0_0_999px_hsl(var(--foreground)/0.05)]", paletteBg(template?.color ?? s.color), paletteText(template?.color ?? s.color)),
       )}
     >
-      {mode === "list" ? listCardBody(s, assignee, mark) : (
+      {mode === "list" ? listCardBody(s, assignee, mark, running) : (
       <>
       {mode === "template" ? (
         <>
@@ -1345,9 +1404,12 @@ export function ScheduleClient({
             <span className="min-w-0 hyphens-auto break-words text-[13px] font-semibold leading-tight">{assigneeLabel}</span>
             {swapMark(s)}
           </span>
-          <span className="text-xs tabular-nums opacity-75">
-            {timeInZone(s.starts_at, data.timezone)}–<wbr />
-            {timeInZone(s.ends_at, data.timezone)}
+          <span className="flex items-center gap-1 text-xs tabular-nums">
+            {running && <LiveDot />}
+            <span className="opacity-75">
+              {startTime}–<wbr />
+              {endTime}
+            </span>
           </span>
         </>
       ) : (
@@ -1355,8 +1417,9 @@ export function ScheduleClient({
           {/* В узкой колонке (таблица на минимальной ширине) время переносится
               после тире, а не обрезается: 12px «13:00–00:30» не всегда влезает. */}
           <span className={cn("text-xs font-semibold tabular-nums", mark && "pr-5")}>
-            {timeInZone(s.starts_at, data.timezone)}–<wbr />
-            {timeInZone(s.ends_at, data.timezone)}
+            {running && <LiveDot className="mb-px mr-1 align-middle" />}
+            {startTime}–<wbr />
+            {endTime}
             {swapMark(s) && <> {swapMark(s)}</>}
           </span>
           {template
@@ -1372,9 +1435,11 @@ export function ScheduleClient({
           Черновик
         </span>
       )}
+      {running && now !== null && <ShiftNowMark elapsed={shiftElapsed(s, now)} />}
       </>
       )}
     </button>
+    </ShiftHoverCard>
     {mark && (
       <ShiftAttendancePopover
         shiftId={s.id}
@@ -1541,6 +1606,33 @@ export function ScheduleClient({
   // День для «Новая смена» / «Задача» из шапки: сегодня, если он на открытой
   // неделе, иначе её первый день — иначе смена уезжает с экрана.
   const addDay = days.includes(today) ? today : days[0];
+  // «Новая смена» из палитры ⌘K (`?create=shift`): форма открывается один
+  // раз — на тот же день, что и кнопка «Добавить», — а параметр уходит из
+  // адреса, чтобы обновление страницы не открывало её снова.
+  // Реагирует на каждый переход: параметр уходит из адреса, и следующий
+  // переход на `?create=shift` снова его приносит. Обработка — после всех
+  // эффектов первой отрисовки: раньше роутер Next ещё не следит за history
+  // (вернёт параметр в адрес), а уведомления ещё не подключены.
+  const createParam = searchParams.get("create");
+  const openCreateFromUrl = useRef(() => {});
+  useEffect(() => {
+    openCreateFromUrl.current = () => {
+      if (can("shift_create")) create(addDay);
+      else toast.info("У вас нет права создавать смены");
+    };
+  });
+  useEffect(() => {
+    if (createParam !== "shift") return;
+    const timer = setTimeout(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("create");
+      // `null`, не `history.state`: состояние с метками Next роутер принимает
+      // за своё и не обновляет useSearchParams — второй переход не сработал бы.
+      window.history.replaceState(null, "", url);
+      openCreateFromUrl.current();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [createParam]);
   // Период и «Сегодня» стоят в шапке слева, инструменты — в той же строке справа.
   const periodControls = (
     <>
@@ -1593,34 +1685,28 @@ export function ScheduleClient({
   );
   const pendingReports =
     showTasks && pendingTaskReports.length > 0 ? (
-      <Popover>
-                            <PopoverTrigger asChild>
-                              <Button variant="outline" size="sm" className="h-8 sm:h-9">
-                                На приёмке · {pendingTaskReports.length}
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent
-                              align="end"
-                              className="max-h-[70vh] w-96 max-w-[calc(100vw-32px)] overflow-y-auto p-3"
-                            >
-                              <p className="mb-1 text-sm font-semibold">
-                                Отчёты на приёмке
-                              </p>
-                              <p className="mb-3 text-[13px] text-muted-foreground">
-                                За все дни, включая прошлые недели
-                              </p>
-                              <div className="space-y-2">
-                                {pendingTaskReports.map((task) => (
-                                  <div key={task.id}>
-                                    <p className="mb-1 text-xs text-muted-foreground">
-                                      {dayLabel(task.business_date)}
-                                    </p>
-                                    {taskCard(task, false)}
-                                  </div>
-                                ))}
-                              </div>
-                            </PopoverContent>
-                          </Popover>
+      <ToolbarCountButton
+        icon={<ClipboardCheck />}
+        count={pendingTaskReports.length}
+        label="Отчёты на приёмке"
+      >
+        <p className="mb-1 text-sm font-semibold">
+          Отчёты на приёмке
+        </p>
+        <p className="mb-3 text-[13px] text-muted-foreground">
+          За все дни, включая прошлые недели
+        </p>
+        <div className="space-y-2">
+          {pendingTaskReports.map((task) => (
+            <div key={task.id}>
+              <p className="mb-1 text-xs text-muted-foreground">
+                {dayLabel(task.business_date)}
+              </p>
+              {taskCard(task, false)}
+            </div>
+          ))}
+        </div>
+      </ToolbarCountButton>
     ) : null;
   return (
     <TaskTitleTarget.Provider value={setScreenTitle}>
@@ -1635,8 +1721,6 @@ export function ScheduleClient({
             period={periodControls}
             actions={
               <>
-              {can("shift_assign") && <SwapRequestsButton data={data} onOpen={setSelected} />}
-              {pendingReports}
               <TableControls
                 search={{
                   value: query,
@@ -1696,18 +1780,20 @@ export function ScheduleClient({
                         venueId={data.venueId}
                       />
                     )}
+                    {/* Входящие — иконками со счётчиком справа от столбцов, как архив. */}
+                    {can("shift_assign") && <SwapRequestsButton data={data} onOpen={setSelected} />}
+                    {pendingReports}
                   </>
                 }
                 primaryActions={
                   <>
                     {can("shift_create") && can("checklist_edit") ? (
-                      // Как «Добавить операцию» в финансах: что добавить — по стрелке.
+                      // Кнопка открывает меню «Смена / Задача» — без шеврона (design-system, «Кнопки»).
                       <Popover open={addOpen} onOpenChange={setAddOpen}>
                         <PopoverTrigger asChild>
-                          <Button size="sm" className="h-8 gap-1.5 sm:h-9" variant={canPublish ? "outline" : "default"}>
+                          <Button size="sm" className="h-8 sm:h-9" variant={canPublish ? "outline" : "default"}>
                             <Plus />
                             Добавить
-                            <ChevronDown className="opacity-80" />
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent align="end" className="w-60 p-1">
@@ -1759,6 +1845,48 @@ export function ScheduleClient({
               </>
             }
           />
+          {/* Ряд условий — как в списках (design-system, «List-страница»):
+              плавно раскрывается, выбранный фильтр виден и при свёрнутом ряде. */}
+          <TableConditions
+            label="Фильтры расписания"
+            open={filters}
+            hasFilters={filtersActive}
+            sorting={NO_SORTING}
+            onSortingChange={() => {}}
+            sortFields={[]}
+            sortLabels={{}}
+            search={query}
+            onSearchClear={() => setQuery("")}
+            onReset={() => {
+              setDepartment("all");
+              setPublication("all");
+              setQuery("");
+            }}
+          >
+            <MotionPresence show={filters || department !== "all"}>
+              <TableFilterChip
+                label="Подразделение"
+                value={department === "all" ? "" : department}
+                options={[
+                  { value: "", label: "Все подразделения" },
+                  ...data.departments.map(({ id, name }) => ({ value: id, label: name })),
+                ]}
+                onChange={(value) => setDepartment(value || "all")}
+              />
+            </MotionPresence>
+            <MotionPresence show={canPlan && (filters || publication !== "all")}>
+              <TableFilterChip
+                label="Публикация"
+                value={publication === "all" ? "" : publication}
+                options={[
+                  { value: "", label: "Все смены" },
+                  { value: "draft", label: "Черновики" },
+                  { value: "published", label: "Опубликованные" },
+                ]}
+                onChange={(value) => setPublication(value || "all")}
+              />
+            </MotionPresence>
+          </TableConditions>
         </>
       )}
       {tab === "calendar" && !calendarVisible && (
@@ -1815,31 +1943,6 @@ export function ScheduleClient({
                 </div>
               )}
               <div className={cn("space-y-5", mobileTasks && "max-md:hidden")}>
-              {(filters || filtersActive) && (
-                <div className="flex flex-wrap items-center gap-2" aria-label="Фильтры расписания">
-                  <TableFilterChip
-                    label="Подразделение"
-                    value={department === "all" ? "" : department}
-                    options={[
-                      { value: "", label: "Все подразделения" },
-                      ...data.departments.map(({ id, name }) => ({ value: id, label: name })),
-                    ]}
-                    onChange={(value) => setDepartment(value || "all")}
-                  />
-                  {canPlan && (
-                    <TableFilterChip
-                      label="Публикация"
-                      value={publication === "all" ? "" : publication}
-                      options={[
-                        { value: "", label: "Все смены" },
-                        { value: "draft", label: "Черновики" },
-                        { value: "published", label: "Опубликованные" },
-                      ]}
-                      onChange={(value) => setPublication(value || "all")}
-                    />
-                  )}
-                </div>
-              )}
               {/* Месяц сегодняшнего дня и месяцы показанной недели: невыверенный
                   выход прошлой недели виден, даже когда листаешь вперёд. */}
               {canViewAttendance && (
@@ -1865,7 +1968,11 @@ export function ScheduleClient({
                   </Button>
                 </div>
               )}
-              {stripOpen && !templateView && (
+              {/* Полосы шаблонов и сотрудников — над сеткой в одной обёртке:
+                  свёрнутая полоса не оставляет отступа space-y (margin у
+                  .motion-expand в закрытом виде — 0, и плавно). */}
+              <div>
+              <ExpandPanel open={stripOpen && !templateView} className="mb-5">
                 <section aria-label="Шаблоны смен" className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-muted/30 px-3 py-2.5">
                   <h2 className="shrink-0 text-xs font-semibold text-muted-foreground">Шаблоны смен</h2>
                   <div className="flex flex-wrap gap-1.5">
@@ -1893,22 +2000,25 @@ export function ScheduleClient({
                     )}
                   </div>
                 </section>
-              )}
-              {stripOpen && templateView && can("shift_create") && can("shift_assign") && (
-                <EmployeeStrip
-                  data={data}
-                  days={days}
-                  department={department === "all" ? null : department}
-                  dragging={dragItem?.kind === "employee" ? dragItem.userId : null}
-                  onDragStart={(userId) => startDrag({ kind: "employee", userId })}
-                  onDragEnd={endDrag}
-                />
+              </ExpandPanel>
+              {templateView && can("shift_create") && can("shift_assign") && (
+                <ExpandPanel open={stripOpen} className="md:mb-5">
+                  <EmployeeStrip
+                    data={data}
+                    days={days}
+                    department={department === "all" ? null : department}
+                    dragging={dragItem?.kind === "employee" ? dragItem.userId : null}
+                    onDragStart={(userId) => startDrag({ kind: "employee", userId })}
+                    onDragEnd={endDrag}
+                  />
+                </ExpandPanel>
               )}
               {templateView ? (
                 <TemplateWeek
                   days={days}
                   today={today}
                   timezone={data.timezone}
+                  nowTime={nowTime}
                   templates={sortTemplates(data.templates.filter((template) => !template.archived &&
                     (department === "all" || template.department_id === department)), templateSort)}
                   shifts={weekDateShifts}
@@ -1959,7 +2069,11 @@ export function ScheduleClient({
                       <thead className="sticky top-0 z-20">
                         <tr className="bg-muted text-muted-foreground">
                           <th scope="col" className="sticky left-0 z-10 w-[214px] border-b bg-muted px-4 py-3 text-left text-xs font-medium">
-                            Сотрудники · {staff.length}
+                            {/* Сетка недели собрана вручную, поэтому подсказки у
+                                заголовков — через data-tip, как у иконок. */}
+                            <span data-tip="Сотрудники в графике на этой неделе с учётом поиска и подразделения">
+                              Сотрудники · {staff.length}
+                            </span>
                           </th>
                           {days.map((d) => (
                             <th
@@ -1971,10 +2085,13 @@ export function ScheduleClient({
                               )}
                             >
                               {dayLabel(d, { weekday: "short", day: "numeric" })}
+                              {d === today && <TodayClock time={nowTime} />}
                             </th>
                           ))}
                           <th scope="col" className="w-16 border-b border-l p-2 text-xs font-medium">
-                            Часы
+                            <span data-tip="Сумма часов смен сотрудника за неделю — по сменам, которые видны с текущими фильтрами, включая черновики">
+                              Часы
+                            </span>
                           </th>
                         </tr>
                       </thead>
@@ -2256,12 +2373,21 @@ export function ScheduleClient({
                           )}
                         </div>
                         <div className="space-y-2 p-3">
-                          {weekShifts
-                            .filter(
-                              (s) =>
-                                dateInZone(s.starts_at, data.timezone) === d,
-                            )
-                            .map((shift) => card(shift, "list"))}
+                          {(() => {
+                            // По началу смены: оптимистично добавленная или
+                            // перенесённая смена иначе оказывается в конце, и
+                            // линия «сейчас» встаёт не туда.
+                            const dayShifts = weekShifts
+                              .filter((s) => dateInZone(s.starts_at, data.timezone) === d)
+                              .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
+                            const items = dayShifts.map((shift) => card(shift, "list"));
+                            if (d !== today || now === null || !nowTime || !dayShifts.length) return items;
+                            // Линия «сейчас» — перед первой ещё не начавшейся
+                            // сменой сегодняшнего дня (смены идут по началу).
+                            const next = dayShifts.findIndex((s) => Date.parse(s.starts_at) > now);
+                            const at = next === -1 ? items.length : next;
+                            return [...items.slice(0, at), <NowLine key="now" time={nowTime} />, ...items.slice(at)];
+                          })()}
                           {weekTasks
                             .filter((task) => task.business_date === d)
                             .map((task) => taskCard(task, false))}
@@ -2304,6 +2430,7 @@ export function ScheduleClient({
                   </div>
                 </>
               )}
+              </div>
               <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
                 {venueOffset && <span>Время заведения: {venueOffset}</span>}
                 {showTasks && calendarTasks && calendarTasksWeek === week && (
@@ -2349,11 +2476,13 @@ export function ScheduleClient({
             }}
           />
         )}
-      {taskAssign && (
+      {shownTaskAssign && (
         <TaskAssignDrawer
+          key={`${shownTaskAssign.day}-${shownTaskAssign.template ?? ""}`}
+          open={!!taskAssign}
           data={data}
-          day={taskAssign.day}
-          template={taskAssign.template}
+          day={shownTaskAssign.day}
+          template={shownTaskAssign.template}
           personName={name}
           onClose={() => setTaskAssign(null)}
           onDone={() => {
@@ -2364,11 +2493,12 @@ export function ScheduleClient({
           }}
         />
       )}
-      {editor?.type === "shift" && (() => {
-        const { returnTo, ...shiftEditor } = editor;
+      {shownShiftEditor && (() => {
+        const { returnTo, ...shiftEditor } = shownShiftEditor;
         return (
           <ShiftEditor
-            key={`${editor.shift?.id ?? "new"}-${editor.copy}`}
+            key={`${shownShiftEditor.shift?.id ?? "new"}-${shownShiftEditor.copy}`}
+            open={editor?.type === "shift"}
             data={data}
             {...shiftEditor}
             onClose={() => setEditor(null)}
@@ -2383,30 +2513,34 @@ export function ScheduleClient({
           />
         );
       })()}
-      {editor?.type === "template" && (
+      {shownTemplateEditor && (
         <TemplateEditor
-          key={`${editor.template?.id ?? "new"}-${editor.copy}`}
+          key={`${shownTemplateEditor.template?.id ?? "new"}-${shownTemplateEditor.copy}`}
+          open={editor?.type === "template"}
           data={data}
-          {...editor}
+          {...shownTemplateEditor}
           onClose={() => setEditor(null)}
-          save={saveTemplate(editor.template)}
+          save={saveTemplate(shownTemplateEditor.template)}
         />
       )}
-      {templateOverlay && (
+      {shownTemplateOverlay && (
         <TemplateEditor
-          key={`overlay-${templateOverlay.id}`}
+          key={`overlay-${shownTemplateOverlay.id}`}
+          open={!!templateOverlay}
           data={data}
-          template={templateOverlay}
+          template={shownTemplateOverlay}
           onClose={() => setTemplateOverlay(null)}
-          save={saveTemplate(templateOverlay)}
+          save={saveTemplate(shownTemplateOverlay)}
         />
       )}
-      {applyTemplate && editor?.type !== "template" && !templateOverlay && (() => {
-        const template = data.templates.find((t) => t.id === applyTemplate.id);
+      {shownApplyTemplate && (() => {
+        const template = data.templates.find((t) => t.id === shownApplyTemplate.id);
         return template ? (
           <ApplyTemplateDialog
+            key={shownApplyTemplate.id}
+            open={!!applyTemplateOpen}
             template={template}
-            previousTitle={applyTemplate.previousTitle}
+            previousTitle={shownApplyTemplate.previousTitle}
             shifts={data.shifts}
             timezone={data.timezone}
             onClose={() => setApplyTemplate(null)}
@@ -2433,7 +2567,7 @@ export function ScheduleClient({
             void deleteDropped(shift);
           }}
           className={cn(
-            "fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border-2 border-dashed px-5 py-3 text-sm font-medium shadow-lg transition-all animate-in fade-in-0 slide-in-from-bottom-4",
+            "fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border-2 border-dashed px-5 py-3 text-sm font-medium shadow-lg motion-float-up transition-[transform,background-color,border-color,color] duration-300 ease-[var(--ease-soft)]",
             overTrash
               ? "scale-105 border-destructive bg-destructive text-destructive-foreground"
               : "border-destructive/40 bg-background text-destructive",
@@ -2443,28 +2577,28 @@ export function ScheduleClient({
           {overTrash ? "Отпустите, чтобы удалить" : "Перетащите сюда, чтобы удалить"}
         </div>
       )}
-      {selected && (
+      {shownSelected && (
         <EditDrawer
-          open
+          open={!!selected}
           onOpenChange={(o) => {
             if (!o) setSelected(null);
           }}
-          title={selectedTemplate ? shiftTemplateLabel(selectedTemplate) : selected.title}
+          title={selectedTemplate ? shiftTemplateLabel(selectedTemplate) : shownSelected.title}
           titleAccessory={
             <DrawerStatus
-              label={selected.published ? "Опубликована" : "Черновик"}
-              tone={selected.published ? "success" : "neutral"}
+              label={shownSelected.published ? "Опубликована" : "Черновик"}
+              tone={shownSelected.published ? "success" : "neutral"}
             />
           }
           description={[
-            dayLabel(dateInZone(selected.starts_at, data.timezone), { weekday: "long", day: "numeric", month: "long" }).replace(/^./, (c) => c.toUpperCase()),
-            `${timeInZone(selected.starts_at, data.timezone)}–${timeInZone(selected.ends_at, data.timezone)}`,
-            `${shiftHours(selected.starts_at, selected.ends_at).toLocaleString("ru", { maximumFractionDigits: 1 })} ч`,
+            dayLabel(dateInZone(shownSelected.starts_at, data.timezone), { weekday: "long", day: "numeric", month: "long" }).replace(/^./, (c) => c.toUpperCase()),
+            `${timeInZone(shownSelected.starts_at, data.timezone)}–${timeInZone(shownSelected.ends_at, data.timezone)}`,
+            `${shiftHours(shownSelected.starts_at, shownSelected.ends_at).toLocaleString("ru", { maximumFractionDigits: 1 })} ч`,
           ].join(" · ")}
           // Без единой кнопки подвал не рисуем: иначе у сотрудника без прав
           // внизу панели остаётся пустая полоса с рамкой.
           footer={
-            can("shift_delete") || can("shift_edit") || (!selected.published && can("shift_publish")) ||
+            can("shift_delete") || can("shift_edit") || (!shownSelected.published && can("shift_publish")) ||
             selectedSwapActive || selectedCanRequestSwap ? (
             <>
               {can("shift_delete") && (
@@ -2472,9 +2606,9 @@ export function ScheduleClient({
                   variant="ghost"
                   size="icon"
                   className="mr-auto text-destructive hover:text-destructive"
-                  aria-label={selected.published ? "Удалить смену" : "Удалить черновик"}
-                  data-tip={selected.published ? "Удалить смену" : "Удалить черновик"}
-                  onClick={() => confirmDelete(selected)}
+                  aria-label={shownSelected.published ? "Удалить смену" : "Удалить черновик"}
+                  data-tip={shownSelected.published ? "Удалить смену" : "Удалить черновик"}
+                  onClick={() => confirmDelete(shownSelected)}
                 >
                   <Trash2 className="size-4" />
                 </Button>
@@ -2482,11 +2616,11 @@ export function ScheduleClient({
               {(selectedSwapActive || selectedCanRequestSwap) && (
                 <SwapFooterActions
                   data={data}
-                  shift={selected}
+                  shift={shownSelected}
                   swap={selectedSwap}
                   canRequest={selectedCanRequestSwap}
                   onRequest={() => {
-                    setSwapFor(selected);
+                    setSwapFor(shownSelected);
                     setSelected(null);
                   }}
                   refresh={refresh}
@@ -2495,13 +2629,13 @@ export function ScheduleClient({
               )}
               {can("shift_edit") && (
                 <Button
-                  variant={(!selected.published && can("shift_publish")) || selectedSwapDecision ? "outline" : "default"}
+                  variant={(!shownSelected.published && can("shift_publish")) || selectedSwapDecision ? "outline" : "default"}
                   onClick={() => {
                     setEditor({
                       type: "shift",
-                      shift: selected,
-                      day: dateInZone(selected.starts_at, data.timezone),
-                      returnTo: selected.id,
+                      shift: shownSelected,
+                      day: dateInZone(shownSelected.starts_at, data.timezone),
+                      returnTo: shownSelected.id,
                     });
                     setSelected(null);
                   }}
@@ -2509,11 +2643,11 @@ export function ScheduleClient({
                   Изменить
                 </Button>
               )}
-              {!selected.published && can("shift_publish") && (
+              {!shownSelected.published && can("shift_publish") && (
                 <Button
                   disabled={busy}
                   onClick={async () => {
-                    if (await publishShifts([selected])) {
+                    if (await publishShifts([shownSelected])) {
                       toast.success("Смена опубликована");
                       setSelected(null);
                     }
@@ -2528,27 +2662,27 @@ export function ScheduleClient({
           }
         >
           <ShiftDetails
-            key={selected.id}
+            key={shownSelected.id}
             data={data}
-            shift={selected}
+            shift={shownSelected}
             history={history}
             historyHasMore={historyHasMore}
             onLoadMoreHistory={loadMoreHistory}
             personName={name}
             showHistory={canPlan}
-            swap={selectedSwap ? <SwapSection data={data} swap={selectedSwap} shift={selected} /> : undefined}
+            swap={selectedSwap ? <SwapSection data={data} swap={selectedSwap} shift={shownSelected} /> : undefined}
             assignControl={can("shift_assign") && !can("shift_edit") ? (
               <EmployeePicker
                 data={data}
-                value={shiftAssignee(selected)}
+                value={shiftAssignee(shownSelected)}
                 includeCasual={data.permissions.includes("payroll.configure")}
                 onChange={async (next) => {
                   if (
                     await save("shift.assign", {
-                      id: selected.id,
-                      version: selected.version,
+                      id: shownSelected.id,
+                      version: shownSelected.version,
                       ...assignmentFields(next),
-                      payroll_model_id: casualPayModel(next, selected),
+                      payroll_model_id: casualPayModel(next, shownSelected),
                     })
                   )
                     setSelected(null);
@@ -2558,8 +2692,15 @@ export function ScheduleClient({
           />
         </EditDrawer>
       )}
-      {swapFor && (
-        <SwapRequestDrawer data={data} shift={swapFor} refresh={refresh} onClose={() => setSwapFor(null)} />
+      {shownSwapFor && (
+        <SwapRequestDrawer
+          key={shownSwapFor.id}
+          open={!!swapFor}
+          data={data}
+          shift={shownSwapFor}
+          refresh={refresh}
+          onClose={() => setSwapFor(null)}
+        />
       )}
       <Dialog
         open={!!confirmation}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useExitValue } from "@/hooks/use-exit-value";
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -184,6 +185,10 @@ export function KbPageMenu(props: KbPageMenuProps) {
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  // Окна держим смонтированными, пока они закрываются (docs/motion.md).
+  const shownVersions = useExitValue(versionsOpen);
+  const shownTemplate = useExitValue(templateOpen);
+  const shownImport = useExitValue(importOpen);
 
   const [requiredPending, setRequiredPending] = useState(false);
   const [lockPending, setLockPending] = useState(false);
@@ -675,7 +680,7 @@ export function KbPageMenu(props: KbPageMenuProps) {
 
       {/* Тяжёлые controlled-диалоги, рендерятся на корневом уровне
        * чтобы их Radix-порталы не пересекались с DropdownMenuContent. */}
-      {versionsOpen && props.canViewVersionHistory && (
+      {shownVersions && props.canViewVersionHistory && (
         <KbVersionHistory
           pageId={props.pageId}
           canEdit={effectiveCanEdit}
@@ -683,7 +688,7 @@ export function KbPageMenu(props: KbPageMenuProps) {
           onOpenChange={setVersionsOpen}
         />
       )}
-      {props.canManageTemplates && templateOpen && (
+      {props.canManageTemplates && shownTemplate && (
         <KbSaveAsTemplateDialog
           pageId={props.pageId}
           pageTitle={props.pageTitle}
@@ -691,7 +696,7 @@ export function KbPageMenu(props: KbPageMenuProps) {
           onOpenChange={setTemplateOpen}
         />
       )}
-      {props.canImport && importOpen && (
+      {props.canImport && shownImport && (
         <KbImportDialog
           parentId={props.pageId}
           triggerLabel="Импорт в эту страницу"

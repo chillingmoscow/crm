@@ -355,7 +355,7 @@ function DocumentRow({
             <button
               type="button"
               onClick={onOpen}
-              className="block max-w-full truncate text-left text-sm font-medium hover:underline"
+              className="block max-w-full truncate text-left text-sm font-medium transition-colors duration-200 hover:text-brand"
               data-tip={doc.name}
             >
               {doc.name}

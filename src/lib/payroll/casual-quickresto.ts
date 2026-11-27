@@ -13,6 +13,7 @@ import {
   quickRestoFetch,
 } from "@/lib/integrations/quickresto/client";
 import { runProvisionStep, type ProvisionStep } from "../candidates/provision-state";
+import { splitCasualName } from "./casual-name";
 
 // A casual worker gets only a Quick Resto employee (name, role, PIN) and the
 // warehouse links of the venue. No guest, bonus account or chats: those belong
@@ -28,6 +29,7 @@ type Claim = {
   id: string;
   account_id: string;
   venue_id: string;
+  name: string;
   role_id: string | null;
   model_id: string | null;
   quickresto_id: number | null;
@@ -84,7 +86,11 @@ export async function provisionCasualQuickResto(employeeId: string): Promise<{ p
       await save({ quickresto_lease_until: null });
       return { pin: claim.quickresto_pin };
     }
-    const firstName = ledger.first_name?.trim(), lastName = ledger.last_name?.trim();
+    // Имя из формы заведения; если его нет в журнале (запись пришла из Quick
+    // Resto ещё до кодов Sheerly и уже связана со старым сотрудником кассы) —
+    // по имени разового в Sheerly.
+    const named = splitCasualName(claim.name ?? "", ledger);
+    const firstName = named.firstName.trim(), lastName = named.lastName.trim();
     if (!firstName || !lastName) throw new Error("Укажите имя и фамилию");
     if (!claim.role_id) throw new Error("У разового не указана должность");
     const settings = checked(
@@ -202,20 +208,28 @@ export async function provisionCasualQuickResto(employeeId: string): Promise<{ p
         recover,
       });
 
-    // Created earlier but the PIN was not recorded: read it back.
+    // Created earlier but the PIN was not recorded: read it back. A linked
+    // employee that is gone from Quick Resto (deleted or missing) is not
+    // reused — the worker gets a new one, otherwise the code would open
+    // nothing. A live employee without a readable PIN is an error: creating a
+    // second one would duplicate the person in the till.
+    // Список сотрудников кассы — один раз на проверку привязки и подбор PIN:
+    // каждый проход — несколько запросов по 200 записей подряд.
+    let staffList: Promise<Obj[]> | null = null;
+    const allEmployees = () => (staffList ??= rows("personnel.employee/select", { showDeleted: "true" }));
     if (claim.quickresto_id && !steps.employee) {
-      const existing = (await rows("personnel.employee/select", { showDeleted: "true" })).find(
+      const existing = (await allEmployees()).find(
         (e) => Number(e.id) === claim.quickresto_id,
       );
-      const pin = String(existing?.pin ?? "");
-      if (!/^\d{4}$/.test(pin)) throw new Error("Не удалось прочитать PIN сотрудника в Quick Resto");
-      steps.employee = { state: "done", id: claim.quickresto_id, pin };
-      await save();
+      if (existing && existing.deleted !== true) {
+        const pin = String(existing.pin ?? "");
+        if (!/^\d{4}$/.test(pin)) throw new Error("Не удалось прочитать PIN сотрудника в Quick Resto");
+        steps.employee = { state: "done", id: claim.quickresto_id, pin };
+        await save();
+      }
     }
     if (!steps.employee?.pin) {
-      const used = new Set(
-        (await rows("personnel.employee/select", { showDeleted: "true" })).map((e) => String(e.pin ?? "")),
-      );
+      const used = new Set((await allEmployees()).map((e) => String(e.pin ?? "")));
       let pin = "";
       for (let i = 0; i < 100 && !pin; i++) {
         const p = String(randomInt(1000, 10000));

@@ -23,6 +23,7 @@ import { SettlementSettingsSection } from "./settlement-settings";
 import { CashControlSettingsSection } from "./cash-control-settings";
 import { CashMovementSettingsSection } from "./cash-movement-settings";
 import { FinanceExecutionSettingsSection } from "./finance-execution-settings";
+import { SalesPlanSettingsSection } from "./sales-plan-settings";
 
 /** Число дней между датами `YYYY-MM-DD` включительно. */
 function daysInclusive(from: string, to: string) {
@@ -30,7 +31,14 @@ function daysInclusive(from: string, to: string) {
   return Number.isFinite(ms) ? Math.max(0, Math.round(ms / 86400000) + 1) : 0;
 }
 
-export function SalesSettingsTab({ initial }: { initial: SalesConfiguration }) {
+export function SalesSettingsTab({
+  initial,
+  planMonth,
+}: {
+  initial: SalesConfiguration;
+  /** `?plan=2026-11`: сразу открыть план этого месяца. */
+  planMonth?: string;
+}) {
   const [data, setData] = useState(initial);
   const today = businessDate(
     new Date(),
@@ -40,6 +48,13 @@ export function SalesSettingsTab({ initial }: { initial: SalesConfiguration }) {
   const [from, setFrom] = useState(initial.historyStart ?? today);
   const [to, setTo] = useState(today);
   const [open, setOpen] = useState(false);
+  // Панель держим смонтированной, пока она уезжает (docs/motion.md);
+  // каждое открытие — новый ключ, форма начинается с сохранённых данных.
+  const [session, setSession] = useState(0);
+  const openDrawer = () => {
+    setSession((n) => n + 1);
+    setOpen(true);
+  };
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [recalcError, setRecalcError] = useState<string | null>(null);
@@ -83,7 +98,7 @@ export function SalesSettingsTab({ initial }: { initial: SalesConfiguration }) {
         title="Расчёт смен"
         description="Продажи, чаевые и расходы из Quick Resto."
         actions={
-          <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+          <Button variant="outline" size="sm" onClick={() => openDrawer()}>
             <Settings2 />
             Настроить
           </Button>
@@ -131,6 +146,11 @@ export function SalesSettingsTab({ initial }: { initial: SalesConfiguration }) {
           </p>
         )}
       </ProfileSection>
+      <SalesPlanSettingsSection
+        venueId={data.venueId}
+        currentMonth={today.slice(0, 7)}
+        openMonth={planMonth}
+      />
       <ProfileSection
         title="Пересчёт истории"
         description="Повторно загрузим чеки и отчёты за выбранный период и применим текущие правила. Ручные исправления сохранятся."
@@ -164,6 +184,7 @@ export function SalesSettingsTab({ initial }: { initial: SalesConfiguration }) {
           </p>
           <Button
             variant="outline"
+            size="sm"
             onClick={() => {
               setRecalcError(null);
               setConfirming(true);
@@ -197,20 +218,19 @@ export function SalesSettingsTab({ initial }: { initial: SalesConfiguration }) {
         error={recalcError}
         onConfirm={() => void recalculate()}
       />
-      {open && (
-        <SettingsDrawer
-          data={data}
-          open
-          onClose={() => setOpen(false)}
-          onSaved={() => {
-            setOpen(false);
-            void loadSalesConfiguration(data.venueId)
-              .then(unwrapAction)
-              .then(setData)
-              .catch((e) => toast.error(e.message));
-          }}
-        />
-      )}
+      <SettingsDrawer
+        key={session}
+        data={data}
+        open={open}
+        onClose={() => setOpen(false)}
+        onSaved={() => {
+          setOpen(false);
+          void loadSalesConfiguration(data.venueId)
+            .then(unwrapAction)
+            .then(setData)
+            .catch((e) => toast.error(e.message));
+        }}
+      />
     </div>
   );
 }

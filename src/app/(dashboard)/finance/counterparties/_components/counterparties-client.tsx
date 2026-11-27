@@ -1,5 +1,6 @@
 "use client";
 
+import { useExitValue } from "@/hooks/use-exit-value";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -17,6 +18,7 @@ import {
   ExternalLink,
   FolderTree,
   ListFilter,
+  Plus,
   SearchX,
   Trash2,
   Users,
@@ -249,6 +251,9 @@ export function CounterpartiesClient({
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Row | null>(null);
   const [deleteImpact, setDeleteImpact] = useState<CounterpartyArchiveImpact | null>(null);
+  // Окно держим смонтированным, пока оно закрывается (docs/motion.md): в нём
+  // остаются прежние название и последствия, а не сброшенные.
+  const shownDelete = useExitValue(deleteTarget && { target: deleteTarget, impact: deleteImpact });
 
   const restore = async (row: Pick<Row, "id" | "name">) => {
     const result = await restoreCounterparty(row.id).catch(() => ({
@@ -379,7 +384,7 @@ export function CounterpartiesClient({
             {/* Настоящая ссылка в первой ячейке: карточку можно открыть с клавиатуры. */}
             <Link
               href={cardHref(item.id)}
-              className="block max-w-full truncate font-medium hover:underline"
+              className="block max-w-full truncate font-medium transition-colors duration-200 hover:text-brand"
               data-tip={item.name}
               onClick={(event) => event.stopPropagation()}
             >
@@ -744,7 +749,14 @@ export function CounterpartiesClient({
                 ) : null}
               </>
             }
-            primaryActions={canManage ? <Button onClick={() => setCreateOpen(true)}>Новый контрагент</Button> : null}
+            primaryActions={
+              canManage ? (
+                <Button size="sm" onClick={() => setCreateOpen(true)}>
+                  <Plus className="size-4" />
+                  Новый контрагент
+                </Button>
+              ) : null
+            }
           />
         }
       />
@@ -875,9 +887,9 @@ export function CounterpartiesClient({
         onConfirm={() => void confirmArchive()}
       />
 
-      {deleteTarget ? (
+      {shownDelete ? (
         <HardDeleteConfirmDialog
-          open
+          open={!!deleteTarget}
           onOpenChange={(open) => {
             if (!open) {
               setDeleteTarget(null);
@@ -885,13 +897,13 @@ export function CounterpartiesClient({
             }
           }}
           entityGenitive="контрагента"
-          entityName={deleteTarget.name}
-          impact={counterpartyDeleteImpact(deleteImpact)}
+          entityName={shownDelete.target.name}
+          impact={counterpartyDeleteImpact(shownDelete.impact)}
           restrictedBy={[]}
           onConfirm={async () => {
-            const result = await deleteCounterparty(deleteTarget.id, { confirmName: deleteTarget.name });
+            const result = await deleteCounterparty(shownDelete.target.id, { confirmName: shownDelete.target.name });
             if (result.error) return { error: result.error };
-            toast.success(`Контрагент «${deleteTarget.name}» удалён`);
+            toast.success(`Контрагент «${shownDelete.target.name}» удалён`);
             setDeleteTarget(null);
             setDeleteImpact(null);
             router.refresh();

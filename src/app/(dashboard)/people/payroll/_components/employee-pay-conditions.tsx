@@ -25,7 +25,9 @@ export type ConditionMode = "attendance" | "model";
  * (последнее — только у сотрудника без карточки; с карточкой должность
  * меняется в ней, иначе получились бы две разные должности).
  */
-export function EmployeeConditionDrawer({ data, employee, month, mode, onClose, onChange }: {
+export function EmployeeConditionDrawer({ open = true, data, employee, month, mode, onClose, onChange }: {
+  /** Открыта ли панель. Её держат смонтированной, пока она уезжает (docs/motion.md). */
+  open?: boolean;
   data: PayrollData;
   employee: PayEmployee;
   month: string;
@@ -63,7 +65,7 @@ export function EmployeeConditionDrawer({ data, employee, month, mode, onClose, 
   };
   return (
     <PayrollDetailDialog
-      open={Boolean(mode)}
+      open={open && Boolean(mode)}
       onOpenChange={(open) => { if (!open && !busy) onClose(); }}
       title={mode === "attendance" ? "Учёт выходов" : "Должность"}
       description={employee.name}

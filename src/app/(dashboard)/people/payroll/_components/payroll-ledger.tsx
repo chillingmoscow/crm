@@ -53,6 +53,7 @@ export function PayrollLedger({
   filters,
   onExport,
   exporting = false,
+  rowMenu,
 }: {
   data: PayrollData;
   month: string;
@@ -64,6 +65,8 @@ export function PayrollLedger({
   onExport: () => void;
   exporting?: boolean;
   filters: PayrollTableFilters;
+  /** Действия с сотрудником по правому клику на строке. */
+  rowMenu?: (row: Row) => ReactNode;
 }) {
   const hasOfficial = rows.some((row) => row.officialExpected);
   const visibleLabels: Record<string, string> = hasOfficial ? labels : labelsWithoutOfficial;
@@ -82,7 +85,7 @@ export function PayrollLedger({
           const record = row.original;
           if (id === "employee")
             return (
-              <PayrollEmployeeCell name={record.employee.name} role={record.employee.role_name} avatarUrl={record.employee.avatar_url} />
+              <PayrollEmployeeCell name={record.employee.name} role={record.employee.role_name} avatarUrl={record.employee.avatar_url} href={`/people/payroll/${record.employee.id}?month=${month.slice(0, 7)}`} />
             );
           const pending = data.legacyPayments.some(
             (p) =>
@@ -142,6 +145,7 @@ export function PayrollLedger({
       numeric={numeric}
       searchText={searchText}
       onRow={onEmployee}
+      rowMenu={rowMenu}
       actions={actions}
       defaultSort="earned"
       defaultSortDesc

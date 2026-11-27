@@ -165,7 +165,7 @@ export function VenueDetailPage({
             }
             actions={
               isArchived && isOwner ? (
-                <Button variant="outline" className="gap-2" onClick={() => setRestoreOpen(true)}>
+                <Button variant="outline" size="sm" onClick={() => setRestoreOpen(true)}>
                   <RotateCcw className="size-4" />
                   Восстановить
                 </Button>

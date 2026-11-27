@@ -33,7 +33,10 @@ export type Payslip = {
   role: string;
   shifts: PayslipShift[];
   shiftTotal: number | null;
-  /** Премии, надбавки, оклад, положительные корректировки. */
+  /** Оклад за месяц — отдельно от премий: это основная часть заработка, не премия. */
+  salary: PayslipEntry[];
+  salaryTotal: number;
+  /** Премии, надбавки, положительные корректировки. */
   additions: PayslipEntry[];
   additionsTotal: number;
   /** Штрафы, недостачи и прочие удержания; суммы отрицательные. */
@@ -132,6 +135,7 @@ export function buildPayslip(
     .sort((a, b) => a.business_date.localeCompare(b.business_date) || a.id.localeCompare(b.id));
 
   const shifts: PayslipShift[] = [];
+  const salary: PayslipEntry[] = [];
   const additions: PayslipEntry[] = [];
   const deductions: PayslipEntry[] = [];
   for (const a of current) {
@@ -157,8 +161,9 @@ export function buildPayslip(
       if (c.kind === "tips") continue;
       const amount = c.amount === null ? null : Number(c.amount);
       if (amount !== null && amount < 0) deductions.push({ date: a.business_date, title: c.label, amount });
+      else if (c.kind === "monthly" && amount !== 0) salary.push({ date: a.business_date, title: "Оклад за месяц", amount });
       else if (!(isShift(a) && PER_SHIFT.has(c.kind)) && amount !== 0)
-        additions.push({ date: a.business_date, title: c.kind === "monthly" ? "Оклад за месяц" : c.label, amount });
+        additions.push({ date: a.business_date, title: c.label, amount });
     }
   }
 
@@ -187,6 +192,8 @@ export function buildPayslip(
     role: employee.role_name,
     shifts,
     shiftTotal: sum(shifts.map((s) => s.total)),
+    salary,
+    salaryTotal: sum(salary.map((e) => e.amount ?? 0)) ?? 0,
     additions,
     additionsTotal: sum(additions.map((e) => e.amount ?? 0)) ?? 0,
     deductions,

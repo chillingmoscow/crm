@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import { ExpandPanel } from "@/components/shared/overview-toggle";
 import type { SalesConfiguration } from "@/lib/sales/types";
 import { saveSalesSettings } from "@/app/(dashboard)/sales/shifts/actions";
 import { toast } from "sonner";
@@ -211,14 +212,15 @@ export function SettingsDrawer({
               variant="ghost"
               size="sm"
               aria-expanded={advanced}
+              aria-controls="sales-advanced"
               onClick={() => setAdvanced(!advanced)}
             >
               {advanced ? "Скрыть" : "Показать"}
             </Button>
           }
         >
-          {advanced && (
-            <>
+          <ExpandPanel id="sales-advanced" open={advanced}>
+            <div className="space-y-4">
               {[
                 ["sales-staff", "ID группы Staff", staff, setStaff],
                 ["sales-hookah", "ID отчёта по кальянам", hookah, setHookah],
@@ -274,8 +276,8 @@ export function SettingsDrawer({
                   className="font-mono text-xs md:text-xs"
                 />
               </div>
-            </>
-          )}
+            </div>
+          </ExpandPanel>
         </DrawerSection>
         {error && (
           <p role="alert" className="text-sm text-destructive">

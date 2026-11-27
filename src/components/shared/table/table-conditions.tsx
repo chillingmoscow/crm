@@ -5,6 +5,7 @@ import type { SortingState } from "@tanstack/react-table";
 import { ArrowDown, ArrowUp, ArrowUpDown, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { MotionPresence } from "@/components/shared/motion-presence";
 import { pluralRu } from "@/lib/format/plural";
 import { TableControlPin } from "./table-control-pin";
 import { TableSortSettings } from "./table-sort-settings";
@@ -51,27 +52,36 @@ export function TableConditions({
   children?: ReactNode;
 }) {
   const hasSort = sorting.length > 0;
-  if (!open && !hasFilters && !hasSort) return null;
+  const visible = open || hasFilters || hasSort;
   const q = search?.trim() ?? "";
   const showFilters = open || hasFilters;
+  // Ряд условий плавно раскрывается и сворачивается (docs/motion.md), а не
+  // появляется рывком; свёрнутый не занимает места.
   return (
-    <div className="flex flex-wrap items-center gap-2" aria-label={label}>
-      {hasSort && (
-        <TableSortPin
-          sorting={sorting}
-          onChange={onSortingChange}
-          fields={sortFields}
-          labels={sortLabels}
-        />
-      )}
-      {hasSort && showFilters && children ? (
-        <span aria-hidden className="mx-1 h-5 w-px bg-border" />
-      ) : null}
-      {showFilters ? children : null}
-      {q && onSearchClear ? (
-        <TableSearchPin value={q} onClear={onSearchClear} />
-      ) : null}
-      {hasFilters || q || hasSort ? (
+    <div className="motion-expand" data-open={visible} aria-hidden={!visible || undefined}>
+    <div>
+    <div className="flex flex-wrap items-center gap-2 pb-0.5" aria-label={label}>
+      {/* Каждый элемент ряда появляется и уходит плавно (docs/motion.md). */}
+      <MotionPresence show={hasSort}>
+        {sorting.length ? (
+          <TableSortPin
+            sorting={sorting}
+            onChange={onSortingChange}
+            fields={sortFields}
+            labels={sortLabels}
+          />
+        ) : null}
+      </MotionPresence>
+      <MotionPresence show={hasSort && showFilters && !!children}>
+        <span aria-hidden className="mx-1 h-5 w-px self-center bg-border" />
+      </MotionPresence>
+      <MotionPresence show={showFilters && !!children} className="gap-2">
+        {children}
+      </MotionPresence>
+      <MotionPresence show={!!(q && onSearchClear)}>
+        {q && onSearchClear ? <TableSearchPin value={q} onClear={onSearchClear} /> : null}
+      </MotionPresence>
+      <MotionPresence show={!!(hasFilters || q || hasSort)}>
         <Button
           variant="ghost"
           size="sm"
@@ -80,7 +90,9 @@ export function TableConditions({
         >
           Очистить все
         </Button>
-      ) : null}
+      </MotionPresence>
+    </div>
+    </div>
     </div>
   );
 }

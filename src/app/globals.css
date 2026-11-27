@@ -30,7 +30,7 @@
     --muted-foreground: 240 4% 46%;    /* #71717a */
     --accent: 240 5% 96%;
     --accent-foreground: 240 6% 10%;
-    --destructive: 357 100% 45%;       /* #e7000b */
+    --destructive: 4 74% 49%;          /* #d92d20 — приглушённый красный (26.11.2026; было #e7000b) */
     --destructive-foreground: 0 0% 100%;
     --border: 240 6% 90%;              /* #e4e4e7 */
     --input: 240 6% 90%;
@@ -128,7 +128,7 @@
     --muted-foreground: 240 5% 65%;    /* #a1a1aa */
     --accent: 240 4% 16%;
     --accent-foreground: 0 0% 98%;
-    --destructive: 0 84% 60%;          /* #ef4444 — lighter for dark surfaces */
+    --destructive: 4 86% 58%;          /* #f04438 — пара к #d92d20, светлее для тёмных поверхностей */
     --destructive-foreground: 0 0% 98%;
     --border: 0 0% 100% / 0.1;         /* #ffffff1a */
     --input: 0 0% 100% / 0.1;
@@ -1304,7 +1304,7 @@ input:-webkit-autofill {
   box-shadow:
     0 12px 32px rgb(0 0 0 / 0.18),
     0 2px 6px rgb(0 0 0 / 0.06);
-  animation: kb-mobile-sheet-in 140ms ease-out;
+  animation: kb-mobile-sheet-in 400ms var(--ease-soft);
 }
 @keyframes kb-mobile-sheet-in {
   from { opacity: 0; transform: translateY(6px); }
@@ -1406,7 +1406,7 @@ input:-webkit-autofill {
   display: flex;
   flex-direction: column;
   background-color: hsl(var(--background));
-  animation: kb-mobile-fullsheet-in 160ms ease-out;
+  animation: kb-mobile-fullsheet-in 400ms var(--ease-soft);
   /* Скролл не должен «протекать» на страницу под листом. */
   overscroll-behavior: contain;
   touch-action: pan-y;
@@ -4501,6 +4501,229 @@ html.theme-transition *::after {
     stroke 200ms ease,
     box-shadow 200ms ease !important;
   transition-delay: 0s !important;
+}
+
+/* ──── Движение ─────────────────────────────────────────────────
+   Дизайн-система, «Движение». Одна кривая на всё — мягкий выход
+   (как системные анимации Apple): --ease-soft. */
+:root {
+  --ease-soft: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-draw: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+/* Строки при первом показе проявляются по очереди (задержка — inline style в DataTable). */
+@keyframes table-row-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+.table-row-in {
+  animation: table-row-in 480ms var(--ease-soft) both;
+}
+
+/* Блок, который сменился (итоги другой вкладки), мягко всплывает. */
+@keyframes motion-rise {
+  from { opacity: 0; transform: translateY(8px) scale(0.995); }
+  to   { opacity: 1; transform: none; }
+}
+.motion-rise {
+  animation: motion-rise 560ms var(--ease-soft) both;
+}
+
+/* Всплывающие окна (календарь, сортировка, столбцы, меню, выпадающие
+   списки) выезжают из своего угла — от кнопки, которая их открыла:
+   масштаб от 0.94 из точки привязки Radix, мягкая кривая; закрываются
+   быстрее. Классы tailwindcss-animate (animate-in, zoom-in-95…) в проекте
+   не подключены и ничего не делают — анимация задаётся здесь. */
+@keyframes popper-in {
+  from { opacity: 0; transform: scale(0.94) translateY(var(--popper-shift, -4px)); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes popper-out {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: scale(0.97); }
+}
+[data-radix-popper-content-wrapper] > [data-state="open"],
+/* У подсказки Radix своё состояние: delayed-open — после задержки
+   (проявляется), instant-open — при переходе с соседней (сразу). */
+[data-radix-popper-content-wrapper] > [data-state="delayed-open"] {
+  transform-origin: var(--radix-popper-transform-origin);
+  animation: popper-in 320ms var(--ease-soft) both;
+}
+/* Общая подсказка data-tip (свой портал, не Radix). */
+.motion-popper-in {
+  animation: popper-in 240ms var(--ease-soft) both;
+}
+
+/* Затемнение, окна и боковые панели (docs/motion.md). Масштаб и сдвиг —
+   отдельными свойствами scale/translate, чтобы не перебить transform,
+   которым окно центрируется. Radix ждёт конца анимации закрытия и
+   только потом убирает элемент. */
+@keyframes overlay-in  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes overlay-out { from { opacity: 1; } to { opacity: 0; } }
+.motion-overlay[data-state="open"]   { animation: overlay-in 300ms var(--ease-soft) both; }
+.motion-overlay[data-state="closed"] { animation: overlay-out 160ms ease-in both; }
+
+@keyframes dialog-in  { from { opacity: 0; scale: 0.96; translate: 0 8px; } to { opacity: 1; scale: 1; translate: 0 0; } }
+@keyframes dialog-out { from { opacity: 1; scale: 1; } to { opacity: 0; scale: 0.97; } }
+.motion-dialog[data-state="open"]   { animation: dialog-in 320ms var(--ease-soft) both; }
+.motion-dialog[data-state="closed"] { animation: dialog-out 160ms ease-in both; }
+
+@keyframes sheet-in  { from { translate: var(--sheet-from); } to { translate: 0 0; } }
+@keyframes sheet-out { from { translate: 0 0; } to { translate: var(--sheet-from); } }
+.motion-sheet { --sheet-from: 100% 0; }
+.motion-sheet[data-side="left"]   { --sheet-from: -100% 0; }
+.motion-sheet[data-side="top"]    { --sheet-from: 0 -100%; }
+.motion-sheet[data-side="bottom"] { --sheet-from: 0 100%; }
+.motion-sheet[data-state="open"]   { animation: sheet-in 400ms var(--ease-soft) both; }
+.motion-sheet[data-state="closed"] { animation: sheet-out 180ms ease-in both; }
+
+/* Плавающая плашка снизу (зона удаления при перетаскивании) и выезжающая
+   сбоку панель (предпросмотр дерева KB). Через translate — не мешает
+   transform, которым элемент центрирован. */
+@keyframes float-up { from { opacity: 0; translate: 0 16px; } to { opacity: 1; translate: 0 0; } }
+.motion-float-up { animation: float-up 360ms var(--ease-soft) both; }
+@keyframes slide-in-left { from { opacity: 0; translate: -8px 0; } to { opacity: 1; translate: 0 0; } }
+.motion-slide-in-left { animation: slide-in-left 320ms var(--ease-soft) both; }
+[data-radix-popper-content-wrapper] > [data-side="top"] { --popper-shift: 4px; }
+[data-radix-popper-content-wrapper] > [data-side="left"],
+[data-radix-popper-content-wrapper] > [data-side="right"] { --popper-shift: 0px; }
+[data-radix-popper-content-wrapper] > [data-state="closed"] {
+  transform-origin: var(--radix-popper-transform-origin);
+  animation: popper-out 160ms ease-in both;
+}
+
+/* Чипы, пины и кнопки в ряду условий: появляются, раздвигая соседей, и
+   уезжают вбок, сжимаясь (MotionPresence). */
+@keyframes chip-in {
+  from { opacity: 0; max-width: 0; transform: translateX(-8px) scale(0.92); }
+  60%  { opacity: 1; }
+  to   { opacity: 1; max-width: 360px; transform: none; }
+}
+@keyframes chip-out {
+  from { opacity: 1; max-width: 360px; transform: none; }
+  to   { opacity: 0; max-width: 0; transform: translateX(-10px) scale(0.92); }
+}
+.motion-chip {
+  display: inline-flex;
+  flex-shrink: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.motion-chip[data-state="open"] {
+  animation: chip-in 460ms var(--ease-soft) backwards;
+}
+.motion-chip[data-settled="true"] {
+  overflow: visible;
+}
+.motion-chip[data-state="closed"] {
+  animation: chip-out 200ms ease-in both;
+  pointer-events: none;
+}
+
+/* Раскрывающаяся панель («Обзор»): высота от нуля, содержимое проявляется. */
+.motion-expand {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition:
+    grid-template-rows 620ms var(--ease-soft),
+    opacity 420ms var(--ease-soft),
+    transform 620ms var(--ease-soft),
+    margin 620ms var(--ease-soft);
+}
+/* Свёрнутая панель не оставляет отступа от соседей (space-y-*). */
+.motion-expand:not([data-open="true"]) {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  pointer-events: none;
+}
+.motion-expand[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: none;
+}
+.motion-expand > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ──── Движение: отрисовка графиков ──────────────────────────────
+   Линия рисуется слева направо (pathLength="1" у линии), заливка
+   проявляется, полоски растут от левого края. */
+@keyframes chart-line-draw {
+  from { stroke-dashoffset: 1; }
+  to   { stroke-dashoffset: 0; }
+}
+.chart-line-draw {
+  stroke-dasharray: 1;
+  animation: chart-line-draw 1400ms var(--ease-draw) 120ms both;
+}
+@keyframes chart-fill-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.chart-fill-in {
+  animation: chart-fill-in 1100ms var(--ease-soft) 500ms both;
+}
+@keyframes chart-bar-grow-x {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+.chart-bar-grow-x {
+  transform-origin: left;
+  animation: chart-bar-grow-x 1000ms var(--ease-soft) both;
+}
+/* Вертикальные столбики растут от нижнего края (шаг — animationDelay). */
+@keyframes chart-bar-grow-y {
+  from { transform: scaleY(0); }
+  to   { transform: scaleY(1); }
+}
+.chart-bar-grow-y {
+  transform-origin: bottom;
+  animation: chart-bar-grow-y 1000ms var(--ease-soft) both;
+}
+
+/* Шеврон раскрытия поворачивается плавно (rotate-180 / rotate-90 — классом). */
+.motion-chevron {
+  transition: transform 500ms var(--ease-soft);
+}
+
+/* Идущая смена в расписании: точка 6px, от неё спокойно расходится и
+   гаснет кольцо того же цвета. Цвет — фон точки (обычно bg-current).
+   Мигает не карточка, а только кольцо; reduce motion — точка стоит. */
+@keyframes shift-live-ring {
+  from { opacity: 0.5; scale: 1; }
+  to   { opacity: 0;   scale: 2.6; }
+}
+.shift-live-dot {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+}
+.shift-live-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: inherit;
+  animation: shift-live-ring 2400ms var(--ease-soft) infinite;
+}
+/* Отметка «сейчас» на идущей смене: полоска прошедшей части, цвет текста
+   карточки (цвет шаблона). Раз в минуту край мягко доезжает до нового места. */
+.shift-now-track {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+}
+.shift-now-fill {
+  background: color-mix(in srgb, currentColor 70%, transparent);
+  transform-origin: left center;
+  transition: transform 600ms var(--ease-soft);
+}
+@media (prefers-reduced-motion: reduce) {
+  .shift-live-dot::after { animation: none; opacity: 0; }
 }
 
 /* ──── prefers-reduced-motion ────────────────────────────────────

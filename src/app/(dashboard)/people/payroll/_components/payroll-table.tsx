@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useEffect, useRef, useState } from "react";
+import { useMemo, useEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   getCoreRowModel,
@@ -22,6 +22,7 @@ import {
   useTableState,
 } from "@/components/shared/table";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
 
 const noHiddenColumns: string[] = [];
 
@@ -70,6 +71,7 @@ export function PayrollTable<T>({
   empty,
   totals,
   selection,
+  rowMenu,
   emptyText = "Нет записей за выбранный период",
 }: {
   id: string;
@@ -94,6 +96,11 @@ export function PayrollTable<T>({
   /** Строка итогов по видимым столбцам с учётом поиска и фильтров. */
   totals?: (rows: T[]) => Partial<Record<string, React.ReactNode>>;
   selection?: PayrollTableSelection<T>;
+  /**
+   * Меню строки по правому клику (`ContextMenuLabel` + `ContextMenuItem`).
+   * `null` — у строки действий нет, остаётся меню браузера.
+   */
+  rowMenu?: (row: T) => ReactNode;
   emptyText?: string;
 }) {
   const [toolbarTarget, setToolbarTarget] = useState<HTMLElement | null>(null);
@@ -294,6 +301,99 @@ export function PayrollTable<T>({
     </div>
   );
   const visibleRows = table.getSortedRowModel().rows.map((r) => r.original);
+  // Меню строки: строку берём из события, а не из её индекса в состоянии —
+  // при фоновом обновлении порядок строк может смениться, пока меню открыто.
+  const [menuRow, setMenuRow] = useState<T | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  // Меню — для мыши и тачпада. На устройстве только с сенсорным экраном
+  // долгое нажатие остаётся системе (выделение, меню ссылки), а строка
+  // открывается касанием.
+  const [finePointer, setFinePointer] = useState(false);
+  const hasRowMenu = !!rowMenu;
+  useEffect(() => {
+    if (!hasRowMenu) return;
+    const query = window.matchMedia("(any-pointer: fine)");
+    const update = () => setFinePointer(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, [hasRowMenu]);
+  const rowAt = (event: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>) => {
+    const target = event.target as Element;
+    // События из порталов (открытые меню, панели) React доставляет по дереву.
+    if (!event.currentTarget.contains(target)) return null;
+    const tr = target.closest("tr");
+    if (!tr || tr.parentElement?.tagName !== "TBODY") return null;
+    return table.getRowModel().rows[tr.sectionRowIndex]?.original ?? null;
+  };
+  /** Запомнить строку под указателем; `false` — у этого места меню строки нет. */
+  const pickMenuRow = (event: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>) => {
+    const row = rowAt(event);
+    const ok = !!row && !!rowMenu?.(row);
+    setMenuRow(ok ? row : null);
+    return ok;
+  };
+  const menuItems = menuRow && rowMenu ? rowMenu(menuRow) : null;
+  const dataTable = (
+    <DataTable
+      table={table}
+      label={label ?? "Зарплата"}
+      labels={labels}
+      onColumnSizingChange={st.setColumnSizing}
+      sorting={st.sorting}
+      onSortingChange={changeSorting}
+      sortable={sortable}
+      numeric={numeric}
+      onRowClick={onRow ? (row) => onRow(row.original) : undefined}
+      rowClassName={
+        rowMenu
+          ? (row) => (menuOpen && row.original === menuRow ? "bg-muted/30" : undefined)
+          : undefined
+      }
+      renderControlHeader={
+        selection
+          ? (header) =>
+              header.column.id === "select" ? (
+                <Checkbox
+                  checked={
+                    table.getIsAllPageRowsSelected() ||
+                    (table.getIsSomePageRowsSelected() && "indeterminate")
+                  }
+                  onCheckedChange={(checked) =>
+                    table.toggleAllPageRowsSelected(checked === true)
+                  }
+                  disabled={!table.getRowModel().rows.some((row) => row.getCanSelect())}
+                  aria-label={selection.pageLabel}
+                  className="align-middle"
+                />
+              ) : null
+          : undefined
+      }
+      empty={emptyText}
+      totals={totals?.(visibleRows)}
+      mobile={{
+        nameColumn,
+        statusColumn: labels.status ? "status" : undefined,
+        // С чекбоксом в шапке карточки действия строки уходят в подвал.
+        actionsPlacement: selection ? "footer" : undefined,
+        selection: selection && table.getRowModel().rows.some((row) => row.getCanSelect()) ? (
+          <label className="flex min-h-10 items-center gap-3 text-sm text-muted-foreground">
+            <Checkbox
+              checked={
+                table.getIsAllPageRowsSelected() ||
+                (table.getIsSomePageRowsSelected() && "indeterminate")
+              }
+              onCheckedChange={(checked) =>
+                table.toggleAllPageRowsSelected(checked === true)
+              }
+              aria-label={selection.pageLabel}
+            />
+            Выбрать все на странице
+          </label>
+        ) : undefined,
+      }}
+    />
+  );
   return (
     <div className="min-w-0 space-y-4">
       {toolbarTargetId
@@ -321,60 +421,29 @@ export function PayrollTable<T>({
       </TableConditions>
       {!filtered.length && empty ? (
         empty
+      ) : rowMenu ? (
+        <ContextMenu modal={false} onOpenChange={setMenuOpen}>
+          <ContextMenuTrigger
+            asChild
+            disabled={!finePointer}
+            // Вне строки (шапка, итоги, пустая таблица) — обычное меню
+            // браузера: событие не доходит до обработчика меню.
+            onContextMenuCapture={(event) => {
+              if (finePointer && !pickMenuRow(event)) event.stopPropagation();
+            }}
+            // Долгое нажатие пальцем на устройстве и с мышью, и с экраном:
+            // меню откроется по таймеру, без contextmenu — строку берём здесь.
+            onPointerDownCapture={(event) => {
+              if (finePointer && event.pointerType !== "mouse") pickMenuRow(event);
+            }}
+            style={{ WebkitTouchCallout: "default" }}
+          >
+            <div className="min-w-0">{dataTable}</div>
+          </ContextMenuTrigger>
+          {menuItems && <ContextMenuContent>{menuItems}</ContextMenuContent>}
+        </ContextMenu>
       ) : (
-        <DataTable
-          table={table}
-          label={label ?? "Зарплата"}
-          labels={labels}
-          onColumnSizingChange={st.setColumnSizing}
-          sorting={st.sorting}
-          onSortingChange={changeSorting}
-          sortable={sortable}
-          numeric={numeric}
-          onRowClick={onRow ? (row) => onRow(row.original) : undefined}
-          renderControlHeader={
-            selection
-              ? (header) =>
-                  header.column.id === "select" ? (
-                    <Checkbox
-                      checked={
-                        table.getIsAllPageRowsSelected() ||
-                        (table.getIsSomePageRowsSelected() && "indeterminate")
-                      }
-                      onCheckedChange={(checked) =>
-                        table.toggleAllPageRowsSelected(checked === true)
-                      }
-                      disabled={!table.getRowModel().rows.some((row) => row.getCanSelect())}
-                      aria-label={selection.pageLabel}
-                      className="align-middle"
-                    />
-                  ) : null
-              : undefined
-          }
-          empty={emptyText}
-          totals={totals?.(visibleRows)}
-          mobile={{
-            nameColumn,
-            statusColumn: labels.status ? "status" : undefined,
-            // С чекбоксом в шапке карточки действия строки уходят в подвал.
-            actionsPlacement: selection ? "footer" : undefined,
-            selection: selection && table.getRowModel().rows.some((row) => row.getCanSelect()) ? (
-              <label className="flex min-h-10 items-center gap-3 text-sm text-muted-foreground">
-                <Checkbox
-                  checked={
-                    table.getIsAllPageRowsSelected() ||
-                    (table.getIsSomePageRowsSelected() && "indeterminate")
-                  }
-                  onCheckedChange={(checked) =>
-                    table.toggleAllPageRowsSelected(checked === true)
-                  }
-                  aria-label={selection.pageLabel}
-                />
-                Выбрать все на странице
-              </label>
-            ) : undefined,
-          }}
-        />
+        dataTable
       )}
       <TablePagination
         pageIndex={st.pagination.pageIndex}

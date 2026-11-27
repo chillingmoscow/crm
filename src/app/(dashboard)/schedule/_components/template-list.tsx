@@ -136,7 +136,7 @@ export function TemplateList({
               <button
                 type="button"
                 onClick={() => onEdit(template)}
-                className="min-w-0 text-left hover:underline"
+                className="min-w-0 text-left transition-colors duration-200 hover:text-brand"
               >
                 <TemplateName {...template} />
               </button>

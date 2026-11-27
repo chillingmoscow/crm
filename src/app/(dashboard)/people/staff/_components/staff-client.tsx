@@ -5,17 +5,7 @@ import Link from "next/link";
 import { isStaffPlaceholderEmail } from "@/lib/people/staff-identity";
 import { isGender } from "@/lib/people/gender";
 import { toast } from "sonner";
-import {
-  UserPlus,
-  Calendar,
-  Clock,
-  Archive,
-  Lock,
-  HeartPulse,
-  Cake,
-  CalendarClock,
-  UserRound,
-} from "lucide-react";
+import { UserPlus, Calendar, Clock, Archive, Lock, HeartPulse, Cake, CalendarClock, UserRound, UserCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { formatPhoneDisplay } from "@/lib/format/phone";
@@ -35,6 +25,7 @@ import { PersonAvatar } from "@/components/people/person-avatar";
 import { StaffTable, type StaffColKey as ColKey } from "./staff-table";
 import type { CasualStaffRow } from "@/lib/payroll/casual-list";
 import { AddStaffDrawer } from "./add-staff-drawer";
+import { CasualToStaffDrawer } from "./casual-to-staff-drawer";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -86,6 +77,12 @@ type Props = {
   currentUserId: string;
   /** Право people.edit_staff у текущего пользователя. */
   canEditStaff: boolean;
+  /** people.invite_staff: «Пригласить» и «Разовый». */
+  canInviteStaff?: boolean;
+  /** payroll.view: строка разового открывает его расчёт в «Зарплате». */
+  canViewPayroll?: boolean;
+  /** people.edit_staff + payroll.configure: перевод разового в штат. */
+  canConvertCasual?: boolean;
   /** people.view_staff + people.view_staff_details. Без них сервер не отдаёт
    *  контакты, даты и причину увольнения коллег, а карточка не открывается. */
   canSeeStaffDetails: boolean;
@@ -250,6 +247,9 @@ export function StaffClient({
   venueId,
   currentUserId,
   canEditStaff,
+  canInviteStaff = false,
+  canViewPayroll = false,
+  canConvertCasual = false,
   canSeeStaffDetails,
   casual,
   officialUserIds,
@@ -258,7 +258,25 @@ export function StaffClient({
   const [staff, setStaff] = useState(initialStaff);
   const [invitations, setInvitations] = useState(initialInvitations);
   const [fired, setFired] = useState(initialFired);
+  // Свежие данные с сервера (revalidatePath после действия) заменяют
+  // оптимистичные строки: раньше списки жили только в состоянии, и после
+  // «Восстановить» или «Создать» строка оставалась собранной вручную —
+  // без подразделения, пола, PIN — до полного перехода на страницу.
+  const [serverLists, setServerLists] = useState({ initialStaff, initialInvitations, initialFired });
+  if (
+    serverLists.initialStaff !== initialStaff ||
+    serverLists.initialInvitations !== initialInvitations ||
+    serverLists.initialFired !== initialFired
+  ) {
+    setServerLists({ initialStaff, initialInvitations, initialFired });
+    setStaff(initialStaff);
+    setInvitations(initialInvitations);
+    setFired(initialFired);
+  }
   const [inviteOpen, setInviteOpen] = useState(openAddCasual);
+  // Разовый, которого переводят в штат; держим, пока панель уезжает.
+  const [converting, setConverting] = useState<CasualStaffRow | null>(null);
+  const [convertOpen, setConvertOpen] = useState(false);
   const [addKey, setAddKey] = useState(0);
   const openAdd = () => {
     setAddKey((key) => key + 1);
@@ -395,7 +413,7 @@ export function StaffClient({
               href={`/people/staff/${member.user_id}`}
               data-tip={displayName(member)}
               data-tip-overflow
-              className="font-medium text-sm truncate min-w-0 hover:text-brand"
+              className="min-w-0 truncate text-sm font-medium transition-colors duration-200 hover:text-brand"
             >
               {nameLabel}
             </Link>
@@ -593,7 +611,7 @@ export function StaffClient({
             href={`/people/staff/${member.user_id}`}
             data-tip={displayName(member)}
             data-tip-overflow
-            className="block truncate text-sm font-medium hover:text-brand"
+            className="block truncate text-sm font-medium transition-colors duration-200 hover:text-brand"
           >
             {displayName(member)}
           </Link>
@@ -653,14 +671,22 @@ export function StaffClient({
       case "name":
         return (
           <div className="min-w-0 flex items-center gap-2">
-            <Link
-              href={`/people/payroll/${c.id}`}
-              data-tip={c.name}
-              data-tip-overflow
-              className="font-medium text-sm truncate min-w-0 hover:text-brand"
-            >
-              {c.name}
-            </Link>
+            {/* Расчёт разового открывается в «Зарплате» — только с её правом,
+                иначе там «не найдено». */}
+            {canViewPayroll ? (
+              <Link
+                href={`/people/payroll/${c.id}`}
+                data-tip={c.name}
+                data-tip-overflow
+                className="min-w-0 truncate text-sm font-medium transition-colors duration-200 hover:text-brand"
+              >
+                {c.name}
+              </Link>
+            ) : (
+              <span data-tip={c.name} data-tip-overflow className="min-w-0 truncate text-sm font-medium">
+                {c.name}
+              </span>
+            )}
             <span
               className="inline-flex shrink-0"
               data-tip="Выходит на смены по графику без входа в Sheerly. Отмечается в кассе своим PIN."
@@ -687,15 +713,41 @@ export function StaffClient({
         ) : (
           <span className="text-sm text-muted-foreground">—</span>
         );
+      // Разовый не трудоустроен: на месте даты — перевод в штат.
+      case "employment_date":
+        return canConvertCasual ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 px-2.5 text-xs"
+            onClick={() => {
+              setConverting(c);
+              setConvertOpen(true);
+            }}
+          >
+            <UserCheck className="size-3.5" />
+            Перевести в штат
+          </Button>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        );
       case "pin":
-        return <span className="font-mono text-sm tabular-nums">{c.pin}</span>;
+        return c.pin ? (
+          <span className="font-mono text-sm tabular-nums">{c.pin}</span>
+        ) : (
+          <span className="text-sm text-muted-foreground" data-tip="Кода кассы нет: его выдаст «Добавить → Разовый» с тем же именем или перевод в штат">
+            —
+          </span>
+        );
       default:
         return <span className="text-sm text-muted-foreground">—</span>;
     }
   };
 
   // ── Render ─────────────────────────────────────────────────
-  const addButton = canEdit ? (
+  // «Добавить» есть, если доступен хоть один способ: создать или пригласить.
+  const canAdd = canEdit || canInviteStaff;
+  const addButton = canAdd ? (
     <Button onClick={openAdd} size="sm" className="h-9 gap-2">
       <UserPlus className="size-4" />
       Добавить
@@ -760,6 +812,7 @@ export function StaffClient({
           </>
         }
         canEdit={canEdit}
+        canOpenCasual={canViewPayroll}
         isPending={isPending}
         onCancelInvitation={(invId) =>
           setConfirmAction({
@@ -771,7 +824,7 @@ export function StaffClient({
         }
         primaryAction={addButton}
         emptyAction={
-          canEdit ? (
+          canAdd ? (
             <Button onClick={openAdd}>
               <UserPlus />
               Добавить сотрудника
@@ -779,6 +832,16 @@ export function StaffClient({
           ) : undefined
         }
       />
+
+      {converting && (
+        <CasualToStaffDrawer
+          key={converting.id}
+          open={convertOpen}
+          onOpenChange={setConvertOpen}
+          employee={{ id: converting.id, name: converting.name, role_id: converting.roleId, hasPin: converting.pin !== null }}
+          roles={roles}
+        />
+      )}
 
       {/* «Новый сотрудник»: без входа, по email или разовый. Ключ пересоздаёт
           панель при каждом открытии — форма открывается пустой. */}
@@ -790,6 +853,8 @@ export function StaffClient({
         casualRoles={casual?.roles ?? null}
         venueId={venueId}
         defaultMode={openAddCasual ? "casual" : "manual"}
+        canCreate={canEdit}
+        canInvite={canInviteStaff}
         onInvited={(invitation) =>
           setInvitations((prev) => [
             invitation,

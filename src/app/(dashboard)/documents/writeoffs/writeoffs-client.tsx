@@ -1,4 +1,5 @@
 "use client";
+import { useExitValue } from "@/hooks/use-exit-value";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -25,6 +26,7 @@ import { MonthPicker } from "@/components/shared/month-picker";
 import { PeriodStepper } from "@/components/shared/period-stepper";
 import { Metric, MetricStrip } from "@/components/shared/metric-strip";
 import { Money } from "@/components/shared/money";
+import { AnimatedMoney, AnimatedNumber } from "@/components/shared/animated-money";
 import tabStyle from "@/components/shared/workspace-tabs.module.css";
 import {
   DataTable,
@@ -257,6 +259,8 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       failed: boolean;
     } | null>(null),
     [deductionAttempt, setDeductionAttempt] = useState(0);
+  // Панель держим смонтированной, пока она уезжает (docs/motion.md).
+  const shownDetail = useExitValue(detail);
   const canAssign = data.permissions.includes("inventory.assign_writeoff_pool");
   // Снимки удержаний видит тот, кто их ставит или видит зарплату (RLS 309).
   const canSeeDeduction =
@@ -362,7 +366,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
                   onClick={() => setDetail(r)}
                 >
                   <span
-                    className="block truncate font-medium hover:underline"
+                    className="block truncate font-medium transition-colors duration-200 hover:text-brand"
                     data-tip={r.name}
                     data-tip-overflow
                   >
@@ -884,6 +888,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     <Button className="min-w-32" disabled={busy}
       onClick={() => void refresh()}
     >
+      {busy ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
       {busy ? "Запрашиваем…" : label}
     </Button>
   );
@@ -964,7 +969,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       <Metric
         primary
         label="Проведённые акты"
-        value={<Money value={sum.total === 0 ? 0 : sum.value} />}
+        value={<AnimatedMoney value={sum.total === 0 ? 0 : sum.value} />}
         hint={
           sum.total === 0
             ? "Проведённых актов нет"
@@ -975,14 +980,14 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
                 : "Без черновиков и отсутствующих актов"
         }
       />
-      <Metric label="Актов" value={rows.length} />
+      <Metric label="Актов" value={<AnimatedNumber value={rows.length} />} />
       <Metric
         label="Проведено"
-        value={rows.filter((r) => r.status === "Проведён").length}
+        value={<AnimatedNumber value={rows.filter((r) => r.status === "Проведён").length} />}
       />
       <Metric
         label="Не разнесено"
-        value={unassigned}
+        value={<AnimatedNumber value={unassigned} />}
         hint={unassigned > 0 ? "Месяц не посчитан" : undefined}
       />
     </MetricStrip>
@@ -991,7 +996,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       <Metric
         primary
         label="Сумма архивных записей"
-        value={<Money value={sum.total === 0 ? 0 : sum.value} />}
+        value={<AnimatedMoney value={sum.total === 0 ? 0 : sum.value} />}
         hint={
           sum.total === 0
             ? "Записей с суммой нет"
@@ -1002,10 +1007,10 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
                 : "Без удалённых записей"
         }
       />
-      <Metric label="Записей" value={rows.length} />
+      <Metric label="Записей" value={<AnimatedNumber value={rows.length} />} />
       <Metric
         label="Нужна сверка"
-        value={rows.filter((r) => r.issues.length > 0).length}
+        value={<AnimatedNumber value={rows.filter((r) => r.issues.length > 0).length} />}
       />
     </MetricStrip>
   );
@@ -1060,7 +1065,10 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       {notices}
       {rows.length ? (
         <>
-          {metrics}
+          {/* Смена источника — как вкладка: итоги всплывают и досчитываются заново. */}
+          <div key={source} className="motion-rise">
+            {metrics}
+          </div>
           {deductionStatus?.state !== "stale" && deductionLine}
           <DataTable
             table={table}
@@ -1164,10 +1172,11 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       ) : (
         body
       )}
-      {detail && (
+      {shownDetail && (
         <WriteoffDrawer
-          key={detail.id}
-          row={allRows.find((r) => r.id === detail.id) ?? detail}
+          key={shownDetail.id}
+          open={!!detail}
+          row={allRows.find((r) => r.id === shownDetail.id) ?? shownDetail}
           data={data}
           canAssign={canAssign}
           onAssign={assign}

@@ -96,6 +96,8 @@ const REGISTRY: Record<string, NotificationTypeSpec> = {
     iconColor: "text-brand",
     verb: null,
   },
+  // Сервер сформировал черновик плана выплат в начале периода (Павел, 27.11).
+  "staff.payout_plan_ready": { category: "staff", icon: ClipboardList, iconColor: "text-brand", verb: null },
   "staff.medical_reminder": { category:"staff",icon:HeartPulse,iconColor:"text-rose-500",verb:null },
   "finance.certificate_expiring": {
     category: "finance",

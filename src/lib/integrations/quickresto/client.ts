@@ -647,10 +647,9 @@ const INVENTORY_ITEMS_OWNER_CLASS =
  * `warehouse.inventory.document.v2/create`. Акт создаётся ПУСТЫМ — позиции
  * добавляются отдельно (`createInventoryItemBackOffice`).
  *
- * Удаления акта в API нет (перебраны delete/remove/action) — при сбое на
- * середине операции документ придётся убирать руками в Quick Resto. Поэтому
- * вызывающий код обязан быть идемпотентным: запомнить id созданного акта и при
- * повторе продолжать, а не создавать второй.
+ * Вызывающий код обязан быть идемпотентным: запомнить id созданного акта и при
+ * повторе продолжать, а не создавать второй. Пустой акт после сбоя убирается
+ * `removeInventoryDocumentBackOffice` (DELETE с телом).
  */
 export async function createInventoryDocumentBackOffice(input: {
   layerName: string;
@@ -662,6 +661,16 @@ export async function createInventoryDocumentBackOffice(input: {
   invoiceDate: number;
   comment?: string | null;
 }) {
+  // Номер акта create сам не ставит: без него акт приходит с
+  // documentNumber "" (проверено на проде 27.11.2026). Интерфейс Quick Resto
+  // берёт следующий номер из preinit — делаем так же. Сбой preinit не должен
+  // мешать созданию: акт без номера лучше, чем никакого.
+  let documentNumber = "";
+  try {
+    documentNumber = await preinitInventoryDocumentNumberBackOffice(input);
+  } catch (error) {
+    console.warn("[createInventoryDocumentBackOffice] preinit не вернул номер акта", error);
+  }
   return callQuickRestoBackOfficeData<QuickRestoInventoryDocument2>({
     layerName: input.layerName,
     baseUrl: input.baseUrl,
@@ -677,8 +686,30 @@ export async function createInventoryDocumentBackOffice(input: {
       store: { id: input.storeId, className: STORE_CLASS },
       invoiceDate: input.invoiceDate,
       comment: input.comment ?? "",
+      ...(documentNumber ? { documentNumber } : {}),
     },
   });
+}
+
+/**
+ * Следующий номер акта («СВ397») — то, что интерфейс Quick Resto подставляет в
+ * карточку нового акта. Только чтение: номер не резервируется, повторный вызов
+ * отдаёт тот же (проверено на проде 27.11.2026).
+ */
+export async function preinitInventoryDocumentNumberBackOffice(input: {
+  layerName: string;
+  baseUrl?: string | null;
+  authorization: string;
+}): Promise<string> {
+  const draft = await callQuickRestoBackOfficeData<{ documentNumber?: unknown }>({
+    layerName: input.layerName,
+    baseUrl: input.baseUrl,
+    authorization: input.authorization,
+    path: "warehouse.inventory.document.v2/preinit",
+    query: { className: INVENTORY_DOCUMENT_CREATE_CLASS },
+  });
+  const value = draft && typeof draft === "object" ? draft.documentNumber : null;
+  return typeof value === "string" ? value.trim() : "";
 }
 
 /** Поля строки акта, которые принадлежат КОНКРЕТНОЙ строке, а не товару. */

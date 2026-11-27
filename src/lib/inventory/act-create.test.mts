@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  addActItems,
   buildGroupTree,
   buildInventoryItemSample,
   collectGroupSubtree,
   countSelectedItems,
   defaultActComment,
+  groupTreeRows,
+  groupsWithSelectedDescendants,
   pendingActItems,
   planActItems,
   quickRestoProductKey,
@@ -170,4 +173,132 @@ test("проверка формы", () => {
     /разными людьми/,
   );
   assert.match(validateCreateActInput({ ...valid, comment: "x".repeat(201) }) ?? "", /Комментарий/);
+});
+
+function plannedItems(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    key: `SingleProduct#${index + 1}`,
+    productId: `p${index + 1}`,
+    name: `Позиция ${index + 1}`,
+    sample: {
+      className: "x",
+      product: { id: index + 1, className: SINGLE, title: `Позиция ${index + 1}` },
+      measureUnit: { id: 2, className: UNIT },
+    },
+  }));
+}
+
+class RateLimit extends Error {}
+
+test("addActItems: после 429 пауза, сверка с актом и продолжение без повторов", async () => {
+  const items = plannedItems(6);
+  const inQr = new Set<string>(["SingleProduct#1"]);
+  const sleeps: number[] = [];
+  let calls = 0;
+  const result = await addActItems({
+    items,
+    existingKeys: new Set(inQr),
+    pausesMs: [5, 10],
+    sleep: async (ms) => {
+      sleeps.push(ms);
+    },
+    isRateLimit: (error) => error instanceof RateLimit,
+    readKeys: async () => new Set(inQr),
+    add: async (item) => {
+      calls += 1;
+      if (calls === 3) {
+        // QR отказал, но позицию всё-таки положил — сверка не даст положить её второй раз.
+        inQr.add(item.key);
+        throw new RateLimit();
+      }
+      if (inQr.has(item.key)) throw new Error(`дубль ${item.key}`);
+      inQr.add(item.key);
+    },
+  });
+  assert.equal(result.failure, null);
+  assert.equal(result.inAct, 6);
+  assert.equal(inQr.size, 6);
+  assert.deepEqual(sleeps, [5]);
+  assert.equal(calls, 5);
+});
+
+test("addActItems: паузы кончились — стоп с ошибкой и числом позиций в акте", async () => {
+  const items = plannedItems(4);
+  const inQr = new Set<string>();
+  const result = await addActItems({
+    items,
+    existingKeys: new Set(),
+    pausesMs: [1],
+    sleep: async () => {},
+    isRateLimit: (error) => error instanceof RateLimit,
+    readKeys: async () => new Set(inQr),
+    add: async (item) => {
+      if (inQr.size >= 2) throw new RateLimit();
+      inQr.add(item.key);
+    },
+  });
+  assert.ok(result.failure instanceof RateLimit);
+  assert.equal(result.inAct, 2);
+  assert.equal(result.added, 2);
+});
+
+test("addActItems: другая ошибка останавливает сразу, без пауз", async () => {
+  const sleeps: number[] = [];
+  const result = await addActItems({
+    items: plannedItems(3),
+    existingKeys: new Set(),
+    sleep: async (ms) => {
+      sleeps.push(ms);
+    },
+    isRateLimit: () => false,
+    readKeys: async () => new Set(),
+    add: async () => {
+      throw new Error("500");
+    },
+  });
+  assert.equal((result.failure as Error).message, "500");
+  assert.deepEqual(sleeps, []);
+  assert.equal(result.inAct, 0);
+});
+
+const tobacco: CreateActGroup[] = [
+  { id: "tob", parentId: null, name: "Табак", kind: "ingredient" },
+  { id: "prem", parentId: "tob", name: "Премиум", kind: "ingredient" },
+  { id: "bonche", parentId: "prem", name: "Bonche", kind: "ingredient" },
+  { id: "dogma", parentId: "prem", name: "Dogma", kind: "ingredient" },
+  { id: "std", parentId: "tob", name: "Стандарт", kind: "ingredient" },
+  { id: "afzal", parentId: "std", name: "Afzal", kind: "ingredient" },
+  { id: "coffee2", parentId: null, name: "Кофе", kind: "ingredient" },
+];
+const tobaccoNodes = buildGroupTree({
+  groups: tobacco,
+  productCountByGroup: new Map([["bonche", 31], ["dogma", 21], ["afzal", 3], ["coffee2", 4]]),
+});
+const rowIds = (rows: ReturnType<typeof groupTreeRows>) => rows.map((row) => row.node.id);
+
+test("groupTreeRows: свёрнуто — только верхний уровень, раскрытие показывает подгруппы", () => {
+  assert.deepEqual(rowIds(groupTreeRows({ nodes: tobaccoNodes, expanded: new Set(), query: "" })), ["coffee2", "tob"]);
+  const rows = groupTreeRows({ nodes: tobaccoNodes, expanded: new Set(["tob", "prem"]), query: "" });
+  assert.deepEqual(rowIds(rows), ["coffee2", "tob", "prem", "bonche", "dogma", "std"]);
+  assert.equal(rows.find((row) => row.node.id === "tob")?.hasChildren, true);
+  assert.equal(rows.find((row) => row.node.id === "bonche")?.hasChildren, false);
+});
+
+test("groupTreeRows: поиск раскрывает родителей найденной группы", () => {
+  const rows = groupTreeRows({ nodes: tobaccoNodes, expanded: new Set(), query: "dog" });
+  assert.deepEqual(rowIds(rows), ["tob", "prem", "dogma"]);
+  assert.equal(rows[0].open, true);
+});
+
+test("groupTreeRows: подгруппы найденной группы — по раскрытию", () => {
+  assert.deepEqual(rowIds(groupTreeRows({ nodes: tobaccoNodes, expanded: new Set(), query: "таба" })), ["tob"]);
+  assert.deepEqual(
+    rowIds(groupTreeRows({ nodes: tobaccoNodes, expanded: new Set(["tob"]), query: "таба" })),
+    ["tob", "prem", "std"],
+  );
+});
+
+test("groupsWithSelectedDescendants: все предки выбранной подгруппы", () => {
+  assert.deepEqual([...groupsWithSelectedDescendants(tobacco, ["dogma"])].sort(), ["prem", "tob"]);
+  assert.equal(groupsWithSelectedDescendants(tobacco, ["coffee2"]).size, 0);
 });

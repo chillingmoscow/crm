@@ -329,8 +329,14 @@ const queueQuickRestoRequest = createQuickRestoRequestQueue();
 
 function fetchQuickRestoData(url: string, init: RequestInit) {
   const method = init.method ?? "GET";
+  const pathname = new URL(url).pathname;
   const inventoryUpdate = method === "POST" &&
-    new URL(url).pathname === "/platform/data/warehouse.inventory.items/update";
+    pathname === "/platform/data/warehouse.inventory.items/update";
+  // Позиции акта создаются по одной: без паузы запросы идут раз в ~30 мс, и
+  // nginx Quick Resto после пары десятков отвечает 429. С паузой 300 мс 265
+  // позиций прошли без единого отказа (прод, 27.11.2026).
+  const inventoryItemCreate = method === "POST" &&
+    pathname === "/platform/data/warehouse.inventory.items/create";
   return queueQuickRestoRequest(url, async () => {
     // The timeout belongs to the HTTP attempt, not time spent in the queue.
     const controller = new AbortController();
@@ -349,7 +355,7 @@ function fetchQuickRestoData(url: string, init: RequestInit) {
     // Absolute item quantities can be retried after a rejected request. Do not
     // replay creates, processing actions, ambiguous timeouts or network errors.
     retryRateLimit: method === "GET" || inventoryUpdate,
-    intervalMs: inventoryUpdate ? 250 : 0,
+    intervalMs: inventoryUpdate ? 250 : inventoryItemCreate ? 300 : 0,
   });
 }
 

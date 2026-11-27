@@ -168,6 +168,61 @@ export function pendingActItems(items: readonly ActItemPlan[], existingKeys: Rea
   return items.filter((item) => !existingKeys.has(item.key));
 }
 
+/**
+ * Паузы после отказа Quick Resto по частоте запросов (429), по порядку. Темп
+ * самих запросов задаёт очередь клиента; это запас на случай, когда лимит
+ * съел кто-то ещё (синхронизация, второй пользователь).
+ */
+export const CREATE_ACT_RATE_LIMIT_PAUSES_MS: readonly number[] = [5_000, 10_000, 20_000, 30_000];
+
+/**
+ * Положить позиции в акт по одной. После 429 — пауза и сверка с тем, что
+ * реально лежит в акте: создание позиции не повторяем вслепую, чтобы не
+ * положить её дважды. Другая ошибка (или кончились паузы) — стоп, `failure`.
+ */
+export async function addActItems(input: {
+  items: readonly ActItemPlan[];
+  existingKeys: ReadonlySet<string>;
+  add: (item: ActItemPlan) => Promise<void>;
+  readKeys: () => Promise<Set<string>>;
+  isRateLimit: (error: unknown) => boolean;
+  sleep: (ms: number) => Promise<void>;
+  pausesMs?: readonly number[];
+}): Promise<{ present: Set<string>; added: number; failure: unknown; inAct: number }> {
+  const pauses = input.pausesMs ?? CREATE_ACT_RATE_LIMIT_PAUSES_MS;
+  let present = new Set(input.existingKeys);
+  let queue = pendingActItems(input.items, present);
+  let added = 0;
+  let failure: unknown = null;
+  let pause = 0;
+  for (let index = 0; index < queue.length; ) {
+    const item = queue[index];
+    try {
+      await input.add(item);
+      present.add(item.key);
+      added += 1;
+      index += 1;
+    } catch (error) {
+      if (!input.isRateLimit(error) || pause >= pauses.length) {
+        failure = error;
+        break;
+      }
+      await input.sleep(pauses[pause]);
+      pause += 1;
+      try {
+        present = await input.readKeys();
+      } catch (readError) {
+        failure = readError;
+        break;
+      }
+      queue = pendingActItems(input.items, present);
+      index = 0;
+    }
+  }
+  const inAct = input.items.filter((item) => present.has(item.key)).length;
+  return { present, added, failure, inAct };
+}
+
 /** Комментарий акта по умолчанию — названия выбранных групп, как разделы у CHILLING. */
 export function defaultActComment(groupNames: readonly string[]): string {
   const text = groupNames.map((name) => name.trim()).filter(Boolean).join(" / ");
@@ -268,6 +323,82 @@ export function buildGroupTree(input: {
     }
   };
   walk(null, 0);
+  return out;
+}
+
+export type CreateActGroupRow = {
+  node: CreateActGroupNode;
+  hasChildren: boolean;
+  open: boolean;
+};
+
+/**
+ * Строки дерева групп для панели: подгруппы видны, когда группа раскрыта.
+ * При поиске видны найденные группы и их родители (родители раскрыты сами);
+ * подгруппы найденной группы — по раскрытию, как без поиска.
+ *
+ * `nodes` — результат buildGroupTree (порядок обхода: родитель перед детьми).
+ */
+export function groupTreeRows(input: {
+  nodes: readonly CreateActGroupNode[];
+  expanded: ReadonlySet<string>;
+  query: string;
+}): CreateActGroupRow[] {
+  const ids = new Set(input.nodes.map((node) => node.id));
+  const parentOf = (node: CreateActGroupNode) => (node.parentId && ids.has(node.parentId) ? node.parentId : null);
+  const hasChildren = new Set<string>();
+  for (const node of input.nodes) {
+    const parent = parentOf(node);
+    if (parent) hasChildren.add(parent);
+  }
+
+  const query = input.query.trim().toLocaleLowerCase("ru");
+  const matches = new Set<string>();
+  const forcedOpen = new Set<string>();
+  if (query) {
+    const byId = new Map(input.nodes.map((node) => [node.id, node]));
+    for (const node of input.nodes) {
+      if (!node.name.toLocaleLowerCase("ru").includes(query)) continue;
+      matches.add(node.id);
+      let parent = parentOf(node);
+      while (parent && !forcedOpen.has(parent)) {
+        forcedOpen.add(parent);
+        const parentNode = byId.get(parent);
+        parent = parentNode ? parentOf(parentNode) : null;
+      }
+    }
+  }
+
+  const isOpen = (id: string) => hasChildren.has(id) && (forcedOpen.has(id) || input.expanded.has(id));
+  const shown = new Set<string>();
+  const underMatch = new Set<string>();
+  const rows: CreateActGroupRow[] = [];
+  for (const node of input.nodes) {
+    const parent = parentOf(node);
+    if (parent && (!shown.has(parent) || !isOpen(parent))) continue;
+    if (matches.has(node.id) || (parent && underMatch.has(parent))) underMatch.add(node.id);
+    const visible = !query || matches.has(node.id) || forcedOpen.has(node.id) || (parent !== null && underMatch.has(parent));
+    if (!visible) continue;
+    shown.add(node.id);
+    rows.push({ node, hasChildren: hasChildren.has(node.id), open: isOpen(node.id) });
+  }
+  return rows;
+}
+
+/** Группы, у которых выбрана какая-то подгруппа, — для «частичной» галочки свёрнутого родителя. */
+export function groupsWithSelectedDescendants(
+  groups: readonly CreateActGroup[],
+  selectedIds: readonly string[],
+): Set<string> {
+  const byId = new Map(groups.map((group) => [group.id, group]));
+  const out = new Set<string>();
+  for (const id of selectedIds) {
+    let parent = byId.get(id)?.parentId ?? null;
+    while (parent && byId.has(parent) && !out.has(parent)) {
+      out.add(parent);
+      parent = byId.get(parent)?.parentId ?? null;
+    }
+  }
   return out;
 }
 

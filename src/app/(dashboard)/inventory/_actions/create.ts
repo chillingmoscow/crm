@@ -19,9 +19,9 @@ import {
   CREATE_ACT_KINDS,
   CREATE_ACT_MAX_ITEMS,
   actInvoiceDateMs,
+  addActItems,
   buildGroupTree,
   collectGroupSubtree,
-  pendingActItems,
   planActItems,
   quickRestoProductKey,
   validateCreateActInput,
@@ -34,6 +34,7 @@ import {
 import {
   createInventoryDocumentBackOffice,
   createInventoryItemBackOffice,
+  QuickRestoRateLimitError,
   readInventoryDocument,
   removeInventoryDocumentBackOffice,
   type QuickRestoInventoryItem2,
@@ -379,14 +380,13 @@ export async function createInventoryAct(
     // ── Позиции ─────────────────────────────────────────────────────────────
     // Снимок того, что уже лежит в акте: повтор после обрыва не должен класть
     // позицию второй раз.
-    let existingKeys: Set<string>;
-    try {
+    const readKeys = async () => {
       const present = await listBackOfficeInventoryItemsWithSession({
         connection,
         admin,
         documentExternalId: externalId,
       });
-      existingKeys = new Set(
+      return new Set(
         present
           .map((item) => {
             const product = (item as { product?: { className?: string; id?: unknown } }).product;
@@ -394,6 +394,10 @@ export async function createInventoryAct(
           })
           .filter((key): key is string => Boolean(key)),
       );
+    };
+    let existingKeys: Set<string>;
+    try {
+      existingKeys = await readKeys();
     } catch (error) {
       console.error("[createInventoryAct] позиции акта не прочитаны", error);
       if (createdNow) {
@@ -404,13 +408,16 @@ export async function createInventoryAct(
       }
     }
 
-    const pending = pendingActItems(plan.items, existingKeys);
-    const alreadyInAct = plan.items.length - pending.length;
-    let added = 0;
-    let failure: unknown = null;
-    for (const item of pending) {
-      try {
-        await withBackOfficeSession({
+    // Темп запросов держит очередь клиента Quick Resto (пауза между
+    // созданиями позиций); 429 здесь — запас на чужую нагрузку.
+    const { failure, inAct } = await addActItems({
+      items: plan.items,
+      existingKeys,
+      readKeys,
+      isRateLimit: (error) => error instanceof QuickRestoRateLimitError,
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      add: (item) =>
+        withBackOfficeSession({
           connection,
           admin,
           run: (authorization) =>
@@ -421,17 +428,16 @@ export async function createInventoryAct(
               sample: item.sample as unknown as QuickRestoInventoryItem2,
               actualAmount: 0,
             }),
-        });
-        added += 1;
-      } catch (error) {
-        failure = error;
-        console.error("[createInventoryAct] позиция не добавлена", { name: item.name, error });
-        break;
-      }
-    }
-
+        }).then(() => undefined),
+    });
     if (failure) {
-      if (added === 0 && existingKeys.size === 0) {
+      console.error("[createInventoryAct] позиции добавлены не все", {
+        attemptId: input.attemptId,
+        inAct,
+        total: plan.items.length,
+        error: failure,
+      });
+      if (inAct === 0 && existingKeys.size === 0) {
         // В акте ни одной позиции — пустой акт не оставляем ни в QR, ни у нас.
         await removeEmptyQuickRestoAct({ connection, admin, externalId, localId: document.id, accountId });
         return { error: quickRestoUserError(failure, "Quick Resto не принял позиции, акт не создан. Попробуйте ещё раз.") };
@@ -440,7 +446,7 @@ export async function createInventoryAct(
       revalidatePath("/documents/inventory");
       return {
         error:
-          `Акт № ${document.document_number} создан, но в нём ${alreadyInAct + added} из ${countRu(plan.items.length, "позиции", "позиций", "позиций")}: ` +
+          `Акт № ${document.document_number} создан, но в нём ${inAct} из ${countRu(plan.items.length, "позиции", "позиций", "позиций")}: ` +
           "Quick Resto перестал отвечать. Нажмите «Создать акт» ещё раз — оставшиеся позиции добавятся в этот же акт.",
       };
     }

@@ -16,6 +16,7 @@ import { AmountInput } from "@/components/finance/amount-input";
 import { Combobox } from "@/components/finance/combobox";
 import { officialGrossFromNet } from "@/lib/payroll/official";
 import {
+  agencyAmountError,
   canRecordOfficialPayment,
   checkingBanks,
   officialAmountsError,
@@ -101,6 +102,8 @@ export function PayrollPaymentForm({
       })
     : ({ available: false } as const);
   const officialOn = official && officialOption.available && !officialOption.blocked;
+  // «Платит агентство»: запись «Получено через агентство» — одна сумма, без счёта и налога.
+  const agencyOn = officialOn && officialOption.agency;
   // Новый сотрудник или месяц — суммы подставляются заново (ожидаемая часть
   // месяца или удалённая выплата за него).
   const prefillKey = officialOption.available ? `${officialOption.employmentId}|${officialMonth}` : "";
@@ -111,31 +114,37 @@ export function PayrollPaymentForm({
     setGrossEdited(false);
   }
   const officialChecking = checkingBanks(data.banks);
-  const bankValue = officialOn
-    ? officialBankFor(data.banks, officialBankPick, data.settings?.official_bank_account_id)
-    : bank;
-  const officialError = officialAmountsError(officialNetValue, officialGrossValue);
+  const bankValue = agencyOn
+    ? ""
+    : officialOn
+      ? officialBankFor(data.banks, officialBankPick, data.settings?.official_bank_account_id)
+      : bank;
+  const officialError = agencyOn
+    ? agencyAmountError(officialNetValue)
+    : officialAmountsError(officialNetValue, officialGrossValue);
   const officialTax = officialTaxOf(officialNetValue, officialGrossValue);
   const total = officialOn ? (officialNetValue ?? 0) : amount;
   const valid = officialOn
-    ? !officialError && !!selected[0]?.role_id
+    ? !officialError && (agencyOn || !!selected[0]?.role_id)
     : selected.length > 0 &&
       selected.every((e) => Number(amounts[e.id]) > 0 && e.role_id);
   async function submitOfficial() {
-    if (!officialOption.available || officialNetValue === null || officialGrossValue === null) return;
+    // Через агентство налога нет: закрыто по зарплате = получено.
+    const gross = agencyOn ? officialNetValue : officialGrossValue;
+    if (!officialOption.available || officialNetValue === null || gross === null) return;
     setBusy(true);
     try {
       unwrapAction(
         await recordOfficialPayment({
           employment_id: officialOption.employmentId,
           month: `${officialMonth.slice(0, 7)}-01`,
-          gross: officialGrossValue,
+          gross,
           net: officialNetValue,
-          bank_account_id: bankValue,
+          bank_account_id: agencyOn ? null : bankValue,
           date: `${paymentDate}T00:00:00.000Z`,
         }),
       );
-      toast.success("Официальная выплата проведена");
+      toast.success(agencyOn ? "Получение через агентство отмечено" : "Официальная выплата проведена");
       await onDone();
     } catch (error) {
       toast.error(
@@ -147,7 +156,7 @@ export function PayrollPaymentForm({
   }
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy || !valid || !bankValue || !paymentDate) return;
+    if (busy || !valid || (!bankValue && !agencyOn) || !paymentDate) return;
     // База не принимает повтор официальной выплаты за месяц, поэтому ключ
     // запроса ей не нужен: двойное нажатие получит отказ.
     if (officialOn) return submitOfficial();
@@ -208,7 +217,7 @@ export function PayrollPaymentForm({
         <Button
           type="submit"
           form={formId}
-          disabled={busy || !valid || !bankValue || !paymentDate}
+          disabled={busy || !valid || (!bankValue && !agencyOn) || !paymentDate}
         >
           {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {busy
@@ -220,9 +229,11 @@ export function PayrollPaymentForm({
         </div>
       </div>
       <p className={s.footerMeta}>
-        {officialOn
-          ? "Расход в финансах создаётся на сумму на руки. В Adesk официальная выплата не отправляется."
-          : "Каждому сотруднику создаётся отдельная транзакция в финансах."}
+        {agencyOn
+          ? "Деньги не двигаются: запись закрывает долг сотрудника. В финансах и Adesk ничего не создаётся."
+          : officialOn
+            ? "Расход в финансах создаётся на сумму на руки. В Adesk официальная выплата не отправляется."
+            : "Каждому сотруднику создаётся отдельная транзакция в финансах."}
       </p>
     </div>
   );
@@ -230,7 +241,7 @@ export function PayrollPaymentForm({
     <>
       <form id={formId} className={s.form} onSubmit={submit}>
         <div className={s.fields}>
-          <div className={s.accountField}>
+          {!agencyOn && <div className={s.accountField}>
             <Label htmlFor={`${formId}-bank`}>Счёт списания</Label>
             <Combobox
               id={`${formId}-bank`}
@@ -250,7 +261,7 @@ export function PayrollPaymentForm({
                 Нет расчётного счёта: официальную выплату проводят только с него
               </p>
             )}
-          </div>
+          </div>}
           <div>
             <Label htmlFor={`${formId}-date`}>Дата выплаты</Label>
             <DatePicker
@@ -346,10 +357,14 @@ export function PayrollPaymentForm({
           {officialOption.available && (
             <div className="mt-4 flex items-start justify-between gap-4 rounded-lg border p-3">
               <div className="min-w-0">
-                <Label htmlFor={`${formId}-official`}>Официальная часть</Label>
+                <Label htmlFor={`${formId}-official`}>
+                  {officialOption.agency ? "Через агентство" : "Официальная часть"}
+                </Label>
                 <p id={`${formId}-official-hint`} className="mt-1 text-xs text-muted-foreground">
                   {officialOption.blocked ??
-                    "Выплата бухгалтерии по договору: только с расчётного счёта, закрывает оклад с налогом"}
+                    (officialOption.agency
+                      ? "Сотрудник получил деньги через агентство: закрывает долг без расхода и налога"
+                      : "Выплата бухгалтерии по договору: только с расчётного счёта, закрывает оклад с налогом")}
                 </p>
               </div>
               <Switch
@@ -361,7 +376,20 @@ export function PayrollPaymentForm({
               />
             </div>
           )}
-          {officialOn && (
+          {agencyOn && (
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Field
+                label="Получено через агентство"
+                required
+                error={officialNetValue !== null ? (officialError ?? undefined) : undefined}
+              >
+                {(control) => (
+                  <AmountInput {...control} value={officialNetValue} disabled={busy} onChange={setOfficialNetValue} />
+                )}
+              </Field>
+            </div>
+          )}
+          {officialOn && !agencyOn && (
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <Field label="На руки" required>
                 {(control) => (
@@ -402,9 +430,11 @@ export function PayrollPaymentForm({
               </Field>
             </div>
           )}
-          <p className={s.categoryHint}>
-            Статьи ФОТ подставляются по должностям.
-          </p>
+          {!agencyOn && (
+            <p className={s.categoryHint}>
+              Статьи ФОТ подставляются по должностям.
+            </p>
+          )}
         </section>
         {!officialOn && <div className={s.noteField}>
           <Label htmlFor={`${formId}-note`}>Комментарий</Label>

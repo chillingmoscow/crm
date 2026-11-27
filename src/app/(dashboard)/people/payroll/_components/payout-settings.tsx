@@ -262,7 +262,7 @@ function PayoutScheduleForm({ data, saved, onSaved }: { data: PayrollData; saved
           <p className="text-[13px] text-muted-foreground">Остальные на основном графике.</p>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label>Клинер · первая выплата 18–22, вторая 3–7</Label>
+              <Label>Клинер · первая выплата с 20-го, вторая с 5-го</Label>
               <PayrollEmployeePicker
                 multiple
                 employees={people}

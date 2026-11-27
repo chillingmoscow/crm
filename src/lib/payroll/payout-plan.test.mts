@@ -4,7 +4,8 @@ import {
   issueCap,
   payDayChoices,
   DEFAULT_PAYOUT_SCHEDULES,
-  firstPayoutWindow,
+  payoutPeriod,
+  scheduleWindow,
   floorStep,
   payoutRowState,
   planFirstPayout,
@@ -83,12 +84,21 @@ test("floorStep rounds down, never up", () => {
   assert.equal(floorStep(-1, 5000), -5000);
 });
 
-test("firstPayoutWindow: 25.11–01.12 belongs to November", () => {
-  assert.deepEqual(firstPayoutWindow("2026-11-25"), { month: "2026-11-01", from: "2026-11-25", to: "2026-12-01" });
-  assert.deepEqual(firstPayoutWindow("2026-12-01"), { month: "2026-11-01", from: "2026-11-25", to: "2026-12-01" });
-  assert.deepEqual(firstPayoutWindow("2026-12-31"), { month: "2026-12-01", from: "2026-12-25", to: "2027-01-01" });
-  assert.equal(firstPayoutWindow("2026-11-24"), null);
-  assert.equal(firstPayoutWindow("2026-12-02"), null);
+test("payoutPeriod: каждый день — в периоде первой или второй выплаты", () => {
+  assert.deepEqual(payoutPeriod("2026-11-25"), { month: "2026-11-01", payoutNo: 1, from: "2026-11-17", to: "2026-12-01" });
+  assert.deepEqual(payoutPeriod("2026-11-17"), { month: "2026-11-01", payoutNo: 1, from: "2026-11-17", to: "2026-12-01" });
+  assert.deepEqual(payoutPeriod("2026-12-01"), { month: "2026-11-01", payoutNo: 1, from: "2026-11-17", to: "2026-12-01" });
+  assert.deepEqual(payoutPeriod("2026-12-02"), { month: "2026-11-01", payoutNo: 2, from: "2026-12-02", to: "2026-12-16" });
+  assert.deepEqual(payoutPeriod("2026-12-16"), { month: "2026-11-01", payoutNo: 2, from: "2026-12-02", to: "2026-12-16" });
+  assert.deepEqual(payoutPeriod("2027-01-05"), { month: "2026-12-01", payoutNo: 2, from: "2027-01-02", to: "2027-01-16" });
+});
+
+test("scheduleWindow: дни графика внутри периода — основной 25–1 и 10–16, клинер 20-е и 5-е", () => {
+  const S = DEFAULT_PAYOUT_SCHEDULES;
+  assert.deepEqual(scheduleWindow(S.main, 1, MONTH), { from: "2026-11-25", to: "2026-12-01" });
+  assert.deepEqual(scheduleWindow(S.main, 2, MONTH), { from: "2026-12-10", to: "2026-12-16" });
+  assert.deepEqual(scheduleWindow(S.cleaner, 1, MONTH), { from: "2026-11-20", to: "2026-12-01" });
+  assert.deepEqual(scheduleWindow(S.cleaner, 2, MONTH), { from: "2026-12-05", to: "2026-12-16" });
 });
 
 test("Филипп: 83 258 earned, 2 shifts ahead at avg 7 163 → 45 000", () => {
@@ -281,3 +291,52 @@ test("issueCap: расчётную строку режет потолок, ру�
   assert.deepEqual(recheckDue({ amount: 20000, issued: 0 }, issueCap(b, false), 5000), { due: 0, capped: true });
 });
 
+
+test("вторая выплата: остаток месяца без прогноза и запаса, официальная часть вычитается", () => {
+  // Начислено 125 000, выплачено 75 000, ожидается агентская/официальная часть 4 350.
+  const fx = input({
+    employees: [employee("h", { payout_schedule: "cleaner" })],
+    accruals: [accrual("h", "2026-11-10", 75000), accrual("h", "2026-11-26", 50000)],
+    payments: [payment("p1", 75000)], allocations: [allocation("h", "p1", 75000)],
+    shifts: [{ employee_id: "h", business_date: "2026-12-05" }, { employee_id: "h", business_date: "2026-12-06" }],
+    schedule: "cleaner",
+  });
+  fx.data.officialExpected = [{ employee_id: "h", month: MONTH, gross: 4350, kind: "full", days_paid: null, days_in_month: null }] as never;
+  const [row] = planFirstPayout({ ...fx, payoutNo: 2, today: "2026-12-03", window: { from: "2026-12-05", to: "2026-12-16" } });
+  assert.equal(row.breakdown.mode, "rest");
+  assert.equal(row.breakdown.forecast, 0);
+  assert.equal(row.breakdown.reserve, 0);
+  assert.equal(row.breakdown.target, 45650);
+  assert.equal(row.amount, 45000);
+  assert.equal(row.pay_date, "2026-12-05");
+});
+
+test("вторая выплата клинера: нет смены 5-го — ближайшая следующая", () => {
+  const fx = input({
+    employees: [employee("h", { payout_schedule: "cleaner" })],
+    accruals: [accrual("h", "2026-11-10", 20000)],
+    shifts: [{ employee_id: "h", business_date: "2026-12-04" }, { employee_id: "h", business_date: "2026-12-07" }],
+    schedule: "cleaner",
+  });
+  const [row] = planFirstPayout({ ...fx, payoutNo: 2, today: "2026-12-02", window: { from: "2026-12-05", to: "2026-12-16" } });
+  assert.equal(row.pay_date, "2026-12-07");
+});
+
+test("первая выплата клинера: заработано за 1–15 минус выплаченное", () => {
+  const fx = input({
+    employees: [employee("h", { payout_schedule: "cleaner" })],
+    accruals: [accrual("h", "2026-11-05", 40000), accrual("h", "2026-11-15", 35000), accrual("h", "2026-11-18", 9000)],
+    shifts: [{ employee_id: "h", business_date: "2026-11-20" }],
+    schedule: "cleaner",
+  });
+  const [row] = planFirstPayout({ ...fx, today: "2026-11-19", window: { from: "2026-11-20", to: "2026-12-01" } });
+  assert.equal(row.breakdown.mode, "first_earned");
+  assert.equal(row.breakdown.earnedFirstHalf, 75000);
+  assert.equal(row.amount, 75000);
+  assert.equal(row.pay_date, "2026-11-20");
+});
+
+test("первая выплата основного графика — по-прежнему половина", () => {
+  const [row] = planFirstPayout(fixture({ earnedInMonth: 83258, avgShift: 7163, shiftsAhead: 2 }));
+  assert.equal(row.breakdown.mode, "half");
+});

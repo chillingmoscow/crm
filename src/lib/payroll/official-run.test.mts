@@ -27,6 +27,11 @@ test("успех — одно событие на заведение, без с�
   assert.deepEqual(r.totals, { venues: 1, posted: 2, review: 1, amount: 100000, errors: 0 });
 });
 
+test("записи через агентство попадают в журнал отдельным счётчиком", () => {
+  const r = processOfficialRun([{ ...base, posted: 2, review: 0, agency: 1, amount: 69600, errors: [] }]);
+  assert.deepEqual(r.events[0].details, { month: "2026-11-01", posted: 2, review: 0, amount: 69600, agency: 1 });
+});
+
 test("падение заведения — событие с error и сбой", () => {
   const r = processOfficialRun([{ ...base, posted: 0, review: 0, amount: 0, error: "boom" }]);
   assert.equal(r.failed, true);

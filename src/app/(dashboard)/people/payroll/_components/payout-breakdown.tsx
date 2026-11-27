@@ -56,50 +56,88 @@ export function PayoutBreakdown({ b, amount, issued, manual, leftAfter, step, mo
   const forecastHint = b.averageShift == null
     ? "мало смен для прогноза"
     : `${countRu(b.forecastShifts, "смена", "смены", "смен")} × ${formatRub(b.averageShift)}`;
+  const mode = b.mode ?? "half";
+  const carriedLine = b.carried !== 0 && (
+    <Line op={b.carried < 0 ? "−" : ""} label={b.carried < 0 ? "Переплата прошлого месяца" : "Перенесено из прошлого месяца"} value={b.carried} />
+  );
+  const paidLine = b.paid > 0 && (
+    <Line
+      op="−"
+      label="Уже выплачено за месяц"
+      hint={issued > 0 ? `в том числе по этому плану ${formatRub(issued)}` : undefined}
+      value={b.paid}
+    />
+  );
+  const officialHint = b.officialAgency ? "получит через агентство" : "выплатит бухгалтерия";
+  const officialLine = b.official > 0 && <Line op="−" label={b.officialAgency ? "Через агентство" : "Официальная часть"} hint={officialHint} value={b.official} />;
+  // Как называется расчёт «по правилу» в итоге: половина / за 1–15 / остаток.
+  const ruleLabel = mode === "rest" ? "Остаток месяца" : mode === "first_earned" ? "За 1–15 число" : "По половине";
   return (
     <div className="space-y-6">
-      <Step title="Половина месяца">
-        {b.carried !== 0 && (
-          <Line op={b.carried < 0 ? "−" : ""} label={b.carried < 0 ? "Переплата прошлого месяца" : "Перенесено из прошлого месяца"} value={b.carried} />
-        )}
-        <Line
-          op={b.carried !== 0 ? "+" : ""}
-          label="Начислено за месяц"
-          hint={b.pendingFines ? `без штрафов на подтверждении: ${formatRub(b.pendingFines)}` : undefined}
-          value={b.earned}
-        />
-        <Line op="+" label="Прогноз до конца месяца" hint={forecastHint} value={b.forecast} />
-        <Line op="−" label="Запас" value={b.reserve} />
-        <Line op="=" label="Половина" hint={`${formatRub(total)} пополам`} value={b.half} result />
-      </Step>
+      {mode === "rest" ? (
+        // Вторая выплата — остаток месяца: без прогноза и запаса.
+        <Step title="Остаток месяца">
+          {carriedLine}
+          <Line op={b.carried !== 0 ? "+" : ""} label="Начислено за месяц"
+            hint={b.pendingFines ? `без штрафов на подтверждении: ${formatRub(b.pendingFines)}` : undefined} value={b.earned} />
+          {paidLine}
+          {officialLine}
+          <Line op="=" label="Остаток месяца" hint={b.target < 0 ? "выходит меньше нуля — не выдаём" : undefined} value={byHalf} result />
+        </Step>
+      ) : mode === "first_earned" ? (
+        // Первая выплата клинера — заработанное за 1–15 число.
+        <Step title="За 1–15 число">
+          {carriedLine}
+          <Line op={b.carried !== 0 ? "+" : ""} label="Заработано за 1–15 число" value={b.earnedFirstHalf ?? 0} />
+          {paidLine}
+          <Line op="=" label="За 1–15 число" hint={b.target < 0 ? "выходит меньше нуля — не выдаём" : undefined} value={byHalf} result />
+        </Step>
+      ) : (
+        <>
+          <Step title="Половина месяца">
+            {b.carried !== 0 && (
+              <Line op={b.carried < 0 ? "−" : ""} label={b.carried < 0 ? "Переплата прошлого месяца" : "Перенесено из прошлого месяца"} value={b.carried} />
+            )}
+            <Line
+              op={b.carried !== 0 ? "+" : ""}
+              label="Начислено за месяц"
+              hint={b.pendingFines ? `без штрафов на подтверждении: ${formatRub(b.pendingFines)}` : undefined}
+              value={b.earned}
+            />
+            <Line op="+" label="Прогноз до конца месяца" hint={forecastHint} value={b.forecast} />
+            <Line op="−" label="Запас" value={b.reserve} />
+            <Line op="=" label="Половина" hint={`${formatRub(total)} пополам`} value={b.half} result />
+          </Step>
 
-      <Step title="По половине">
-        <Line label="Половина" value={b.half} />
-        {b.paid > 0 && (
-          <Line
-            op="−"
-            label="Уже выплачено за месяц"
-            hint={issued > 0 ? `в том числе по этому плану ${formatRub(issued)}` : undefined}
-            value={b.paid}
-          />
-        )}
-        {b.official > 0 && <Line op="−" label="Официальная часть" hint="выплатит бухгалтерия" value={b.official} />}
-        <Line
-          op="="
-          label="По половине"
-          hint={b.target < 0 ? "выходит меньше нуля — по половине не выдаём" : undefined}
-          value={byHalf}
-          result
-        />
-      </Step>
+          <Step title="По половине">
+            <Line label="Половина" value={b.half} />
+            {b.paid > 0 && (
+              <Line
+                op="−"
+                label="Уже выплачено за месяц"
+                hint={issued > 0 ? `в том числе по этому плану ${formatRub(issued)}` : undefined}
+                value={b.paid}
+              />
+            )}
+            {officialLine}
+            <Line
+              op="="
+              label="По половине"
+              hint={b.target < 0 ? "выходит меньше нуля — по половине не выдаём" : undefined}
+              value={byHalf}
+              result
+            />
+          </Step>
+        </>
+      )}
 
       <Step title="Итог">
-        <Line label="По половине" value={byHalf} />
-        <Line
+        {mode !== "rest" && <Line label={ruleLabel} value={byHalf} />}
+        {mode !== "rest" && <Line
           label="Можно выдать без переплаты"
           hint={b.official > 0 ? "перенос + начислено − выплаченное − запас − официальная часть" : "перенос + начислено − выплаченное − запас"}
           value={cap}
-        />
+        />}
         <Line
           op="="
           label="К выплате по плану"
@@ -108,7 +146,9 @@ export function PayoutBreakdown({ b, amount, issued, manual, leftAfter, step, mo
               ? <>поставлено вручную{issued === 0 ? <>, по расчёту сейчас — {formatRub(computed)}</> : null}</>
               : issued === 0 && Math.round(computed) !== Math.round(amount)
                 ? <>сумма плана; по расчёту сейчас — {formatRub(computed)}</>
-                : <>меньшее из двух, вниз до {formatRub(step)}</>
+                : mode === "rest"
+                  ? <>остаток месяца вниз до {formatRub(step)}</>
+                  : <>меньшее из двух, вниз до {formatRub(step)}</>
           }
           value={amount}
           result
@@ -118,7 +158,9 @@ export function PayoutBreakdown({ b, amount, issued, manual, leftAfter, step, mo
         {leftAfter !== null && (
           <Line
             label={leftAfter < 0 ? `Переплатим ${byMonth}` : `Будем должны ${byMonth}`}
-            hint={`можно выдать без переплаты + запас − ${issued > 0 ? "осталось выдать" : "к выплате"}; будущие смены не входят`}
+            hint={mode === "rest"
+              ? `остаток месяца − ${issued > 0 ? "осталось выдать" : "к выплате"}`
+              : `можно выдать без переплаты + запас − ${issued > 0 ? "осталось выдать" : "к выплате"}; будущие смены не входят`}
             value={leftAfter}
           />
         )}

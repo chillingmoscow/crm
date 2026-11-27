@@ -307,7 +307,7 @@ async function loadPayrollData(
     if (ids.length) {
       const r = await s.admin
         .from<Payment[]>("payroll_payments")
-        .select("id,kind,state,created_at,occurred_at,bonus_adjustment_id,official_month")
+        .select("id,kind,state,created_at,occurred_at,bonus_adjustment_id,official_month,agency")
         .eq("account_id", s.accountId)
         .eq("venue_id", s.venueId)
         .in("id", ids);
@@ -408,7 +408,7 @@ async function loadOfficialEmployments(
 ): Promise<NonNullable<PayrollData["officialEmployments"]>> {
   const r = await s.db
     .from<NonNullable<PayrollData["officialEmployments"]>>("payroll_official_employments")
-    .select("id,employee_id,starts_on,ends_on")
+    .select("id,employee_id,starts_on,ends_on,agency")
     .eq("account_id", s.accountId)
     .eq("venue_id", s.venueId)
     .is("archived_at", null)
@@ -830,12 +830,15 @@ const officialPaymentSchema = z
     month: z.string().regex(/^\d{4}-\d{2}-01$/, "Укажите месяц официальной выплаты"),
     gross: officialMoney,
     net: officialMoney,
-    bank_account_id: z.string().uuid("Выберите расчётный счёт"),
+    // Через агентство счёта нет (null); обычную официальную выплату без счёта не примет база.
+    bank_account_id: z.string().uuid("Выберите расчётный счёт").nullable(),
     date: z.string().datetime({ offset: true, message: "Укажите дату выплаты" }),
   })
   .refine((v) => Math.round(v.net * 100) <= Math.round(v.gross * 100), "Сумма на руки больше оклада с налогом");
 /**
  * Ручная официальная выплата: повтор после удаления или прошлые месяцы.
+ * Для оформления «Платит агентство» — запись «Получено через агентство»
+ * (сумма = на руки, без счёта).
  * Права (`payroll.pay` + `finance.create_transaction`), расчётный счёт и
  * «одна выплата за месяц» проверяет база; журнал пишет она же.
  */

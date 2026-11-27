@@ -1187,14 +1187,14 @@ function PlanMetrics({ view }: { view: PayoutPlanView | null }) {
   const todaySum = todayRows.reduce((sum, r) => sum + r.amount - r.issued, 0);
   const window = view?.window;
   const state = view?.plan?.state === "approved" ? "утверждён" : view?.plan?.state === "draft" ? "черновик" : "не сформирован";
-  const title = window ? `Первая выплата за ${PLAN_MONTHS[Number(window.month.slice(5, 7)) - 1]}` : "План выплат";
+  const title = window ? `${view?.payoutNo === 2 ? "Вторая" : "Первая"} выплата за ${PLAN_MONTHS[Number(window.month.slice(5, 7)) - 1]}` : "План выплат";
   return (
     <MetricStrip label="Итоги плана выплат">
       <Metric
         primary
         label={title}
         value={<AnimatedMoney value={view ? total : null} />}
-        hint={window ? `${dm(window.from)} – ${dm(window.to)} · ${state}` : "Окно первой выплаты — с 25-го по 1-е"}
+        hint={window ? `${dm(window.from)} – ${dm(window.to)} · ${state}` : "План выплаты ещё не сформирован"}
       />
       <Metric
         label="Выдано"

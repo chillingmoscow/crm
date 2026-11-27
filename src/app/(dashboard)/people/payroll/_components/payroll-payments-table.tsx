@@ -6,6 +6,7 @@ import {
   type PaymentJournalRow,
 } from "@/lib/payroll/payment-journal";
 import { canChangeOfficialAccount, checkingBanks } from "@/lib/payroll/official-payment";
+import { officialPaymentLabel } from "@/lib/payroll/official";
 import { countRu } from "@/lib/format/plural";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -123,7 +124,9 @@ export function PayrollPaymentsTable({
                 {row.original.kind}
                 {row.original.bonus && <small className="text-muted-foreground"> · Премия</small>}
               </span>
-              {row.original.official && <StatusBadge tone="info">Официальная</StatusBadge>}
+              {row.original.official && (
+                <StatusBadge tone="info">{officialPaymentLabel(row.original.agency)}</StatusBadge>
+              )}
             </span>
           ) : (
             row.original[id as "employee" | "kind" | "status"]
@@ -447,7 +450,15 @@ export function PaymentDetails({
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
-      title={row.bonus ? "Выплата премии" : row.official ? "Официальная выплата" : "Выплата"}
+      title={
+        row.bonus
+          ? "Выплата премии"
+          : row.agency
+            ? "Получено через агентство"
+            : row.official
+              ? "Официальная выплата"
+              : "Выплата"
+      }
       description={
         row.earningMonths.length
           ? `За ${row.earningMonths.map(monthName).join(", ")}`
@@ -459,7 +470,7 @@ export function PaymentDetails({
         avatarUrl: row.avatarUrl,
       }}
       amount={<Money value={row.amount} fraction />}
-      amountLabel="Выдано сотруднику"
+      amountLabel={row.agency ? "Получено через агентство" : "Выдано сотруднику"}
       status={<PaymentStatus posted={row.posted} />}
       footer={
         <div className="flex w-full items-center justify-between gap-2">
@@ -491,7 +502,12 @@ export function PaymentDetails({
           <TabsTrigger value="history">История</TabsTrigger>
         </TabsList>
         <TabsContent value="details" className="space-y-6">
-          {row.settledAmount !== undefined && (
+          {row.agency && (
+            <p className="text-sm text-muted-foreground">
+              Сотрудник получил деньги через агентство. Запись закрывает долг по зарплате без расхода в финансах и без налога.
+            </p>
+          )}
+          {row.settledAmount !== undefined && !row.agency && (
             <DetailSection title="Расчёт">
               <DetailRow label="Выдано на руки"><Money value={row.amount} fraction /></DetailRow>
               <DetailRow label="Удержан налог"><Money value={row.taxAmount ?? 0} fraction /></DetailRow>

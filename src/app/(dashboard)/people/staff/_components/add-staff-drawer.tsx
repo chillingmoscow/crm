@@ -307,6 +307,7 @@ export function AddStaffDrawer({
       }
       if (result.member) onCreated(result.member);
       toast.success(`Сотрудник «${values.firstName} ${values.lastName}» добавлен`);
+      if (result.notice) toast.warning(result.notice);
       close();
     });
   };

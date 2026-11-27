@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { queueAcceptedInvitationChats } from "@/lib/people/chat-invites-queue";
 
 export async function syncPendingInvitationsForUser(params: {
   userId: string;
@@ -43,4 +44,5 @@ export async function syncPendingInvitationsForUser(params: {
       "id",
       pending.map((inv) => inv.id)
     );
+  await queueAcceptedInvitationChats({ userId: params.userId, email, invitations: pending });
 }

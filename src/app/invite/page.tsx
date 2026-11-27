@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { queueAcceptedInvitationChats } from "@/lib/people/chat-invites-queue";
 
 /**
  * Invite acceptance page.
@@ -67,6 +68,7 @@ export default async function InvitePage({
       "id",
       pending.map((inv) => inv.id)
     );
+  await queueAcceptedInvitationChats({ userId: user.id, email: user.email!, invitations: pending });
 
   // Switch active venue to the one from the current invite link.
   await supabase

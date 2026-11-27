@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { queueAcceptedInvitationChats } from "@/lib/people/chat-invites-queue";
 
 /**
  * Принимает invite-токен + пароль и завершает onboarding юзера:
@@ -162,6 +163,10 @@ export async function acceptInvitation(
         "id",
         pendingList.map((inv) => inv.id),
       );
+
+    // Принял приглашение — приглашаем в Telegram-чаты должности, как при
+    // найме кандидата (до принятия учётной записи нет, приглашать некого).
+    await queueAcceptedInvitationChats({ userId, email, invitations: pendingList });
   }
 
   // 5. Активный venue юзера = тот, который из текущей invitation

@@ -12,6 +12,7 @@ import {
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hasCustomMailerConfig, sendInvitationEmail } from "@/lib/people/invitations/mailer";
 import { revalidatePath } from "next/cache";
+import { queueStaffChatInvites } from "@/lib/people/chat-invites-queue";
 import { processStaffTermination } from "@/lib/people/termination";
 import { processStaffRestore } from "@/lib/people/restore";
 import { terminationOfficialEndSchema } from "@/lib/people/official-employment";
@@ -496,7 +497,7 @@ export async function createStaffWithoutEmail(data: {
   phone:     string | null;
   roleId:    string;
   venueId:   string;
-}): Promise<{ error: string | null; member: StaffMember | null }> {
+}): Promise<{ error: string | null; member: StaffMember | null; notice?: string | null }> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -592,6 +593,15 @@ export async function createStaffWithoutEmail(data: {
     .eq("id", data.roleId)
     .maybeSingle();
 
+  // Приглашения в Telegram-чаты должности — как при найме кандидата.
+  const chatNotice = await queueStaffChatInvites({
+    venueId: data.venueId,
+    userId: newUserId,
+    roleId: data.roleId,
+    name: `${firstName} ${lastName}`,
+    eventKey: `staff:${newUserId}`,
+  });
+
   revalidatePath("/people/staff");
 
   const member: StaffMember = {
@@ -619,7 +629,7 @@ export async function createStaffWithoutEmail(data: {
     joined_at:         uvrInsert.created_at ?? new Date().toISOString(),
   };
 
-  return { error: null, member };
+  return { error: null, member, notice: chatNotice };
 }
 
 // Апгрейд existing placeholder/pending-юзера до реального email + invite.

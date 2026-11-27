@@ -13,6 +13,7 @@ import { zonedParts } from "@/lib/sales/time";
 import { getActiveAccountTimezone } from "@/lib/settings/account";
 import { assignPayrollPositionOnly, requeuePayrollFrom } from "@/app/(dashboard)/people/payroll/actions";
 import { createStaffWithoutEmail } from "./actions";
+import { dropStaffChatInvites } from "@/lib/people/chat-invites-queue";
 
 export type CasualResult = { id: string | null; pin: string | null; error: string | null };
 
@@ -195,6 +196,7 @@ export async function convertCasualToStaff(input: z.input<typeof convertSchema>)
     // команды, затем саму учётную запись. Удаление может упереться в журнал
     // приёма — тогда остаётся профиль без доступа к заведению, в списках его нет.
     await admin.from("user_venue_roles").delete().eq("user_id", userId).eq("venue_id", venueId);
+    await dropStaffChatInvites(userId);
     await admin.auth.admin.deleteUser(userId);
     revalidatePath("/people/staff");
     // Выданный код остаётся у разового: перевод можно повторить.
@@ -215,30 +217,8 @@ export async function convertCasualToStaff(input: z.input<typeof convertSchema>)
   } catch {
     notices.push("Пересчёт зарплаты поставьте вручную (Зарплата → Обновить)");
   }
-  // Приглашения в Telegram-чаты должности — как при найме кандидата: бот
-  // присылает одноразовые ссылки в чат приглашений (задание candidate_jobs).
-  try {
-    const venueRow = await asLooseDb(admin)
-      .from<{ account_id: string }>("venues")
-      .select("account_id")
-      .eq("id", venueId)
-      .single();
-    if (venueRow.error || !venueRow.data) throw new Error(venueRow.error?.message ?? "Заведение не найдено");
-    const queued = await asLooseDb(admin).from("candidate_jobs").insert({
-      account_id: venueRow.data.account_id,
-      kind: "chat_invites",
-      payload: {
-        user_id: userId,
-        role_id: value.roleId,
-        name: `${value.firstName.trim()} ${value.lastName.trim()}`,
-        event_key: `casual:${value.employeeId}`,
-      },
-    });
-    if (queued.error) throw new Error(queued.error.message);
-  } catch (e) {
-    console.error("[convertCasualToStaff] chat invites not queued:", e);
-    notices.push("Приглашения в чаты Telegram не отправлены — пригласите сотрудника вручную");
-  }
+  // Приглашения в Telegram-чаты поставил createStaffWithoutEmail.
+  if (created.notice) notices.push(created.notice);
   revalidatePath("/people/staff");
   revalidatePath("/people/payroll");
   revalidatePath("/schedule");

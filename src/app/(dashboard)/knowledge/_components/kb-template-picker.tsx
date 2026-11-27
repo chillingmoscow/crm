@@ -18,6 +18,8 @@ import {
   DialogIcon,
 } from "@/components/ui/dialog";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   listKbTemplates,
   applyKbTemplate,
@@ -147,34 +149,42 @@ export function KbTemplatePicker({
           </DialogTrigger>
         </IconTooltip>
       )}
-      <DialogContent className="max-w-[520px]">
+      <DialogContent>
         <DialogHeader>
           <DialogIcon tone="default" icon={LayoutTemplate} />
           <DialogTitle>Создать страницу из шаблона</DialogTitle>
           <DialogDescription>
-            Выберите готовый шаблон — структура и оформление подтянутся
-            автоматически.
+            Структура и оформление шаблона перенесутся в новую страницу
           </DialogDescription>
         </DialogHeader>
         {confirmDialog}
         <div className="-mx-2 flex max-h-[60vh] flex-col gap-4 overflow-y-auto px-2">
           {loading && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
-              <Loader2 className="size-4 animate-spin" />
-              Загружаем шаблоны…
+            <div role="status" aria-label="Загружаем шаблоны" aria-busy className="space-y-3 py-1">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="flex items-center gap-2 p-2">
+                  <Skeleton className="size-6 shrink-0 rounded-md" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-3.5" style={{ width: `${60 - i * 12}%` }} />
+                    <Skeleton className="h-3 w-1/3" />
+                  </div>
+                </div>
+              ))}
             </div>
           )}
           {!loading && templates.length === 0 && (
-            <div className="text-sm text-muted-foreground py-4">
-              Шаблонов пока нет. Создайте первый из существующей страницы —
-              в меню действий страницы есть «Сохранить как шаблон».
-            </div>
+            <EmptyState
+              icon={LayoutTemplate}
+              title="Шаблонов пока нет"
+              description="Сохраните любую страницу как шаблон в её меню ⋯"
+              className="min-h-0"
+            />
           )}
           {!loading &&
             grouped.map(({ category, items }) => (
               <div key={category ?? "_none"} className="flex flex-col gap-1.5">
                 {category && (
-                  <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
+                  <span className="text-xs font-medium text-muted-foreground">
                     {category}
                   </span>
                 )}
@@ -203,7 +213,7 @@ export function KbTemplatePicker({
                             {tmpl.name}
                           </span>
                           {tmpl.description && (
-                            <span className="text-[12px] text-muted-foreground truncate">
+                            <span className="truncate text-xs text-muted-foreground">
                               {tmpl.description}
                             </span>
                           )}
@@ -217,12 +227,12 @@ export function KbTemplatePicker({
                             onClick={() => onDelete(tmpl.id, tmpl.name)}
                             disabled={deleting === tmpl.id}
                             aria-label={`Удалить шаблон «${tmpl.name}»`}
-                            className="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center size-7 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-opacity transition-colors"
+                            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-[opacity,colors] hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                           >
                             {deleting === tmpl.id ? (
-                              <Loader2 className="size-3.5 animate-spin" />
+                              <Loader2 className="size-4 animate-spin" />
                             ) : (
-                              <Trash2 className="size-3.5" />
+                              <Trash2 className="size-4" />
                             )}
                           </button>
                         )}

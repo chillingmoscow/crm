@@ -8,11 +8,25 @@ import {
   type ChangeEvent,
 } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Upload, X, Check, Plus } from "lucide-react";
+import {
+  Check,
+  ChevronRight,
+  CircleCheck,
+  CornerDownRight,
+  FileText,
+  ImageIcon,
+  Loader2,
+  Plus,
+  Table2,
+  Upload,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Skeleton } from "@/components/ui/skeleton";
+import { countRu } from "@/lib/format/plural";
 import {
   DialogContent,
   DialogTitle,
@@ -1242,13 +1256,12 @@ export default function KbImportDialogBody({
     (notionResult ? selectedCount > 0 : files.length > 0);
 
   return (
-    <DialogContent className="max-w-[560px]">
+    <DialogContent>
       <DialogHeader>
         <DialogIcon tone="default" icon={Upload} />
         <DialogTitle>Импорт из Markdown / Notion</DialogTitle>
         <DialogDescription>
-          Загрузите ZIP-экспорт из Notion или отдельные
-          {" "}<span className="font-mono text-[12px]">.md</span>-файлы.
+          Загрузите ZIP-экспорт из Notion или отдельные файлы Markdown
         </DialogDescription>
       </DialogHeader>
       <div
@@ -1278,13 +1291,13 @@ export default function KbImportDialogBody({
           <>
             <label
               className={
-                "relative flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed px-4 py-9 cursor-pointer transition-colors " +
+                "relative flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed px-4 py-8 transition-colors " +
                 (isDragOver
                   ? "border-brand bg-brand/5 text-foreground"
                   : "border-border bg-muted/20 text-muted-foreground hover:bg-muted/40")
               }
             >
-              <Upload className="size-6 opacity-70" />
+              <Upload className="size-5" />
               <span className="text-sm font-medium leading-tight">
                 Перетащите файлы сюда или нажмите, чтобы выбрать
               </span>
@@ -1299,17 +1312,18 @@ export default function KbImportDialogBody({
                 className="absolute inset-0 cursor-pointer opacity-0"
               />
             </label>
-            {/* Footnote — мелким шрифтом под полем: форматы + что делаем */}
-            <p className="text-[11px] leading-snug text-muted-foreground/70">
-              .zip из Notion · .md / .markdown · изображения. ZIP
-              распакуем, восстановим иерархию и перелинкуем внутренние
-              ссылки; каждый отдельный .md станет своей страницей.
+            {/* Подсказка под полем: форматы и что будет с файлами */}
+            <p className="text-xs text-muted-foreground">
+              ZIP из Notion, файлы .md и изображения. ZIP распакуем,
+              сохраним вложенность и внутренние ссылки; каждый файл .md
+              станет отдельной страницей
             </p>
           </>
         )}
         {parsingZip && (
-          <div className="text-[12px] text-muted-foreground flex items-center gap-1.5">
-            <Loader2 className="size-3 animate-spin" /> распаковка ZIP…
+          <div role="status" aria-label="Распаковываем ZIP" aria-busy className="space-y-2">
+            <Skeleton className="h-4 w-3/5" />
+            <Skeleton className="h-4 w-2/5" />
           </div>
         )}
         {notionResult && (
@@ -1332,40 +1346,38 @@ export default function KbImportDialogBody({
                 key={`md-${f.name}-${i}`}
                 className="flex items-center gap-2 truncate"
               >
+                <FileText className="size-4 shrink-0" />
                 <span className="flex-1 truncate">
-                  • {f.name}{" "}
-                  <span className="text-muted-foreground/60">
-                    ({formatSize(f.size)})
-                  </span>
+                  {f.name}{" "}
+                  <span className="text-muted-foreground">({formatSize(f.size)})</span>
                 </span>
                 <button
                   type="button"
                   onClick={() => removeFile("md", i)}
-                  className="shrink-0 text-muted-foreground/60 hover:text-foreground"
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
                   aria-label="Убрать файл"
                 >
-                  <X className="size-3" />
+                  <X className="size-4" />
                 </button>
               </li>
             ))}
             {imageFiles.map((f, i) => (
               <li
                 key={`img-${f.name}-${i}`}
-                className="flex items-center gap-2 truncate text-muted-foreground/70"
+                className="flex items-center gap-2 truncate"
               >
+                <ImageIcon className="size-4 shrink-0" />
                 <span className="flex-1 truncate">
-                  🖼 {f.name}{" "}
-                  <span className="text-muted-foreground/60">
-                    ({formatSize(f.size)})
-                  </span>
+                  {f.name}{" "}
+                  <span className="text-muted-foreground">({formatSize(f.size)})</span>
                 </span>
                 <button
                   type="button"
                   onClick={() => removeFile("image", i)}
-                  className="shrink-0 text-muted-foreground/60 hover:text-foreground"
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
                   aria-label="Убрать файл"
                 >
-                  <X className="size-3" />
+                  <X className="size-4" />
                 </button>
               </li>
             ))}
@@ -1373,28 +1385,26 @@ export default function KbImportDialogBody({
         )}
         {!notionResult && expectedRefs.length > 0 && (
           <div className="rounded-md border border-border bg-muted/30 px-3 py-2 flex flex-col gap-1.5">
-            <div className="text-[12px] font-medium text-foreground flex items-center justify-between">
+            <div className="flex items-center justify-between text-xs font-medium text-foreground">
               <span>В markdown упомянуто картинок: {expectedRefs.length}</span>
               {missingCount > 0 ? (
-                <span className="text-amber-600 dark:text-amber-400 tabular-nums">
-                  не выбрано: {missingCount}
+                <span className="tabular-nums text-amber-700 dark:text-amber-400">
+                  Не выбрано: {missingCount}
                 </span>
               ) : (
-                <span className="text-emerald-600 dark:text-emerald-400">
-                  все выбраны
-                </span>
+                <span className="text-emerald-700 dark:text-emerald-400">Все выбраны</span>
               )}
             </div>
             <ul className="flex flex-col gap-0.5 max-h-24 overflow-y-auto">
               {expectedRefs.map((ref) => (
                 <li
                   key={ref.key}
-                  className="text-[12px] flex items-center gap-1.5 truncate"
+                  className="flex items-center gap-1.5 truncate text-xs"
                 >
                   {ref.matched ? (
-                    <Check className="size-3 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                    <Check className="size-3 shrink-0 text-emerald-700 dark:text-emerald-400" />
                   ) : (
-                    <X className="size-3 shrink-0 text-amber-600 dark:text-amber-400" />
+                    <X className="size-3 shrink-0 text-amber-700 dark:text-amber-400" />
                   )}
                   <span
                     className={
@@ -1409,9 +1419,9 @@ export default function KbImportDialogBody({
               ))}
             </ul>
             {missingCount > 0 && (
-              <p className="text-[11px] text-muted-foreground leading-snug">
-                Добавь недостающие через тот же file-input — ничего не
-                потеряется, мы объединим выбор.
+              <p className="text-xs text-muted-foreground">
+                Добавьте недостающие кнопкой «Добавить ещё»: выбранные
+                файлы сохранятся
               </p>
             )}
           </div>
@@ -1479,42 +1489,34 @@ function NotionSummary({
       return next;
     });
   return (
-    <div className="rounded-lg border border-border bg-muted/20 flex flex-col overflow-hidden">
-      <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border bg-muted/30">
-        <div className="flex items-center gap-2 text-[12px] min-w-0">
-          <span className="inline-flex items-center justify-center size-5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 text-[10px]">
-            ✓
-          </span>
-          <span className="font-medium text-foreground truncate">Notion-экспорт</span>
-          <span className="text-muted-foreground tabular-nums shrink-0">
-            {selected} / {total}
+    <div className="flex flex-col overflow-hidden rounded-lg border">
+      <div className="flex items-center justify-between gap-2 border-b bg-muted/40 px-4 py-2.5">
+        <div className="flex min-w-0 items-center gap-2 text-xs">
+          <CircleCheck className="size-4 shrink-0 text-emerald-700 dark:text-emerald-400" />
+          <span className="truncate font-medium text-foreground">Экспорт Notion</span>
+          <span className="shrink-0 tabular-nums text-muted-foreground">
+            {selected} из {total}
           </span>
           {result.imagesByPath.size > 0 && (
-            <span className="text-muted-foreground tabular-nums shrink-0">
-              · {result.imagesByPath.size} картинок
+            <span className="shrink-0 tabular-nums text-muted-foreground">
+              · {countRu(result.imagesByPath.size, "картинка", "картинки", "картинок")}
             </span>
           )}
         </div>
-        <button
-          type="button"
-          onClick={onClear}
-          className="text-[11px] text-muted-foreground/70 hover:text-foreground inline-flex items-center gap-1 shrink-0"
-          aria-label="Сбросить"
-        >
-          <X className="size-3" /> сбросить
-        </button>
+        <Button variant="ghost" size="sm" onClick={onClear} className="shrink-0">
+          <X className="size-4" />
+          Сбросить
+        </Button>
       </div>
-      <div className="flex items-center gap-3 px-4 py-2 border-b border-border text-[11px]">
+      <div className="flex items-center gap-3 border-b px-4 py-2 text-xs">
         <button
           type="button"
           onClick={allSelected ? onDeselectAll : onSelectAll}
-          className="text-brand hover:underline font-medium"
+          className="font-medium text-brand transition-colors hover:text-brand/80"
         >
-          {allSelected ? "снять все" : "выделить все"}
+          {allSelected ? "Снять все" : "Выделить все"}
         </button>
-        <span className="text-muted-foreground/70">
-          снимите чекбокс, чтобы пропустить страницу
-        </span>
+        <span className="text-muted-foreground">Снимите отметку, чтобы пропустить страницу</span>
       </div>
       <ul className="flex flex-col max-h-[380px] overflow-y-auto py-1.5">
         {result.pages.map((p) => {
@@ -1522,27 +1524,23 @@ function NotionSummary({
           const dbs = p.uuid ? dbByUuid.get(p.uuid) ?? [] : [];
           return (
             <Fragment key={p.zipPath}>
-              <li className="flex items-center gap-2.5 px-4 py-2 hover:bg-muted/40 transition-colors">
+              <li className="flex items-center gap-2.5 px-4 py-2 transition-colors hover:bg-muted/40">
                 <Checkbox
                   checked={checked}
                   onCheckedChange={(v) => onToggle(p.zipPath, v === true)}
-                  className="shrink-0 size-[18px]"
+                  className="shrink-0"
                   aria-label={`Импортировать «${p.title}»`}
                 />
                 <span
-                  className="text-sm truncate flex-1"
-                  style={{ paddingLeft: `${p.depth * 18}px` }}
+                  className="flex min-w-0 flex-1 items-center gap-1.5 text-sm"
+                  style={{ paddingLeft: `${p.depth * 16}px` }}
                 >
-                  <span className="text-muted-foreground/60 mr-1">
-                    {p.depth > 0 ? "↳" : "•"}
-                  </span>
-                  <span
-                    className={
-                      checked
-                        ? "text-foreground"
-                        : "text-muted-foreground/60 line-through"
-                    }
-                  >
+                  {p.depth > 0 ? (
+                    <CornerDownRight className="size-4 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <FileText className="size-4 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className={checked ? "truncate text-foreground" : "truncate text-muted-foreground line-through"}>
                     {p.title}
                   </span>
                 </span>
@@ -1554,20 +1552,19 @@ function NotionSummary({
                 return (
                   <li key={key} className="px-4">
                     <div
-                      style={{ paddingLeft: `${(p.depth + 1) * 18}px` }}
+                      style={{ paddingLeft: `${(p.depth + 1) * 16}px` }}
                       className="flex flex-col"
                     >
                       <button
                         type="button"
                         onClick={() => toggleDb(key)}
-                        className="flex items-center gap-1.5 py-1.5 text-left text-[12px] text-muted-foreground hover:text-foreground transition-colors"
+                        aria-expanded={isOpen}
+                        className="flex items-center gap-1.5 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
                       >
-                        <span className="text-muted-foreground/60">
-                          {isOpen ? "▾" : "▸"}
-                        </span>
-                        <span>🗂</span>
+                        <ChevronRight className={isOpen ? "size-4 rotate-90 transition-transform" : "size-4 transition-transform"} />
+                        <Table2 className="size-4 shrink-0" />
                         <span className="truncate">
-                          Коллекция «{d.title}» — {n} {recordWord(n)}
+                          Коллекция «{d.title}»: {countRu(n, "запись", "записи", "записей")}
                         </span>
                       </button>
                       {isOpen && n > 0 && (
@@ -1575,12 +1572,9 @@ function NotionSummary({
                           {d.recordTitles.map((rt, ri) => (
                             <li
                               key={`${key}-r${ri}`}
-                              className="flex items-center gap-1.5 py-0.5 pl-5 text-[12px] text-muted-foreground/70 truncate"
+                              className="truncate py-0.5 pl-11 text-xs text-muted-foreground"
                             >
-                              <span className="text-muted-foreground/40">
-                                ·
-                              </span>
-                              <span className="truncate">{rt}</span>
+                              {rt}
                             </li>
                           ))}
                         </ul>
@@ -1595,16 +1589,6 @@ function NotionSummary({
       </ul>
     </div>
   );
-}
-
-/** Русское склонение «N запись/записи/записей». */
-function recordWord(n: number): string {
-  const m10 = n % 10;
-  const m100 = n % 100;
-  if (m100 >= 11 && m100 <= 14) return "записей";
-  if (m10 === 1) return "запись";
-  if (m10 >= 2 && m10 <= 4) return "записи";
-  return "записей";
 }
 
 function mergeFiles(prev: File[], next: File[]): File[] {

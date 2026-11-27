@@ -6,7 +6,14 @@ import { Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
-import { Dialog, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 
 /** Тяжёлое тело с BlockNote-хуком (`useCreateBlockNote` пытается прицепить
  *  `window.ProseMirror` и крашит SSR-проход). Подгружаем динамически с
@@ -14,8 +21,23 @@ import { Dialog, DialogTrigger } from "@/components/ui/dialog";
  *  (иначе hydration mismatch на aria-controls в `KbTemplatePicker` и др.). */
 const KbImportDialogBody = dynamic(
   () => import("./kb-import-dialog-body"),
-  { ssr: false },
+  { ssr: false, loading: () => <ImportDialogSkeleton /> },
 );
+
+/** Окно импорта, пока подгружается его тело: та же рамка, заготовки вместо полей. */
+function ImportDialogSkeleton() {
+  return (
+    <DialogContent aria-busy>
+      <DialogHeader>
+        <DialogTitle>Импорт из Markdown / Notion</DialogTitle>
+      </DialogHeader>
+      <div role="status" aria-label="Открываем импорт" className="space-y-3">
+        <Skeleton className="h-28 w-full rounded-lg" />
+        <Skeleton className="h-3 w-4/5" />
+      </div>
+    </DialogContent>
+  );
+}
 
 interface KbImportDialogProps {
   parentId?: string | null;

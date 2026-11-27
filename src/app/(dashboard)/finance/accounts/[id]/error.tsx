@@ -26,6 +26,7 @@ export default function BankAccountCardError({
     <ProfilePageFrame>
       <EmptyState
         icon={Wallet}
+        illustration="error"
         title="Не удалось открыть счёт"
         description="Повторите попытку. Если ошибка не пропадает, вернитесь к списку и откройте карточку снова"
         action={(

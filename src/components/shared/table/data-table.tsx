@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import {
   flexRender,
   type Header,
@@ -13,6 +13,7 @@ import {
 import { ArrowDown, ArrowUp } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { groupConsecutiveRows } from "./group-rows";
 import { isRowNavigationClick } from "./row-click";
 import { ResizableTableHead } from "./table-head";
 import { TableMobileCards } from "./table-mobile-cards";
@@ -33,6 +34,17 @@ export function cycleHeaderSort(
     return sorting.map((s) => (s.id === id ? { ...s, desc: true } : s));
   return sorting.filter((s) => s.id !== id);
 }
+
+/**
+ * Подзаголовки групп внутри таблицы. Строки должны уже идти по порядку: подряд
+ * идущие строки с одним ключом — одна группа (сортировку и страницы таблица
+ * не трогает). Подзаголовок — строка во всю ширину над группой; на телефоне —
+ * заголовок над её карточками.
+ */
+export type DataTableGroups<T> = {
+  key: (row: T) => string;
+  header: (rows: T[], key: string) => ReactNode;
+};
 
 type MobileCardsConfig = {
   /** Подпись секции карточек для скринридера. */
@@ -68,6 +80,7 @@ export function DataTable<T>({
   rowClassName,
   empty,
   totals,
+  groups,
   mobile,
 }: {
   table: Table<T>;
@@ -93,6 +106,8 @@ export function DataTable<T>({
   empty: ReactNode;
   /** Строка итогов по видимым столбцам: значения по id столбца. */
   totals?: Partial<Record<string, ReactNode>>;
+  /** Подзаголовки групп (см. `DataTableGroups`). */
+  groups?: DataTableGroups<T>;
   /** Карточки на телефоне (до 640px): таблица там скрыта, поэтому они обязательны. */
   mobile: MobileCardsConfig;
 }) {
@@ -103,6 +118,12 @@ export function DataTable<T>({
   const rows = table.getRowModel().rows;
   const visibleColumns = table.getVisibleLeafColumns();
   const sortState = sorting ?? [];
+  const rowGroups = groups
+    ? groupConsecutiveRows(rows, (row) => groups.key(row.original))
+    : [{ key: "", rows }];
+  const positionById = new Map(rows.map((row, index) => [row.id, index]));
+  const groupHeader = (group: { key: string; rows: Row<T>[] }) =>
+    groups ? groups.header(group.rows.map((row) => row.original), group.key) : null;
   return (
     <>
       <div className={cn(styles.scroll, overflowing && styles.scrollX)}>
@@ -144,43 +165,54 @@ export function DataTable<T>({
             }}
           />
           <tbody>
-            {rows.map((row, index) => (
-              <tr
-                key={row.id}
-                className={cn(
-                  // Строка мягко проявляется при первом показе (дизайн-система, «Движение»);
-                  // при фоновом обновлении строка не пересоздаётся и не мигает.
-                  "table-row-in",
-                  onRowClick && "cursor-pointer",
-                  rowClassName?.(row),
-                )}
-                style={{ animationDelay: `${Math.min(index, 14) * 40}ms` }}
-                data-state={row.getIsSelected() ? "selected" : undefined}
-                onClick={
-                  onRowClick
-                    ? (e) => {
-                        if (isRowNavigationClick(e))
-                          onRowClick(row);
-                      }
-                    : undefined
-                }
-              >
-                {row.getVisibleCells().map((cell) => (
-                  <td
-                    key={cell.id}
-                    data-control-cell={
-                      controlColumns.includes(cell.column.id) || undefined
-                    }
-                    className={
-                      isNumeric(cell.column.id)
-                        ? "text-right tabular-nums"
+            {rowGroups.map((group, groupIndex) => (
+              <Fragment key={`group:${groupIndex}:${group.key}`}>
+                {groups ? (
+                  <tr className={styles.groupRow}>
+                    <th colSpan={visibleColumns.length} scope="rowgroup">
+                      {groupHeader(group)}
+                    </th>
+                  </tr>
+                ) : null}
+                {group.rows.map((row) => (
+                  <tr
+                    key={row.id}
+                    className={cn(
+                      // Строка мягко проявляется при первом показе (docs/motion.md, «Строки таблиц»);
+                      // при фоновом обновлении строка не пересоздаётся и не мигает.
+                      "table-row-fade",
+                      onRowClick && "cursor-pointer",
+                      rowClassName?.(row),
+                    )}
+                    style={{ animationDelay: `${Math.min(positionById.get(row.id) ?? 0, 10) * 15}ms` }}
+                    data-state={row.getIsSelected() ? "selected" : undefined}
+                    onClick={
+                      onRowClick
+                        ? (e) => {
+                            if (isRowNavigationClick(e))
+                              onRowClick(row);
+                          }
                         : undefined
                     }
                   >
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
+                    {row.getVisibleCells().map((cell) => (
+                      <td
+                        key={cell.id}
+                        data-control-cell={
+                          controlColumns.includes(cell.column.id) || undefined
+                        }
+                        className={
+                          isNumeric(cell.column.id)
+                            ? "text-right tabular-nums"
+                            : undefined
+                        }
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
                 ))}
-              </tr>
+              </Fragment>
             ))}
             {!rows.length && (
               <tr>
@@ -225,6 +257,11 @@ export function DataTable<T>({
         labels={labels}
         onOpen={onRowClick}
         empty={empty}
+        groups={
+          groups
+            ? { key: (row) => groups.key(row.original), header: (rows, key) => groups.header(rows.map((row) => row.original), key) }
+            : undefined
+        }
       />
     </>
   );

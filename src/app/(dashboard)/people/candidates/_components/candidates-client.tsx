@@ -8,7 +8,7 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
-import { Trash2 } from "lucide-react";
+import { SquareKanban, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import {
   TableColumnManager,
   TableConditions,
   TableControls,
+  TableIconButton,
   TablePagination,
   useTableState,
 } from "@/components/shared/table";
@@ -49,8 +50,9 @@ import { CandidateSortPicker } from "./candidate-sort-settings";
 import { PageFrame } from "@/components/shared/page-frame";
 import { usePeopleOverview } from "@/components/people/people-overview";
 import { PeopleListHeader } from "@/components/people/people-list-header";
-import type { CandidateStatusUpdate } from "./candidate-status-cell";
+import type { CandidateStatusUpdate } from "./candidate-status-change";
 import { CandidateFilterChip } from "./candidate-filter-chip";
+import { CandidateBoard } from "./candidate-board";
 import { unwrapAction } from "@/lib/actions/result";
 
 const sortableColumns = new Set<string>(CANDIDATE_SORT_FIELDS);
@@ -70,6 +72,27 @@ export function CandidatesClient({
   permissions: CandidatePermissions;
 }) {
   const overview = usePeopleOverview("candidates", accountId);
+  // Вид списка — таблица или доска по этапам; выбор помнится в этом браузере.
+  const viewKey = `candidates.view.${preferenceKey}`;
+  // null — выбор ещё не прочитан: список не рисуем, чтобы при выбранной доске
+  // не мелькала таблица.
+  const [view, setView] = useState<"table" | "board" | null>(null);
+  useEffect(() => {
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem(viewKey);
+    } catch {}
+    setView(saved === "board" ? "board" : "table");
+  }, [viewKey]);
+  const changeView = (next: "table" | "board") => {
+    setView(next);
+    try {
+      localStorage.setItem(viewKey, next);
+    } catch {}
+  };
+  const board = view === "board";
+  // Сколько анкет на доске: у неё свои запросы, таблица в это время не грузится.
+  const [boardTotal, setBoardTotal] = useState<number | null>(null);
   const st = useTableState({
     tableId: `candidates.list.${preferenceKey}`,
     columns: COLUMN_CONFIG,
@@ -151,6 +174,8 @@ export function CandidatesClient({
     return () => clearTimeout(timer);
   }, [search, setPagination]);
   useEffect(() => {
+    // Пока открыта доска, таблицу не грузим: она перечитается при возврате.
+    if (view !== "table") return;
     if (loaded.current === key) {
       setLoading(false);
       setError("");
@@ -184,7 +209,7 @@ export function CandidatesClient({
     };
     // The serialized key includes all filters, sorting and pagination.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, view]);
   const changeSorting = (next: SortingState) => {
     st.setSorting(next);
     firstPage();
@@ -292,11 +317,24 @@ export function CandidatesClient({
     >
       <PeopleListHeader
         title="Кандидаты"
-        count={list.total}
+        count={board ? (boardTotal ?? list.total) : list.total}
         actions={
           <>
             <TableControls
-              secondaryActions={overview.button}
+              secondaryActions={
+                <>
+                  {/* Переключатель: подпись постоянная, вид — в aria-pressed. */}
+                  <TableIconButton
+                    label="Доска по этапам"
+                    pressed={board}
+                    active={board}
+                    onClick={() => changeView(board ? "table" : "board")}
+                  >
+                    <SquareKanban />
+                  </TableIconButton>
+                  {overview.button}
+                </>
+              }
               className="min-w-0 max-w-full"
               search={{
                 value: search,
@@ -309,7 +347,7 @@ export function CandidatesClient({
                 active: hasFilters,
                 onClick: () => setFiltersVisible((v) => !v),
               }}
-              sort={{
+              sort={board ? undefined : {
                 active: !!st.sorting.length,
                 content: (
                   <CandidateSortPicker
@@ -318,7 +356,7 @@ export function CandidatesClient({
                   />
                 ),
               }}
-              columns={{
+              columns={board ? undefined : {
                 content: (
                   <TableColumnManager
                     columns={table
@@ -408,8 +446,23 @@ export function CandidatesClient({
           />
       </TableConditions>
       <p className="sr-only" aria-live="polite">
-        {countRu(list.total, "анкета", "анкеты", "анкет")}
+        {board
+          ? boardTotal === null
+            ? null
+            : countRu(boardTotal, "анкета", "анкеты", "анкет")
+          : countRu(list.total, "анкета", "анкеты", "анкет")}
       </p>
+      {view === null ? null : board ? (
+        <CandidateBoard
+          filters={{ search: query, status, position, from: from || undefined, to: to || undefined }}
+          options={options}
+          permissions={permissions}
+          reloadKey={reload}
+          onStatusSaved={statusSaved}
+          onListChanged={refreshList}
+          onTotal={setBoardTotal}
+        />
+      ) : (
       <div className="min-w-0 space-y-3" aria-busy={loading}>
         {error ? (
           <div
@@ -501,7 +554,8 @@ export function CandidatesClient({
           />
         </div>
       </div>
-      {permissions.owner ? (
+      )}
+      {permissions.owner && !board ? (
         <>
           <TableBulkBar
             floating

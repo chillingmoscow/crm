@@ -1,10 +1,16 @@
 "use client";
 
-import { Archive, ArchiveRestore, Check } from "lucide-react";
+import { Archive, ArchiveRestore, Check, ChevronDown } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
-import { getNotificationTypeSpec } from "@/lib/notifications/registry";
+import { statusTones } from "@/components/ui/status-badge";
+import {
+  getNotificationTypeSpec,
+  notificationTone,
+} from "@/lib/notifications/registry";
+import { stackNamesPreview } from "@/lib/notifications/stack";
+import { countRu } from "@/lib/format/plural";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import type {
   Notification,
@@ -17,7 +23,8 @@ import { avatarImageUrl } from "@/lib/people/avatar-thumb";
  * Notion-style строка уведомления для bell'а.
  *
  * Структура:
- *   • Avatar/icon (28×28) — actor.avatar если есть, иначе type-иконка.
+ *   • Avatar/icon (36×36) — аватар человека (автор или кандидат), иначе
+ *     иконка типа в цвете раздела.
  *   • Title row: «<actor> <verb> <entity>».
  *   • Body-snippet (для system-emit'ов без actor'а) — line-clamp-3.
  *   • Action buttons (payload.actions[]).
@@ -41,6 +48,10 @@ interface KbNotificationRowProps {
   onUnarchive?: (id: string) => void;
   /** Если в archive — рендерим Restore вместо Archive. */
   inArchive?: boolean;
+  /** Фото человека, о котором уведомление (кандидат), если оно есть. */
+  entityPhoto?: string | null;
+  /** Строка внутри раскрытой стопки — с отступом под заголовок стопки. */
+  nested?: boolean;
 }
 
 const ROW_ACTION_BTN =
@@ -54,10 +65,10 @@ export function KbNotificationRow({
   onArchive,
   onUnarchive,
   inArchive = false,
+  entityPhoto,
+  nested = false,
 }: KbNotificationRowProps) {
   const spec = getNotificationTypeSpec(notification.type);
-  const Icon = spec.icon;
-  const initials = personInitials(actor?.full_name);
 
   // Title:
   //   • Если есть actor + verb из registry — собираем «<Actor> <verb>».
@@ -71,8 +82,11 @@ export function KbNotificationRow({
     <div
       data-notification-row
       data-unread={!notification.read}
+      data-nested={nested || undefined}
       className={cn(
-        "group relative flex items-start gap-2.5 px-4 py-2.5",
+        // Отступ вложенной строки — в workspace-appearance.module.css
+        // ([data-nested]): там же задан весь padding строк колокольчика.
+        "group relative flex items-start gap-3 px-4 py-3",
         "border-b border-border/40 last:border-b-0",
         "hover:bg-accent/50 transition-colors cursor-pointer",
       )}
@@ -92,26 +106,11 @@ export function KbNotificationRow({
         }
       }}
     >
-      {/* Avatar / type-icon. */}
-      <div
-        data-notification-avatar
-        className="shrink-0 size-7 rounded-full bg-muted flex items-center justify-center overflow-hidden"
-      >
-        {actor?.avatar_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={avatarImageUrl(actor.avatar_url, 96)}
-            alt=""
-            className="size-7 rounded-full object-cover"
-          />
-        ) : actor ? (
-          <span className="text-xs font-semibold text-muted-foreground">
-            {initials}
-          </span>
-        ) : (
-          <Icon className={cn("size-4", spec.iconColor)} />
-        )}
-      </div>
+      <NotificationAvatar
+        notification={notification}
+        actor={actor}
+        entityPhoto={entityPhoto}
+      />
 
       <div className="flex-1 min-w-0 flex flex-col gap-1.5">
         {/* Title row: actor + verb + entity-chip. */}
@@ -155,7 +154,7 @@ export function KbNotificationRow({
         <div
           className={cn(
             "flex items-center gap-1.5 transition-opacity",
-            hasHoverActions && "group-hover:opacity-0",
+            hasHoverActions && "group-hover:opacity-0 group-focus-visible:opacity-0 group-has-[:focus-visible]:opacity-0",
           )}
         >
           <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
@@ -170,7 +169,7 @@ export function KbNotificationRow({
         </div>
 
         {hasHoverActions && (
-          <div className="absolute right-0 top-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="absolute right-0 top-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 group-has-[:focus-visible]:opacity-100 transition-opacity">
             {showMarkRead && (
               <IconTooltip label="Отметить прочитанным">
                 <button
@@ -209,6 +208,244 @@ export function KbNotificationRow({
                   onClick={(e) => {
                     e.stopPropagation();
                     onUnarchive(notification.id);
+                  }}
+                  className={ROW_ACTION_BTN}
+                >
+                  <ArchiveRestore className="size-3.5" />
+                </button>
+              </IconTooltip>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Слева в строке: у уведомления о человеке — его аватар (автор действия или
+ * кандидат из анкеты), у остальных — иконка типа в цвете раздела
+ * (`CATEGORY_TONES`, тоны статусной палитры — одинаково в обеих темах).
+ */
+function NotificationAvatar({
+  notification,
+  actor,
+  entityPhoto,
+}: {
+  notification: Notification;
+  actor?: NotificationActor | null;
+  entityPhoto?: string | null;
+}) {
+  const person = actor?.full_name ?? personEntityName(notification);
+  const photo = actor
+    ? actor.avatar_url && avatarImageUrl(actor.avatar_url, 96)
+    : entityPhoto;
+  if (person) {
+    return (
+      <span
+        data-notification-avatar
+        // Обводка: на подложке непрочитанной строки `bg-muted` сливается с фоном.
+        className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-medium text-muted-foreground ring-1 ring-inset ring-border"
+      >
+        {photo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={photo} alt="" className="size-9 object-cover" />
+        ) : (
+          personInitials(person)
+        )}
+      </span>
+    );
+  }
+  return <NotificationTypeIcon type={notification.type} />;
+}
+
+export function NotificationTypeIcon({ type }: { type: string }) {
+  const Icon = getNotificationTypeSpec(type).icon;
+  return (
+    <span
+      data-notification-avatar
+      className={cn(
+        "flex size-9 shrink-0 items-center justify-center rounded-full",
+        statusTones[notificationTone(type)],
+      )}
+    >
+      <Icon className="size-4" aria-hidden />
+    </span>
+  );
+}
+
+/** Имя человека, о котором уведомление без автора: кандидат из анкеты. */
+export function personEntityName(notification: Notification): string | null {
+  // Имя в заголовке («Новая анкета: Анна Белова») есть только у анкеты.
+  if (notification.type !== "candidate.new" || notification.entity_type !== "candidate") return null;
+  return extractEntityTitle(notification.title) || null;
+}
+
+interface NotificationStackRowProps {
+  type: string;
+  items: Notification[];
+  actorsMap: Map<string, NotificationActor>;
+  open: boolean;
+  onToggle: () => void;
+  /** id раскрывающейся панели — для `aria-controls`. */
+  panelId: string;
+  onMarkRead?: (ids: string[]) => void;
+  onArchive?: (ids: string[]) => void;
+  onUnarchive?: (ids: string[]) => void;
+  inArchive?: boolean;
+}
+
+/**
+ * Стопка однотипных уведомлений одного дня: «13 новых анкет», ниже —
+ * кого или что она собрала. Нажатие раскрывает отдельные уведомления
+ * (`ExpandPanel` под строкой); «Прочитать» и «В архив» действуют на всю
+ * стопку.
+ */
+export function NotificationStackRow({
+  type,
+  items,
+  actorsMap,
+  open,
+  onToggle,
+  panelId,
+  onMarkRead,
+  onArchive,
+  onUnarchive,
+  inArchive = false,
+}: NotificationStackRowProps) {
+  const spec = getNotificationTypeSpec(type);
+  const ids = items.map((n) => n.id);
+  const unread = items.filter((n) => !n.read);
+  const newest = items[0]!;
+  const title = spec.stack
+    ? countRu(items.length, ...spec.stack)
+    : countRu(items.length, "уведомление", "уведомления", "уведомлений");
+  // О людях — их имена («Анна Белова, Пётр Орлов и ещё 11»), об остальном —
+  // самое новое уведомление и сколько ещё в стопке.
+  const people = items.every((n) => n.actor_user_id || personEntityName(n));
+  const names = people
+    ? stackNamesPreview(
+        items.map((n) =>
+          n.actor_user_id
+            ? (actorsMap.get(n.actor_user_id)?.full_name ?? null)
+            : personEntityName(n),
+        ),
+      )
+    : `${newest.title} и ещё ${items.length - 1}`;
+  const showMarkRead = !inArchive && unread.length > 0 && Boolean(onMarkRead);
+  const hasHoverActions =
+    showMarkRead || (!inArchive && onArchive) || (inArchive && onUnarchive);
+
+  return (
+    <div
+      data-notification-row
+      data-notification-stack
+      data-unread={unread.length > 0}
+      role="button"
+      tabIndex={0}
+      aria-expanded={open}
+      aria-controls={panelId}
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+      className={cn(
+        "group relative flex items-start gap-3 px-4 py-3",
+        "border-b border-border/40 last:border-b-0",
+        "hover:bg-accent/50 transition-colors cursor-pointer",
+      )}
+    >
+      <NotificationTypeIcon type={type} />
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div
+          data-notification-title
+          className="flex items-center gap-1 text-sm font-medium leading-snug text-foreground"
+        >
+          <span className="min-w-0 truncate">{title}</span>
+          <ChevronDown
+            aria-hidden
+            className={cn(
+              "motion-chevron size-4 shrink-0 text-muted-foreground",
+              open && "rotate-180",
+            )}
+          />
+        </div>
+        {names && (
+          <p
+            data-notification-body
+            className="line-clamp-2 text-[13px] leading-snug text-muted-foreground"
+          >
+            {names}
+          </p>
+        )}
+      </div>
+
+      <div className="relative shrink-0 self-start pt-0.5">
+        <div
+          className={cn(
+            "flex items-center gap-1.5 transition-opacity",
+            hasHoverActions && "group-hover:opacity-0 group-focus-visible:opacity-0 group-has-[:focus-visible]:opacity-0",
+            // Раскрытая стопка держит действия на виду: на телефоне
+            // наведения нет, а «Прочитать» нужен и там.
+            hasHoverActions && open && "opacity-0",
+          )}
+        >
+          <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
+            {relativeTime(newest.created_at)}
+          </span>
+          {unread.length > 0 && (
+            <span aria-hidden className="size-2 shrink-0 rounded-full bg-brand" />
+          )}
+        </div>
+        {hasHoverActions && (
+          <div
+            className={cn(
+              "absolute right-0 top-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 group-has-[:focus-visible]:opacity-100 transition-opacity",
+              open && "opacity-100",
+            )}
+          >
+            {showMarkRead && (
+              <IconTooltip label="Прочитать все в стопке">
+                <button
+                  type="button"
+                  aria-label="Прочитать все в стопке"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onMarkRead?.(unread.map((n) => n.id));
+                  }}
+                  className={ROW_ACTION_BTN}
+                >
+                  <Check className="size-3.5" />
+                </button>
+              </IconTooltip>
+            )}
+            {!inArchive && onArchive && (
+              <IconTooltip label="Стопку в архив">
+                <button
+                  type="button"
+                  aria-label="Стопку в архив"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onArchive(ids);
+                  }}
+                  className={ROW_ACTION_BTN}
+                >
+                  <Archive className="size-3.5" />
+                </button>
+              </IconTooltip>
+            )}
+            {inArchive && onUnarchive && (
+              <IconTooltip label="Восстановить стопку">
+                <button
+                  type="button"
+                  aria-label="Восстановить стопку"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onUnarchive(ids);
                   }}
                   className={ROW_ACTION_BTN}
                 >

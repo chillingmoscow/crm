@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { StaffDoorCode } from "@/components/people/staff-door-code";
+import { StaffChatInvites, type StaffChatInvitesState } from "@/components/people/staff-chat-invites";
 import { StaffTerminationStatus } from "../_components/staff-termination-status";
 import { StaffRestoreStatus } from "../_components/staff-restore-status";
 import { asLooseDb } from "@/lib/supabase/loose";
@@ -17,6 +18,8 @@ import type { StaffProfile, StaffAccountDetails } from "../actions";
 import { staffProfileIdentitySchema } from "@/lib/people/staff-identity";
 import { getOfficialEmployment } from "../official-actions";
 import { getActiveAccountTimezone } from "@/lib/settings/account";
+import { loadOnShift } from "@/lib/people/staff-presence-server";
+import { loadStaffMonthStats } from "@/lib/people/staff-card-stats";
 
 export const metadata: Metadata = { title: "Сотрудник" };
 
@@ -61,6 +64,7 @@ type StaffTerminationRow = {
 const BACK_CONTEXTS: Record<string, { href: string; label: string }> = {
   inventory: { href: "/documents/inventory", label: "Акты инвентаризации" },
   schedule: { href: "/schedule", label: "Расписание" },
+  payroll: { href: "/people/payroll", label: "Зарплата" },
 };
 
 export default async function StaffMemberPage({
@@ -68,11 +72,18 @@ export default async function StaffMemberPage({
   searchParams,
 }: {
   params: Promise<{ userId: string }>;
-  searchParams: Promise<{ from?: string; tab?: string }>;
+  searchParams: Promise<{ from?: string; tab?: string; month?: string }>;
 }) {
   const { userId } = await params;
-  const { from, tab } = await searchParams;
-  const back = (from && BACK_CONTEXTS[from]) || null;
+  const { from, tab, month } = await searchParams;
+  // Месяц расчёта во вкладке «Оплата» — из ссылки «Зарплаты» (?month=2026-11).
+  const payMonth = month && /^\d{4}-(0[1-9]|1[0-2])$/.test(month) ? `${month}-01` : undefined;
+  const context = (from && Object.hasOwn(BACK_CONTEXTS, from) && BACK_CONTEXTS[from]) || null;
+  // Из «Зарплаты» крошка возвращает в ведомость того же месяца.
+  const back =
+    context && from === "payroll" && payMonth
+      ? { ...context, href: `${context.href}?month=${month}` }
+      : context;
 
   const supabase = await createClient();
   const db = asLooseDb(supabase);
@@ -144,6 +155,15 @@ export default async function StaffMemberPage({
     .eq("hired_user_id", userId)
     .limit(1)
     .maybeSingle();
+  // «Сегодня» в часовом поясе заведения — дефолт даты смены должности и
+  // месяц показателей в шапке.
+  const salesSettingsPromise = adminDb
+    .from<{ timezone: string; day_start_hour: number }>("sales_settings")
+    .select("timezone, day_start_hour")
+    .eq("venue_id", venueId)
+    .maybeSingle()
+    .then(({ data }) => data);
+  const canViewSchedule = can("schedule.view_all");
   const uvrState = (uvr: TargetVenueRole | null) =>
     uvr ? { id: uvr.id, fired: uvr.status === "fired" } : null;
 
@@ -164,6 +184,9 @@ export default async function StaffMemberPage({
     salesSettings,
     officialEmployment,
     officialTermination,
+    onShift,
+    monthStats,
+    chatInvites,
   ] = await Promise.all([
     admin
       .from("profiles")
@@ -274,13 +297,7 @@ export default async function StaffMemberPage({
             .then(({ data }) => data)
         : null,
     ),
-    // «Сегодня» в часовом поясе заведения — дефолт даты смены должности.
-    adminDb
-      .from<{ timezone: string; day_start_hour: number }>("sales_settings")
-      .select("timezone, day_start_hour")
-      .eq("venue_id", venueId)
-      .maybeSingle()
-      .then(({ data }) => data),
+    salesSettingsPromise,
     // Официальное трудоустройство — только с правом просмотра зарплаты.
     canViewPayroll ? getOfficialEmployment(userId) : null,
     // Окно «Уволить сотрудника» спрашивает дату официального увольнения, если
@@ -292,6 +309,34 @@ export default async function StaffMemberPage({
       canEdit && uvr && uvr.status !== "fired"
         ? loadOpenOfficialStart(accountId, venueId, userId)
         : null,
+    ),
+    // Точка «Сейчас на смене» у аватара — для работающих.
+    uvrPromise.then((uvr) =>
+      uvr && uvr.status !== "fired" ? loadOnShift(venueId, userId) : null,
+    ),
+    // Смены и «Начислено» за текущий месяц в шапке — по правам на график и
+    // зарплату; у уволенного не показываем.
+    Promise.all([uvrPromise, salesSettingsPromise]).then(([uvr, settings]) => {
+      if (!uvr || uvr.status === "fired") return null;
+      const clock = {
+        timezone: settings?.timezone ?? "Europe/Moscow",
+        dayStartHour: settings?.day_start_hour ?? 9,
+      };
+      return loadStaffMonthStats({
+        venueId,
+        userId,
+        today: businessDate(new Date(), clock.timezone, clock.dayStartHour),
+        clock,
+        canViewSchedule,
+        canViewPayroll,
+      }).catch((error: unknown) => {
+        console.error("staff month stats unavailable:", error instanceof Error ? error.message : error);
+        return null;
+      });
+    }),
+    // Приглашения в Telegram-чаты — тому, кто меняет сотрудников, у работающего.
+    uvrPromise.then((uvr) =>
+      canEdit && uvr && uvr.status !== "fired" ? loadChatInvites(accountId, userId) : null,
     ),
   ]);
 
@@ -334,6 +379,16 @@ export default async function StaffMemberPage({
       <StaffDetailPage
         candidateId={candidateLink.data?.id ?? null}
         doorCode={door ? <StaffDoorCode userId={userId} /> : null}
+        chatInvites={
+          chatInvites ? (
+            <StaffChatInvites
+              userId={userId}
+              name={[profileRow.first_name, profileRow.last_name].filter(Boolean).join(" ")}
+              state={chatInvites}
+              timezone={salesSettings?.timezone ?? "Europe/Moscow"}
+            />
+          ) : null
+        }
         terminationStatus={
           isFired && restoration ? (
             <StaffRestoreStatus uvrId={targetUvr.id} status={restoration} />
@@ -362,7 +417,7 @@ export default async function StaffMemberPage({
         roleCode={targetUvr.roles?.code ?? ""}
         departmentId={targetUvr.roles?.departments?.id ?? null}
         departmentName={targetUvr.roles?.departments?.name ?? null}
-        // PIN терминала — только с правом редактировать сотрудников.
+        // PIN кассы — только с правом редактировать сотрудников.
         terminalPin={canEdit ? targetUvr.terminal_pin : null}
         venueId={venueId}
         roles={roles ?? []}
@@ -385,7 +440,11 @@ export default async function StaffMemberPage({
         officialEmployment={officialEmployment}
         officialTermination={officialTermination}
         canViewPay={canViewPayroll || user.id === userId}
+        onShift={Boolean(onShift?.userIds.includes(userId))}
+        monthStats={monthStats}
+        canViewShiftHeatmap={canViewSchedule || canViewPayroll}
         initialTab={tab === "documents" || tab === "pay" ? tab : "main"}
+        initialPayMonth={payMonth}
         backHref={back?.href}
         backLabel={back?.label}
       />
@@ -430,4 +489,54 @@ async function loadOpenOfficialStart(
   if (!open) return null;
   const today = zonedParts(new Date(), timezone).date;
   return { startsOn: open.starts_on, today };
+}
+
+/**
+ * Действующие ссылки-приглашения в Telegram-чаты сотрудника и стоит ли
+ * отправка в очереди. null — бот приглашений не настроен, блок не нужен.
+ */
+async function loadChatInvites(
+  accountId: string,
+  userId: string,
+): Promise<StaffChatInvitesState | null> {
+  const db = asLooseDb(createAdminClient());
+  const [settings, links, jobs] = await Promise.all([
+    db
+      .from<{ secret: unknown; default_chat_id: string | null; candidate_chat_id: string | null }>(
+        "organization_telegram_settings",
+      )
+      .select("secret,default_chat_id,candidate_chat_id")
+      .eq("account_id", accountId)
+      .maybeSingle(),
+    db
+      .from<{ created_at: string }[]>("staff_telegram_actions")
+      .select("created_at")
+      .eq("account_id", accountId)
+      .eq("user_id", userId)
+      .eq("kind", "invite")
+      .eq("result", "invited")
+      .neq("chat_id", "*message*")
+      .order("created_at", { ascending: false }),
+    db
+      .from<{ id: string }[]>("candidate_jobs")
+      .select("id")
+      .eq("account_id", accountId)
+      .eq("kind", "chat_invites")
+      .eq("payload->>user_id", userId)
+      .in("state", ["pending", "working", "error"])
+      // После 10 попыток задание больше не берут — оно не «в очереди», и
+      // кнопка отправки не должна из-за него оставаться выключенной.
+      .lt("attempts", 10)
+      .limit(1),
+  ]);
+  if (settings.error || links.error || jobs.error) return null;
+  const configured =
+    !!settings.data?.secret && !!(settings.data.candidate_chat_id || settings.data.default_chat_id);
+  if (!configured) return null;
+  const rows = links.data ?? [];
+  return {
+    sentAt: rows[0]?.created_at ?? null,
+    chats: rows.length,
+    queued: (jobs.data?.length ?? 0) > 0,
+  };
 }

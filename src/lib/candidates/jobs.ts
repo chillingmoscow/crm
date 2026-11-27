@@ -1,4 +1,5 @@
 import "server-only";
+import { candidateNotifyMessage, type NotifyCandidate } from "@/lib/candidates/notify-message";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { decryptSecret } from "@/lib/integrations/crypto";
@@ -103,10 +104,8 @@ export async function processCandidateJobs(limit = 5) {
           if (job.payload.telegram !== "done") {
             const candidate = check(
               await db
-                .from<{ full_name: string; desired_position: string | null }>(
-                  "candidates",
-                )
-                .select("full_name,desired_position")
+                .from<NotifyCandidate>("candidates")
+                .select("full_name,desired_position,age,phone,social")
                 .eq("id", job.candidate_id)
                 .eq("account_id", job.account_id)
                 .single(),
@@ -133,7 +132,8 @@ export async function processCandidateJobs(limit = 5) {
                   chat_id: connection.telegram_chat_id,
                   text: job.kind === "hired"
                     ? `👤 В нашей команде появился новый ${String(job.payload.role_name ?? "сотрудник")} — ${String(job.payload.name ?? candidate.full_name)}\n${new URL(`/people/staff/${job.payload.user_id}`, origin)}`
-                    : `Новая анкета: ${candidate.full_name}\nДолжность: ${candidate.desired_position ?? "Не указана"}\n${new URL(`/people/candidates/${job.candidate_id}`, origin)}`,
+                    : candidateNotifyMessage(candidate, String(new URL(`/people/candidates/${job.candidate_id}`, origin))),
+                  ...(job.kind === "notify" ? { parse_mode: "HTML" } : {}),
                   link_preview_options: { is_disabled: true },
                 }),
                 signal: AbortSignal.timeout(12000),

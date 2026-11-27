@@ -7,7 +7,30 @@
 import { hasCountedResults } from "../../../../../lib/inventory/act-status.ts";
 import type { DocumentListRow, DocumentSortMode } from "@/lib/inventory/list-documents-shared";
 
-export type VenueOption = { id: string; name: string };
+export type VenueOption = { id: string; name: string; timezone?: string | null };
+
+/**
+ * Пояс, в котором считается день акта: пояс его заведения, как в карточке
+ * акта. Без пояса сервер (UTC) и браузер (Москва) положили бы ночной акт в
+ * разные дни, и группы по дате разъехались бы при гидрации.
+ */
+export const DEFAULT_ACT_TIME_ZONE = "Europe/Moscow";
+
+/** Пояс из базы, который понимает Intl; иначе — Москва, а не падение страницы. */
+function validTimeZone(zone: string | null | undefined): string {
+  if (!zone) return DEFAULT_ACT_TIME_ZONE;
+  try {
+    new Intl.DateTimeFormat("ru-RU", { timeZone: zone });
+    return zone;
+  } catch {
+    return DEFAULT_ACT_TIME_ZONE;
+  }
+}
+
+export function actTimeZones(venues: VenueOption[]): (venueId: string | null) => string {
+  const byVenue = new Map(venues.map((venue) => [venue.id, validTimeZone(venue.timezone)]));
+  return (venueId) => (venueId ? byVenue.get(venueId) : undefined) ?? DEFAULT_ACT_TIME_ZONE;
+}
 export type StoreOption = { id: string; title: string };
 
 export type SortField = "date" | "number" | "status";
@@ -116,4 +139,40 @@ export function toIsoDate(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+/**
+ * Группировка по дате имеет смысл, только когда список и так идёт по дате:
+ * при сортировке по номеру или статусу акты одной даты разбросаны по списку.
+ * Пустая сортировка — это date_desc по умолчанию.
+ */
+export function groupsByDate(sort: readonly DocumentSortMode[]): boolean {
+  return sort.length === 0 || sortToField(sort[0]) === "date";
+}
+
+type NetResultsRow = Pick<
+  DocumentListRow,
+  "results_has_line_amounts" | "status" | "totals_unavailable" | "surplus_sum" | "shortfall_sum"
+>;
+
+/**
+ * Нетто-итог (излишки − недостачи) по набору актов: выделение, группа одной
+ * даты. Акты без сданных итогов не считаются. Если хотя бы по одному акту итог
+ * посчитать не удалось, `unavailable`: частичная сумма выглядела бы как полная.
+ * `counted` — сколько актов вошло в сумму.
+ */
+export function netResultsTotal(rows: readonly NetResultsRow[]) {
+  let net = 0;
+  let counted = 0;
+  let unavailable = false;
+  for (const row of rows) {
+    if (!row.results_has_line_amounts || !hasCountedResults(row.status)) continue;
+    if (row.totals_unavailable) {
+      unavailable = true;
+      continue;
+    }
+    net += (row.surplus_sum ?? 0) - (row.shortfall_sum ?? 0);
+    counted += 1;
+  }
+  return { net, counted, unavailable };
 }

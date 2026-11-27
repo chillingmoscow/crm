@@ -1,20 +1,22 @@
 import "server-only";
 import { decryptSecret } from "@/lib/integrations/crypto";
 import type { LooseDb } from "@/lib/supabase/loose";
-import { Agent, fetch as undiciFetch } from "undici";
-import { withConnectRetry } from "./telegram-retry";
+import { Agent, fetch as undiciFetch, type BodyInit as UndiciBody } from "undici";
 import {
   readTelegramResponse,
   type TelegramApiResult,
 } from "./telegram-response";
 export type { TelegramApiResult } from "./telegram-response";
+import { fetchTelegram } from "./telegram-transport";
 
 // Соединение с Telegram с прод-сервера часто не устанавливается: ждём его
-// 2,5 с вместо 10 и пробуем снова (см. telegram-retry).
+// 2,5 с вместо 10 и пробуем снова (см. telegram-transport).
 const telegramAgent = new Agent({ connect: { timeout: 2500 } });
 
 // Bot API client for one organization. The token lives only inside this closure:
 // it is never returned, logged or put into error messages (fetch errors may carry the URL).
+// Network failures throw TelegramNetworkError: a failed connection is retried first
+// (the request never left), anything after the connection is reported as "may have arrived".
 
 export type TelegramButton = { text: string; url: string };
 type Settings = {
@@ -54,6 +56,11 @@ export type TelegramBot = {
     chatId: string,
     name: string,
   ) => Promise<TelegramApiResult<{ invite_link?: string }>>;
+  /** Отозвать ссылку-приглашение: по ней больше нельзя вступить. */
+  revokeChatInviteLink: (
+    chatId: string,
+    inviteLink: string,
+  ) => Promise<TelegramApiResult<{ invite_link?: string; is_revoked?: boolean }>>;
   sendMessage: (
     chatId: string,
     text: string,
@@ -101,36 +108,29 @@ export async function loadTelegramBot(
     method: string,
     payload: Record<string, unknown>,
   ): Promise<TelegramApiResult<T>> => {
-    let response: Response;
-    try {
-      response = (await withConnectRetry(() =>
-        undiciFetch(`https://api.telegram.org/bot${token}/${method}`, {
+    const response = await fetchTelegram(
+      async () =>
+        (await undiciFetch(`https://api.telegram.org/bot${token}/${method}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
           dispatcher: telegramAgent,
           signal: AbortSignal.timeout(12000),
-        }),
-      )) as unknown as Response;
-    } catch {
-      throw new Error("Telegram не ответил");
-    }
+        })) as unknown as Response,
+    );
     return readTelegramResponse<T>(response);
   };
   const upload = async <T>(method: string, form: FormData): Promise<TelegramApiResult<T>> => {
-    let response: Response;
-    try {
-      response = await withConnectRetry(() =>
-        fetch(`https://api.telegram.org/bot${token}/${method}`, {
+    // undici принимает FormData из глобального fetch (проверено на 6.29).
+    const response = await fetchTelegram(
+      async () =>
+        (await undiciFetch(`https://api.telegram.org/bot${token}/${method}`, {
           method: "POST",
-          body: form,
-          cache: "no-store",
+          body: form as unknown as UndiciBody,
+          dispatcher: telegramAgent,
           signal: AbortSignal.timeout(30000),
-        }),
-      );
-    } catch {
-      throw new Error("Telegram не ответил");
-    }
+        })) as unknown as Response,
+    );
     return readTelegramResponse<T>(response);
   };
   return {
@@ -162,6 +162,8 @@ export async function loadTelegramBot(
         member_limit: 1,
         name: name.slice(0, 32),
       }),
+    revokeChatInviteLink: (chatId, inviteLink) =>
+      call("revokeChatInviteLink", { chat_id: chatId, invite_link: inviteLink }),
     sendMessage: (chatId, text, buttons, options) =>
       call("sendMessage", {
         chat_id: chatId,

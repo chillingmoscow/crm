@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { chunk } from "@/lib/supabase/fetch-all";
 
 /**
  * Inline-action в notif'е (Notion-style). emit'ер кладёт actions[] в
@@ -151,6 +152,67 @@ export async function unarchiveNotification(id: string): Promise<void> {
     .update({ archived_at: null })
     .eq("id", id);
   if (error) console.error("[notifications] unarchiveNotification failed:", error.message);
+}
+
+/** Стопка однотипных уведомлений («13 новых анкет»): одна команда на
+ *  все её записи. RLS пускает UPDATE только на свои строки. */
+/** id в `.in(...)` уходят в URL запроса — режем пачками (CLAUDE.md, PostgREST). */
+const STACK_IDS_CHUNK = 100;
+/**
+ * Предел на вызов: колокольчик грузит уведомления страницами по 50, стопка
+ * столько не наберёт. Больше — отказ целиком, а не тихая обрезка: иначе
+ * часть стопки осталась бы непрочитанной без объяснения.
+ */
+const STACK_IDS_MAX = 1000;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function stackIdChunks(ids: unknown): string[][] {
+  if (!Array.isArray(ids)) return [];
+  const unique = [...new Set(ids)];
+  if (unique.length > STACK_IDS_MAX || !unique.every((id) => typeof id === "string" && UUID_RE.test(id))) {
+    console.error("[notifications] rejected stack ids:", unique.length);
+    return [];
+  }
+  return chunk(unique as string[], STACK_IDS_CHUNK);
+}
+
+export async function markNotificationsRead(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const supabase = await createClient();
+  for (const part of stackIdChunks(ids)) {
+    const { error } = await supabase
+      .from("notifications")
+      .update({ read: true })
+      .in("id", part)
+      .eq("read", false);
+    if (error) console.error("[notifications] markNotificationsRead failed:", error.message);
+  }
+}
+
+export async function archiveNotifications(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const supabase = await createClient();
+  const archivedAt = new Date().toISOString();
+  for (const part of stackIdChunks(ids)) {
+    const { error } = await supabase
+      .from("notifications")
+      .update({ archived_at: archivedAt })
+      .in("id", part)
+      .is("archived_at", null);
+    if (error) console.error("[notifications] archiveNotifications failed:", error.message);
+  }
+}
+
+export async function unarchiveNotifications(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const supabase = await createClient();
+  for (const part of stackIdChunks(ids)) {
+    const { error } = await supabase
+      .from("notifications")
+      .update({ archived_at: null })
+      .in("id", part);
+    if (error) console.error("[notifications] unarchiveNotifications failed:", error.message);
+  }
 }
 
 /** Bulk-архивация всех прочитанных active rows юзера. Используется

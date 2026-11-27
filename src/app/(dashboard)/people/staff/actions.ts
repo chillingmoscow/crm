@@ -1,5 +1,6 @@
 "use server";
 
+import { normalizeTelegramId, telegramIdError } from "@/lib/people/telegram-id";
 import { errorText } from "@/lib/actions/error-text";
 import { randomUUID } from "node:crypto";
 import { isStaffPlaceholderEmail } from "@/lib/people/staff-identity";
@@ -289,7 +290,7 @@ export async function changeStaffDocument(input: {
   return { paths: result.data as string[], error: null };
 }
 
-// PIN терминала — venue-specific, лежит на UVR.
+// PIN кассы — venue-specific, лежит на UVR.
 export async function updateStaffTerminalPin(
   uvrId: string,
   pin: string | null,
@@ -302,8 +303,8 @@ export async function updateStaffTerminalPin(
     .update({ terminal_pin: trimmed })
     .eq("id", uvrId)
     .select("id");
-  if (error) return { error: errorText(error, "Не удалось сохранить PIN-код") };
-  if (!updated?.length) return { error: "PIN-код не сохранён: нет права или сотрудник уже не в заведении" };
+  if (error) return { error: errorText(error, "Не удалось сохранить PIN кассы") };
+  if (!updated?.length) return { error: "PIN кассы не сохранён: нет права или сотрудник уже не в заведении" };
   revalidatePath("/people/staff");
   return { error: null };
 }
@@ -502,6 +503,8 @@ export async function createStaffWithoutEmail(data: {
   venueId:   string;
   /** Пригласить в Telegram-чаты должности (переключатель в форме). */
   chatInvites?: boolean;
+  /** Обязателен при chatInvites: без него бот не исключит из чатов при увольнении. */
+  telegramId?: string | null;
 }): Promise<{ error: string | null; member: StaffMember | null; notice?: string | null }> {
   const supabase = await createClient();
   const {
@@ -518,6 +521,9 @@ export async function createStaffWithoutEmail(data: {
   if (!gender.success) {
     return { error: gender.error.issues[0].message, member: null };
   }
+  const tgError = telegramIdError(data.telegramId, data.chatInvites === true);
+  if (tgError) return { error: tgError, member: null };
+  const telegramId = normalizeTelegramId(data.telegramId);
 
   // То же право, по которому интерфейс показывает «Добавить» (раньше здесь
   // сверялся код должности, и право на должности «Старший смены» не работало),
@@ -564,6 +570,7 @@ export async function createStaffWithoutEmail(data: {
       last_name:   lastName,
       gender:      gender.data,
       phone:       data.phone?.trim() || null,
+      telegram_id: telegramId,
     }, { onConflict: "id" });
 
   if (profileError) {
@@ -628,7 +635,7 @@ export async function createStaffWithoutEmail(data: {
     email_confirmed: true,
     avatar_url:      null,
     phone:           data.phone?.trim() || null,
-    telegram_id:     null,
+    telegram_id:     telegramId,
     gender:          gender.data,
     birth_date:      null,
     employment_date:   uvrInsert.created_at?.slice(0, 10) ?? null,

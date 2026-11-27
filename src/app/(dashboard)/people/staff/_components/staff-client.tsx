@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { flyToStaffCard, isPlainClick } from "@/lib/people/avatar-flight";
 import { isStaffPlaceholderEmail } from "@/lib/people/staff-identity";
 import { isGender } from "@/lib/people/gender";
 import { toast } from "sonner";
-import { UserPlus, Calendar, Clock, Archive, Lock, HeartPulse, Cake, CalendarClock, UserRound, UserCheck } from "lucide-react";
+import { UserPlus, Calendar, Clock, Archive, HeartPulse, Cake, CalendarClock, UserRound, UserCheck, UserMinus, RotateCcw, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { formatPhoneDisplay } from "@/lib/format/phone";
@@ -24,8 +26,10 @@ import { usePeopleOverview } from "@/components/people/people-overview";
 import { PersonAvatar } from "@/components/people/person-avatar";
 import { StaffTable, type StaffColKey as ColKey } from "./staff-table";
 import type { CasualStaffRow } from "@/lib/payroll/casual-list";
-import { AddStaffDrawer } from "./add-staff-drawer";
+import { AddStaffDrawer, type AddStaffMode } from "./add-staff-drawer";
 import { CasualToStaffDrawer } from "./casual-to-staff-drawer";
+import { CasualDismissDialog } from "./casual-dismiss-dialog";
+import { TableRowMenu } from "@/components/shared/table";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -92,6 +96,10 @@ type Props = {
   officialUserIds: string[];
   /** Opened from the schedule: «Добавить → Разовый» is shown right away. */
   openAddCasual?: boolean;
+  /** Сейчас на смене (график и отметки): сотрудники Sheerly. */
+  onShiftUserIds?: string[];
+  /** Сейчас на смене: зарплатные карточки (разовые). */
+  onShiftEmployeeIds?: string[];
 };
 
 function formatDate(iso: string | null | undefined) {
@@ -219,6 +227,9 @@ function birthdayStatus(
 function StaffAvatar({
   member,
   faded,
+  onShift,
+  noAccount,
+  flightId,
 }: {
   member: {
     avatar_url: string | null;
@@ -227,13 +238,51 @@ function StaffAvatar({
     email: string | null;
   };
   faded?: boolean;
+  onShift?: boolean;
+  noAccount?: boolean;
+  flightId?: string;
 }) {
   return (
     <PersonAvatar
       src={member.avatar_url}
       name={displayName(member)}
       faded={faded}
+      onShift={onShift}
+      noAccount={noAccount}
+      flightId={flightId}
     />
+  );
+}
+
+/** Имя-ссылка на карточку: обычный клик открывает её с перелётом аватара. */
+function StaffCardLink({
+  member,
+  className,
+  children,
+}: {
+  member: { user_id: string; avatar_url: string | null; first_name: string | null; last_name: string | null; email: string | null };
+  className: string;
+  children: ReactNode;
+}) {
+  const router = useRouter();
+  const href = `/people/staff/${member.user_id}`;
+  return (
+    <Link
+      href={href}
+      data-tip={displayName(member)}
+      data-tip-overflow
+      className={className}
+      onClick={(event) => {
+        if (!isPlainClick(event)) return;
+        event.preventDefault();
+        flyToStaffCard(
+          { userId: member.user_id, src: member.avatar_url, name: displayName(member) },
+          () => router.push(href),
+        );
+      }}
+    >
+      {children}
+    </Link>
   );
 }
 
@@ -254,7 +303,11 @@ export function StaffClient({
   casual,
   officialUserIds,
   openAddCasual = false,
+  onShiftUserIds = [],
+  onShiftEmployeeIds = [],
 }: Props) {
+  const onShiftUsers = new Set(onShiftUserIds);
+  const onShiftEmployees = new Set(onShiftEmployeeIds);
   const [staff, setStaff] = useState(initialStaff);
   const [invitations, setInvitations] = useState(initialInvitations);
   const [fired, setFired] = useState(initialFired);
@@ -273,15 +326,30 @@ export function StaffClient({
     setInvitations(initialInvitations);
     setFired(initialFired);
   }
-  const [inviteOpen, setInviteOpen] = useState(openAddCasual);
+  const router = useRouter();
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [addMode, setAddMode] = useState<AddStaffMode>("manual");
   // Разовый, которого переводят в штат; держим, пока панель уезжает.
   const [converting, setConverting] = useState<CasualStaffRow | null>(null);
+  const [dismissing, setDismissing] = useState<CasualStaffRow | null>(null);
+  const [dismissOpen, setDismissOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
   const [addKey, setAddKey] = useState(0);
-  const openAdd = () => {
+  const openAdd = (mode: AddStaffMode = "manual") => {
+    setAddMode(mode);
     setAddKey((key) => key + 1);
     setInviteOpen(true);
   };
+  // `?add=casual` (график, палитра ⌘K) открывает панель на вкладке
+  // «Разовый» — и когда страница уже открыта — и убирается из адреса,
+  // чтобы обновление страницы не открывало панель снова.
+  useEffect(() => {
+    if (!openAddCasual) return;
+    router.replace("/people/staff", { scroll: false });
+    setAddMode("casual");
+    setAddKey((key) => key + 1);
+    setInviteOpen(true);
+  }, [openAddCasual, router]);
   const [isPending, startTransition] = useTransition();
   const [firedOpen, setFiredOpen] = useState(false);
   const overview = usePeopleOverview(
@@ -366,7 +434,13 @@ export function StaffClient({
       case "avatar":
         return (
           <div className="flex items-center justify-center">
-            <StaffAvatar member={member} />
+            <StaffAvatar
+              member={member}
+              onShift={onShiftUsers.has(member.user_id)}
+              // Признак строится на email, который приходит только с правом на детали.
+              noAccount={canSeeStaffDetails && isStaffPlaceholderEmail(member.email)}
+              flightId={canSeeStaffDetails ? member.user_id : undefined}
+            />
           </div>
         );
       case "name": {
@@ -409,28 +483,18 @@ export function StaffClient({
           );
         return (
           <div className="min-w-0 flex items-center gap-2">
-            <Link
-              href={`/people/staff/${member.user_id}`}
-              data-tip={displayName(member)}
-              data-tip-overflow
+            <StaffCardLink
+              member={member}
               className="min-w-0 truncate text-sm font-medium transition-colors duration-200 hover:text-brand"
             >
               {nameLabel}
-            </Link>
+            </StaffCardLink>
             {officialSet.has(member.user_id) && (
               <span
                 className="inline-flex shrink-0"
                 data-tip="Оформлен официально: период трудоустройства открыт."
               >
                 <StatusBadge tone="info">Офиц.</StatusBadge>
-              </span>
-            )}
-            {isPlaceholder && (
-              <span
-                className="inline-flex shrink-0"
-                data-tip="Сотрудник без аккаунта. Когда понадобится дать ему доступ — впишите email в карточке и отправьте приглашение."
-              >
-                <StatusBadge icon={<Lock />}>Без аккаунта</StatusBadge>
               </span>
             )}
             {isPendingInvite && (
@@ -468,7 +532,7 @@ export function StaffClient({
                 сотрудник не вошёл в Sheerly, пол указывает админ в карточке,
                 потом — сам сотрудник в профиле. Бейдж последний и, в отличие
                 от остальных, сжимается (до иконки с подсказкой): рядом с
-                «Без аккаунта» иначе от имени остаётся одна буква. */}
+                другими бейджами иначе от имени остаётся одна буква. */}
             {!isGender(member.gender) && (
               <span
                 className="inline-flex min-w-0"
@@ -489,8 +553,8 @@ export function StaffClient({
       case "email":
         return (
           <div className="text-sm text-muted-foreground min-w-0 truncate">
-            {isStaffPlaceholderEmail(member.email)
-              ? "Email не указан"
+            {isStaffPlaceholderEmail(member.email) || !member.email
+              ? "—"
               : member.email}
           </div>
         );
@@ -604,17 +668,22 @@ export function StaffClient({
   const renderFiredCell = (key: ColKey, member: FiredStaffMember) => {
     switch (key) {
       case "avatar":
-        return <StaffAvatar member={member} faded />;
+        return (
+          <StaffAvatar
+            member={member}
+            faded
+            noAccount={canSeeStaffDetails && isStaffPlaceholderEmail(member.email)}
+            flightId={canSeeStaffDetails ? member.user_id : undefined}
+          />
+        );
       case "name":
         return canSeeStaffDetails ? (
-          <Link
-            href={`/people/staff/${member.user_id}`}
-            data-tip={displayName(member)}
-            data-tip-overflow
+          <StaffCardLink
+            member={member}
             className="block truncate text-sm font-medium transition-colors duration-200 hover:text-brand"
           >
             {displayName(member)}
-          </Link>
+          </StaffCardLink>
         ) : (
           <span
             data-tip={displayName(member)}
@@ -627,8 +696,8 @@ export function StaffClient({
       case "email":
         return (
           <span className="block truncate text-muted-foreground">
-            {isStaffPlaceholderEmail(member.email)
-              ? "Email не указан"
+            {isStaffPlaceholderEmail(member.email) || !member.email
+              ? "—"
               : member.email}
           </span>
         );
@@ -665,7 +734,7 @@ export function StaffClient({
       case "avatar":
         return (
           <div className="flex items-center justify-center">
-            <PersonAvatar name={c.name} />
+            <PersonAvatar name={c.name} onShift={onShiftEmployees.has(c.id)} />
           </div>
         );
       case "name":
@@ -687,12 +756,25 @@ export function StaffClient({
                 {c.name}
               </span>
             )}
-            <span
-              className="inline-flex shrink-0"
-              data-tip="Выходит на смены по графику без входа в Sheerly. Отмечается в кассе своим PIN."
-            >
-              <StatusBadge icon={<CalendarClock />}>Разовый</StatusBadge>
-            </span>
+            {c.dismissal ? (
+              <span
+                className="inline-flex shrink-0"
+                data-tip={
+                  c.dismissal.state === "error" && c.dismissal.error
+                    ? `Уволен, доступ закрыт не полностью: ${c.dismissal.error}. Sheerly повторит сам, можно и «Повторить» в меню строки.`
+                    : "Уволен: Sheerly закрывает доступ в Quick Resto и чатах"
+                }
+              >
+                <StatusBadge tone="warning" icon={<AlertTriangle />}>Увольняется</StatusBadge>
+              </span>
+            ) : (
+              <span
+                className="inline-flex shrink-0"
+                data-tip="Выходит на смены по графику без входа в Sheerly. Отмечается в кассе своим PIN."
+              >
+                <StatusBadge icon={<CalendarClock />}>Разовый</StatusBadge>
+              </span>
+            )}
           </div>
         );
       case "role":
@@ -713,9 +795,15 @@ export function StaffClient({
         ) : (
           <span className="text-sm text-muted-foreground">—</span>
         );
+      case "telegram":
+        return (
+          <span className={cn("text-sm", c.telegramId ? "font-mono tabular-nums" : "text-muted-foreground")}>
+            {c.telegramId || "—"}
+          </span>
+        );
       // Разовый не трудоустроен: на месте даты — перевод в штат.
       case "employment_date":
-        return canConvertCasual ? (
+        return canConvertCasual && !c.dismissal ? (
           <Button
             variant="outline"
             size="sm"
@@ -748,7 +836,7 @@ export function StaffClient({
   // «Добавить» есть, если доступен хоть один способ: создать или пригласить.
   const canAdd = canEdit || canInviteStaff;
   const addButton = canAdd ? (
-    <Button onClick={openAdd} size="sm" className="h-9 gap-2">
+    <Button onClick={() => openAdd()} size="sm" className="h-9 gap-2">
       <UserPlus className="size-4" />
       Добавить
     </Button>
@@ -763,6 +851,37 @@ export function StaffClient({
         casual={casual?.employees ?? []}
         officialUserIds={officialUserIds}
         renderCasualCell={renderCasualCell}
+        renderCasualActions={
+          // Увольнение — как у штатных, с правом вести сотрудников (и
+          // приглашать: им же заводят разовых).
+          canEdit && canInviteStaff
+            ? (c) => (
+                <TableRowMenu
+                  label={`Действия: ${c.name}`}
+                  actions={[
+                    c.dismissal
+                      ? {
+                          label: "Повторить увольнение",
+                          icon: <RotateCcw />,
+                          onSelect: () => {
+                            setDismissing(c);
+                            setDismissOpen(true);
+                          },
+                        }
+                      : {
+                          label: "Уволить",
+                          icon: <UserMinus />,
+                          destructive: true,
+                          onSelect: () => {
+                            setDismissing(c);
+                            setDismissOpen(true);
+                          },
+                        },
+                  ]}
+                />
+              )
+            : undefined
+        }
         fired={fired}
         showFired={firedOpen}
         invitations={invitations}
@@ -825,7 +944,7 @@ export function StaffClient({
         primaryAction={addButton}
         emptyAction={
           canAdd ? (
-            <Button onClick={openAdd}>
+            <Button onClick={() => openAdd()}>
               <UserPlus />
               Добавить сотрудника
             </Button>
@@ -838,10 +957,18 @@ export function StaffClient({
           key={converting.id}
           open={convertOpen}
           onOpenChange={setConvertOpen}
-          employee={{ id: converting.id, name: converting.name, role_id: converting.roleId, hasPin: converting.pin !== null }}
+          employee={{
+            id: converting.id,
+            name: converting.name,
+            role_id: converting.roleId,
+            hasPin: converting.pin !== null,
+            telegramId: converting.telegramId,
+          }}
           roles={roles}
         />
       )}
+
+      <CasualDismissDialog employee={dismissing} open={dismissOpen} onOpenChange={setDismissOpen} />
 
       {/* «Новый сотрудник»: без входа, по email или разовый. Ключ пересоздаёт
           панель при каждом открытии — форма открывается пустой. */}
@@ -852,7 +979,7 @@ export function StaffClient({
         roles={roles}
         casualRoles={casual?.roles ?? null}
         venueId={venueId}
-        defaultMode={openAddCasual ? "casual" : "manual"}
+        defaultMode={addMode}
         canCreate={canEdit}
         canInvite={canInviteStaff}
         onInvited={(invitation) =>

@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { selectClass } from "./select-class";
 import { StaffPaySheet } from "./staff-pay-sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { RefreshFailedNotice, useAutoRefresh } from "./auto-refresh";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,10 +18,17 @@ import { DayTeamList, DayTeamSkeleton } from "@/app/(dashboard)/sales/_component
 import { nativeDayMembers } from "@/lib/sales/day-context";
 import { toast } from "sonner";
 /** Вкладка «Оплата» в карточке сотрудника: расчётный лист за выбранный месяц. */
-export function StaffPayPanel({ userId }: { userId: string }) {
+export function StaffPayPanel({
+  userId,
+  initialMonth,
+}: {
+  userId: string;
+  /** Месяц из ссылки «Зарплаты»; вне доступного окна — текущий. */
+  initialMonth?: string;
+}) {
   const [data, setData] = useState<PayrollData | null>(null),
     [error, setError] = useState(""),
-    [picked, setPicked] = useState<string | null>(null);
+    [picked, setPicked] = useState<string | null>(initialMonth ?? null);
   // Только зарплата этого сотрудника: полную ведомость заведения ради одной
   // вкладки не читаем.
   const reload = useCallback(async () => {
@@ -34,9 +42,12 @@ export function StaffPayPanel({ userId }: { userId: string }) {
   }, [reload]);
   useEffect(() => {
     setData(null);
-    setPicked(null);
+    setPicked(initialMonth ?? null);
     load();
-  }, [userId, load]);
+  }, [userId, initialMonth, load]);
+  // Расчёт идёт весь день (смены, допродажи): пока вкладка открыта, суммы
+  // обновляются сами раз в минуту.
+  const autoRefresh = useAutoRefresh(reload, 60000);
   const shell = "mx-auto flex w-full max-w-[720px] flex-col gap-5";
   if (error)
     return (
@@ -95,15 +106,20 @@ export function StaffPayPanel({ userId }: { userId: string }) {
   const min = earliest > current ? current : earliest;
   const month = picked && picked >= min && picked <= current ? picked : current;
   return (
-    <StaffPaySheet
-      data={data}
-      employee={employee}
-      month={month}
-      minMonth={min}
-      maxMonth={current}
-      onMonth={setPicked}
-      onChange={reload}
-    />
+    <>
+      {autoRefresh.failed && (
+        <RefreshFailedNotice {...autoRefresh} className="mx-auto mb-4 w-full max-w-[720px]" />
+      )}
+      <StaffPaySheet
+        data={data}
+        employee={employee}
+        month={month}
+        minMonth={min}
+        maxMonth={current}
+        onMonth={setPicked}
+        onChange={reload}
+      />
+    </>
   );
 }
 export function PayrollDayPanel({ date }: { date: string }) {

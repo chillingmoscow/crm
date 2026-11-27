@@ -20,7 +20,7 @@ type StoreOption = { id: string; title: string };
 
 /**
  * Склад и позиции по умолчанию — из настройки задачи-взвешивания аккаунта,
- * если она есть. Без неё (или до миграции 403) — табачные позиции CHILLING.
+ * если она есть. Без неё (или до миграции 408) — табачные позиции CHILLING.
  */
 async function loadDefaults(admin: LooseDb, accountId: string, stores: StoreOption[]) {
   let storeId: string | null = null;

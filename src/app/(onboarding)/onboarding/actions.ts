@@ -2160,7 +2160,7 @@ export async function runQuickRestoImport(data: {
           })
           .eq("id", localUserId);
 
-        // PIN терминала — venue-specific, кладётся в UVR (не в profiles).
+        // PIN кассы — venue-specific, кладётся в UVR (не в profiles).
         for (const localVenueId of localVenueIds) {
           const { error: membershipError } = await adminClient
             .from("user_venue_roles")

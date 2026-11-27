@@ -141,3 +141,53 @@ test("категория-сирота (родитель не пришёл) ст�
   const orphanIndex = indexCatalog([group("o", "Сирота", "missing")], [product("p", "Позиция", "o")]);
   assert.deepEqual(names(flattenCatalog(orphanIndex, view())), ["[Сирота]"]);
 });
+
+test("итог остатков категории: сумма в деньгах и количество одной единицы", () => {
+  const stockIndex = indexCatalog(
+    [group("veg", "Овощи"), group("roots", "Корнеплоды", "veg")],
+    [
+      product("tomato", "Томат", "veg", { storeQuantity: 2, currentPrimeCost: 150 }),
+      product("carrot", "Морковь", "roots", { storeQuantity: 3.5, currentPrimeCost: 40 }),
+      // Минус на складе — расхождение учёта: не товар и не деньги.
+      product("onion", "Лук", "roots", { storeQuantity: -1, currentPrimeCost: 30 }),
+      product("dill", "Укроп", "veg", { storeQuantity: 0, currentPrimeCost: 500 }),
+    ],
+  );
+  const [veg] = flattenCatalog(stockIndex, view());
+  assert.ok(veg.type === "group");
+  assert.deepEqual(veg.stock, { withStock: 2, quantity: 5.5, unit: "кг", value: 440, unpriced: 0 });
+});
+
+test("итог остатков: разные единицы не складываются, позиции без себестоимости считаются отдельно", () => {
+  const stockIndex = indexCatalog(
+    [group("bar", "Бар")],
+    [
+      product("rum", "Ром", "bar", { storeQuantity: 1.5, currentPrimeCost: 1000, measureUnitName: "л" }),
+      product("lime", "Лайм", "bar", { storeQuantity: 10, currentPrimeCost: 20, measureUnitName: "шт" }),
+      product("mint", "Мята", "bar", { storeQuantity: 0.2, currentPrimeCost: null }),
+    ],
+  );
+  const [bar] = flattenCatalog(stockIndex, view());
+  assert.ok(bar.type === "group");
+  assert.deepEqual(bar.stock, { withStock: 3, quantity: null, unit: null, value: 1700, unpriced: 1 });
+});
+
+test("итог остатков: без остатков и без себестоимости — пусто", () => {
+  const [bar] = flattenCatalog(index, view());
+  assert.ok(bar.type === "group");
+  assert.deepEqual(bar.stock, { withStock: 0, quantity: null, unit: null, value: null, unpriced: 0 });
+});
+
+test("итог остатков учитывает поиск: только совпавшие позиции", () => {
+  const stockIndex = indexCatalog(
+    [group("bar", "Бар")],
+    [
+      product("rum", "Ром", "bar", { storeQuantity: 2, currentPrimeCost: 1000, measureUnitName: "л" }),
+      product("gin", "Джин", "bar", { storeQuantity: 1, currentPrimeCost: 800, measureUnitName: "л" }),
+    ],
+  );
+  const [bar] = flattenCatalog(stockIndex, view({ search: "ром" }));
+  assert.ok(bar.type === "group");
+  assert.equal(bar.stock.value, 2000);
+  assert.equal(bar.stock.quantity, 2);
+});

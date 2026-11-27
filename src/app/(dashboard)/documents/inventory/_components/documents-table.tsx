@@ -14,6 +14,7 @@ import { arrayMove } from "@dnd-kit/sortable";
 import {
   AlertTriangle,
   Loader2,
+  Plus,
   RefreshCw,
   Search as SearchIcon,
   ShieldCheck,
@@ -27,6 +28,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { CreateActDrawer } from "./create-act-drawer";
 import { PageFrame } from "@/components/shared/page-frame";
 import { DateRangeFilter, type DateRangeValue } from "@/components/shared/date-range-filter";
 import {
@@ -86,6 +88,9 @@ import { ReviewerSelect } from "./reviewer-select";
 import {
   SORTABLE_COLUMNS,
   getDocHref,
+  actTimeZones,
+  groupsByDate,
+  netResultsTotal,
   sortModesToSorting,
   sortingToSortModes,
   toIsoDate,
@@ -94,6 +99,7 @@ import {
 } from "./documents-table-utils";
 import {
   BulkAssignMenu,
+  DocumentDateGroupHeader,
   DocumentRowMenu,
   DocumentsEmptyState,
   ReadonlyPersonCell,
@@ -225,6 +231,7 @@ export function DocumentsTable({
   const [bulkPending, startBulk] = useTransition();
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
 
   // ── URL sync ───────────────────────────────────────────────
   const updateUrl = useCallback(
@@ -390,19 +397,7 @@ export function DocumentsTable({
   // Сумма итогов (нетто = излишки − недостачи) по выделенным строкам.
   // Если хотя бы по одному выделенному акту итог посчитать не удалось, суммы
   // нет вовсе: частичная сумма выглядела бы как полная.
-  const selectedTotals = useMemo(() => {
-    let net = 0;
-    let unavailable = false;
-    for (const row of selectedRowsList) {
-      if (!row.results_has_line_amounts || !hasCountedResults(row.status)) continue;
-      if (row.totals_unavailable) {
-        unavailable = true;
-        continue;
-      }
-      net += (row.surplus_sum ?? 0) - (row.shortfall_sum ?? 0);
-    }
-    return { net, unavailable };
-  }, [selectedRowsList]);
+  const selectedTotals = useMemo(() => netResultsTotal(selectedRowsList), [selectedRowsList]);
 
   const canBulkAssignee =
     selectedRowsList.length > 0 &&
@@ -467,6 +462,7 @@ export function DocumentsTable({
 
   // ── Columns ────────────────────────────────────────────────
   const searchActive = Boolean(filtersFromUrl.q);
+  const timeZoneOf = useMemo(() => actTimeZones(venues), [venues]);
 
   const columns = useMemo<ColumnDef<DocumentListRow>[]>(() => {
     const cells: Record<string, ColumnDef<DocumentListRow>["cell"]> = {
@@ -496,7 +492,7 @@ export function DocumentsTable({
         );
       },
       invoice_date: ({ row }) => (
-        <span className="tabular-nums">{formatDateCell(row.original.invoice_date) ?? "—"}</span>
+        <span className="tabular-nums">{formatDateCell(row.original.invoice_date, timeZoneOf(row.original.venue_id)) ?? "—"}</span>
       ),
       status: ({ row }) => {
         const doc = row.original;
@@ -667,7 +663,7 @@ export function DocumentsTable({
         ),
       },
     ];
-  }, [amountRoundingScale, canManage, canViewResults, canViewStaff, eligibleFor, searchActive, staff]);
+  }, [amountRoundingScale, canManage, canViewResults, canViewStaff, eligibleFor, searchActive, staff, timeZoneOf]);
 
   const st = useTableState({ tableId: TABLE_ID, columns: STATE_COLUMNS });
   // Служебные столбцы не участвуют в порядке и видимости: раньше их
@@ -869,6 +865,19 @@ export function DocumentsTable({
                   />
                 ),
               }}
+              secondaryActions={
+                canManage ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-2 sm:h-9"
+                    onClick={() => setCreateOpen(true)}
+                  >
+                    <Plus className="size-4" />
+                    Создать акт
+                  </Button>
+                ) : null
+              }
               primaryActions={
                 canSync ? (
                   <TableSplitButton
@@ -997,6 +1006,22 @@ export function DocumentsTable({
           rowClassName={(row) =>
             row.index === focusedIndex ? "bg-muted/50 ring-1 ring-inset ring-brand/40" : undefined
           }
+          // Акты одной инвентаризации (одна дата, разные склады и группы) —
+          // под общим подзаголовком с итогом. Только пока список идёт по дате.
+          groups={
+            groupsByDate(sortFromUrl)
+              ? {
+                  key: (doc) => formatDateCell(doc.invoice_date, timeZoneOf(doc.venue_id)) ?? "",
+                  header: (docs) => (
+                    <DocumentDateGroupHeader
+                      docs={docs}
+                      timeZone={timeZoneOf(docs[0]?.venue_id ?? null)}
+                      amountRoundingScale={amountRoundingScale}
+                    />
+                  ),
+                }
+              : undefined
+          }
           empty={null}
           mobile={{
             label: "Карточки актов",
@@ -1104,6 +1129,9 @@ export function DocumentsTable({
         error={bulkDeleteError}
         onConfirm={applyBulkDelete}
       />
+      {canManage ? (
+        <CreateActDrawer open={createOpen} onOpenChange={setCreateOpen} staff={staff} eligibility={eligibility} />
+      ) : null}
     </PageFrame>
   );
 }

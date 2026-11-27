@@ -1,4 +1,6 @@
 import { addDays, dateInZone, dayLabel, timeInZone } from "./utils.ts";
+import { DEFAULT_TEMPLATE_SORT, sortTemplates, type TemplateSort } from "./template-order.ts";
+import type { TemplateVariant } from "./template-times.ts";
 
 /**
  * Картинка расписания для команды: кто когда выходит на неделе.
@@ -35,6 +37,10 @@ export type ImageTemplate = {
   color: string;
   department_id: string | null;
   archived: boolean;
+  /** Время шаблона — для порядка строк «по времени», как в виде «По шаблонам». */
+  start_time: string;
+  end_time: string;
+  variants: TemplateVariant[] | null;
 };
 export type ImagePerson = {
   /** user_id сотрудника или `payroll:<id>` для разового. */
@@ -51,6 +57,8 @@ export type ScheduleImageInput = {
   shifts: ImageShift[];
   people: ImagePerson[];
   templates: ImageTemplate[];
+  /** Порядок строк — как выбран на экране; по умолчанию по времени начала. */
+  sort?: TemplateSort;
 };
 /** Сотрудник в ячейке. Строки текста уже разложены: высота картинки считается заранее. */
 export type ImageSlot = {
@@ -218,7 +226,7 @@ export function teamVisibleShifts(input: Pick<ScheduleImageInput, "shifts" | "ti
 
 /**
  * Строки картинки: шаблоны, по которым на неделе есть смены, в порядке вида
- * «По шаблонам» (название, подзаголовок), затем «Другие смены».
+ * «По шаблонам» (по времени начала или по названию), затем «Другие смены».
  */
 export function buildImageRows(input: ScheduleImageInput): ImageRow[] {
   const dates = Array.from({ length: 7 }, (_, i) => addDays(input.week, i));
@@ -246,9 +254,7 @@ export function buildImageRows(input: ScheduleImageInput): ImageRow[] {
           time: slotTime(timeInZone(s.starts_at, input.timezone), timeInZone(s.ends_at, input.timezone)),
         })),
     ).map(capCell);
-  const rows: ImageRow[] = [...templates.values()]
-    .filter((t) => byRow.has(t.id))
-    .sort((a, b) => collator.compare(a.name, b.name) || collator.compare(a.subtitle, b.subtitle))
+  const rows: ImageRow[] = sortTemplates([...templates.values()].filter((t) => byRow.has(t.id)), input.sort ?? DEFAULT_TEMPLATE_SORT)
     .map((t) => ({
       key: t.id,
       title: labelLines(t.name || "Шаблон"),

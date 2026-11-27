@@ -136,11 +136,15 @@ export function AccountsList({
   const [groupsOpen, setGroupsOpen] = useState(false);
   const firstPage = () => st.setPagination((p) => ({ ...p, pageIndex: 0 }));
 
-  // Параметры из старых адресов нужны один раз: убираем их, чтобы обновление
-  // страницы не открывало панель или архив снова.
+  // Параметры адреса (старые адреса, «Новый счёт» из палитры ⌘K) нужны один
+  // раз: открываем по ним панель или архив — в том числе когда страница уже
+  // открыта и пришёл только новый параметр — и убираем их, чтобы обновление
+  // страницы не открывало панель снова.
   useEffect(() => {
+    if (openCreate && canManage) setCreateOpen(true);
+    if (openArchive && isOwner) setShowArchive(true);
     if (openCreate || openArchive) router.replace("/finance/accounts", { scroll: false });
-  }, [openCreate, openArchive, router]);
+  }, [openCreate, openArchive, canManage, isOwner, router]);
 
   const legalEntityName = useMemo(() => {
     const map = new Map(legalEntities.map((le) => [le.id, le.short_name?.trim() || le.name]));
@@ -707,6 +711,7 @@ export function AccountsList({
         ) : (
           <EmptyState
             icon={Wallet}
+            illustration="empty"
             title="Счетов пока нет"
             description={
               archivedRows.length > 0

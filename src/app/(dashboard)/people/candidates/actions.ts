@@ -7,6 +7,7 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import {
   candidateScope,
   candidateList,
+  candidateBoard,
   candidateDetail,
   candidateOptions,
   candidateAppointments,
@@ -57,6 +58,17 @@ const listingFilters = z.object({
     )
     .optional(),
 });
+const boardInput = listingFilters
+  .pick({ search: true, position: true, from: true, to: true })
+  .extend({
+    stages: z
+      .array(z.enum(["new", "review", "interview", "trial", "rejected"]))
+      .max(5),
+  });
+async function listCandidateBoardImpl(input: unknown) {
+  const { stages, ...filters } = boardInput.parse(input);
+  return candidateBoard(filters, [...new Set(stages)]);
+}
 async function listCandidatesImpl(filters: ListFilters) {
   return candidateList(listingFilters.parse(filters));
 }
@@ -106,6 +118,18 @@ async function commentCandidateImpl(
     body: z.string().trim().min(1).max(12000).parse(body),
     request_key: uuid.parse(requestKey),
   });
+}
+/** «Не подходит» — только с комментарием: этап и комментарий пишет база одной транзакцией. */
+async function rejectCandidateImpl(id: string, revision: number, body: string, requestKey: string) {
+  const s = await candidateScope();
+  const data = result(await s.db.rpc("candidate_reject", {
+    p_candidate: uuid.parse(id),
+    p_revision: z.number().int().parse(revision),
+    p_comment: z.string().trim().min(1, "Напишите, почему кандидат не подходит").max(12000).parse(body),
+    p_request_key: uuid.parse(requestKey),
+  })) as { id: string; revision: number; status: CandidateStatus };
+  revalidatePath("/schedule");
+  return data;
 }
 const interviewFeedback = z.object({
   punctuality: z.enum(["early", "on_time", "late_warned", "late"]).optional(),
@@ -396,6 +420,15 @@ async function getCandidateDoorCodeImpl(userId: string) {
 export async function listCandidates(filters: ListFilters) {
   return actionResult(() => listCandidatesImpl(filters), "Не удалось загрузить кандидатов");
 }
+export async function listCandidateBoard(input: {
+  search?: string;
+  position?: string;
+  from?: string;
+  to?: string;
+  stages: string[];
+}) {
+  return actionResult(() => listCandidateBoardImpl(input), "Не удалось загрузить доску кандидатов");
+}
 export async function countNewCandidates() {
   return actionResult(() => countNewCandidatesImpl(), "Не удалось посчитать новых кандидатов");
 }
@@ -410,6 +443,9 @@ export async function getCandidateAppointments(id: string) {
 }
 export async function updateCandidate(id: string, input: unknown) {
   return actionResult(() => updateCandidateImpl(id, input), "Не удалось сохранить анкету");
+}
+export async function rejectCandidate(id: string, revision: number, body: string, requestKey: string) {
+  return actionResult(() => rejectCandidateImpl(id, revision, body, requestKey), "Не удалось перевести кандидата в «Не подходит»");
 }
 export async function commentCandidate(id: string, body: string, requestKey: string) {
   return actionResult(() => commentCandidateImpl(id, body, requestKey), "Не удалось отправить комментарий");

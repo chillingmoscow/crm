@@ -4520,6 +4520,17 @@ html.theme-transition *::after {
   animation: table-row-in 480ms var(--ease-soft) both;
 }
 
+/* Строки больших таблиц: только проявление, без подъёма. Страница при
+   переходе уже поднимается сама (PageTransition) — второй подъём у каждой
+   строки выглядел как «вылет» таблицы снизу. */
+@keyframes table-row-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.table-row-fade {
+  animation: table-row-fade 280ms var(--ease-soft) both;
+}
+
 /* Блок, который сменился (итоги другой вкладки), мягко всплывает. */
 @keyframes motion-rise {
   from { opacity: 0; transform: translateY(8px) scale(0.995); }
@@ -4582,6 +4593,27 @@ html.theme-transition *::after {
    transform, которым элемент центрирован. */
 @keyframes float-up { from { opacity: 0; translate: 0 16px; } to { opacity: 1; translate: 0 0; } }
 .motion-float-up { animation: float-up 360ms var(--ease-soft) both; }
+@keyframes float-out { to { opacity: 0; translate: 0 12px; } }
+.motion-float-up[data-state="closed"] { animation: float-out 180ms ease-in both; }
+
+/* ──── Кнопка с состоянием (Button status, button-status.tsx) ──────
+   Подпись, индикатор и галочка — в одной клетке сетки: ширина кнопки не
+   меняется. Индикатор загрузки уходит, галочка «вырастает» на его месте,
+   через ~1,2 с возвращается подпись. */
+.btn-status > * { grid-area: 1 / 1; }
+.btn-status-label { transition: opacity 200ms var(--ease-soft); }
+.btn-status-label[data-hidden] { opacity: 0; }
+.btn-status-icon {
+  display: inline-flex;
+  opacity: 0;
+  scale: 0.6;
+  transition: opacity 160ms ease-in, scale 160ms ease-in;
+}
+.btn-status-icon[data-shown] {
+  opacity: 1;
+  scale: 1;
+  transition: opacity 320ms var(--ease-soft), scale 420ms var(--ease-soft);
+}
 @keyframes slide-in-left { from { opacity: 0; translate: -8px 0; } to { opacity: 1; translate: 0 0; } }
 .motion-slide-in-left { animation: slide-in-left 320ms var(--ease-soft) both; }
 [data-radix-popper-content-wrapper] > [data-side="top"] { --popper-shift: 4px; }
@@ -4689,6 +4721,15 @@ html.theme-transition *::after {
   transition: transform 500ms var(--ease-soft);
 }
 
+/* Иконки разделов меню: при наведении чуть приподнимаются и подрастают.
+   Раскрытие раздела — отдельный «вдох» через WAAPI (popNavIcon в sidebar). */
+.nav-icon {
+  transition: transform 320ms var(--ease-soft);
+}
+:where(a, button):hover > .nav-icon {
+  transform: translateY(-1px) scale(1.08);
+}
+
 /* Идущая смена в расписании: точка 6px, от неё спокойно расходится и
    гаснет кольцо того же цвета. Цвет — фон точки (обычно bg-current).
    Мигает не карточка, а только кольцо; reduce motion — точка стоит. */
@@ -4726,6 +4767,41 @@ html.theme-transition *::after {
   .shift-live-dot::after { animation: none; opacity: 0; }
 }
 
+/* Перелёт аватара из списка «Сотрудников» в шапку карточки (View
+   Transitions, src/lib/people/avatar-flight.ts). Имя перехода у аватара —
+   staff-avatar-<id>, класс — staff-avatar. Круг сохраняется на всём пути. */
+::view-transition-group(*.staff-avatar) {
+  animation-duration: 520ms;
+  animation-timing-function: var(--ease-soft);
+}
+::view-transition-old(*.staff-avatar),
+::view-transition-new(*.staff-avatar) {
+  height: 100%;
+  border-radius: 9999px;
+  overflow: hidden;
+  animation-duration: 520ms;
+  animation-timing-function: var(--ease-soft);
+}
+
+/* Тепловая карта смен: недели проявляются слева направо (шаг задаётся
+   animationDelay), подъём 4px. */
+@keyframes heatmap-week-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.heatmap-week-in {
+  animation: heatmap-week-in 480ms var(--ease-soft) both;
+}
+/* Без движения — сразу вся карта: общий override укорачивает анимацию,
+   но не задержку из animationDelay (до ~0,6 с на последних неделях). */
+@media (prefers-reduced-motion: reduce) {
+  .heatmap-week-in {
+    animation: none;
+  }
+}
+
 /* ──── prefers-reduced-motion ────────────────────────────────────
    Глобальный override: уважаем настройку OS «уменьшить движение».
    Затрагивает наши крупные анимации: sidebar collapse (300ms),
@@ -4734,13 +4810,20 @@ html.theme-transition *::after {
    движение.
 
    `data-[state=open|closed]:animate-*` от Radix — это keyframes
-   animations, не transitions, поэтому отдельно их `animation:none`. */
+   animations, не transitions, поэтому отдельно их `animation:none`.
+
+   Задержки тоже обнуляем: иначе строки таблиц (`.table-row-in`),
+   столбики графиков и прочее с `fill-mode: both` и шагом
+   `animationDelay` проявляются по очереди до ~1 с, хотя каждое — мгновенно.
+   `!important` перекрывает и инлайновый `style={{ animationDelay }}`. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
     animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
   }

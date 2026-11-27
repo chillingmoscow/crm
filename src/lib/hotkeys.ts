@@ -18,6 +18,9 @@ export type HotkeyEntry = {
   /** Абстрактные токены: "Mod", "Shift", "Enter", "Esc", "?", "B"… */
   keys: string[];
   description: string;
+  /** Разделы, где строку не показываем: там то же сочетание значит другое
+   *  и описано в группе раздела (⌘K в базе знаний — её поиск). */
+  hiddenIn?: HotkeySection[];
 };
 
 export type HotkeyGroup = {
@@ -32,7 +35,11 @@ export const HOTKEY_GROUPS: HotkeyGroup[] = [
     section: "global",
     entries: [
       { keys: ["Shift", "?"], description: "Открыть справку по горячим клавишам" },
-      { keys: ["Mod", "K"], description: "Поиск по Базе знаний" },
+      {
+        keys: ["Mod", "K"],
+        description: "Поиск и команды: разделы, люди, акты, операции",
+        hiddenIn: ["knowledge"],
+      },
       { keys: ["Mod", "B"], description: "Свернуть / развернуть боковое меню" },
     ],
   },
@@ -83,10 +90,16 @@ export const HOTKEY_GROUPS: HotkeyGroup[] = [
  */
 export function hotkeyGroupsForPath(pathname: string | null | undefined): HotkeyGroup[] {
   const path = pathname ?? "";
-  return HOTKEY_GROUPS.filter((group) => {
-    if (group.section === "global") return true;
-    if (group.section === "knowledge") return path.startsWith("/knowledge");
-    if (group.section === "inventory") return path.startsWith("/documents/inventory");
+  const inSection = (section: HotkeySection) => {
+    if (section === "global") return true;
+    if (section === "knowledge") return path.startsWith("/knowledge");
+    if (section === "inventory") return path.startsWith("/documents/inventory");
     return false;
-  });
+  };
+  return HOTKEY_GROUPS.filter((group) => inSection(group.section)).map((group) => ({
+    ...group,
+    entries: group.entries.filter(
+      (entry) => !entry.hiddenIn?.some((section) => section !== "global" && inSection(section)),
+    ),
+  }));
 }

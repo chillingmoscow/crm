@@ -12,6 +12,9 @@ import { formatDayMonth, formatDayMonthTime } from "@/lib/format/date";
 
 import { getCachedStoreTitle, getCachedVenueTimezone } from "../layout";
 import { ActCommentEditor } from "../_components/act-comment-editor";
+import { ActDateEditor } from "../_components/act-date-editor";
+import { getInventoryDateLockReason, invoiceDayInZone } from "@/lib/inventory/act-date";
+import { hasCountedResults } from "@/lib/inventory/act-status";
 import { WeighingBlock } from "../_components/weighing-block";
 
 type DocumentOverviewRow = {
@@ -21,6 +24,9 @@ type DocumentOverviewRow = {
   note: string | null;
   comment: string | null;
   invoice_date: string | null;
+  processed: boolean | null;
+  results_finalized_at: string | null;
+  external_id: string | null;
   last_qr_update_date: string | null;
   assigned_to: string | null;
   reviewer_id: string | null;
@@ -56,7 +62,7 @@ export default async function InventoryDocumentOverviewPage({
   const { data: document } = await admin
     .from<DocumentOverviewRow>("documents")
     .select(
-      "id, document_number, status, note, comment, invoice_date, last_qr_update_date, assigned_to, reviewer_id, store_id, venue_id, archived_at",
+      "id, document_number, status, note, comment, invoice_date, processed, results_finalized_at, external_id, last_qr_update_date, assigned_to, reviewer_id, store_id, venue_id, archived_at",
     )
     .eq("id", id)
     .eq("account_id", accountId as string)
@@ -73,12 +79,47 @@ export default async function InventoryDocumentOverviewPage({
       document.assigned_to === user.id ||
       (document.reviewer_id === user.id && Boolean(canRecount)));
 
+  // Дата акта: менять может управляющий актами, пока акт не проведён.
+  // Проведённый (и удалённый в QR) акт — только чтение; у зафиксированных
+  // итогов кнопка есть, а диалог объясняет, что сначала их переоткрывают.
+  const dateLockReason = getInventoryDateLockReason(document);
+  const dateReadOnly =
+    !canManage ||
+    !document.external_id ||
+    Boolean(document.archived_at) ||
+    Boolean(document.processed) ||
+    document.status === "processed";
+  const venueTimeZone = timeZone ?? "Europe/Moscow";
+  let hasEnteredAmounts = false;
+  if (!dateReadOnly) {
+    const { count } = await admin
+      .from("document_items")
+      .select("id", { count: "exact", head: true })
+      .eq("document_id", document.id)
+      .not("submitted_amount", "is", null);
+    hasEnteredAmounts = (count ?? 0) > 0;
+  }
+
   const now = new Date();
   const qrComment = document.comment?.trim() ?? "";
 
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-[720px] flex-col gap-6">
-      <ProfileSection title="Сведения">
+      <ProfileSection
+        title="Сведения"
+        actions={
+          dateReadOnly ? null : (
+            <ActDateEditor
+              documentId={document.id}
+              documentNumber={document.document_number}
+              currentDay={invoiceDayInZone(document.invoice_date, venueTimeZone)}
+              hasEnteredAmounts={hasEnteredAmounts}
+              hasResults={hasCountedResults(document.status)}
+              restriction={dateLockReason}
+            />
+          )
+        }
+      >
         <dl className="grid gap-4 sm:grid-cols-2">
           <Item label="Склад" value={storeTitle} />
           <Item label="Дата акта" value={formatDayMonth(document.invoice_date, now, timeZone ?? undefined)} />

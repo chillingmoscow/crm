@@ -897,6 +897,7 @@ export function StoresClient({
         ) : (
           <EmptyState
             icon={Warehouse}
+            illustration="empty"
             title="Складов пока нет"
             description={
               archivedRows.length > 0

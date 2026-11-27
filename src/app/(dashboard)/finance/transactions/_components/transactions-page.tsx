@@ -1218,6 +1218,7 @@ export function TransactionsPage({
         ) : !isFiltered ? (
           <EmptyState
             icon={Wallet}
+            illustration="empty"
             title="Операций пока нет"
             description={
               permissions.create

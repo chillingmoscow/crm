@@ -34,6 +34,7 @@ import {
 import { PeopleListHeader } from "@/components/people/people-list-header";
 import type { CasualStaffRow } from "@/lib/payroll/casual-list";
 import { matchesStaffKind } from "@/lib/people/staff-kind-filter";
+import { flyToStaffCard } from "@/lib/people/avatar-flight";
 
 type Row =
   | { kind: "staff"; id: string; member: StaffMember }
@@ -157,7 +158,7 @@ function value(row: Row, id: StaffColKey): string | undefined {
   if (row.kind === "casual") {
     const c = row.casual;
     return (
-      ({ name: c.name, role: c.roleName, department: c.departmentName, pin: c.pin } as Record<string, string | null>)[id] ||
+      ({ name: c.name, role: c.roleName, department: c.departmentName, pin: c.pin, telegram: c.telegramId } as Record<string, string | null>)[id] ||
       undefined
     );
   }
@@ -220,6 +221,7 @@ export function StaffTable({
   renderInvCell,
   renderFiredCell,
   renderCasualCell,
+  renderCasualActions,
   primaryAction,
   emptyAction,
   secondaryActions,
@@ -245,6 +247,8 @@ export function StaffTable({
   renderInvCell: (key: StaffColKey, i: PendingInvitation) => ReactNode;
   renderFiredCell: (key: StaffColKey, m: FiredStaffMember) => ReactNode;
   renderCasualCell: (key: StaffColKey, c: CasualStaffRow) => ReactNode;
+  /** Меню «⋯» строки разового; нет — колонки действий у разовых нет. */
+  renderCasualActions?: (c: CasualStaffRow) => ReactNode;
   primaryAction: ReactNode;
   /** Кнопка в пустом состоянии списка: «Добавить сотрудника», если есть право. */
   emptyAction?: ReactNode;
@@ -401,6 +405,8 @@ export function StaffTable({
             <RotateCcw className="size-3.5" />
             Восстановить
           </Button>
+        ) : row.original.kind === "casual" && renderCasualActions ? (
+          renderCasualActions(row.original.casual)
         ) : row.original.kind === "invitation" && canEdit ? (
           <Button
             variant="ghost"
@@ -433,7 +439,8 @@ export function StaffTable({
         ...st.columnVisibility,
         name: true,
         actions:
-          canEdit && (showFired ? fired.length > 0 : invitations.length > 0),
+          (canEdit && (showFired ? fired.length > 0 : invitations.length > 0)) ||
+          (!showFired && !!renderCasualActions && casual.length > 0),
       },
       columnOrder: [...st.columnOrder, "actions"],
       columnSizing: st.columnSizing,
@@ -659,7 +666,15 @@ export function StaffTable({
           onSortingChange={changeSorting}
           sortable={sortable}
           onRowClick={(row) => {
-            if (opensCard(row.original)) router.push(rowHref(row.original));
+            const r = row.original;
+            if (!opensCard(r)) return;
+            const href = rowHref(r);
+            if (r.kind === "casual") return router.push(href);
+            // Карточка сотрудника: аватар строки перелетает в её шапку.
+            flyToStaffCard(
+              { userId: r.member.user_id, src: r.member.avatar_url, name: name(r.member) },
+              () => router.push(href),
+            );
           }}
           rowClassName={(row) =>
             opensCard(row.original) ? undefined : "!cursor-default"

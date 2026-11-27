@@ -12,6 +12,7 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import { chunk, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { mediaUrl } from "@/lib/storage/media";
 import { getNomenclatureSyncState } from "@/lib/inventory/nomenclature-sync";
+import { quickRestoUserMessage } from "@/lib/integrations/quickresto/error-text";
 import { CatalogTable } from "./catalog-table";
 import type { CatalogGroup, CatalogProduct } from "./catalog-tree";
 
@@ -136,13 +137,17 @@ export async function NomenclatureCatalog({
   const lastSyncedAt = syncState.syncedAt;
   // Что пошло не так в последнем запуске (ручном или по расписанию).
   const lastRun = syncState.result;
+  // Причина сбоя — через тот же переводчик, что и при записи: в итогах
+  // запусков до него лежит сырой английский текст клиента Quick Resto.
   const syncMessages = !lastRun
     ? []
     : lastRun.ok
       ? lastRun.warnings
-      : [`Не удалась: ${lastRun.error ?? "неизвестная ошибка"}. Каталог остался прежним`];
+      : [`${quickRestoUserMessage(lastRun.error, "Синхронизация не удалась")}, каталог остался прежним`];
   const syncNotice =
-    lastRun && syncMessages.length > 0 ? { at: lastRun.finishedAt, messages: syncMessages } : null;
+    lastRun && syncMessages.length > 0
+      ? { at: lastRun.finishedAt, messages: syncMessages, failed: !lastRun.ok }
+      : null;
 
   // Сколько venue в аккаунте: при единственном venue переключатель бессмыслен
   // (фильтр «этого заведения» совпадает с «весь каталог») — скрываем его и

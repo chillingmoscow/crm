@@ -29,8 +29,11 @@ export type PaySheetGroup = {
 
 export type PaySheet = {
   groups: PaySheetGroup[];
-  /** Сумма положительных начислений; null, если часть данных не получена. */
-  earned: number | null;
+  /** Сумма посчитанных положительных начислений. Неизвестные суммы в неё
+   *  не входят — какие статьи ещё считаются, говорит `pending`. */
+  earned: number;
+  /** id статей, где часть сумм ещё не посчитана (допродажи до закрытия дня). */
+  pending: string[];
   deductions: PaySheetItem[];
   /** Отрицательное число или 0. */
   deducted: number;
@@ -141,13 +144,41 @@ export function buildPaySheet(
     if (id.startsWith("other:")) push(id, id.slice(6));
   return {
     groups,
-    earned: groups.some((g) => g.amount === null)
-      ? null
-      : groups.reduce((sum, g) => sum + cents(g.amount ?? 0), 0) / 100,
+    earned:
+      groups.reduce(
+        (sum, g) => sum + g.items.reduce((part, i) => part + cents(i.amount ?? 0), 0),
+        0,
+      ) / 100,
+    pending: groups.filter((g) => g.amount === null).map((g) => g.id),
     deductions,
     deducted: deductions.reduce((sum, d) => sum + cents(d.amount ?? 0), 0) / 100,
     shifts: current.filter(isShift).length,
   };
+}
+
+/** Статьи в родительном падеже — для подсказки «Без допродаж — ещё считаются». */
+const PENDING_GENITIVE: Record<string, string> = {
+  monthly: "оклада",
+  base: "выходов",
+  percent: "процента от продаж",
+  extra: "допродаж",
+  experience: "надбавки за стаж",
+  allowance: "надбавки за месяц",
+  bonus: "премий",
+  knowledge: "знаний",
+  food: "питания",
+  correction: "корректировок",
+};
+
+/**
+ * Подпись к сумме «Начислено», пока часть статей не посчитана: сумма уже
+ * показана, а подпись говорит, чего в ней ещё нет. null — всё посчитано.
+ */
+export function pendingEarnedHint(pending: string[]): string | null {
+  if (!pending.length) return null;
+  const names = pending.map((id) => PENDING_GENITIVE[id]);
+  if (names.some((name) => !name) || names.length > 2) return "Без части начислений — ещё считаются";
+  return `Без ${names.join(" и ")} — ещё считаются`;
 }
 
 /** Выплаты, которые закрывают долг сотрудника за выбранный месяц. */

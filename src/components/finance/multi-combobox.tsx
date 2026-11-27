@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Check, ChevronsUpDown } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,7 @@ export function MultiCombobox({
   id,
 }: Props) {
   const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
   const selected = useMemo(() => {
     const byValue = new Map(options.map((o) => [o.value, o.label]));
     return values.map((value) => byValue.get(value)).filter((label): label is string => Boolean(label));
@@ -64,6 +65,7 @@ export function MultiCombobox({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          ref={trigger}
           id={id}
           type="button"
           variant="outline"
@@ -82,7 +84,12 @@ export function MultiCombobox({
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+      {/* В окне список рисуется внутрь него — иначе окно гасит прокрутку. */}
+      <PopoverContent
+        portalContainer={trigger.current?.closest<HTMLElement>('[role="dialog"]')}
+        className="w-[--radix-popover-trigger-width] p-0"
+        align="start"
+      >
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
           <CommandList>

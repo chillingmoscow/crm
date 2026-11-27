@@ -9,6 +9,7 @@ import {
 import { StaffClient } from "./_components/staff-client";
 import { getStaff, getPendingInvitations, getFiredStaff, getOfficialStaffUserIds } from "./actions";
 import { getCasualStaff } from "@/lib/payroll/casual-list";
+import { loadOnShift } from "@/lib/people/staff-presence-server";
 
 export const metadata: Metadata = { title: "Сотрудники" };
 
@@ -59,6 +60,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     officialUserIds,
     pinResult,
     casual,
+    onShift,
   ] = await Promise.all([
     // Архивные должности не предлагаются ни в «Добавить», ни в фильтре.
     supabase
@@ -86,10 +88,20 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
           .eq("venue_id", venueId) as unknown as Promise<{ data: { id: string; terminal_pin: string | null }[] | null }>)
       : Promise.resolve({ data: null }),
     // Unavailable until the database update for casual workers is applied.
-    (accountId ? getCasualStaff(venueId, canSeePins, accountId) : Promise.resolve(null)).catch((error: unknown) => {
+    (accountId ? getCasualStaff(
+          venueId,
+          {
+            showPins: canSeePins,
+            // Telegram ID разового — по тем же правам, что контакты штатных.
+            showContacts: canEdit || (can("people.view_staff") && can("people.view_staff_details")),
+          },
+          accountId,
+        ) : Promise.resolve(null)).catch((error: unknown) => {
       console.error("casual staff unavailable:", error instanceof Error ? error.message : error);
       return null;
     }),
+    // Точка «Сейчас на смене» на аватаре: график и отметки, без подробностей.
+    loadOnShift(venueId),
   ]);
 
   // «Пригласить» и «Разовый» — по праву приглашать: его же проверяют база
@@ -145,6 +157,8 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       canSeeStaffDetails={canSeeStaffDetails}
       casual={casual}
       officialUserIds={officialUserIds}
+      onShiftUserIds={onShift.userIds}
+      onShiftEmployeeIds={onShift.employeeIds}
       openAddCasual={(await searchParams).add === "casual" && canInvite && !!casual}
     />
   );

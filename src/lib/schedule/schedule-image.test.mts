@@ -49,11 +49,11 @@ const input = (shifts: ImageShift[], over: Partial<ScheduleImageInput> = {}): Sc
     { key: "payroll:p1", name: "Гоша" },
   ],
   templates: [
-    { id: "cook", name: "Повар", subtitle: "", color: "orange", department_id: "kitchen", archived: false },
-    { id: "bar-day", name: "Бармен", subtitle: "день", color: "blue", department_id: "bar", archived: false },
-    { id: "bar-night", name: "Бармен", subtitle: "вечер", color: "purple", department_id: "bar", archived: false },
-    { id: "old", name: "Старый", subtitle: "", color: "red", department_id: "kitchen", archived: true },
-    { id: "idle", name: "Без смен", subtitle: "", color: "green", department_id: null, archived: false },
+    { id: "cook", name: "Повар", subtitle: "", color: "orange", department_id: "kitchen", archived: false, start_time: "09:00:00", end_time: "21:00:00", variants: [] },
+    { id: "bar-day", name: "Бармен", subtitle: "день", color: "blue", department_id: "bar", archived: false, start_time: "12:00:00", end_time: "20:00:00", variants: [] },
+    { id: "bar-night", name: "Бармен", subtitle: "вечер", color: "purple", department_id: "bar", archived: false, start_time: "18:00:00", end_time: "03:00:00", variants: null },
+    { id: "old", name: "Старый", subtitle: "", color: "red", department_id: "kitchen", archived: true, start_time: "08:00:00", end_time: "16:00:00", variants: [] },
+    { id: "idle", name: "Без смен", subtitle: "", color: "green", department_id: null, archived: false, start_time: "07:00:00", end_time: "15:00:00", variants: [] },
   ],
   ...over,
 });
@@ -72,14 +72,21 @@ test("teamVisibleShifts: только опубликованные смены с
   assert.deepEqual(ids, [visible.id, casual.id, sundayLate.id, mondayEarly.id]);
 });
 
+const orderShifts = () => [
+  shift(),
+  shift({ user_id: "u2", template_id: "bar-night", department_id: "bar" }),
+  shift({ user_id: "u3", template_id: "bar-day", department_id: "bar" }),
+  shift({ user_id: "u2", template_id: "old", title: "Старый", color: "red" }),
+  shift({ user_id: "u3", template_id: null, title: "Инвентаризация", color: "yellow" }),
+];
+
+test("buildImageRows: по умолчанию строки идут по времени начала шаблона, «Другие смены» — последней", () => {
+  const rows = buildImageRows(input(orderShifts()));
+  assert.deepEqual(rows.map((r) => r.key), ["cook", "bar-day", "bar-night", "other"]);
+});
+
 test("buildImageRows: строки — шаблоны со сменами в порядке вида «По шаблонам», затем «Другие смены»", () => {
-  const rows = buildImageRows(input([
-    shift(),
-    shift({ user_id: "u2", template_id: "bar-night", department_id: "bar" }),
-    shift({ user_id: "u3", template_id: "bar-day", department_id: "bar" }),
-    shift({ user_id: "u2", template_id: "old", title: "Старый", color: "red" }),
-    shift({ user_id: "u3", template_id: null, title: "Инвентаризация", color: "yellow" }),
-  ]));
+  const rows = buildImageRows(input(orderShifts(), { sort: "name" }));
   assert.deepEqual(rows.map((r) => [r.title.join(" "), r.subtitle.join(" ")]), [
     ["Бармен", "вечер"],
     ["Бармен", "день"],

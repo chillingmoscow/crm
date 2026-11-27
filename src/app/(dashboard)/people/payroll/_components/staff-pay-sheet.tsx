@@ -26,6 +26,7 @@ import { statementRows } from "@/lib/payroll/calculate";
 import { officialExpectedNote, officialPartLabel, officialPaymentLabel } from "@/lib/payroll/official";
 import {
   buildPaySheet,
+  pendingEarnedHint,
   monthKey,
   payMonthHistory,
   paySheetPayments,
@@ -421,7 +422,15 @@ export function StaffPaySheet({
         <>
           <ProfileSection
             title="Начислено"
-            actions={<Sum><Money value={sheet.earned} /></Sum>}
+            // Пока часть статей считается — показываем посчитанное, а не
+            // прочерк: подсказка говорит, чего в сумме ещё нет.
+            actions={
+              <Sum>
+                <span data-tip={pendingEarnedHint(sheet.pending) ?? undefined}>
+                  <Money value={sheet.earned} />
+                </span>
+              </Sum>
+            }
           >
             {sheet.groups.length ? (
               <div className="flex flex-col">

@@ -107,6 +107,7 @@ export function CounterpartyOperations({
             period.kind === "all" ? (
               <EmptyState
                 icon={ArrowLeftRight}
+                illustration="empty"
                 title="Операций пока нет"
                 description="Операция появится здесь, когда в ней выберут этого контрагента"
               />

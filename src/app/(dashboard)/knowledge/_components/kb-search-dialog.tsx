@@ -10,7 +10,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { anotherDialogOpen } from "@/lib/dom/open-dialog";
 import { Loader2, Search, Sparkles, ArrowLeft } from "lucide-react";
 
 import { Command as CommandPrimitive } from "cmdk";
@@ -76,17 +77,26 @@ export function KbSearchProvider({ children, aiAskEnabled = false }: KbSearchPro
   const open = useCallback(() => setOpen(true), []);
   const close = useCallback(() => setOpen(false), []);
 
-  // Global Cmd+K / Ctrl+K toggle.
+  // Cmd+K / Ctrl+K — в базе знаний. В остальных разделах то же сочетание
+  // открывает общую палитру (components/shared/command-palette.tsx), а
+  // этот поиск — её действием «Поиск по базе знаний».
+  const pathname = usePathname() ?? "";
+  const onKnowledge = pathname === "/knowledge" || pathname.startsWith("/knowledge/");
   useEffect(() => {
+    if (!onKnowledge) return;
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      // e.code — та же клавиша в русской раскладке (там e.key — «л»).
+      if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === "k" || e.code === "KeyK")) {
+        // Поверх другого окна (палитра из кнопки поиска, панель) не
+        // открываемся; своё окно ⌘K закрывает.
+        if (anotherDialogOpen("data-kb-search")) return;
         e.preventDefault();
         setOpen((prev) => !prev);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [onKnowledge]);
 
   const value = useMemo<SearchCtx>(
     () => ({ open, close, isOpen }),
@@ -214,6 +224,7 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
           - Result rows с padding 10/20, hover/active fill-accent
           - Footer с подсказками (border-top, fill-accent) */}
       <DialogContent
+        data-kb-search=""
         className="max-w-[720px] p-0 gap-0 rounded-[14px] overflow-hidden shadow-xl
                    [&>button:last-child]:hidden top-[20%] translate-y-0"
       >

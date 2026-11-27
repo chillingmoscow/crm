@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: "Расписание" };
 export default async function SchedulePage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; showTasks?: string; date?: string; view?: string; swap?: string }>;
+  searchParams: Promise<{ tab?: string; showTasks?: string; date?: string; view?: string; swap?: string; task?: string }>;
 }) {
   if (!(await getCachedUser())) redirect("/login");
   const params = await searchParams;
@@ -44,6 +44,7 @@ export default async function SchedulePage({
       initialShowTasks={params.showTasks === undefined ? undefined : showTasks}
       initialDate={initialDate}
       initialSwap={/^[0-9a-f-]{36}$/i.test(params.swap ?? "") ? params.swap : undefined}
+      initialTask={showTasks && /^[0-9a-f-]{36}$/i.test(params.task ?? "") ? params.task : undefined}
       initialView={
         params.view === "templates" || params.view === "list" || params.view === "week"
           ? params.view

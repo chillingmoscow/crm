@@ -1,3 +1,5 @@
+import { readOverviewOpen } from "@/lib/ui/overview-pref-server";
+import { OVERVIEW_KEYS } from "@/lib/ui/overview-pref";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import {
@@ -156,6 +158,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       canConvertCasual={canEdit && canInvite && can("payroll.configure")}
       canSeeStaffDetails={canSeeStaffDetails}
       casual={casual}
+      initialOverviewOpen={await readOverviewOpen(OVERVIEW_KEYS.staff)}
       officialUserIds={officialUserIds}
       onShiftUserIds={onShift.userIds}
       onShiftEmployeeIds={onShift.employeeIds}

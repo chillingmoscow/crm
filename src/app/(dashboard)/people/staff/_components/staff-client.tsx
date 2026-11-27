@@ -97,6 +97,8 @@ type Props = {
   officialUserIds: string[];
   /** Opened from the schedule: «Добавить → Разовый» is shown right away. */
   openAddCasual?: boolean;
+  /** Выбор «Обзора» из cookie — сервер рисует его сразу в нужном состоянии. */
+  initialOverviewOpen?: boolean;
   /** Сейчас на смене (график и отметки): сотрудники Sheerly. */
   onShiftUserIds?: string[];
   /** Сейчас на смене: зарплатные карточки (разовые). */
@@ -304,6 +306,7 @@ export function StaffClient({
   casual,
   officialUserIds,
   openAddCasual = false,
+  initialOverviewOpen,
   onShiftUserIds = [],
   onShiftEmployeeIds = [],
 }: Props) {
@@ -357,6 +360,7 @@ export function StaffClient({
     "staff",
     venueId,
     `${staff.length}:${fired.length}`,
+    initialOverviewOpen,
   );
 
   // Право, а не код должности: своя должность с people.edit_staff тоже

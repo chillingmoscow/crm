@@ -31,6 +31,7 @@ import { Metric, MetricStrip } from "@/components/shared/metric-strip";
 import { Money, formatRub } from "@/components/shared/money";
 import { MonthPicker } from "@/components/shared/month-picker";
 import { ExpandPanel, OverviewToggle, TabsRow, useOverviewOpen } from "@/components/shared/overview-toggle";
+import { OVERVIEW_KEYS } from "@/lib/ui/overview-pref";
 import { PageFrame } from "@/components/shared/page-frame";
 import { PeriodStepper } from "@/components/shared/period-stepper";
 import { SalesTrend, type TrendSeries } from "@/components/shared/sales-trend";
@@ -458,7 +459,14 @@ function Detail({
   );
 }
 
-export function AdditionalClient({ initial }: { initial: AdditionalData }) {
+export function AdditionalClient({
+  initial,
+  initialOverviewOpen,
+}: {
+  initial: AdditionalData;
+  /** Выбор «Обзора» из cookie — сервер рисует его сразу в нужном состоянии. */
+  initialOverviewOpen?: boolean;
+}) {
   const router = useRouter();
   const [data, setData] = useState(initial),
     [tabId, setTabId] = useState<string | null>(null);
@@ -477,7 +485,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
     [exporting, setExporting] = useState(false),
     [detail, setDetail] = useState<AdditionalRow | null>(null);
   // «Обзор» (график по месяцам) над таблицей: открыт, выбор помнится.
-  const [overviewOpen, setOverviewOpen] = useOverviewOpen("sales.additional.overview");
+  const [overviewOpen, setOverviewOpen] = useOverviewOpen(OVERVIEW_KEYS.salesAdditional, initialOverviewOpen);
   const can = (p: string) => data.permissions.includes(`sales.${p}_shifts`);
   const tabs = useMemo(() => additionalTabs(data), [data]);
   const tab = tabs.find((t) => t.id === tabId) ?? tabs[0] ?? null;

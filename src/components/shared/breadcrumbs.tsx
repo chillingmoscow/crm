@@ -47,17 +47,22 @@ export function Breadcrumbs({
         )}
         {items.map((item, index) => {
           const last = index === items.length - 1;
+          // Корень пути («База знаний», «Люди») не сжимается — сжимаются
+          // промежуточные звенья.
+          const fit = index === 0 ? "shrink-0" : "min-w-0 max-w-48 truncate";
           return (
             <span key={`${index}.${item.label}`} className="contents">
               {index > 0 && (
-                <span aria-hidden="true" className="text-muted-foreground">
+                <span aria-hidden="true" className="shrink-0 text-muted-foreground">
                   /
                 </span>
               )}
               {last ? (
                 <span
                   aria-current="page"
-                  className="min-w-0 truncate"
+                  // Текущая страница сжимается вчетверо медленнее предков:
+                  // при нехватке места первыми обрезаются звенья пути.
+                  className="min-w-0 shrink-[0.25] truncate"
                   data-tip={item.label}
                   data-tip-overflow
                 >
@@ -67,12 +72,20 @@ export function Breadcrumbs({
                 <Link
                   href={item.href}
                   onClick={item.onClick}
-                  className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+                  // Длинное название звена (страницы базы знаний после
+                  // импорта) обрезается и не выталкивает текущую страницу.
+                  className={`${fit} text-muted-foreground transition-colors hover:text-foreground`}
+                  data-tip={item.label}
+                  data-tip-overflow
                 >
                   {item.label}
                 </Link>
               ) : (
-                <span className="shrink-0 text-muted-foreground">
+                <span
+                  className={`${fit} text-muted-foreground`}
+                  data-tip={item.label}
+                  data-tip-overflow
+                >
                   {item.label}
                 </span>
               )}

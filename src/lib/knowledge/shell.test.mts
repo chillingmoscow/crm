@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  canOpenKbOverview,
   isKnowledgePath,
   kbDropZoneDisabled,
   kbCrumbs,
@@ -113,4 +114,11 @@ test("kbDropZoneDisabled: зоны свёрнутой ветки не прини
   assert.equal(kbDropZoneDisabled({ ...base, insideCollapsed: true }), true);
   assert.equal(kbDropZoneDisabled({ ...base, isBlocked: true }), true);
   assert.equal(kbDropZoneDisabled({ ...base, isDraggingAny: false }), true);
+});
+
+test("canOpenKbOverview: «Обзор» открывается при любом из трёх прав — и в дереве, и на странице", () => {
+  assert.equal(canOpenKbOverview(new Set(["kb.view_pages"])), false);
+  assert.equal(canOpenKbOverview(new Set(["kb.view_analytics"])), true);
+  assert.equal(canOpenKbOverview(new Set(["kb.manage_required_reading"])), true);
+  assert.equal(canOpenKbOverview(new Set(["org.view_audit"])), true);
 });

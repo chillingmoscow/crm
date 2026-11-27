@@ -13,6 +13,7 @@ import { KbLinkPreview } from "@/app/(dashboard)/knowledge/_components/kb-link-p
 import { KbHotkeyListener } from "@/app/(dashboard)/knowledge/_components/kb-hotkey-listener";
 import { KbSaveStatusBadge } from "@/app/(dashboard)/knowledge/_components/kb-save-status";
 import { DashboardTopbar } from "@/components/shared/dashboard-topbar";
+import { canOpenKbOverview } from "@/lib/knowledge/shell";
 
 /**
  * Knowledge Base shell. Gates the entire /knowledge/* tree on
@@ -42,9 +43,6 @@ export default async function KnowledgeLayout({
   const canImport = permSet.has("kb.import_pages");
   const canCreate = permSet.has("kb.create_pages");
   const canManageTemplates = permSet.has("kb.manage_templates");
-  const canViewAudit = permSet.has("org.view_audit");
-  const canViewAnalytics = permSet.has("kb.view_analytics");
-  const canManageRequiredReading = permSet.has("kb.manage_required_reading");
   if (!canView) redirect("/dashboard");
 
   const cookieStore = await cookies();
@@ -60,7 +58,7 @@ export default async function KnowledgeLayout({
     canDuplicate: canCreate,
     // «Обзор» открывается при любом из трёх прав; блоки внутри — каждый
     // при своём (спека редизайна, «Решения по вопросам проверки»).
-    canViewOverview: canViewAnalytics || canManageRequiredReading || canViewAudit,
+    canViewOverview: canOpenKbOverview(permSet),
     canImport,
     canCreate,
     canManageTemplates,

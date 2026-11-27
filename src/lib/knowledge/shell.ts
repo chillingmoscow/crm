@@ -101,3 +101,15 @@ export function kbDropZoneDisabled(input: {
 }): boolean {
   return input.isBlocked || !input.isDraggingAny || input.insideCollapsed;
 }
+
+/** Кому открыт «Обзор» базы знаний: аналитика, обязательное чтение или
+ *  журнал. Один источник для пункта дерева и проверки на странице —
+ *  иначе пункт видели те, кого страница отправляла обратно. Блоки внутри
+ *  «Обзора» проверяют своё право сами. */
+export function canOpenKbOverview(permissions: ReadonlySet<string>): boolean {
+  return (
+    permissions.has("kb.view_analytics") ||
+    permissions.has("kb.manage_required_reading") ||
+    permissions.has("org.view_audit")
+  );
+}

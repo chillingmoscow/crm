@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { canOpenKbOverview } from "@/lib/knowledge/shell";
 import { PageFrame } from "@/components/shared/page-frame";
 import { TablePageHeader } from "@/components/shared/table/table-page-header";
 import { redirect } from "next/navigation";
@@ -9,6 +10,7 @@ import {
   createClient,
   getCachedActiveAccountId,
   getCachedPermissionChecker,
+  getCachedPermissions,
 } from "@/lib/supabase/server";
 import { KbStatCard } from "@/components/knowledge/kb-stat-card";
 import { KbTimeMetricHint } from "@/app/(dashboard)/knowledge/_components/kb-time-metric-hint";
@@ -93,7 +95,10 @@ export default async function KbDashboardPage({
   const canAnalytics = can("kb.view_analytics");
   const canAudit = can("org.view_audit");
   const canAskAi = can("kb.ask_ai");
-  if (!canAnalytics && !canAudit) redirect("/knowledge");
+  // Тот же набор прав, что у пункта «Обзор» в дереве.
+  if (!canOpenKbOverview(new Set(await getCachedPermissions()))) {
+    redirect("/knowledge");
+  }
 
   // Кнопка «Переиндексировать для ИИ» — только тем, кто может
   // пользоваться AI-поиском, и если ИИ включён для аккаунта (паритет

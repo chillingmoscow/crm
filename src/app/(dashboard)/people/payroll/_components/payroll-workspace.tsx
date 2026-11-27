@@ -208,8 +208,10 @@ export function PayrollWorkspace({
     return () => { alive = false; };
   }, [initial.venueId, initial.permissions]);
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).has("entry"))
-      setTab("journal");
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("entry")) setTab("journal");
+    // Ссылка из уведомления о черновике плана выплат.
+    else if (params.get("tab") === "plan") setTab("plan");
   }, []);
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("transfer");

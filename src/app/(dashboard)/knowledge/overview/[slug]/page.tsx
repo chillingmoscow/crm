@@ -68,7 +68,7 @@ export default async function KbDashboardPageDrilldown({
       <Breadcrumbs
         items={[
           { label: "База знаний", href: "/knowledge" },
-          { label: "Обзор", href: `/knowledge/dashboard?p=${period}` },
+          { label: "Обзор", href: `/knowledge/overview?p=${period}` },
           { label: page.title || "Без названия" },
         ]}
       />

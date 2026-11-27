@@ -109,8 +109,11 @@ const nextConfig: NextConfig = {
         permanent: false,
       })),
       // KB: «Аналитика» объединена с «Дашбордом» в один экран.
-      { source: "/knowledge/analytics",          destination: "/knowledge/dashboard",          permanent: true },
-      { source: "/knowledge/analytics/:slug*",   destination: "/knowledge/dashboard/:slug*",   permanent: true },
+      // «Дашборд» базы знаний стал «Обзором» (этап 3 редизайна).
+      { source: "/knowledge/dashboard",          destination: "/knowledge/overview",           permanent: true },
+      { source: "/knowledge/dashboard/:slug*",   destination: "/knowledge/overview/:slug*",    permanent: true },
+      { source: "/knowledge/analytics",          destination: "/knowledge/overview",           permanent: true },
+      { source: "/knowledge/analytics/:slug*",   destination: "/knowledge/overview/:slug*",    permanent: true },
       // KB: отдельный журнал убран — общий журнал с фильтром раздела.
       { source: "/knowledge/audit",              destination: "/org/audit?types=kb_page",      permanent: true },
       // Правила допродаж переехали вкладкой в карточку подразделения.

@@ -8,7 +8,7 @@ import type {
 
 /** Топ-страниц по суммарному времени. Server-component, рендерится
  *  внутри дашборда. Click на строку → drill-down с per-user
- *  разбивкой (`/knowledge/dashboard/[slug]`). */
+ *  разбивкой (`/knowledge/overview/[slug]`). */
 export function KbAnalyticsTopPages({
   rows,
   period,
@@ -29,7 +29,7 @@ export function KbAnalyticsTopPages({
       {rows.map((row, idx) => (
         <li key={row.page_id}>
           <Link
-            href={`/knowledge/dashboard/${row.slug}?p=${period}`}
+            href={`/knowledge/overview/${row.slug}?p=${period}`}
             className="group/title flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent transition-colors"
           >
             <span className="w-5 text-right text-xs font-mono tabular-nums text-muted-foreground">

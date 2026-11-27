@@ -381,7 +381,7 @@ function SidebarBody({
                   initialHidden={kbSidebarHidden}
                   href={
                     userPermissionsSet.has("kb.view_analytics")
-                      ? "/knowledge/dashboard"
+                      ? "/knowledge/overview"
                       : "/knowledge"
                   }
                 />

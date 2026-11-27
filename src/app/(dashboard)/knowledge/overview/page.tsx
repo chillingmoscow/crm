@@ -52,7 +52,7 @@ const PERIOD_DAYS: Record<KbAnalyticsPeriod, number> = {
  * Объединяет бывшие «Дашборд» и «Аналитику» в один экран (раньше
  * ~70% контента дублировалось). Сводка-метрики + топ читаемых
  * страниц + активные сотрудники + лента последних изменений + вид
- * «По страницам» с drill-down на `/knowledge/dashboard/[slug]`.
+ * «По страницам» с drill-down на `/knowledge/overview/[slug]`.
  *
  * Доступ: `kb.view_analytics` ∨ `org.view_audit` (иначе redirect
  * /knowledge). Под чистым `org.view_audit` analytics-блоки
@@ -209,11 +209,11 @@ export default async function KbDashboardPage({
                 <KbAnalyticsViewTabs
                   current={view}
                   period={period}
-                  basePath="/knowledge/dashboard"
+                  basePath="/knowledge/overview"
                 />
                 <KbAnalyticsPeriodTabs
                   current={period}
-                  basePath="/knowledge/dashboard"
+                  basePath="/knowledge/overview"
                   view={view}
                 />
               </>
@@ -305,7 +305,7 @@ export default async function KbDashboardPage({
             <KbMonthlyTrend
               rows={monthlyTrend}
               activeMonthKey={monthKey}
-              basePath="/knowledge/dashboard"
+              basePath="/knowledge/overview"
               query={trendQuery}
             />
           )}

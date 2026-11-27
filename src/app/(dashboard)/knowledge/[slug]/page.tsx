@@ -376,7 +376,7 @@ export default async function KbPageView({ params }: PageProps) {
           footer={
             canViewAnalytics ? (
               <Link
-                href={`/knowledge/dashboard/${row.slug}`}
+                href={`/knowledge/overview/${row.slug}`}
                 className="text-[13px] font-medium text-brand hover:underline"
               >
                 Статистика страницы

@@ -1072,7 +1072,7 @@ function isServiceItemActive(item: KbTreeServiceItem, pathname: string): boolean
     case "home":
       return pathname === "/knowledge";
     case "overview":
-      return pathname.startsWith("/knowledge/dashboard");
+      return pathname.startsWith("/knowledge/overview");
     case "trash":
       return pathname === "/knowledge/trash";
     default:

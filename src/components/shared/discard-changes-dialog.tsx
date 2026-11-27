@@ -1,16 +1,9 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { Undo2 } from "lucide-react";
+
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 
 /**
  * Защита несохранённых изменений в боковой панели-форме (EditDrawer).
@@ -38,31 +31,23 @@ export function useDiscardGuard(
     else action();
   };
   const dialog = (
-    <AlertDialog
+    <ConfirmDialog
       open={pending !== null}
       onOpenChange={(open) => {
         if (!open) setPending(null);
       }}
-    >
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Не сохранять изменения?</AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Продолжить редактирование</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() => {
-              const action = pending;
-              setPending(null);
-              action?.();
-            }}
-          >
-            Не сохранять
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+      title="Не сохранять изменения?"
+      description={description}
+      confirmLabel="Не сохранять"
+      cancelLabel="Продолжить редактирование"
+      tone="warning"
+      icon={Undo2}
+      onConfirm={() => {
+        const action = pending;
+        setPending(null);
+        action?.();
+      }}
+    />
   );
   return { guard, dialog };
 }

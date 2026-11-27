@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LayoutTemplate, Loader2, Trash2, X, FileText } from "lucide-react";
 import { toast } from "sonner";
+import { useConfirm } from "@/components/shared/confirm-dialog";
 
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
@@ -49,6 +50,7 @@ export function KbTemplatePicker({
   const [pending, setPending] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [templates, setTemplates] = useState<KbTemplateRow[]>([]);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   useEffect(() => {
     if (!open) {
@@ -97,7 +99,13 @@ export function KbTemplatePicker({
   };
 
   const onDelete = async (templateId: string, name: string) => {
-    if (!confirm(`Удалить шаблон «${name}»?`)) return;
+    const ok = await confirm({
+      title: `Удалить шаблон «${name}»?`,
+      description: "Страницы, уже созданные из шаблона, останутся.",
+      confirmLabel: "Удалить шаблон",
+      destructive: true,
+    });
+    if (!ok) return;
     setDeleting(templateId);
     const { error } = await deleteKbTemplate(templateId);
     setDeleting(null);
@@ -127,6 +135,7 @@ export function KbTemplatePicker({
         </DialogTrigger>
       </IconTooltip>
       <DialogContent className="max-w-[520px] p-0 gap-0 [&>button:last-child]:hidden">
+        {confirmDialog}
         <div className="flex items-start gap-3.5 px-6 pt-6 pb-4">
           <span className="inline-flex shrink-0 items-center justify-center size-10 rounded-full bg-brand/10 text-brand">
             <LayoutTemplate className="size-[18px]" />

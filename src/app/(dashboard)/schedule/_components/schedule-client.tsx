@@ -27,6 +27,8 @@ import {
   Clock,
   ArrowLeftRight,
   ClipboardCheck,
+  Archive,
+  type LucideIcon,
 } from "lucide-react";
 import { TaskAssignDrawer } from "./task-assign-drawer";
 import {
@@ -58,14 +60,8 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import tabStyle from "@/components/shared/workspace-tabs.module.css";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { useExitValue } from "@/hooks/use-exit-value";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { ConfirmDialog, type DialogConsequence } from "@/components/shared/confirm-dialog";
+import type { DialogTone } from "@/components/ui/dialog-tone";
 import { paletteBg, paletteDot, paletteText } from "@/lib/palette";
 import { casualPayModel as pickCasualPayModel } from "@/lib/schedule/casual-pay-model";
 import { cn } from "@/lib/utils";
@@ -501,9 +497,12 @@ export function ScheduleClient({
   }, [initialTask, calendarTasks]);
   const [confirmation, setConfirmation] = useState<{
     title: string;
-    description: string;
+    description?: string;
     confirmLabel: string;
     destructive?: boolean;
+    tone?: DialogTone;
+    icon?: LucideIcon;
+    consequences?: DialogConsequence[];
     action: () => Promise<void>;
   } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -920,8 +919,12 @@ export function ScheduleClient({
   const publish = () =>
     setConfirmation({
       title: "Опубликовать смены?",
-      description: `Количество смен для публикации: ${draftShifts.length}. Будут опубликованы черновики выбранной недели с учётом фильтров.`,
+      description: "Будут опубликованы черновики выбранной недели с учётом фильтров.",
+      consequences: [
+        { kind: "info", text: "Смен к публикации", count: draftShifts.length },
+      ],
       confirmLabel: "Опубликовать смены",
+      icon: Send,
       action: async () => {
         const r = await publishShifts(draftShifts);
         if (r) toast.success("Смены опубликованы");
@@ -1180,8 +1183,15 @@ export function ScheduleClient({
     setConfirmation({
       title: shift.published ? "Удалить смену?" : "Удалить черновик смены?",
       description: shift.published
-        ? `${name(shiftAssignee(shift))} больше не увидит эту смену в расписании. Если смена уже засчитана в зарплату, начисление за этот день пересчитается. Нельзя удалить смену с начатым чек-листом или уже выплаченную.`
+        ? undefined
         : "Черновик ещё не видели сотрудники — он просто исчезнет из расписания.",
+      consequences: shift.published
+        ? [
+            { kind: "remove", text: `${name(shiftAssignee(shift))} больше не увидит эту смену в расписании` },
+            { kind: "info", text: "Если смена уже засчитана в зарплату, начисление за этот день пересчитается" },
+            { kind: "info", text: "Смену с начатым чек-листом или уже выплаченную удалить нельзя" },
+          ]
+        : undefined,
       confirmLabel: shift.published ? "Удалить смену" : "Удалить черновик",
       destructive: true,
       action: async () => {
@@ -2477,9 +2487,15 @@ export function ScheduleClient({
               if (template.archived) return void run();
               setConfirmation({
                 title: `Убрать шаблон «${label}» в архив?`,
-                description:
-                  "Это не удаление. Шаблон пропадёт из выбора при создании смен, а уже созданные по нему смены останутся в расписании как есть. Вернуть шаблон можно в любой момент: кнопка архива над списком, затем «Восстановить».",
+                description: "Это не удаление.",
+                consequences: [
+                  { kind: "archive", text: "Шаблон пропадёт из выбора при создании смен" },
+                  { kind: "keep", text: "Уже созданные по нему смены останутся в расписании как есть" },
+                  { kind: "info", text: "Вернуть шаблон можно в любой момент: кнопка архива над списком, затем «Восстановить»" },
+                ],
                 confirmLabel: "Убрать в архив",
+                tone: "warning",
+                icon: Archive,
                 action: async () => {
                   await run();
                 },
@@ -2713,43 +2729,29 @@ export function ScheduleClient({
           onClose={() => setSwapFor(null)}
         />
       )}
-      <Dialog
+      <ConfirmDialog
         open={!!confirmation}
         onOpenChange={(o) => {
-          if (!o && !busy) setConfirmation(null);
+          if (!o) setConfirmation(null);
         }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{confirmation?.title}</DialogTitle>
-            <DialogDescription>{confirmation?.description}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() => setConfirmation(null)}
-            >
-              Отмена
-            </Button>
-            <Button
-              variant={confirmation?.destructive ? "destructive" : "default"}
-              disabled={busy}
-              onClick={async () => {
-                setBusy(true);
-                try {
-                  await confirmation?.action();
-                  setConfirmation(null);
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              {confirmation?.confirmLabel}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        title={confirmation?.title ?? ""}
+        description={confirmation?.description}
+        confirmLabel={confirmation?.confirmLabel ?? ""}
+        destructive={confirmation?.destructive}
+        tone={confirmation?.tone}
+        icon={confirmation?.icon}
+        consequences={confirmation?.consequences}
+        busy={busy}
+        onConfirm={async () => {
+          setBusy(true);
+          try {
+            await confirmation?.action();
+            setConfirmation(null);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
     </PageFrame>
     </TaskTitleTarget.Provider>
   );

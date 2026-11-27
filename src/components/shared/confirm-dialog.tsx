@@ -192,7 +192,11 @@ export function ConfirmDialog({
   );
 }
 
-function ConsequenceList({ items }: { items: DialogConsequence[] }) {
+/**
+ * Список последствий отдельно — для окна, где он зависит от поля выше
+ * (например, число смен от выбранной даты) и стоит после него в `children`.
+ */
+export function ConsequenceList({ items }: { items: DialogConsequence[] }) {
   return (
     <ul className="divide-y rounded-[10px] border text-sm">
       {items.map((item, index) => {

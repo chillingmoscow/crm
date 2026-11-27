@@ -8,7 +8,7 @@ import {
 } from "@/lib/supabase/server";
 import { actionResult } from "@/lib/actions/result";
 import { writeAuditEvent } from "@/lib/audit/write";
-import type { SalesPlan } from "@/lib/sales/plan";
+import { planWrite, type SalesPlan } from "@/lib/sales/plan";
 
 const MONTH = /^20\d{2}-(0[1-9]|1[0-2])$/;
 
@@ -37,6 +37,8 @@ async function loadSalesPlansImpl(venueId: string): Promise<SalesPlan[]> {
     .select("month,turnover,updated_at")
     .eq("account_id", s.accountId)
     .eq("venue_id", venueId)
+    // Строка может хранить только план алкоголя (KPI старших) — это не план оборота.
+    .not("turnover", "is", null)
     .order("month", { ascending: false })
     .limit(240);
   if (r.error) throw new Error("Не удалось загрузить план продаж");
@@ -64,28 +66,32 @@ async function saveSalesPlanImpl(input: {
     .parse(input.turnover);
   const before = await s.db
     .from("sales_month_plans")
-    .select("id,turnover")
+    .select("id,turnover,alcohol")
     .eq("account_id", s.accountId)
     .eq("venue_id", s.venueId)
     .eq("month", `${month}-01`)
     .maybeSingle();
   if (before.error) throw new Error("Не удалось прочитать план продаж");
-  const previous = before.data ? Number(before.data.turnover) : null;
+  const previous = before.data?.turnover != null ? Number(before.data.turnover) : null;
+  const alcohol = before.data?.alcohol != null ? Number(before.data.alcohol) : null;
   const rounded = turnover === null ? null : Math.round(turnover * 100) / 100;
-  if (previous === rounded) return loadSalesPlansImpl(s.venueId);
+  // В строке месяца живёт и план алкоголя: стёртый оборот удаляет строку,
+  // только если плана алкоголя в ней нет.
+  const op = planWrite(before.data ? { turnover: previous, alcohol } : null, { turnover: rounded, alcohol });
+  if (op === "noop") return loadSalesPlansImpl(s.venueId);
   // Политики таблицы молча не меняют строку без прав: проверяем, что запись прошла.
   const write =
-    rounded === null
+    op === "delete"
       ? await s.db
           .from("sales_month_plans")
           .delete()
           .eq("id", before.data!.id)
           .select("id")
-      : before.data
+      : op === "update"
         ? await s.db
             .from("sales_month_plans")
             .update({ turnover: rounded, updated_by: s.user.id })
-            .eq("id", before.data.id)
+            .eq("id", before.data!.id)
             .select("id")
         : await s.db
             .from("sales_month_plans")
@@ -99,7 +105,8 @@ async function saveSalesPlanImpl(input: {
             })
             .select("id");
   if (write.error) {
-    if (write.error.code === "23505")
+    // План алкоголя в этой строке только что задали (вкладка «KPI»): строку уже нельзя удалить.
+    if (write.error.code === "23505" || /вкладке «KPI»/.test(write.error.message))
       throw new Error("План этого месяца только что изменили. Обновите страницу");
     throw new Error("Не удалось сохранить план продаж");
   }

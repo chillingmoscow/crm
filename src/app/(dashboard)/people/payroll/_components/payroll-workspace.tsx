@@ -57,6 +57,7 @@ import {
   ContextMenuSeparator,
 } from "@/components/ui/context-menu";
 import { PayoutPlan, cachedPayoutPlan, prefetchPayoutPlan } from "./payout-plan";
+import { KpiTab } from "./kpi-tab";
 import type { PayoutPlanView } from "../payout-actions";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { PayrollLedger } from "./payroll-ledger";
@@ -216,6 +217,8 @@ export function PayrollWorkspace({
     if (params.has("entry")) setTab("journal");
     // Ссылка из уведомления о черновике плана выплат.
     else if (params.get("tab") === "plan") setTab("plan");
+    // Ссылка из карточки «KPI не подведены» в «На разбор».
+    else if (params.get("tab") === "kpi") setTab("kpi");
   }, []);
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("transfer");
@@ -549,6 +552,7 @@ export function PayrollWorkspace({
       <TabsTrigger value="payments">Выплаты</TabsTrigger>
       <TabsTrigger value="journal">Начисления и удержания</TabsTrigger>
       {can("view") && <TabsTrigger value="plan">План выплат</TabsTrigger>}
+      {can("view") && <TabsTrigger value="kpi">KPI</TabsTrigger>}
     </TabsList>
   );
   const changeMonth = (value: string) => {
@@ -721,7 +725,7 @@ export function PayrollWorkspace({
             )}
             {/* Итоги вкладки мягко всплывают и досчитываются заново при её смене. */}
             <div key={tab} className="motion-rise">
-            {tab === "plan" ? (
+            {tab === "kpi" ? null : tab === "plan" ? (
               <PlanMetrics view={planView} />
             ) : tab === "payments" ? (
               <PaymentsMetrics data={data} month={monthStart} />
@@ -769,6 +773,7 @@ export function PayrollWorkspace({
             {tab === "plan" && (
               <PayoutPlan venueId={data.venueId} view={planView} onView={setPlanView} onChanged={reload} />
             )}
+            {tab === "kpi" && <KpiTab month={month} />}
             {emptyMonth ? (
               <EmptyState
                 className="mt-6"
@@ -1026,7 +1031,7 @@ export function PayrollWorkspace({
               </section>
               </ExpandPanel>
             )}
-            {!emptyMonth && !planTab && <section className={`${s.ledger} ${s.functionalTable}`}>
+            {!emptyMonth && !planTab && tab !== "kpi" && <section className={`${s.ledger} ${s.functionalTable}`}>
               {role && (
                 <div className={s.ledgerHeading}>
                   <button

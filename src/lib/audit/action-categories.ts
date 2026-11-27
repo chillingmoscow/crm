@@ -50,6 +50,8 @@ const CATEGORY_SUFFIXES: Record<AuditActionCategory, string[]> = {
     ".permissions_changed",
     ".toggled",
     ".changed",
+    ".saved",
+    ".alcohol_set",
     ".commented",
     ".photo_added",
     // `role.department_changed`, `department.head_changed`,

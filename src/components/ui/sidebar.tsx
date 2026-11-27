@@ -84,13 +84,14 @@ const SidebarProvider = React.forwardRef<
       (value: boolean | ((value: boolean) => boolean)) => {
         const openState = typeof value === "function" ? value(open) : value
         if (setOpenProp) {
+          // Управляемый режим: состояние и его cookie хранит владелец
+          // (WorkspaceSidebarProvider — у базы знаний своя cookie).
           setOpenProp(openState)
         } else {
           _setOpen(openState)
+          // This sets the cookie to keep the sidebar state.
+          document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
         }
-
-        // This sets the cookie to keep the sidebar state.
-        document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
       },
       [setOpenProp, open]
     )

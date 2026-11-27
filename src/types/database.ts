@@ -3313,33 +3313,42 @@ export type Database = {
       sales_month_plans: {
         Row: {
           account_id: string
+          alcohol: number | null
+          alcohol_suggested: number | null
           created_at: string
           created_by: string | null
           id: string
           month: string
-          turnover: number
+          price_increase_percent: number | null
+          turnover: number | null
           updated_at: string
           updated_by: string | null
           venue_id: string
         }
         Insert: {
           account_id: string
+          alcohol?: number | null
+          alcohol_suggested?: number | null
           created_at?: string
           created_by?: string | null
           id?: string
           month: string
-          turnover: number
+          price_increase_percent?: number | null
+          turnover?: number | null
           updated_at?: string
           updated_by?: string | null
           venue_id: string
         }
         Update: {
           account_id?: string
+          alcohol?: number | null
+          alcohol_suggested?: number | null
           created_at?: string
           created_by?: string | null
           id?: string
           month?: string
-          turnover?: number
+          price_increase_percent?: number | null
+          turnover?: number | null
           updated_at?: string
           updated_by?: string | null
           venue_id?: string

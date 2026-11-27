@@ -24,12 +24,6 @@ export interface KbRequiredUnreadRow extends KbLandingPageRow {
   reread: boolean;
 }
 
-export interface KbRecentlyViewedRow extends KbLandingPageRow {
-  /** ISO timestamp последнего визита. Используется для сортировки и
-   *  опционально для «5 мин назад» подписи. */
-  last_visit_at: string;
-}
-
 /** Обязательные страницы, которые текущий пользователь ещё не прочитал
  *  или которые его попросили перечитать (`reread`). Сортировка: сначала
  *  свежие (по updated_at страницы — proxy для «когда стало обязательным»).
@@ -97,31 +91,4 @@ export async function getKbRequiredUnreadForUser(): Promise<{
     });
   }
   return { rows, total: pages.length, error: null };
-}
-
-/** Recently-viewed pages для current user. Backed by RPC
- *  `kb_get_my_recently_viewed` (миграция 085) — security-definer,
- *  возвращает только page-meta + last-visit timestamp.
- *
- *  Это навигационный helper, не аналитика — admin-only-stats decision
- *  из Sprint D §4 не нарушается (нет time/sessions-данных).
- *
- *  Sprint D Phase 6 §2.6. */
-export async function getMyRecentlyViewedKbPages(
-  limit = 7,
-): Promise<{ rows: KbRecentlyViewedRow[]; error: string | null }> {
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("kb_get_my_recently_viewed", {
-    p_limit: limit,
-  });
-  if (error) return { rows: [], error: error.message };
-  const rows: KbRecentlyViewedRow[] = (data ?? []).map((r) => ({
-    id: r.page_id,
-    slug: r.slug,
-    title: r.title,
-    icon: r.icon,
-    icon_color: r.icon_color,
-    last_visit_at: r.last_visit_at,
-  }));
-  return { rows, error: null };
 }

@@ -212,7 +212,17 @@ const humanJobError = (text: string | null) =>
     ? text
     : "Не удалось получить списания из Quick Resto. Сохранённые данные не изменены.";
 
-export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
+export function WriteoffsClient({
+  initial,
+  initialDeduction,
+}: {
+  initial: WriteoffData;
+  /**
+   * Удержание за текущий месяц, загруженное сервером: строка удержания над
+   * таблицей приходит в первой разметке и не сдвигает таблицу вниз.
+   */
+  initialDeduction?: { month: string; visible: boolean; posted: PostedWriteoffDeduction | null };
+}) {
   const router = useRouter();
   const params = useSearchParams();
   const maxMonth = `${initial.currentMonth}-01`;
@@ -257,7 +267,11 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       visible: boolean;
       posted: PostedWriteoffDeduction | null;
       failed: boolean;
-    } | null>(null),
+    } | null>(() =>
+      initialDeduction?.month === start.month && start.source === "native"
+        ? { ...initialDeduction, failed: false }
+        : null,
+    ),
     [deductionAttempt, setDeductionAttempt] = useState(0);
   // Панель держим смонтированной, пока она уезжает (docs/motion.md).
   const shownDetail = useExitValue(detail);
@@ -305,6 +319,11 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
   }, [month, source, kind, pool, st.search, setRowSelection]);
   useEffect(() => {
     if (source !== "native" || !canSeeDeduction) return;
+    // Месяц, присланный сервером, уже на экране — повторный запрос не нужен,
+    // пока его не просят («Повторить»). Условие по состоянию, а не по флагу:
+    // двойной запуск эффектов в StrictMode его не ломает.
+    if (deductionAttempt === 0 && initialDeduction?.month === month && deduction?.month === month)
+      return;
     let active = true;
     loadWriteoffDeduction(initial.venueId, month)
       .then(unwrapAction)
@@ -321,7 +340,9 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     return () => {
       active = false;
     };
-  }, [source, month, canSeeDeduction, initial.venueId, deductionAttempt]);
+    // `deduction` нарочно не в зависимостях: запрос — по смене месяца и вкладки.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source, month, canSeeDeduction, initial.venueId, deductionAttempt, initialDeduction]);
   const reloadDeduction = useCallback(
     () => setDeductionAttempt((n) => n + 1),
     [],

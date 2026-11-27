@@ -11,7 +11,7 @@ import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Money, formatRub } from "@/components/shared/money";
 import { MonthPicker } from "@/components/shared/month-picker";
 import { ProfileSection } from "@/components/shared/profile-section";
-import { unwrapAction } from "@/lib/actions/result";
+import { unwrapAction, type ActionResult } from "@/lib/actions/result";
 import { monthLabel } from "@/lib/sales/format";
 import type { SalesPlan } from "@/lib/sales/plan";
 import { loadSalesPlans, saveSalesPlan } from "../../plan-actions";
@@ -170,17 +170,25 @@ export function SalesPlanSettingsSection({
   venueId,
   currentMonth,
   openMonth,
+  initial,
 }: {
   venueId: string;
   /** Текущий месяц заведения «2026-11». */
   currentMonth: string;
   /** Месяц, панель которого открыть сразу. */
   openMonth?: string;
+  /** Планы, загруженные сервером: секция сразу рисуется заполненной. */
+  initial?: ActionResult<SalesPlan[]>;
 }) {
-  const [plans, setPlans] = useState<SalesPlan[] | null>(null),
-    [error, setError] = useState<string | null>(null),
-    [open, setOpen] = useState(false),
-    [formMonth, setFormMonth] = useState(currentMonth);
+  const [servedVenueId] = useState(venueId);
+  const validOpenMonth =
+    openMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(openMonth) ? openMonth : undefined;
+  const [plans, setPlans] = useState<SalesPlan[] | null>(initial?.ok ? initial.data : null),
+    [error, setError] = useState<string | null>(initial && !initial.ok ? initial.error : null),
+    [open, setOpen] = useState(!!(initial?.ok && validOpenMonth)),
+    [formMonth, setFormMonth] = useState(
+      initial?.ok && validOpenMonth ? validOpenMonth : currentMonth,
+    );
   // Форму держим смонтированной, пока панель уезжает (docs/motion.md);
   // каждое открытие — новый ключ, форма начинается с сохранённых данных.
   const [session, setSession] = useState(0);
@@ -190,14 +198,17 @@ export function SalesPlanSettingsSection({
     setOpen(true);
   };
   useEffect(() => {
+    // Данные, присланные сервером для этого заведения, уже на экране —
+    // запрос не нужен (секция не меняет высоту после загрузки скриптов).
+    if (initial && venueId === servedVenueId) return;
     let live = true;
     loadSalesPlans(venueId)
       .then(unwrapAction)
       .then((d) => {
         if (!live) return;
         setPlans(d);
-        if (openMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(openMonth)) {
-          setFormMonth(openMonth);
+        if (validOpenMonth) {
+          setFormMonth(validOpenMonth);
           setSession((n) => n + 1);
           setOpen(true);
         }
@@ -208,7 +219,7 @@ export function SalesPlanSettingsSection({
     return () => {
       live = false;
     };
-  }, [venueId, openMonth]);
+  }, [venueId, validOpenMonth, initial, servedVenueId]);
   // Текущий и следующий месяц — всегда; прочие — если план задан. Свежие сверху.
   const rows = useMemo(() => {
     const byMonth = new Map((plans ?? []).map((p) => [p.month, p.turnover]));

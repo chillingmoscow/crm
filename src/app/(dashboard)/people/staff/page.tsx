@@ -12,6 +12,8 @@ import { StaffClient } from "./_components/staff-client";
 import { getStaff, getPendingInvitations, getFiredStaff, getOfficialStaffUserIds } from "./actions";
 import { getCasualStaff } from "@/lib/payroll/casual-list";
 import { loadOnShift } from "@/lib/people/staff-presence-server";
+import { initialPeopleOverview } from "@/lib/people/overview-server";
+import { dateInZone } from "@/lib/schedule/utils";
 
 export const metadata: Metadata = { title: "Сотрудники" };
 
@@ -53,6 +55,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
   // PIN кассы — одно правило в списке (штатные и разовые) и в карточке: его
   // видит и меняет тот, кто ведёт сотрудников (people.edit_staff).
   const canSeePins = canEdit;
+  const overviewOpen = await readOverviewOpen(OVERVIEW_KEYS.staff);
   const [
     { data: roles },
     { data: departments },
@@ -63,6 +66,8 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     pinResult,
     casual,
     onShift,
+    overviewData,
+    { data: venueRow },
   ] = await Promise.all([
     // Архивные должности не предлагаются ни в «Добавить», ни в фильтре.
     supabase
@@ -104,7 +109,12 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     }),
     // Точка «Сейчас на смене» на аватаре: график и отметки, без подробностей.
     loadOnShift(venueId),
+    // «Обзор команды» приходит с сервера готовым — таблица под ним не уезжает.
+    initialPeopleOverview("staff", venueId, overviewOpen),
+    // Пояс заведения — для «сегодня» в отметках медкнижки и дня рождения.
+    supabase.from("venues").select("timezone").eq("id", venueId).maybeSingle(),
   ]);
+  const today = dateInZone(new Date(), venueRow?.timezone || "Europe/Moscow");
 
   // «Пригласить» и «Разовый» — по праву приглашать: его же проверяют база
   // (invitations, payroll_casual_scope) и серверные действия.
@@ -158,7 +168,9 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       canConvertCasual={canEdit && canInvite && can("payroll.configure")}
       canSeeStaffDetails={canSeeStaffDetails}
       casual={casual}
-      initialOverviewOpen={await readOverviewOpen(OVERVIEW_KEYS.staff)}
+      initialOverviewOpen={overviewOpen}
+      initialOverviewData={overviewData}
+      today={today}
       officialUserIds={officialUserIds}
       onShiftUserIds={onShift.userIds}
       onShiftEmployeeIds={onShift.employeeIds}

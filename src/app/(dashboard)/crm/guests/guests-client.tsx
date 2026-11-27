@@ -362,12 +362,19 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
     },
     [initial.venueId],
   );
+  // Первая страница с фильтрами по умолчанию уже пришла с сервера:
+  // перечитывать её сразу после открытия незачем. Как только фильтры
+  // изменились, читаем всегда — и при возврате к исходным.
+  const [initialFiltersKey] = useState(() => JSON.stringify(filters));
+  const filtersTouched = useRef(false);
   useEffect(() => {
+    if (!filtersTouched.current && JSON.stringify(filters) === initialFiltersKey) return;
+    filtersTouched.current = true;
     const timer = setTimeout(() => {
       void refresh(filters);
     }, 250);
     return () => clearTimeout(timer);
-  }, [filters, refresh]);
+  }, [filters, refresh, initialFiltersKey]);
   const openGuest = useCallback(
     async (id: string) => {
       const seq = ++detailSequence.current;

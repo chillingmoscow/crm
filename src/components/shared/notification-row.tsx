@@ -1,5 +1,6 @@
 "use client";
 
+import { createContext, useContext } from "react";
 import { Archive, ArchiveRestore, Check, ChevronDown } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -158,7 +159,7 @@ export function KbNotificationRow({
           )}
         >
           <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
-            {relativeTime(notification.created_at)}
+            <RelativeTime iso={notification.created_at} />
           </span>
           {!notification.read && (
             <span
@@ -395,7 +396,7 @@ export function NotificationStackRow({
           )}
         >
           <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
-            {relativeTime(newest.created_at)}
+            <RelativeTime iso={newest.created_at} />
           </span>
           {unread.length > 0 && (
             <span aria-hidden className="size-2 shrink-0 rounded-full bg-brand" />
@@ -531,8 +532,22 @@ function extractEntityTitle(title: string): string {
   return title;
 }
 
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
+/**
+ * Часы списка уведомлений. Страница «Уведомления» рисует список на сервере
+ * (он живёт в UTC), поэтому до монтирования «сейчас» и пояс берутся с
+ * сервера: разметка и первая отрисовка в браузере совпадают. После
+ * монтирования `now` — null, время — текущее.
+ */
+export type NotificationClock = { now: number | null; timeZone?: string };
+export const NotificationClockContext = createContext<NotificationClock>({ now: null });
+
+function RelativeTime({ iso }: { iso: string }) {
+  const { now, timeZone } = useContext(NotificationClockContext);
+  return <>{relativeTime(iso, now ?? Date.now(), timeZone)}</>;
+}
+
+function relativeTime(iso: string, now: number, timeZone?: string): string {
+  const diff = now - new Date(iso).getTime();
   const minutes = Math.floor(diff / 60_000);
   if (minutes < 1) return "только что";
   if (minutes < 60) return `${minutes} мин назад`;
@@ -544,6 +559,7 @@ function relativeTime(iso: string): string {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
+    timeZone,
   });
 }
 

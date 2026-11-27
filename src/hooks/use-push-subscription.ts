@@ -66,6 +66,8 @@ export interface UsePushSubscription {
   standalone: boolean;
   /** iOS/iPadOS — там push работает ТОЛЬКО из установленного PWA. */
   isIOS: boolean;
+  /** Платформа, поддержка и разрешение уже прочитаны (после монтирования). */
+  ready: boolean;
   enable: () => Promise<void>;
   disable: () => Promise<void>;
 }
@@ -85,6 +87,7 @@ export function usePushSubscription(): UsePushSubscription {
   const [busy, setBusy] = useState(false);
   const [standalone, setStandalone] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
+  const [ready, setReady] = useState(false);
 
   const configured = Boolean(VAPID_PUBLIC_KEY);
 
@@ -112,9 +115,13 @@ export function usePushSubscription(): UsePushSubscription {
       "PushManager" in window &&
       "Notification" in window;
     setSupported(isSupported);
-    if (!isSupported) return;
+    if (!isSupported) {
+      setReady(true);
+      return;
+    }
 
     setPermission(Notification.permission);
+    setReady(true);
 
     // Уже подписаны? (SW мог остаться с прошлой сессии.) getRegistration()
     // резолвится сразу (в т.ч. в undefined), в отличие от .ready, который
@@ -191,6 +198,7 @@ export function usePushSubscription(): UsePushSubscription {
     busy,
     standalone,
     isIOS,
+    ready,
     enable,
     disable,
   };

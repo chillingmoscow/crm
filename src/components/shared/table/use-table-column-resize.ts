@@ -12,7 +12,10 @@ import type {
   OnChangeFn,
   Table,
 } from "@tanstack/react-table";
+import { usePathname } from "next/navigation";
+import { tableWidthKey } from "@/lib/ui/table-width-pref";
 import { fitColumnWidths, resizeColumnWidths } from "./column-layout";
+import { rememberTableWidth, useRememberedTableWidth } from "./table-width-context";
 
 /** Paint column widths once per animation frame; persist once when the pointer is released. */
 export function useTableColumnResize<TData>(
@@ -21,18 +24,38 @@ export function useTableColumnResize<TData>(
 ) {
   const tableRef = useRef<HTMLTableElement>(null);
   const active = useRef<{ cancel: () => void } | null>(null);
-  const [width, setWidth] = useState(0);
+  // Ширина контейнера. До замера — ширина с прошлого захода (cookie): с ней
+  // сервер раскладывает столбцы так же, как браузер, и после загрузки
+  // скриптов они не разъезжаются вбок.
+  const pathname = usePathname();
+  const widthKey = tableWidthKey(
+    pathname,
+    table.getAllLeafColumns().map((c) => c.id),
+  );
+  const remembered = useRememberedTableWidth(widthKey);
+  const [width, setWidth] = useState(remembered ?? 0);
   useLayoutEffect(() => {
     const el = tableRef.current;
     if (!el) return;
     const container = el.parentElement;
     if (!container) return;
-    const measure = () => setWidth(container.clientWidth);
+    let timer = 0;
+    const measure = () => {
+      const next = container.clientWidth;
+      setWidth(next);
+      // Скрытая таблица (телефон — карточки) шириной 0 не запоминается.
+      if (next <= 0) return;
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => rememberTableWidth(widthKey, next), 300);
+    };
     const observer = new ResizeObserver(measure);
     observer.observe(container);
     measure();
-    return () => observer.disconnect();
-  }, []);
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(timer);
+    };
+  }, [widthKey]);
   useEffect(() => () => active.current?.cancel(), []);
   const columns = table.getVisibleLeafColumns();
   const metrics = columns.map((c) => ({

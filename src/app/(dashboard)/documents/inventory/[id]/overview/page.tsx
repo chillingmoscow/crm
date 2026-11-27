@@ -15,6 +15,8 @@ import { ActCommentEditor } from "../_components/act-comment-editor";
 import { ActDateEditor } from "../_components/act-date-editor";
 import { getInventoryDateLockReason, invoiceDayInZone, invoiceTimeInZone } from "@/lib/inventory/act-date";
 import { hasCountedResults } from "@/lib/inventory/act-status";
+import { ACT_CREATING_LOCK_REASON } from "@/lib/inventory/act-creation-job";
+import { documentsBeingCreated } from "@/app/(dashboard)/inventory/actions-shared";
 
 type DocumentOverviewRow = {
   id: string;
@@ -66,9 +68,11 @@ export default async function InventoryDocumentOverviewPage({
     .maybeSingle();
   if (!document) notFound();
 
-  const [storeTitle, timeZone] = await Promise.all([
+  const [storeTitle, timeZone, creating] = await Promise.all([
     document.store_id ? getCachedStoreTitle(document.store_id) : Promise.resolve(null),
     document.venue_id ? getCachedVenueTimezone(document.venue_id) : Promise.resolve(null),
+    // Пока позиции досылаются в фоне, дату менять нельзя (сервер тоже откажет).
+    accountId ? documentsBeingCreated(admin, accountId, [document.id]) : Promise.resolve(new Set<string>()),
   ]);
   const canEdit =
     !document.archived_at &&
@@ -79,7 +83,7 @@ export default async function InventoryDocumentOverviewPage({
   // Дата акта: менять может управляющий актами, пока акт не проведён.
   // Проведённый (и удалённый в QR) акт — только чтение; у зафиксированных
   // итогов кнопка есть, а диалог объясняет, что сначала их переоткрывают.
-  const dateLockReason = getInventoryDateLockReason(document);
+  const dateLockReason = creating.size > 0 ? ACT_CREATING_LOCK_REASON : getInventoryDateLockReason(document);
   const dateReadOnly =
     !canManage ||
     !document.external_id ||

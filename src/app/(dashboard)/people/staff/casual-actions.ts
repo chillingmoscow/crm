@@ -154,8 +154,10 @@ export async function convertCasualToStaff(input: z.input<typeof convertSchema>)
   const tgError = telegramIdError(value.telegramId, value.chatInvites === true);
   if (tgError) return { userId: null, issuedPin: null, notice: null, error: tgError };
   const can = await getCachedPermissionChecker();
-  if (!can("people.edit_staff") || !can("payroll.configure"))
-    return { userId: null, issuedPin: null, notice: null, error: "Нужны права на сотрудников и на настройку зарплаты" };
+  // Как кнопка в списке: перевод может заводить сотрудника в Quick Resto —
+  // это право приглашать (как «Добавить → Разовый»).
+  if (!can("people.edit_staff") || !can("people.invite_staff") || !can("payroll.configure"))
+    return { userId: null, issuedPin: null, notice: null, error: "Нужны права на сотрудников, приглашения и настройку зарплаты" };
 
   const supabase = await createClient();
   const db = asLooseDb(supabase);

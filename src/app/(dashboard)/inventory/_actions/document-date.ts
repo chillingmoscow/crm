@@ -246,6 +246,30 @@ export async function updateInventoryDocumentDate(input: {
     const savedInvoiceDate = dateText(saved.invoiceDate);
     const savedWall = invoiceWallInZone(savedInvoiceDate, timeZone);
 
+    /** Перечитать позиции акта из Quick Resto; текст для пользователя при неполном ответе или сбое. */
+    const refreshItems = async (): Promise<string | null> => {
+      try {
+        const items = await listBackOfficeInventoryItemsWithSession({
+          connection,
+          admin,
+          documentExternalId: externalId,
+        });
+        const result = await refreshLocalInventoryDocumentFromPayload({
+          admin,
+          accountId: ctx.accountId as string,
+          documentId: document.id,
+          document: { ...saved, effectedItems: items.length > 0 ? items : saved.effectedItems },
+          keepStatus: true,
+        });
+        if (result.skippedEmptyPayload || result.skippedStaleDeletion > 0)
+          return "Дата изменена, но Quick Resto вернул не все позиции. Нажмите «Синхронизировать», чтобы обновить расчётные остатки.";
+        return null;
+      } catch (error) {
+        console.error("[updateInventoryDocumentDate] items refresh failed", error);
+        return "Дата изменена, но расчётные остатки обновить не удалось. Нажмите «Синхронизировать».";
+      }
+    };
+
     let notice: string | undefined;
     if (savedInvoiceDate) {
       const { data: updated, error: updateError } = await admin
@@ -267,7 +291,12 @@ export async function updateInventoryDocumentDate(input: {
         expected: new Date(invoiceDate).toISOString(),
         actual: savedInvoiceDate,
       });
-      if (savedWall && savedWall !== oldWall) await audit(savedWall, { mismatch: true });
+      if (savedWall && savedWall !== oldWall) {
+        await audit(savedWall, { mismatch: true });
+        // Дата всё же сменилась (на другой момент) — расчётные остатки в
+        // позициях тоже должны быть на неё, а не на прежнюю.
+        await refreshItems();
+      }
       revalidateDocument(document.id);
       return {
         error:
@@ -281,26 +310,8 @@ export async function updateInventoryDocumentDate(input: {
 
     // Расчётные остатки теперь на новую дату — перечитываем позиции. Дата уже
     // сменилась, поэтому сбой здесь — не ошибка действия, а повод обновить акт.
-    try {
-      const items = await listBackOfficeInventoryItemsWithSession({
-        connection,
-        admin,
-        documentExternalId: externalId,
-      });
-      const refreshed = await refreshLocalInventoryDocumentFromPayload({
-        admin,
-        accountId: ctx.accountId,
-        documentId: document.id,
-        document: { ...saved, effectedItems: items.length > 0 ? items : saved.effectedItems },
-        keepStatus: true,
-      });
-      if (refreshed.skippedEmptyPayload || refreshed.skippedStaleDeletion > 0) {
-        notice ??= "Дата изменена, но Quick Resto вернул не все позиции. Нажмите «Синхронизировать», чтобы обновить расчётные остатки.";
-      }
-    } catch (error) {
-      console.error("[updateInventoryDocumentDate] items refresh failed", error);
-      notice ??= "Дата изменена, но расчётные остатки обновить не удалось. Нажмите «Синхронизировать».";
-    }
+    const refreshed = await refreshItems();
+    if (refreshed) notice ??= refreshed;
 
     revalidateDocument(document.id);
     return { error: null, ...(notice ? { notice } : {}) };

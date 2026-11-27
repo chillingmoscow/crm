@@ -26,13 +26,16 @@ export function useOverviewOpen(storageKey: string, initialOpen?: boolean) {
   const [known, setKnown] = useState(initialOpen !== undefined);
   useLayoutEffect(() => {
     const stored = window.localStorage.getItem(storageKey);
-    if (initialOpen === undefined) {
-      if (stored === "closed") setOpenState(false);
-      setKnown(true);
+    // Браузерный выбор главнее значения с сервера: при «Назад» Next берёт
+    // страницу из кэша роутера со старым `initialOpen`, а выбор с тех пор
+    // мог поменяться. Layout-эффект поправит до отрисовки.
+    if (stored === "open" || stored === "closed") {
+      setOpenState(stored === "open");
+      // Выбор, сделанный до появления cookie, переносим в неё — со следующего
+      // захода сервер нарисует страницу сразу правильно.
+      if (initialOpen === undefined) writeCookie(storageKey, stored === "open");
     }
-    // Выбор, сделанный до появления cookie, переносим в неё — со следующего
-    // захода сервер нарисует страницу сразу правильно.
-    if ((stored === "open" || stored === "closed") && initialOpen === undefined) writeCookie(storageKey, stored === "open");
+    setKnown(true);
   }, [storageKey, initialOpen]);
   const setOpen = useCallback(
     (next: boolean | ((value: boolean) => boolean)) =>

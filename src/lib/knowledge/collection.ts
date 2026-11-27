@@ -158,6 +158,21 @@ export function getPageCollectionId(pageId: string): string {
   return `page_${pageId}`;
 }
 
+/** Свойства нового блока «Коллекция» из меню «/». Первый вид — список,
+ *  и называется он «Список» (раньше стояло «Галерея» при виде-списке). */
+export function kbCollectionSlashProps(pageId: string | null) {
+  return {
+    view: "list" as const,
+    title: "Коллекция",
+    viewTitle: KB_COLLECTION_VIEW_LABELS.list,
+    collectionId: pageId ? getPageCollectionId(pageId) : createCollectionId(),
+    schemaJson: KB_COLLECTION_EMPTY_SCHEMA,
+    visibleFieldIdsJson: KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
+    fieldOrderIdsJson: KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
+    viewId: "",
+  };
+}
+
 export function parseCollectionSchemaJson(value: unknown): KbCollectionSchema {
   if (typeof value === "string" && value.trim() === "") {
     return { version: 1, fields: [] };

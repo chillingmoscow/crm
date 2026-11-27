@@ -771,7 +771,7 @@ const SPECS: Record<string, AuditEventSpec> = {
       const revoked = Number(e.details.revoked ?? 0);
       return (
         <>
-          отправил(а) новые приглашения в чаты Telegram для <StaffName event={e} />
+          отправил(а) новые приглашения в чаты Telegram: <StaffName event={e} />
           {revoked > 0 && (
             <span className="text-muted-foreground">
               {" "}

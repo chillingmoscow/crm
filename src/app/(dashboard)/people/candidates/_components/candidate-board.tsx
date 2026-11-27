@@ -374,6 +374,15 @@ export function CandidateBoard({
           },
         }}
       >
+        {/* Фильтр только по «Принят на работу»: колонки нет, принятые — в «Сотрудниках». */}
+        {!visible.length && (
+          <p className="rounded-lg border p-6 text-center text-sm text-muted-foreground">
+            Принятые на работу — в разделе{" "}
+            <Link href="/people/staff" className="font-medium text-brand hover:underline">
+              Сотрудники
+            </Link>
+          </p>
+        )}
         <div
           className="-mx-4 flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-3 sm:mx-0 sm:snap-none sm:scroll-px-0 sm:px-0"
           aria-label="Доска кандидатов по этапам"

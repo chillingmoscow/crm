@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { actionResult } from "@/lib/actions/result";
 import { writeAuditEvent } from "@/lib/audit/write";
 import { loadTelegramBot } from "@/lib/integrations/telegram-bot";
-import { dropStaffChatInvites, queueStaffChatInvites } from "@/lib/people/chat-invites-queue";
+import { queueStaffChatInvites } from "@/lib/people/chat-invites-queue";
 import { revokeStaffChatInvites } from "@/lib/people/chat-invites-revoke";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
@@ -57,9 +57,21 @@ export async function reissueStaffChatInvites(userId: string) {
     if (!bot?.invitesChatId)
       throw new Error("Подключите Telegram-бота и чат для приглашений в «Настройки → Интеграции»");
 
-    // Незапущенное старое задание больше не нужно: пришлёт ссылки, которые
-    // мы сейчас отзываем.
-    await dropStaffChatInvites(userId);
+    // Пока прежняя отправка в очереди, новую не ставим: она пришлёт ссылки
+    // уже после отзыва. Задание найма к тому же не удаляем — страховка найма
+    // создала бы его заново, и бот прислал бы второе сообщение.
+    const active = await db
+      .from<{ id: string }[]>("candidate_jobs")
+      .select("id")
+      .eq("account_id", accountId)
+      .eq("kind", "chat_invites")
+      .eq("payload->>user_id", userId)
+      .in("state", ["pending", "working", "error"])
+      .lt("attempts", 10)
+      .limit(1);
+    if (active.error) throw new Error("Не удалось проверить очередь приглашений");
+    if (active.data?.length)
+      throw new Error("Бот ещё готовит прежние приглашения — дождитесь их и повторите");
     const { revoked, failed } = await revokeStaffChatInvites(db, bot, accountId, userId);
     const name =
       [profile.data?.first_name, profile.data?.last_name].filter(Boolean).join(" ") || "Сотрудник";

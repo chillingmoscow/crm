@@ -81,5 +81,7 @@
    в Next 15 требует экспериментальной сборки React, а у нас стабильный
    React 19.2. Контейнер страницы проявляется через Web Animations API
    (`PageTransition`), ничего не пересоздавая. Если экран сам запускает
-   `document.startViewTransition` (перелёт аватара), `PageTransition` в этот
-   момент не анимирует.
+   `document.startViewTransition` (перелёт аватара), он ставит на `<html>`
+   атрибут `data-view-transition` до `transition.finished`, а
+   `PageTransition` в этот момент не анимирует. Свой `startViewTransition`
+   поверх идущего не запускаем — вложенный вызов прерывает первый.

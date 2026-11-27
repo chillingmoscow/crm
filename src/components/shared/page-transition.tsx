@@ -39,9 +39,15 @@ export function PageTransition({
     const el = ref.current;
     if (!el || typeof el.animate !== "function") return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    // Идёт собственный view transition (перелёт аватара в карточку) —
-    // он сам ведёт смену, второе движение поверх не нужно.
-    if ((document as Document & { activeViewTransition?: unknown }).activeViewTransition)
+    // Идёт собственный view transition экрана (перелёт аватара в карточку,
+    // src/lib/people/avatar-flight.ts) — он сам ведёт смену, второе
+    // движение поверх не нужно. `activeViewTransition` есть не во всех
+    // браузерах, поэтому экран ещё и ставит на <html> атрибут
+    // `data-view-transition` до конца своего перехода.
+    if (
+      (document as Document & { activeViewTransition?: unknown }).activeViewTransition ||
+      document.documentElement.hasAttribute("data-view-transition")
+    )
       return;
     el.animate(
       [

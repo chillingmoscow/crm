@@ -24,8 +24,8 @@ interface KbMobileTreeDrawerProps {
   canSeeTrash: boolean;
   canDelete?: boolean;
   canDuplicate?: boolean;
-  canViewAudit?: boolean;
-  canViewAnalytics?: boolean;
+  canViewOverview?: boolean;
+  readingSummary?: { total: number; unread: number };
   canImport?: boolean;
   canCreate?: boolean;
   canManageTemplates?: boolean;
@@ -45,8 +45,8 @@ export function KbMobileTreeDrawer({
   canSeeTrash,
   canDelete = false,
   canDuplicate = false,
-  canViewAudit = false,
-  canViewAnalytics = false,
+  canViewOverview = false,
+  readingSummary,
   canImport = false,
   canCreate = false,
   canManageTemplates = false,
@@ -80,8 +80,10 @@ export function KbMobileTreeDrawer({
         // каждом открытии дровера.
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
-        <SheetHeader className="border-b px-4 py-3">
-          <SheetTitle className="text-sm">База знаний</SheetTitle>
+        {/* Заголовок «База знаний» рисует само дерево — здесь только для
+            скринридера. */}
+        <SheetHeader className="sr-only">
+          <SheetTitle>База знаний</SheetTitle>
           <SheetDescription className="sr-only">
             Дерево страниц базы знаний
           </SheetDescription>
@@ -97,8 +99,8 @@ export function KbMobileTreeDrawer({
             canSeeTrash={canSeeTrash}
             canDelete={canDelete}
             canDuplicate={canDuplicate}
-            canViewAudit={canViewAudit}
-            canViewAnalytics={canViewAnalytics}
+            canViewOverview={canViewOverview}
+            readingSummary={readingSummary}
             canImport={canImport}
             canCreate={canCreate}
             canManageTemplates={canManageTemplates}

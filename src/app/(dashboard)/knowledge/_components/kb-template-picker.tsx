@@ -30,6 +30,10 @@ interface KbTemplatePickerProps {
   parentId?: string | null;
   /** Может ли текущий пользователь удалять шаблоны. */
   canManageTemplates: boolean;
+  /** Управляемый режим (меню «+» дерева): владелец держит открытие,
+   *  своя кнопка-иконка не рисуется. */
+  open?: boolean;
+  onOpenChange?: (next: boolean) => void;
 }
 
 /**
@@ -44,9 +48,14 @@ interface KbTemplatePickerProps {
 export function KbTemplatePicker({
   parentId = null,
   canManageTemplates,
+  open: openProp,
+  onOpenChange: onOpenChangeProp,
 }: KbTemplatePickerProps) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [openInternal, setOpenInternal] = useState(false);
+  const isControlled = openProp !== undefined && onOpenChangeProp !== undefined;
+  const open = isControlled ? openProp : openInternal;
+  const setOpen = isControlled ? onOpenChangeProp : setOpenInternal;
   const [loading, setLoading] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -73,7 +82,8 @@ export function KbTemplatePicker({
     return () => {
       cancelled = true;
     };
-  }, [open]);
+    // setOpen стабилен: свой useState или setState владельца (меню «+»).
+  }, [open, setOpen]);
 
   const onUse = async (templateId: string) => {
     setPending(templateId);
@@ -123,18 +133,20 @@ export function KbTemplatePicker({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <IconTooltip label="Создать из шаблона">
-        <DialogTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            aria-label="Создать из шаблона"
-          >
-            <LayoutTemplate className="size-3.5" />
-          </Button>
-        </DialogTrigger>
-      </IconTooltip>
+      {!isControlled && (
+        <IconTooltip label="Создать из шаблона">
+          <DialogTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6"
+              aria-label="Создать из шаблона"
+            >
+              <LayoutTemplate className="size-3.5" />
+            </Button>
+          </DialogTrigger>
+        </IconTooltip>
+      )}
       <DialogContent className="max-w-[520px]">
         <DialogHeader>
           <DialogIcon tone="default" icon={LayoutTemplate} />

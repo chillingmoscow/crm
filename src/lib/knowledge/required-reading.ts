@@ -132,7 +132,8 @@ export async function markKbPageAsRead(
     return { error: error.message };
   }
 
-  revalidatePath(`/knowledge`);
+  // "layout": счётчик «К прочтению» живёт в дереве (layout раздела).
+  revalidatePath("/knowledge", "layout");
   return { error: null };
 }
 

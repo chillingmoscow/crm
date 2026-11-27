@@ -2,6 +2,7 @@
 import { ColorDot } from "@/components/ui/color-dot";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import type { SortingState } from "@tanstack/react-table";
 import dynamic from "next/dynamic";
 import { format } from "date-fns";
@@ -267,7 +268,6 @@ export function ScheduleClient({
   initialDate,
   initialView,
   initialSwap,
-  initialCreate,
 }: {
   initial: ScheduleData;
   section?: "calendar" | "templates";
@@ -278,10 +278,10 @@ export function ScheduleClient({
   initialView?: "templates" | "list" | "week";
   /** Заявка на замену из уведомления (`?swap=`): открыть её смену. */
   initialSwap?: string;
-  /** `?create=shift` из палитры ⌘K: сразу открыть форму новой смены. */
-  initialCreate?: "shift";
 }) {
   const [data, setData] = useState(initial);
+  // `?create=shift` из палитры ⌘K: открыть форму новой смены (ниже).
+  const searchParams = useSearchParams();
   const tab = section;
   const [screenTitle, setScreenTitle] = useState<string | null>(null);
   const [taskHeaderTarget, setTaskHeaderTarget] =
@@ -1592,15 +1592,30 @@ export function ScheduleClient({
   // «Новая смена» из палитры ⌘K (`?create=shift`): форма открывается один
   // раз — на тот же день, что и кнопка «Добавить», — а параметр уходит из
   // адреса, чтобы обновление страницы не открывало её снова.
-  const openedCreate = useRef(false);
+  // Реагирует на каждый переход: параметр уходит из адреса, и следующий
+  // переход на `?create=shift` снова его приносит. Обработка — после всех
+  // эффектов первой отрисовки: раньше роутер Next ещё не следит за history
+  // (вернёт параметр в адрес), а уведомления ещё не подключены.
+  const createParam = searchParams.get("create");
+  const openCreateFromUrl = useRef(() => {});
   useEffect(() => {
-    if (!initialCreate || openedCreate.current) return;
-    openedCreate.current = true;
-    const url = new URL(window.location.href);
-    url.searchParams.delete("create");
-    window.history.replaceState(null, "", url);
-    if (can("shift_create")) create(addDay);
+    openCreateFromUrl.current = () => {
+      if (can("shift_create")) create(addDay);
+      else toast.info("У вас нет права создавать смены");
+    };
   });
+  useEffect(() => {
+    if (createParam !== "shift") return;
+    const timer = setTimeout(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("create");
+      // `null`, не `history.state`: состояние с метками Next роутер принимает
+      // за своё и не обновляет useSearchParams — второй переход не сработал бы.
+      window.history.replaceState(null, "", url);
+      openCreateFromUrl.current();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [createParam]);
   // Период и «Сегодня» стоят в шапке слева, инструменты — в той же строке справа.
   const periodControls = (
     <>
@@ -2337,9 +2352,12 @@ export function ScheduleClient({
                         </div>
                         <div className="space-y-2 p-3">
                           {(() => {
-                            const dayShifts = weekShifts.filter(
-                              (s) => dateInZone(s.starts_at, data.timezone) === d,
-                            );
+                            // По началу смены: оптимистично добавленная или
+                            // перенесённая смена иначе оказывается в конце, и
+                            // линия «сейчас» встаёт не туда.
+                            const dayShifts = weekShifts
+                              .filter((s) => dateInZone(s.starts_at, data.timezone) === d)
+                              .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
                             const items = dayShifts.map((shift) => card(shift, "list"));
                             if (d !== today || now === null || !nowTime || !dayShifts.length) return items;
                             // Линия «сейчас» — перед первой ещё не начавшейся

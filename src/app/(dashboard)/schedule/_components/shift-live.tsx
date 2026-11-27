@@ -91,14 +91,20 @@ export function NowLine({ time }: { time: string }) {
  * сетки нет оси времени, поэтому «сейчас» — часы в столбце текущего дня.
  */
 export function TodayClock({ time }: { time: string | null }) {
-  if (!time) return null;
   // Время не отрывается от точки и при узком столбце уходит строкой ниже
-  // целиком, без висящего разделителя.
+  // целиком, без висящего разделителя. До монтирования время неизвестно —
+  // место под него занято невидимым «00:00», и шапка не подрастает.
   return (
-    <span className="ml-1.5 inline-flex items-center gap-1 whitespace-nowrap font-normal tabular-nums">
+    <span
+      aria-hidden={time ? undefined : true}
+      className={cn(
+        "ml-1.5 inline-flex items-center gap-1 whitespace-nowrap font-normal tabular-nums",
+        !time && "invisible",
+      )}
+    >
       <span aria-hidden className="size-1 rounded-full bg-current" />
-      <span className="sr-only">сейчас </span>
-      {time}
+      {time && <span className="sr-only">сейчас </span>}
+      {time ?? "00:00"}
     </span>
   );
 }

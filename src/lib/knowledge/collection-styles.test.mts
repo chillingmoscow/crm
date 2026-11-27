@@ -106,3 +106,29 @@ test("popovers keep PopoverContent radius and shadow", () => {
     );
   assert.deepEqual(own, []);
 });
+
+const BODY_PARTS = [
+  "-table",
+  "-column-resize",
+  "-column-drop",
+  "-column-drag",
+  "-list",
+  "-grouped-stack",
+  "-group",
+  "-row",
+  "-preview",
+  "-properties",
+  "-property",
+  "-state",
+  "-empty",
+];
+
+test("table, list and empty state are on the DS scale", () => {
+  const found = offScaleDeclarations(collectionRules(BODY_PARTS));
+  assert.deepEqual(found, [], report(found));
+});
+
+test("whole collection section is on the DS scale", () => {
+  const found = offScaleDeclarations(rules, { selectorIncludes: "kb-collection" });
+  assert.deepEqual(found, [], report(found));
+});

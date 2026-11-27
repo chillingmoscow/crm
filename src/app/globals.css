@@ -2583,6 +2583,8 @@ button.kb-gallery-menu-item {
   max-width: min(560px, 62vw);
   overflow: hidden;
   border-radius: 6px;
+  /* Поле наведения уходит влево, текст стоит ровно над вкладками. */
+  margin-inline-start: -4px;
   padding: 2px 4px;
   color: inherit;
   font: inherit;
@@ -2712,6 +2714,14 @@ button.kb-gallery-menu-item {
   border-bottom-color: hsl(var(--brand));
   color: hsl(var(--brand-text));
   font-weight: 600;
+}
+/* Своих кнопок шапки много — рамка фокуса как у Button (--ring), а не
+ * системная рамка браузера. */
+.bn-sheerly .kb-collection-view-tab:focus-visible,
+.bn-sheerly .kb-collection-view-add-inline:focus-visible,
+.bn-sheerly .kb-collection-title-button:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
 }
 .bn-sheerly .kb-collection-view-tab[data-active] svg {
   color: hsl(var(--brand-text));
@@ -3147,10 +3157,10 @@ button.kb-gallery-menu-item {
   display: flex;
   min-height: 28px;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   color: hsl(var(--muted-foreground));
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
 }
 .bn-sheerly .kb-collection-group-header svg {
   color: hsl(var(--muted-foreground) / 0.78);
@@ -3161,21 +3171,22 @@ button.kb-gallery-menu-item {
   height: 20px;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
-  background-color: hsl(var(--muted) / 0.72);
+  border-radius: 6px;
+  background-color: hsl(var(--muted));
   color: hsl(var(--muted-foreground));
-  font-size: 11.5px;
-  font-weight: 650;
+  padding-inline: 6px;
+  font-size: 12px;
+  font-weight: 500;
 }
 .bn-sheerly .kb-collection-row {
   display: flex;
   min-width: 0;
   align-items: center;
   gap: 8px;
-  border: 1px solid hsl(var(--border) / 0.78);
-  border-radius: 10px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
   background-color: hsl(var(--background));
-  padding: 11px 12px;
+  padding: 12px;
   color: inherit;
   text-decoration: none;
   transition:
@@ -3184,9 +3195,7 @@ button.kb-gallery-menu-item {
     box-shadow 120ms ease;
 }
 .bn-sheerly .kb-collection-row:hover {
-  border-color: hsl(var(--brand) / 0.3);
-  background-color: hsl(var(--accent) / 0.42);
-  box-shadow: 0 1px 0 hsl(var(--foreground) / 0.03);
+  background-color: hsl(var(--muted) / 0.4);
 }
 .bn-sheerly .kb-collection-row-main {
   display: flex;
@@ -3197,17 +3206,21 @@ button.kb-gallery-menu-item {
   color: inherit;
   text-decoration: none;
 }
+.bn-sheerly .bn-editor a.kb-collection-row-main,
+.bn-sheerly .bn-editor a.kb-collection-row-main:link,
+.bn-sheerly .bn-editor a.kb-collection-row-main:visited {
+  color: inherit;
+  text-decoration: none;
+}
 .bn-sheerly .kb-collection-row-main:hover .kb-collection-row-title {
-  text-decoration: underline;
-  text-decoration-color: hsl(var(--muted-foreground) / 0.45);
-  text-underline-offset: 3px;
+  color: hsl(var(--brand-text));
 }
 .bn-sheerly .kb-collection-row-title {
   overflow: hidden;
   color: hsl(var(--foreground));
-  font-size: 14.5px;
-  font-weight: 600;
-  line-height: 1.35;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3216,7 +3229,7 @@ button.kb-gallery-menu-item {
   margin-top: 2px;
   overflow: hidden;
   color: hsl(var(--muted-foreground));
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.4;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -3238,10 +3251,10 @@ button.kb-gallery-menu-item {
   gap: 5px;
   border: 1px solid transparent;
   border-radius: 999px;
-  background-color: hsl(var(--muted) / 0.48);
-  padding: 3px 8px;
+  background-color: hsl(var(--muted));
+  padding: 2px 8px;
   color: hsl(var(--foreground));
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.2;
 }
 .bn-sheerly .kb-collection-property .inline-flex {
@@ -3253,7 +3266,7 @@ button.kb-gallery-menu-item {
 .bn-sheerly .kb-collection-property button,
 .bn-sheerly .kb-collection-property input {
   min-height: 18px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.2;
 }
 .bn-sheerly .kb-collection-property button {
@@ -3273,8 +3286,8 @@ button.kb-gallery-menu-item {
   width: fit-content;
   max-width: 100%;
   overflow-x: auto;
-  border: 1px solid hsl(var(--border) / 0.78);
-  border-radius: 10px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
   background-color: hsl(var(--background));
 }
 .bn-sheerly .kb-collection-table-scroll[data-menu-open] {
@@ -3296,19 +3309,20 @@ button.kb-gallery-menu-item {
   transition: background-color 120ms ease;
 }
 .bn-sheerly .kb-collection-table-row:not(.kb-collection-table-row-head):hover {
-  background-color: hsl(var(--accent) / 0.34);
+  background-color: hsl(var(--muted) / 0.4);
 }
 .bn-sheerly .kb-collection-table-head-cell,
 .bn-sheerly .kb-collection-table-title-cell,
 .bn-sheerly .kb-collection-table-cell {
-  border-bottom: 1px solid hsl(var(--border) / 0.7);
-  padding: 8px 10px;
+  min-height: 40px;
+  border-bottom: 1px solid hsl(var(--border));
+  padding: 8px 12px;
   text-align: left;
 }
 .bn-sheerly .kb-collection-table[data-vertical-lines] .kb-collection-table-head-cell,
 .bn-sheerly .kb-collection-table[data-vertical-lines] .kb-collection-table-title-cell,
 .bn-sheerly .kb-collection-table[data-vertical-lines] .kb-collection-table-cell {
-  border-right: 1px solid hsl(var(--border) / 0.54);
+  border-right: 1px solid hsl(var(--border));
 }
 .bn-sheerly .kb-collection-table-row > :last-child {
   border-right: 0;
@@ -3316,13 +3330,14 @@ button.kb-gallery-menu-item {
 .bn-sheerly .kb-collection-table-row:last-child > * {
   border-bottom: 0;
 }
+/* Шапка — как у DataTable: bg-muted, 12 / 500 серым. */
 .bn-sheerly .kb-collection-table-head-cell {
   position: relative;
-  height: 34px;
-  background-color: hsl(var(--muted) / 0.26);
+  height: 40px;
+  background-color: hsl(var(--muted));
   color: hsl(var(--muted-foreground));
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
 }
 .bn-sheerly .kb-collection-table-add-field {
   display: inline-flex;
@@ -3390,10 +3405,10 @@ button.kb-gallery-menu-item {
   color: hsl(var(--foreground));
   padding: 8px 10px;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
   opacity: 0.72;
   pointer-events: none;
-  box-shadow: 0 10px 26px hsl(var(--foreground) / 0.14);
+  box-shadow: theme('boxShadow.md');
 }
 .bn-sheerly .kb-collection-column-drag-preview svg {
   flex-shrink: 0;
@@ -3467,17 +3482,19 @@ button.kb-gallery-menu-item {
   align-items: center;
   gap: 8px;
   color: hsl(var(--foreground));
-  font-weight: 600;
+  font-weight: 500;
   text-decoration: none;
 }
-.bn-sheerly .kb-collection-table-title-link:link,
-.bn-sheerly .kb-collection-table-title-link:visited {
+/* Ссылка редактора BlockNote подчёркнута — у названия записи, как у
+ * строк остальных таблиц, подчёркивания нет, при наведении оно синеет. */
+.bn-sheerly .bn-editor a.kb-collection-table-title-link,
+.bn-sheerly .bn-editor a.kb-collection-table-title-link:link,
+.bn-sheerly .bn-editor a.kb-collection-table-title-link:visited {
   color: hsl(var(--foreground));
+  text-decoration: none;
 }
 .bn-sheerly .kb-collection-table-title-link:hover .kb-collection-table-title-text {
-  text-decoration: underline;
-  text-decoration-color: hsl(var(--muted-foreground) / 0.45);
-  text-underline-offset: 3px;
+  color: hsl(var(--brand-text));
 }
 .bn-sheerly .kb-collection-table-title-text {
   min-width: 0;
@@ -3614,7 +3631,7 @@ button.kb-gallery-menu-item {
   background-color: transparent;
   color: hsl(var(--muted-foreground));
   font: inherit;
-  font-weight: 560;
+  font-weight: 400;
 }
 .bn-sheerly .kb-collection-table-new-cell:hover {
   color: hsl(var(--foreground));
@@ -3635,7 +3652,7 @@ button.kb-gallery-menu-item {
   gap: 8px;
   border: 1px dashed hsl(var(--border));
   border-radius: 8px;
-  background-color: hsl(var(--muted) / 0.22);
+  background-color: hsl(var(--muted) / 0.4);
   color: hsl(var(--muted-foreground));
   font-size: 13px;
 }
@@ -3646,7 +3663,7 @@ button.kb-gallery-menu-item {
   /* Воздух сверху/снизу до пунктирной рамки — без него иконка
      «Нет записей» прижата к верхнему краю. */
   min-height: 120px;
-  padding: 28px 16px;
+  padding: 24px 16px;
 }
 .bn-sheerly .kb-collection-empty:disabled {
   cursor: default;
@@ -4261,6 +4278,11 @@ button.kb-gallery-menu-item {
   }
   .bn-sheerly .kb-collection-actions .kb-collection-add-btn {
     margin-left: auto;
+  }
+  /* Свернуть панель — по наведению, которого на телефоне нет: кнопка
+   * только занимала место перед значками. */
+  .bn-sheerly .kb-collection-actions .kb-collection-toolbar-toggle {
+    display: none;
   }
   .bn-sheerly .kb-collection-properties {
     padding-left: 0;

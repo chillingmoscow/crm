@@ -2540,8 +2540,13 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
           }}
         >
           <FileText className="size-5" />
-          <span className="font-medium">Нет записей</span>
-          {canCreate && <span>Создать первую запись</span>}
+          <span className="font-medium text-foreground">Записей пока нет</span>
+          {canCreate && (
+            <span className="inline-flex items-center gap-1 text-brand">
+              <Plus className="size-4" />
+              Добавить запись
+            </span>
+          )}
         </button>
       ) : items.length > 0 && sortedItems.length === 0 ? (
         <div className="kb-collection-state">

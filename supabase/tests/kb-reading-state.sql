@@ -74,6 +74,7 @@ begin
   select * into o from public.kb_required_reading_overview(current_setting('qa.kb_page')::uuid);
   if o.page_id is null then raise exception 'Нет строки обзора для страницы'; end if;
   if not o.changed_after_read then raise exception 'Не видно правки после прочтения'; end if;
+  if o.stale_count <> 1 then raise exception 'Сбросить должны 1 человека, а не %', o.stale_count; end if;
   if o.read_count <> 1 or o.current_version <> 2 then raise exception 'Неверный счёт: % из %, версия %', o.read_count, o.total, o.current_version; end if;
   -- Вызывать отозванную функцию под `set local role` из psql нельзя:
   -- локальный Postgres падает с segfault (через PostgREST — обычная 42501).

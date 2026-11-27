@@ -4273,6 +4273,7 @@ export type Database = {
           read_count: number
           reread_count: number
           unread_count: number
+          stale_count: number
           changed_after_read: boolean
           reminded_at: string | null
           last_edited_at: string | null

@@ -2,10 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { BookCheck, Check, Loader2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/shared/confirm-dialog";
+import { unwrapAction } from "@/lib/actions/result";
+import { requestKbReread } from "@/lib/knowledge/reading-actions";
+import { countRu, pluralRu } from "@/lib/format/plural";
 import { markKbPageAsRead } from "@/lib/knowledge/required-reading";
 import { kbReadingPlate } from "@/lib/knowledge/document";
 import { formatDayMonth } from "@/lib/format/date";
@@ -31,7 +36,18 @@ interface KbRequiredReadingBannerProps {
   accumulatedActiveSeconds?: number;
   /** Для руководителя с правом обязательного чтения: сколько человек
    *  прочитали текущую версию из скольких. null — не показывать. */
-  stats?: { read: number; total: number } | null;
+  stats?: {
+    read: number;
+    total: number;
+    /** Страницу правили после чьего-то прочтения (сводка 416). */
+    changedAfterRead: boolean;
+    /** Скольких других сбросит «Попросить перечитать» (им придёт уведомление). */
+    staleOthers: number;
+    /** У самого руководителя тоже прочитана не последняя версия. */
+    selfStale: boolean;
+  } | null;
+  /** Название страницы — для окна подтверждения. */
+  pageTitle?: string;
   /** slug страницы — ссылка «Кто прочитал». */
   pageSlug?: string;
   /** Право обязательного чтения: ссылка «Кто прочитал» видна и тогда,
@@ -63,9 +79,16 @@ export function KbRequiredReadingBanner({
   stats = null,
   canSeeReaders = false,
   pageSlug,
+  pageTitle,
 }: KbRequiredReadingBannerProps) {
+  const router = useRouter();
+  const { confirm, dialog } = useConfirm();
   const [readAt, setReadAt] = useState<string | null>(initialReadAt);
+  // После router.refresh (например, «Попросить перечитать») сервер присылает
+  // новое значение — локальное состояние должно его подхватить.
+  useEffect(() => setReadAt(initialReadAt), [initialReadAt]);
   const [pending, setPending] = useState(false);
+  const [rereadPending, setRereadPending] = useState(false);
 
   const override = useKbPageStateOverride(pageId);
   const effectiveRequired = override?.requiredReading ?? required;
@@ -113,8 +136,43 @@ export function KbRequiredReadingBanner({
     // После подтверждения в этой сессии старое «нужно перечитать» снято.
     needsReread: needsReread && !readAt,
     gateReady,
+    changedAfterRead: stats?.changedAfterRead ?? false,
   });
   if (plate.kind === "none") return null;
+
+  const onRequestReread = async () => {
+    const people = stats?.staleOthers ?? 0;
+    const others =
+      people > 0
+        ? `${countRu(people, "человек", "человека", "человек")} снова ${pluralRu(people, "увидит", "увидят", "увидят")} её в «К прочтению» и ${pluralRu(people, "получит", "получат", "получат")} уведомление.`
+        : "";
+    const self = stats?.selfStale
+      ? people > 0
+        ? " Ваше прочтение тоже сбросится."
+        : "Ваше прочтение сбросится, страница снова появится в «К прочтению»."
+      : "";
+    const ok = await confirm({
+      title: `Попросить перечитать «${pageTitle?.trim() || "Без названия"}»?`,
+      description: `${others}${self}`.trim() || "Прочтения старых версий перестанут считаться.",
+      confirmLabel: "Попросить перечитать",
+      tone: "warning",
+    });
+    if (!ok) return;
+    setRereadPending(true);
+    try {
+      const { notified } = unwrapAction(await requestKbReread(pageId));
+      toast.success(
+        notified > 0
+          ? `Попросили перечитать: ${countRu(notified, "человек", "человека", "человек")}`
+          : "Прочтения сброшены",
+      );
+      router.refresh();
+    } catch (error) {
+      toast.error((error as Error).message);
+    } finally {
+      setRereadPending(false);
+    }
+  };
 
   const onConfirm = async () => {
     setPending(true);
@@ -215,6 +273,26 @@ export function KbRequiredReadingBanner({
           </>
         )}
       </div>
+
+      {plate.changedAfterRead && (
+        <div className="flex basis-full flex-wrap items-center gap-x-3 gap-y-2 border-t border-foreground/10 pt-2">
+          <span className="flex min-w-0 flex-1 items-center gap-2 text-[13px] text-muted-foreground">
+            <RotateCcw className="size-4 shrink-0" />
+            Изменена после прочтения
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onRequestReread}
+            disabled={rereadPending}
+            className="max-sm:w-full"
+          >
+            {rereadPending && <Loader2 className="size-4 animate-spin" />}
+            Попросить перечитать
+          </Button>
+        </div>
+      )}
+      {dialog}
     </div>
   );
 }

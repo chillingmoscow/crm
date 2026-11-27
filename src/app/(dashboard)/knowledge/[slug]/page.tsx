@@ -29,7 +29,7 @@ import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 import { KbLockHeaderChip } from "@/app/(dashboard)/knowledge/_components/kb-lock-header-chip";
 import {
   getKbMyActiveSeconds,
-  getKbRequiredReadingStats,
+  getKbRequiredReadingOverview,
 } from "@/lib/knowledge/required-reading";
 import { estimateReadingMinutes } from "@/lib/knowledge/reading-time";
 import { kbPropertiesSchema } from "@/lib/knowledge/schemas";
@@ -180,6 +180,9 @@ export default async function KbPageView({ params }: PageProps) {
     myReadAt: pageViewData?.my_read_at ?? null,
     needsReread: pageViewData?.needs_reread ?? false,
   };
+  const selfStale =
+    readStatus.myReadAt !== null &&
+    (pageViewData?.my_read_version ?? 0) < (pageViewData?.current_version ?? 1);
   // Накопленное активное время текущего юзера на странице — нужно
   // только для read-gate на ещё-не-подтверждённой обязательной
   // странице (иначе лишний RPC). Read-gate стартует с этого значения,
@@ -194,18 +197,21 @@ export default async function KbPageView({ params }: PageProps) {
       ? getKbMyActiveSeconds(row.id)
       : Promise.resolve(0),
     readStatus.required && permissionCodes.includes("kb.manage_required_reading")
-      ? getKbRequiredReadingStats(row.id).then(({ rows, error }) => {
-          if (error) {
-            // Без счётчика плашка остаётся рабочей, ссылка «Кто прочитал»
-            // видна по праву; ошибку оставляем в логе сервера.
-            console.error("[kb] статистика обязательного чтения:", error);
-            return null;
-          }
-          return {
-            read: rows.filter((r) => r.read_at !== null).length,
-            total: rows.length,
-          };
-        })
+      ? // Ошибка сводки пишется в лог сервера; без неё плашка остаётся
+        // рабочей, ссылка «Кто прочитал» видна по праву.
+        getKbRequiredReadingOverview(row.id).then(([page]) =>
+          page
+            ? {
+                read: page.readCount,
+                total: page.total,
+                changedAfterRead: page.changedAfterRead,
+                // Сам руководитель тоже может быть среди прочитавших старую
+                // версию: его прочтение сбросится, но уведомления себе нет.
+                staleOthers: Math.max(0, page.staleCount - (selfStale ? 1 : 0)),
+                selfStale,
+              }
+            : null,
+        )
       : Promise.resolve(null),
   ]);
 
@@ -409,6 +415,7 @@ export default async function KbPageView({ params }: PageProps) {
               <KbRequiredReadingBanner
                 pageId={row.id}
                 pageSlug={row.slug}
+                pageTitle={row.title}
                 stats={readingStats}
                 canSeeReaders={hasManageRequiredReading}
                 required={readStatus.required}

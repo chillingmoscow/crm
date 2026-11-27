@@ -262,6 +262,7 @@ returns table (
   read_count integer,
   reread_count integer,
   unread_count integer,
+  stale_count integer,
   changed_after_read boolean,
   reminded_at timestamptz,
   last_edited_at timestamptz
@@ -326,6 +327,11 @@ begin
     (count(l.user_id) filter (where l.read_version >= p.from_v))::integer,
     (count(l.user_id) filter (where l.read_version < p.from_v))::integer,
     (v_total - count(l.user_id))::integer,
+    -- Прочитали действующе, но не последнюю версию: их сбросит
+    -- «Попросить перечитать».
+    (count(l.user_id) filter (
+      where l.read_version >= p.from_v and l.read_version < coalesce(v.cur, 1)
+    ))::integer,
     coalesce(bool_or(l.read_version >= p.from_v and l.read_version < coalesce(v.cur, 1)), false)
       and coalesce(v.cur, 1) > coalesce(p.dismissed_v, 0),
     p.reminded,

@@ -23,7 +23,7 @@ import {
   getKbMonthlyTrend,
   type KbAnalyticsPeriod,
 } from "@/lib/knowledge/analytics";
-import { getKbRequiredReadingCoverage } from "@/lib/knowledge/required-reading";
+import { getKbRequiredReadingOverview } from "@/lib/knowledge/required-reading";
 import { listKbAuditEvents } from "@/lib/knowledge/audit";
 import { KbAnalyticsPeriodTabs } from "@/app/(dashboard)/knowledge/analytics/_components/kb-analytics-period-tabs";
 import {
@@ -130,7 +130,7 @@ export default async function KbDashboardPage({
   // RLS-фильтруются в ноль и наоборот. Нули как реальные данные =
   // ложный сигнал (Codex #319 P2). Нет права → не фетчим, блок =
   // «нет доступа».
-  const [analyticsData, auditData, { coverage }] = await Promise.all([
+  const [analyticsData, auditData, readingOverview] = await Promise.all([
     canAnalytics
       ? Promise.all([
           getKbAnalyticsSummary({ period, monthKey }),
@@ -162,7 +162,7 @@ export default async function KbDashboardPage({
           })(),
         ])
       : Promise.resolve(null),
-    getKbRequiredReadingCoverage(),
+    getKbRequiredReadingOverview(),
   ]);
 
   const summary = analyticsData?.[0].summary ?? null;
@@ -176,9 +176,11 @@ export default async function KbDashboardPage({
   const recentEvents = auditData?.[0].events ?? [];
   const changesInPeriod: number | null = auditData?.[1].count ?? null;
 
-  const coverageKnown =
-    coverage.requiredPages > 0 && coverage.teamSize > 0;
-  const pending = coverage.teamSize - coverage.done;
+  // Временный показатель до нового «Обзора» (этап 3, задача 7).
+  const readNeeded = readingOverview.reduce((sum, r) => sum + r.total, 0);
+  const readDone = readingOverview.reduce((sum, r) => sum + r.readCount, 0);
+  const coverageKnown = readingOverview.length > 0 && readNeeded > 0;
+  const pending = readNeeded - readDone;
   const latestChanges = recentEvents.slice(0, 6);
   const loadError =
     summaryError ?? pagesError ?? topUsersError ?? trendError;
@@ -252,8 +254,8 @@ export default async function KbDashboardPage({
               hint={
                 !summary
                   ? "нет доступа к аналитике"
-                  : coverage.teamSize > 0
-                    ? `из ${coverage.teamSize} в команде`
+                  : readingOverview[0]?.total
+                    ? `из ${readingOverview[0]?.total} в команде`
                     : windowLabel
               }
             />
@@ -269,12 +271,10 @@ export default async function KbDashboardPage({
             <KbStatCard
               label="Прочли must-read"
               value={
-                coverageKnown
-                  ? `${coverage.done} / ${coverage.teamSize}`
-                  : "—"
+                coverageKnown ? `${Math.round((readDone / readNeeded) * 100)}%` : "—"
               }
               hint={
-                coverage.requiredPages === 0
+                readingOverview.length === 0
                   ? "нет обязательных страниц"
                   : !coverageKnown
                     ? "нет доступа к статистике"

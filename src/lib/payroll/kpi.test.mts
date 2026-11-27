@@ -117,3 +117,8 @@ test("parseKpiItems: metric alcohol читается как alcohol_share", () =
   const [item] = parseKpiItems([{ id: "p", type: "plan", label: "План", amount: 1, metric: "alcohol" }]);
   assert.equal(item.type === "plan" && item.metric, "alcohol_share");
 });
+
+test("kpiResult: месяц идёт и плана нет — ждём конца месяца, а не «план не задан»", () => {
+  const line = kpiResult(SENIOR_BAR, {}, { target: null, actual: null, pending: "month" }).lines.find((l) => l.id === "alcohol_plan")!;
+  assert.equal(line.note, KPI_WAITING_MONTH);
+});

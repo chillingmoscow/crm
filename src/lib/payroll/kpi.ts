@@ -106,8 +106,9 @@ export function kpiResult(items: KpiItem[], answers: KpiAnswers, plan: KpiPlanFa
       return { ...base, amount: round(n * item.price), counted: n > 0, note: n > 0 ? `×${n}` : null };
     }
     if (item.type === "plan") {
-      if (plan.target === null || plan.target <= 0) return { ...base, amount: 0, counted: false, note: "План не был задан" };
+      // Пока месяц идёт, план ещё могут задать — пункт ждёт конца месяца.
       if (plan.pending === "month") return { ...base, amount: 0, counted: false, note: KPI_WAITING_MONTH };
+      if (plan.target === null || plan.target <= 0) return { ...base, amount: 0, counted: false, note: "План не был задан" };
       if (plan.actual === null) return { ...base, amount: 0, counted: false, note: KPI_WAITING_REPORT };
       const ok = plan.actual >= plan.target;
       return { ...base, amount: ok ? item.amount : 0, counted: ok, note: `${pct(plan.actual)} при плане ${pct(plan.target)}` };

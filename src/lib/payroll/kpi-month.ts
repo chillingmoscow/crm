@@ -19,6 +19,8 @@ export type KpiVenue = { admin: LooseDb; accountId: string; venueId: string };
 export type KpiMonthPerson = {
   employeeId: string;
   name: string;
+  /** Фото профиля сотрудника (если он связан с пользователем). */
+  avatarUrl: string | null;
   roleName: string;
   since: string | null;
   termsId: string;
@@ -190,6 +192,10 @@ export async function loadKpiMonthView(
         .select("id,first_name,last_name").in("id", [...new Set(savers)])) ?? [])
         .map((p) => [p.id, [p.first_name, p.last_name].filter(Boolean).join(" ") || "Сотрудник"]))
     : new Map<string, string>();
+  const userIds = [...new Set(base.people.map((p) => base.employees.get(p.employeeId)?.local_user_id).filter((x): x is string => Boolean(x)))];
+  const avatars = userIds.length
+    ? new Map((check(await admin.from<{ id: string; avatar_url: string | null }[]>("profiles").select("id,avatar_url").in("id", userIds)) ?? []).map((p) => [p.id, p.avatar_url]))
+    : new Map<string, string | null>();
   const roleIds = [...new Set(base.people.map((p) => p.roleId))];
   const roles = roleIds.length
     ? new Map((check(await admin.from<{ id: string; name: string }[]>("roles").select("id,name").in("id", roleIds)) ?? []).map((r) => [r.id, r.name]))
@@ -211,6 +217,7 @@ export async function loadKpiMonthView(
     return [{
       employeeId: p.employeeId,
       name: employee.name,
+      avatarUrl: employee.local_user_id ? avatars.get(employee.local_user_id) ?? null : null,
       roleName,
       since: p.since,
       termsId: p.termsId,

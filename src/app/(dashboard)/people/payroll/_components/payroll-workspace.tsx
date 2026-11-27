@@ -555,8 +555,8 @@ export function PayrollWorkspace({
       <TabsTrigger value="statement">Ведомость · {active.length}</TabsTrigger>
       <TabsTrigger value="payments">Выплаты</TabsTrigger>
       <TabsTrigger value="journal">Начисления и удержания</TabsTrigger>
-      {can("view") && <TabsTrigger value="plan">План выплат</TabsTrigger>}
       {can("view") && <TabsTrigger value="kpi">KPI</TabsTrigger>}
+      {can("view") && <TabsTrigger value="plan">План выплат</TabsTrigger>}
     </TabsList>
   );
   const changeMonth = (value: string) => {

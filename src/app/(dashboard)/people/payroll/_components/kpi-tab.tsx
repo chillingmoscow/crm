@@ -7,16 +7,69 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Metric, MetricStrip } from "@/components/shared/metric-strip";
 import { Money } from "@/components/shared/money";
+import { EmployeeIdentity } from "@/components/shared/employee-identity";
 import { unwrapAction } from "@/lib/actions/result";
-import type { KpiMonthView } from "@/lib/payroll/kpi-month";
+import { kpiResult, type KpiAnswers } from "@/lib/payroll/kpi";
+import type { KpiMonthPerson, KpiMonthView } from "@/lib/payroll/kpi-month";
 import { transferMonthLabel } from "@/lib/payroll/transfer-reason";
 import { loadKpiMonth } from "../kpi-actions";
 import { KpiChecklistDialog } from "./kpi-checklist-dialog";
 
 const dayLabel = (date: string) =>
   new Date(`${date}T12:00:00Z`).toLocaleDateString("ru-RU", { day: "numeric", month: "long", timeZone: "UTC" });
+const pct = (n: number) => `${n.toLocaleString("ru-RU", { maximumFractionDigits: 2 })}%`;
+const points = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? "пункта" : "пунктов");
 
-/** Вкладка «KPI» зарплаты: итоги старших за месяц и план продаж алкоголя на следующий. */
+/** Сколько пунктов выполнено: по сохранённым ответам и текущему плану. */
+function progress(person: KpiMonthPerson, view: KpiMonthView): { done: number; total: number } {
+  const answers: KpiAnswers = person.review?.answers ?? {};
+  try {
+    const { lines } = kpiResult(person.items, answers, view.plan);
+    return { done: lines.filter((l) => l.counted).length, total: person.items.length };
+  } catch {
+    return { done: 0, total: person.items.length };
+  }
+}
+
+function PersonCard({ person, view, onOpen }: { person: KpiMonthPerson; view: KpiMonthView; onOpen: () => void }) {
+  const p = progress(person, view);
+  const editable = view.canSave && !view.blocked && !person.blocked;
+  // Пока месяц идёт, отмеченные итоги — нормальное состояние: план досчитаем после конца месяца.
+  const waiting = person.review?.needsRecount && view.inProgress;
+  const status = waiting
+    ? <StatusBadge tone="neutral" tip="План по алкоголю засчитаем после конца месяца">Отмечено</StatusBadge>
+    : person.review?.needsRecount
+    ? <StatusBadge tone="warning" tip="План засчитаем, когда придёт отчёт продаж за месяц">Досчитать план</StatusBadge>
+    : person.review
+      ? <StatusBadge tone="success">Подведены</StatusBadge>
+      : <StatusBadge tone="warning">Не подведены</StatusBadge>;
+  return (
+    <li className="flex min-w-0 flex-col gap-4 rounded-lg border bg-card p-4">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <EmployeeIdentity
+          name={person.name}
+          role={person.since ? `${person.roleName} с ${dayLabel(person.since)}` : person.roleName}
+          avatarUrl={person.avatarUrl}
+        />
+        {status}
+      </div>
+      <div className="space-y-1.5">
+        <div className="flex items-baseline justify-between gap-3 text-sm">
+          <span className="text-muted-foreground">{p.done} из {p.total} {points(p.total)}</span>
+          <strong className="tabular-nums"><Money value={person.review?.total ?? 0} /></strong>
+        </div>
+        <div className="h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden>
+          <div className="h-full rounded-full bg-brand transition-[width] duration-300" style={{ width: `${p.total ? (p.done / p.total) * 100 : 0}%` }} />
+        </div>
+      </div>
+      <Button size="sm" variant={person.review && (waiting || !person.review.needsRecount) ? "outline" : "default"} className="self-start" onClick={onOpen}>
+        {!editable ? "Открыть" : waiting ? "Изменить" : person.review?.needsRecount ? "Досчитать" : person.review ? "Изменить" : "Отметить итоги"}
+      </Button>
+    </li>
+  );
+}
+
+/** Вкладка «KPI» зарплаты: итоги старших за месяц; план доли алкоголя — из «Статистики». */
 export function KpiTab({ month }: { month: string }) {
   const [view, setView] = useState<KpiMonthView | null>(null);
   const [error, setError] = useState("");
@@ -36,8 +89,8 @@ export function KpiTab({ month }: { month: string }) {
   if (error) return <p role="alert" className="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm">{error}</p>;
   if (!view)
     return (
-      <div className="mt-4 space-y-2" aria-label="Загрузка KPI">
-        {Array.from({ length: 3 }, (_, i) => <Skeleton key={i} className="h-16 w-full" />)}
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Загрузка KPI">
+        {Array.from({ length: 3 }, (_, i) => <Skeleton key={i} className="h-40 w-full" />)}
       </div>
     );
 
@@ -48,7 +101,7 @@ export function KpiTab({ month }: { month: string }) {
         className="mt-6"
         icon={Target}
         title={`KPI за ${label} не подводятся`}
-        description="Пункты KPI задаются в условиях оплаты должности: «Сотрудники» → «Должности» → должность → «Оплата». Итоги в приложении подводятся с ноября 2026."
+        description="Пункты KPI задаются в условиях оплаты должности: «Люди» → «Должности» → должность → «Оплата труда». Итоги в приложении подводятся с ноября 2026."
       />
     );
 
@@ -56,9 +109,15 @@ export function KpiTab({ month }: { month: string }) {
   const total = view.people.reduce((s, p) => s + (p.review?.total ?? 0), 0);
   const person = view.people.find((p) => p.employeeId === open) ?? null;
   const hasPlanItem = view.people.some((p) => p.items.some((i) => i.type === "plan"));
-  const percent = view.plan.target && view.plan.actual != null
-    ? `${(Math.floor((view.plan.actual / view.plan.target) * 10000) / 100).toLocaleString("ru-RU")}%`
-    : null;
+  const planHref = view.canPlan ? `/sales/statistics?plan=${view.month.slice(0, 7)}` : undefined;
+  const shareHint = view.plan.target === null
+    ? (view.canPlan ? "Задайте в «Статистике»" : "План месяца ещё не задан")
+    : view.plan.actual !== null
+      ? `Факт ${pct(view.plan.actual)}${view.plan.actual >= view.plan.target ? " · выполнен" : " · не выполнен"}`
+      : view.plan.pending === "month"
+        ? `Сейчас ${view.plan.now !== null ? pct(view.plan.now) : "—"} · засчитаем после конца месяца`
+        : "Ждём отчёт Quick Resto";
+  const caption = view.blocked ?? (view.inProgress ? `${label.replace(/^./, (c) => c.toUpperCase())} идёт: итоги можно отмечать уже сейчас, план по алкоголю засчитаем после конца месяца.` : null);
 
   return (
     <div className="mt-4 space-y-4">
@@ -67,33 +126,17 @@ export function KpiTab({ month }: { month: string }) {
         <Metric label="Премии KPI" value={<Money value={total} />} hint="Уходят во вторую выплату" />
         {hasPlanItem && (
           <Metric
-            label="План алкоголя"
-            value={view.plan.target != null ? <Money value={view.plan.target} /> : "Не задан"}
-            hint={view.plan.actual != null ? `Факт ${view.plan.actual.toLocaleString("ru-RU")} ₽${percent ? ` · ${percent}` : ""}` : "Ждём отчёт Quick Resto"}
+            label="Доля алкоголя"
+            value={view.plan.target !== null ? `план ${pct(view.plan.target)}` : "Не задан"}
+            hint={shareHint}
+            href={planHref}
           />
         )}
       </MetricStrip>
-      {view.blocked && <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">{view.blocked}</p>}
-      <ul className="divide-y rounded-lg border">
+      {caption && <p className="text-[13px] text-muted-foreground">{caption}</p>}
+      <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {view.people.map((p) => (
-          <li key={p.employeeId} className="flex min-w-0 flex-wrap items-center gap-3 p-4">
-            <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
-              <p className="truncate text-sm font-medium">{p.name}</p>
-              <p className="text-[13px] text-muted-foreground">{p.roleName}{p.since ? ` с ${dayLabel(p.since)}` : ""}</p>
-            </div>
-            {p.review?.needsRecount ? (
-              <StatusBadge tone="warning" className="mr-auto sm:mr-0" tip="Итоги сохранили до отчёта продаж: пункт плана ещё не засчитан">
-                Досчитать план · <Money value={p.review.total} />
-              </StatusBadge>
-            ) : p.review ? (
-              <StatusBadge tone="success" className="mr-auto sm:mr-0">Подведены · <Money value={p.review.total} /></StatusBadge>
-            ) : (
-              <StatusBadge tone="warning" className="mr-auto sm:mr-0">Не подведены</StatusBadge>
-            )}
-            <Button size="sm" variant={p.review ? "outline" : "default"} onClick={() => setOpen(p.employeeId)}>
-              {!view.canSave || view.blocked || p.blocked ? "Открыть" : p.review?.needsRecount ? "Досчитать" : p.review ? "Изменить" : "Подвести итоги"}
-            </Button>
-          </li>
+          <PersonCard key={p.employeeId} person={p} view={view} onOpen={() => setOpen(p.employeeId)} />
         ))}
       </ul>
       {person && (

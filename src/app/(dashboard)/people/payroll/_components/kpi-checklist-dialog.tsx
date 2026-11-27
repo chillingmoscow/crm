@@ -75,7 +75,7 @@ export function KpiChecklistDialog({ open, onOpenChange, view, person, onSaved }
       onOpenChange={(v) => { if (!busy) onOpenChange(v); }}
       title={`Итоги KPI за ${transferMonthLabel(view.month)}`}
       description="Отметьте, что выполнено. Итог уйдёт премией во вторую выплату"
-      employee={{ name: person.name, role: person.since ? `${person.roleName} с ${dayLabel(person.since)}` : person.roleName }}
+      employee={{ name: person.name, role: person.since ? `${person.roleName} с ${dayLabel(person.since)}` : person.roleName, avatarUrl: person.avatarUrl }}
       amount={<Money value={result.total} />}
       amountLabel="Итог KPI"
       footer={
@@ -89,7 +89,7 @@ export function KpiChecklistDialog({ open, onOpenChange, view, person, onSaved }
         </div>
       }
     >
-      {blocked && <p role="alert" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">{blocked}</p>}
+      {blocked && <p role="status" className="text-sm text-muted-foreground">{blocked}</p>}
       {person.manual.length > 0 && (
         <p role="alert" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
           Уже начислено вручную: {person.manual.map((m) => `${formatRub(m.amount)} «${m.reason}»`).join(", ")} — проверьте, чтобы не заплатить дважды
@@ -105,7 +105,7 @@ export function KpiChecklistDialog({ open, onOpenChange, view, person, onSaved }
                 <p className="text-[13px] text-muted-foreground">
                   {item.type === "each" ? `${formatRub(item.price)} за каждую` : formatRub(item.amount)}
                   {item.type === "all" && " · если выполнены все пункты"}
-                  {item.type === "plan" && ` · план ${view.plan.target != null ? formatRub(view.plan.target) : "не задан"}, факт ${view.plan.actual != null ? formatRub(view.plan.actual) : "—"}`}
+                  {item.type === "plan" && ` · доля алкоголя: план ${view.plan.target != null ? `${view.plan.target.toLocaleString("ru-RU")}%` : "не задан"}, ${view.plan.actual != null ? `факт ${view.plan.actual.toLocaleString("ru-RU")}%` : view.plan.now != null ? `сейчас ${view.plan.now.toLocaleString("ru-RU")}%` : "факта пока нет"}`}
                 </p>
                 {item.id === inventoryItem?.id && <p className="text-[13px] text-muted-foreground">{inventoryHint(view)}</p>}
               </div>
@@ -134,10 +134,10 @@ export function KpiChecklistDialog({ open, onOpenChange, view, person, onSaved }
               )}
               {(item.type === "plan" || item.type === "all") && (
                 <StatusBadge tone={l?.counted ? "success" : "neutral"}>
-                  {item.type === "plan" ? (l?.counted ? "Выполнен" : l?.note && !/плана$/.test(l.note) ? l.note : "Не выполнен") : l?.counted ? "Засчитан" : "Не засчитан"}
+                  {item.type === "plan" ? (l?.counted ? "Выполнен" : l?.note && !/при плане/.test(l.note) ? l.note : "Не выполнен") : l?.counted ? "Засчитан" : "Не засчитан"}
                 </StatusBadge>
               )}
-              {item.type === "plan" && l?.note && /плана$/.test(l.note) && (
+              {item.type === "plan" && l?.note && /при плане/.test(l.note) && (
                 <p className="w-full text-[13px] text-muted-foreground">{l.note}</p>
               )}
             </li>

@@ -464,34 +464,38 @@ export function KbPageMenu(props: KbPageMenuProps) {
 
   return (
     <>
-      <DropdownMenu
-        open={menuOpen}
-        onOpenChange={(next) => {
-          setMenuOpen(next);
-        }}
-      >
-        <IconTooltip label="Меню страницы">
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              aria-label="Меню страницы"
-              className="inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground transition-colors"
-            >
-              <MoreHorizontal className="w-[18px] h-[18px]" />
-            </button>
-          </DropdownMenuTrigger>
-        </IconTooltip>
-        <DropdownMenuContent align="end" sideOffset={8} className="w-72">
-          {menuGroups.map((group, index) => (
-            <Fragment key={group.join("-")}>
-              {index > 0 && <DropdownMenuSeparator />}
-              {group.map((key) => (
-                <Fragment key={key}>{renderItem(key)}</Fragment>
-              ))}
-            </Fragment>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {/* Без единого пункта (сотрудник только с просмотром) кнопки нет:
+       * пустое всплывающее меню выглядит как поломка. */}
+      {menuGroups.length > 0 && (
+        <DropdownMenu
+          open={menuOpen}
+          onOpenChange={(next) => {
+            setMenuOpen(next);
+          }}
+        >
+          <IconTooltip label="Меню страницы">
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label="Меню страницы"
+                className="inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground transition-colors"
+              >
+                <MoreHorizontal className="w-[18px] h-[18px]" />
+              </button>
+            </DropdownMenuTrigger>
+          </IconTooltip>
+          <DropdownMenuContent align="end" sideOffset={8} className="w-72">
+            {menuGroups.map((group, index) => (
+              <Fragment key={group.join("-")}>
+                {index > 0 && <DropdownMenuSeparator />}
+                {group.map((key) => (
+                  <Fragment key={key}>{renderItem(key)}</Fragment>
+                ))}
+              </Fragment>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
 
       {/* Тяжёлые controlled-диалоги, рендерятся на корневом уровне
        * чтобы их Radix-порталы не пересекались с DropdownMenuContent. */}

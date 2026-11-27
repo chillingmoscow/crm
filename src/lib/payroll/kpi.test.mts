@@ -1,20 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { kpiNeedsRecount, kpiPeople, kpiReason, kpiResult, kpiSummary, parseKpiItems, SENIOR_BAR, type KpiPlanFact } from "./kpi.ts";
+import { KPI_WAITING_MONTH, kpiNeedsRecount, kpiReviewOutdated, kpiPeople, kpiReason, kpiResult, kpiSummary, parseKpiItems, SENIOR_BAR, type KpiPlanFact } from "./kpi.ts";
 import type { PayAssignment, PayEmployee, PayModel } from "./types.ts";
 
 const all = { inventory: true, purchasing: true, team_event: true, seasonal: 2 };
 
 test("KPI: всё выполнено, план выполнен, две сезонные — 37 000", () => {
-  assert.equal(kpiResult(SENIOR_BAR, all, { target: 400000, actual: 400000 }).total, 37000);
+  assert.equal(kpiResult(SENIOR_BAR, all, { target: 10, actual: 10 }).total, 37000);
 });
 
-test("KPI: план 99,99% — не засчитан, остальное 27 000", () => {
-  const r = kpiResult(SENIOR_BAR, all, { target: 400000, actual: 399960 });
+test("KPI: доля 9,99% при плане 10% — не засчитан, остальное 27 000", () => {
+  const r = kpiResult(SENIOR_BAR, all, { target: 10, actual: 9.99 });
   assert.equal(r.total, 27000);
   const plan = r.lines.find((l) => l.id === "alcohol_plan")!;
   assert.equal(plan.counted, false);
-  assert.equal(plan.note, "99,99% плана");
+  assert.equal(plan.note, "9,99% при плане 10%");
 });
 
 test("KPI: без одного из трёх нет бонуса за все", () => {
@@ -91,8 +91,40 @@ test("KPI: уволенный — только с начислениями за 
 });
 
 test("KPI: итог, сохранённый до отчёта продаж, надо досчитать", () => {
-  assert.equal(kpiNeedsRecount(kpiResult(SENIOR_BAR, all, { target: 400000, actual: null }).lines), true);
-  assert.equal(kpiNeedsRecount(kpiResult(SENIOR_BAR, all, { target: 400000, actual: 390000 }).lines), false);
+  assert.equal(kpiNeedsRecount(kpiResult(SENIOR_BAR, all, { target: 10, actual: null }).lines), true);
+  assert.equal(kpiNeedsRecount(kpiResult(SENIOR_BAR, all, { target: 10, actual: 9.5 }).lines), false);
   assert.equal(kpiNeedsRecount(kpiResult(SENIOR_BAR, all, { target: null, actual: null }).lines), false);
   assert.equal(kpiNeedsRecount([]), false);
+});
+
+const share = (target: number | null, actual: number | null, pending: KpiPlanFact["pending"] = null): KpiPlanFact => ({ target, actual, pending });
+
+test("kpiResult: месяц не закончился — план «Посчитаем после конца месяца»", () => {
+  const line = kpiResult(SENIOR_BAR, {}, share(10, null, "month")).lines.find((l) => l.id === "alcohol_plan")!;
+  assert.equal(line.note, KPI_WAITING_MONTH);
+  assert.equal(line.counted, false);
+  assert.equal(kpiNeedsRecount(kpiResult(SENIOR_BAR, {}, share(10, null, "month")).lines), true);
+});
+
+test("kpiResult: доля 10,4 при плане 10 — засчитан, 9,99 — нет", () => {
+  const plan = (actual: number) => kpiResult(SENIOR_BAR, {}, share(10, actual)).lines.find((l) => l.id === "alcohol_plan")!;
+  assert.equal(plan(10.4).counted, true);
+  assert.equal(plan(10.4).note, "10,4% при плане 10%");
+  assert.equal(plan(9.99).counted, false);
+});
+
+test("parseKpiItems: metric alcohol читается как alcohol_share", () => {
+  const [item] = parseKpiItems([{ id: "p", type: "plan", label: "План", amount: 1, metric: "alcohol" }]);
+  assert.equal(item.type === "plan" && item.metric, "alcohol_share");
+});
+
+test("kpiResult: месяц идёт и плана нет — ждём конца месяца, а не «план не задан»", () => {
+  const line = kpiResult(SENIOR_BAR, {}, { target: null, actual: null, pending: "month" }).lines.find((l) => l.id === "alcohol_plan")!;
+  assert.equal(line.note, KPI_WAITING_MONTH);
+});
+
+test("kpiReviewOutdated: итог по старым условиям — устарел", () => {
+  assert.equal(kpiReviewOutdated({ termsId: "t1", items: SENIOR_BAR }, { id: "t1", items: SENIOR_BAR }), false);
+  assert.equal(kpiReviewOutdated({ termsId: "t0", items: SENIOR_BAR }, { id: "t1", items: SENIOR_BAR }), true);
+  assert.equal(kpiReviewOutdated({ termsId: "t1", items: SENIOR_BAR }, { id: "t1", items: SENIOR_BAR.slice(1) }), true);
 });

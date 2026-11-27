@@ -145,6 +145,10 @@ const REGISTRY: Record<string, NotificationTypeSpec> = {
   },
   // Сервер сформировал черновик плана выплат в начале периода (Павел, 27.11).
   "staff.payout_plan_ready": { category: "staff", icon: ClipboardList, verb: null },
+  // Утренняя проверка: KPI старших за прошлый месяц не подведены (KPI v2).
+  "staff.kpi_due": { category: "staff", icon: ClipboardCheck, verb: null },
+  // Утренняя проверка: план продаж месяца не задан (1-го — текущий, с 25-го — следующий).
+  "sales.plan_missing": { category: "finance", icon: AlertTriangle, verb: null },
   "staff.medical_reminder": { category:"staff",icon:HeartPulse,verb:null },
   "finance.certificate_expiring": {
     category: "finance",

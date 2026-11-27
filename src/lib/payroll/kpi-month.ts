@@ -2,8 +2,11 @@ import "server-only";
 import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import type { LooseDb } from "@/lib/supabase/loose";
 import { businessDate } from "@/lib/sales/time";
-import { alcoholActual, alcoholHistory, suggestAlcoholPlan, type AlcoholReport, type AlcoholSuggestion } from "@/lib/sales/alcohol-plan";
-import { kpiNeedsRecount, kpiPeople, parseKpiItems, type KpiAnswers, type KpiItem, type KpiLine, type KpiPlanFact } from "./kpi";
+import { alcoholShareStatus } from "@/lib/sales/alcohol-plan";
+import { statisticsRevenueShare } from "@/lib/sales/statistics-view";
+import type { StatisticsReport } from "@/lib/sales/statistics-reports";
+import type { SalesDay } from "@/lib/sales/types";
+import { kpiNeedsRecount, kpiPeople, kpiReviewOutdated, parseKpiItems, type KpiAnswers, type KpiItem, type KpiLine, type KpiPlanFact } from "./kpi";
 import { transferMonthLabel } from "./transfer-reason";
 import type { PayAssignment, PayEmployee, PayModel } from "./types";
 
@@ -16,6 +19,8 @@ export type KpiVenue = { admin: LooseDb; accountId: string; venueId: string };
 export type KpiMonthPerson = {
   employeeId: string;
   name: string;
+  /** Фото профиля сотрудника (если он связан с пользователем). */
+  avatarUrl: string | null;
   roleName: string;
   since: string | null;
   termsId: string;
@@ -38,20 +43,18 @@ export type KpiMonthView = {
   month: string;
   canSave: boolean;
   canConfigure: boolean;
-  /** Почему итоги месяца сейчас не сохранить: месяц не закончился, период зафиксирован. */
+  /** Может задать план месяца в «Статистике» (право «Планы продаж»). */
+  canPlan: boolean;
+  /** Месяц ещё идёт: итоги можно отмечать, план засчитается после конца месяца. */
+  inProgress: boolean;
+  /** Почему итоги месяца сейчас не сохранить: будущий месяц, период зафиксирован. */
   blocked: string | null;
   people: KpiMonthPerson[];
-  plan: KpiPlanFact;
+  /** План и факт доли алкоголя в очищенном обороте, %. */
+  plan: KpiPlanFact & { now: number | null };
   /** Отчёт продаж алкоголя за месяц ещё не готов, а месяц закончился. */
   reportMissing: boolean;
   inventory: { date: string; count: number; beforeDeadline: boolean }[];
-  next: {
-    month: string;
-    current: number | null;
-    priceIncreasePercent: number | null;
-    suggestion: AlcoholSuggestion;
-    history: [string, number][];
-  };
 };
 
 const shift = (month: string, by: number) => {
@@ -67,7 +70,7 @@ function check<T>(r: { data: T | null; error: { message: string } | null }): T {
 }
 
 type TermsRow = { id: string; role_id: string; valid_from: string; items: unknown };
-type ReviewRow = { employee_id: string; answers: KpiAnswers; lines: KpiLine[]; total: number; saved_at: string; saved_by: string | null };
+type ReviewRow = { employee_id: string; terms_id: string; items: unknown; answers: KpiAnswers; lines: KpiLine[]; total: number; saved_at: string; saved_by: string | null };
 
 /** Люди и условия месяца — общая часть для вкладки и утренней проверки. */
 export async function kpiMonthPeople(s: KpiVenue, month: string) {
@@ -80,7 +83,7 @@ export async function kpiMonthPeople(s: KpiVenue, month: string) {
     scoped<PayAssignment>("payroll_employee_models", "id,employee_id,model_id,valid_from"),
     scoped<PayModel>("payroll_models"),
     scoped<TermsRow>("payroll_kpi_terms", "id,role_id,valid_from,items"),
-    admin.from<ReviewRow[]>("payroll_kpi_reviews").select("employee_id,answers,lines,total,saved_at,saved_by")
+    admin.from<ReviewRow[]>("payroll_kpi_reviews").select("employee_id,terms_id,items,answers,lines,total,saved_at,saved_by")
       .eq("account_id", accountId).eq("venue_id", venueId).eq("month", month),
     fetchAllRows<{ employee_id: string }>(() =>
       admin.from<{ employee_id: string }[]>("payroll_accruals").select("employee_id")
@@ -100,6 +103,15 @@ export async function kpiMonthPeople(s: KpiVenue, month: string) {
   };
 }
 
+/**
+ * Итог нужно досчитать: план ещё не засчитан (месяц идёт или нет отчёта) или
+ * итог сохранили по другим условиям KPI (их поменяли в идущем месяце).
+ */
+export function reviewNeedsRecount(review: ReviewRow, terms: TermsRow | undefined): boolean {
+  return kpiNeedsRecount(Array.isArray(review.lines) ? review.lines : [])
+    || (terms ? kpiReviewOutdated({ termsId: review.terms_id, items: review.items }, terms) : false);
+}
+
 /** Есть ли в действующих на месяц условиях пункт плана продаж алкоголя. */
 export function termsWithPlan(terms: Map<string, TermsRow>, termsIds: string[]): boolean {
   return termsIds.some((id) => {
@@ -108,51 +120,44 @@ export function termsWithPlan(terms: Map<string, TermsRow>, termsIds: string[]):
   });
 }
 
-/** План и факт продаж алкоголя, история для предложения. */
+/**
+ * План и факт доли алкоголя за месяц (KPI старших): план — из плана месяца,
+ * факт — `statisticsRevenueShare` по отчёту Quick Resto и сменам, засчитывается
+ * только за закончившийся месяц с полным отчётом.
+ */
 export async function alcoholMonth(s: KpiVenue, month: string) {
   const { admin, accountId, venueId } = s;
-  const [plans, reports, archive] = await Promise.all([
-    admin.from<{ month: string; alcohol: number | null; price_increase_percent: number | null }[]>("sales_month_plans")
-      .select("month,alcohol,price_increase_percent").eq("account_id", accountId).eq("venue_id", venueId)
-      .in("month", [month, shift(month, 1)]),
-    admin.from<{ month: string; metrics: { revenue?: number } | null; through_date: string | null; state: string }[]>("sales_month_reports")
-      .select("month,metrics,through_date,state").eq("account_id", accountId).eq("venue_id", venueId).eq("kind", "alcohol"),
-    admin.from<{ month: string; metrics: { alcoholRevenue?: number } | null }[]>("sales_statistics_archive")
-      .select("month,metrics").eq("account_id", accountId).eq("venue_id", venueId),
+  const [plan, report, days, venue, hours] = await Promise.all([
+    admin.from<{ alcohol_share: number | null }>("sales_month_plans").select("alcohol_share")
+      .eq("account_id", accountId).eq("venue_id", venueId).eq("month", month).maybeSingle(),
+    admin.from<StatisticsReport>("sales_month_reports")
+      .select("id,venue_id,month,kind,metrics,period_start,period_end,through_date,synced_at,state,last_error")
+      .eq("account_id", accountId).eq("venue_id", venueId).eq("kind", "alcohol").eq("month", month).maybeSingle(),
+    fetchAllRows<SalesDay>(() => admin.from<SalesDay[]>("sales_days").select("*").eq("account_id", accountId).eq("venue_id", venueId)
+      .gte("business_date", month).lt("business_date", shift(month, 1))),
+    admin.from<{ timezone: string }>("venues").select("timezone").eq("id", venueId).single(),
+    admin.from<{ day_start_hour: number }>("sales_settings").select("day_start_hour").eq("account_id", accountId).eq("venue_id", venueId).maybeSingle(),
   ]);
-  const planRows = check(plans) ?? [];
-  const reportRows: AlcoholReport[] = (check(reports) ?? []).map((r) => ({
-    month: r.month.slice(0, 10),
-    revenue: typeof r.metrics?.revenue === "number" ? r.metrics.revenue : null,
-    through_date: r.through_date,
-    state: r.state,
-  }));
-  const history = alcoholHistory(
-    reportRows,
-    (check(archive) ?? []).map((a) => ({
-      month: a.month.slice(0, 10),
-      alcoholRevenue: typeof a.metrics?.alcoholRevenue === "number" ? a.metrics.alcoholRevenue : null,
-    })),
-  );
-  const own = planRows.find((p) => p.month.slice(0, 10) === month);
-  const next = planRows.find((p) => p.month.slice(0, 10) === shift(month, 1));
+  const timezone = check(venue)?.timezone ?? "Europe/Moscow";
+  const hour = check(hours)?.day_start_hour ?? 9;
+  const r = check(report);
+  const share = r ? statisticsRevenueShare(r, days, timezone, hour).value : null;
+  const status = alcoholShareStatus({
+    month,
+    today: businessDate(new Date(), timezone, hour),
+    report: r ? { state: r.state, through_date: r.through_date, revenue: r.metrics?.revenue ?? null } : null,
+    share,
+  });
+  const target = check(plan)?.alcohol_share;
   return {
-    plan: {
-      target: own?.alcohol != null ? Number(own.alcohol) : null,
-      actual: alcoholActual(reportRows.find((r) => r.month === month) ?? null, month),
-    } satisfies KpiPlanFact,
-    next: {
-      current: next?.alcohol != null ? Number(next.alcohol) : null,
-      priceIncreasePercent: next?.price_increase_percent != null ? Number(next.price_increase_percent) : null,
-    },
-    history,
+    plan: { target: target != null ? Number(target) : null, actual: status.actual, pending: status.pending, now: share },
   };
 }
 
 export async function loadKpiMonthView(
   s: KpiVenue,
   month: string,
-  access: { canSave: boolean; canConfigure: boolean },
+  access: { canSave: boolean; canConfigure: boolean; canPlan: boolean },
 ): Promise<KpiMonthView> {
   const { admin, accountId, venueId } = s;
   const end = dayBefore(shift(month, 1));
@@ -183,8 +188,9 @@ export async function loadKpiMonthView(
   const today = businessDate(new Date(), timezone, check(hours)?.day_start_hour ?? 9);
   const label = transferMonthLabel(month);
   const nextLabel = transferMonthLabel(shift(month, 1));
-  const blocked = today < shift(month, 1)
-    ? `Итоги за ${label} подводятся с 1-го числа следующего месяца`
+  // Итоги можно отмечать в течение месяца; будущий месяц — рано.
+  const blocked = today < month
+    ? `Итоги за ${label} подводить рано`
     : check(period) && check(period)!.status !== "draft"
       ? "Период зафиксирован. Итоги KPI за этот месяц менять нельзя"
       : null;
@@ -195,6 +201,10 @@ export async function loadKpiMonthView(
         .select("id,first_name,last_name").in("id", [...new Set(savers)])) ?? [])
         .map((p) => [p.id, [p.first_name, p.last_name].filter(Boolean).join(" ") || "Сотрудник"]))
     : new Map<string, string>();
+  const userIds = [...new Set(base.people.map((p) => base.employees.get(p.employeeId)?.local_user_id).filter((x): x is string => Boolean(x)))];
+  const avatars = userIds.length
+    ? new Map((check(await admin.from<{ id: string; avatar_url: string | null }[]>("profiles").select("id,avatar_url").in("id", userIds)) ?? []).map((p) => [p.id, p.avatar_url]))
+    : new Map<string, string | null>();
   const roleIds = [...new Set(base.people.map((p) => p.roleId))];
   const roles = roleIds.length
     ? new Map((check(await admin.from<{ id: string; name: string }[]>("roles").select("id,name").in("id", roleIds)) ?? []).map((r) => [r.id, r.name]))
@@ -216,6 +226,7 @@ export async function loadKpiMonthView(
     return [{
       employeeId: p.employeeId,
       name: employee.name,
+      avatarUrl: employee.local_user_id ? avatars.get(employee.local_user_id) ?? null : null,
       roleName,
       since: p.since,
       termsId: p.termsId,
@@ -226,7 +237,7 @@ export async function loadKpiMonthView(
             total: Number(review.total),
             savedAt: review.saved_at,
             savedBy: review.saved_by ? names.get(review.saved_by) ?? null : null,
-            needsRecount: kpiNeedsRecount(Array.isArray(review.lines) ? review.lines : []),
+            needsRecount: reviewNeedsRecount(review, terms),
           }
         : null,
       manual: adjustments
@@ -250,17 +261,12 @@ export async function loadKpiMonthView(
     month,
     canSave: access.canSave,
     canConfigure: access.canConfigure,
+    canPlan: access.canPlan,
+    inProgress: today >= month && today < nextMonth,
     blocked,
     people,
     plan: alcohol.plan,
-    reportMissing: today >= nextMonth && alcohol.plan.actual === null,
+    reportMissing: today >= nextMonth && alcohol.plan.pending === "report",
     inventory: [...byDate.entries()].sort().map(([date, count]) => ({ date, count, beforeDeadline: date <= deadline })),
-    next: {
-      month: nextMonth,
-      current: alcohol.next.current,
-      priceIncreasePercent: alcohol.next.priceIncreasePercent,
-      suggestion: suggestAlcoholPlan(alcohol.history, nextMonth, alcohol.next.priceIncreasePercent),
-      history: [...alcohol.history.entries()],
-    },
   };
 }

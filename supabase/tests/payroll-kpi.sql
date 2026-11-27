@@ -57,7 +57,7 @@ returns jsonb language sql as $$
     'request_key', p_key, 'employee_id', pg_temp.fx('senior'), 'month', p_month, 'terms_id', pg_temp.fx('terms'),
     'answers', p_answers, 'lines', '[]'::jsonb, 'total', p_total, 'reason', 'KPI за ноябрь 2026: тест',
     'expected_saved_at', (select saved_at from public.payroll_kpi_reviews where employee_id = pg_temp.fx('senior') and month = p_month::date),
-    'plan_target', (select alcohol from public.sales_month_plans where venue_id = pg_temp.fx('v') and month = p_month::date)))
+    'plan_target', (select alcohol_share from public.sales_month_plans where venue_id = pg_temp.fx('v') and month = p_month::date)))
 $$;
 
 create or replace function pg_temp.kpi_rows()
@@ -193,9 +193,16 @@ end $$;
 -- ── j. Условия на месяц с итогами ─────────────────────────
 do $$
 begin
-  perform pg_temp.expect_error(format('select public.payroll_kpi_terms_save(%L, %L, %L)', pg_temp.fx('role'),
-    jsonb_build_object('valid_from', '2026-11-01', 'reason', 'Меняю ноябрь', 'items', '[{"id":"x","type":"done","label":"X","amount":1}]'::jsonb),
-    pg_temp.fx('terms')), '%уже подведены%', 'условия на подведённый месяц — отказ');
+  -- С 418 условия замораживает только закончившийся месяц с итогами.
+  if '2026-11-01'::date < private.venue_current_month(pg_temp.fx('v')) then
+    perform pg_temp.expect_error(format('select public.payroll_kpi_terms_save(%L, %L, %L)', pg_temp.fx('role'),
+      jsonb_build_object('valid_from', '2026-11-01', 'reason', 'Меняю ноябрь', 'items', '[{"id":"x","type":"done","label":"X","amount":1}]'::jsonb),
+      pg_temp.fx('terms')), '%уже подведены%', 'условия на подведённый закончившийся месяц — отказ');
+  else
+    perform pg_temp.check(public.payroll_kpi_terms_save(pg_temp.fx('role'),
+      jsonb_build_object('valid_from', '2026-11-01', 'reason', 'Меняю ноябрь', 'items', (select items from public.payroll_kpi_terms where id = pg_temp.fx('terms'))),
+      pg_temp.fx('terms')) = pg_temp.fx('terms'), 'условия идущего месяца с итогами меняются');
+  end if;
   perform pg_temp.expect_error(format('select public.payroll_kpi_terms_save(%L, %L, null)', pg_temp.fx('role'),
     jsonb_build_object('valid_from', '2026-12-01', 'reason', 'Декабрь', 'items', '[{"id":"x","type":"done","label":"X","amount":1}]'::jsonb)),
     '%только что изменили%', 'устаревшая версия условий — отказ');
@@ -204,25 +211,8 @@ begin
     pg_temp.fx('terms')) is not null, 'условия со следующего месяца сохраняются');
 end $$;
 
--- ── i. План алкоголя не теряется при пустом обороте ───────
-do $$
-declare pid uuid;
-begin
-  insert into public.sales_month_plans(account_id, venue_id, month, turnover, created_by, updated_by)
-  values (pg_temp.fx('a'), pg_temp.fx('v'), '2027-01-01', 5000000, pg_temp.fx('owner'), pg_temp.fx('owner'))
-  on conflict (account_id, venue_id, month) do update set turnover = 5000000, alcohol = null returning sales_month_plans.id into pid;
-  perform public.sales_alcohol_plan_save('2027-01-01', jsonb_build_object('alcohol', 416000, 'suggested', 416000, 'price_increase_percent', 5));
-  perform pg_temp.check((select alcohol = 416000 and price_increase_percent = 5 from public.sales_month_plans where sales_month_plans.id = pid), 'план алкоголя записан в строку месяца');
-  perform public.sales_alcohol_plan_save('2027-01-01', jsonb_build_object('alcohol', null));
-  perform pg_temp.check((select alcohol is null and turnover = 5000000 from public.sales_month_plans where sales_month_plans.id = pid), 'стёрт план алкоголя — оборот остался');
-  perform public.sales_alcohol_plan_save('2027-02-01', jsonb_build_object('alcohol', 300000));
-  perform pg_temp.check((select turnover is null and alcohol = 300000 from public.sales_month_plans where venue_id = pg_temp.fx('v') and month = '2027-02-01'), 'план алкоголя без плана оборота');
-  perform public.sales_alcohol_plan_save('2027-02-01', jsonb_build_object('alcohol', null));
-  perform pg_temp.check(not exists (select 1 from public.sales_month_plans where venue_id = pg_temp.fx('v') and month = '2027-02-01'), 'оба плана пусты — строки нет');
-  perform pg_temp.check(exists (select 1 from public.audit_logs where action_code = 'sales.plan.alcohol_set' and entity_id = pid), 'журнал: план алкоголя');
-  perform pg_temp.expect_error('select public.sales_alcohol_plan_save(''2026-11-01'', ''{"alcohol":1000}'')',
-    '%уже подведены%', 'план месяца с итогами KPI не меняется');
-end $$;
+-- ── i. План алкоголя (рублёвый, 415) — с 418 заменён планом месяца в «Статистике»,
+--     проверки — в supabase/tests/sales-plan-forecast.sql.
 
 -- ── l. Прямая запись плана алкоголя пользователем отклоняется ─
 do $$
@@ -236,13 +226,13 @@ begin
     execute upd;
     raise exception 'TEST FAILED: прямая правка плана алкоголя прошла';
   exception when others then
-    if sqlerrm not like '%вкладке «KPI»%' then raise exception 'TEST FAILED: прямая правка: %', sqlerrm; end if;
+    if sqlerrm not like '%вкладке «KPI»%' and sqlerrm not like '%«Статистике»%' and sqlerrm not like '%permission denied%' then raise exception 'TEST FAILED: прямая правка: %', sqlerrm; end if;
   end;
   begin
     execute ins;
     raise exception 'TEST FAILED: прямая вставка плана алкоголя прошла';
   exception when others then
-    if sqlerrm not like '%вкладке «KPI»%' then raise exception 'TEST FAILED: прямая вставка: %', sqlerrm; end if;
+    if sqlerrm not like '%вкладке «KPI»%' and sqlerrm not like '%«Статистике»%' and sqlerrm not like '%permission denied%' then raise exception 'TEST FAILED: прямая вставка: %', sqlerrm; end if;
   end;
   reset role;
   raise notice 'ok: прямая запись плана алкоголя — отказ';

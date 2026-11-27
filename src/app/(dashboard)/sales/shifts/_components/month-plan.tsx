@@ -45,7 +45,8 @@ export function MonthPlan({
   days: SalesDay[];
   canConfigure: boolean;
 }) {
-  const settingsHref = `/sales/settings?plan=${month}#sales-plan`;
+  // План месяца задаётся в «Статистике» (вместе с долей алкоголя и прогнозом).
+  const settingsHref = `/sales/statistics?plan=${month}`;
   if (plan === undefined) return null;
   if (plan === null)
     return canConfigure && month >= today.slice(0, 7) ? (

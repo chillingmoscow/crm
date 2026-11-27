@@ -41,8 +41,7 @@ import {
   useCommentMentionDropdown,
 } from "@/components/knowledge/blocks/kb-comment-mention-dropdown";
 import { KbMobileCommentSheet } from "@/components/knowledge/blocks/kb-mobile-comment-sheet";
-import { personInitials } from "@/lib/format/initials";
-import { avatarImageUrl } from "@/lib/people/avatar-thumb";
+import { PersonAvatar } from "@/components/people/person-avatar";
 
 /**
  * Custom Notion-style thread popover с поддержкой:
@@ -761,19 +760,14 @@ function Avatar({
   /** Если передан — оборачиваем в `<a>` со ссылкой на профиль. */
   userId?: string;
 }) {
-  const name = user?.username ?? "";
-  const initials = personInitials(name);
-  const inner = user?.avatarUrl ? (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={avatarImageUrl(user.avatarUrl, 96)}
-      alt=""
-      className="size-7 rounded-full object-cover bg-muted shrink-0"
+  // Внутри ссылки на профиль — тихий аватар без карточки фото.
+  const inner = (
+    <PersonAvatar
+      src={user?.avatarUrl ?? null}
+      name={user?.username ?? ""}
+      size="md"
+      interactive={false}
     />
-  ) : (
-    <span className="size-7 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-xs font-semibold shrink-0">
-      {initials}
-    </span>
   );
   if (userId) {
     return (
@@ -835,25 +829,13 @@ function CommentBodyRenderer({ body }: { body: unknown }) {
               ) {
                 const fullName = it.props.fullName ?? "Без имени";
                 const avatarUrl = it.props.avatarUrl ?? "";
-                const initials = personInitials(fullName);
                 return (
                   <a
                     key={i}
                     href={`/people/staff/${it.props.userId}`}
                     className="inline-flex items-center gap-1 px-1 py-0.5 mx-px rounded text-foreground font-semibold no-underline hover:bg-accent transition-colors align-baseline"
                   >
-                    {avatarUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={avatarImageUrl(avatarUrl, 96)}
-                        alt=""
-                        className="size-[14px] rounded-full object-cover bg-muted shrink-0"
-                      />
-                    ) : (
-                      <span className="size-[14px] rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-[8px] font-semibold shrink-0">
-                        {initials}
-                      </span>
-                    )}
+                    <PersonAvatar src={avatarUrl} name={fullName} size="xs" interactive={false} />
                     <span>{fullName}</span>
                   </a>
                 );

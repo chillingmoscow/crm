@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Lock, AlertTriangle, Clock, User } from "lucide-react";
+import { Lock, AlertTriangle, Clock } from "lucide-react";
 
 import { useCoarsePointer } from "@/hooks/use-mobile";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
@@ -11,8 +11,7 @@ import {
   type KbPagePreview,
   type KbStaffPreview,
 } from "@/lib/knowledge/preview";
-import { personInitials } from "@/lib/format/initials";
-import { avatarImageUrl } from "@/lib/people/avatar-thumb";
+import { PersonAvatar } from "@/components/people/person-avatar";
 
 // Sprint D Phase 7 — inline-preview tooltip для KB-ссылок. Цель:
 // при hover на @-mention или kb-link показать заголовок + иконку +
@@ -227,27 +226,20 @@ function PagePreviewBody({ data }: { data: KbPagePreview }) {
 }
 
 function StaffPreviewBody({ data }: { data: KbStaffPreview }) {
-  const initials = data.full_name.trim() ? personInitials(data.full_name) : "";
   return (
     <div className="flex items-start gap-2.5 p-3">
-      {data.avatar_url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={avatarImageUrl(data.avatar_url, 96)}
-          alt=""
-          className="size-9 rounded-full object-cover bg-muted shrink-0"
-        />
-      ) : (
-        <span className="size-9 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-xs font-semibold shrink-0">
-          {initials || <User className="size-4" />}
-        </span>
-      )}
+      {/* Уже внутри всплывающей карточки — без второй карточки фото. */}
+      <PersonAvatar
+        src={data.avatar_url}
+        name={data.full_name || "Без имени"}
+        interactive={false}
+      />
       <div className="flex-1 flex flex-col min-w-0">
         <span className="text-sm font-semibold text-foreground truncate">
           {data.full_name || "Без имени"}
         </span>
         {data.role_name && (
-          <span className="text-[12px] text-muted-foreground truncate">
+          <span className="text-xs text-muted-foreground truncate">
             {data.role_name}
           </span>
         )}

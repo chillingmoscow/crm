@@ -15,9 +15,7 @@ import { Search } from "lucide-react";
 
 import { searchKbMentions, type KbMentionPerson } from "@/lib/knowledge/mentions";
 import { cn } from "@/lib/utils";
-import { avatarDotClass } from "@/lib/avatar-color";
-import { personInitials } from "@/lib/format/initials";
-import { avatarImageUrl } from "@/lib/people/avatar-thumb";
+import { PersonAvatar } from "@/components/people/person-avatar";
 
 /**
  * @-mention dropdown для plain-textarea-композеров комментариев.
@@ -348,23 +346,7 @@ function DropdownList({
                   i === activeIndex ? "bg-accent" : "hover:bg-accent/50",
                 )}
               >
-                {it.avatar_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={avatarImageUrl(it.avatar_url, 96)}
-                    alt=""
-                    className="size-6 rounded-full object-cover bg-muted shrink-0"
-                  />
-                ) : (
-                  <span
-                    className={cn(
-                      "size-6 rounded-full inline-flex items-center justify-center shrink-0 text-[10px] font-semibold text-white",
-                      avatarDotClass(it.id || it.full_name),
-                    )}
-                  >
-                    {personInitials(it.full_name)}
-                  </span>
-                )}
+                <PersonAvatar src={it.avatar_url} name={it.full_name} size="md" interactive={false} />
                 <span className="truncate">{it.full_name}</span>
               </button>
             </li>

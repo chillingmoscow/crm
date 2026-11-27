@@ -2,11 +2,10 @@
 
 import type { BlockNoteEditor } from "@blocknote/core";
 import { SuggestionMenuController } from "@blocknote/react";
-import { User } from "lucide-react";
 
 import { searchKbMentions, type KbMention } from "@/lib/knowledge/mentions";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
-import { avatarImageUrl } from "@/lib/people/avatar-thumb";
+import { PersonAvatar } from "@/components/people/person-avatar";
 
 interface KbMentionMenuProps {
   editor: BlockNoteEditor;
@@ -76,16 +75,8 @@ function buildItem(it: KbMention, editor: BlockNoteEditor) {
   return {
     title: label,
     subtext: "Сотрудник",
-    icon: it.avatar_url ? (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={avatarImageUrl(it.avatar_url, 96)}
-        alt=""
-        className="size-4 rounded-full object-cover bg-muted shrink-0"
-      />
-    ) : (
-      <User className="size-4" />
-    ),
+    // Меню редактора — тихий аватар без карточки фото.
+    icon: <PersonAvatar src={it.avatar_url} name={label} size="sm" interactive={false} />,
     onItemClick: () => {
       editor.insertInlineContent([
         {

@@ -47,7 +47,7 @@ import {
   type KbVersionDiffData,
 } from "@/lib/knowledge/versions";
 import type { KbBlock, KbPageVersionRow } from "@/types/knowledge";
-import { avatarImageUrl } from "@/lib/people/avatar-thumb";
+import { PersonAvatar } from "@/components/people/person-avatar";
 
 interface KbVersionHistoryProps {
   pageId: string;
@@ -813,21 +813,14 @@ function DeltaBadge({ delta }: { delta: number | null }) {
 }
 
 function Avatar({ author }: { author: EnrichedVersion["author"] }) {
-  const name = authorName(author);
-  if (author?.avatar_url) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={avatarImageUrl(author.avatar_url, 96)}
-        alt={name}
-        className="size-8 rounded-full object-cover"
-      />
-    );
-  }
+  // Стоит внутри кнопки сессии — тихий аватар без карточки фото.
   return (
-    <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
-      {name.slice(0, 1).toUpperCase()}
-    </div>
+    <PersonAvatar
+      src={author?.avatar_url ?? null}
+      name={authorName(author)}
+      size="md"
+      interactive={false}
+    />
   );
 }
 

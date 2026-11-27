@@ -30,8 +30,7 @@ import {
 } from "@/components/ui/popover";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { pluralRu } from "@/lib/format/plural";
-import { personInitials } from "@/lib/format/initials";
-import { avatarImageUrl } from "@/lib/people/avatar-thumb";
+import { PersonAvatar } from "@/components/people/person-avatar";
 
 interface EntityInfoPopoverProps {
   /** Заголовок попапа: «О должности», «О сотруднике» и т.д. */
@@ -109,21 +108,9 @@ function MiniAvatar({
   name: string | null | undefined;
   avatarUrl: string | null | undefined;
 }) {
-  const initials = personInitials(name);
-  if (avatarUrl) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={avatarImageUrl(avatarUrl, 64)}
-        alt={name ?? ""}
-        className="size-4 rounded-full object-cover bg-muted shrink-0"
-      />
-    );
-  }
+  // Внутри всплывающей карточки — тихий аватар без карточки фото.
   return (
-    <span className="size-4 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-xs font-semibold leading-none shrink-0">
-      {initials}
-    </span>
+    <PersonAvatar src={avatarUrl ?? null} name={name ?? ""} size="xs" interactive={false} />
   );
 }
 

@@ -211,8 +211,9 @@ export function DeleteActDialog({
       }}
       title={`Удалить акт № ${doc.document_number}?`}
       consequences={[
-        { kind: "remove", text: "Акт и все его позиции удалятся" },
-        { kind: "info", text: "Акт из Quick Resto вернётся при следующей синхронизации — удалите его и там" },
+        { kind: "remove", text: "Акт и все его позиции удалятся здесь и в Quick Resto" },
+        { kind: "info", text: "Если Quick Resto не подтвердит удаление, акт останется и там, и здесь" },
+        { kind: "irreversible", text: "Нельзя отменить" },
       ]}
       confirmLabel="Удалить акт"
       pendingLabel="Удаляем…"

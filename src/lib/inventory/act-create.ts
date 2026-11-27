@@ -188,6 +188,8 @@ export async function addActItems(input: {
   isRateLimit: (error: unknown) => boolean;
   sleep: (ms: number) => Promise<void>;
   pausesMs?: readonly number[];
+  /** Сколько позиций плана уже в акте — для хода создания в панели. */
+  onProgress?: (inAct: number) => void;
 }): Promise<{ present: Set<string>; added: number; failure: unknown; inAct: number }> {
   const pauses = input.pausesMs ?? CREATE_ACT_RATE_LIMIT_PAUSES_MS;
   let present = new Set(input.existingKeys);
@@ -195,13 +197,17 @@ export async function addActItems(input: {
   let added = 0;
   let failure: unknown = null;
   let pause = 0;
-  for (let index = 0; index < queue.length; ) {
+  let index = 0;
+  const report = () => input.onProgress?.(input.items.length - queue.length + index);
+  report();
+  for (; index < queue.length; ) {
     const item = queue[index];
     try {
       await input.add(item);
       present.add(item.key);
       added += 1;
       index += 1;
+      report();
     } catch (error) {
       if (!input.isRateLimit(error) || pause >= pauses.length) {
         failure = error;
@@ -217,6 +223,7 @@ export async function addActItems(input: {
       }
       queue = pendingActItems(input.items, present);
       index = 0;
+      report();
     }
   }
   const inAct = input.items.filter((item) => present.has(item.key)).length;

@@ -31,6 +31,7 @@ import {
   type CreateActNomenclatureKind,
   type CreateActProduct,
 } from "@/lib/inventory/act-create";
+import { createActProgressStore, type CreateActPhase } from "@/lib/inventory/act-create-progress";
 import {
   createInventoryDocumentBackOffice,
   createInventoryItemBackOffice,
@@ -47,6 +48,7 @@ import {
   inventoryDocumentNumber,
   listBackOfficeInventoryItemsWithSession,
   notifyInventoryDocumentEvent,
+  quickRestoUserError,
   refreshLocalInventoryDocumentFromPayload,
   revalidateInventoryResultPages,
   withBackOfficeSession,
@@ -54,6 +56,8 @@ import {
 } from "../actions-shared";
 
 const MANAGE = "inventory.manage_documents";
+
+const progressStore = createActProgressStore();
 
 export type CreateActStoreOption = {
   id: string;
@@ -151,19 +155,6 @@ export async function loadCreateActOptions(): Promise<{ error: string | null; op
     console.error("[loadCreateActOptions] исключение", error);
     return { error: "Не удалось загрузить данные для нового акта. Попробуйте ещё раз." };
   }
-}
-
-/**
- * Текст ошибки Quick Resto для пользователя. Клиент QR бросает исключения с
- * английским телом ответа («Quick Resto вернул ошибку 400: {…}») — это только
- * в лог. Пропускаем лишь наши собственные подсказки о настройке доступа.
- */
-function quickRestoUserError(error: unknown, fallback: string): string {
-  const message = error instanceof Error ? error.message : "";
-  if (/^(Настройте back-office|Неверный логин или пароль|Не удалось сохранить токен)/.test(message)) {
-    return message;
-  }
-  return fallback;
 }
 
 const QR_UNAVAILABLE = "Quick Resto не ответил. Попробуйте ещё раз через минуту.";
@@ -289,6 +280,11 @@ export async function createInventoryAct(
 
     const connection = await getConnection(accountId);
     if (!connection) return { error: "Подключение к Quick Resto не настроено." };
+    // Ход для панели: она опрашивает его маршрутом, пока ждёт ответа.
+    const total = plan.items.length;
+    const setProgress = (phase: CreateActPhase, done: number) =>
+      progressStore.set(normalized.attemptId, actorId, { phase, done, total });
+    setProgress("creating", 0);
     const qrAuth = { layerName: connection.login, baseUrl: connection.backoffice_base_url };
 
     // ── Акт: продолжить прошлую попытку или завести новый ───────────────────
@@ -415,6 +411,7 @@ export async function createInventoryAct(
       existingKeys,
       readKeys,
       isRateLimit: (error) => error instanceof QuickRestoRateLimitError,
+      onProgress: (inAct) => setProgress("items", inAct),
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       add: (item) =>
         withBackOfficeSession({
@@ -451,6 +448,7 @@ export async function createInventoryAct(
       };
     }
 
+    setProgress("finishing", total);
     await refreshFromQuickResto({ connection, admin, accountId, documentId: document.id, externalId });
     const { data: fresh } = await admin
       .from<{ document_number: string; venue_id: string | null }>("documents")
@@ -523,6 +521,8 @@ export async function createInventoryAct(
   } catch (error) {
     console.error("[createInventoryAct] исключение", { attemptId: input.attemptId, error });
     return { error: "Не удалось создать акт. Попробуйте ещё раз." };
+  } finally {
+    progressStore.delete(input.attemptId);
   }
 }
 

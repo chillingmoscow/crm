@@ -1122,8 +1122,9 @@ export function DocumentsTable({
         }}
         title={`Удалить ${countRu(selectedRowsList.length, "акт", "акта", "актов")}?`}
         consequences={[
-          { kind: "remove", text: "Акты и все их позиции удалятся" },
-          { kind: "info", text: "Акты из Quick Resto вернутся при следующей синхронизации, если не удалить их и там" },
+          { kind: "remove", text: "Акты и все их позиции удалятся здесь и в Quick Resto" },
+          { kind: "info", text: "Акт, который Quick Resto не удалит, останется и там, и здесь" },
+          { kind: "irreversible", text: "Нельзя отменить" },
         ]}
         confirmLabel={`Удалить ${countRu(selectedRowsList.length, "акт", "акта", "актов")}`}
         pendingLabel="Удаляем…"

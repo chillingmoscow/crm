@@ -27,7 +27,7 @@ export function DangerZone({
       <ProfileDangerAction
         icon={Trash2}
         title="Удалить акт"
-        description="Удалятся акт и все его позиции. Акт из Quick Resto вернётся при следующей синхронизации, если не удалить его и там."
+        description="Акт и все его позиции удалятся здесь и в Quick Resto. Проведённый в Quick Resto акт удалить нельзя."
         actionLabel="Удалить акт"
         onAction={() => setConfirmOpen(true)}
       />

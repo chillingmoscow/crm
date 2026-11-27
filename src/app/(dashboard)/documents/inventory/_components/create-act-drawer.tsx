@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronRight, Loader2, Search, Undo2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
@@ -31,6 +31,13 @@ import {
   groupTreeRows,
   groupsWithSelectedDescendants,
 } from "@/lib/inventory/act-create";
+import {
+  estimateCreateActSeconds,
+  formatDurationRu,
+  progressFraction,
+  remainingSeconds,
+  type CreateActProgress,
+} from "@/lib/inventory/act-create-progress";
 import {
   createInventoryAct,
   loadCreateActOptions,
@@ -86,6 +93,9 @@ export function CreateActDrawer({
   const [pending, setPending] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
+  const [progress, setProgress] = useState<CreateActProgress | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const startedAt = useRef(0);
 
   // Данные панели — при каждом открытии: каталог могли синхронизировать.
   useEffect(() => {
@@ -146,6 +156,44 @@ export function CreateActDrawer({
     [groups, counts, selected],
   );
 
+  // Пока акт создаётся: часы для расчётного времени, опрос хода (маршрутом —
+  // серверное действие занято самим созданием) и предупреждение при закрытии
+  // вкладки. Ход может не прийти — тогда полоса идёт по расчёту.
+  useEffect(() => {
+    if (!pending) return;
+    const tick = window.setInterval(() => setElapsed((Date.now() - startedAt.current) / 1000), 1000);
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const response = await fetch(
+          `/api/inventory/create-act-progress?attempt=${encodeURIComponent(attemptId)}`,
+          { cache: "no-store" },
+        );
+        if (!response.ok || stopped) return;
+        const body = (await response.json()) as { progress: CreateActProgress | null };
+        if (!stopped && body.progress) setProgress(body.progress);
+      } catch {
+        // Ход — подсказка, а не условие: без него остаётся расчёт по времени.
+      }
+    };
+    const timer = window.setInterval(poll, 1500);
+    void poll();
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      // Старые браузеры спрашивают только при непустом returnValue.
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => {
+      stopped = true;
+      window.clearInterval(tick);
+      window.clearInterval(timer);
+      window.removeEventListener("beforeunload", warn);
+    };
+  }, [pending, attemptId]);
+
+  const estimatedSeconds = estimateCreateActSeconds(itemCount);
+
   const selectedNames = selected
     .map((id) => groupById.get(id)?.name)
     .filter((name): name is string => Boolean(name));
@@ -202,6 +250,9 @@ export function CreateActDrawer({
 
   const submit = async () => {
     if (!canSubmit) return;
+    startedAt.current = Date.now();
+    setElapsed(0);
+    setProgress(null);
     setPending(true);
     setSaveError(null);
     try {
@@ -292,6 +343,13 @@ export function CreateActDrawer({
               Повторить
             </Button>
           </div>
+        ) : pending ? (
+          <CreateActProgressView
+            progress={progress}
+            itemCount={itemCount}
+            fraction={progressFraction({ progress, elapsedSeconds: elapsed, estimatedSeconds })}
+            remaining={remainingSeconds({ progress, elapsedSeconds: elapsed, estimatedSeconds })}
+          />
         ) : options ? (
           <>
             <DrawerSection title="Акт">
@@ -454,9 +512,10 @@ export function CreateActDrawer({
               </Field>
             </DrawerSection>
 
-            {pending ? (
+            {selected.length > 0 && !tooMany ? (
               <p className="text-xs text-muted-foreground">
-                Добавляем позиции в Quick Resto по одной — большой раздел занимает пару минут. Не закрывайте панель.
+                Позиции уходят в Quick Resto по одной: акт будет готов примерно через{" "}
+                {formatDurationRu(estimatedSeconds)}.
               </p>
             ) : null}
             {saveError ? <p className="text-sm text-destructive">{saveError}</p> : null}
@@ -479,5 +538,55 @@ export function CreateActDrawer({
         }}
       />
     </>
+  );
+}
+
+/**
+ * Ход создания акта вместо формы: форму в это время менять нельзя, панель не
+ * закрывается. Полоса — по числу добавленных позиций, а пока его нет — по
+ * расчётному времени (не дальше 95%).
+ */
+function CreateActProgressView({
+  progress,
+  itemCount,
+  fraction,
+  remaining,
+}: {
+  progress: CreateActProgress | null;
+  itemCount: number;
+  fraction: number;
+  remaining: number;
+}) {
+  const total = progress?.total ?? itemCount;
+  const title =
+    progress?.phase === "items"
+      ? `Добавляем позиции: ${progress.done} из ${total}`
+      : progress?.phase === "finishing"
+        ? "Сверяем акт с Quick Resto"
+        : "Создаём акт в Quick Resto";
+  return (
+    <div className="motion-rise space-y-4 py-2" role="status" aria-live="polite">
+      <div className="flex items-start gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
+          <Loader2 className="h-5 w-5 animate-spin" />
+        </span>
+        <div className="min-w-0 space-y-0.5">
+          <p className="text-sm font-medium">{title}</p>
+          <p className="text-sm text-muted-foreground">
+            {`В акте будет ${countRu(total, "позиция", "позиции", "позиций")}. Осталось около ${formatDurationRu(remaining)}.`}
+          </p>
+        </div>
+      </div>
+      <div className="shift-now-track h-2 overflow-hidden rounded-full text-brand">
+        <div
+          className="shift-now-fill h-full rounded-full"
+          style={{ transform: `scaleX(${Math.max(0.02, fraction)})` }}
+        />
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Позиции уходят в Quick Resto по одной — чаще он запросы не принимает. Не закрывайте вкладку: панель закроется
+        сама, когда акт будет готов.
+      </p>
+    </div>
   );
 }

@@ -311,14 +311,21 @@ export async function listInventoryDocuments(
       const admin = asLooseDb(createAdminClient());
       const { data: jobs } = await admin
         .from<Array<{ document_id: string } & ActCreationJobStatus>>("inventory_act_creation_jobs")
-        .select("document_id, state, done, total, attempts, error")
+        .select("document_id, state, done, total, attempts, error, lease_until")
         .in("document_id", rows.map((row) => row.id))
         .neq("state", "complete");
       const byDocument = new Map((jobs ?? []).map((job) => [job.document_id, job]));
       for (const row of rows) {
         const job = byDocument.get(row.id);
         row.creation = job
-          ? { state: job.state, done: job.done, total: job.total, attempts: job.attempts, error: job.error }
+          ? {
+              state: job.state,
+              done: job.done,
+              total: job.total,
+              attempts: job.attempts,
+              error: job.error,
+              lease_until: job.lease_until ?? null,
+            }
           : null;
       }
     } catch (jobsError) {

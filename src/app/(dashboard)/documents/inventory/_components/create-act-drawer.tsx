@@ -33,7 +33,7 @@ import {
   groupsWithSelectedDescendants,
 } from "@/lib/inventory/act-create";
 import { estimateCreateActSeconds, formatDurationRu } from "@/lib/inventory/act-create-progress";
-import { invoiceTimeInZone } from "@/lib/inventory/act-date";
+import { invoiceDayInZone, invoiceTimeInZone } from "@/lib/inventory/act-date";
 import {
   createInventoryAct,
   loadCreateActOptions,
@@ -41,7 +41,12 @@ import {
 } from "@/app/(dashboard)/inventory/_actions/create";
 import { AssigneeAvatar, type AssigneeOption } from "./assignee-select";
 
-function todayLocal(): string {
+/** Сегодня, `YYYY-MM-DD`; с поясом — по часам заведения, без него — браузера. */
+function todayIn(timeZone?: string): string {
+  if (timeZone) {
+    const inZone = invoiceDayInZone(new Date().toISOString(), timeZone);
+    if (inZone) return inZone;
+  }
   const now = new Date();
   const m = String(now.getMonth() + 1).padStart(2, "0");
   const d = String(now.getDate()).padStart(2, "0");
@@ -90,12 +95,18 @@ export function CreateActDrawer({
 
   const [attemptId, setAttemptId] = useState(newAttemptId);
   const [storeId, setStoreId] = useState("");
-  const [date, setDate] = useState(todayLocal);
+  const [date, setDate] = useState(() => todayIn());
   const [time, setTime] = useState(() => nowTime());
-  const [timeTouched, setTimeTouched] = useState(false);
-  // Для загрузки опций: она не должна сбивать время, которое уже поменяли.
-  const timeTouchedRef = useRef(false);
-  timeTouchedRef.current = timeTouched;
+  // Дата и время по умолчанию — «сейчас» по часам заведения склада, пока их
+  // не меняли руками.
+  const [whenTouched, setWhenTouched] = useState(false);
+  // Для загрузки опций: она не должна сбивать уже выбранные дату и время.
+  const whenTouchedRef = useRef(false);
+  whenTouchedRef.current = whenTouched;
+  const applyNow = (timeZone: string) => {
+    setDate(todayIn(timeZone));
+    setTime(nowTime(timeZone));
+  };
   const [selected, setSelected] = useState<string[]>([]);
   const [comment, setComment] = useState("");
   const [commentTouched, setCommentTouched] = useState(false);
@@ -123,7 +134,7 @@ export function CreateActDrawer({
         setOptions(result.options);
         const only = result.options.stores.length === 1 ? result.options.stores[0] : null;
         setStoreId((current) => current || (only ? only.id : ""));
-        if (only) setTime((current) => (timeTouchedRef.current ? current : nowTime(only.timeZone)));
+        if (only && !whenTouchedRef.current) applyNow(only.timeZone);
       })
       .catch(() => {
         if (!cancelled) setLoadError("Не удалось загрузить данные для нового акта.");
@@ -139,9 +150,9 @@ export function CreateActDrawer({
   const reset = () => {
     setAttemptId(newAttemptId());
     setStoreId("");
-    setDate(todayLocal());
+    setDate(todayIn());
     setTime(nowTime());
-    setTimeTouched(false);
+    setWhenTouched(false);
     setSelected([]);
     setComment("");
     setCommentTouched(false);
@@ -337,9 +348,9 @@ export function CreateActDrawer({
                       setStoreId(value);
                       setAssignedTo("");
                       setReviewerId("");
-                      // Время по умолчанию — по часам заведения склада, пока его не меняли.
+                      // Дата и время по умолчанию — по часам заведения склада, пока их не меняли.
                       const zone = options.stores.find((option) => option.id === value)?.timeZone;
-                      if (!timeTouched && zone) setTime(nowTime(zone));
+                      if (!whenTouched && zone) applyNow(zone);
                     }}
                     placeholder={options.stores.length === 0 ? "Нет складов" : "Выберите склад"}
                     options={options.stores.map((option) => ({ value: option.id, label: option.title }))}
@@ -350,7 +361,16 @@ export function CreateActDrawer({
               <div className="grid grid-cols-[minmax(0,1fr)_8rem] gap-3">
                 <Field label="Дата акта" required>
                   {(control) => (
-                    <DatePicker {...control} value={date} onChange={setDate} clearable={false} disabled={pending} />
+                    <DatePicker
+                      {...control}
+                      value={date}
+                      onChange={(value) => {
+                        setWhenTouched(true);
+                        setDate(value);
+                      }}
+                      clearable={false}
+                      disabled={pending}
+                    />
                   )}
                 </Field>
                 <Field label="Время" required>
@@ -359,7 +379,7 @@ export function CreateActDrawer({
                       {...control}
                       value={time}
                       onChange={(value) => {
-                        setTimeTouched(true);
+                        setWhenTouched(true);
                         setTime(value);
                       }}
                       disabled={pending}

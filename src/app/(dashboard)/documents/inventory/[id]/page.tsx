@@ -167,8 +167,10 @@ export default async function InventoryDocumentPage({
 
   // Позиции ещё досылаются в фоне — форму не открываем до конца задания.
   const { data: creationJob } = await admin
-    .from<{ state: ActCreationJobState; attempts: number; done: number; total: number }>("inventory_act_creation_jobs")
-    .select("state, attempts, done, total")
+    .from<{ state: ActCreationJobState; attempts: number; done: number; total: number; lease_until: string | null }>(
+      "inventory_act_creation_jobs",
+    )
+    .select("state, attempts, done, total, lease_until")
     .eq("account_id", accountId)
     .eq("document_id", document.id)
     .maybeSingle();

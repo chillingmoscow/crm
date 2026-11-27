@@ -4258,6 +4258,7 @@ export type Database = {
           read_at: string | null
           read_version: number | null
           status: "read" | "reread" | "unread"
+          role_name: string | null
         }[]
       }
       kb_required_reading_overview: {
@@ -4274,6 +4275,7 @@ export type Database = {
           reread_count: number
           unread_count: number
           stale_count: number
+          remind_count: number
           changed_after_read: boolean
           reminded_at: string | null
           last_edited_at: string | null

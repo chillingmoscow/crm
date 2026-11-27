@@ -77,6 +77,7 @@ export interface KbRequiredReadingStatsRow {
   read_at: string | null;
   /** read — прочитал, reread — попросили перечитать, unread — не читал. */
   status: KbReadingStatus;
+  roleName: string | null;
 }
 
 /** Список members active account с их read-status'ом по странице.
@@ -108,6 +109,7 @@ export async function getKbRequiredReadingStats(
       avatar_url: r.avatar_url,
       read_at: r.read_at,
       status: r.status,
+      roleName: r.role_name,
     };
   });
   return { rows, error: null };
@@ -161,8 +163,11 @@ export interface KbRequiredReadingOverviewRow {
   rereadCount: number;
   /** Не открывали подтверждение ни разу. */
   unreadCount: number;
-  /** Прочитали не последнюю версию — их сбросит «Попросить перечитать». */
+  /** Прочитали не последнюю версию — их сбросит и уведомит «Попросить
+   *  перечитать» (без того, кто смотрит). */
   staleCount: number;
+  /** Кому уйдёт «Напомнить»: без действующего прочтения, кроме смотрящего. */
+  remindCount: number;
   /** Страницу правили после чьего-то действующего прочтения, и менеджер
    *  ещё не ответил «Попросить перечитать» или «Не нужно». */
   changedAfterRead: boolean;
@@ -197,6 +202,7 @@ export async function getKbRequiredReadingOverview(
     rereadCount: r.reread_count,
     unreadCount: r.unread_count,
     staleCount: r.stale_count,
+    remindCount: r.remind_count,
     changedAfterRead: r.changed_after_read,
     remindedAt: r.reminded_at,
     lastEditedAt: r.last_edited_at,

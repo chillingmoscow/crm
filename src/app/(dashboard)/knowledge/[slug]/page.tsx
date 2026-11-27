@@ -205,9 +205,9 @@ export default async function KbPageView({ params }: PageProps) {
                 read: page.readCount,
                 total: page.total,
                 changedAfterRead: page.changedAfterRead,
-                // Сам руководитель тоже может быть среди прочитавших старую
-                // версию: его прочтение сбросится, но уведомления себе нет.
-                staleOthers: Math.max(0, page.staleCount - (selfStale ? 1 : 0)),
+                // staleCount уже без самого руководителя: себе уведомлений
+                // нет, но его прочтение старой версии тоже сбросится.
+                staleOthers: page.staleCount,
                 selfStale,
               }
             : null,

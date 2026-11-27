@@ -184,7 +184,8 @@ returns table (
   avatar_url text,
   read_at timestamptz,
   read_version integer,
-  status text
+  status text,
+  role_name text
 )
 language plpgsql
 stable
@@ -235,7 +236,18 @@ begin
       when l.read_version is null then 'unread'
       when l.read_version >= v_reread_from then 'read'
       else 'reread'
-    end
+    end,
+    -- Должность в аккаунте (первая по названию, если заведений несколько).
+    (select ro2.name
+       from public.user_venue_roles uvr
+       join public.venues v on v.id = uvr.venue_id
+       join public.roles ro2 on ro2.id = uvr.role_id
+      where uvr.user_id = ro.user_id
+        and v.account_id = v_account_id
+        and uvr.status = 'active'
+        and uvr.fired_at is null
+      order by ro2.name
+      limit 1)
   from roster ro
   join public.profiles p on p.id = ro.user_id
   left join latest l on l.user_id = ro.user_id
@@ -263,6 +275,7 @@ returns table (
   reread_count integer,
   unread_count integer,
   stale_count integer,
+  remind_count integer,
   changed_after_read boolean,
   reminded_at timestamptz,
   last_edited_at timestamptz
@@ -275,6 +288,7 @@ as $$
 #variable_conflict use_column
 declare
   v_account_id uuid := public.get_active_account_id();
+  v_uid uuid := auth.uid();
   v_total integer;
 begin
   if v_account_id is null or auth.uid() is null then
@@ -327,11 +341,21 @@ begin
     (count(l.user_id) filter (where l.read_version >= p.from_v))::integer,
     (count(l.user_id) filter (where l.read_version < p.from_v))::integer,
     (v_total - count(l.user_id))::integer,
-    -- Прочитали действующе, но не последнюю версию: их сбросит
-    -- «Попросить перечитать».
+    -- Прочитали действующе, но не последнюю версию: их сбросит и уведомит
+    -- «Попросить перечитать». Без того, кто смотрит, — себе уведомлений нет.
     (count(l.user_id) filter (
       where l.read_version >= p.from_v and l.read_version < coalesce(v.cur, 1)
+        and l.user_id <> v_uid
     ))::integer,
+    -- Кому уйдёт «Напомнить»: без действующего прочтения, кроме смотрящего.
+    (select count(*)
+       from roster ro
+      where ro.user_id <> v_uid
+        and not exists (
+          select 1 from latest l2
+           where l2.page_id = p.id and l2.user_id = ro.user_id
+             and l2.read_version >= p.from_v
+        ))::integer,
     coalesce(bool_or(l.read_version >= p.from_v and l.read_version < coalesce(v.cur, 1)), false)
       and coalesce(v.cur, 1) > coalesce(p.dismissed_v, 0),
     p.reminded,

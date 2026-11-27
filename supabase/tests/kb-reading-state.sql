@@ -143,8 +143,9 @@ do $$ declare n integer; expected integer; o record;
 begin
   select * into o from public.kb_required_reading_overview(current_setting('qa.kb_page')::uuid);
   n := public.kb_remind_unread(current_setting('qa.kb_page')::uuid);
-  -- Непрочитавшие из состава минус сам менеджер (он тоже в составе и не читал).
+  -- Непрочитавшие из состава без самого менеджера (он тоже в составе и не читал).
   expected := o.unread_count + o.reread_count - 1;
+  if o.remind_count <> expected then raise exception 'Сводка обещает напомнить %, а не %', o.remind_count, expected; end if;
   if n <> expected then raise exception '«Напомнить» уведомило %, ждали %', n, expected; end if;
   begin
     perform public.kb_remind_unread(current_setting('qa.kb_page')::uuid);

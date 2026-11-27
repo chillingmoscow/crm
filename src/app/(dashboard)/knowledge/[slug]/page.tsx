@@ -399,9 +399,11 @@ export default async function KbPageView({ params }: PageProps) {
       </PageHeaderActions>
 
       {/* Тело — общая рамка и колонка 720 (DS → «База знаний» →
-          «Документ»). Ручка блоков стоит слева от колонки, в поле рамки. */}
+          «Документ»). С компьютера у колонки свои поля по 40px: ручка
+          блоков (плюс и перетаскивание) стоит левее текста и без них на
+          узком окне налезала на дерево страниц. */}
       <PageFrame className="flex-1">
-        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6">
+        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6 md:max-w-[800px] md:px-10">
           <KbPageEditor
             key={`${row.id}-${row.updated_at ?? row.created_at}`}
             pageId={row.id}
@@ -541,7 +543,7 @@ async function DeletedKbPageView({ row }: { row: KbPageRow }) {
       />
 
       <PageFrame className="flex-1">
-        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6">
+        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6 md:max-w-[800px] md:px-10">
           {/* «В корзине» — плашкой в колонке документа */}
           <KbDeletedPageBanner
             pageId={row.id}

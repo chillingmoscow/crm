@@ -49,7 +49,10 @@ export function Breadcrumbs({
           const last = index === items.length - 1;
           // Корень пути («База знаний», «Люди») не сжимается — сжимаются
           // промежуточные звенья.
-          const fit = index === 0 ? "shrink-0" : "min-w-0 max-w-48 truncate";
+          // Коэффициенты сжатия — целые (4 у звеньев, 1 у текущей): при
+          // сумме меньше единицы браузер раздаёт только эту долю нехватки
+          // места, и путь из «корень / текущая» уезжал под поиск.
+          const fit = index === 0 ? "shrink-0" : "min-w-0 max-w-48 shrink-[4] truncate";
           return (
             <span key={`${index}.${item.label}`} className="contents">
               {index > 0 && (
@@ -62,7 +65,7 @@ export function Breadcrumbs({
                   aria-current="page"
                   // Текущая страница сжимается вчетверо медленнее предков:
                   // при нехватке места первыми обрезаются звенья пути.
-                  className="min-w-0 shrink-[0.25] truncate"
+                  className="min-w-0 shrink truncate"
                   data-tip={item.label}
                   data-tip-overflow
                 >

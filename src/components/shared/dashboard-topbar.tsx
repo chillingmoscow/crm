@@ -59,10 +59,14 @@ export function DashboardTopbar({
       )}
       {afterBreadcrumb}
       <div className="flex-1" />
-      <CommandPaletteTrigger />
-      <PageHeaderActionsSlot />
-      <PageHelpButton />
-      <NotificationBell />
+      {/* Кнопки справа не сжимаются: при нехватке места обрезается путь,
+       * а не значки 36px. */}
+      <div className="flex shrink-0 items-center gap-2">
+        <CommandPaletteTrigger />
+        <PageHeaderActionsSlot />
+        <PageHelpButton />
+        <NotificationBell />
+      </div>
     </header>
   );
 }

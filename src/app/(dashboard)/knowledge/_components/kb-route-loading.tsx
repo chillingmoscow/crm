@@ -22,7 +22,7 @@ export function KbSectionLoading({ label }: { label: string }) {
 export function KbDocumentLoading() {
   return (
     <PageFrame aria-label="Открываем страницу" aria-busy>
-      <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4">
+      <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 md:max-w-[800px] md:px-10">
         <Skeleton className="size-11 rounded-lg" />
         <Skeleton className="h-10 w-2/3" />
         <div className="mt-4 flex flex-col gap-3">

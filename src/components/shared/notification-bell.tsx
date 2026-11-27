@@ -66,6 +66,7 @@ type Scope = "active" | "archived";
 type View = "all" | "unread" | "archived";
 
 const PAGE_SIZE = 50;
+const UPDATE_RELOAD_DEBOUNCE_MS = 300;
 
 const HDR_BTN =
   "inline-flex items-center justify-center size-8 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors";
@@ -185,6 +186,9 @@ export function NotificationBell({
   useEffect(() => {
     let cancelled = false;
     let channel: ReturnType<typeof supabase.channel> | null = null;
+    // «Прочитать стопку» из 13 записей — 13 событий UPDATE подряд:
+    // перечитываем список один раз, когда они утихнут.
+    let reloadTimer: number | undefined;
 
     (async () => {
       const {
@@ -240,8 +244,12 @@ export function NotificationBell({
           },
           () => {
             if (cancelled) return;
-            void loadInitial("active");
-            setLoaded((prev) => ({ ...prev, archived: false }));
+            window.clearTimeout(reloadTimer);
+            reloadTimer = window.setTimeout(() => {
+              if (cancelled) return;
+              void loadInitial("active");
+              setLoaded((prev) => ({ ...prev, archived: false }));
+            }, UPDATE_RELOAD_DEBOUNCE_MS);
           },
         )
         .subscribe();
@@ -249,6 +257,7 @@ export function NotificationBell({
 
     return () => {
       cancelled = true;
+      window.clearTimeout(reloadTimer);
       if (channel) void supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

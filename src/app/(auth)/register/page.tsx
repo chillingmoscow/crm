@@ -10,6 +10,8 @@ import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/client";
+import { PASSWORD_MIN_LENGTH, PASSWORD_TWO_DIGITS } from "@/lib/auth/password";
+import { isRateLimited, RATE_LIMIT_MESSAGE } from "@/lib/auth/auth-errors";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -23,6 +25,7 @@ import {
 } from "../_components/auth-ui";
 
 const PASSWORD_RULE = "Минимум 8 символов и 2 цифры";
+const PASSWORD_RULES = [PASSWORD_MIN_LENGTH, PASSWORD_TWO_DIGITS];
 
 const registerSchema = z
   .object({
@@ -31,8 +34,8 @@ const registerSchema = z
     email: z.string().email("Проверьте адрес почты"),
     password: z
       .string()
-      .min(8, PASSWORD_RULE)
-      .regex(/(?:\D*\d){2}/, "Минимум 2 цифры в пароле"),
+      .refine(PASSWORD_MIN_LENGTH.test, PASSWORD_RULE)
+      .refine(PASSWORD_TWO_DIGITS.test, "Минимум 2 цифры в пароле"),
     confirm_password: z.string(),
     agree_to_terms: z.boolean().refine((v) => v === true, "Нужно согласие"),
     subscribe_newsletter: z.boolean().optional(),
@@ -107,6 +110,8 @@ export default function RegisterPage() {
       setGlobalError(
         msg.includes("already registered") || msg.includes("user already exists") ? (
           <AlreadyRegistered />
+        ) : isRateLimited(error) ? (
+          RATE_LIMIT_MESSAGE
         ) : (
           "Не удалось зарегистрироваться. Попробуйте ещё раз."
         ),
@@ -166,7 +171,7 @@ export default function RegisterPage() {
           error={errors.password?.message}
           hint={
             errors.password ? undefined : (
-              <PasswordStrength password={password} rule={PASSWORD_RULE} />
+              <PasswordStrength password={password} rule={PASSWORD_RULE} rules={PASSWORD_RULES} />
             )
           }
         />

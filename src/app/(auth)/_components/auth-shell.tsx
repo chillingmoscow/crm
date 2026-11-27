@@ -42,13 +42,16 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
           leaving && "pointer-events-none opacity-0",
         )}
       >
-        <aside className="sticky top-0 hidden h-dvh w-[56%] shrink-0 p-3 xl:flex">
+        {/* Низкое окно: сначала уходит подпись, потом нижний ряд карточек
+            (VenueDemo), на совсем низком — вся панель, чтобы ничего не
+            обрезалось. */}
+        <aside className="sticky top-0 hidden h-dvh w-[56%] shrink-0 p-3 xl:flex [@media(max-height:460px)]:!hidden">
           <div className="flex flex-1 flex-col justify-center gap-8 overflow-hidden rounded-xl bg-muted px-12 py-12 2xl:px-16">
             <div className="max-w-lg">
               <h2 className="text-[32px] font-bold leading-tight tracking-tight">
                 Всё заведение — в одном окне
               </h2>
-              <p className="mt-3 text-base text-muted-foreground">
+              <p className="mt-3 text-base text-muted-foreground [@media(max-height:640px)]:hidden">
                 Люди, смены, продажи, деньги и склад. Без таблиц и пересылки
                 скриншотов.
               </p>

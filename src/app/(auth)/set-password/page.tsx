@@ -4,13 +4,15 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/client";
+import { isRateLimited, RATE_LIMIT_MESSAGE } from "@/lib/auth/auth-errors";
 import { safeAuthRedirectPath } from "@/lib/auth/redirects";
 import { useAuthLeave } from "../_components/auth-shell";
 import { AuthLoading } from "../_components/auth-ui";
 import { NewPasswordForm } from "../_components/new-password-form";
 
-function mapSupabaseError(message: string) {
-  const lower = message.toLowerCase();
+function mapSupabaseError(error: { message: string; status?: number; code?: string }) {
+  if (isRateLimited(error)) return RATE_LIMIT_MESSAGE;
+  const lower = error.message.toLowerCase();
   if (lower.includes("new password should be different from the old password")) {
     return "Новый пароль должен отличаться от старого.";
   }
@@ -23,6 +25,7 @@ function SetPasswordContent() {
   const [linkError, setLinkError] = useState<string | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [email, setEmail] = useState<string | null>(null);
 
   // Сессию ставит /auth/confirm по ссылке из приглашения.
   useEffect(() => {
@@ -31,7 +34,10 @@ function SetPasswordContent() {
       const supabase = createClient();
       const { data } = await supabase.auth.getSession();
       if (!mounted) return;
-      if (data.session) setSessionReady(true);
+      if (data.session) {
+        setEmail(data.session.user.email ?? null);
+        setSessionReady(true);
+      }
       else setLinkError("Ссылка для приглашения недействительна или устарела.");
       setChecking(false);
     };
@@ -44,7 +50,7 @@ function SetPasswordContent() {
   const save = async (password: string) => {
     const supabase = createClient();
     const { error } = await supabase.auth.updateUser({ password });
-    if (error) return mapSupabaseError(error.message);
+    if (error) return mapSupabaseError(error);
     // Пароль сохранён — в приложение (принять приглашение, онбординг):
     // обычно /invite?invitation=ID, только путь на своём сайте.
     leave(safeAuthRedirectPath(searchParams.get("next")));
@@ -60,6 +66,7 @@ function SetPasswordContent() {
       submitLabel="Продолжить"
       ready={sessionReady}
       error={linkError}
+      email={email}
       onSave={save}
     />
   );

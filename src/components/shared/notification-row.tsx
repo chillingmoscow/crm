@@ -84,8 +84,9 @@ export function KbNotificationRow({
       data-unread={!notification.read}
       data-nested={nested || undefined}
       className={cn(
+        // Отступ вложенной строки — в workspace-appearance.module.css
+        // ([data-nested]): там же задан весь padding строк колокольчика.
         "group relative flex items-start gap-3 px-4 py-3",
-        nested && "pl-16",
         "border-b border-border/40 last:border-b-0",
         "hover:bg-accent/50 transition-colors cursor-pointer",
       )}
@@ -275,7 +276,8 @@ export function NotificationTypeIcon({ type }: { type: string }) {
 
 /** Имя человека, о котором уведомление без автора: кандидат из анкеты. */
 export function personEntityName(notification: Notification): string | null {
-  if (notification.entity_type !== "candidate") return null;
+  // Имя в заголовке («Новая анкета: Анна Белова») есть только у анкеты.
+  if (notification.type !== "candidate.new" || notification.entity_type !== "candidate") return null;
   return extractEntityTitle(notification.title) || null;
 }
 

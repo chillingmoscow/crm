@@ -37,17 +37,37 @@ function useReducedMotion(): boolean {
   return reduced;
 }
 
-/** Номер «события» с открытия страницы; в скрытой вкладке время не идёт. */
+/** Демо видно только с `xl` (как панель в `AuthShell`). */
+const DEMO_VISIBLE_QUERY = "(min-width: 1280px)";
+
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(false);
+  useEffect(() => {
+    const list = window.matchMedia(query);
+    const update = () => setMatches(list.matches);
+    update();
+    list.addEventListener("change", update);
+    return () => list.removeEventListener("change", update);
+  }, [query]);
+  return matches;
+}
+
+/**
+ * Номер «события» с открытия страницы. Время идёт, только пока демо видно:
+ * на телефоне и узком экране панель скрыта, и таймер не крутится; в скрытой
+ * вкладке тоже стоит.
+ */
 function useTick(): number {
   const reduced = useReducedMotion();
+  const visible = useMediaQuery(DEMO_VISIBLE_QUERY);
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    if (reduced) return;
+    if (reduced || !visible) return;
     const timer = window.setInterval(() => {
       if (!document.hidden) setTick((t) => t + 1);
     }, TICK_MS);
     return () => window.clearInterval(timer);
-  }, [reduced]);
+  }, [reduced, visible]);
   return tick;
 }
 
@@ -145,7 +165,7 @@ export function VenueDemo() {
   const onShift = day.arrived ? 5 : 4;
 
   return (
-    <div aria-hidden className="grid w-full select-none grid-cols-3 grid-rows-[164px_148px_100px] gap-3 text-foreground">
+    <div aria-hidden className="grid w-full select-none grid-cols-3 grid-rows-[164px_148px_100px] gap-3 [@media(max-height:580px)]:grid-rows-[164px_148px] text-foreground">
       <Tile index={0} className="col-span-2 gap-3">
         <div className="flex h-6 items-center gap-2">
           <span className="size-2 shrink-0 rounded-full bg-emerald-500" />
@@ -248,7 +268,7 @@ export function VenueDemo() {
         </span>
       </Tile>
 
-      <Tile index={5} className="col-span-2 flex-row items-center gap-3 py-4">
+      <Tile index={5} className="col-span-2 flex-row items-center gap-3 py-4 [@media(max-height:580px)]:hidden">
         <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full [&_svg]:size-4", statusTones.success)}>
           <Banknote />
         </span>
@@ -266,7 +286,7 @@ export function VenueDemo() {
         </span>
       </Tile>
 
-      <Tile index={6} className="justify-center gap-1 py-4">
+      <Tile index={6} className="justify-center gap-1 py-4 [@media(max-height:580px)]:hidden">
         <span className={label}>База знаний</span>
         <span className="truncate text-sm font-semibold">Стандарты подачи</span>
         <span className="text-xs text-muted-foreground">

@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { chunk } from "@/lib/supabase/fetch-all";
 
 /**
  * Inline-action в notif'е (Notion-style). emit'ер кладёт actions[] в
@@ -155,42 +156,50 @@ export async function unarchiveNotification(id: string): Promise<void> {
 
 /** Стопка однотипных уведомлений («13 новых анкет»): одна команда на
  *  все её записи. RLS пускает UPDATE только на свои строки. */
-const STACK_IDS_LIMIT = 200;
+/** id в `.in(...)` уходят в URL запроса — режем пачками (CLAUDE.md, PostgREST). */
+const STACK_IDS_CHUNK = 100;
 
-function stackIds(ids: string[]): string[] {
-  return [...new Set(ids)].slice(0, STACK_IDS_LIMIT);
+function stackIdChunks(ids: string[]): string[][] {
+  return chunk([...new Set(ids)], STACK_IDS_CHUNK);
 }
 
 export async function markNotificationsRead(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("notifications")
-    .update({ read: true })
-    .in("id", stackIds(ids))
-    .eq("read", false);
-  if (error) console.error("[notifications] markNotificationsRead failed:", error.message);
+  for (const part of stackIdChunks(ids)) {
+    const { error } = await supabase
+      .from("notifications")
+      .update({ read: true })
+      .in("id", part)
+      .eq("read", false);
+    if (error) console.error("[notifications] markNotificationsRead failed:", error.message);
+  }
 }
 
 export async function archiveNotifications(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("notifications")
-    .update({ archived_at: new Date().toISOString() })
-    .in("id", stackIds(ids))
-    .is("archived_at", null);
-  if (error) console.error("[notifications] archiveNotifications failed:", error.message);
+  const archivedAt = new Date().toISOString();
+  for (const part of stackIdChunks(ids)) {
+    const { error } = await supabase
+      .from("notifications")
+      .update({ archived_at: archivedAt })
+      .in("id", part)
+      .is("archived_at", null);
+    if (error) console.error("[notifications] archiveNotifications failed:", error.message);
+  }
 }
 
 export async function unarchiveNotifications(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("notifications")
-    .update({ archived_at: null })
-    .in("id", stackIds(ids));
-  if (error) console.error("[notifications] unarchiveNotifications failed:", error.message);
+  for (const part of stackIdChunks(ids)) {
+    const { error } = await supabase
+      .from("notifications")
+      .update({ archived_at: null })
+      .in("id", part);
+    if (error) console.error("[notifications] unarchiveNotifications failed:", error.message);
+  }
 }
 
 /** Bulk-архивация всех прочитанных active rows юзера. Используется

@@ -5,14 +5,16 @@ import Link from "next/link";
 import { Check } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/client";
+import { isRateLimited, RATE_LIMIT_MESSAGE } from "@/lib/auth/auth-errors";
 import { Button } from "@/components/ui/button";
 import { AuthHeader, AuthLoading, BackToLogin } from "../_components/auth-ui";
 import { NewPasswordForm } from "../_components/new-password-form";
 
 const LINK_EXPIRED = "Ссылка для восстановления недействительна или устарела.";
 
-function mapSupabaseResetError(message: string) {
-  const lower = message.toLowerCase();
+function mapSupabaseResetError(error: { message: string; status?: number; code?: string }) {
+  if (isRateLimited(error)) return RATE_LIMIT_MESSAGE;
+  const lower = error.message.toLowerCase();
   if (lower.includes("new password should be different from the old password")) {
     return "Новый пароль должен отличаться от старого.";
   }
@@ -24,6 +26,7 @@ export default function ResetPasswordPage() {
   const [linkError, setLinkError] = useState<string | null>(null);
   const [tokenReady, setTokenReady] = useState(false);
   const [tokenLoading, setTokenLoading] = useState(true);
+  const [email, setEmail] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -38,6 +41,7 @@ export default function ResetPasswordPage() {
       const { data: sessionData } = await supabase.auth.getSession();
       if (sessionData.session) {
         if (isMounted) {
+          setEmail(sessionData.session.user.email ?? null);
           setTokenReady(true);
           setTokenLoading(false);
         }
@@ -52,14 +56,17 @@ export default function ResetPasswordPage() {
         return;
       }
 
-      const { error: verifyError } = await supabase.auth.verifyOtp({
+      const { data: verified, error: verifyError } = await supabase.auth.verifyOtp({
         token_hash: tokenHash,
         type: "recovery",
       });
 
       if (isMounted) {
         if (verifyError) setLinkError(LINK_EXPIRED);
-        else setTokenReady(true);
+        else {
+          setEmail(verified.user?.email ?? null);
+          setTokenReady(true);
+        }
         setTokenLoading(false);
       }
     };
@@ -73,7 +80,7 @@ export default function ResetPasswordPage() {
   const save = async (password: string) => {
     const supabase = createClient();
     const { error } = await supabase.auth.updateUser({ password });
-    if (error) return mapSupabaseResetError(error.message);
+    if (error) return mapSupabaseResetError(error);
     setDone(true);
     return null;
   };
@@ -104,6 +111,7 @@ export default function ResetPasswordPage() {
         submitLabel="Сохранить"
         ready={tokenReady}
         error={linkError}
+        email={email}
         onSave={save}
       />
       <BackToLogin />

@@ -7,6 +7,7 @@ import { z } from "zod";
 import { Loader2, MailCheck } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/client";
+import { isRateLimited, RATE_LIMIT_MESSAGE } from "@/lib/auth/auth-errors";
 import { Button } from "@/components/ui/button";
 import {
   AuthAlert,
@@ -62,7 +63,9 @@ export default function ForgotPasswordPage() {
     const error = await doSendReset(data.email);
     setLoading(false);
     if (error) {
-      setGlobalError("Не удалось отправить письмо. Попробуйте ещё раз.");
+      setGlobalError(
+        isRateLimited(error) ? RATE_LIMIT_MESSAGE : "Не удалось отправить письмо. Попробуйте ещё раз.",
+      );
       return;
     }
     setSentEmail(data.email);
@@ -75,7 +78,12 @@ export default function ForgotPasswordPage() {
     const error = await doSendReset(sentEmail);
     setResendNotice(
       error
-        ? { ok: false, text: "Не удалось отправить письмо повторно. Попробуйте чуть позже." }
+        ? {
+            ok: false,
+            text: isRateLimited(error)
+              ? RATE_LIMIT_MESSAGE
+              : "Не удалось отправить письмо повторно. Попробуйте чуть позже.",
+          }
         : { ok: true, text: "Письмо отправлено повторно" },
     );
     setResendLoading(false);

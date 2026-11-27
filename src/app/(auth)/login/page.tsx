@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -8,6 +8,7 @@ import { z } from "zod";
 import { Loader2 } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/client";
+import { isRateLimited, RATE_LIMIT_MESSAGE } from "@/lib/auth/auth-errors";
 import { Button } from "@/components/ui/button";
 import { useAuthLeave } from "../_components/auth-shell";
 import {
@@ -25,10 +26,22 @@ const loginSchema = z.object({
 
 type LoginForm = z.infer<typeof loginSchema>;
 
+/** Ошибки, с которыми на вход возвращают /auth/callback и /auth/confirm. */
+const URL_ERRORS: Record<string, string> = {
+  auth_callback_error: "Ссылка устарела или уже использована. Войдите с паролем или запросите новую ссылку.",
+};
+
 export default function LoginPage() {
   const leave = useAuthLeave();
   const [loading, setLoading] = useState(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
+
+  // `?error=` читаем после монтирования, а не через useSearchParams: так
+  // страница не требует Suspense и не мигает пустой формой.
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("error");
+    if (code && URL_ERRORS[code]) setGlobalError(URL_ERRORS[code]);
+  }, []);
 
   const {
     register,
@@ -54,6 +67,8 @@ export default function LoginPage() {
       const msg = error.message.toLowerCase();
       if (msg.includes("invalid login credentials")) {
         setGlobalError("Неверная почта или пароль");
+      } else if (isRateLimited(error)) {
+        setGlobalError(RATE_LIMIT_MESSAGE);
       } else if (msg.includes("email not confirmed")) {
         setGlobalError("Почта не подтверждена. Проверьте входящие.");
       } else {

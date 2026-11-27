@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { statusTones, type StatusTone } from "@/components/ui/status-badge";
+import { passwordStrength, type PasswordRule } from "@/lib/auth/password";
 
 /**
  * Заголовок формы входа: необязательная иконка, заголовок 28px, пояснение.
@@ -139,7 +140,6 @@ export function AuthPasswordField({
   const [shown, setShown] = useState(false);
   return (
     <div className="relative">
-      {aside && <div className="absolute right-0 top-0 text-sm">{aside}</div>}
       <Field id={id} label={label} error={error} hint={hint}>
         {(control) => (
           <div className="relative">
@@ -163,6 +163,9 @@ export function AuthPasswordField({
           </div>
         )}
       </Field>
+      {/* В разметке — после поля: Tab из почты ведёт в пароль, а не на
+          «Забыли пароль?». На экране ссылка справа от подписи. */}
+      {aside && <div className="absolute right-0 top-0 text-sm">{aside}</div>}
     </div>
   );
 }
@@ -174,24 +177,20 @@ const STRENGTH = [
   { label: "Надёжный пароль", bar: "bg-emerald-500", text: "text-emerald-700 dark:text-emerald-400" },
 ] as const;
 
-/** Оценка пароля 1–4 по длине и разнообразию символов. */
-export function passwordStrength(password: string): 1 | 2 | 3 | 4 | null {
-  if (!password) return null;
-  let score = 0;
-  if (password.length >= 8) score++;
-  if (password.length >= 12) score++;
-  if (/\p{Lu}/u.test(password) && /\p{Ll}/u.test(password)) score++;
-  if (/\d/.test(password)) score++;
-  if (/[^\p{L}\d]/u.test(password)) score++;
-  if (score <= 1) return 1;
-  if (score === 2) return 2;
-  if (score === 3) return 3;
-  return 4;
-}
-
-/** Полоска надёжности пароля под полем; без пароля — правило пароля. */
-export function PasswordStrength({ password, rule }: { password: string; rule: string }) {
-  const level = passwordStrength(password);
+/**
+ * Полоска надёжности пароля под полем. Пустое поле — правило пароля
+ * (`rule`); пока правило не выполнено — «Слабый пароль» и чего не хватает.
+ */
+export function PasswordStrength({
+  password,
+  rule,
+  rules,
+}: {
+  password: string;
+  rule: string;
+  rules: readonly PasswordRule[];
+}) {
+  const { level, unmet } = passwordStrength(password, rules);
   const spec = level ? STRENGTH[level - 1] : null;
   return (
     <span className="grid gap-1">
@@ -204,7 +203,9 @@ export function PasswordStrength({ password, rule }: { password: string; rule: s
           style={{ width: level ? `${level * 25}%` : "0%" }}
         />
       </span>
-      <span className={spec?.text}>{spec ? spec.label : rule}</span>
+      <span className={spec?.text}>
+        {spec ? (unmet ? `${spec.label} · нужно ${unmet.need}` : spec.label) : rule}
+      </span>
     </span>
   );
 }

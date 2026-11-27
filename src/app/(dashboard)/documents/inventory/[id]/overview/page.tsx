@@ -8,12 +8,12 @@ import {
 } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { ProfileSection } from "@/components/shared/profile-section";
-import { formatDayMonth, formatDayMonthTime } from "@/lib/format/date";
+import { formatDayMonthTime } from "@/lib/format/date";
 
 import { getCachedStoreTitle, getCachedVenueTimezone } from "../layout";
 import { ActCommentEditor } from "../_components/act-comment-editor";
 import { ActDateEditor } from "../_components/act-date-editor";
-import { getInventoryDateLockReason, invoiceDayInZone } from "@/lib/inventory/act-date";
+import { getInventoryDateLockReason, invoiceDayInZone, invoiceTimeInZone } from "@/lib/inventory/act-date";
 import { hasCountedResults } from "@/lib/inventory/act-status";
 
 type DocumentOverviewRow = {
@@ -110,6 +110,7 @@ export default async function InventoryDocumentOverviewPage({
               documentId={document.id}
               documentNumber={document.document_number}
               currentDay={invoiceDayInZone(document.invoice_date, venueTimeZone)}
+              currentTime={invoiceTimeInZone(document.invoice_date, venueTimeZone)}
               hasEnteredAmounts={hasEnteredAmounts}
               hasResults={hasCountedResults(document.status)}
               restriction={dateLockReason}
@@ -119,9 +120,12 @@ export default async function InventoryDocumentOverviewPage({
       >
         <dl className="grid gap-4 sm:grid-cols-2">
           <Item label="Склад" value={storeTitle} />
-          <Item label="Дата акта" value={formatDayMonth(document.invoice_date, now, timeZone ?? undefined)} />
+          {/* Время акта важно: Quick Resto считает расчётный остаток на этот момент. */}
+          <Item label="Дата акта" value={formatDayMonthTime(document.invoice_date, now, timeZone ?? undefined)} />
+          {/* Когда акт последний раз сохраняли в Quick Resto (`lastUpdateDate`) —
+              не дата акта: прежняя подпись «Изменён в Quick Resto» читалась как она. */}
           <Item
-            label="Изменён в Quick Resto"
+            label="Последнее изменение в Quick Resto"
             value={formatDayMonthTime(document.last_qr_update_date, now, timeZone ?? undefined)}
           />
           {qrComment ? (

@@ -43,6 +43,9 @@ export function formatAuditDate(value: unknown): string {
   // SQL dates are calendar days, not instants. Never shift them to the viewer's zone.
   const calendar = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (calendar) return `${calendar[3]}.${calendar[2]}.${calendar[1]}`;
+  // Местные часы заведения («2026-11-29 18:00», дата акта) — тоже без сдвига.
+  const wall = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(value);
+  if (wall) return `${wall[3]}.${wall[2]}.${wall[1]}, ${wall[4]}:${wall[5]}`;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString("ru-RU", {

@@ -17,9 +17,10 @@ import {
 import {
   backOfficeTimeZoneParam,
   getInventoryDateLockReason,
-  invoiceDayInZone,
+  invoiceWallInZone,
   isCalendarDay,
-  moveInvoiceDateToDay,
+  isClockTime,
+  moveInvoiceDate,
 } from "@/lib/inventory/act-date";
 import {
   DOCUMENT_CHANGED_ERROR,
@@ -67,10 +68,10 @@ export type UpdateInventoryDocumentDateResult = {
 };
 
 /**
- * Перенести акт на другой день. Время суток акта сохраняется (меняется только
- * день в поясе заведения), запись идёт в Quick Resto, затем акт перечитывается:
- * Quick Resto считает расчётный остаток на дату акта, поэтому после смены даты
- * расчётные остатки и разница позиций другие.
+ * Перенести акт на другие дату и время (в поясе заведения). Запись идёт в
+ * Quick Resto, затем акт перечитывается: Quick Resto считает расчётный остаток
+ * на момент акта, поэтому после смены даты или времени расчётные остатки и
+ * разница позиций другие.
  *
  * Только для непроведённого акта с открытыми итогами, право
  * `inventory.manage_documents`.
@@ -79,10 +80,13 @@ export async function updateInventoryDocumentDate(input: {
   documentId: string;
   /** Новый день акта, `YYYY-MM-DD`. */
   date: string;
+  /** Новое время акта, `HH:mm` в поясе заведения. Без него время не меняется. */
+  time?: string | null;
 }): Promise<UpdateInventoryDocumentDateResult> {
   const ctx = await getActiveContext("inventory.manage_documents");
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error ?? "Недостаточно прав" };
   if (!isCalendarDay(input.date)) return { error: "Выберите дату акта" };
+  if (input.time != null && !isClockTime(input.time)) return { error: "Укажите время акта" };
 
   const admin = asLooseDb(createAdminClient());
   try {
@@ -130,12 +134,15 @@ export async function updateInventoryDocumentDate(input: {
       return { error: "Акт уже проведён в Quick Resto — дату проведённого акта изменить нельзя." };
     }
     const qrInvoiceDate = dateText(qrDocument.invoiceDate) ?? document.invoice_date;
-    const oldDay = invoiceDayInZone(qrInvoiceDate, timeZone);
-    if (oldDay === input.date) {
-      // День уже тот: дату могли поменять в Quick Resto после синхронизации —
-      // подтягиваем её к себе, чтобы карточка не показывала старую.
-      if (qrInvoiceDate && qrInvoiceDate !== document.invoice_date &&
-          Date.parse(qrInvoiceDate) !== Date.parse(document.invoice_date ?? "")) {
+    const oldWall = invoiceWallInZone(qrInvoiceDate, timeZone);
+    const invoiceDate = moveInvoiceDate({ original: qrInvoiceDate, day: input.date, time: input.time, timeZone });
+    if (invoiceDate === null) return { error: "Выберите дату акта" };
+    const newWall = invoiceWallInZone(new Date(invoiceDate).toISOString(), timeZone);
+
+    if (qrInvoiceDate && Date.parse(qrInvoiceDate) === invoiceDate) {
+      // Дата и время уже те: их могли поменять в Quick Resto после
+      // синхронизации — подтягиваем к себе, чтобы карточка не показывала старые.
+      if (Date.parse(qrInvoiceDate) !== Date.parse(document.invoice_date ?? "")) {
         await admin
           .from("documents")
           .update({ invoice_date: qrInvoiceDate })
@@ -145,9 +152,6 @@ export async function updateInventoryDocumentDate(input: {
       }
       return { error: null };
     }
-
-    const invoiceDate = moveInvoiceDateToDay({ original: qrInvoiceDate, day: input.date, timeZone });
-    if (invoiceDate === null) return { error: "Выберите дату акта" };
 
     // Свежая проверка прямо перед записью в Quick Resto: акт могли провести или
     // зафиксировать итоги, пока мы читали.
@@ -204,7 +208,7 @@ export async function updateInventoryDocumentDate(input: {
     // событие пишем в журнал, а нашу строку сверяем с тем, что сохранилось там.
     const accountId = ctx.accountId;
     const userId = ctx.user.id;
-    const audit = (newDay: string | null, details: Record<string, unknown> = {}) =>
+    const audit = (savedWall: string | null, details: Record<string, unknown> = {}) =>
       writeAuditEvent({
         accountId,
         venueId: document.venue_id ?? ctx.venueId,
@@ -214,9 +218,9 @@ export async function updateInventoryDocumentDate(input: {
         entityId: document.id,
         details: {
           number: document.document_number,
-          date: newDay ?? input.date,
+          date: savedWall ?? newWall,
           ...details,
-          changes: [{ field: "invoice_date", old: oldDay, new: newDay ?? input.date }],
+          changes: [{ field: "invoice_date", old: oldWall, new: savedWall ?? newWall }],
         },
       });
 
@@ -235,7 +239,7 @@ export async function updateInventoryDocumentDate(input: {
       };
     }
     const savedInvoiceDate = dateText(saved.invoiceDate);
-    const savedDay = invoiceDayInZone(savedInvoiceDate, timeZone);
+    const savedWall = invoiceWallInZone(savedInvoiceDate, timeZone);
 
     let notice: string | undefined;
     if (savedInvoiceDate) {
@@ -258,17 +262,17 @@ export async function updateInventoryDocumentDate(input: {
         expected: new Date(invoiceDate).toISOString(),
         actual: savedInvoiceDate,
       });
-      if (savedDay && savedDay !== oldDay) await audit(savedDay, { mismatch: true });
+      if (savedWall && savedWall !== oldWall) await audit(savedWall, { mismatch: true });
       revalidateDocument(document.id);
       return {
         error:
-          savedDay === input.date
-            ? "Quick Resto сохранил дату акта с другим временем — проверьте акт в Quick Resto."
+          savedWall && savedWall !== oldWall
+            ? "Quick Resto сохранил другие дату и время акта — проверьте акт в Quick Resto."
             : "Quick Resto не сохранил новую дату акта. Попробуйте ещё раз или измените её в Quick Resto.",
       };
     }
 
-    await audit(input.date);
+    await audit(newWall);
 
     // Расчётные остатки теперь на новую дату — перечитываем позиции. Дата уже
     // сменилась, поэтому сбой здесь — не ошибка действия, а повод обновить акт.

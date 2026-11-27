@@ -15,13 +15,23 @@ export function normalizeTimeInput(value: string): string | undefined {
   if (Number(hours) > 23 || Number(minutes) > 59) return undefined;
   return `${hours.padStart(2, "0")}:${minutes.padStart(2, "0")}`;
 }
-export function TimeInput({ value, onChange, disabled = false }: { value: string; onChange: (value: string) => void; disabled?: boolean }) {
+export function TimeInput({ value, onChange, disabled = false, id, "aria-describedby": ariaDescribedBy, "aria-invalid": ariaInvalid }: {
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  /** Из `<Field>`: с ним подпись поля становится доступным именем вместо «Время». */
+  id?: string;
+  "aria-describedby"?: string;
+  "aria-invalid"?: boolean;
+  "aria-required"?: boolean;
+}) {
   const [touched, setTouched] = useState(false);
   const invalid = touched && normalizeTimeInput(value) === undefined;
   return <span className="space-y-1.5">
     <span className="relative block">
       <Clock aria-hidden className="pointer-events-none absolute left-3 top-3 size-4 text-muted-foreground" />
-      <Input type="text" inputMode="numeric" aria-label="Время" aria-invalid={invalid || undefined} autoComplete="off"
+      <Input id={id} type="text" inputMode="numeric" aria-label={id ? undefined : "Время"} aria-describedby={ariaDescribedBy}
+        aria-invalid={invalid || ariaInvalid || undefined} autoComplete="off"
         placeholder="ЧЧ:ММ" maxLength={5} value={value} disabled={disabled} className="pl-9 tabular-nums"
         onChange={(event) => onChange(event.target.value.replace(/[^\d:]/g, ""))}
         onBlur={() => { setTouched(true); const next = normalizeTimeInput(value); if (next !== undefined) onChange(next); }} />

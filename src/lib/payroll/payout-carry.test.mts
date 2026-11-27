@@ -40,7 +40,7 @@ function data(o: { accruals: Accrual[]; paid?: ReturnType<typeof paid>[]; offici
 }
 
 test("перенос: недоплата и переплата — со знаком и причиной", () => {
-  const items = carryItems(
+  const { items, held } = carryItems(
     data({
       accruals: [accrual("gamlet", 100000), accrual("anna", 50000)],
       paid: [paid("gamlet", 97000), paid("anna", 52000)],
@@ -48,6 +48,7 @@ test("перенос: недоплата и переплата — со знак
     MONTH,
     ["gamlet", "anna"],
   );
+  assert.deepEqual(held, []);
   assert.deepEqual(items, [
     { employee_id: "gamlet", amount: 3000, reason: "Недоплата за ноябрь 2026: переносится к выплате за декабрь 2026" },
     { employee_id: "anna", amount: -2000, reason: "Переплата за ноябрь 2026: удерживается из выплаты за декабрь 2026" },
@@ -55,16 +56,17 @@ test("перенос: недоплата и переплата — со знак
 });
 
 test("перенос: нулевой остаток и сотрудники вне плана не переносятся", () => {
-  const items = carryItems(
+  const { items, held } = carryItems(
     data({ accruals: [accrual("gamlet", 100000), accrual("olga", 40000)], paid: [paid("gamlet", 100000)] }),
     MONTH,
     ["gamlet"],
   );
   assert.deepEqual(items, []);
+  assert.deepEqual(held, []);
 });
 
-test("перенос: переплата из-за непроведённой официальной части не переносится", () => {
-  const items = carryItems(
+test("перенос: переплата из-за непроведённой официальной части ждёт, а не теряется", () => {
+  const { items, held } = carryItems(
     data({
       accruals: [accrual("anna", 50000)],
       paid: [paid("anna", 40000)],
@@ -74,6 +76,7 @@ test("перенос: переплата из-за непроведённой о
     ["anna"],
   );
   assert.deepEqual(items, []);
+  assert.deepEqual(held, [{ employee_id: "anna", hold: "переплата ждёт проведения официальной части" }]);
 });
 
 test("перенос ждёт строку, если невыданное по плану ещё причитается", () => {

@@ -108,8 +108,11 @@ end $$;
 -- 5. Перенос остатка по второму плану — сервер, без пользователя. Автор
 -- переноса — кто утвердил план (как у выплат по плану). Каждый сотрудник —
 -- отдельно: если у одного месяц не готов, остальные переносятся, а он
--- возвращается в blocked с причиной. Уже перенесённый по этому плану не
--- переносится второй раз (ключ — план + сотрудник).
+-- возвращается в blocked с причиной. Строка с hold — сервер сам решил
+-- подождать (переплата ждёт официальную часть, не перенесён прошлый месяц):
+-- она тоже в blocked, и план не считается перенесённым. Второй раз по тому же
+-- ключу (план + сотрудник) не переносим: если остаток после автопереноса
+-- изменился или перенос отменили — это blocked, переносят вручную.
 create or replace function public.payroll_payout_carry_system(p_account uuid, p_venue uuid, p_plan uuid, p_items jsonb)
 returns jsonb language plpgsql security definer set search_path = public, pg_catalog as $$
 declare
@@ -133,13 +136,20 @@ begin
   for item in select * from jsonb_array_elements(p_items) loop
     emp := (item->>'employee_id')::uuid;
     amount := (item->>'amount')::numeric;
+    if coalesce(trim(item->>'hold'), '') <> '' then
+      blocked := blocked || jsonb_build_object('employee_id', emp, 'reason', trim(item->>'hold'));
+      continue;
+    end if;
     if not exists (select 1 from public.payroll_payout_rows where plan_id = plan.id and employee_id = emp) then
       blocked := blocked || jsonb_build_object('employee_id', emp, 'reason', 'Сотрудника нет в плане');
       continue;
     end if;
     k := md5('payout-carry:' || plan.id::text || ':' || emp::text)::uuid;
-    -- Новый остаток после переноса (позднее начисление) — забота следующего плана.
-    if exists (select 1 from public.payroll_transfers where venue_id = p_venue and request_key = k) then continue;end if;
+    -- Остаток снова не ноль после автопереноса (позднее начисление, перенос отменили).
+    if exists (select 1 from public.payroll_transfers where venue_id = p_venue and request_key = k) then
+      blocked := blocked || jsonb_build_object('employee_id', emp, 'reason', 'Остаток изменился после автопереноса — перенесите вручную');
+      continue;
+    end if;
     begin
       x := private.payroll_transfer_core(jsonb_build_object(
         'request_key', k,

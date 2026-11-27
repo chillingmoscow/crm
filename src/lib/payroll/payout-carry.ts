@@ -34,25 +34,39 @@ const nextMonth = (month: string) => {
   return d.toISOString().slice(0, 10);
 };
 
-/** Что перенести: ненулевой остаток M по каждому сотруднику плана, со знаком. */
+export type CarryHold = { employee_id: string; hold: string };
+
+/**
+ * Что перенести: ненулевой остаток M по каждому сотруднику плана, со знаком.
+ * Переплату, которую держит ещё не проведённая официальная часть, не
+ * переносим, но и не теряем: она уходит в `held`, и перенос повторится,
+ * когда официальную выплату проведут.
+ */
 export function carryItems(
   data: Pick<PayrollData, "employees" | "accruals" | "adjustments" | "payments" | "allocations" | "transfers" | "settings" | "officialExpected">,
   month: string,
   employeeIds: string[],
-): CarryItem[] {
+): { items: CarryItem[]; held: CarryHold[] } {
   const ids = new Set(employeeIds);
   const target = nextMonth(month);
-  return statementRows(
+  const items: CarryItem[] = [];
+  const held: CarryHold[] = [];
+  for (const row of statementRows(
     data.employees.filter((e) => ids.has(e.id)),
     data.accruals, data.adjustments, data.payments, data.allocations, month,
     data.transfers, data.settings?.starts_on ?? month, data.officialExpected ?? [],
-  ).flatMap((row) => {
-    const { amount } = transferableBalance(row);
-    if (Math.round(amount * 100) === 0) return [];
-    return [{
+  )) {
+    const { amount, blockedByOfficial } = transferableBalance(row);
+    if (blockedByOfficial) {
+      held.push({ employee_id: row.employee.id, hold: "переплата ждёт проведения официальной части" });
+      continue;
+    }
+    if (Math.round(amount * 100) === 0) continue;
+    items.push({
       employee_id: row.employee.id,
       amount: round(amount * Math.sign(row.remaining)),
       reason: transferReason(row.remaining, month, target),
-    }];
-  });
+    });
+  }
+  return { items, held };
 }

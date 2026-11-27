@@ -61,7 +61,23 @@ export async function raiseAlert(
       .is("resolved_by", null)
       .select("id");
     if (reopened.error) throw new Error(reopened.error.message);
-    return (reopened.data ?? []).length > 0 ? "created" : "exists";
+    if ((reopened.data ?? []).length > 0) return "created";
+    // Открытая карточка — освежить текст: причины переноса и «изъято» меняются день ото дня.
+    const refreshed = await s.admin
+      .from("payroll_payout_alerts")
+      .update({
+        updated_at: now,
+        title: alert.title.slice(0, 300),
+        lines: alert.lines,
+        copy_text: alert.copyText ? alert.copyText.slice(0, 4000) : null,
+      })
+      .eq("account_id", s.accountId)
+      .eq("venue_id", s.venueId)
+      .eq("kind", alert.kind)
+      .eq("key", alert.key.slice(0, 200))
+      .eq("status", "open");
+    if (refreshed.error) console.error(`[payroll-payout-alert] ${s.venueId}/${alert.kind}: текст карточки не обновлён (${refreshed.error.message})`);
+    return "exists";
   } catch (e) {
     console.error(`[payroll-payout-alert] ${s.venueId}/${alert.kind}: карточка не заведена (${e instanceof Error ? e.message : "ошибка"})`);
     return "failed";
@@ -120,4 +136,20 @@ export async function closeAlert(s: VenueHandle, kind: PayoutAlertKind, key: str
     .eq("key", key)
     .eq("status", "open");
   if (r.error) console.error(`[payroll-payout-alert] ${s.venueId}/${kind}: карточка не закрыта (${r.error.message})`);
+}
+
+/** Закрыть открытые карточки плана этого вида, кроме `exceptKey` (причины сменились — старая карточка устарела). */
+export async function closePlanAlerts(s: VenueHandle, kind: PayoutAlertKind, planId: string, exceptKey?: string): Promise<void> {
+  const now = new Date().toISOString();
+  let q = s.admin
+    .from("payroll_payout_alerts")
+    .update({ status: "resolved", resolved_by: null, resolved_at: now, updated_at: now })
+    .eq("account_id", s.accountId)
+    .eq("venue_id", s.venueId)
+    .eq("kind", kind)
+    .eq("plan_id", planId)
+    .eq("status", "open");
+  if (exceptKey) q = q.neq("key", exceptKey);
+  const r = await q;
+  if (r.error) console.error(`[payroll-payout-alert] ${s.venueId}/${kind}: карточки плана не закрыты (${r.error.message})`);
 }

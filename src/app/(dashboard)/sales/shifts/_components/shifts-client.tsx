@@ -68,6 +68,7 @@ import {
   requestSalesSync,
 } from "../actions";
 import { DayDrawer } from "./day-drawer";
+import { MonthPlan } from "./month-plan";
 import {
   SalesStatusBadge,
   salesDayStatus,
@@ -890,6 +891,13 @@ export function ShiftsClient({
               hint={metricHint("deposits")}
             />
           </MetricStrip>
+          <MonthPlan
+            plan={monthLoading ? undefined : data.plan}
+            month={month}
+            today={today}
+            days={monthDays}
+            canConfigure={can("configure")}
+          />
           <div
             aria-busy={monthLoading}
             className={`transition-opacity duration-300 ease-[var(--ease-soft)] ${monthLoading ? "opacity-60" : ""}`}

@@ -52,6 +52,7 @@ import { payrollOfficialAuditSpecs } from "./payroll-official";
 import { payrollPayoutAuditSpecs } from "./payroll-payout";
 import { ChangeLines } from "./change-lines";
 import { countRu } from "@/lib/format/plural";
+import { monthLabel } from "@/lib/sales/format";
 
 /** Строки под событием «изменил(а) группы счетов». */
 function BankAccountGroupLines({ details }: { details: Record<string, unknown> }) {
@@ -540,6 +541,20 @@ const SPECS: Record<string, AuditEventSpec> = {
           </p>
         )}
       </>
+    ),
+  },
+  "sales.plan.updated": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: (e) => <>{e.details.after == null ? "удалил(а) план продаж" : e.details.before == null ? "задал(а) план продаж" : "изменил(а) план продаж"}</>,
+    buildDetails: (e) => (
+      <p className="text-xs text-muted-foreground">
+        {/^\d{4}-\d{2}/.test(String(e.details.month))
+          ? monthLabel(String(e.details.month)).replace(/^./, (c) => c.toUpperCase())
+          : "Месяц"}{" "}
+        ·{" "}
+        {e.details.before != null && <>{formatAmount(e.details.before)} → </>}
+        {e.details.after != null ? formatAmount(e.details.after) : "без плана"}
+      </p>
     ),
   },
   "sales.statistics.refresh_requested": {

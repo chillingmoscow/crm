@@ -139,6 +139,27 @@ async function recalculateSalesHistoryImpl(input: {
   return length;
 }
 /**
+ * План оборота месяца. Если план не прочитать (например, миграция 402 ещё не
+ * накатана), «Смены» открываются без кольца плана, а не падают.
+ */
+async function loadMonthPlan(
+  s: Awaited<ReturnType<typeof scope>>,
+  month: string,
+): Promise<number | null> {
+  const r = await s.db
+    .from<{ turnover: number | string } | null>("sales_month_plans")
+    .select("turnover")
+    .eq("account_id", s.accountId)
+    .eq("venue_id", s.venueId)
+    .eq("month", `${month}-01`)
+    .maybeSingle();
+  if (r.error) {
+    console.error(`[sales] план месяца не прочитан: ${r.error.message}`);
+    return null;
+  }
+  return r.data ? Number(r.data.turnover) : null;
+}
+/**
  * Смены активного заведения. С `month` («2026-11») — только дни этого месяца:
  * экран «Смен» показывает один месяц и обновляет его каждую минуту, читать
  * всю историю на каждом обновлении незачем. Без `month` — вся история
@@ -234,6 +255,7 @@ async function loadSalesImpl(
     days,
     hasDays,
     month,
+    plan: month ? await loadMonthPlan(s, month) : undefined,
     venueId: s.venueId,
     venueName: venue.data?.name ?? "",
     timezone:

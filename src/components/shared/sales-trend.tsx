@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,19 +25,29 @@ const shortMonths = [
   "нояб.",
   "дек.",
 ];
-const axisLabel = (month: string) =>
-  `${shortMonths[Number(month.slice(5, 7)) - 1]} ${month.slice(2, 4)}`;
+// Три значащие цифры: близкие месяцы различимы («4,46 млн» и «4,29 млн»).
 const compact = new Intl.NumberFormat("ru-RU", {
   notation: "compact",
-  maximumFractionDigits: 1,
+  maximumSignificantDigits: 3,
 });
+/** Ширина места под один столбец: уже — ряд листается вбок. */
+const MIN_SLOT = 36;
+/** С этой ширины места подпись значения стоит над каждым столбцом. */
+const LABEL_SLOT = 64;
+/** Высота области столбцов (px): самый высокий столбец — во всю высоту. */
+const PLOT = 160;
 
 export type TrendSeries = {
   label: string;
   /** «₽», «%» или единица количества («шт. / день», «б.»). */
   unit: string;
   title?: string;
-  points: { month: string; value: number | null }[];
+  points: {
+    month: string;
+    value: number | null;
+    /** Вторая строка подсказки: «по 26 ноября», «12 из 14 смен». */
+    note?: string | null;
+  }[];
 };
 
 /** Значение в единицах ряда: деньги — `Money`, доля — «12,5 %», прочее — число с единицей. */
@@ -60,29 +70,42 @@ const valueText = (value: number | null, unit: string) =>
     : unit === "%"
       ? formatShare(value)
       : `${formatQuantity(unit === "₽" ? Math.round(value) : value)} ${unit}`;
+/** Короткая подпись над столбцом: «4,3 млн», «12,5 %», «3,2». */
+const barLabel = (value: number, unit: string) =>
+  unit === "%"
+    ? formatShare(value)
+    : Math.abs(value) >= 10000
+      ? compact.format(value)
+      : formatQuantity(unit === "₽" ? Math.round(value) : value);
 
 /**
- * Динамика показателя по месяцам. Выбор месяца — как у дневного графика
- * зарплаты (DS «График по дням»): одна остановка фокуса `role="slider"`,
- * стрелки, Home/End; мышь и палец выбирают ближайший месяц.
+ * Динамика показателя по месяцам — столбцы от нуля (DS «Столбцы по месяцам»).
+ * Выделенный месяц (`highlight`, по умолчанию — последний с данными) залит
+ * брендом, остальные — светлее. Выбор месяца — как у «Графика по дням»:
+ * одна остановка фокуса `role="slider"`, стрелки, Home/End; мышь и палец
+ * выбирают столбец, подсказка над ним — месяц и точное значение.
  */
 export function SalesTrend({
   series,
   title = "Динамика по месяцам",
+  highlight,
 }: {
   series: Record<string, TrendSeries>;
   title?: string;
+  /** Месяц «2026-11», который выделен цветом: текущий или выбранный на странице. */
+  highlight?: string;
 }) {
   const [metric, setMetric] = useState(Object.keys(series)[0]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const currentSeries = series[metric] ?? Object.values(series)[0];
   const [selected, setSelected] = useState<string | null>(null);
-  const svg = useRef<SVGSVGElement>(null);
-  const [width, setWidth] = useState(800);
+  const scroller = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
   const points = currentSeries.points;
   const values = points.flatMap((p) => (p.value === null ? [] : [p.value]));
+  const hasValues = values.length > 0;
   useEffect(() => {
-    const element = svg.current;
+    const element = scroller.current;
     if (!element) return;
     const observer = new ResizeObserver((entries) => {
       const next = Math.floor(entries[0].contentRect.width);
@@ -90,43 +113,43 @@ export function SalesTrend({
     });
     observer.observe(element);
     return () => observer.disconnect();
-  }, [values.length, metric]);
-  const plotWidth = Math.max(1, width - 100);
-  const min = Math.min(0, ...values),
-    max = Math.max(1, ...values);
-  const x = (i: number) =>
-    64 + (points.length < 2 ? 0.5 : i / (points.length - 1)) * plotWidth;
-  const y = (value: number) => 190 - ((value - min) / (max - min)) * 160;
+  }, [hasValues]);
+  const max = Math.max(0, ...values);
+  const marked =
+    (highlight && points.some((p) => p.month === highlight && p.value !== null)
+      ? highlight
+      : null) ?? [...points].reverse().find((p) => p.value !== null)?.month;
   const current =
     points.find((p) => p.month === selected) ??
-    [...points].reverse().find((p) => p.value !== null);
+    points.find((p) => p.month === marked);
   const currentIndex = current
     ? points.findIndex((p) => p.month === current.month)
     : -1;
-  const labelCount = Math.min(points.length, width < 640 ? 3 : 5);
-  const labelIndices = new Set(
-    Array.from({ length: labelCount }, (_, i) =>
-      Math.round((i * (points.length - 1)) / Math.max(1, labelCount - 1)),
-    ),
-  );
-  let path = "",
-    gap = true;
-  points.forEach((p, i) => {
-    if (p.value === null) {
-      gap = true;
-      return;
-    }
-    path += `${gap ? "M" : "L"}${x(i)},${y(p.value)} `;
-    gap = false;
-  });
-  const pick = (e: PointerEvent<SVGSVGElement>) => {
+  const slot = width ? Math.max(MIN_SLOT, width / Math.max(1, points.length)) : MIN_SLOT;
+  const roomy = slot >= LABEL_SLOT;
+  // Длинный ряд листается вбок; при показе и смене показателя — к последним месяцам.
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (element) element.scrollLeft = element.scrollWidth;
+  }, [metric, points.length, width]);
+  // Месяц, выбранный с клавиатуры, держим в видимой части ряда.
+  useEffect(() => {
+    const element = scroller.current;
+    if (!element || !selected || currentIndex < 0) return;
+    const left = currentIndex * slot;
+    if (left < element.scrollLeft) element.scrollLeft = left;
+    else if (left + slot > element.scrollLeft + element.clientWidth)
+      element.scrollLeft = left + slot - element.clientWidth;
+  }, [selected, currentIndex, slot]);
+  const pick = (e: PointerEvent<HTMLDivElement>) => {
     const box = e.currentTarget.getBoundingClientRect();
-    const px = ((e.clientX - box.left) / box.width) * width;
-    const ratio = points.length < 2 ? 0 : (px - 64) / plotWidth;
-    const index = Math.round(ratio * (points.length - 1));
+    const index = Math.floor((e.clientX - box.left) / slot);
     const p = points[Math.max(0, Math.min(points.length - 1, index))];
     if (p) setSelected(p.month);
   };
+  // Подсказка — только у месяца, который выбирают сейчас (наведение, палец, стрелки).
+  const tip = selected ? current : undefined;
+  const step = Math.min(70, Math.round(900 / Math.max(1, points.length)));
   return (
     <section
       className="min-w-0 rounded-lg border bg-card p-4 sm:p-5"
@@ -187,7 +210,7 @@ export function SalesTrend({
           </PopoverContent>
         </Popover>
       </div>
-      {values.length ? (
+      {hasValues ? (
         <div
           className="mt-5 rounded-md outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
           tabIndex={0}
@@ -201,6 +224,7 @@ export function SalesTrend({
               ? `${monthLabel(current.month)}: ${valueText(current.value, currentSeries.unit)}`
               : undefined
           }
+          onBlur={() => setSelected(null)}
           onKeyDown={(e) => {
             if (
               !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "Escape"].includes(e.key)
@@ -221,80 +245,112 @@ export function SalesTrend({
             setSelected(points[next].month);
           }}
         >
-          <svg
-            className="h-52 w-full touch-pan-y overflow-visible"
-            ref={svg}
-            viewBox={`0 0 ${width} 225`}
-            aria-hidden
-            onPointerMove={pick}
-            onPointerDown={pick}
-          >
-            {[0, 0.5, 1].map((f) => (
-              <g key={f}>
-                <line
-                  x1="64"
-                  x2={width - 36}
-                  y1={30 + f * 160}
-                  y2={30 + f * 160}
-                  className="stroke-border"
-                  strokeDasharray="3 5"
-                />
-                <text
-                  x="54"
-                  y={34 + f * 160}
-                  textAnchor="end"
-                  className="fill-muted-foreground text-xs"
+          <div ref={scroller} className="overflow-x-auto overscroll-x-contain [scrollbar-width:thin]">
+            <div
+              aria-hidden
+              className="relative select-none"
+              style={{ width: points.length * slot, minWidth: "100%" }}
+              onPointerMove={pick}
+              onPointerDown={pick}
+              onPointerLeave={(e) => {
+                if (e.pointerType === "mouse") setSelected(null);
+              }}
+            >
+              {/* Столбцы растут от нижнего края по очереди; при смене
+                  показателя — заново (docs/motion.md). */}
+              <div key={metric} className="flex items-end" style={{ height: PLOT + 24 }}>
+                {points.map((p, i) => {
+                  const isMarked = p.month === marked;
+                  const isTip = tip?.month === p.month;
+                  const h = p.value === null || max <= 0 ? 0 : Math.max(2, (Math.max(0, p.value) / max) * PLOT);
+                  const showLabel = p.value !== null && (roomy || isMarked || isTip);
+                  return (
+                    <div
+                      key={p.month}
+                      className="flex h-full shrink-0 flex-col items-center justify-end px-[3px]"
+                      style={{ width: slot }}
+                    >
+                      <span
+                        className={cn(
+                          "mb-1 whitespace-nowrap text-[11px] leading-4 tabular-nums transition-colors duration-200",
+                          isMarked ? "font-medium text-foreground" : "text-muted-foreground",
+                          !showLabel && "invisible",
+                        )}
+                      >
+                        {p.value === null ? "—" : barLabel(p.value, currentSeries.unit)}
+                      </span>
+                      {p.value === null ? (
+                        <span className="h-0.5 w-full max-w-10 rounded-full bg-border" />
+                      ) : (
+                        <span
+                          className={cn(
+                            "chart-bar-grow-y w-full max-w-10 rounded-t-[5px] transition-colors duration-200",
+                            isMarked
+                              ? "bg-brand"
+                              : isTip
+                                ? "bg-brand/55"
+                                : "bg-brand/25 dark:bg-brand/30",
+                          )}
+                          style={{ height: h, animationDelay: `${120 + i * step}ms` }}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex border-t">
+                {points.map((p, i) => {
+                  const m = Number(p.month.slice(5, 7));
+                  const showYear = i === 0 || m === 1;
+                  return (
+                    <span
+                      key={p.month}
+                      className={cn(
+                        "shrink-0 pt-1.5 text-center text-[11px] leading-4",
+                        p.month === marked ? "font-medium text-foreground" : "text-muted-foreground",
+                      )}
+                      style={{ width: slot }}
+                    >
+                      {shortMonths[m - 1]}
+                      <span className={cn("block", !showYear && "invisible")}>
+                        {p.month.slice(0, 4)}
+                      </span>
+                    </span>
+                  );
+                })}
+              </div>
+              {tip && currentIndex >= 0 && (
+                // Сдвиг к центру столбца — на обёртке: анимация появления
+                // задаёт transform и перебила бы translate.
+                <div
+                  className="pointer-events-none absolute z-10 -translate-x-1/2"
+                  style={{
+                    left: Math.min(
+                      Math.max(currentIndex * slot + slot / 2, 70),
+                      points.length * slot - 70,
+                    ),
+                    // Над столбцом, если помещается; у высокого — поверх его верха.
+                    top: Math.max(
+                      0,
+                      PLOT -
+                        64 -
+                        (tip.value === null || max <= 0
+                          ? 0
+                          : (Math.max(0, tip.value) / max) * PLOT),
+                    ),
+                  }}
                 >
-                  {compact.format(max - f * (max - min))}
-                </text>
-              </g>
-            ))}
-            {current && currentIndex >= 0 && (
-              <line
-                x1={x(currentIndex)}
-                x2={x(currentIndex)}
-                y1="22"
-                y2="198"
-                className="stroke-border"
-              />
-            )}
-            {/* Линия рисуется слева направо, при смене показателя — заново
-                (docs/motion.md). */}
-            <path
-              key={metric}
-              d={path}
-              fill="none"
-              pathLength={1}
-              className="stroke-brand chart-line-draw"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            {points.map((p, i) => (
-              <g key={p.month}>
-                {p.value !== null && (
-                  <circle
-                    key={metric}
-                    cx={x(i)}
-                    cy={y(p.value)}
-                    r={current?.month === p.month ? 5 : 3}
-                    className="fill-brand stroke-background chart-fill-in"
-                    strokeWidth="2"
-                  />
-                )}
-                {labelIndices.has(i) && (
-                  <text
-                    x={x(i)}
-                    y="219"
-                    textAnchor="middle"
-                    className="fill-muted-foreground text-xs"
-                  >
-                    {axisLabel(p.month)}
-                  </text>
-                )}
-              </g>
-            ))}
-          </svg>
+                  <div className="motion-popper-in w-max max-w-[220px] rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md">
+                    <p className="font-medium first-letter:uppercase">{monthLabel(tip.month)}</p>
+                    <p className="tabular-nums">
+                      <TrendValue value={tip.value} unit={currentSeries.unit} />
+                    </p>
+                    {tip.note && <p className="text-muted-foreground">{tip.note}</p>}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       ) : (
         <p className="flex h-52 items-center justify-center text-sm text-muted-foreground">

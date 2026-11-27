@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import type { AmountRoundingScale } from "@/lib/format/amount";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,33 @@ import { Money } from "./money";
 // (expo-out), как числа в интерфейсах Apple.
 const DURATION = 1200;
 const easeOut = (t: number) => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * t));
+
+const noop = () => () => {};
+/**
+ * Ожила ли страница: на сервере и во время гидратации — `false`, после неё и
+ * при переходах внутри приложения — сразу `true`. Общий `useHydrated` даёт
+ * `false` и на первом кадре каждого нового монтирования: при смене вкладки
+ * (итоги монтируются заново) мелькнула бы заглушка.
+ */
+function usePageAlive(): boolean {
+  return useSyncExternalStore(noop, () => true, () => false);
+}
+
+/**
+ * Заглушка числа, пока страница не ожила: стартовый кадр досчёта («0 ₽») в
+ * HTML с сервера выглядел бы как настоящий ноль, пока грузятся скрипты.
+ */
+function NumberSkeleton({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "inline-block h-[0.8em] w-[5.5em] max-w-full animate-pulse rounded-md bg-muted align-baseline",
+        className,
+      )}
+    />
+  );
+}
 
 /**
  * Досчёт числа до `target` (docs/motion.md): при первом показе — от нуля,
@@ -71,6 +98,10 @@ export function AnimatedMoney(props: Parameters<typeof Money>[0]) {
   const target = finite(props.value);
   const digits = moneyDigits(target, props.scale, props.fraction);
   const shown = useCountUp(target, digits);
+  const hydrated = usePageAlive();
+  // До гидратации — заглушка, а не стартовый ноль; досчёт начнётся, когда
+  // страница оживёт. Неизвестная сумма — сразу прочерк.
+  if (!hydrated && target !== null) return <NumberSkeleton className={props.className} />;
   return <Money {...props} scale={digits} value={shown} />;
 }
 
@@ -91,7 +122,10 @@ export function AnimatedNumber({
   format?: (value: number) => ReactNode;
   className?: string;
 }) {
-  const shown = useCountUp(finite(value), digits);
+  const target = finite(value);
+  const shown = useCountUp(target, digits);
+  const hydrated = usePageAlive();
+  if (!hydrated && target !== null) return <NumberSkeleton className={cn("w-[3em]", className)} />;
   if (shown === null) return <span className={cn("text-muted-foreground", className)}>—</span>;
   return (
     <span className={cn("tabular-nums", className)}>

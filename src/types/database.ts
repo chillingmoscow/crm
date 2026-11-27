@@ -2140,6 +2140,41 @@ export type Database = {
           },
         ]
       }
+      kb_page_reading_state: {
+        Row: {
+          account_id: string
+          page_id: string
+          reminded_at: string | null
+          reread_dismissed_version: number | null
+          reread_from_version: number | null
+          updated_at: string
+        }
+        Insert: {
+          account_id: string
+          page_id: string
+          reminded_at?: string | null
+          reread_dismissed_version?: number | null
+          reread_from_version?: number | null
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string
+          page_id?: string
+          reminded_at?: string | null
+          reread_dismissed_version?: number | null
+          reread_from_version?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_page_reading_state_page_fkey"
+            columns: ["account_id", "page_id"]
+            isOneToOne: false
+            referencedRelation: "kb_pages"
+            referencedColumns: ["account_id", "id"]
+          },
+        ]
+      }
       kb_page_reads: {
         Row: {
           account_id: string
@@ -4221,8 +4256,31 @@ export type Database = {
           last_name: string | null
           avatar_url: string | null
           read_at: string | null
+          read_version: number | null
+          status: "read" | "reread" | "unread"
         }[]
       }
+      kb_required_reading_overview: {
+        Args: { p_page_id?: string }
+        Returns: {
+          page_id: string
+          slug: string
+          title: string
+          icon: string | null
+          icon_color: string | null
+          current_version: number
+          total: number
+          read_count: number
+          reread_count: number
+          unread_count: number
+          changed_after_read: boolean
+          reminded_at: string | null
+          last_edited_at: string | null
+        }[]
+      }
+      kb_request_reread: { Args: { p_page_id: string }; Returns: number }
+      kb_dismiss_reread: { Args: { p_page_id: string }; Returns: undefined }
+      kb_remind_unread: { Args: { p_page_id: string }; Returns: number }
       kb_comment_react: {
         Args: { p_comment_id: string; p_emoji: string }
         Returns: undefined

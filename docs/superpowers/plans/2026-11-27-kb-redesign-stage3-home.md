@@ -14,7 +14,7 @@
 
 - Правила `docs/design-system.md`: кегли 12/13/14/16/20/28/36, `data-tip` вместо `title`, тексты без длинных тире, подтверждения только через `ConfirmDialog` / `useConfirm`, статусы только `StatusBadge`, люди — `EmployeeIdentity` / `PersonAvatar`, пустые места — `EmptyState`.
 - Server action, вызываемый из браузера, — в `actionResult(fn, "<русский fallback>")`, клиент разворачивает `unwrapAction`; тексты `raise exception` — по-русски.
-- Миграция `415_kb_reading_state.sql`: `set search_path = public, pg_catalog` в каждой функции, `(select auth.uid())` в политиках, `revoke … from public, anon` и явный `grant … to authenticated`, серверная функция — revoke и у `authenticated`, проверочный `do $$ … has_function_privilege … raise exception` в конце, `notify pgrst, 'reload schema'`. Перед мержем — сверить номер с `origin/main`.
+- Миграция `416_kb_reading_state.sql`: `set search_path = public, pg_catalog` в каждой функции, `(select auth.uid())` в политиках, `revoke … from public, anon` и явный `grant … to authenticated`, серверная функция — revoke и у `authenticated`, проверочный `do $$ … has_function_privilege … raise exception` в конце, `notify pgrst, 'reload schema'`. Перед мержем — сверить номер с `origin/main`.
 - Журнал: коды `kb_page.reread_requested`, `kb_page.reminder_sent`, `kb_page.reread_dismissed`, фраза каждому в `src/lib/audit/format.tsx` и в `K/audit/_components/kb-audit-event-row.tsx`.
 - Права: «Обзор» открывается при `canOpenKbOverview` (аналитика, обязательное чтение или журнал), каждый блок — при своём праве; «Напомнить», «Попросить перечитать», «Не нужно», «Кто прочитал» — `kb.manage_required_reading`.
 - Публичного API не добавляем; новые RPC — только для `authenticated` с проверкой права внутри.
@@ -33,7 +33,7 @@
 ### Task 1: Миграция — состояние чтения, состав, «Напомнить», «Попросить перечитать»
 
 **Files:**
-- Create: `supabase/migrations/415_kb_reading_state.sql`
+- Create: `supabase/migrations/416_kb_reading_state.sql`
 - Create: `supabase/tests/kb-reading-state.sql`
 - Modify: `src/types/database.ts` (точечно новые таблица и функции, не полный regen — см. CLAUDE.md)
 
@@ -58,10 +58,10 @@
   - сотрудник без права зовёт `kb_request_reread` / `kb_remind_unread` → исключение, `kb_page_reading_state` не изменилась;
   - `has_function_privilege('anon', 'kb_remind_unread(uuid)', 'execute') = false`, `has_function_privilege('authenticated', 'kb_required_reading_roster(uuid)', 'execute') = false`.
 - [ ] **Step 2: Применить тест к текущей базе** — Expected: падает (таблицы и функций нет).
-- [ ] **Step 3: Написать миграцию 415** по интерфейсам выше; старые прочтения не трогать (`reread_from_version` у всех страниц — null).
+- [ ] **Step 3: Написать миграцию 416** по интерфейсам выше; старые прочтения не трогать (`reread_from_version` у всех страниц — null).
 - [ ] **Step 4: `pnpm db:reset`, прогнать SQL-тест** — Expected: `passed`.
 - [ ] **Step 5: Добавить типы** новых таблицы и функций в `src/types/database.ts`, `pnpm exec tsc --noEmit` — Expected: 0 ошибок вне `.next`.
-- [ ] **Step 6: Commit** `База знаний: состояние чтения, «Напомнить» и перечитывание по кнопке (миграция 415)`.
+- [ ] **Step 6: Commit** `База знаний: состояние чтения, «Напомнить» и перечитывание по кнопке (миграция 416)`.
 
 ### Task 2: Правило «прочтение действует» в TypeScript и плашка документа
 

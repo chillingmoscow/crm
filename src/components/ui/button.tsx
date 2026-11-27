@@ -14,6 +14,8 @@ const buttonVariants = cva(
         // For non-CTA "neutral primary" actions, use `secondary` or `outline`.
         // Неактивная заливная кнопка серая, а не выцветшая синяя/красная:
         // так видно, что действие недоступно, а не «почти доступно».
+        // Исключение — главная кнопка в окне (DIALOG_CTA_DISABLED_CLASS из
+        // dialog-tone.ts): на серой полосе кнопок серая кнопка пропадает.
         // Пока идёт действие (status), кнопка неактивна, но остаётся синей.
         default: "bg-brand text-brand-foreground hover:bg-brand-hover disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 data-[status]:disabled:bg-brand data-[status]:disabled:text-brand-foreground",
         brand: "bg-brand text-brand-foreground hover:bg-brand-hover disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 data-[status]:disabled:bg-brand data-[status]:disabled:text-brand-foreground",

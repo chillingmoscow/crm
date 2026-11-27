@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { loadAttendanceAttention, loadPayrollOverview } from "@/app/(dashboard)/people/payroll/actions";
 import { attentionKey, type AttentionSnapshot } from "@/lib/payroll/attention-snapshot";
+import { getCachedPermissions } from "@/lib/supabase/server";
 import { unwrapAction } from "@/lib/actions/result";
 import { validDate } from "@/lib/sales/time";
 import { PayrollWorkspace } from "@/app/(dashboard)/people/payroll/_components/payroll-workspace";
@@ -32,10 +33,15 @@ export default async function PayrollPage({
   const [data, overviewOpen, attention] = await Promise.all([
     loadPayrollOverview(month).then(unwrapAction),
     readOverviewOpen(OVERVIEW_KEYS.payroll),
-    loadAttendanceAttention([month])
-      .then(unwrapAction)
-      .then((items): AttentionSnapshot => ({ key: attentionKey([month]), items }))
-      .catch(() => undefined),
+    // Уведомление видно только с правом просмотра зарплаты — без него не считаем.
+    getCachedPermissions().then((permissions) =>
+      permissions.includes("payroll.view")
+        ? loadAttendanceAttention([month])
+            .then(unwrapAction)
+            .then((items): AttentionSnapshot => ({ key: attentionKey([month]), items, at: Date.now() }))
+            .catch(() => undefined)
+        : undefined,
+    ),
   ]);
   return (
     <PayrollWorkspace

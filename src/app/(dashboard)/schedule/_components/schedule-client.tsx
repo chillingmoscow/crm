@@ -87,7 +87,7 @@ import { ShiftAttendancePopover } from "./shift-attendance-popover";
 import type { ShiftAttendanceMark } from "@/lib/payroll/types";
 import { reviewedMark, type ShiftReviewDecision } from "@/lib/payroll/shift-attendance";
 import { AttendanceAttentionNotice } from "@/app/(dashboard)/people/payroll/_components/attendance-attention";
-import type { AttentionSnapshot } from "@/lib/payroll/attention-snapshot";
+import { serverDataFresh, type AttentionSnapshot } from "@/lib/payroll/attention-snapshot";
 import {
   isScheduleView,
   schedulePrefStorageKey,
@@ -279,6 +279,7 @@ export function ScheduleClient({
   initialAttendance = null,
   initialAttention,
   initialNow,
+  initialWeek,
 }: {
   initial: ScheduleData;
   section?: "calendar" | "templates";
@@ -301,6 +302,8 @@ export function ScheduleClient({
   initialAttendance?: { week: string; marks: Record<string, ShiftAttendanceMark> } | null;
   initialAttention?: AttentionSnapshot;
   initialNow?: number;
+  /** Неделя, которую сервер считал текущей: с ней совпадают его задачи и отметки. */
+  initialWeek?: string;
 }) {
   const [data, setData] = useState(initial);
   // `?create=shift` из палитры ⌘K: открыть форму новой смены (ниже).
@@ -310,7 +313,7 @@ export function ScheduleClient({
   const [taskHeaderTarget, setTaskHeaderTarget] =
     useState<HTMLDivElement | null>(null);
   const [week, setWeek] = useState(
-    weekStart(initialDate ?? dateInZone(new Date(), initial.timezone)),
+    initialWeek ?? weekStart(initialDate ?? dateInZone(new Date(), initial.timezone)),
   );
   const [weekPickerOpen, setWeekPickerOpen] = useState(false);
   // Текущий момент для «живой» сетки: идущие смены, отметка «сейчас».
@@ -358,15 +361,15 @@ export function ScheduleClient({
     } catch {}
     writeSchedulePrefCookie(kind, initial.venueId, initial.userId, value);
   };
-  // Выбор, сделанный до появления cookie, читается из localStorage один раз
-  // и переносится в cookie — со следующего захода сервер рисует его сразу.
-  const knownTasksPref = initialPrefs.showTasks !== undefined;
+  // Источник правды — localStorage: cookie нужна серверу, чтобы сразу
+  // нарисовать выбор. При обычном заходе они совпадают и ничего не меняется;
+  // при возврате «Назад» (ответ из кэша роутера со старым выбором) или до
+  // появления cookie выбор берётся из localStorage и переписывается в cookie.
   useEffect(() => {
     if (initialShowTasks !== undefined) {
       setShowTasks(initialShowTasks);
       return;
     }
-    if (knownTasksPref) return;
     try {
       const saved = localStorage.getItem(schedulePrefStorageKey("tasks", initial.venueId, initial.userId));
       if (saved === "true" || saved === "false") {
@@ -374,7 +377,7 @@ export function ScheduleClient({
         writeSchedulePrefCookie("tasks", initial.venueId, initial.userId, saved);
       }
     } catch {}
-  }, [initialShowTasks, knownTasksPref, initial.venueId, initial.userId]);
+  }, [initialShowTasks, initial.venueId, initial.userId]);
   const toggleTasks = (enabled: boolean) => {
     if (!enabled) serverTasksWeek.current = null;
     setShowTasks(enabled);
@@ -407,7 +410,9 @@ export function ScheduleClient({
   }, [week]);
   useEffect(() => {
     if (!(showTasks || mobileTasks) || tab !== "calendar") return;
-    if (serverTasksWeek.current !== week) {
+    // Задачи с сервера перечитываем сразу, если они не той недели или уже
+    // не свежие (возврат «Назад» берёт ответ из кэша роутера).
+    if (serverTasksWeek.current !== week || !serverDataFresh(initialNow)) {
       serverTasksWeek.current = null;
       void refreshCalendarTasks().catch(() => {});
     }
@@ -421,7 +426,7 @@ export function ScheduleClient({
       tasksRequest.current++;
       clearInterval(timer);
     };
-  }, [showTasks, mobileTasks, tab, week, refreshCalendarTasks]);
+  }, [showTasks, mobileTasks, tab, week, refreshCalendarTasks, initialNow]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [filters, setFilters] = useState(false);
   /** Полоса шаблонов («По сотрудникам») или сотрудников («По шаблонам»). */
@@ -434,9 +439,8 @@ export function ScheduleClient({
   );
   // Выбранный вид запоминается на устройстве, как показ задач: «Список»
   // открывается списком и при следующем заходе. Вид из адреса важнее.
-  const knownViewPref = initialPrefs.view !== undefined;
   useEffect(() => {
-    if (initialView || knownViewPref || !initial.permissions.includes("schedule.view_all")) return;
+    if (initialView || !initial.permissions.includes("schedule.view_all")) return;
     try {
       const saved = localStorage.getItem(schedulePrefStorageKey("view", initial.venueId, initial.userId));
       if (isScheduleView(saved)) {
@@ -444,7 +448,7 @@ export function ScheduleClient({
         writeSchedulePrefCookie("view", initial.venueId, initial.userId, saved);
       }
     } catch {}
-  }, [initialView, knownViewPref, initial.permissions, initial.venueId, initial.userId]);
+  }, [initialView, initial.permissions, initial.venueId, initial.userId]);
   const changeView = (next: string) => {
     setView(next);
     savePref("view", next);
@@ -456,9 +460,7 @@ export function ScheduleClient({
   // Порядок строк вида «По шаблонам»: по умолчанию сверху вниз по времени
   // начала. Выбор запоминается на устройстве, как вид.
   const [templateSort, setTemplateSort] = useState<TemplateSort>(initialPrefs.templateSort ?? DEFAULT_TEMPLATE_SORT);
-  const knownSortPref = initialPrefs.templateSort !== undefined;
   useEffect(() => {
-    if (knownSortPref) return;
     try {
       const saved = localStorage.getItem(schedulePrefStorageKey("templateSort", initial.venueId, initial.userId));
       if (isTemplateSort(saved)) {
@@ -466,7 +468,7 @@ export function ScheduleClient({
         writeSchedulePrefCookie("templateSort", initial.venueId, initial.userId, saved);
       }
     } catch {}
-  }, [knownSortPref, initial.venueId, initial.userId]);
+  }, [initial.venueId, initial.userId]);
   const changeTemplateSort = (next: TemplateSort) => {
     setTemplateSort(next);
     savePref("templateSort", next);
@@ -567,7 +569,8 @@ export function ScheduleClient({
   useEffect(() => {
     if (tab !== "calendar" || !canViewAttendance) return;
     let active = true;
-    const fromServer = serverAttendanceWeek.current === week && data.shifts === initial.shifts;
+    const fromServer =
+      serverAttendanceWeek.current === week && data.shifts === initial.shifts && serverDataFresh(initialNow);
     const load = () => {
       serverAttendanceWeek.current = null;
       void loadShiftAttendance(week)
@@ -587,7 +590,7 @@ export function ScheduleClient({
       active = false;
       clearInterval(timer);
     };
-  }, [tab, canViewAttendance, week, data.shifts, initial.shifts]);
+  }, [tab, canViewAttendance, week, data.shifts, initial.shifts, initialNow]);
   // Решение по смене сохранено: значок меняется сразу, не дожидаясь
   // пересчёта дня; уведомление «ждут проверки» перечитывается.
   const [attentionKey, setAttentionKey] = useState(0);

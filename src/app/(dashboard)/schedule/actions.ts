@@ -120,9 +120,9 @@ async function client() {
 async function loadShiftAttendanceImpl(week: string): Promise<Record<string, ShiftAttendanceMark>> {
   if (!validDate(week)) throw new Error("Некорректная дата расписания");
   const db = await client();
-  const [{ data: { user } }, { data: venueId }, accountId, permissions] =
+  const [user, { data: venueId }, accountId, permissions] =
     await Promise.all([
-      db.auth.getUser(),
+      getCachedUser(),
       db.rpc("get_active_venue_id"),
       getCachedActiveAccountId(),
       getCachedPermissions(),

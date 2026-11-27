@@ -8,7 +8,7 @@ import { countRu } from "@/lib/format/plural";
 import { cn } from "@/lib/utils";
 import { loadAttendanceAttention } from "../actions";
 import { unwrapAction } from "@/lib/actions/result";
-import { attentionKey, type AttentionSnapshot } from "@/lib/payroll/attention-snapshot";
+import { attentionKey, serverDataFresh, type AttentionSnapshot } from "@/lib/payroll/attention-snapshot";
 
 const monthName = (month: string) =>
   new Date(`${month}-15T12:00:00Z`).toLocaleDateString("ru-RU", { month: "long", timeZone: "UTC" });
@@ -36,19 +36,20 @@ export function AttendanceAttentionNotice({
 }) {
   const key = attentionKey(months);
   const [state, setState] = useState<AttentionSnapshot | null>(initial ?? null);
-  // Серверные счётчики свежие — первое чтение пропускаем (и при повторном
+  // Свежие серверные счётчики — первое чтение пропускаем (и при повторном
   // запуске эффекта), дальше по таймеру, при смене месяцев или решении.
+  // Старые (возврат «Назад», повторное монтирование) — перечитываем сразу.
   const serverKey = useRef(initial?.key ?? null);
   useEffect(() => {
     if (!key) return;
     let active = true;
-    const skipFirst = serverKey.current === key && refreshKey === 0;
+    const skipFirst = serverKey.current === key && refreshKey === 0 && serverDataFresh(initial?.at);
     const load = () => {
       serverKey.current = null;
       void loadAttendanceAttention(key.split(","))
         .then(unwrapAction)
         .then((items) => {
-          if (active) setState({ key, items });
+          if (active) setState({ key, items, at: Date.now() });
         })
         .catch(() => {
           // Уведомление вспомогательное: при сбое просто не показываем его.
@@ -63,7 +64,7 @@ export function AttendanceAttentionNotice({
       active = false;
       clearInterval(timer);
     };
-  }, [key, refreshKey]);
+  }, [key, refreshKey, initial?.at]);
 
   const items = state?.key === key ? state.items.filter((item) => item.count > 0) : [];
   if (!items.length) return null;

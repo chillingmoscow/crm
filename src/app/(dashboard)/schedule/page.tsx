@@ -54,14 +54,16 @@ export default async function SchedulePage({
   const canViewAttendance = canPlan && data.permissions.includes("payroll.view");
   const attentionMonths = [today.slice(0, 7), week.slice(0, 7), addDays(week, 6).slice(0, 7)];
   const [calendarTasks, attendance, attention] = await Promise.all([
-    urlTasksData ?? (showTasks ? loadTasks(week) : null),
+    // Задачи по адресу с неделей уже запрошены в первом шаге — даже если не
+    // загрузились, второй раз не просим (клиент повторит сам).
+    urlTasks && pinnedWeek ? urlTasksData : showTasks ? loadTasks(week) : null,
     canViewAttendance
       ? loadShiftAttendance(week).then(unwrapAction).then((marks) => ({ week, marks })).catch(() => null)
       : null,
     canViewAttendance
       ? loadAttendanceAttention(attentionMonths)
           .then(unwrapAction)
-          .then((items): AttentionSnapshot => ({ key: attentionKey(attentionMonths), items }))
+          .then((items): AttentionSnapshot => ({ key: attentionKey(attentionMonths), items, at: now }))
           .catch(() => undefined)
       : undefined,
   ]);
@@ -75,6 +77,7 @@ export default async function SchedulePage({
       initialAttendance={attendance}
       initialAttention={attention}
       initialNow={now}
+      initialWeek={week}
       initialDate={initialDate}
       initialSwap={/^[0-9a-f-]{36}$/i.test(params.swap ?? "") ? params.swap : undefined}
       initialTask={urlTasks && /^[0-9a-f-]{36}$/i.test(params.task ?? "") ? params.task : undefined}

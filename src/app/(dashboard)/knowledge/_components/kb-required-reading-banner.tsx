@@ -131,13 +131,15 @@ export function KbRequiredReadingBanner({
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 rounded-lg border p-3 text-sm sm:flex-row sm:items-center",
+        // Не хватает места — правая часть (статистика, кнопки) уходит на
+        // вторую строку, заголовок не обрезается.
+        "flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border p-3 text-sm",
         plate.kind === "read"
           ? "border-emerald-500/30 bg-emerald-500/10"
           : "border-amber-500/30 bg-amber-500/10",
       )}
     >
-      <div className="flex min-w-0 flex-1 items-center gap-2.5">
+      <div className="flex min-w-[14rem] flex-1 items-center gap-2.5">
         {plate.kind === "read" ? (
           <Check className="size-4 shrink-0 text-emerald-700 dark:text-emerald-400" />
         ) : plate.reread ? (
@@ -145,7 +147,7 @@ export function KbRequiredReadingBanner({
         ) : (
           <BookCheck className="size-4 shrink-0 text-amber-700 dark:text-amber-400" />
         )}
-        <span className="min-w-0 truncate">
+        <span className="min-w-0">
           <span className="font-semibold">
             {plate.kind === "read"
               ? `Прочитано ${formatDayMonth(plate.readAt) ?? ""}`.trim()
@@ -159,7 +161,7 @@ export function KbRequiredReadingBanner({
         </span>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+      <div className="flex flex-wrap items-center gap-2 max-sm:w-full">
         {stats && stats.total > 0 && (
           <>
             <span className="text-[13px] tabular-nums text-muted-foreground">

@@ -51,11 +51,13 @@ export function KbLockHeaderChip({
   const hasActions = canEditBase || canLock;
   const Icon = localUnlocked ? Unlock : Lock;
   const label = localUnlocked ? "Разблокировано" : "Заблокировано";
+  // Бейдж статуса DS (форма pill, 12 / 500): заблокировано — neutral,
+  // разблокировано для себя — info (docs/design-system.md → «Статусные бейджи»).
   const chipClassName = cn(
-    "inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[13px] font-medium transition-colors",
+    "inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-xs font-medium transition-colors",
     localUnlocked
-      ? "border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 data-[state=open]:bg-sky-100 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-300 dark:hover:bg-sky-500/20"
-      : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground",
+      ? "bg-brand/10 text-brand hover:bg-brand/15 data-[state=open]:bg-brand/15"
+      : "bg-muted text-muted-foreground hover:text-foreground data-[state=open]:text-foreground",
   );
 
   const unlockForMe = () =>
@@ -77,7 +79,7 @@ export function KbLockHeaderChip({
   if (!hasActions) {
     return (
       <span className={chipClassName} aria-label="Страница заблокирована">
-        <Icon className="size-3.5" />
+        <Icon className="size-3" />
         <span>{label}</span>
       </span>
     );
@@ -91,7 +93,7 @@ export function KbLockHeaderChip({
         aria-label="Снова заблокировать страницу для себя"
         onClick={lockForMe}
       >
-        <Icon className="size-3.5" />
+        <Icon className="size-3" />
         <span>{label}</span>
       </button>
     );
@@ -105,14 +107,14 @@ export function KbLockHeaderChip({
           className={chipClassName}
           aria-label="Страница заблокирована"
         >
-          <Icon className="size-3.5" />
+          <Icon className="size-3" />
           <span>{label}</span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
         sideOffset={6}
-        className="w-[240px] rounded-[10px] p-1.5"
+        className="w-56"
       >
         {canEditBase && (
           <DropdownMenuItem
@@ -120,7 +122,7 @@ export function KbLockHeaderChip({
               e.preventDefault();
               unlockForMe();
             }}
-            className="gap-3 rounded-md px-2.5 py-2 text-[15px]"
+            className="gap-2.5"
           >
             <Pencil className="size-4 shrink-0" />
             <span>Редактировать</span>
@@ -133,7 +135,7 @@ export function KbLockHeaderChip({
               if (!unlockPending) void unlockForEveryone();
             }}
             disabled={unlockPending}
-            className="gap-3 rounded-md px-2.5 py-2 text-[15px]"
+            className="gap-2.5"
           >
             {unlockPending ? (
               <Loader2 className="size-4 shrink-0 animate-spin" />

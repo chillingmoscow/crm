@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { FileX, ShieldAlert } from "lucide-react";
@@ -23,6 +24,8 @@ import { KbBacklinks } from "@/app/(dashboard)/knowledge/_components/kb-backlink
 import { KbChildrenList } from "@/app/(dashboard)/knowledge/_components/kb-children-list";
 import { KbRequiredReadingBanner } from "@/app/(dashboard)/knowledge/_components/kb-required-reading-banner";
 import { KbPageMenu } from "@/app/(dashboard)/knowledge/_components/kb-page-menu";
+import { KbFavoriteToggle } from "@/app/(dashboard)/knowledge/_components/kb-favorite-toggle";
+import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 import { KbLockHeaderChip } from "@/app/(dashboard)/knowledge/_components/kb-lock-header-chip";
 import {
   getKbMyActiveSeconds,
@@ -331,21 +334,48 @@ export default async function KbPageView({ params }: PageProps) {
           canEditBase={canEditBase}
           canLock={canLock}
         />
-        {/* Notion-style ⋯-меню: все page-level действия (избранное,
-         *  required-reading, lock, undo/redo, дублировать, экспорт,
-         *  импорт, аналитика, история версий, удалить) свернуты в один
-         *  dropdown. Дизайн: sheerly.pen frame 09 · DOgqX. */}
+        {/* Справа налево: колокольчик, «?», ⋯, ⓘ, ☆, чип блокировки. */}
+        <KbFavoriteToggle pageId={row.id} initialFavorited={favorited} />
+        <EntityInfoPopover
+          title="О странице"
+          id={row.id}
+          createdAt={row.created_at}
+          createdByName={createdByName}
+          createdByAvatarUrl={createdByAvatarUrl}
+          updatedAt={row.updated_at}
+          updatedByName={updatedByName}
+          updatedByAvatarUrl={updatedByEntry?.avatarUrl ?? null}
+          createdLabel="Создана"
+          updatedLabel="Изменена"
+          showTime
+          extraRows={[
+            {
+              label: "Время чтения",
+              value:
+                row.plain_text && row.plain_text.trim().length > 0
+                  ? `≈ ${estimateReadingMinutes(row.plain_text)} мин`
+                  : null,
+            },
+          ]}
+          footer={
+            canViewAnalytics ? (
+              <Link
+                href={`/knowledge/dashboard/${row.slug}`}
+                className="text-[13px] font-medium text-brand hover:underline"
+              >
+                Статистика страницы
+              </Link>
+            ) : undefined
+          }
+        />
         <KbPageMenu
           pageId={row.id}
           pageSlug={row.slug}
           pageTitle={row.title}
           childCount={descendantsCount}
           initialShowChildren={row.show_children !== false}
-          initialFavorited={favorited}
           initialRequiredReading={readStatus.required}
           initialLocked={isLocked}
-          updatedAt={row.updated_at}
-          updatedByName={updatedByName}
           canEditBase={canEditBase}
           canDelete={canDelete}
           canDuplicate={canDuplicate}
@@ -354,7 +384,6 @@ export default async function KbPageView({ params }: PageProps) {
           canManageTemplates={canManageTemplates}
           canManageRequiredReading={canManageRequiredReading}
           canLock={canLock}
-          canViewAnalytics={canViewAnalytics}
           canViewVersionHistory={hasViewVersionHistory}
         />
       </PageHeaderActions>

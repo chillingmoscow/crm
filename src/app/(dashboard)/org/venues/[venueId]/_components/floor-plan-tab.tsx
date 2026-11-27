@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
+  ArrowLeftRight,
   Loader2,
   Maximize2,
   Pencil,
@@ -12,7 +13,6 @@ import {
   Settings2,
   RotateCcw,
   Trash2,
-  Undo2,
   X,
 } from "lucide-react";
 import { useConfirm } from "@/components/shared/confirm-dialog";
@@ -531,11 +531,11 @@ export function FloorPlanTab({ venueId }: { venueId: string }) {
     if (
       isDirty &&
       !(await confirm({
-        title: "Переключить зал без сохранения?",
-        description: "Несохранённые изменения схемы будут потеряны.",
+        title: "Переключить зал?",
+        description:
+          "Несохранённые изменения останутся черновиком на этом устройстве и вернутся, когда вы снова откроете этот зал.",
         confirmLabel: "Переключить",
-        tone: "warning",
-        icon: Undo2,
+        icon: ArrowLeftRight,
       }))
     ) {
       return;
@@ -685,8 +685,8 @@ export function FloorPlanTab({ venueId }: { venueId: string }) {
       !(await confirm({
         title: "Сбросить черновик схемы?",
         description: "Несохранённые правки на этом устройстве пропадут, схема загрузится из базы.",
-        confirmLabel: "Сбросить",
-        tone: "warning",
+        confirmLabel: "Сбросить черновик",
+        destructive: true,
         icon: RotateCcw,
       }))
     ) {

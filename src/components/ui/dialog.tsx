@@ -8,7 +8,11 @@ import { cn } from "@/lib/utils"
 import { overlayClass } from "@/lib/overlay-classes"
 import { focusOverlayContent } from "@/lib/overlay-focus"
 import { useSsrSafeAriaControls } from "@/hooks/use-hydrated"
-import { DIALOG_TONE_ICON_CLASS, type DialogTone } from "@/components/ui/dialog-tone"
+import {
+  DIALOG_FOOTER_CTA_CLASS,
+  DIALOG_TONE_ICON_CLASS,
+  type DialogTone,
+} from "@/components/ui/dialog-tone"
 
 const Dialog = DialogPrimitive.Root
 
@@ -118,7 +122,9 @@ const DialogFooter = ({
   <div
     className={cn(
       "-mx-6 -mb-6 mt-2 flex flex-col-reverse gap-2 border-t bg-muted/50 py-3 pl-6 pr-4 sm:flex-row sm:items-center sm:justify-end sm:rounded-b-xl",
-      "[&>button]:w-full sm:[&>button]:w-auto",
+      // Иконка-кнопка (size="icon") остаётся квадратной.
+      "[&>button:not([data-size=icon])]:w-full sm:[&>button:not([data-size=icon])]:w-auto",
+      DIALOG_FOOTER_CTA_CLASS,
       className
     )}
     {...props}
@@ -140,7 +146,8 @@ const DialogTitle = React.forwardRef<
   <DialogPrimitive.Title
     ref={ref}
     className={cn(
-      "text-[18px] font-semibold leading-tight tracking-tight",
+      // Длинное имя файла без пробелов переносится, а не вылезает за окно.
+      "text-[18px] font-semibold leading-tight tracking-tight [overflow-wrap:anywhere]",
       className
     )}
     {...props}

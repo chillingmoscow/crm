@@ -505,6 +505,8 @@ export function ScheduleClient({
     consequences?: DialogConsequence[];
     action: () => Promise<void>;
   } | null>(null);
+  // Пока окно уходит (160 мс), значок и список не должны смениться на пустые.
+  const shownConfirmation = useExitValue(confirmation);
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<ScheduleEvent[] | null>(null);
   const [historyHasMore, setHistoryHasMore] = useState(false);
@@ -2734,13 +2736,13 @@ export function ScheduleClient({
         onOpenChange={(o) => {
           if (!o) setConfirmation(null);
         }}
-        title={confirmation?.title ?? ""}
-        description={confirmation?.description}
-        confirmLabel={confirmation?.confirmLabel ?? ""}
-        destructive={confirmation?.destructive}
-        tone={confirmation?.tone}
-        icon={confirmation?.icon}
-        consequences={confirmation?.consequences}
+        title={shownConfirmation?.title ?? ""}
+        description={shownConfirmation?.description}
+        confirmLabel={shownConfirmation?.confirmLabel ?? ""}
+        destructive={shownConfirmation?.destructive}
+        tone={shownConfirmation?.tone}
+        icon={shownConfirmation?.icon}
+        consequences={shownConfirmation?.consequences}
         busy={busy}
         onConfirm={async () => {
           setBusy(true);

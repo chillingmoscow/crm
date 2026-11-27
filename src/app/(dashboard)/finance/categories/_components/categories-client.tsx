@@ -875,7 +875,7 @@ export function CategoriesClient({
           entityName={shownDelete.target.name}
           impact={
             shownDelete.target.operations
-              ? [{ label: "Операции останутся без статьи", count: shownDelete.target.operations, tone: "unbind" }]
+              ? [{ label: "Операции", count: shownDelete.target.operations, tone: "unbind" }]
               : []
           }
           restrictedBy={[]}

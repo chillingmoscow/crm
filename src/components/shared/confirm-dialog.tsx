@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   Archive,
@@ -23,9 +23,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  DIALOG_CTA_DISABLED_CLASS,
   canConfirm,
   hotkeyAllowed,
+  hotkeyEventFrom,
   hotkeyVerb,
   isConfirmHotkey,
   resolveDialogTone,
@@ -136,7 +136,7 @@ export function ConfirmDialog({
       <DialogContent
         hideClose
         onKeyDown={(event) => {
-          if (!isConfirmHotkey(event)) return;
+          if (!isConfirmHotkey(hotkeyEventFrom(event))) return;
           // Сочетание забираем себе, даже когда подтвердить нельзя: иначе
           // ⌘↵ всплывёт через портал в панель или форму под окном.
           event.preventDefault();
@@ -180,7 +180,6 @@ export function ConfirmDialog({
           <Button
             type="button"
             variant={tone === "destructive" ? "destructive" : "default"}
-            className={DIALOG_CTA_DISABLED_CLASS[tone]}
             disabled={!ready}
             onClick={onConfirm}
           >
@@ -251,6 +250,15 @@ export function useConfirm(): {
     resolveRef.current = null;
     setOpen(false);
   }, []);
+
+  // Компонент ушёл с открытым окном — ждущий `await confirm()` получает «нет».
+  useEffect(
+    () => () => {
+      resolveRef.current?.(false);
+      resolveRef.current = null;
+    },
+    [],
+  );
 
   const confirm = useCallback((next: ConfirmOptions) => {
     resolveRef.current?.(false);

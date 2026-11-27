@@ -28,6 +28,7 @@ import { StaffTable, type StaffColKey as ColKey } from "./staff-table";
 import type { CasualStaffRow } from "@/lib/payroll/casual-list";
 import { AddStaffDrawer, type AddStaffMode } from "./add-staff-drawer";
 import { CasualToStaffDrawer } from "./casual-to-staff-drawer";
+import { useExitValue } from "@/hooks/use-exit-value";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -365,6 +366,7 @@ export function StaffClient({
     | { kind: "cancelInvitation"; id: string; label: string }
     | null
   >(null);
+  const shownConfirmAction = useExitValue(confirmAction);
   const onRestore = (uvrId: string) => {
     startTransition(async () => {
       const result = await restoreStaff(uvrId);
@@ -929,30 +931,30 @@ export function StaffClient({
         onCreated={(member) => setStaff((prev) => [...prev, member])}
       />
       <ConfirmDialog
-        icon={confirmAction?.kind === "restore" ? ArchiveRestore : MailX}
+        icon={shownConfirmAction?.kind === "restore" ? ArchiveRestore : MailX}
         open={Boolean(confirmAction)}
         onOpenChange={(open) => {
           if (!open) setConfirmAction(null);
         }}
         title={
-          confirmAction?.kind === "restore"
-            ? `Восстановить «${confirmAction.label}»?`
-            : `Отменить приглашение ${confirmAction?.label ?? ""}?`
+          shownConfirmAction?.kind === "restore"
+            ? `Восстановить «${shownConfirmAction.label}»?`
+            : `Отменить приглашение ${shownConfirmAction?.label ?? ""}?`
         }
         description={
-          confirmAction?.kind === "restore"
+          shownConfirmAction?.kind === "restore"
             ? "Сотрудник вернётся в список действующих и снова получит доступ к заведению. Для него будут созданы записи в Quick Resto и выдан код замка."
             : "Ссылка из письма перестанет работать. Чтобы пригласить человека снова, приглашение нужно будет отправить заново."
         }
         confirmLabel={
-          confirmAction?.kind === "restore"
+          shownConfirmAction?.kind === "restore"
             ? "Восстановить сотрудника"
             : "Отменить приглашение"
         }
         pendingLabel={
-          confirmAction?.kind === "restore" ? "Восстанавливаем…" : "Отменяем…"
+          shownConfirmAction?.kind === "restore" ? "Восстанавливаем…" : "Отменяем…"
         }
-        destructive={confirmAction?.kind === "cancelInvitation"}
+        destructive={shownConfirmAction?.kind === "cancelInvitation"}
         busy={isPending}
         onConfirm={() => {
           if (confirmAction?.kind === "restore") onRestore(confirmAction.id);

@@ -231,8 +231,8 @@ export function RecurringPage({
     // Пока считали, диалог могли закрыть или открыть для другого платежа.
     if (!impact || impact.error || deleteRequest.current !== row.id) return;
     setDeleteImpact([
-      { label: "Ждут разбора", count: impact.pending, tone: "cascade" },
-      { label: "Проведённые операции сохранятся", count: impact.posted, tone: "unbind" },
+      { label: "Платежи на разборе", count: impact.pending, tone: "cascade" },
+      { label: "Проведённые операции", count: impact.posted, tone: "unbind" },
     ]);
   };
 

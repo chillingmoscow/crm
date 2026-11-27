@@ -14,7 +14,10 @@ import {
   DialogHotkeyHint,
   DialogIcon,
 } from "@/components/ui/dialog";
-import { DIALOG_CTA_DISABLED_CLASS, isConfirmHotkey } from "@/components/ui/dialog-tone";
+import {
+  hotkeyEventFrom,
+  isConfirmHotkey,
+} from "@/components/ui/dialog-tone";
 import {
   Select,
   SelectContent,
@@ -120,7 +123,7 @@ export function SupportReportDialog({
     >
       <DialogContent
         onKeyDown={(event) => {
-          if (!isConfirmHotkey(event)) return;
+          if (!isConfirmHotkey(hotkeyEventFrom(event))) return;
           event.preventDefault();
           event.stopPropagation();
           handleSubmit();
@@ -216,7 +219,6 @@ export function SupportReportDialog({
           </Button>
           <Button
             type="button"
-            className={DIALOG_CTA_DISABLED_CLASS.default}
             onClick={handleSubmit}
             disabled={isPending}
           >

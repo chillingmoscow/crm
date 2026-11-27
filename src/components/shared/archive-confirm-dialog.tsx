@@ -67,7 +67,7 @@ export function ArchiveConfirmDialog({
       title={`Архивировать ${entityGenitive} «${entityName}»?`}
       description={
         description ??
-        "Это не удаление: запись скроется из списков, вернуть её можно из архива раздела."
+        "Это не удаление: запись скроется из списков, связанные данные сохранятся. Вернуть её можно из архива раздела."
       }
       tone="warning"
       icon={Archive}

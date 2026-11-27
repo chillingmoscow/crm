@@ -86,6 +86,8 @@ import { ReviewerSelect } from "./reviewer-select";
 import {
   SORTABLE_COLUMNS,
   getDocHref,
+  groupsByDate,
+  netResultsTotal,
   sortModesToSorting,
   sortingToSortModes,
   toIsoDate,
@@ -94,6 +96,7 @@ import {
 } from "./documents-table-utils";
 import {
   BulkAssignMenu,
+  DocumentDateGroupHeader,
   DocumentRowMenu,
   DocumentsEmptyState,
   ReadonlyPersonCell,
@@ -390,19 +393,7 @@ export function DocumentsTable({
   // Сумма итогов (нетто = излишки − недостачи) по выделенным строкам.
   // Если хотя бы по одному выделенному акту итог посчитать не удалось, суммы
   // нет вовсе: частичная сумма выглядела бы как полная.
-  const selectedTotals = useMemo(() => {
-    let net = 0;
-    let unavailable = false;
-    for (const row of selectedRowsList) {
-      if (!row.results_has_line_amounts || !hasCountedResults(row.status)) continue;
-      if (row.totals_unavailable) {
-        unavailable = true;
-        continue;
-      }
-      net += (row.surplus_sum ?? 0) - (row.shortfall_sum ?? 0);
-    }
-    return { net, unavailable };
-  }, [selectedRowsList]);
+  const selectedTotals = useMemo(() => netResultsTotal(selectedRowsList), [selectedRowsList]);
 
   const canBulkAssignee =
     selectedRowsList.length > 0 &&
@@ -996,6 +987,18 @@ export function DocumentsTable({
           onRowClick={(row) => router.push(getDocHref(row.original, canViewResults))}
           rowClassName={(row) =>
             row.index === focusedIndex ? "bg-muted/50 ring-1 ring-inset ring-brand/40" : undefined
+          }
+          // Акты одной инвентаризации (одна дата, разные склады и группы) —
+          // под общим подзаголовком с итогом. Только пока список идёт по дате.
+          groups={
+            groupsByDate(sortFromUrl)
+              ? {
+                  key: (doc) => formatDateCell(doc.invoice_date) ?? "",
+                  header: (docs) => (
+                    <DocumentDateGroupHeader docs={docs} amountRoundingScale={amountRoundingScale} />
+                  ),
+                }
+              : undefined
           }
           empty={null}
           mobile={{

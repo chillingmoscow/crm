@@ -57,6 +57,7 @@ import {
   resultSortToField,
   resultSortsToSorting,
   sortingToResultSorts,
+  topResultDifferences,
   type ResultColumnKey,
   type ResultRecountFilter,
   type ResultSortMode,
@@ -66,6 +67,7 @@ import {
   formatMoney,
   formatSignedMoney,
   formatInventoryQuantity as formatQuantity,
+  INVENTORY_QUANTITY_MAX_FRACTION,
   signedAmountClass,
   type AmountRoundingScale,
 } from "@/lib/format/amount";
@@ -115,6 +117,7 @@ import { IngredientHistoryHoverCard } from "./ingredient-history-hover-card";
 import type { IngredientHistoryEntry } from "@/lib/inventory/ingredients";
 import { RefreshResultsButton } from "./refresh-results-button";
 import { RecountSplitDialog } from "./recount-split-dialog";
+import { ResultsBalanceBar, ResultsTopDifferences } from "./results-balance";
 
 export type InventoryDocumentResultItem = {
   id: string;
@@ -345,6 +348,15 @@ function TileAmount({
   );
 }
 
+/** Число без единицы для чипа пересчёта: единица — в подсказке. */
+function formatAmountOnly(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat("ru-RU", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: INVENTORY_QUANTITY_MAX_FRACTION,
+  }).format(value);
+}
+
 // Пересчитанное значение совпало с прежним. Это законный исход («пересчитали,
 // значение подтвердилось»), но он должен читаться именно так: «было 3 → стало
 // 3» само по себе неотличимо от акта, где пересчёт не делали.
@@ -508,6 +520,26 @@ export function InventoryResultsTable({
   const flaggedCount = useMemo(
     () => items.filter((item) => item.needs_recount).length,
     [items],
+  );
+  // Топ позиций по расхождению — по той же управленческой сумме, что в
+  // столбце «Упр. сумма»: исключённая строка — ноль, в пересорте — остаток.
+  const topDifferences = useMemo(
+    () =>
+      topResultDifferences(
+        items.map((item) => {
+          const resortItem = activeResortItemByItemId.get(item.id);
+          return {
+            id: item.id,
+            name: item.product_name,
+            sum: item.excluded_from_totals
+              ? 0
+              : Number((resortItem ? resortItem.remainingDifferenceSum : item.difference_sum) ?? 0),
+            amount: resortItem ? resortItem.remainingDifferenceAmount : item.difference_amount,
+            unit: item.measure_unit_name,
+          };
+        }),
+      ),
+    [items, activeResortItemByItemId],
   );
   // «Отправить на пересчёт» доступно из ready_for_review / results_blocked.
   // Из recount_pending уже отправили; processed закрыт в QR.
@@ -938,19 +970,20 @@ export function InventoryResultsTable({
           {wasRecounted ? (
             // Постоянный след пересчёта: «было → стало», чтобы проверяющий
             // сравнил исходный факт с пересчитанным (см. recount_previous_amount).
-            <span
-              className="text-xs text-destructive"
-              data-tip={
-                recountUnchanged
-                  ? "Строку пересчитали, значение подтвердилось"
-                  : "Строка была отправлена на пересчёт"
-              }
+            // Чип «30 → 27» на общем StatusBadge: колонка узкая, поэтому в
+            // чипе только числа, единица и слова — в подсказке. Значение
+            // изменилось — жёлтый; подтвердилось — серый с галочкой.
+            <StatusBadge
+              tone={recountUnchanged ? "neutral" : "warning"}
+              icon={recountUnchanged ? <CheckCircle2 /> : undefined}
+              className="self-start px-1.5 tabular-nums"
+              tip={`${recountUnchanged ? "Пересчитали, значение подтвердилось" : "Пересчитали"}: было ${formatQuantity(item.recount_previous_amount, item.measure_unit_name)}, стало ${formatQuantity(factAmount, item.measure_unit_name)}`}
             >
-              было {formatQuantity(item.recount_previous_amount, item.measure_unit_name)} → {formatQuantity(factAmount, item.measure_unit_name)}
-              {recountUnchanged ? (
-                <span className="text-muted-foreground"> · не изменилось</span>
-              ) : null}
-            </span>
+              {recountUnchanged
+                ? formatAmountOnly(factAmount)
+                : // Тонкие пробелы у стрелки: колонка узкая, обычные съедали место.
+                  `${formatAmountOnly(item.recount_previous_amount)}\u2009→\u2009${formatAmountOnly(factAmount)}`}
+            </StatusBadge>
           ) : null}
           </div>
         );
@@ -1275,6 +1308,50 @@ export function InventoryResultsTable({
     );
   }, [showDifferences, searchQuery, groupFilter, statusFilter, recountFilter, sorts, setTablePagination]);
 
+  // Переход к строке из «Топа по расхождению». Если строку прячут поиск или
+  // фильтры — сбрасываем их; затем открываем страницу таблицы, где она стоит,
+  // прокручиваем к ней и коротко подсвечиваем. Эффект объявлен после сброса
+  // страницы при смене фильтров: в одном проходе он срабатывает последним.
+  const [focusRowId, setFocusRowId] = useState<string | null>(null);
+  const [flashRowId, setFlashRowId] = useState<string | null>(null);
+  const openResultRow = (itemId: string) => {
+    if (!visibleItems.some((item) => item.id === itemId)) {
+      setShowDifferences(false);
+      setGroupFilter("all");
+      setStatusFilter("all");
+      setRecountFilter("all");
+      setSearchQuery("");
+    }
+    setFocusRowId(itemId);
+  };
+  useEffect(() => {
+    if (!focusRowId) return;
+    const index = visibleItems.findIndex((item) => item.id === focusRowId);
+    if (index < 0) return;
+    const pageIndex = Math.floor(index / currentPageSize);
+    if (pageIndex !== currentPageIndex) {
+      setTablePagination((current) => ({ ...current, pageIndex }));
+      return;
+    }
+    setFocusRowId(null);
+    setFlashRowId(focusRowId);
+  }, [focusRowId, visibleItems, currentPageIndex, currentPageSize, setTablePagination]);
+  // Прокрутка — здесь, а не в эффекте выше: тот перезапускается сразу после
+  // сброса focusRowId, и его очистка отменила бы кадр с прокруткой.
+  useEffect(() => {
+    if (!flashRowId) return;
+    const frame = requestAnimationFrame(() => {
+      document
+        .getElementById(`result-row-${flashRowId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    const timer = setTimeout(() => setFlashRowId(null), 2400);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [flashRowId]);
+
   const managedColumns: ManagedTableColumn[] = tableState.columnOrder
     .filter((id) => id !== "select" && id !== "actions")
     .map((id) => table.getAllLeafColumns().find((col) => col.id === id))
@@ -1422,6 +1499,25 @@ export function InventoryResultsTable({
           </div>
         </div>
       </div>
+
+      {/* Где деньги: соотношение недостачи и излишка и позиции, которые дают
+          больше всего. Без расчёта по строкам сумм нет — блоки не показываем. */}
+      {hasLineAmounts ? (
+        // Полоса — во всю ширину под плитками: недостача слева, излишек
+        // справа, как и сами плитки. Топ — отдельным блоком ниже.
+        <div className="space-y-3">
+          <ResultsBalanceBar
+            shortfallSum={totals.managementShortfallSum}
+            surplusSum={totals.managementSurplusSum}
+            amountRoundingScale={amountRoundingScale}
+          />
+          <ResultsTopDifferences
+            entries={topDifferences}
+            amountRoundingScale={amountRoundingScale}
+            onOpen={openResultRow}
+          />
+        </div>
+      ) : null}
 
       {/* Суммы, которые Quick Resto записал в акт при проведении. До проведения
           QR отдаёт по документу нули, поэтому строка появляется только у
@@ -1819,7 +1915,11 @@ export function InventoryResultsTable({
                   // строка не пересоздаётся и не мигает.
                   <tr
                     key={row.id}
-                    className="table-row-in border-b last:border-b-0 hover:bg-muted/30"
+                    id={`result-row-${row.id}`}
+                    className={cn(
+                      "table-row-in scroll-mt-24 border-b transition-colors duration-300 last:border-b-0 hover:bg-muted/30",
+                      flashRowId === row.id && "bg-brand/10 hover:bg-brand/10",
+                    )}
                     style={{ animationDelay: `${Math.min(index, 14) * 40}ms` }}
                   >
                     {row.getVisibleCells().map((cell) => (

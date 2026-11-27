@@ -203,3 +203,46 @@ export function resultFactAmount(item: ResultFactItem, hasLineAmounts: boolean):
   if (hasLineAmounts) return item.actual_amount;
   return item.submitted_amount ?? item.actual_amount;
 }
+
+/** Строка для блока «Топ позиций по расхождению»: сумма — управленческая, со знаком. */
+export type ResultDifferenceEntry = {
+  id: string;
+  name: string;
+  /** Управленческая сумма строки: недостача отрицательная. */
+  sum: number;
+  amount: number | null;
+  unit: string | null;
+};
+
+/**
+ * Позиции с самым большим расхождением в деньгах — по модулю, недостача и
+ * излишек вместе. Строки без суммы (исключённые, сведённые пересортом в ноль)
+ * в топ не попадают. При равенстве — по названию, чтобы порядок не прыгал.
+ */
+export function topResultDifferences(
+  entries: readonly ResultDifferenceEntry[],
+  limit = 5,
+): ResultDifferenceEntry[] {
+  return entries
+    .filter((entry) => Number.isFinite(entry.sum) && Math.abs(entry.sum) >= 0.005)
+    .sort(
+      (left, right) =>
+        Math.abs(right.sum) - Math.abs(left.sum) || left.name.localeCompare(right.name, "ru"),
+    )
+    .slice(0, limit);
+}
+
+/**
+ * Доли недостачи и излишка на общей оси (сумма модулей = 100%). `null` —
+ * расхождений нет, рисовать нечего.
+ */
+export function resultBalanceShares(
+  shortfallSum: number,
+  surplusSum: number,
+): { shortfall: number; surplus: number } | null {
+  const shortfall = Math.abs(Number(shortfallSum) || 0);
+  const surplus = Math.abs(Number(surplusSum) || 0);
+  const total = shortfall + surplus;
+  if (total < 0.005) return null;
+  return { shortfall: shortfall / total, surplus: surplus / total };
+}

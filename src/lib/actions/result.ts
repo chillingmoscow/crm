@@ -7,6 +7,8 @@
  * само и возвращает её текстом, а клиент превращает его обратно в исключение
  * через `unwrapAction`.
  */
+import { quickRestoErrorText } from "../integrations/quickresto/error-text.ts";
+
 export type ActionResult<T = void> =
   | { ok: true; data: T }
   | { ok: false; error: string };
@@ -16,7 +18,8 @@ const CYRILLIC = /[а-яё]/i;
 /**
  * Текст ошибки для пользователя. Русский текст (наш или из базы) проходит как
  * есть; английский технический — например, «permission denied» или ошибки
- * проверки zod — заменяется на `fallback`.
+ * проверки zod — заменяется на `fallback`. Ошибки Quick Resto (тайм-аут,
+ * сеть, права, ответ сервера) получают свою понятную фразу.
  */
 export function actionErrorMessage(error: unknown, fallback: string): string {
   if (error && typeof error === "object" && "issues" in error && Array.isArray(error.issues)) {
@@ -26,6 +29,8 @@ export function actionErrorMessage(error: unknown, fallback: string): string {
     return own ?? "Проверьте введённые данные";
   }
   const message = error instanceof Error ? error.message.trim() : "";
+  const quickResto = quickRestoErrorText(message);
+  if (quickResto) return quickResto;
   return message && CYRILLIC.test(message) ? message : fallback;
 }
 

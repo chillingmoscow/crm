@@ -117,3 +117,39 @@ export function toIsoDate(d: Date): string {
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
+
+/**
+ * Группировка по дате имеет смысл, только когда список и так идёт по дате:
+ * при сортировке по номеру или статусу акты одной даты разбросаны по списку.
+ * Пустая сортировка — это date_desc по умолчанию.
+ */
+export function groupsByDate(sort: readonly DocumentSortMode[]): boolean {
+  return sort.length === 0 || sortToField(sort[0]) === "date";
+}
+
+type NetResultsRow = Pick<
+  DocumentListRow,
+  "results_has_line_amounts" | "status" | "totals_unavailable" | "surplus_sum" | "shortfall_sum"
+>;
+
+/**
+ * Нетто-итог (излишки − недостачи) по набору актов: выделение, группа одной
+ * даты. Акты без сданных итогов не считаются. Если хотя бы по одному акту итог
+ * посчитать не удалось, `unavailable`: частичная сумма выглядела бы как полная.
+ * `counted` — сколько актов вошло в сумму.
+ */
+export function netResultsTotal(rows: readonly NetResultsRow[]) {
+  let net = 0;
+  let counted = 0;
+  let unavailable = false;
+  for (const row of rows) {
+    if (!row.results_has_line_amounts || !hasCountedResults(row.status)) continue;
+    if (row.totals_unavailable) {
+      unavailable = true;
+      continue;
+    }
+    net += (row.surplus_sum ?? 0) - (row.shortfall_sum ?? 0);
+    counted += 1;
+  }
+  return { net, counted, unavailable };
+}

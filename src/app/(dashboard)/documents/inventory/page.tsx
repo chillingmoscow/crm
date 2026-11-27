@@ -198,7 +198,7 @@ export default async function InventoryDocumentsPage({
     ),
   );
   const [{ data: venuesForFilter }, { data: storesForFilter }, staff, eligibility] = await Promise.all([
-    asLooseDb(supabase).from<VenueOption[]>("venues").select("id, name").order("name"),
+    asLooseDb(supabase).from<VenueOption[]>("venues").select("id, name, timezone").order("name"),
     asLooseDb(supabase).from<StoreOption[]>("stores").select("id, title").eq("account_id", accountId).order("title"),
     loadStaff(accountId as string, canManage ? undefined : referencedStaffIds),
     canManage ? loadEligibilityForPickers(accountId as string) : Promise.resolve(null),

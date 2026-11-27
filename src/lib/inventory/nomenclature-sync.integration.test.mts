@@ -146,6 +146,7 @@ async function harness() {
   const real: Record<string, string> = {
     "@/lib/supabase/fetch-all": "../supabase/fetch-all.ts",
     "@/lib/inventory/nomenclature-diff": "./nomenclature-diff.ts",
+    "@/lib/integrations/quickresto/error-text": "../integrations/quickresto/error-text.ts",
   };
   async function load(file: string): Promise<vm.SourceTextModule> {
     const code = ts.transpileModule(await readFile(new URL(file, import.meta.url), "utf8"), {
@@ -272,6 +273,7 @@ test("сбой выгрузки записывается в состояние �
   await assert.rejects(h.run(), /timed out/);
   const result = h.tables.integration_connections[0].nomenclature_sync_result as Row;
   assert.equal(result.ok, false);
-  assert.match(String(result.error), /timed out/);
+  // В состояние уходит текст для пользователя, а не технический английский.
+  assert.equal(result.error, "Quick Resto не ответил вовремя");
   assert.equal(h.tables.integration_connections[0].nomenclature_synced_at, undefined);
 });

@@ -7,7 +7,11 @@ export const metadata: Metadata = { title: "Уведомления" };
 export default function NotificationsPage() {
   return (
     <PageFrame>
-      <Breadcrumbs items={[{ label: "Уведомления" }]} />
+      {/* В боковом меню «Уведомлений» нет: страница личная и открывается из
+          колокольчика, поэтому раздел — «Профиль», как у личных настроек. */}
+      <Breadcrumbs
+        items={[{ label: "Профиль", href: "/profile" }, { label: "Уведомления" }]}
+      />
       {/* Шапка, вкладки «Все / Непрочитанные / Архив» и список — внутри:
           действия шапки зависят от состояния списка. */}
       <NotificationBell mode="inbox" />

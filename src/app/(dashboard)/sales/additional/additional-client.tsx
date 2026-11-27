@@ -859,15 +859,6 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
             : `Дни по ${formatDayMonth(archiveDays.at(-1)!)} — из архива Glide, без пересчёта`}
         </p>
       )}
-      {switchDate && switchDate.slice(0, 7) === month ? (
-        <p className="text-sm text-muted-foreground">
-          С {formatDayMonth(switchDate)} прибавка считается по чекам по правилам
-          подразделения
-          {kind && switchDate.slice(8) !== "01"
-            ? ". Более ранние дни посчитаны по отчётам Quick Resto"
-            : ""}
-        </p>
-      ) : null}
       {unknown.length > 0 && (
         <p
           role="status"

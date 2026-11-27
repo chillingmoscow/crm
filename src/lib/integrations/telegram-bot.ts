@@ -54,6 +54,11 @@ export type TelegramBot = {
     chatId: string,
     name: string,
   ) => Promise<TelegramApiResult<{ invite_link?: string }>>;
+  /** Отозвать ссылку-приглашение: по ней больше нельзя вступить. */
+  revokeChatInviteLink: (
+    chatId: string,
+    inviteLink: string,
+  ) => Promise<TelegramApiResult<{ invite_link?: string; is_revoked?: boolean }>>;
   sendMessage: (
     chatId: string,
     text: string,
@@ -155,6 +160,8 @@ export async function loadTelegramBot(
         member_limit: 1,
         name: name.slice(0, 32),
       }),
+    revokeChatInviteLink: (chatId, inviteLink) =>
+      call("revokeChatInviteLink", { chat_id: chatId, invite_link: inviteLink }),
     sendMessage: (chatId, text, buttons, options) =>
       call("sendMessage", {
         chat_id: chatId,

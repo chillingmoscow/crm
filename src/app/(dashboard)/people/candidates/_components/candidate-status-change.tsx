@@ -11,7 +11,10 @@ import type {
 } from "@/lib/candidates/types";
 import { candidateError } from "@/lib/candidates/errors";
 import { unwrapAction } from "@/lib/actions/result";
-import { updateCandidate } from "../actions";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { Field } from "@/components/ui/field";
+import { Textarea } from "@/components/ui/textarea";
+import { rejectCandidate, updateCandidate } from "../actions";
 import { CandidateStatusAppointment } from "./candidate-status-appointment";
 
 export type CandidateStatusUpdate = {
@@ -25,7 +28,8 @@ export type CandidateStatusUpdate = {
  * карточки на доске. «Собеседование» и «Стажировка» открывают панель записи
  * на встречу (этап меняется вместе с ней), остальные этапы сохраняются
  * сразу тем же действием `updateCandidate`: права и журнал проверяет и
- * пишет база (`candidate_command`). «Принят на работу» отсюда не ставится —
+ * пишет база (`candidate_command`). «Не подходит» — только с комментарием
+ * о причине (окно ниже, база без него этап не меняет). «Принят на работу» отсюда не ставится —
  * только через оформление (`HireDrawer`).
  */
 export function useCandidateStatusChange({
@@ -54,12 +58,28 @@ export function useCandidateStatusChange({
   } | null>(null);
   // Панель держим смонтированной, пока она уезжает (docs/motion.md).
   const shown = useExitValue(appointment);
+  const [reject, setReject] = useState<{ candidate: Candidate; key: string } | null>(null);
+  const shownReject = useExitValue(reject);
+  const [reason, setReason] = useState("");
+  const [rejectError, setRejectError] = useState<string | null>(null);
+  const release = (id: string) =>
+    setPending((current) => {
+      const rest = new Map(current);
+      rest.delete(id);
+      return rest;
+    });
   const change = async (candidate: Candidate, next: CandidateStatus) => {
     if (next === "interview" || next === "trial") {
       setAppointment({ candidate, kind: next });
       return;
     }
     if (next === candidate.status || next === "hired" || pending.has(candidate.id)) return;
+    if (next === "rejected") {
+      setReason("");
+      setRejectError(null);
+      setReject({ candidate, key: crypto.randomUUID() });
+      return;
+    }
     setPending((current) => new Map(current).set(candidate.id, next));
     try {
       const saved = unwrapAction(
@@ -73,23 +93,78 @@ export function useCandidateStatusChange({
       toast.error(candidateError(e, "Не удалось изменить статус."));
       onRefresh();
     } finally {
-      setPending((current) => {
-        const rest = new Map(current);
-        rest.delete(candidate.id);
-        return rest;
-      });
+      release(candidate.id);
     }
   };
-  const panel = shown ? (
-    <CandidateStatusAppointment
-      key={`${shown.candidate.id}:${shown.kind}`}
-      open={!!appointment}
-      candidate={shown.candidate}
-      kind={shown.kind}
-      options={options}
-      onClose={() => setAppointment(null)}
-      onSaved={onSaved}
-    />
-  ) : null;
+  const confirmReject = async () => {
+    if (!reject || !reason.trim()) return;
+    const { candidate, key } = reject;
+    setRejectError(null);
+    setPending((current) => new Map(current).set(candidate.id, "rejected"));
+    try {
+      const saved = unwrapAction(
+        await rejectCandidate(candidate.id, candidate.revision, reason, key),
+      );
+      setReject(null);
+      onSaved(saved);
+    } catch (e) {
+      const message = candidateError(e, "Не удалось перевести кандидата в «Не подходит».");
+      // Анкету поменяли параллельно: повтор со старой ревизией не пройдёт —
+      // закрываем окно, список обновится, этап можно выбрать снова.
+      if (message.includes("Анкета изменена")) {
+        setReject(null);
+        toast.error(message);
+      } else setRejectError(message);
+      onRefresh();
+    } finally {
+      release(candidate.id);
+    }
+  };
+  const rejecting = !!shownReject && pending.has(shownReject.candidate.id);
+  const panel = (
+    <>
+      {shown ? (
+        <CandidateStatusAppointment
+          key={`${shown.candidate.id}:${shown.kind}`}
+          open={!!appointment}
+          candidate={shown.candidate}
+          kind={shown.kind}
+          options={options}
+          onClose={() => setAppointment(null)}
+          onSaved={onSaved}
+        />
+      ) : null}
+      {shownReject ? (
+        <ConfirmDialog
+          open={!!reject}
+          onOpenChange={(open) => {
+            if (!open) setReject(null);
+          }}
+          title={`${shownReject.candidate.full_name} не подходит?`}
+          description="Кандидат перейдёт на этап «Не подходит». Причина останется в комментариях к анкете."
+          confirmLabel="Перевести в «Не подходит»"
+          pendingLabel="Сохраняем…"
+          busy={rejecting}
+          confirmDisabled={!reason.trim()}
+          error={rejectError}
+          onConfirm={() => void confirmReject()}
+        >
+          <Field label="Почему не подходит" required>
+            {(control) => (
+              <Textarea
+                {...control}
+                value={reason}
+                rows={4}
+                maxLength={12000}
+                placeholder="Например: нет опыта, не устроил график, не пришёл на стажировку"
+                disabled={rejecting}
+                onChange={(event) => setReason(event.target.value)}
+              />
+            )}
+          </Field>
+        </ConfirmDialog>
+      ) : null}
+    </>
+  );
   return { change, pending, panel };
 }

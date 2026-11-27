@@ -25,6 +25,7 @@ import {
   MailX,
   Pencil,
   RotateCcw,
+  Send,
   Settings2,
   ShieldPlus,
   ShieldX,
@@ -759,6 +760,24 @@ const SPECS: Record<string, AuditEventSpec> = {
       ) : (
         <>
           уволил(а) <StaffName event={e} />
+        </>
+      );
+    },
+  },
+  "staff.chat_invites.sent": {
+    icon: Send,
+    iconClass: "text-brand bg-brand/10",
+    buildHeadline: (e) => {
+      const revoked = Number(e.details.revoked ?? 0);
+      return (
+        <>
+          отправил(а) новые приглашения в чаты Telegram: <StaffName event={e} />
+          {revoked > 0 && (
+            <span className="text-muted-foreground">
+              {" "}
+              (старые ссылки отозваны: {revoked})
+            </span>
+          )}
         </>
       );
     },

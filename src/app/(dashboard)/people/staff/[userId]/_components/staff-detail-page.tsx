@@ -134,6 +134,7 @@ const personalSchema = schema.extend({ gender: genderFormField });
 type Role = { id: string; name: string; code: string };
 
 import { StaffPayPanel } from "@/app/(dashboard)/people/payroll/_components/payroll-context";
+import { pendingEarnedHint } from "@/lib/payroll/pay-sheet";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { ProfileDangerAction } from "@/components/shared/profile-danger-zone";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
@@ -145,6 +146,8 @@ type TabKey = "pay" | "main" | "documents" | "history" | "activity" | "danger";
 interface Props {
   candidateId?: string | null;
   doorCode?: ReactNode;
+  /** Приглашения в Telegram-чаты должности: статус и «Отправить новые». */
+  chatInvites?: ReactNode;
   terminationStatus?: ReactNode;
   profile: StaffProfile;
   accountDetails: StaffAccountDetails;
@@ -200,6 +203,8 @@ interface Props {
   /** Показывать ли вкладку «Оплата»: право на зарплату или своя карточка. */
   canViewPay: boolean;
   initialTab?: "main" | "documents" | "pay";
+  /** Месяц, который открывает вкладка «Оплата» (первое число); по умолчанию текущий. */
+  initialPayMonth?: string;
   /** Сейчас на смене (график и отметки): точка на аватаре. */
   onShift?: boolean;
   /** Смены и «Начислено» за текущий месяц — по правам на график и зарплату. */
@@ -306,6 +311,7 @@ function JournalPlaceholder({
 export function StaffDetailPage({
   candidateId,
   doorCode,
+  chatInvites = null,
   terminationStatus,
   profile,
   accountDetails,
@@ -339,6 +345,7 @@ export function StaffDetailPage({
   officialTermination = null,
   canViewPay,
   initialTab = "main",
+  initialPayMonth,
   onShift = false,
   monthStats = null,
   canViewShiftHeatmap = false,
@@ -1110,7 +1117,11 @@ export function StaffDetailPage({
                 primary
                 label={`Начислено за ${monthName(monthStats.month)}`}
                 value={<AnimatedMoney value={monthStats.earned} />}
-                hint={monthStats.earned === null ? "Часть начислений ещё не рассчитана" : undefined}
+                hint={
+                  monthStats.earned === null
+                    ? "Не удалось загрузить начисления"
+                    : (pendingEarnedHint(monthStats.pending ?? []) ?? undefined)
+                }
                 onClick={canViewPay ? () => setActiveTab("pay") : undefined}
                 ariaLabel={canViewPay ? "Начислено за месяц: открыть оплату" : undefined}
               />
@@ -1572,6 +1583,7 @@ export function StaffDetailPage({
 
               {/* Вне формы: у блока свои панели и команды, Enter в них не
                   сохраняет карточку. */}
+              {chatInvites}
               {officialEmployment && (
                 <OfficialEmploymentSection
                   data={officialEmployment}
@@ -1609,7 +1621,7 @@ export function StaffDetailPage({
           {/* ── Оплата ───────────────────────────────────────── */}
           {canViewPay && (
             <TabsContent value="pay">
-              <StaffPayPanel userId={profile.id} />
+              <StaffPayPanel userId={profile.id} initialMonth={initialPayMonth} />
               {canConfigurePayroll && (
                 <div className="mx-auto mt-5 w-full max-w-[720px]">
                   <EmployeeDocuments

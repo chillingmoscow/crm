@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   buildPaySheet,
+  pendingEarnedHint,
   payMonthHistory,
   paySheetPayments,
   shiftMonth,
@@ -76,7 +77,7 @@ test("buildPaySheet groups shift components and keeps deductions apart", () => {
   assert.equal(sheet.groups[2].items[0].title, "За банкет");
 });
 
-test("buildPaySheet: unknown amount hides totals instead of showing zero", () => {
+test("buildPaySheet: unknown amount hides the group total, the month shows what is known", () => {
   const sheet = buildPaySheet(
     [
       accrual("a1", "2026-10-28", [
@@ -88,7 +89,16 @@ test("buildPaySheet: unknown amount hides totals instead of showing zero", () =>
     role,
   );
   assert.equal(sheet.groups.find((g) => g.id === "percent")?.amount, null);
-  assert.equal(sheet.earned, null);
+  assert.equal(sheet.earned, 2500);
+  assert.deepEqual(sheet.pending, ["percent"]);
+  assert.equal(pendingEarnedHint(sheet.pending), "Без процента от продаж — ещё считаются");
+});
+
+test("pendingEarnedHint names up to two groups, otherwise speaks generally", () => {
+  assert.equal(pendingEarnedHint([]), null);
+  assert.equal(pendingEarnedHint(["extra"]), "Без допродаж — ещё считаются");
+  assert.equal(pendingEarnedHint(["percent", "extra"]), "Без процента от продаж и допродаж — ещё считаются");
+  assert.equal(pendingEarnedHint(["other:Бонус"]), "Без части начислений — ещё считаются");
 });
 
 test("buildPaySheet drops zero groups and counts only real shifts", () => {

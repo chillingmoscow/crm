@@ -76,8 +76,11 @@ export type StaffMonthStats = {
   month: string;
   /** Нет права на график — null. */
   shifts: { done: number; upcoming: number; hours: number } | null;
-  /** Нет права на зарплату или зарплатной карточки — undefined; сумма неизвестна — null. */
+  /** Нет права на зарплату или зарплатной карточки — undefined; не загрузилось — null.
+   *  Пока часть статей считается, это сумма посчитанного (см. `pending`). */
   earned?: number | null;
+  /** Статьи, суммы которых ещё считаются (id групп расчётного листа). */
+  pending?: string[];
 };
 
 /**
@@ -136,14 +139,15 @@ export async function loadStaffMonthStats(input: {
                 .gte("business_date", month)
                 .lte("business_date", lastDay),
             );
-            return buildPaySheet(rows, month, () => "").earned;
+            const sheet = buildPaySheet(rows, month, () => "");
+            return { earned: sheet.earned, pending: sheet.pending };
           } catch {
-            return null;
+            return { earned: null, pending: [] };
           }
         })
       : Promise.resolve(undefined),
   ]);
-  return { month, shifts, ...(earned !== undefined ? { earned } : {}) };
+  return { month, shifts, ...(earned ?? {}) };
 }
 
 export type ShiftHeatmapData = {

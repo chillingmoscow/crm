@@ -268,6 +268,7 @@ export function ScheduleClient({
   initialDate,
   initialView,
   initialSwap,
+  initialTask,
 }: {
   initial: ScheduleData;
   section?: "calendar" | "templates";
@@ -278,6 +279,8 @@ export function ScheduleClient({
   initialView?: "templates" | "list" | "week";
   /** Заявка на замену из уведомления (`?swap=`): открыть её смену. */
   initialSwap?: string;
+  /** Задача из сообщения в Telegram (`?task=`): открыть её карточку. */
+  initialTask?: string;
 }) {
   const [data, setData] = useState(initial);
   // `?create=shift` из палитры ⌘K: открыть форму новой смены (ниже).
@@ -471,6 +474,14 @@ export function ScheduleClient({
     if (shift) setSelected(shift);
     else toast.info("Заявка на замену больше недоступна");
   }, [initialSwap, data.swaps, data.shifts]);
+  const openedTask = useRef(false);
+  useEffect(() => {
+    if (!initialTask || openedTask.current || !calendarTasks) return;
+    openedTask.current = true;
+    const task = calendarTasks.occurrences.find((entry) => entry.id === initialTask);
+    if (task) setSelectedTask(task);
+    else toast.info("Задача недоступна или уже снята");
+  }, [initialTask, calendarTasks]);
   const [confirmation, setConfirmation] = useState<{
     title: string;
     description: string;

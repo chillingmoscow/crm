@@ -4520,6 +4520,17 @@ html.theme-transition *::after {
   animation: table-row-in 480ms var(--ease-soft) both;
 }
 
+/* Строки больших таблиц: только проявление, без подъёма. Страница при
+   переходе уже поднимается сама (PageTransition) — второй подъём у каждой
+   строки выглядел как «вылет» таблицы снизу. */
+@keyframes table-row-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.table-row-fade {
+  animation: table-row-fade 280ms var(--ease-soft) both;
+}
+
 /* Блок, который сменился (итоги другой вкладки), мягко всплывает. */
 @keyframes motion-rise {
   from { opacity: 0; transform: translateY(8px) scale(0.995); }
@@ -4708,6 +4719,15 @@ html.theme-transition *::after {
 /* Шеврон раскрытия поворачивается плавно (rotate-180 / rotate-90 — классом). */
 .motion-chevron {
   transition: transform 500ms var(--ease-soft);
+}
+
+/* Иконки разделов меню: при наведении чуть приподнимаются и подрастают.
+   Раскрытие раздела — отдельный «вдох» через WAAPI (popNavIcon в sidebar). */
+.nav-icon {
+  transition: transform 320ms var(--ease-soft);
+}
+:where(a, button):hover > .nav-icon {
+  transform: translateY(-1px) scale(1.08);
 }
 
 /* Идущая смена в расписании: точка 6px, от неё спокойно расходится и

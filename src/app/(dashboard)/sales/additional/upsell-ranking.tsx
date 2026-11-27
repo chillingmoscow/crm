@@ -6,7 +6,6 @@ import { EmployeeIdentity } from "@/components/shared/employee-identity";
 import { Money } from "@/components/shared/money";
 import { unwrapAction } from "@/lib/actions/result";
 import { countRu } from "@/lib/format/plural";
-import { monthLabel } from "@/lib/sales/format";
 import type { RankingEntry } from "@/lib/sales/upsell-ranking";
 import { cn } from "@/lib/utils";
 import { loadUpsellRanking, type UpsellRanking } from "./actions";
@@ -108,12 +107,7 @@ export function UpsellRankingCard({
       className="min-w-0 rounded-lg border bg-card p-4 sm:p-5"
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <div className="min-w-0">
-          <p className="text-sm text-muted-foreground">Рейтинг сотрудников</p>
-          <p className="mt-0.5 text-[13px] text-muted-foreground">
-            Прибавка за допродажи за {monthLabel(month)}
-          </p>
-        </div>
+        <p className="min-w-0 text-sm text-muted-foreground">Рейтинг сотрудников</p>
         {entries.length > 0 && (
           <p className="text-sm text-muted-foreground">
             Всего <Money className="font-medium text-foreground" value={total} />
@@ -168,7 +162,11 @@ export function UpsellRankingCard({
                     <Money className="block text-sm font-medium" value={e.amount} />
                     <span className="block whitespace-nowrap text-xs text-muted-foreground">
                       {countRu(e.shifts, "смена", "смены", "смен")}
-                      {e.unknown > 0 && ` · ${e.unknown} без суммы`}
+                      {e.unknown > 0 && (
+                        <span data-tip="Допродажи этих смен ещё не посчитаны: день не закрыт или ждёт пересчёта. В сумму они пока не входят">
+                          {` · ${e.unknown} ждут расчёта`}
+                        </span>
+                      )}
                     </span>
                   </span>
                   <span className="col-start-2 col-end-4 flex items-center gap-3 sm:pl-12">

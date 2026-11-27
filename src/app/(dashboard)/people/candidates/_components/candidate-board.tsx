@@ -7,6 +7,7 @@ import {
   DndContext,
   DragOverlay,
   KeyboardSensor,
+  MeasuringStrategy,
   MouseSensor,
   TouchSensor,
   useDraggable,
@@ -20,6 +21,7 @@ import {
   type KeyboardCoordinateGetter,
 } from "@dnd-kit/core";
 import { toast } from "sonner";
+import { UserCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -48,8 +50,10 @@ import {
   type CandidateStatusUpdate,
 } from "./candidate-status-change";
 
-/** Колонки доски — этапы по порядку воронки. */
-const COLUMNS: CandidateStatus[] = ["new", "review", "interview", "trial", "hired", "rejected"];
+/** Колонки доски — этапы по порядку воронки. «Принят на работу» колонкой не
+ *  рисуется: принятые уходят в «Сотрудников», и колонка всегда пустая. Это
+ *  плашка снизу, которая появляется, пока переносят анкету со стажировки. */
+const COLUMNS: CandidateStatus[] = ["new", "review", "interview", "trial", "rejected"];
 /** Этапы в работе: дольше всех ждущие — сверху. У «Не подходит» — последние. */
 const ACTIVE: CandidateStatus[] = ["new", "review", "interview", "trial"];
 
@@ -68,7 +72,8 @@ const byStageDesc = (a: Candidate, b: Candidate) => byStageAsc(b, a);
  * пробел — положить; Enter на имени открывает анкету).
  * Перенос меняет этап тем же действием, что меню статуса в таблице
  * (`useCandidateStatusChange`): права и журнал — те же. «Собеседование» и
- * «Стажировка» открывают запись на встречу, «Принят на работу» — оформление.
+ * «Стажировка» открывают запись на встречу, плашка «Принять на работу» —
+ * оформление.
  * Куда положить нельзя, видно ещё во время переноса (DS → «Перетаскивание»).
  */
 export function CandidateBoard({
@@ -100,14 +105,14 @@ export function CandidateBoard({
   const refresh = useCallback(() => setReload((n) => n + 1), []);
   const chosen = (filters.status ?? []) as CandidateStatus[];
   const visible = chosen.length ? COLUMNS.filter((s) => chosen.includes(s)) : COLUMNS;
+  // Оформление начинают со стажировки: без неё на доске принимать некого.
+  const hireZone = visible.includes("trial");
   const filterKey = JSON.stringify(filters);
 
   useEffect(() => {
     let cancelled = false;
     setError("");
-    // Принятые уходят в «Сотрудников» и в списке анкет их нет: колонка
-    // «Принят на работу» — только место, куда переносят анкету для оформления.
-    const stages = visible.filter((s) => s !== "hired");
+    const stages = visible;
     const load = stages.length
       ? listCandidateBoard({
           search: filters.search,
@@ -310,11 +315,30 @@ export function CandidateBoard({
     else void change(row, target);
   };
   const statusName = (id: unknown) => STATUSES[id as CandidateStatus] ?? "";
+  // Плашка найма — пока переносят анкету, которую можно принять (стажировка
+  // или начатое оформление) и есть право принимать.
+  const showHire = hireZone && !!dragging && dragging.status !== "hired" && !refusal(dragging, "hired");
   const announcements: Announcements = {
-    onDragStart: ({ active }) => `Анкета ${findRow(String(active.id))?.full_name ?? ""} взята.`,
-    onDragOver: ({ over }) => (over ? `Над колонкой «${statusName(over.id)}».` : "Вне колонок."),
+    onDragStart: ({ active }) => {
+      const row = findRow(String(active.id));
+      return `Анкета ${row?.full_name ?? ""} взята.${
+        row && hireZone && !refusal(row, "hired")
+          ? " Чтобы принять на работу, перенесите её на плашку «Принять на работу» — стрелкой вправо со стажировки."
+          : ""
+      }`;
+    },
+    onDragOver: ({ over }) =>
+      over?.id === "hired"
+        ? "Над плашкой «Принять на работу»."
+        : over
+          ? `Над колонкой «${statusName(over.id)}».`
+          : "Вне колонок.",
     onDragEnd: ({ over }) =>
-      over ? `Анкета перенесена в «${statusName(over.id)}».` : "Перенос отменён.",
+      over?.id === "hired"
+        ? "Открыто оформление найма."
+        : over
+          ? `Анкета перенесена в «${statusName(over.id)}».`
+          : "Перенос отменён.",
     onDragCancel: () => "Перенос отменён.",
   };
 
@@ -332,6 +356,9 @@ export function CandidateBoard({
     <>
       <DndContext
         sensors={sensors}
+        // Плашка найма появляется уже во время переноса — её место нужно
+        // измерить, когда она встанет на страницу, а не только в начале.
+        measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
         onDragStart={onDragStart}
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
@@ -347,6 +374,15 @@ export function CandidateBoard({
           },
         }}
       >
+        {/* Фильтр только по «Принят на работу»: колонки нет, принятые — в «Сотрудниках». */}
+        {!visible.length && (
+          <p className="rounded-lg border p-6 text-center text-sm text-muted-foreground">
+            Принятые на работу — в разделе{" "}
+            <Link href="/people/staff" className="font-medium text-brand hover:underline">
+              Сотрудники
+            </Link>
+          </p>
+        )}
         <div
           className="-mx-4 flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-3 sm:mx-0 sm:snap-none sm:scroll-px-0 sm:px-0"
           aria-label="Доска кандидатов по этапам"
@@ -364,13 +400,7 @@ export function CandidateBoard({
                 refusal={over === status ? reason : null}
                 highlight={over === status && !!dragging && dragging.status !== status && !reason}
               >
-                {status === "hired" ? (
-                  <p className="px-3 py-6 text-center text-xs leading-5 text-muted-foreground">
-                    {canHireSomewhere
-                      ? "Перенесите сюда анкету со стажировки — откроется оформление"
-                      : "Принимать на работу может тот, у кого есть право на найм"}
-                  </p>
-                ) : !column ? (
+                {!column ? (
                   [0, 1, 2].map((i) => <Skeleton key={i} className="h-[76px] rounded-lg" />)
                 ) : rows.length === 0 ? (
                   <p className="px-2 py-6 text-center text-xs text-muted-foreground">Анкет нет</p>
@@ -396,6 +426,7 @@ export function CandidateBoard({
             );
           })}
         </div>
+        {showHire && <HireDropZone over={over === "hired"} />}
         {/* Анимация возврата идёт через WAAPI и не слушает CSS reduced-motion. */}
         <DragOverlay
           dropAnimation={
@@ -427,6 +458,30 @@ export function CandidateBoard({
         />
       ) : null}
     </>
+  );
+}
+
+/**
+ * Плашка «Принять на работу» внизу экрана — как корзина при переносе смены
+ * в графике (DS → «Перетаскивание»). Отпустили на ней — открывается оформление.
+ */
+function HireDropZone({ over }: { over: boolean }) {
+  const { setNodeRef } = useDroppable({ id: "hired" });
+  return (
+    <div
+      ref={setNodeRef}
+      role="region"
+      aria-label="Принять на работу"
+      className={cn(
+        "fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border-2 border-dashed px-5 py-3 text-sm font-medium shadow-lg motion-float-up transition-[transform,background-color,border-color,color] duration-300 ease-[var(--ease-soft)]",
+        over
+          ? "scale-105 border-brand bg-brand text-brand-foreground"
+          : "border-brand/40 bg-background text-brand",
+      )}
+    >
+      <UserCheck className="size-4" />
+      {over ? "Отпустите — откроется оформление" : "Перенесите сюда, чтобы принять на работу"}
+    </div>
   );
 }
 
@@ -597,15 +652,24 @@ const toNextColumn: KeyboardCoordinateGetter = (event, { context, currentCoordin
   const { collisionRect, droppableRects, droppableContainers } = context;
   if (!step || !collisionRect) return undefined;
   event.preventDefault();
-  const rects = droppableContainers
+  const placed = droppableContainers
     .getEnabled()
-    .map((c) => droppableRects.get(c.id))
-    .filter((r): r is NonNullable<typeof r> => !!r)
-    .sort((a, b) => a.left - b.left);
+    .map((c) => ({ id: c.id, rect: droppableRects.get(c.id) }))
+    .filter((c): c is { id: typeof c.id; rect: NonNullable<typeof c.rect> } => !!c.rect);
+  // Колонки — слева направо; плашка найма (внизу по центру) встаёт в порядок
+  // стрелок сразу после «Стажировки», как этап воронки.
+  const order = placed.filter((c) => c.id !== "hired").sort((a, b) => a.rect.left - b.rect.left);
+  const hire = placed.find((c) => c.id === "hired");
+  if (hire) order.splice(order.findIndex((c) => c.id === "trial") + 1, 0, hire);
+  const rects = order.map((c) => c.rect);
   if (!rects.length) return undefined;
   const center = collisionRect.left + collisionRect.width / 2;
-  // Текущая колонка — та, над которой середина карточки, иначе ближайшая.
-  let index = rects.findIndex((r) => center >= r.left && center <= r.right);
+  const middle = collisionRect.top + collisionRect.height / 2;
+  // Карточка на плашке найма — текущая позиция она, а не колонка над ней.
+  let index =
+    hire && middle >= hire.rect.top && middle <= hire.rect.bottom
+      ? rects.indexOf(hire.rect)
+      : rects.findIndex((r, i) => order[i] !== hire && center >= r.left && center <= r.right);
   if (index === -1)
     index = rects.reduce(
       (best, r, i) =>
@@ -617,9 +681,16 @@ const toNextColumn: KeyboardCoordinateGetter = (event, { context, currentCoordin
     );
   const target = rects[index + step];
   if (!target) return undefined;
+  // Плашка ниже колонок: на неё карточку ставим по середине, с неё — к
+  // верху колонки.
   return {
     x: target.left + target.width / 2 - collisionRect.width / 2,
-    y: currentCoordinates.y,
+    y:
+      target === hire?.rect
+        ? target.top + target.height / 2 - collisionRect.height / 2
+        : rects[index] === hire?.rect
+          ? target.top + 40
+          : currentCoordinates.y,
   };
 };
 

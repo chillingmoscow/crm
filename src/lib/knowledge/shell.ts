@@ -73,7 +73,7 @@ export function kbTreeServiceItems(input: {
     { key: "home", label: "Главная", href: "/knowledge" },
   ];
   if (input.canViewOverview) {
-    top.push({ key: "overview", label: "Обзор", href: "/knowledge/dashboard" });
+    top.push({ key: "overview", label: "Обзор", href: "/knowledge/overview" });
   }
   if (input.requiredTotal > 0) {
     top.push({

@@ -4,10 +4,13 @@
  * Спека — docs/superpowers/specs/2026-11-27-kb-redesign-design.md, «Документ».
  */
 
+/** `changedAfterRead` — только для руководителя с правом обязательного
+ *  чтения: страницу правили после чьего-то прочтения, на плашке
+ *  «Изменена после прочтения · Попросить перечитать». */
 export type KbReadingPlate =
   | { kind: "none" }
-  | { kind: "unread"; reread: boolean; canConfirm: boolean }
-  | { kind: "read"; readAt: string };
+  | { kind: "unread"; reread: boolean; canConfirm: boolean; changedAfterRead: boolean }
+  | { kind: "read"; readAt: string; changedAfterRead: boolean };
 
 export function kbReadingPlate(input: {
   required: boolean;
@@ -17,10 +20,21 @@ export function kbReadingPlate(input: {
   needsReread: boolean;
   /** Пройден ли порог активного чтения для кнопки «Прочитано». */
   gateReady: boolean;
+  /** Руководителю: страницу правили после чьего-то прочтения. Сотруднику
+   *  без права не передаётся. */
+  changedAfterRead?: boolean;
 }): KbReadingPlate {
   if (!input.required) return { kind: "none" };
-  if (input.readAt && !input.needsReread) return { kind: "read", readAt: input.readAt };
-  return { kind: "unread", reread: input.needsReread, canConfirm: input.gateReady };
+  const changedAfterRead = input.changedAfterRead ?? false;
+  if (input.readAt && !input.needsReread) {
+    return { kind: "read", readAt: input.readAt, changedAfterRead };
+  }
+  return {
+    kind: "unread",
+    reread: input.needsReread,
+    canConfirm: input.gateReady,
+    changedAfterRead,
+  };
 }
 
 export type KbPageMenuKey =

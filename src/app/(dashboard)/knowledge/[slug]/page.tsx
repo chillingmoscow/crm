@@ -29,7 +29,7 @@ import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 import { KbLockHeaderChip } from "@/app/(dashboard)/knowledge/_components/kb-lock-header-chip";
 import {
   getKbMyActiveSeconds,
-  getKbRequiredReadingStats,
+  getKbRequiredReadingOverview,
 } from "@/lib/knowledge/required-reading";
 import { estimateReadingMinutes } from "@/lib/knowledge/reading-time";
 import { kbPropertiesSchema } from "@/lib/knowledge/schemas";
@@ -194,18 +194,21 @@ export default async function KbPageView({ params }: PageProps) {
       ? getKbMyActiveSeconds(row.id)
       : Promise.resolve(0),
     readStatus.required && permissionCodes.includes("kb.manage_required_reading")
-      ? getKbRequiredReadingStats(row.id).then(({ rows, error }) => {
-          if (error) {
-            // Без счётчика плашка остаётся рабочей, ссылка «Кто прочитал»
-            // видна по праву; ошибку оставляем в логе сервера.
-            console.error("[kb] статистика обязательного чтения:", error);
-            return null;
-          }
-          return {
-            read: rows.filter((r) => r.read_at !== null).length,
-            total: rows.length,
-          };
-        })
+      ? // Ошибка сводки пишется в лог сервера; без неё плашка остаётся
+        // рабочей, ссылка «Кто прочитал» видна по праву.
+        getKbRequiredReadingOverview(row.id).then(([page]) =>
+          page
+            ? {
+                read: page.readCount,
+                total: page.total,
+                changedAfterRead: page.changedAfterRead,
+                // staleCount уже без самого руководителя: себе уведомлений
+                // нет, но его прочтение старой версии тоже сбросится.
+                staleOthers: page.staleCount,
+                selfStale: page.viewerStale,
+              }
+            : null,
+        )
       : Promise.resolve(null),
   ]);
 
@@ -370,7 +373,7 @@ export default async function KbPageView({ params }: PageProps) {
           footer={
             canViewAnalytics ? (
               <Link
-                href={`/knowledge/dashboard/${row.slug}`}
+                href={`/knowledge/overview/${row.slug}`}
                 className="text-[13px] font-medium text-brand hover:underline"
               >
                 Статистика страницы
@@ -411,6 +414,7 @@ export default async function KbPageView({ params }: PageProps) {
               <KbRequiredReadingBanner
                 pageId={row.id}
                 pageSlug={row.slug}
+                pageTitle={row.title}
                 stats={readingStats}
                 canSeeReaders={hasManageRequiredReading}
                 required={readStatus.required}

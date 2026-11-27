@@ -35,6 +35,8 @@ import {
   UserMinus,
   UserPlus,
   type LucideIcon,
+  BellRing,
+  CheckCheck,
 } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -1403,10 +1405,9 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
 
   // ── kb_page ─────────────────────────────────────────────────
-  // Единственное место рендера KB-событий: отдельный /knowledge/audit
-  // убран, всё идёт через общий журнал /org/audit (фильтр раздела
-  // «База знаний»). Лента «Последние изменения» на дашборде KB
-  // использует свой KbAuditEventRow.
+  // Единственное место рендера KB-событий: общий журнал /org/audit (фильтр
+  // раздела «База знаний») и «Последние изменения» в «Обзоре» базы знаний —
+  // оба через AuditEventRow.
   "kb_page.created": {
     icon: FilePlus2,
     iconClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
@@ -1490,6 +1491,48 @@ const SPECS: Record<string, AuditEventSpec> = {
       <>
         снял(а) защиту от редактирования со страницы{" "}
         <KbPageTitle event={e} text={e.details.title as string} />
+      </>
+    ),
+  },
+  "kb_page.reread_requested": {
+    icon: RotateCcw,
+    iconClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
+    buildHeadline: (e) => (
+      <>
+        попросил(а) перечитать страницу{" "}
+        <strong className="font-medium">
+          «{(e.details.title as string) || "Без названия"}»
+        </strong>
+        {typeof e.details.notified === "number" && e.details.notified > 0
+          ? ` (${countRu(e.details.notified, "человек", "человека", "человек")})`
+          : ""}
+      </>
+    ),
+  },
+  "kb_page.reminder_sent": {
+    icon: BellRing,
+    iconClass: "bg-brand/10 text-brand",
+    buildHeadline: (e) => (
+      <>
+        напомнил(а) прочитать страницу{" "}
+        <strong className="font-medium">
+          «{(e.details.title as string) || "Без названия"}»
+        </strong>
+        {typeof e.details.notified === "number"
+          ? ` (${countRu(e.details.notified, "человек", "человека", "человек")})`
+          : ""}
+      </>
+    ),
+  },
+  "kb_page.reread_dismissed": {
+    icon: CheckCheck,
+    iconClass: "bg-muted text-muted-foreground",
+    buildHeadline: (e) => (
+      <>
+        отметил(а), что после правки перечитывать не нужно, страницу{" "}
+        <strong className="font-medium">
+          «{(e.details.title as string) || "Без названия"}»
+        </strong>
       </>
     ),
   },

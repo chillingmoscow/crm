@@ -10,7 +10,12 @@ test("kbReadingPlate: необязательная страница — плаш
 });
 
 test("kbReadingPlate: не прочитано, порог не пройден — кнопка неактивна", () => {
-  assert.deepEqual(kbReadingPlate(base), { kind: "unread", reread: false, canConfirm: false });
+  assert.deepEqual(kbReadingPlate(base), {
+    kind: "unread",
+    reread: false,
+    canConfirm: false,
+    changedAfterRead: false,
+  });
 });
 
 test("kbReadingPlate: страница изменилась и порог пройден — перечитать, кнопка активна", () => {
@@ -18,6 +23,7 @@ test("kbReadingPlate: страница изменилась и порог про
     kind: "unread",
     reread: true,
     canConfirm: true,
+    changedAfterRead: false,
   });
 });
 
@@ -25,14 +31,28 @@ test("kbReadingPlate: прочитано — зелёная плашка с да
   assert.deepEqual(kbReadingPlate({ ...base, readAt: "2026-11-27T10:00:00Z" }), {
     kind: "read",
     readAt: "2026-11-27T10:00:00Z",
+    changedAfterRead: false,
   });
 });
 
 test("kbReadingPlate: новая версия важнее старого прочтения", () => {
   assert.deepEqual(
     kbReadingPlate({ ...base, readAt: "2026-11-01T10:00:00Z", needsReread: true, gateReady: true }),
-    { kind: "unread", reread: true, canConfirm: true },
+    { kind: "unread", reread: true, canConfirm: true, changedAfterRead: false },
   );
+});
+
+test("kbReadingPlate: менеджер видит «изменена после прочтения» и на прочитанной, и на непрочитанной", () => {
+  const read = kbReadingPlate({ ...base, readAt: "2026-11-27T10:00:00Z", changedAfterRead: true });
+  assert.equal(read.kind === "read" && read.changedAfterRead, true);
+  const unread = kbReadingPlate({ ...base, changedAfterRead: true });
+  assert.equal(unread.kind === "unread" && unread.changedAfterRead, true);
+});
+
+test("kbReadingPlate: без флага менеджера правка после прочтения не показывается", () => {
+  const read = kbReadingPlate({ ...base, readAt: "2026-11-27T10:00:00Z" });
+  assert.equal(read.kind === "read" && read.changedAfterRead, false);
+  assert.equal(kbReadingPlate({ ...base, required: false, changedAfterRead: true }).kind, "none");
 });
 
 const allRights = {

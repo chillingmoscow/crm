@@ -33,7 +33,9 @@ const CATEGORY_SUFFIXES: Record<AuditActionCategory, string[]> = {
   // `_imported`, `_requested`: `stock.writeoffs.archive_imported`,
   // `stock.writeoffs.refresh_requested` (в LIKE `_` ловит и точку).
   // `.issued` — выдача зарплаты по плану выплат (`payroll.payout_plan.issued`).
-  created: [".created", ".sent", "_imported", "_requested", ".issued"],
+  // `_sent`: напоминание прочитать (`kb_page.reminder_sent`), оповещения
+  // кассы и гостей (`cash.control.alert_sent`, `crm.guest.notification_sent`).
+  created: [".created", ".sent", "_sent", "_imported", "_requested", ".issued"],
   // Приём в команду (сотрудник, кандидат) и увольнение с закрытием доступов.
   // `.ended` — официальное увольнение (`payroll.official_employment.ended`),
   // `.converted_to_staff` — перевод разового в штат.
@@ -87,6 +89,8 @@ const CATEGORY_SUFFIXES: Record<AuditActionCategory, string[]> = {
     // План выплат: пересчёт черновика; автовыдача, которая не прошла.
     ".recalculated",
     ".auto_failed",
+    // «Не нужно» по правке обязательной страницы (`kb_page.reread_dismissed`).
+    "_dismissed",
   ],
   deleted: [".deleted", ".archived", ".cancelled"],
   restored: [".restored"],

@@ -4,6 +4,7 @@ import { Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AnimatedMoney, AnimatedNumber } from "@/components/shared/animated-money";
 import { Money } from "@/components/shared/money";
+import { ProgressRing } from "@/components/shared/progress-ring";
 import { countRu } from "@/lib/format/plural";
 import { planProgress, FORECAST_MIN_SHIFTS } from "@/lib/sales/plan";
 import type { SalesDay } from "@/lib/sales/types";
@@ -15,47 +16,13 @@ const formatPercent = (n: number) => `${new Intl.NumberFormat("ru-RU").format(n)
 
 /**
  * Кольцо «оборот к плану»: тёмная дуга — факт, светлая следом — прогноз на
- * конец месяца. Дуги рисуются от верхней точки по часовой стрелке
- * (docs/motion.md, «Кольцо плана»).
+ * конец месяца (docs/motion.md, «Кольцо плана»).
  */
 function PlanRing({ ratio, forecast }: { ratio: number | null; forecast: number | null }) {
-  const fact = Math.min(100, Math.max(0, (ratio ?? 0) * 100));
-  const ahead = forecast === null ? 0 : Math.min(100, Math.max(0, forecast * 100));
   return (
-    <div className="relative size-[88px] shrink-0">
-      <svg viewBox="0 0 88 88" className="size-full -rotate-90" aria-hidden>
-        <circle cx="44" cy="44" r="38" fill="none" strokeWidth="8" className="stroke-muted" />
-        {ahead > fact && (
-          <circle
-            cx="44"
-            cy="44"
-            r="38"
-            fill="none"
-            strokeWidth="8"
-            strokeLinecap="round"
-            pathLength={100}
-            strokeDasharray={`${ahead} 100`}
-            className={cn(s.arc, s.ahead, "stroke-brand/25 dark:stroke-brand/35")}
-          />
-        )}
-        {fact > 0 && (
-          <circle
-            cx="44"
-            cy="44"
-            r="38"
-            fill="none"
-            strokeWidth="8"
-            strokeLinecap="round"
-            pathLength={100}
-            strokeDasharray={`${fact} 100`}
-            className={cn(s.arc, "stroke-brand")}
-          />
-        )}
-      </svg>
-      <span className="absolute inset-0 flex items-center justify-center text-base font-semibold">
-        <AnimatedNumber value={ratio === null ? null : percent(ratio)} format={formatPercent} />
-      </span>
-    </div>
+    <ProgressRing ratio={ratio} forecast={forecast}>
+      <AnimatedNumber value={ratio === null ? null : percent(ratio)} format={formatPercent} />
+    </ProgressRing>
   );
 }
 

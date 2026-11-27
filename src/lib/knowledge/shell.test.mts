@@ -86,7 +86,7 @@ test("kbTreeServiceItems: менеджер видит обзор, к прочт�
   });
   assert.deepEqual(items.top.map((i) => i.key), ["home", "overview", "to-read"]);
   assert.deepEqual(items.top[0], { key: "home", label: "Главная", href: "/knowledge" });
-  assert.equal(items.top[1].href, "/knowledge/dashboard");
+  assert.equal(items.top[1].href, "/knowledge/overview");
   assert.deepEqual(items.top[2], {
     key: "to-read",
     label: "К прочтению",

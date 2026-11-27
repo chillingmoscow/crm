@@ -1,36 +1,33 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { CheckCircle2, Clock } from "lucide-react";
+import { Users } from "lucide-react";
 
 import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { EmployeeIdentity } from "@/components/shared/employee-identity";
 import { ProfilePageFrame } from "@/components/shared/page-frame";
 import { TablePageHeader } from "@/components/shared/table/table-page-header";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
+import { KbReadingActions } from "@/app/(dashboard)/knowledge/_components/kb-reading-actions";
 import { getKbPageBySlugCached } from "@/lib/knowledge/page-by-slug";
 import {
+  getKbRequiredReadingOverview,
   getKbRequiredReadingStats,
   type KbRequiredReadingStatsRow,
 } from "@/lib/knowledge/required-reading";
-import { personInitials } from "@/lib/format/initials";
-import { avatarImageUrl } from "@/lib/people/avatar-thumb";
+import type { KbReadingStatus } from "@/lib/knowledge/reading-state";
+import { formatDayMonth } from "@/lib/format/date";
+import { getActiveAccountTimezone } from "@/lib/settings/account";
 
 /**
- * Sprint D / Phase 2 — Admin view «кто прочитал, кто нет».
- *
- * Доступ: `kb.manage_required_reading` (миграция 075). Без permission'а
- * redirect на саму страницу — защита от любопытных hostess'ов.
- *
- * Список разделён на две секции:
- *   — Прочитали — кто подтвердил (сортировка по read_at desc).
- *   — Не прочитали — pool members active account, кто ещё не подтвердил
- *     (алфавитно). Pool — все active user_venue_role в venue'ах account'а
- *     (= pool @-mention picker'а из миграции 061; единый источник истины
- *     «кто живёт в этом аккаунте»).
- *
- * Pool «должны прочитать» намеренно широкий: required-reading в MVP =
- * «обязательно для всех в аккаунте». Per-role или per-user assignment
- * (Раздел 2.7-D) — отдельная фича вместе с per-page sharing.
+ * «Кто прочитал» обязательную страницу — для руководителя с
+ * `kb.manage_required_reading`; без права — обратно на страницу.
+ * Состав — активные, не уволенные сотрудники аккаунта с доступом к базе
+ * знаний (kb_required_reading_roster, миграция 416). Сначала те, кто ещё
+ * не прочитал, потом кого попросили перечитать, внизу прочитавшие.
  */
 export async function generateMetadata({
   params,
@@ -39,7 +36,22 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const { row } = await getKbPageBySlugCached(slug);
-  return { title: `Кто прочитал — ${row?.title?.trim() || "Без названия"}` };
+  return { title: `Кто прочитал «${row?.title?.trim() || "Без названия"}»` };
+}
+
+const STATUS_ORDER: Record<KbReadingStatus, number> = { unread: 0, reread: 1, read: 2 };
+
+const STATUS_TONE: Record<KbReadingStatus, StatusTone> = {
+  unread: "neutral",
+  reread: "warning",
+  read: "success",
+};
+
+function statusLabel(row: KbRequiredReadingStatsRow, timeZone: string): string {
+  if (row.status === "unread") return "Не прочитал";
+  if (row.status === "reread") return "Нужно перечитать";
+  const day = formatDayMonth(row.read_at, new Date(), timeZone);
+  return day ? `Прочитал ${day}` : "Прочитал";
 }
 
 export default async function KbRequiredReadingAdminPage({
@@ -55,153 +67,85 @@ export default async function KbRequiredReadingAdminPage({
   const { row: page, error: pageError } = await getKbPageBySlugCached(slug);
   if (pageError || !page) notFound();
 
-  const { rows, error } = await getKbRequiredReadingStats(page.id);
+  const [{ rows, error }, [summary], timeZone] = await Promise.all([
+    getKbRequiredReadingStats(page.id),
+    getKbRequiredReadingOverview(page.id),
+    getActiveAccountTimezone(),
+  ]);
 
-  const readRows = rows.filter((r) => r.read_at !== null);
-  const unreadRows = rows.filter((r) => r.read_at === null);
-  const total = rows.length;
-  const readPct = total > 0 ? Math.round((readRows.length / total) * 100) : 0;
+  const sorted = [...rows].sort(
+    (a, b) =>
+      STATUS_ORDER[a.status] - STATUS_ORDER[b.status] ||
+      (b.read_at ?? "").localeCompare(a.read_at ?? "") ||
+      a.name.localeCompare(b.name, "ru"),
+  );
+  const readCount = rows.filter((r) => r.status === "read").length;
+  const title = page.title?.trim() || "Без названия";
 
   return (
     <ProfilePageFrame>
       <Breadcrumbs
         items={[
           { label: "База знаний", href: "/knowledge" },
-          { label: page.title || "Без названия", href: `/knowledge/${page.slug}` },
+          { label: title, href: `/knowledge/${page.slug}` },
           { label: "Кто прочитал" },
         ]}
       />
 
-          <TablePageHeader title="Кто прочитал" />
-          <div className="-mt-2 flex items-center gap-3">
-            <KbPageIcon icon={page.icon} color={page.icon_color} size={20} />
-            <div className="flex min-w-0 flex-col gap-0.5">
-              <span className="truncate text-base font-semibold">
-                {page.title || "Без названия"}
-              </span>
-              <p className="text-sm text-muted-foreground">
-                {page.required_reading
-                  ? `Обязательная к прочтению. Прочитали ${readRows.length} из ${total} (${readPct}%).`
-                  : `Страница не помечена как обязательная. Записи о прочтении сохранены за прошлые периоды.`}
-              </p>
-            </div>
-          </div>
+      <TablePageHeader title="Кто прочитал" />
 
-          {error && (
-            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-              Не удалось загрузить статистику: {error}
-            </div>
-          )}
-
-          <section className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
-            <div className="flex items-baseline justify-between">
-              <h2 className="text-sm font-semibold text-foreground inline-flex items-center gap-2">
-                <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
-                Прочитали
-              </h2>
-              <span className="text-xs text-muted-foreground tabular-nums">
-                {readRows.length}
-              </span>
-            </div>
-            <ReaderList rows={readRows} mode="read" />
-          </section>
-
-          <section className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
-            <div className="flex items-baseline justify-between">
-              <h2 className="text-sm font-semibold text-foreground inline-flex items-center gap-2">
-                <Clock className="size-4 text-amber-600 dark:text-amber-400" />
-                Не прочитали
-              </h2>
-              <span className="text-xs text-muted-foreground tabular-nums">
-                {unreadRows.length}
-              </span>
-            </div>
-            <ReaderList rows={unreadRows} mode="unread" />
-          </section>
-    </ProfilePageFrame>
-  );
-}
-
-function ReaderList({
-  rows,
-  mode,
-}: {
-  rows: KbRequiredReadingStatsRow[];
-  mode: "read" | "unread";
-}) {
-  if (rows.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground py-4 px-2">
-        {mode === "read"
-          ? "Никто пока не подтвердил прочтение."
-          : "Все members подтвердили прочтение 🎉"}
-      </p>
-    );
-  }
-  return (
-    <ul className="flex flex-col gap-px">
-      {rows.map((row) => (
-        <li
-          key={row.user_id}
-          className="flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent transition-colors"
-        >
-          <Avatar name={row.name} avatarUrl={row.avatar_url} />
-          <span className="flex-1 truncate text-sm font-medium">
-            {row.name}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-lg border bg-card p-4">
+        <KbPageIcon icon={page.icon} color={page.icon_color} size={20} />
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <Link
+            href={`/knowledge/${page.slug}`}
+            className="truncate text-base font-semibold transition-colors hover:text-brand"
+          >
+            {title}
+          </Link>
+          <span className="text-[13px] tabular-nums text-muted-foreground">
+            {page.required_reading
+              ? `Прочитали ${readCount} из ${rows.length}`
+              : "Не обязательна к прочтению. Отметки о прочтении сохранены."}
           </span>
-          {mode === "read" && row.read_at && (
-            <span className="text-xs text-muted-foreground tabular-nums">
-              {formatRelative(row.read_at)}
-            </span>
-          )}
-        </li>
-      ))}
-    </ul>
-  );
-}
+        </div>
+        {page.required_reading && summary && (
+          <KbReadingActions
+            pageId={page.id}
+            title={title}
+            remindCount={summary.remindCount}
+            staleCount={summary.staleCount}
+            viewerStale={summary.viewerStale}
+            changedAfterRead={summary.changedAfterRead}
+            remindedAt={summary.remindedAt}
+          />
+        )}
+      </div>
 
-function formatRelative(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return "только что";
-  if (minutes < 60) return `${minutes} мин назад`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} ч назад`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days} ${plural(days, "день", "дня", "дней")} назад`;
-  const months = Math.floor(days / 30);
-  return `${months} ${plural(months, "месяц", "месяца", "месяцев")} назад`;
-}
-
-function plural(n: number, one: string, few: string, many: string): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return one;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few;
-  return many;
-}
-
-function Avatar({
-  name,
-  avatarUrl,
-}: {
-  name: string;
-  avatarUrl: string | null;
-}) {
-  const initials = personInitials(name);
-  if (avatarUrl) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={avatarImageUrl(avatarUrl, 96)}
-        alt={name}
-        className="size-7 rounded-full object-cover bg-muted shrink-0"
-      />
-    );
-  }
-  return (
-    <span className="size-7 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-xs font-semibold shrink-0">
-      {initials}
-    </span>
+      {error ? (
+        <EmptyState
+          illustration="error"
+          title="Не удалось загрузить список"
+          description="Обновите страницу или попробуйте позже."
+        />
+      ) : sorted.length === 0 ? (
+        <EmptyState
+          icon={Users}
+          title="Читать пока некому"
+          description="Здесь появятся сотрудники с доступом к базе знаний."
+        />
+      ) : (
+        <ul className="flex flex-col divide-y rounded-lg border bg-card">
+          {sorted.map((row) => (
+            <li key={row.user_id} className="flex items-center gap-3 px-4 py-3">
+              <span className="min-w-0 flex-1">
+                <EmployeeIdentity name={row.name} role={row.roleName} avatarUrl={row.avatar_url} />
+              </span>
+              <StatusBadge tone={STATUS_TONE[row.status]}>{statusLabel(row, timeZone)}</StatusBadge>
+            </li>
+          ))}
+        </ul>
+      )}
+    </ProfilePageFrame>
   );
 }

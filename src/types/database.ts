@@ -2140,6 +2140,44 @@ export type Database = {
           },
         ]
       }
+      kb_page_reading_state: {
+        Row: {
+          account_id: string
+          page_id: string
+          reminded_at: string | null
+          reread_dismissed_at: string | null
+          reread_dismissed_version: number | null
+          reread_from_version: number | null
+          updated_at: string
+        }
+        Insert: {
+          account_id: string
+          page_id: string
+          reminded_at?: string | null
+          reread_dismissed_at?: string | null
+          reread_dismissed_version?: number | null
+          reread_from_version?: number | null
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string
+          page_id?: string
+          reminded_at?: string | null
+          reread_dismissed_at?: string | null
+          reread_dismissed_version?: number | null
+          reread_from_version?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_page_reading_state_page_fkey"
+            columns: ["account_id", "page_id"]
+            isOneToOne: false
+            referencedRelation: "kb_pages"
+            referencedColumns: ["account_id", "id"]
+          },
+        ]
+      }
       kb_page_reads: {
         Row: {
           account_id: string
@@ -4221,8 +4259,52 @@ export type Database = {
           last_name: string | null
           avatar_url: string | null
           read_at: string | null
+          read_version: number | null
+          status: "read" | "reread" | "unread"
+          role_name: string | null
         }[]
       }
+      kb_required_reading_overview: {
+        Args: { p_page_id?: string }
+        Returns: {
+          page_id: string
+          slug: string
+          title: string
+          icon: string | null
+          icon_color: string | null
+          current_version: number
+          total: number
+          read_count: number
+          reread_count: number
+          unread_count: number
+          stale_count: number
+          remind_count: number
+          changed_after_read: boolean
+          viewer_stale: boolean
+          reminded_at: string | null
+        }[]
+      }
+      kb_analytics_page_stats: {
+        Args: { p_since: string; p_until: string | null }
+        Returns: { page_id: string; total_seconds: number; sessions: number; readers: number }[]
+      }
+      kb_analytics_month_stats: {
+        Args: { p_since: string }
+        Returns: { month: string; total_seconds: number; sessions: number; readers: number }[]
+      }
+      kb_analytics_window_totals: {
+        Args: { p_since: string; p_until: string | null }
+        Returns: {
+          readers: number
+          roster_readers: number
+          roster_total: number
+          total_seconds: number
+          sessions: number
+        }[]
+      }
+      kb_request_reread: { Args: { p_page_id: string }; Returns: number }
+      kb_dismiss_reread: { Args: { p_page_id: string }; Returns: undefined }
+      kb_remind_unread: { Args: { p_page_id: string }; Returns: number }
       kb_comment_react: {
         Args: { p_comment_id: string; p_emoji: string }
         Returns: undefined
@@ -4267,17 +4349,6 @@ export type Database = {
           p_version_number?: number | null
         }
         Returns: number
-      }
-      kb_get_my_recently_viewed: {
-        Args: { p_limit?: number }
-        Returns: {
-          page_id: string
-          slug: string
-          title: string
-          icon: string | null
-          icon_color: string | null
-          last_visit_at: string
-        }[]
       }
       kb_set_page_lock: {
         Args: { p_page_id: string; p_locked: boolean }

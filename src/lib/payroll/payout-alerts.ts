@@ -4,7 +4,7 @@ import type { AlertText } from "./payout-alert-text";
 import type { VenueHandle } from "./payout-engine";
 
 // Карточки «Финансы → На разбор» по выплатам зарплаты (миграция 408). Заводит
-// и убирает их только сервер (service_role): автовыдача, утренняя сверка,
+// и закрывает их сам только сервер (service_role): автовыдача, утренняя сверка,
 // автоперенос. Одна карточка на (заведение, вид, ключ): закрытая «Всё верно»
 // не откроется снова, даже если причина повторится.
 //
@@ -40,7 +40,28 @@ export async function raiseAlert(
     ).select("id");
     if (r.error) throw new Error(r.error.message);
     // При конфликте ignoreDuplicates строку не возвращает: карточка уже была.
-    return (r.data ?? []).length > 0 ? "created" : "exists";
+    if ((r.data ?? []).length > 0) return "created";
+    // Была и закрылась сама (без автора), а причина вернулась — открыть снова.
+    const now = new Date().toISOString();
+    const reopened = await s.admin
+      .from<{ id: string }[]>("payroll_payout_alerts")
+      .update({
+        status: "open",
+        resolved_at: null,
+        updated_at: now,
+        title: alert.title.slice(0, 300),
+        lines: alert.lines,
+        copy_text: alert.copyText ? alert.copyText.slice(0, 4000) : null,
+      })
+      .eq("account_id", s.accountId)
+      .eq("venue_id", s.venueId)
+      .eq("kind", alert.kind)
+      .eq("key", alert.key.slice(0, 200))
+      .eq("status", "resolved")
+      .is("resolved_by", null)
+      .select("id");
+    if (reopened.error) throw new Error(reopened.error.message);
+    return (reopened.data ?? []).length > 0 ? "created" : "exists";
   } catch (e) {
     console.error(`[payroll-payout-alert] ${s.venueId}/${alert.kind}: карточка не заведена (${e instanceof Error ? e.message : "ошибка"})`);
     return "failed";
@@ -85,14 +106,14 @@ export async function attention(
 
 /**
  * Причина ушла сама (изъятие нашлось, выплату внесли, перенос прошёл) —
- * открытая карточка удаляется, а не закрывается: если причина вернётся
- * (выплату удалили), карточка заведётся заново. Закрытая человеком «Всё
- * верно» остаётся и не повторяется.
+ * закрыть открытую карточку без автора. Если причина вернётся (выплату
+ * удалили), raiseAlert откроет её снова; закрытую человеком «Всё верно» — нет.
  */
 export async function closeAlert(s: VenueHandle, kind: PayoutAlertKind, key: string): Promise<void> {
+  const now = new Date().toISOString();
   const r = await s.admin
     .from("payroll_payout_alerts")
-    .delete()
+    .update({ status: "resolved", resolved_by: null, resolved_at: now, updated_at: now })
     .eq("account_id", s.accountId)
     .eq("venue_id", s.venueId)
     .eq("kind", kind)

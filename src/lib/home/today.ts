@@ -83,6 +83,19 @@ function occurrence(date: string, week: { from: string; to: string }): string | 
  * это не праздник, а первый день. Год рождения 1900 и раньше — служебная
  * заглушка «год неизвестен»: возраст не пишем.
  */
+/**
+ * Дата трудоустройства, если её правда указали. `get_venue_staff` без неё
+ * подставляет день, когда человека добавили в заведение (`joined_at`, дата в
+ * UTC), — у штата, заведённого за одну неделю, через год у всех была бы
+ * «годовщина». Совпадает с днём добавления — считаем, что даты нет.
+ */
+export function knownEmploymentDate(employment: string | null, joinedAt: string | null): string | null {
+  if (!employment) return null;
+  const joined = joinedAt ? new Date(joinedAt) : null;
+  if (joined && !Number.isNaN(joined.getTime()) && joined.toISOString().slice(0, 10) === employment) return null;
+  return employment;
+}
+
 export function weekCelebrations(
   people: CelebrationPerson[],
   week: { from: string; to: string },

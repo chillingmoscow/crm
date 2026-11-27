@@ -11,6 +11,8 @@ import { getHomeContext } from "./context";
 export type ShiftPerson = {
   shiftId: string;
   userId: string | null;
+  /** Сотрудник ведомости без аккаунта — чтобы две его смены не дали двух людей. */
+  casualId: string | null;
   name: string;
   avatarUrl: string | null;
   role: string | null;
@@ -40,6 +42,8 @@ export type ShiftNow = {
 type TeamRow = {
   id: string;
   user_id: string | null;
+  /** Сотрудник ведомости (Quick Resto) без аккаунта в приложении. */
+  casual_id: string | null;
   casual_name: string | null;
   casual_role_name: string | null;
   title: string | null;
@@ -137,8 +141,10 @@ export async function loadShiftNow(): Promise<ShiftNow | null> {
     const now = Date.now();
     const synced = !!source?.data?.synced_at;
     people = (team.data ?? [])
-      // Смена этого рабочего дня — та, что в нём начинается.
+      // Смена этого рабочего дня — та, что в нём начинается. Смена без
+      // сотрудника — не человек на смене: её видно в «Требует внимания».
       .filter((s) => {
+        if (!s.user_id && !s.casual_id) return false;
         const start = Date.parse(s.starts_at);
         return start >= window.start && start < window.end;
       })
@@ -146,13 +152,14 @@ export async function loadShiftNow(): Promise<ShiftNow | null> {
         const person = s.user_id ? byUser.get(s.user_id) : undefined;
         const name = person
           ? [person.first_name, person.last_name].filter(Boolean).join(" ") || "Сотрудник"
-          : (s.casual_name ?? s.title ?? "Без сотрудника");
+          : (s.casual_name ?? "Сотрудник");
         const started = Date.parse(s.starts_at) <= now;
         const checked =
           checkedShifts.has(s.id) || (!!s.user_id && employeeUsers.has(s.user_id));
         return {
           shiftId: s.id,
           userId: s.user_id,
+          casualId: s.casual_id,
           name,
           avatarUrl: person?.avatar_url ?? null,
           role: person?.role_name ?? s.casual_role_name ?? null,

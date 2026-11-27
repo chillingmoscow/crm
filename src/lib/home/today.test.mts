@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { greetingFor, relativeDayLabel, weekCelebrations, weekOf } from "./today.ts";
+import { greetingFor, knownEmploymentDate, relativeDayLabel, weekCelebrations, weekOf } from "./today.ts";
 
 test("greetingFor: время суток", () => {
   assert.equal(greetingFor(4), "Доброй ночи");
@@ -75,4 +75,11 @@ test("relativeDayLabel", () => {
   assert.equal(relativeDayLabel("2026-11-28", "2026-11-27"), "Завтра");
   assert.equal(relativeDayLabel("2026-11-26", "2026-11-27"), "Вчера");
   assert.equal(relativeDayLabel("2026-11-29", "2026-11-27"), null);
+});
+
+test("knownEmploymentDate: подставленный день добавления — даты нет", () => {
+  assert.equal(knownEmploymentDate("2025-11-20", "2025-11-20T09:15:00.000+00:00"), null);
+  assert.equal(knownEmploymentDate("2023-06-01", "2025-11-20T09:15:00.000+00:00"), "2023-06-01");
+  assert.equal(knownEmploymentDate("2023-06-01", null), "2023-06-01");
+  assert.equal(knownEmploymentDate(null, "2025-11-20T09:15:00+00:00"), null);
 });

@@ -122,7 +122,9 @@ export default async function DashboardPage({
             <div className="flex min-w-0 flex-col gap-6">
               {showShift ? (
                 <Suspense fallback={<HomeSectionSkeleton title="Смена сейчас" rows={2} />}>
-                  <ShiftNowBlock canOpenStaff={perms.has("people.view_staff")} />
+                  <ShiftNowBlock
+                    canOpenStaff={perms.has("people.view_staff") && perms.has("people.view_staff_details")}
+                  />
                 </Suspense>
               ) : null}
               {showCelebrations ? (

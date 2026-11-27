@@ -13,8 +13,8 @@ import { cn } from "@/lib/utils";
 import { BlockError } from "./section";
 
 /**
- * Показатели недели: оборот, средний чек, расходы — `MetricStrip`, суммы
- * досчитываются. Под числом одна строка сравнения с базой из переключателя
+ * Показатели недели по закрытым дням (с понедельника по вчера): оборот,
+ * средний чек, расходы — `MetricStrip`, суммы досчитываются. Под числом одна строка сравнения с базой из переключателя
  * в шапке (прошлая неделя или год назад, по тому же числу дней). Посуточных
  * графиков здесь нет — решение владельца.
  */
@@ -27,15 +27,18 @@ export async function WeekBlock({ mode }: { mode: CompareMode }) {
     return <BlockError what="показатели недели" />;
   }
   if (!data) return null;
-  const { sales, expense, base } = data;
+  const { sales, expense, base, started } = data;
   const today = parseIsoDay(data.cutoff) ?? new Date();
-  const range = periodLabel({ from: data.week.from, to: data.cutoff }, today);
+  // В понедельник закрытых дней нет — подпись без диапазона.
+  const range = started ? periodLabel({ from: data.week.from, to: data.cutoff }, today) : null;
   const columns = ((sales ? 2 : 0) + (expense ? 1 : 0)) as 1 | 2 | 3;
   const baseLabel = base?.label ?? null;
   const yearMode = mode === "year";
+  const notStarted = "Неделя только началась";
 
   const salesHint = (current: number | null, before: number | null, empty?: string): ReactNode => {
     if (!sales) return null;
+    if (!started) return notStarted;
     if (sales.error) return "Не удалось загрузить смены";
     if (sales.current.days === 0) return "Смен за неделю пока нет";
     if (current === null) return empty ?? null;
@@ -43,14 +46,14 @@ export async function WeekBlock({ mode }: { mode: CompareMode }) {
   };
 
   return (
-    <MetricStrip label={`Показатели недели: ${range}`} columns={columns}>
+    <MetricStrip label={range ? `Показатели недели: ${range}` : "Показатели недели"} columns={columns}>
       {sales ? (
         <Metric
           primary
-          label={`Оборот · ${range}`}
+          label={range ? `Оборот · ${range}` : "Оборот за неделю"}
           href="/sales/shifts"
           icon={<ArrowUpRight size={15} aria-hidden />}
-          value={<AnimatedMoney value={sales.error ? null : sales.current.turnover} />}
+          value={<AnimatedMoney value={!sales.error && sales.current.days ? sales.current.turnover : null} />}
           hint={salesHint(sales.current.turnover, sales.base?.days ? sales.base.turnover : null)}
         />
       ) : null}
@@ -73,16 +76,21 @@ export async function WeekBlock({ mode }: { mode: CompareMode }) {
           href={`/finance/transactions?${new URLSearchParams({
             type: "expense",
             date_from: data.week.from,
-            date_to: data.cutoff,
+            date_to: started ? data.cutoff : data.week.from,
+            venue_id: data.venueId,
           })}`}
           icon={<ArrowUpRight size={15} aria-hidden />}
           value={<AnimatedMoney value={expense.current} />}
           hint={
-            expense.error
-              ? "Не удалось загрузить операции"
-              : expense.current === null
-                ? null
-                : change(expense.current, expense.baseCount > 0 ? expense.base : null, baseLabel, true, yearMode)
+            !started
+              ? notStarted
+              : expense.error
+                ? "Не удалось загрузить операции"
+                : expense.current === null
+                  ? null
+                  : expense.baseError
+                    ? "Не удалось загрузить сравнение"
+                    : change(expense.current, expense.baseCount > 0 ? expense.base : null, baseLabel, true, yearMode)
           }
         />
       ) : null}

@@ -93,7 +93,7 @@ function TeamToday({
   if (!team.length) return <p className={cn(wrap, "text-sm text-muted-foreground")}>Сегодня смен в графике нет</p>;
 
   // Один человек может стоять в графике на две смены — в стопке он один раз.
-  const people = [...new Map(team.map((p) => [p.userId ?? p.shiftId, p])).values()];
+  const people = [...new Map(team.map((p) => [p.userId ?? p.casualId ?? p.shiftId, p])).values()];
   const missing = team.filter((p) => p.checkedIn === false);
   const shown = people.slice(0, STACK);
   const rest = people.length - shown.length;
@@ -104,7 +104,7 @@ function TeamToday({
       <div className="flex items-center gap-3">
         <div className="flex shrink-0 -space-x-2">
           {shown.map((p) => (
-            <span key={p.userId ?? p.shiftId} className="rounded-full ring-2 ring-card" data-tip={`${p.name} · ${time(p.startsAt)}–${time(p.endsAt)}`}>
+            <span key={p.userId ?? p.casualId ?? p.shiftId} className="rounded-full ring-2 ring-card" data-tip={`${p.name} · ${time(p.startsAt)}–${time(p.endsAt)}`}>
               <PersonAvatar src={p.avatarUrl} name={p.name} />
             </span>
           ))}

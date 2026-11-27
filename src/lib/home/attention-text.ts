@@ -22,7 +22,7 @@ export type AttentionTone = "danger" | "warning" | "info" | "neutral";
 
 export type AttentionItem = {
   kind: AttentionKind;
-  /** Сколько дел за пунктом — для счётчиков в меню. У состояний (сбой, план) — 1. */
+  /** Сколько дел за пунктом (в заголовке очереди — сумма). У состояний (сбой, план) — 1. */
   count: number;
   tone: AttentionTone;
   title: string;

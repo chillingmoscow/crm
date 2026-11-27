@@ -4,7 +4,7 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import { createClient } from "@/lib/supabase/server";
 
 import { getHomeContext } from "./context";
-import { weekCelebrations, weekOf, type Celebration } from "./today";
+import { knownEmploymentDate, weekCelebrations, weekOf, type Celebration, type CelebrationPerson } from "./today";
 
 /**
  * Дата рождения и дата трудоустройства коллег — персональные данные. С
@@ -26,7 +26,9 @@ type StaffRow = {
   role_name: string | null;
   birth_date: string | null;
   employment_date: string | null;
+  joined_at: string | null;
 };
+
 
 /** Дни рождения и годовщины работы команды на текущей неделе. */
 export async function loadWeekCelebrations(): Promise<{ week: { from: string; to: string }; today: string; items: Celebration[] } | null> {
@@ -36,15 +38,24 @@ export async function loadWeekCelebrations(): Promise<{ week: { from: string; to
   const { data, error } = await db.rpc("get_venue_staff", { p_venue_id: ctx.venueId });
   if (error) throw new Error(error.message);
   const week = weekOf(ctx.calendarDay);
-  // Строка на каждую должность: человек с двумя должностями пришёл бы дважды.
-  const unique = new Map(((data as StaffRow[] | null) ?? []).map((s) => [s.user_id, s]));
-  const people = [...unique.values()].map((s) => ({
-    userId: s.user_id,
-    name: [s.first_name, s.last_name].filter(Boolean).join(" ") || "Сотрудник",
-    avatarUrl: s.avatar_url,
-    role: s.role_name,
-    birthDate: s.birth_date,
-    employmentDate: s.employment_date,
-  }));
-  return { week, today: ctx.calendarDay, items: weekCelebrations(people, week) };
+  // Строка на каждую должность: человек с двумя должностями пришёл бы
+  // дважды. Стаж — от самой ранней известной даты среди его должностей.
+  const people = new Map<string, CelebrationPerson>();
+  for (const s of (data as StaffRow[] | null) ?? []) {
+    const employed = knownEmploymentDate(s.employment_date, s.joined_at);
+    const known = people.get(s.user_id);
+    if (known) {
+      if (employed && (!known.employmentDate || employed < known.employmentDate)) known.employmentDate = employed;
+      continue;
+    }
+    people.set(s.user_id, {
+      userId: s.user_id,
+      name: [s.first_name, s.last_name].filter(Boolean).join(" ") || "Сотрудник",
+      avatarUrl: s.avatar_url,
+      role: s.role_name,
+      birthDate: s.birth_date,
+      employmentDate: employed,
+    });
+  }
+  return { week, today: ctx.calendarDay, items: weekCelebrations([...people.values()], week) };
 }

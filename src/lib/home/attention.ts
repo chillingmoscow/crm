@@ -46,7 +46,8 @@ const ACCESS: Record<AttentionKind, (can: (code: string) => boolean) => boolean>
   unassigned_shifts: (can) => can("schedule.view_all"),
   attendance: (can) => can("payroll.view"),
   candidates: (can) => can("people.manage_candidates"),
-  inventory_acts: (can) => can("inventory.manage_documents") || can("inventory.view_results"),
+  // Те же права, что открывают «Документы → Инвентаризация».
+  inventory_acts: (can) => can("inventory.view_documents") || can("inventory.fill_assigned_documents"),
   payout_plan: (can) => can("payroll.view"),
 };
 
@@ -61,7 +62,7 @@ const SOURCES: Record<AttentionKind, Source> = {
         tone: "danger",
         title: "Синхронизация с Quick Resto не прошла",
         detail: `Последняя попытка: ${formatDayMonthTime(state.result.finishedAt, now, ctx.timezone)}`,
-        href: "/catalog",
+        href: "/catalog/ingredients",
         action: "Открыть",
       };
     if (state.syncedAt && now.getTime() - Date.parse(state.syncedAt) > SYNC_STALE_MS)
@@ -71,7 +72,7 @@ const SOURCES: Record<AttentionKind, Source> = {
         tone: "warning",
         title: "Номенклатура Quick Resto давно не обновлялась",
         detail: `Последнее обновление: ${formatDayMonthTime(state.syncedAt, now, ctx.timezone)}`,
-        href: "/catalog",
+        href: "/catalog/ingredients",
         action: "Открыть",
       };
     return null;
@@ -154,24 +155,29 @@ const SOURCES: Record<AttentionKind, Source> = {
 
   inventory_acts: async (ctx) => {
     const db = asLooseDb(await createClient());
-    const { data, error } = await db
-      .from<{ status: string }[]>("documents")
-      .select("status")
-      .eq("document_kind", "inventory")
-      .eq("venue_id", ctx.venueId)
-      .is("archived_at", null)
-      .neq("status", "processed")
-      .limit(1000);
-    if (error) throw new Error(error.message);
-    const rows = data ?? [];
-    if (!rows.length) return null;
-    const ready = rows.filter((r) => r.status === "ready_for_review").length;
+    // Только числа: непроведённых актов может быть больше, чем отдаёт выборка.
+    const open = () =>
+      db
+        .from("documents")
+        .select("id", { count: "exact", head: true })
+        .eq("document_kind", "inventory")
+        .eq("venue_id", ctx.venueId)
+        .is("archived_at", null);
+    const [all, review] = await Promise.all([
+      open().neq("status", "processed"),
+      open().eq("status", "ready_for_review"),
+    ]);
+    if (all.error) throw new Error(all.error.message);
+    if (review.error) throw new Error(review.error.message);
+    const count = all.count ?? 0;
+    if (!count) return null;
+    const ready = review.count ?? 0;
     return {
       kind: "inventory_acts",
-      count: rows.length,
+      count,
       tone: ready > 0 ? "warning" : "neutral",
-      title: inventoryActsTitle(rows.length),
-      detail: inventoryReviewDetail(ready, rows.length),
+      title: inventoryActsTitle(count),
+      detail: inventoryReviewDetail(ready, count),
       href: "/documents/inventory",
       action: "Открыть",
     };
@@ -239,23 +245,19 @@ const SOURCES: Record<AttentionKind, Source> = {
 };
 
 /**
- * Очередь «Требует внимания» для главной и счётчиков в меню: каждый пункт —
- * дело с кнопкой, куда идти. Пункты, на которые у человека нет прав, не
- * считаются вовсе. Источники читаются параллельно; сбой одного не роняет
- * очередь — он попадает в `failed`, а остальные пункты показываются.
- *
- * `kinds` — только нужные источники (меню берёт свои и не платит за чужие).
+ * Очередь «Требует внимания» на главной: каждый пункт — дело с кнопкой, куда
+ * идти. Пункты, на которые у человека нет прав, не считаются вовсе. Источники
+ * читаются параллельно; сбой одного не роняет очередь — он попадает в
+ * `failed`, а остальные пункты показываются.
  */
-export async function getAttentionItems(options: { kinds?: readonly AttentionKind[] } = {}): Promise<{
+export async function getAttentionItems(): Promise<{
   items: AttentionItem[];
   failed: AttentionKind[];
 }> {
   const ctx = await getHomeContext();
   if (!ctx) return { items: [], failed: [] };
   const can = (code: string) => ctx.permissions.has(code);
-  const kinds = ATTENTION_KINDS.filter(
-    (kind) => (!options.kinds || options.kinds.includes(kind)) && ACCESS[kind](can),
-  );
+  const kinds = ATTENTION_KINDS.filter((kind) => ACCESS[kind](can));
   const results = await Promise.allSettled(kinds.map((kind) => SOURCES[kind](ctx)));
   const items: AttentionItem[] = [];
   const failed: AttentionKind[] = [];
@@ -274,12 +276,4 @@ export async function getAttentionItems(options: { kinds?: readonly AttentionKin
 export function canSeeAttention(permissions: Set<string>): boolean {
   const can = (code: string) => permissions.has(code);
   return ATTENTION_KINDS.some((kind) => ACCESS[kind](can));
-}
-
-/** Число дел по источникам — для счётчиков в меню. Источник без дел — 0. */
-export async function countAttention(
-  kinds?: readonly AttentionKind[],
-): Promise<Partial<Record<AttentionKind, number>>> {
-  const { items } = await getAttentionItems({ kinds });
-  return Object.fromEntries(items.map((item) => [item.kind, item.count]));
 }

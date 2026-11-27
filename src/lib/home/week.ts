@@ -12,7 +12,7 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import { createClient } from "@/lib/supabase/server";
 
 import { getHomeContext } from "./context";
-import { weekOf } from "./today";
+import { addDaysIso, weekOf } from "./today";
 
 export type SalesTotals = {
   turnover: number;
@@ -26,15 +26,29 @@ export type SalesTotals = {
 
 export type WeekMetrics = {
   week: DashboardPeriod;
-  /** По какой день считается неделя (сегодня) — для сравнения с тем же числом дней. */
+  /**
+   * По какой день считается неделя — по вчерашний: сегодняшняя смена ещё
+   * идёт, и её оборот против полного дня прошлой недели дал бы «−90%».
+   */
   cutoff: string;
+  /** `false` — понедельник, закрытых дней ещё нет: показатели не считаем. */
+  started: boolean;
+  /** Активное заведение — для ссылки на операции с тем же отбором. */
+  venueId: string;
   mode: CompareMode;
   /** С чем сравниваем: «16–20 ноября», «23–27 ноября 2025». `null` — не с чем. */
   base: ComparisonWindow | null;
   /** `null` — нет права на смены продаж. */
   sales: { current: SalesTotals; base: SalesTotals | null; error: boolean } | null;
   /** `null` — нет права на операции. */
-  expense: { current: number | null; base: number | null; baseCount: number; error: boolean } | null;
+  expense: {
+    current: number | null;
+    base: number | null;
+    baseCount: number;
+    error: boolean;
+    /** Базу сравнения загрузить не удалось — не путать с «данных не было». */
+    baseError: boolean;
+  } | null;
 };
 
 /** Видит ли человек показатели недели. */
@@ -73,19 +87,34 @@ export function averageCheck(t: SalesTotals | null | undefined): number | null {
 }
 
 /**
- * Показатели текущей недели (понедельник — сегодня): оборот и средний чек
- * по сменам продаж заведения, расходы — по операциям финансов (те же, что
- * на финансовом дашборде без отборов). Сравнение — по такому же числу дней
- * прошлой недели или той же недели год назад, как на финансовом дашборде.
+ * Показатели текущей недели по закрытым дням (понедельник — вчера): оборот и
+ * средний чек по сменам продаж заведения, расходы — по операциям финансов
+ * того же заведения. Сравнение — по такому же числу дней прошлой недели или
+ * той же недели год назад, как на финансовом дашборде.
  */
 export async function loadWeekMetrics(mode: CompareMode): Promise<WeekMetrics | null> {
   const ctx = await getHomeContext();
   if (!ctx) return null;
   const can = (code: string) => ctx.permissions.has(code);
   const week = weekOf(ctx.businessDay);
-  const today = parseIsoDay(ctx.businessDay) ?? new Date();
-  const windows = comparisonWindows(week, today);
-  const cutoff = windows?.cutoff ?? week.to;
+  const yesterday = addDaysIso(ctx.businessDay, -1);
+  const started = yesterday >= week.from;
+  if (!started)
+    // Блок показывает те же показатели, что и в другие дни, но без чисел.
+    return {
+      week,
+      cutoff: yesterday,
+      started,
+      venueId: ctx.venueId,
+      mode,
+      base: null,
+      sales: can("sales.view_shifts") ? { current: emptyTotals(), base: null, error: false } : null,
+      expense: can("finance.view_transactions")
+        ? { current: null, base: null, baseCount: 0, error: false, baseError: false }
+        : null,
+    };
+  const windows = comparisonWindows(week, parseIsoDay(yesterday) ?? new Date());
+  const cutoff = windows?.cutoff ?? yesterday;
   const base = windows ? (mode === "year" ? windows.lastYear : windows.previous ?? windows.lastYear) : null;
   const current: DashboardPeriod = { from: week.from, to: cutoff };
 
@@ -108,15 +137,17 @@ export async function loadWeekMetrics(mode: CompareMode): Promise<WeekMetrics | 
   };
 
   const loadExpense = async () => {
+    const venue = { venue_id: ctx.venueId };
     const [now, before] = await Promise.all([
-      getPeriodTotals({ date_from: current.from, date_to: current.to }),
-      base ? getPeriodTotals({ date_from: base.period.from, date_to: base.period.to }) : null,
+      getPeriodTotals({ date_from: current.from, date_to: current.to, ...venue }),
+      base ? getPeriodTotals({ date_from: base.period.from, date_to: base.period.to, ...venue }) : null,
     ]);
     return {
       current: now.summary?.expense ?? null,
       base: before?.summary?.expense ?? null,
       baseCount: before?.summary?.expenseCount ?? 0,
       error: !now.summary,
+      baseError: !!before && !before.summary,
     };
   };
 
@@ -124,5 +155,5 @@ export async function loadWeekMetrics(mode: CompareMode): Promise<WeekMetrics | 
     can("sales.view_shifts") ? loadSales() : null,
     can("finance.view_transactions") ? loadExpense() : null,
   ]);
-  return { week, cutoff, mode, base, sales, expense };
+  return { week, cutoff, started, venueId: ctx.venueId, mode, base, sales, expense };
 }

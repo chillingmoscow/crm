@@ -62,6 +62,7 @@ import {
   type StatisticsRow,
   type StatisticsValue,
 } from "@/lib/sales/statistics-view";
+import { businessDate } from "@/lib/sales/time";
 import { unwrapAction } from "@/lib/actions/result";
 import {
   loadStatistics,
@@ -214,6 +215,11 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
     columns: columnConfig,
   });
   const can = (p: string) => data.permissions.includes(`sales.${p}_shifts`);
+  const currentMonth = businessDate(
+    new Date(),
+    data.timezone,
+    data.settings?.day_start_hour ?? 9,
+  ).slice(0, 7);
   const years = [...new Set(months.map((m) => m.month.slice(0, 4)))];
   const query = st.search.toLowerCase().trim();
   const rows = useMemo(
@@ -666,7 +672,7 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
             })}
           </MetricStrip>
           </div>
-          <StatisticsChart rows={rows} />
+          <StatisticsChart rows={rows} currentMonth={currentMonth} />
           <DataTable
             table={table}
             label="Статистика продаж по месяцам"

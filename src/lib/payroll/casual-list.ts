@@ -16,6 +16,9 @@ export type CasualStaffRow = {
   departmentName: string | null;
   /** «••••» when the viewer may not see codes; null — Sheerly has not issued a till code yet. */
   pin: string | null;
+  telegramId: string | null;
+  /** Уволен, но доступ ещё не закрыт (Quick Resto или чаты): строка остаётся с «Повторить». */
+  dismissal: { state: "pending" | "working" | "error"; error: string | null } | null;
 };
 
 // Casual workers of a venue for the staff page. The caller checks access.
@@ -23,13 +26,18 @@ export async function getCasualStaff(venueId: string, showPins: boolean, account
   const db = asLooseDb(createAdminClient());
   // Связи должностей с Quick Resto — в той же волне по аккаунту, который знает
   // вызывающий (раньше — отдельный шаг за аккаунтом заведения).
-  const [employees, roles, departments, models, links] = await Promise.all([
+  const [employees, dismissals, roles, departments, models, links] = await Promise.all([
+    // Неактивные тоже читаем: среди них уволенные с незакрытым доступом.
     db
-      .from<{ id: string; name: string; role_id: string | null; role_name: string; quickresto_pin: string | null }[]>("payroll_employees")
-      .select("id,name,role_id,role_name,quickresto_pin")
+      .from<{ id: string; name: string; role_id: string | null; role_name: string; quickresto_pin: string | null; telegram_id: string | null; active: boolean }[]>("payroll_employees")
+      .select("id,name,role_id,role_name,quickresto_pin,telegram_id,active")
       .eq("venue_id", venueId)
-      .eq("casual", true)
-      .eq("active", true),
+      .eq("casual", true),
+    db
+      .from<{ employee_id: string; state: "pending" | "working" | "error"; error: string | null }[]>("payroll_casual_dismissals")
+      .select("employee_id,state,error")
+      .eq("venue_id", venueId)
+      .neq("state", "complete"),
     db
       .from<{ id: string; name: string; department_id: string | null }[]>("roles")
       .select("id,name,department_id")
@@ -46,8 +54,9 @@ export async function getCasualStaff(venueId: string, showPins: boolean, account
       .eq("provider", "quickresto")
       .eq("entity_type", "role"),
   ]);
-  for (const r of [employees, roles, departments, models, links]) if (r.error) throw new Error(r.error.message);
-  const people = employees.data ?? [];
+  for (const r of [employees, dismissals, roles, departments, models, links]) if (r.error) throw new Error(r.error.message);
+  const open = new Map((dismissals.data ?? []).map((d) => [d.employee_id, d]));
+  const people = (employees.data ?? []).filter((p) => p.active || open.has(p.id));
   const eligible = casualRoleIds(models.data ?? [], (links.data ?? []).map((l) => l.local_id));
   const roleById = new Map((roles.data ?? []).map((r) => [r.id, r]));
   const departmentName = new Map((departments.data ?? []).map((d) => [d.id, d.name]));
@@ -61,6 +70,8 @@ export async function getCasualStaff(venueId: string, showPins: boolean, account
       departmentId: role?.department_id ?? null,
       departmentName: (role?.department_id && departmentName.get(role.department_id)) || null,
       pin: p.quickresto_pin === null ? null : showPins ? p.quickresto_pin : "••••",
+      telegramId: p.telegram_id,
+      dismissal: open.has(p.id) ? { state: open.get(p.id)!.state, error: open.get(p.id)!.error } : null,
     };
   });
   return {

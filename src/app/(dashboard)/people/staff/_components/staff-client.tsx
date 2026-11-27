@@ -7,7 +7,7 @@ import { flyToStaffCard, isPlainClick } from "@/lib/people/avatar-flight";
 import { isStaffPlaceholderEmail } from "@/lib/people/staff-identity";
 import { isGender } from "@/lib/people/gender";
 import { toast } from "sonner";
-import { UserPlus, Calendar, Clock, Archive, HeartPulse, Cake, CalendarClock, UserRound, UserCheck } from "lucide-react";
+import { UserPlus, Calendar, Clock, Archive, HeartPulse, Cake, CalendarClock, UserRound, UserCheck, UserMinus, RotateCcw, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { formatPhoneDisplay } from "@/lib/format/phone";
@@ -28,6 +28,8 @@ import { StaffTable, type StaffColKey as ColKey } from "./staff-table";
 import type { CasualStaffRow } from "@/lib/payroll/casual-list";
 import { AddStaffDrawer, type AddStaffMode } from "./add-staff-drawer";
 import { CasualToStaffDrawer } from "./casual-to-staff-drawer";
+import { CasualDismissDialog } from "./casual-dismiss-dialog";
+import { TableRowMenu } from "@/components/shared/table";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -329,6 +331,8 @@ export function StaffClient({
   const [addMode, setAddMode] = useState<AddStaffMode>("manual");
   // Разовый, которого переводят в штат; держим, пока панель уезжает.
   const [converting, setConverting] = useState<CasualStaffRow | null>(null);
+  const [dismissing, setDismissing] = useState<CasualStaffRow | null>(null);
+  const [dismissOpen, setDismissOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
   const [addKey, setAddKey] = useState(0);
   const openAdd = (mode: AddStaffMode = "manual") => {
@@ -752,12 +756,25 @@ export function StaffClient({
                 {c.name}
               </span>
             )}
-            <span
-              className="inline-flex shrink-0"
-              data-tip="Выходит на смены по графику без входа в Sheerly. Отмечается в кассе своим PIN."
-            >
-              <StatusBadge icon={<CalendarClock />}>Разовый</StatusBadge>
-            </span>
+            {c.dismissal ? (
+              <span
+                className="inline-flex shrink-0"
+                data-tip={
+                  c.dismissal.state === "error" && c.dismissal.error
+                    ? `Уволен, доступ закрыт не полностью: ${c.dismissal.error}. Sheerly повторит сам, можно и «Повторить» в меню строки.`
+                    : "Уволен: Sheerly закрывает доступ в Quick Resto и чатах"
+                }
+              >
+                <StatusBadge tone="warning" icon={<AlertTriangle />}>Увольняется</StatusBadge>
+              </span>
+            ) : (
+              <span
+                className="inline-flex shrink-0"
+                data-tip="Выходит на смены по графику без входа в Sheerly. Отмечается в кассе своим PIN."
+              >
+                <StatusBadge icon={<CalendarClock />}>Разовый</StatusBadge>
+              </span>
+            )}
           </div>
         );
       case "role":
@@ -778,9 +795,15 @@ export function StaffClient({
         ) : (
           <span className="text-sm text-muted-foreground">—</span>
         );
+      case "telegram":
+        return (
+          <span className={cn("text-sm", c.telegramId ? "font-mono tabular-nums" : "text-muted-foreground")}>
+            {c.telegramId || "—"}
+          </span>
+        );
       // Разовый не трудоустроен: на месте даты — перевод в штат.
       case "employment_date":
-        return canConvertCasual ? (
+        return canConvertCasual && !c.dismissal ? (
           <Button
             variant="outline"
             size="sm"
@@ -828,6 +851,35 @@ export function StaffClient({
         casual={casual?.employees ?? []}
         officialUserIds={officialUserIds}
         renderCasualCell={renderCasualCell}
+        renderCasualActions={
+          canInviteStaff
+            ? (c) => (
+                <TableRowMenu
+                  label={`Действия: ${c.name}`}
+                  actions={[
+                    c.dismissal
+                      ? {
+                          label: "Повторить увольнение",
+                          icon: <RotateCcw />,
+                          onSelect: () => {
+                            setDismissing(c);
+                            setDismissOpen(true);
+                          },
+                        }
+                      : {
+                          label: "Уволить",
+                          icon: <UserMinus />,
+                          destructive: true,
+                          onSelect: () => {
+                            setDismissing(c);
+                            setDismissOpen(true);
+                          },
+                        },
+                  ]}
+                />
+              )
+            : undefined
+        }
         fired={fired}
         showFired={firedOpen}
         invitations={invitations}
@@ -903,10 +955,18 @@ export function StaffClient({
           key={converting.id}
           open={convertOpen}
           onOpenChange={setConvertOpen}
-          employee={{ id: converting.id, name: converting.name, role_id: converting.roleId, hasPin: converting.pin !== null }}
+          employee={{
+            id: converting.id,
+            name: converting.name,
+            role_id: converting.roleId,
+            hasPin: converting.pin !== null,
+            telegramId: converting.telegramId,
+          }}
           roles={roles}
         />
       )}
+
+      <CasualDismissDialog employee={dismissing} open={dismissOpen} onOpenChange={setDismissOpen} />
 
       {/* «Новый сотрудник»: без входа, по email или разовый. Ключ пересоздаёт
           панель при каждом открытии — форма открывается пустой. */}

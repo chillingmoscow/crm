@@ -14,6 +14,8 @@ import { getActiveAccountTimezone } from "@/lib/settings/account";
 import { assignPayrollPositionOnly, requeuePayrollFrom } from "@/app/(dashboard)/people/payroll/actions";
 import { createStaffWithoutEmail } from "./actions";
 import { dropStaffChatInvites, queueStaffChatInvites } from "@/lib/people/chat-invites-queue";
+import { normalizeTelegramId, telegramIdError } from "@/lib/people/telegram-id";
+import { processCasualDismissal } from "@/lib/payroll/casual-dismissal";
 
 export type CasualResult = {
   id: string | null;
@@ -68,9 +70,13 @@ export async function createCasualEmployee(input: {
   roleId: string;
   /** Пригласить в Telegram-чаты должности (по умолчанию нет). */
   chatInvites?: boolean;
+  /** Обязателен при chatInvites: без него бот не исключит из чатов при увольнении. */
+  telegramId?: string | null;
 }): Promise<CasualResult> {
   const parsed = nameSchema.extend({ roleId: z.string().uuid("Выберите должность") }).safeParse(input);
   if (!parsed.success) return { id: null, pin: null, error: parsed.error.issues[0]?.message ?? "Проверьте поля" };
+  const tgError = telegramIdError(input.telegramId, input.chatInvites === true);
+  if (tgError) return { id: null, pin: null, error: tgError };
   const db = asLooseDb(await createClient());
   const created = await db.rpc("payroll_casual_create", {
     p_first_name: parsed.data.firstName,
@@ -79,7 +85,17 @@ export async function createCasualEmployee(input: {
   });
   if (created.error || typeof created.data !== "string")
     return { id: null, pin: null, error: errorText(created.error, "Не удалось добавить разового сотрудника") };
+  const saved = await saveTelegramId(db, created.data, input.telegramId);
+  if (saved) return { id: created.data, pin: null, error: saved };
   return provision(created.data, input.chatInvites === true);
+}
+
+// Пустой ID не затирает уже вписанный (форма повторного заведения его не показывает).
+async function saveTelegramId(db: ReturnType<typeof asLooseDb>, id: string, telegramId: string | null | undefined) {
+  const value = normalizeTelegramId(telegramId);
+  if (value === null) return null;
+  const r = await db.rpc("payroll_casual_set_telegram_id", { p_employee_id: id, p_telegram_id: value });
+  return r.error ? errorText(r.error, "Не удалось сохранить Telegram ID") : null;
 }
 
 // For a casual worker created earlier without a Quick Resto code, or a retry
@@ -89,10 +105,15 @@ export async function provisionCasualEmployee(input: {
   firstName: string;
   lastName: string;
   chatInvites?: boolean;
+  telegramId?: string | null;
 }): Promise<CasualResult> {
   const parsed = nameSchema.extend({ id: z.string().uuid() }).safeParse(input);
   if (!parsed.success) return { id: null, pin: null, error: parsed.error.issues[0]?.message ?? "Проверьте поля" };
+  const tgError = telegramIdError(input.telegramId, input.chatInvites === true);
+  if (tgError) return { id: parsed.data.id, pin: null, error: tgError };
   const db = asLooseDb(await createClient());
+  const saved = await saveTelegramId(db, parsed.data.id, input.telegramId);
+  if (saved) return { id: parsed.data.id, pin: null, error: saved };
   const requested = await db.rpc("payroll_casual_request_quickresto", {
     p_employee_id: parsed.data.id,
     p_first_name: parsed.data.firstName,
@@ -108,6 +129,7 @@ const convertSchema = nameSchema.extend({
   phone: z.string().trim().max(40).optional(),
   roleId: z.string().uuid("Выберите должность"),
   chatInvites: z.boolean().optional(),
+  telegramId: z.string().optional(),
 });
 
 export type ConvertCasualResult = {
@@ -129,6 +151,8 @@ export async function convertCasualToStaff(input: z.input<typeof convertSchema>)
   if (!parsed.success)
     return { userId: null, issuedPin: null, notice: null, error: parsed.error.issues[0]?.message ?? "Проверьте поля" };
   const value = parsed.data;
+  const tgError = telegramIdError(value.telegramId, value.chatInvites === true);
+  if (tgError) return { userId: null, issuedPin: null, notice: null, error: tgError };
   const can = await getCachedPermissionChecker();
   if (!can("people.edit_staff") || !can("payroll.configure"))
     return { userId: null, issuedPin: null, notice: null, error: "Нужны права на сотрудников и на настройку зарплаты" };
@@ -216,6 +240,7 @@ export async function convertCasualToStaff(input: z.input<typeof convertSchema>)
     roleId: value.roleId,
     venueId,
     chatInvites: value.chatInvites === true,
+    telegramId: normalizeTelegramId(value.telegramId),
   });
   const userId = created.member?.user_id ?? null;
   if (created.error || !userId)
@@ -265,4 +290,51 @@ function quickRestoReason(error: unknown): string {
   if (/[а-яё]/i.test(message)) return message.replace(/\.$/, "");
   if (/timed out|timeout/i.test(message)) return "Quick Resto не ответил вовремя, повторите";
   return "Quick Resto вернул ошибку, подробности в журнале сервера";
+}
+
+export type DismissCasualResult = {
+  /** Всё закрыто: Quick Resto и чаты. */
+  done: boolean;
+  /** Не закрыто — что осталось; сервер повторит сам, есть и «Повторить». */
+  pending: string | null;
+  error: string | null;
+};
+
+/**
+ * Уволить разового: запись зарплаты перестаёт быть активной, сотрудник Quick
+ * Resto удаляется, человек исключается из всех чатов организации. Повторный
+ * вызов продолжает незавершённое увольнение (подхватывает исправленный
+ * Telegram ID).
+ */
+export async function dismissCasualEmployee(input: {
+  id: string;
+  /** Пусто — оставить записанный ID. */
+  telegramId?: string | null;
+  /** Человека не было в чатах, ID нет: шаг чатов пропускается. */
+  withoutChats?: boolean;
+}): Promise<DismissCasualResult> {
+  const parsed = z.string().uuid().safeParse(input.id);
+  if (!parsed.success) return { done: false, pending: null, error: "Разовый сотрудник не найден" };
+  const tgError = telegramIdError(input.telegramId, false);
+  if (tgError) return { done: false, pending: null, error: tgError };
+  const started = await asLooseDb(await createClient()).rpc("payroll_casual_dismiss", {
+    p_employee_id: parsed.data,
+    p_telegram_id: normalizeTelegramId(input.telegramId),
+    p_without_chats: input.withoutChats === true,
+  });
+  if (started.error || typeof started.data !== "string")
+    return { done: false, pending: null, error: errorText(started.error, "Не удалось уволить сотрудника") };
+  // Неиспользованные задания приглашений больше не нужны.
+  await dropStaffChatInvites(parsed.data).catch(() => undefined);
+  let pending: string | null = null;
+  try {
+    const ran = await processCasualDismissal(started.data);
+    if (!ran) pending = "Увольнение уже обрабатывается — обновите страницу через минуту";
+  } catch (e) {
+    pending = errorText(e, "Не удалось закрыть доступ в Quick Resto и чатах");
+  }
+  revalidatePath("/people/staff");
+  revalidatePath("/people/payroll");
+  revalidatePath("/schedule");
+  return { done: pending === null, pending, error: null };
 }

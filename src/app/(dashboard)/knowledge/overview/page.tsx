@@ -256,33 +256,35 @@ export default async function KbOverviewPage({
             </MetricStrip>
           )}
 
-          {(blocks.attention || blocks.popular) && (
-            <div className={blocks.attention && blocks.popular ? "grid gap-6 lg:grid-cols-2" : "grid gap-6"}>
-              {blocks.attention && <KbOverviewAttention reading={reading} staleCount={staleCount} />}
+          {/* «Требует внимания» — на всю ширину: у строк по две кнопки, в
+              половине экрана текст сжимался бы в столбик. */}
+          {blocks.attention && <KbOverviewAttention reading={reading} staleCount={staleCount} />}
+
+          {(blocks.popular || blocks.changes) && (
+            <div className={blocks.popular && blocks.changes ? "grid items-start gap-6 lg:grid-cols-2" : "grid gap-6"}>
               {blocks.popular && <KbOverviewPopular rows={topPages?.rows ?? []} />}
+              {blocks.changes && (
+                <HomeSection
+                  title="Последние изменения"
+                  action={<SectionLink href="/org/audit?sections=kb" label="Весь журнал" />}
+                >
+                  {(audit?.[0].events.length ?? 0) === 0 ? (
+                    <p className="py-2 text-sm text-muted-foreground">Изменений пока нет</p>
+                  ) : (
+                    <ul className="-mx-5 -mb-5 flex flex-col border-t">
+                      {audit![0].events.map((event) => (
+                        <AuditEventRow key={event.id} event={event} timeZone={timeZone} />
+                      ))}
+                    </ul>
+                  )}
+                </HomeSection>
+              )}
             </div>
           )}
 
           {blocks.trend && trendMonthsWithData >= 3 && (
             <HomeSection title="По месяцам">
               <SalesTrend series={trendSeries} title="Чтение по месяцам" highlight={today.slice(0, 7)} />
-            </HomeSection>
-          )}
-
-          {blocks.changes && (
-            <HomeSection
-              title="Последние изменения"
-              action={<SectionLink href="/org/audit?sections=kb" label="Весь журнал" />}
-            >
-              {(audit?.[0].events.length ?? 0) === 0 ? (
-                <p className="py-2 text-sm text-muted-foreground">Изменений пока нет</p>
-              ) : (
-                <ul className="-mx-5 -mb-5 flex flex-col border-t">
-                  {audit![0].events.map((event) => (
-                    <AuditEventRow key={event.id} event={event} timeZone={timeZone} />
-                  ))}
-                </ul>
-              )}
             </HomeSection>
           )}
         </>

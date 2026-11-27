@@ -6,7 +6,7 @@ export const TELEGRAM_ID_HINT = "Числовой ID: человек узнаё�
 export const TELEGRAM_ID_REQUIRED =
   "Укажите Telegram ID — без него бот не сможет исключить сотрудника из чатов при увольнении";
 
-/** Пусто → null; иначе только цифры, до 15 знаков. */
+/** Пусто → null, иначе значение без пробелов по краям (формат проверяет `telegramIdError`). */
 export function normalizeTelegramId(value: string | null | undefined): string | null {
   const v = (value ?? "").trim();
   return v === "" ? null : v;

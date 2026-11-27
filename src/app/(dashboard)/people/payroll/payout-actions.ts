@@ -21,6 +21,7 @@ import {
   cashPlan,
   executeCashIssue,
   findPlan,
+  followPlanDays,
   loadSettingsRow,
   money,
   plan,
@@ -76,6 +77,8 @@ export type PayoutRowView = PlannedRow & {
   step: number;
   /** Сумму поставили руками (например, аванс): выдаём её, режет только заработанное. */
   manual: boolean;
+  /** День выбрали руками: при заменах он не переносится (`followPlanDays`). */
+  dayManual: boolean;
   /** Сколько выдали бы по расчёту сейчас — для предупреждения, если ручная сумма больше. */
   ceilingNow: number | null;
   /**
@@ -123,6 +126,13 @@ async function planView(s: PayrollScope, schedule: PayoutScheduleCode, firstCtx:
   const period = payoutPeriod(firstCtx.today);
   const saved = await findPlan(s, schedule, period.month, period.payoutNo);
   const ctx = firstCtx;
+  // Дни выплат — по текущему графику (замены, новые смены). Сбой сверки не
+  // мешает показать план: перед выдачей она повторится и там уже обязательна.
+  if (saved) {
+    await followPlanDays(s, ctx, saved).catch((e: unknown) =>
+      console.error(`[payout-plan] сверка дней с графиком: ${e instanceof Error ? e.message : "unknown"}`),
+    );
+  }
   const month = period.month;
   const payoutNo: PayoutNo = saved?.payout_no ?? period.payoutNo;
   const fresh = cashPlan(ctx, schedule, month, payoutNo);
@@ -171,6 +181,7 @@ async function planView(s: PayrollScope, schedule: PayoutScheduleCode, firstCtx:
           ? null
           : money(recheckDue(row, capOf(row), configOf(row.employee_id).step).due + row.issued),
         manual: row.manual,
+        dayManual: row.pay_date_manual,
         ceilingNow: freshBy.get(row.employee_id)?.breakdown.ceiling ?? null,
         leftAfter: leftAfter(now, row.amount - row.issued),
         paidNow: fb?.paid ?? row.breakdown.paid,
@@ -183,14 +194,14 @@ async function planView(s: PayrollScope, schedule: PayoutScheduleCode, firstCtx:
     : fresh.map((row) => ({
         ...row, id: null, ...person(row.employee_id), issued: 0, state: "planned" as const, willIssue: row.amount,
         paidNow: row.breakdown.paid, outside: false, shiftDays: shiftDays(row.employee_id), dayWindow: dayWindow(row.employee_id), step: configOf(row.employee_id).step,
-        manual: false, ceilingNow: row.breakdown.ceiling, leftAfter: leftAfter(row.breakdown, row.amount),
+        manual: false, dayManual: false, ceilingNow: row.breakdown.ceiling, leftAfter: leftAfter(row.breakdown, row.amount),
       }));
   // Вне плана — строками со статусом, без сумм к выплате.
   const outside: PayoutRowView[] =
     schedule === "main"
       ? plan(ctx, "transfer", month, payoutNo).map((row) => ({
           ...row, amount: 0, pay_date: null, id: null, ...person(row.employee_id), issued: 0, state: "planned" as const,
-          willIssue: null, paidNow: row.breakdown.paid, outside: true, shiftDays: [], dayWindow: null, step: 0, manual: false, ceilingNow: null,
+          willIssue: null, paidNow: row.breakdown.paid, outside: true, shiftDays: [], dayWindow: null, step: 0, manual: false, dayManual: false, ceilingNow: null,
           leftAfter: leftAfter(row.breakdown, 0),
         }))
       : [];

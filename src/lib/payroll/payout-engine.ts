@@ -28,6 +28,7 @@ import {
   type RegisterCash,
 } from "./payout-issue";
 import { readRegisterCash } from "./payout-cash";
+import { followScheduleDays } from "./payout-follow";
 import { raiseAlert } from "./payout-alerts";
 import { shortAlert } from "./payout-alert-text";
 import type { PayrollData } from "./types";
@@ -71,6 +72,8 @@ export type RowRecord = {
   breakdown: PlannedRow["breakdown"];
   /** Сумму поставили руками: при выдаче её режет только заработанное (`issueCap`). */
   manual: boolean;
+  /** День выбрали руками: сверка с графиком его не переносит (`followPlanDays`). */
+  pay_date_manual: boolean;
 };
 export type SettingsRecord = {
   auto_issue?: boolean;
@@ -229,11 +232,50 @@ export async function planById(s: VenueHandle, id: string) {
 export async function planRows(s: VenueHandle, planId: string) {
   const r = await s.db
     .from<RowRecord[]>("payroll_payout_rows")
-    .select("id,plan_id,employee_id,pay_date,amount,issued,state,breakdown,manual")
+    .select("id,plan_id,employee_id,pay_date,amount,issued,state,breakdown,manual,pay_date_manual")
     .eq("venue_id", s.venueId)
     .eq("plan_id", planId);
   if (r.error) throw new Error(r.error.message);
   return (r.data ?? []).map((row) => ({ ...row, amount: Number(row.amount), issued: Number(row.issued) }));
+}
+
+/**
+ * День выплаты идёт за графиком (`payout-follow.ts`): дни, поставленные
+ * планом, переносятся на смену сотрудника — при замене, новой или снятой
+ * смене, пропущенной выдаче. Вызывается при открытии плана и перед выдачей,
+ * поэтому и экран, и автовыдача в 14:00 видят дни по текущему графику.
+ * Запись — с проверкой прежнего дня (параллельная правка не затирается),
+ * журнал — одной строкой от системы. Возвращает число перенесённых строк.
+ */
+export async function followPlanDays(s: VenueHandle, ctx: Context, plan: PlanRecord): Promise<number> {
+  if (plan.state === "cancelled") return 0;
+  if (ctx.settings.schedules[plan.schedule]?.method !== "cash") return 0;
+  const moves = followScheduleDays(await planRows(s, plan.id), ctx.shifts, ctx.today, {
+    from: plan.window_from,
+    to: plan.window_to,
+  });
+  const done: typeof moves = [];
+  for (const move of moves) {
+    let write = s.admin
+      .from<{ id: string }[]>("payroll_payout_rows")
+      .update({ pay_date: move.to, updated_at: new Date().toISOString() })
+      .eq("id", move.row_id)
+      .eq("venue_id", s.venueId)
+      .eq("pay_date_manual", false)
+      .neq("state", "issued");
+    write = move.from === null ? write.is("pay_date", null) : write.eq("pay_date", move.from);
+    const r = await write.select("id");
+    if (r.error) throw new Error(`Не удалось перенести день выплаты: ${r.error.message}`);
+    if (r.data?.length) done.push(move);
+  }
+  if (done.length) {
+    const names = new Map(ctx.data.employees.map((e) => [e.id, e.name]));
+    await payoutAudit(s, null, "payroll.payout_plan.days_moved", plan.id, {
+      month: plan.month,
+      moves: done.map((m) => ({ ...m, employee_name: names.get(m.employee_id) ?? "Сотрудник" })),
+    });
+  }
+  return done.length;
 }
 
 export async function issuedToday(s: VenueHandle, today: string) {
@@ -257,6 +299,8 @@ export async function buildPreview(
   const ctx = await buildContext(s, data, current.month);
   const schedule = ctx.settings.schedules[current.schedule];
   if (schedule.method !== "cash") throw new Error("Этот график выдаётся переводом: отмечайте «Выплачено» по строке");
+  // Сначала дни — по текущему графику: выдаём тем, кто сегодня на смене.
+  await followPlanDays(s, ctx, current);
   const window = { from: current.window_from, to: current.window_to };
   // Свежий потолок: ручные выплаты и штрафы после утверждения. Саму сумму плана не пересчитываем.
   const fresh = new Map(cashPlan(ctx, current.schedule, current.month, current.payout_no).map((r) => [r.employee_id, r.breakdown]));

@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
+import type { Metadata } from "next";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { PageFrame } from "@/components/shared/page-frame";
 import { TablePageHeader } from "@/components/shared/table/table-page-header";
 import { Trash2 } from "lucide-react";
 
@@ -21,6 +23,8 @@ import type { TrashRow } from "@/app/(dashboard)/knowledge/trash/_components/tra
  * Восстановление — `restoreKbPage` через TrashItemRow (client).
  * Hard-delete и автопурж по 30-дневному таймеру вне MVP.
  */
+export const metadata: Metadata = { title: "Корзина базы знаний" };
+
 export default async function KnowledgeTrashPage() {
   const can = await getCachedPermissionChecker();
   if (!can("kb.delete_pages")) redirect("/knowledge");
@@ -61,9 +65,7 @@ export default async function KnowledgeTrashPage() {
   }));
 
   return (
-    <div className="flex-1 flex flex-col">
-      <div className="px-6 md:px-8 pt-4 pb-8 w-full">
-        <div className="mx-auto w-full max-w-[1100px] flex flex-col gap-6">
+    <PageFrame className="flex flex-col gap-6">
           <Breadcrumbs
             items={[
               { label: "База знаний", href: "/knowledge" },
@@ -88,8 +90,6 @@ export default async function KnowledgeTrashPage() {
           ) : (
             <KbTrashClient rows={trashRows} />
           )}
-        </div>
-      </div>
-    </div>
+    </PageFrame>
   );
 }

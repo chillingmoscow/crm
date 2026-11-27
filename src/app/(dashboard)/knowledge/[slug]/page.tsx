@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { FileX, ShieldAlert } from "lucide-react";
 
@@ -34,6 +35,12 @@ import type {
 
 interface PageProps {
   params: Promise<{ slug: string }>;
+}
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { slug } = await params;
+  const { row } = await getKbPageBySlug(slug);
+  return { title: row?.title?.trim() || "База знаний" };
 }
 
 export default async function KbPageView({ params }: PageProps) {

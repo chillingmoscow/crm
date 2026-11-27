@@ -1,8 +1,11 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { PageFrame } from "@/components/shared/page-frame";
+import { TablePageHeader } from "@/components/shared/table/table-page-header";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { getKbPageBySlug } from "@/lib/knowledge/pages";
 import {
@@ -26,6 +29,16 @@ const PERIOD_LABEL: Record<KbAnalyticsPeriod, string> = {
  * Аналитики переехал сюда (`/knowledge/analytics/*` 301-redirect'ится
  * в next.config). Slug в URL — для читаемости вместо UUID.
  */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  const { row } = await getKbPageBySlug(slug);
+  return { title: `Статистика — ${row?.title?.trim() || "Без названия"}` };
+}
+
 export default async function KbDashboardPageDrilldown({
   params,
   searchParams,
@@ -51,7 +64,7 @@ export default async function KbDashboardPageDrilldown({
     await getKbAnalyticsPageViewers({ pageId: page.id, period });
 
   return (
-    <div className="flex-1 flex flex-col">
+    <PageFrame className="flex flex-col gap-6">
       <Breadcrumbs
         items={[
           { label: "База знаний", href: "/knowledge" },
@@ -60,20 +73,17 @@ export default async function KbDashboardPageDrilldown({
         ]}
       />
 
-      <div className="px-6 md:px-8 pt-4 pb-8 w-full">
-        <div className="mx-auto w-full max-w-[1100px] flex flex-col gap-6">
-          <header className="flex items-start gap-3">
-            <KbPageIcon icon={page.icon} color={page.icon_color} size={28} />
-            <div className="flex flex-col gap-1.5 min-w-0">
-              <h1 className="text-[28px] font-bold tracking-tight leading-tight">
-                {page.title || "Без названия"}
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                Кто и сколько времени провёл на этой странице{" "}
-                {PERIOD_LABEL[period]}.
-              </p>
-            </div>
-          </header>
+          <TablePageHeader
+            title={
+              <span className="flex min-w-0 items-center gap-3">
+                <KbPageIcon icon={page.icon} color={page.icon_color} size={28} />
+                <span className="truncate">{page.title || "Без названия"}</span>
+              </span>
+            }
+          />
+          <p className="-mt-2 text-sm text-muted-foreground">
+            Кто и сколько времени читал страницу {PERIOD_LABEL[period]}
+          </p>
 
           {viewersError && (
             <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
@@ -100,9 +110,7 @@ export default async function KbDashboardPageDrilldown({
           >
             ← Открыть страницу
           </Link>
-        </div>
-      </div>
-    </div>
+    </PageFrame>
   );
 }
 

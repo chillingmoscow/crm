@@ -1,5 +1,7 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { PageFrame } from "@/components/shared/page-frame";
 import { TablePageHeader } from "@/components/shared/table/table-page-header";
 import { redirect } from "next/navigation";
 
@@ -58,6 +60,8 @@ const PERIOD_DAYS: Record<KbAnalyticsPeriod, number> = {
  * URL-состояние shareable: `?p=day|week|month`, `?view=overview|pages`.
  * `/knowledge/analytics` 301-redirect'ится сюда (next.config).
  */
+export const metadata: Metadata = { title: "Обзор базы знаний" };
+
 export default async function KbDashboardPage({
   searchParams,
 }: {
@@ -184,9 +188,7 @@ export default async function KbDashboardPage({
       .join("&") || undefined;
 
   return (
-    <div className="flex-1 flex flex-col">
-      <div className="px-6 md:px-8 pt-4 pb-8 w-full">
-        <div className="mx-auto w-full max-w-[1100px] flex flex-col gap-6">
+    <PageFrame className="flex flex-col gap-6">
           <Breadcrumbs
             items={[
               { label: "База знаний", href: "/knowledge" },
@@ -398,9 +400,7 @@ export default async function KbDashboardPage({
               </ul>
             )}
           </section>
-        </div>
-      </div>
-    </div>
+    </PageFrame>
   );
 }
 

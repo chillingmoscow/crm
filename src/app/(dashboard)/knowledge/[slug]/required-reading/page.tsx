@@ -1,8 +1,11 @@
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { CheckCircle2, Clock } from "lucide-react";
 
 import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import { Breadcrumbs } from "@/components/shared/breadcrumbs";
+import { ProfilePageFrame } from "@/components/shared/page-frame";
+import { TablePageHeader } from "@/components/shared/table/table-page-header";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { getKbPageBySlug } from "@/lib/knowledge/pages";
 import {
@@ -29,6 +32,16 @@ import { avatarImageUrl } from "@/lib/people/avatar-thumb";
  * «обязательно для всех в аккаунте». Per-role или per-user assignment
  * (Раздел 2.7-D) — отдельная фича вместе с per-page sharing.
  */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  const { row } = await getKbPageBySlug(slug);
+  return { title: `Кто прочитал — ${row?.title?.trim() || "Без названия"}` };
+}
+
 export default async function KbRequiredReadingAdminPage({
   params,
 }: {
@@ -50,7 +63,7 @@ export default async function KbRequiredReadingAdminPage({
   const readPct = total > 0 ? Math.round((readRows.length / total) * 100) : 0;
 
   return (
-    <div className="flex-1 flex flex-col">
+    <ProfilePageFrame>
       <Breadcrumbs
         items={[
           { label: "База знаний", href: "/knowledge" },
@@ -59,21 +72,20 @@ export default async function KbRequiredReadingAdminPage({
         ]}
       />
 
-      <div className="px-6 md:px-8 pt-6 pb-8 w-full flex flex-col gap-6">
-        <div className="mx-auto w-full max-w-[760px] flex flex-col gap-6">
-          <header className="flex items-start gap-3">
-            <KbPageIcon icon={page.icon} color={page.icon_color} size={28} />
-            <div className="flex flex-col gap-1.5 min-w-0">
-              <h1 className="text-[24px] font-bold tracking-tight leading-tight">
+          <TablePageHeader title="Кто прочитал" />
+          <div className="-mt-2 flex items-center gap-3">
+            <KbPageIcon icon={page.icon} color={page.icon_color} size={20} />
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <span className="truncate text-base font-semibold">
                 {page.title || "Без названия"}
-              </h1>
+              </span>
               <p className="text-sm text-muted-foreground">
                 {page.required_reading
                   ? `Обязательная к прочтению. Прочитали ${readRows.length} из ${total} (${readPct}%).`
                   : `Страница не помечена как обязательная. Записи о прочтении сохранены за прошлые периоды.`}
               </p>
             </div>
-          </header>
+          </div>
 
           {error && (
             <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
@@ -106,9 +118,7 @@ export default async function KbRequiredReadingAdminPage({
             </div>
             <ReaderList rows={unreadRows} mode="unread" />
           </section>
-        </div>
-      </div>
-    </div>
+    </ProfilePageFrame>
   );
 }
 

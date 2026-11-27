@@ -159,7 +159,8 @@ export async function loadKpiMonthView(
         .in("kind", ["allowance", "bonus"])),
     admin.from<{ invoice_date: string }[]>("documents").select("invoice_date")
       .eq("account_id", accountId).eq("venue_id", venueId).eq("document_kind", "inventory").eq("processed", true)
-      .is("archived_at", null).gte("invoice_date", month).lt("invoice_date", shift(month, 1)),
+      // Дата акта — момент (timestamptz): берём с запасом в сутки и режем по дню заведения ниже.
+      .is("archived_at", null).gte("invoice_date", dayBefore(month)).lt("invoice_date", `${shift(month, 1)}T23:59:59Z`),
     admin.from<{ status: string }>("payroll_periods").select("status").eq("account_id", accountId).eq("venue_id", venueId).eq("month", month).maybeSingle(),
     admin.from<{ id: string }[]>("payroll_payout_plans").select("id")
       .eq("account_id", accountId).eq("venue_id", venueId).eq("month", month).eq("payout_no", 2).not("carried_at", "is", null),
@@ -171,7 +172,8 @@ export async function loadKpiMonthView(
     ? check(await admin.from<{ employee_id: string }[]>("payroll_payout_rows").select("employee_id").in("plan_id", carriedPlans)) ?? []
     : [];
   const carriedIds = new Set(carriedRows.map((r) => r.employee_id));
-  const today = businessDate(new Date(), check(venue)?.timezone ?? "Europe/Moscow", check(hours)?.day_start_hour ?? 9);
+  const timezone = check(venue)?.timezone ?? "Europe/Moscow";
+  const today = businessDate(new Date(), timezone, check(hours)?.day_start_hour ?? 9);
   const label = transferMonthLabel(month);
   const nextLabel = transferMonthLabel(shift(month, 1));
   const blocked = today < shift(month, 1)
@@ -224,7 +226,9 @@ export async function loadKpiMonthView(
 
   const byDate = new Map<string, number>();
   for (const d of check(documents) ?? []) {
-    const date = d.invoice_date.slice(0, 10);
+    // День акта — по часам заведения: 22.11 20:08 UTC в Москве уже 23-е.
+    const date = new Date(d.invoice_date).toLocaleDateString("en-CA", { timeZone: timezone });
+    if (date.slice(0, 7) !== month.slice(0, 7)) continue;
     byDate.set(date, (byDate.get(date) ?? 0) + 1);
   }
   const deadline = `${month.slice(0, 7)}-20`;

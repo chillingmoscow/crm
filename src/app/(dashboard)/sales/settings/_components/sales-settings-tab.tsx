@@ -23,7 +23,6 @@ import { SettlementSettingsSection } from "./settlement-settings";
 import { CashControlSettingsSection } from "./cash-control-settings";
 import { CashMovementSettingsSection } from "./cash-movement-settings";
 import { FinanceExecutionSettingsSection } from "./finance-execution-settings";
-import { SalesPlanSettingsSection } from "./sales-plan-settings";
 
 /** Число дней между датами `YYYY-MM-DD` включительно. */
 function daysInclusive(from: string, to: string) {
@@ -40,7 +39,6 @@ export type SalesSettingsSections = {
   cash?: ComponentProps<typeof CashControlSettingsSection>["initial"];
   movement?: ComponentProps<typeof CashMovementSettingsSection>["initial"];
   finance?: ComponentProps<typeof FinanceExecutionSettingsSection>["initial"];
-  plans?: ComponentProps<typeof SalesPlanSettingsSection>["initial"];
 };
 
 export function SalesSettingsTab({
@@ -160,12 +158,14 @@ export function SalesSettingsTab({
           </p>
         )}
       </ProfileSection>
-      <SalesPlanSettingsSection
-        venueId={data.venueId}
-        currentMonth={today.slice(0, 7)}
-        openMonth={planMonth}
-        initial={sections.plans}
-      />
+      <ProfileSection
+        title="План продаж"
+        description="План оборота и доли алкоголя на месяц, журнал цен и сезонность задаются в «Статистике» — там же прогноз приложения."
+      >
+        <Button variant="outline" asChild>
+          <Link href={`/sales/statistics?plan=${planMonth ?? today.slice(0, 7)}`}>Открыть план месяца</Link>
+        </Button>
+      </ProfileSection>
       <ProfileSection
         title="Пересчёт истории"
         description="Повторно загрузим чеки и отчёты за выбранный период и применим текущие правила. Ручные исправления сохранятся."

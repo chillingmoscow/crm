@@ -12,7 +12,6 @@ import type { KpiMonthView } from "@/lib/payroll/kpi-month";
 import { transferMonthLabel } from "@/lib/payroll/transfer-reason";
 import { loadKpiMonth } from "../kpi-actions";
 import { KpiChecklistDialog } from "./kpi-checklist-dialog";
-import { AlcoholPlanDialog } from "./alcohol-plan-dialog";
 
 const dayLabel = (date: string) =>
   new Date(`${date}T12:00:00Z`).toLocaleDateString("ru-RU", { day: "numeric", month: "long", timeZone: "UTC" });
@@ -22,7 +21,6 @@ export function KpiTab({ month }: { month: string }) {
   const [view, setView] = useState<KpiMonthView | null>(null);
   const [error, setError] = useState("");
   const [open, setOpen] = useState<string | null>(null);
-  const [planOpen, setPlanOpen] = useState<"this" | "next" | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -55,7 +53,6 @@ export function KpiTab({ month }: { month: string }) {
     );
 
   const done = view.people.filter((p) => p.review && !p.review.needsRecount).length;
-  const anySaved = view.people.some((p) => p.review);
   const total = view.people.reduce((s, p) => s + (p.review?.total ?? 0), 0);
   const person = view.people.find((p) => p.employeeId === open) ?? null;
   const hasPlanItem = view.people.some((p) => p.items.some((i) => i.type === "plan"));
@@ -99,35 +96,6 @@ export function KpiTab({ month }: { month: string }) {
           </li>
         ))}
       </ul>
-      {hasPlanItem && view.plan.target == null && (
-        <section aria-label={`План продаж алкоголя на ${label}`} className="flex min-w-0 flex-wrap items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium">План продаж алкоголя на {label} не задан</p>
-            <p className="text-[13px] text-muted-foreground">
-              {anySaved ? "Итоги месяца уже подведены — план этого месяца больше не меняется" : "Без плана пункт «План продаж алкоголя» не засчитается"}
-            </p>
-          </div>
-          {view.canSave && !anySaved && (
-            <Button size="sm" variant="outline" onClick={() => setPlanOpen("this")}>Задать план</Button>
-          )}
-        </section>
-      )}
-      {hasPlanItem && (
-        <section aria-label="План продаж алкоголя" className="flex min-w-0 flex-wrap items-center gap-3 rounded-lg border p-4">
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium">План продаж алкоголя на {transferMonthLabel(view.next.month)}</p>
-            <p className="text-[13px] text-muted-foreground">
-              {view.next.current != null ? <Money value={view.next.current} /> : "Не задан"}
-              {view.next.current == null && view.next.suggestion.amount != null && (
-                <> · приложение предлагает <Money value={view.next.suggestion.amount} /></>
-              )}
-            </p>
-          </div>
-          <Button size="sm" variant="outline" onClick={() => setPlanOpen("next")}>
-            {!view.canSave ? "Открыть" : view.next.current != null ? "Изменить план" : "Задать план"}
-          </Button>
-        </section>
-      )}
       {person && (
         <KpiChecklistDialog
           key={person.employeeId}
@@ -138,19 +106,7 @@ export function KpiTab({ month }: { month: string }) {
           onSaved={(next) => {
             setView(next);
             setOpen(null);
-            // План следующего месяца задаём сразу после итогов, если его ещё нет.
-            if (next.next.current == null && hasPlanItem) setPlanOpen("next");
           }}
-        />
-      )}
-      {planOpen && (
-        <AlcoholPlanDialog
-          key={planOpen}
-          open
-          which={planOpen}
-          onOpenChange={(v) => { if (!v) setPlanOpen(null); }}
-          view={view}
-          onSaved={(next) => { setView(next); setPlanOpen(null); }}
         />
       )}
     </div>

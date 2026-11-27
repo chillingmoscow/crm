@@ -896,7 +896,7 @@ export function ShiftsClient({
             month={month}
             today={today}
             days={monthDays}
-            canConfigure={can("configure")}
+            canConfigure={data.permissions.includes("sales.plan")}
           />
           <div
             aria-busy={monthLoading}

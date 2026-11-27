@@ -2,7 +2,10 @@ import "server-only";
 import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import type { LooseDb } from "@/lib/supabase/loose";
 import { businessDate } from "@/lib/sales/time";
-import { alcoholActual, alcoholHistory, suggestAlcoholPlan, type AlcoholReport, type AlcoholSuggestion } from "@/lib/sales/alcohol-plan";
+import { alcoholShareStatus } from "@/lib/sales/alcohol-plan";
+import { statisticsRevenueShare } from "@/lib/sales/statistics-view";
+import type { StatisticsReport } from "@/lib/sales/statistics-reports";
+import type { SalesDay } from "@/lib/sales/types";
 import { kpiNeedsRecount, kpiPeople, parseKpiItems, type KpiAnswers, type KpiItem, type KpiLine, type KpiPlanFact } from "./kpi";
 import { transferMonthLabel } from "./transfer-reason";
 import type { PayAssignment, PayEmployee, PayModel } from "./types";
@@ -38,20 +41,18 @@ export type KpiMonthView = {
   month: string;
   canSave: boolean;
   canConfigure: boolean;
-  /** Почему итоги месяца сейчас не сохранить: месяц не закончился, период зафиксирован. */
+  /** Может задать план месяца в «Статистике» (право «Планы продаж»). */
+  canPlan: boolean;
+  /** Месяц ещё идёт: итоги можно отмечать, план засчитается после конца месяца. */
+  inProgress: boolean;
+  /** Почему итоги месяца сейчас не сохранить: будущий месяц, период зафиксирован. */
   blocked: string | null;
   people: KpiMonthPerson[];
-  plan: KpiPlanFact;
+  /** План и факт доли алкоголя в очищенном обороте, %. */
+  plan: KpiPlanFact & { now: number | null };
   /** Отчёт продаж алкоголя за месяц ещё не готов, а месяц закончился. */
   reportMissing: boolean;
   inventory: { date: string; count: number; beforeDeadline: boolean }[];
-  next: {
-    month: string;
-    current: number | null;
-    priceIncreasePercent: number | null;
-    suggestion: AlcoholSuggestion;
-    history: [string, number][];
-  };
 };
 
 const shift = (month: string, by: number) => {
@@ -108,51 +109,44 @@ export function termsWithPlan(terms: Map<string, TermsRow>, termsIds: string[]):
   });
 }
 
-/** План и факт продаж алкоголя, история для предложения. */
+/**
+ * План и факт доли алкоголя за месяц (KPI старших): план — из плана месяца,
+ * факт — `statisticsRevenueShare` по отчёту Quick Resto и сменам, засчитывается
+ * только за закончившийся месяц с полным отчётом.
+ */
 export async function alcoholMonth(s: KpiVenue, month: string) {
   const { admin, accountId, venueId } = s;
-  const [plans, reports, archive] = await Promise.all([
-    admin.from<{ month: string; alcohol: number | null; price_increase_percent: number | null }[]>("sales_month_plans")
-      .select("month,alcohol,price_increase_percent").eq("account_id", accountId).eq("venue_id", venueId)
-      .in("month", [month, shift(month, 1)]),
-    admin.from<{ month: string; metrics: { revenue?: number } | null; through_date: string | null; state: string }[]>("sales_month_reports")
-      .select("month,metrics,through_date,state").eq("account_id", accountId).eq("venue_id", venueId).eq("kind", "alcohol"),
-    admin.from<{ month: string; metrics: { alcoholRevenue?: number } | null }[]>("sales_statistics_archive")
-      .select("month,metrics").eq("account_id", accountId).eq("venue_id", venueId),
+  const [plan, report, days, venue, hours] = await Promise.all([
+    admin.from<{ alcohol_share: number | null }>("sales_month_plans").select("alcohol_share")
+      .eq("account_id", accountId).eq("venue_id", venueId).eq("month", month).maybeSingle(),
+    admin.from<StatisticsReport>("sales_month_reports")
+      .select("id,venue_id,month,kind,metrics,period_start,period_end,through_date,synced_at,state,last_error")
+      .eq("account_id", accountId).eq("venue_id", venueId).eq("kind", "alcohol").eq("month", month).maybeSingle(),
+    fetchAllRows<SalesDay>(() => admin.from<SalesDay[]>("sales_days").select("*").eq("account_id", accountId).eq("venue_id", venueId)
+      .gte("business_date", month).lt("business_date", shift(month, 1))),
+    admin.from<{ timezone: string }>("venues").select("timezone").eq("id", venueId).single(),
+    admin.from<{ day_start_hour: number }>("sales_settings").select("day_start_hour").eq("account_id", accountId).eq("venue_id", venueId).maybeSingle(),
   ]);
-  const planRows = check(plans) ?? [];
-  const reportRows: AlcoholReport[] = (check(reports) ?? []).map((r) => ({
-    month: r.month.slice(0, 10),
-    revenue: typeof r.metrics?.revenue === "number" ? r.metrics.revenue : null,
-    through_date: r.through_date,
-    state: r.state,
-  }));
-  const history = alcoholHistory(
-    reportRows,
-    (check(archive) ?? []).map((a) => ({
-      month: a.month.slice(0, 10),
-      alcoholRevenue: typeof a.metrics?.alcoholRevenue === "number" ? a.metrics.alcoholRevenue : null,
-    })),
-  );
-  const own = planRows.find((p) => p.month.slice(0, 10) === month);
-  const next = planRows.find((p) => p.month.slice(0, 10) === shift(month, 1));
+  const timezone = check(venue)?.timezone ?? "Europe/Moscow";
+  const hour = check(hours)?.day_start_hour ?? 9;
+  const r = check(report);
+  const share = r ? statisticsRevenueShare(r, days, timezone, hour).value : null;
+  const status = alcoholShareStatus({
+    month,
+    today: businessDate(new Date(), timezone, hour),
+    report: r ? { state: r.state, through_date: r.through_date, revenue: r.metrics?.revenue ?? null } : null,
+    share,
+  });
+  const target = check(plan)?.alcohol_share;
   return {
-    plan: {
-      target: own?.alcohol != null ? Number(own.alcohol) : null,
-      actual: alcoholActual(reportRows.find((r) => r.month === month) ?? null, month),
-    } satisfies KpiPlanFact,
-    next: {
-      current: next?.alcohol != null ? Number(next.alcohol) : null,
-      priceIncreasePercent: next?.price_increase_percent != null ? Number(next.price_increase_percent) : null,
-    },
-    history,
+    plan: { target: target != null ? Number(target) : null, actual: status.actual, pending: status.pending, now: share },
   };
 }
 
 export async function loadKpiMonthView(
   s: KpiVenue,
   month: string,
-  access: { canSave: boolean; canConfigure: boolean },
+  access: { canSave: boolean; canConfigure: boolean; canPlan: boolean },
 ): Promise<KpiMonthView> {
   const { admin, accountId, venueId } = s;
   const end = dayBefore(shift(month, 1));
@@ -183,8 +177,9 @@ export async function loadKpiMonthView(
   const today = businessDate(new Date(), timezone, check(hours)?.day_start_hour ?? 9);
   const label = transferMonthLabel(month);
   const nextLabel = transferMonthLabel(shift(month, 1));
-  const blocked = today < shift(month, 1)
-    ? `Итоги за ${label} подводятся с 1-го числа следующего месяца`
+  // Итоги можно отмечать в течение месяца; будущий месяц — рано.
+  const blocked = today < month
+    ? `Итоги за ${label} подводить рано`
     : check(period) && check(period)!.status !== "draft"
       ? "Период зафиксирован. Итоги KPI за этот месяц менять нельзя"
       : null;
@@ -250,17 +245,12 @@ export async function loadKpiMonthView(
     month,
     canSave: access.canSave,
     canConfigure: access.canConfigure,
+    canPlan: access.canPlan,
+    inProgress: today >= month && today < nextMonth,
     blocked,
     people,
     plan: alcohol.plan,
-    reportMissing: today >= nextMonth && alcohol.plan.actual === null,
+    reportMissing: today >= nextMonth && alcohol.plan.pending === "report",
     inventory: [...byDate.entries()].sort().map(([date, count]) => ({ date, count, beforeDeadline: date <= deadline })),
-    next: {
-      month: nextMonth,
-      current: alcohol.next.current,
-      priceIncreasePercent: alcohol.next.priceIncreasePercent,
-      suggestion: suggestAlcoholPlan(alcohol.history, nextMonth, alcohol.next.priceIncreasePercent),
-      history: [...alcohol.history.entries()],
-    },
   };
 }

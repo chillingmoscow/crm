@@ -18,7 +18,6 @@ import { loadSettlementConfiguration } from "../shifts/settlement-actions";
 import { loadCashConfiguration } from "../shifts/cash-control-actions";
 import { loadMovementConfiguration } from "../shifts/cash-movement-actions";
 import { loadFinanceExecutionConfiguration } from "../shifts/native-finance-actions";
-import { loadSalesPlans } from "../plan-actions";
 
 export const metadata: Metadata = { title: "Настройки продаж" };
 
@@ -60,13 +59,11 @@ export default async function SalesSettingsPage({
         loadCashConfiguration(configuration.venueId),
         loadMovementConfiguration(configuration.venueId),
         loadFinanceExecutionConfiguration(configuration.venueId),
-        loadSalesPlans(configuration.venueId),
-      ]).then(([settlement, cash, movement, finance, plans]) => ({
+      ]).then(([settlement, cash, movement, finance]) => ({
         settlement,
         cash,
         movement,
         finance,
-        plans,
       }))
     : {};
   if (!configuration)

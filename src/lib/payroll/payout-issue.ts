@@ -170,6 +170,18 @@ export function splitShortfall(lines: IssueLine[], short: DueRow[]): { moves: Du
   return { moves, notMoved };
 }
 
+/**
+ * Кому сегодня не хватило наличных и перенести некуда (смен в окне больше
+ * нет) — с невыданной суммой, для карточки «Не хватило наличных».
+ */
+export function shortfallRows(lines: IssueLine[], short: DueRow[]): { name: string; amount: number }[] {
+  return short.flatMap((row) => {
+    const line = lines.find((l) => l.row_id === row.row_id);
+    if (line) return line.next_pay_date ? [] : [{ name: row.name, amount: Math.round((row.due - line.amount) * 100) / 100 }];
+    return row.next_pay_date ? [] : [{ name: row.name, amount: row.due }];
+  });
+}
+
 /** Отчёт после автовыдачи: null — всё прошло, говорить не о чем. */
 export function autoIssuedReportText(
   day: string,

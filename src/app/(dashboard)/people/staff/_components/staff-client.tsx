@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { flyToStaffCard, isPlainClick } from "@/lib/people/avatar-flight";
 import { isStaffPlaceholderEmail } from "@/lib/people/staff-identity";
 import { isGender } from "@/lib/people/gender";
 import { toast } from "sonner";
-import { UserPlus, Calendar, Clock, Archive, Lock, HeartPulse, Cake, CalendarClock, UserRound, UserCheck } from "lucide-react";
+import { UserPlus, Calendar, Clock, Archive, HeartPulse, Cake, CalendarClock, UserRound, UserCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { formatPhoneDisplay } from "@/lib/format/phone";
@@ -92,6 +94,10 @@ type Props = {
   officialUserIds: string[];
   /** Opened from the schedule: «Добавить → Разовый» is shown right away. */
   openAddCasual?: boolean;
+  /** Сейчас на смене (график и отметки): сотрудники Sheerly. */
+  onShiftUserIds?: string[];
+  /** Сейчас на смене: зарплатные карточки (разовые). */
+  onShiftEmployeeIds?: string[];
 };
 
 function formatDate(iso: string | null | undefined) {
@@ -219,6 +225,9 @@ function birthdayStatus(
 function StaffAvatar({
   member,
   faded,
+  onShift,
+  noAccount,
+  flightId,
 }: {
   member: {
     avatar_url: string | null;
@@ -227,13 +236,51 @@ function StaffAvatar({
     email: string | null;
   };
   faded?: boolean;
+  onShift?: boolean;
+  noAccount?: boolean;
+  flightId?: string;
 }) {
   return (
     <PersonAvatar
       src={member.avatar_url}
       name={displayName(member)}
       faded={faded}
+      onShift={onShift}
+      noAccount={noAccount}
+      flightId={flightId}
     />
+  );
+}
+
+/** Имя-ссылка на карточку: обычный клик открывает её с перелётом аватара. */
+function StaffCardLink({
+  member,
+  className,
+  children,
+}: {
+  member: { user_id: string; avatar_url: string | null; first_name: string | null; last_name: string | null; email: string | null };
+  className: string;
+  children: ReactNode;
+}) {
+  const router = useRouter();
+  const href = `/people/staff/${member.user_id}`;
+  return (
+    <Link
+      href={href}
+      data-tip={displayName(member)}
+      data-tip-overflow
+      className={className}
+      onClick={(event) => {
+        if (!isPlainClick(event)) return;
+        event.preventDefault();
+        flyToStaffCard(
+          { userId: member.user_id, src: member.avatar_url, name: displayName(member) },
+          () => router.push(href),
+        );
+      }}
+    >
+      {children}
+    </Link>
   );
 }
 
@@ -254,7 +301,11 @@ export function StaffClient({
   casual,
   officialUserIds,
   openAddCasual = false,
+  onShiftUserIds = [],
+  onShiftEmployeeIds = [],
 }: Props) {
+  const onShiftUsers = new Set(onShiftUserIds);
+  const onShiftEmployees = new Set(onShiftEmployeeIds);
   const [staff, setStaff] = useState(initialStaff);
   const [invitations, setInvitations] = useState(initialInvitations);
   const [fired, setFired] = useState(initialFired);
@@ -366,7 +417,13 @@ export function StaffClient({
       case "avatar":
         return (
           <div className="flex items-center justify-center">
-            <StaffAvatar member={member} />
+            <StaffAvatar
+              member={member}
+              onShift={onShiftUsers.has(member.user_id)}
+              // Признак строится на email, который приходит только с правом на детали.
+              noAccount={canSeeStaffDetails && isStaffPlaceholderEmail(member.email)}
+              flightId={canSeeStaffDetails ? member.user_id : undefined}
+            />
           </div>
         );
       case "name": {
@@ -409,28 +466,18 @@ export function StaffClient({
           );
         return (
           <div className="min-w-0 flex items-center gap-2">
-            <Link
-              href={`/people/staff/${member.user_id}`}
-              data-tip={displayName(member)}
-              data-tip-overflow
+            <StaffCardLink
+              member={member}
               className="min-w-0 truncate text-sm font-medium transition-colors duration-200 hover:text-brand"
             >
               {nameLabel}
-            </Link>
+            </StaffCardLink>
             {officialSet.has(member.user_id) && (
               <span
                 className="inline-flex shrink-0"
                 data-tip="Оформлен официально: период трудоустройства открыт."
               >
                 <StatusBadge tone="info">Офиц.</StatusBadge>
-              </span>
-            )}
-            {isPlaceholder && (
-              <span
-                className="inline-flex shrink-0"
-                data-tip="Сотрудник без аккаунта. Когда понадобится дать ему доступ — впишите email в карточке и отправьте приглашение."
-              >
-                <StatusBadge icon={<Lock />}>Без аккаунта</StatusBadge>
               </span>
             )}
             {isPendingInvite && (
@@ -468,7 +515,7 @@ export function StaffClient({
                 сотрудник не вошёл в Sheerly, пол указывает админ в карточке,
                 потом — сам сотрудник в профиле. Бейдж последний и, в отличие
                 от остальных, сжимается (до иконки с подсказкой): рядом с
-                «Без аккаунта» иначе от имени остаётся одна буква. */}
+                другими бейджами иначе от имени остаётся одна буква. */}
             {!isGender(member.gender) && (
               <span
                 className="inline-flex min-w-0"
@@ -489,8 +536,8 @@ export function StaffClient({
       case "email":
         return (
           <div className="text-sm text-muted-foreground min-w-0 truncate">
-            {isStaffPlaceholderEmail(member.email)
-              ? "Email не указан"
+            {isStaffPlaceholderEmail(member.email) || !member.email
+              ? "—"
               : member.email}
           </div>
         );
@@ -604,17 +651,22 @@ export function StaffClient({
   const renderFiredCell = (key: ColKey, member: FiredStaffMember) => {
     switch (key) {
       case "avatar":
-        return <StaffAvatar member={member} faded />;
+        return (
+          <StaffAvatar
+            member={member}
+            faded
+            noAccount={canSeeStaffDetails && isStaffPlaceholderEmail(member.email)}
+            flightId={canSeeStaffDetails ? member.user_id : undefined}
+          />
+        );
       case "name":
         return canSeeStaffDetails ? (
-          <Link
-            href={`/people/staff/${member.user_id}`}
-            data-tip={displayName(member)}
-            data-tip-overflow
+          <StaffCardLink
+            member={member}
             className="block truncate text-sm font-medium transition-colors duration-200 hover:text-brand"
           >
             {displayName(member)}
-          </Link>
+          </StaffCardLink>
         ) : (
           <span
             data-tip={displayName(member)}
@@ -627,8 +679,8 @@ export function StaffClient({
       case "email":
         return (
           <span className="block truncate text-muted-foreground">
-            {isStaffPlaceholderEmail(member.email)
-              ? "Email не указан"
+            {isStaffPlaceholderEmail(member.email) || !member.email
+              ? "—"
               : member.email}
           </span>
         );
@@ -665,7 +717,7 @@ export function StaffClient({
       case "avatar":
         return (
           <div className="flex items-center justify-center">
-            <PersonAvatar name={c.name} />
+            <PersonAvatar name={c.name} onShift={onShiftEmployees.has(c.id)} />
           </div>
         );
       case "name":

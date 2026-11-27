@@ -83,7 +83,7 @@ async function save(input: StaffCardChanges): Promise<SaveStaffCardResult> {
     getCachedActiveAccountId(),
   ]);
   // Карточку правит только тот, у кого есть право редактировать сотрудников;
-  // PIN терминала по тому же праву и виден, и меняется.
+  // PIN кассы по тому же праву и виден, и меняется.
   if (!can("people.edit_staff")) return { error: "Нет права редактировать сотрудников" };
   if (!accountId) return { error: "Выберите заведение" };
 
@@ -118,7 +118,7 @@ async function save(input: StaffCardChanges): Promise<SaveStaffCardResult> {
           .select("id")
           .then(({ data, error }) =>
             error || !data?.length
-              ? { error: errorText(error ?? NO_ROWS, "Не удалось сохранить PIN-код") }
+              ? { error: errorText(error ?? NO_ROWS, "Не удалось сохранить PIN кассы") }
               : { error: null },
           )
       : null,

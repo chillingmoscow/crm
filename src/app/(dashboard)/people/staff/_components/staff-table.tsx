@@ -34,6 +34,7 @@ import {
 import { PeopleListHeader } from "@/components/people/people-list-header";
 import type { CasualStaffRow } from "@/lib/payroll/casual-list";
 import { matchesStaffKind } from "@/lib/people/staff-kind-filter";
+import { flyToStaffCard } from "@/lib/people/avatar-flight";
 
 type Row =
   | { kind: "staff"; id: string; member: StaffMember }
@@ -659,7 +660,15 @@ export function StaffTable({
           onSortingChange={changeSorting}
           sortable={sortable}
           onRowClick={(row) => {
-            if (opensCard(row.original)) router.push(rowHref(row.original));
+            const r = row.original;
+            if (!opensCard(r)) return;
+            const href = rowHref(r);
+            if (r.kind === "casual") return router.push(href);
+            // Карточка сотрудника: аватар строки перелетает в её шапку.
+            flyToStaffCard(
+              { userId: r.member.user_id, src: r.member.avatar_url, name: name(r.member) },
+              () => router.push(href),
+            );
           }}
           rowClassName={(row) =>
             opensCard(row.original) ? undefined : "!cursor-default"

@@ -44,7 +44,7 @@ export function KbVersionSnapshotPreview({
       <header className="space-y-5">
         <KbPageIcon icon={icon} color={iconColor} size={56} />
         <div className="space-y-2">
-          <h2 className="text-[36px] font-extrabold leading-[1.15] tracking-tight text-foreground">
+          <h2 className="text-4xl font-bold leading-[1.2] tracking-[-0.5px] text-foreground">
             {title || "Без названия"}
           </h2>
           <p className="text-sm text-muted-foreground">

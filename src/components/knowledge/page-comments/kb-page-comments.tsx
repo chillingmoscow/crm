@@ -12,6 +12,7 @@ import {
 import { resolveKbUsers } from "@/lib/knowledge/comments-store";
 import { PageCommentComposer } from "./page-comment-composer";
 import { PageCommentItem } from "./page-comment-item";
+import { KbDocSection } from "@/app/(dashboard)/knowledge/_components/kb-doc-section";
 
 interface KbPageCommentsProps {
   pageId: string;
@@ -272,10 +273,7 @@ export function KbPageComments({
   }
 
   return (
-    <section className="mt-2 flex flex-col gap-4 border-t border-border/60 pt-6">
-      <h2 className="px-2 -ml-2 text-[13px] font-medium text-muted-foreground">
-        Комментарии
-      </h2>
+    <KbDocSection title="Обсуждение" count={visibleComments.length}>
       {!loading && comments.length > 0 && (
         <div className="flex flex-col gap-5">
           {comments.map((c) => (
@@ -303,7 +301,7 @@ export function KbPageComments({
           onSubmit={handleSubmitNew}
         />
       )}
-    </section>
+    </KbDocSection>
   );
 }
 

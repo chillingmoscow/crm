@@ -9,6 +9,7 @@ import {
   deleteImpactToConsequences,
   hotkeyAllowed,
   hotkeyEventFrom,
+  hotkeyFromPopup,
   hotkeyVerb,
   isConfirmHotkey,
   resolveDialogTone,
@@ -54,6 +55,14 @@ test("hotkeyEventFrom reads composing from the native event", () => {
   assert.equal(isConfirmHotkey(hotkeyEventFrom(e)), false);
   const ok = { ...key({ metaKey: true }), nativeEvent: { isComposing: false } };
   assert.equal(isConfirmHotkey(hotkeyEventFrom(ok)), true);
+});
+
+test("hotkeyFromPopup: open listbox or menu inside the dialog swallows ⌘↵", () => {
+  const inside = (sel: string) => ({ closest: (s: string) => (s === sel ? {} : null) });
+  const popup = { closest: (s: string) => (s.includes("listbox") ? {} : null) };
+  assert.equal(hotkeyFromPopup(popup), true);
+  assert.equal(hotkeyFromPopup(inside("nothing")), false);
+  assert.equal(hotkeyFromPopup(null), false);
 });
 
 test("hotkeyAllowed: never for destructive", () => {

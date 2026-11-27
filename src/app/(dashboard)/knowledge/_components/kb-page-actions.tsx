@@ -58,6 +58,7 @@ export function KbPageActions({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [deletePending, setDeletePending] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [duplicatePending, setDuplicatePending] = useState(false);
   const [exporting, setExporting] = useState(false);
 
@@ -67,10 +68,12 @@ export function KbPageActions({
 
   const onDelete = async () => {
     setDeletePending(true);
+    setDeleteError(null);
     const { error } = await softDeleteKbPage(pageId);
     setDeletePending(false);
     if (error) {
-      toast.error(`Не удалось удалить: ${error}`);
+      // Ошибка остаётся в окне подтверждения.
+      setDeleteError(`Не удалось удалить: ${error}`);
       return;
     }
     toast.success("Страница перемещена в корзину");
@@ -169,7 +172,10 @@ export function KbPageActions({
           </IconTooltip>
           <ConfirmDialog
             open={open}
-            onOpenChange={setOpen}
+            onOpenChange={(next) => {
+              setOpen(next);
+              if (!next) setDeleteError(null);
+            }}
             title={`Удалить «${pageTitle || "Без названия"}»?`}
             consequences={[
               ...(childCount > 0
@@ -187,6 +193,7 @@ export function KbPageActions({
             pendingLabel="Удаляем…"
             destructive
             busy={deletePending}
+            error={deleteError}
             onConfirm={() => void onDelete()}
           />
         </>

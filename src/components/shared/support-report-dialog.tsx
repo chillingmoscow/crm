@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   hotkeyEventFrom,
+  hotkeyFromPopup,
   isConfirmHotkey,
 } from "@/components/ui/dialog-tone";
 import {
@@ -124,6 +125,7 @@ export function SupportReportDialog({
       <DialogContent
         onKeyDown={(event) => {
           if (!isConfirmHotkey(hotkeyEventFrom(event))) return;
+          if (hotkeyFromPopup(event.target as HTMLElement)) return;
           event.preventDefault();
           event.stopPropagation();
           handleSubmit();

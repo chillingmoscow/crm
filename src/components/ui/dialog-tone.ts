@@ -87,6 +87,17 @@ export function isConfirmHotkey(e: HotkeyEventLike): boolean {
   return e.metaKey || e.ctrlKey;
 }
 
+/**
+ * ⌘↵ нажали в открытом списке или меню внутри окна (Select, DropdownMenu):
+ * их портал вне окна, но React-событие всплывает в окно. Там Enter выбирает
+ * пункт, окно подтверждать нельзя.
+ */
+export function hotkeyFromPopup(
+  target: { closest?: (selector: string) => unknown } | null | undefined,
+): boolean {
+  return Boolean(target?.closest?.('[role="listbox"], [role="menu"]'));
+}
+
 /** Необратимое случайным ⌘↵ не подтверждается. */
 export function hotkeyAllowed(tone: DialogTone): boolean {
   return tone !== "destructive";

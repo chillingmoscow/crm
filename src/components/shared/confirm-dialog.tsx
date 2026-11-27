@@ -26,6 +26,7 @@ import {
   canConfirm,
   hotkeyAllowed,
   hotkeyEventFrom,
+  hotkeyFromPopup,
   hotkeyVerb,
   isConfirmHotkey,
   resolveDialogTone,
@@ -137,6 +138,7 @@ export function ConfirmDialog({
         hideClose
         onKeyDown={(event) => {
           if (!isConfirmHotkey(hotkeyEventFrom(event))) return;
+          if (hotkeyFromPopup(event.target as HTMLElement)) return;
           // Сочетание забираем себе, даже когда подтвердить нельзя: иначе
           // ⌘↵ всплывёт через портал в панель или форму под окном.
           event.preventDefault();

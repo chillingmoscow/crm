@@ -15,12 +15,15 @@ export function KbEmptyTrashButton({ count }: { count: number }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
 
   const onConfirm = () => {
+    setError(null);
     startTransition(async () => {
       const { deleted, error } = await emptyKbTrash();
       if (error) {
-        toast.error(`Не удалось очистить корзину: ${error}`);
+        // Ошибка остаётся в окне подтверждения.
+        setError(`Не удалось очистить корзину: ${error}`);
         return;
       }
       toast.success(
@@ -45,7 +48,10 @@ export function KbEmptyTrashButton({ count }: { count: number }) {
 
       <ConfirmDialog
         open={open}
-        onOpenChange={setOpen}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setError(null);
+        }}
         title="Очистить корзину?"
         confirmLabel="Очистить корзину"
         destructive
@@ -57,10 +63,10 @@ export function KbEmptyTrashButton({ count }: { count: number }) {
           },
           { kind: "irreversible", text: "Удаление нельзя отменить" },
         ]}
-        onConfirm={() => {
-          setOpen(false);
-          onConfirm();
-        }}
+        pendingLabel="Очищаем…"
+        busy={pending}
+        error={error}
+        onConfirm={onConfirm}
       />
     </>
   );

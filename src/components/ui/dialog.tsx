@@ -71,7 +71,7 @@ const DialogContent = React.forwardRef<
       className={cn(
         // Вид окна — docs/design-system.md, «Modal»: 480px, радиус 12,
         // отступы 24, полоса кнопок `DialogFooter` дотягивается до краёв.
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-[480px] translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-[0_24px_56px_-16px_rgb(9_9_11/0.28)] motion-dialog sm:rounded-xl",
+        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-[480px] translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-xl motion-dialog sm:rounded-xl",
         "group/dialog outline-none",
         className
       )}

@@ -22,7 +22,9 @@ import {
   RefreshCw,
   Camera,
   Archive,
+  ArchiveRestore,
   RotateCcw,
+  Undo2,
   ChevronRight,
   SearchX,
   Users,
@@ -67,13 +69,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { useExitValue } from "@/hooks/use-exit-value";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { formatDateCell } from "@/lib/format/date";
@@ -310,6 +307,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
     [draft, setDraft] = useState<GuestEditable>({ name: "" }),
     [photoUrl, setPhotoUrl] = useState<string | null>(null),
     [reason, setReason] = useState(""),
+    [confirmError, setConfirmError] = useState<string | null>(null),
     [saving, setSaving] = useState(false),
     [historyMore, setHistoryMore] = useState(false),
     [tab, setTab] = useState("details"),
@@ -512,6 +510,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
     )
       return;
     setSaving(true);
+    setConfirmError(null);
     try {
       await saveGuest({
         venue: initial.venueId,
@@ -530,7 +529,8 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
         confirm === "archive" ? "Гость в архиве" : "Гость восстановлен",
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Не удалось сохранить");
+      // Ошибка остаётся в окне подтверждения, а не уходит в тост.
+      setConfirmError(e instanceof Error ? e.message : "Не удалось сохранить");
     } finally {
       setSaving(false);
     }
@@ -594,6 +594,9 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
     return () => clearInterval(timer);
   }, [settingsOpen, config, initial.venueId, refresh, filters]);
   const discarding = confirm?.startsWith("close") ?? false;
+  // Пока окно уходит, заголовок и значок не меняются на «Восстановить».
+  const shownConfirm = useExitValue(confirm);
+  const shownDiscarding = shownConfirm?.startsWith("close") ?? false;
   const show = (v: unknown) =>
     Array.isArray(v)
       ? v.join(", ")
@@ -1363,58 +1366,57 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
           <GuestCardSkeleton />
         )}
       </EditDrawer>
-      <Dialog
+      <ConfirmDialog
         open={!!confirm}
         onOpenChange={(o) => {
-          if (!o && !saving) setConfirm(null);
+          if (!o) {
+            setConfirm(null);
+            setConfirmError(null);
+          }
         }}
+        title={
+          shownDiscarding
+            ? "Не сохранять изменения?"
+            : shownConfirm === "archive"
+              ? "Переместить гостя в архив?"
+              : "Восстановить гостя?"
+        }
+        description={shownDiscarding ? "Внесённые изменения будут потеряны." : undefined}
+        confirmLabel={
+          shownDiscarding
+            ? "Не сохранять"
+            : shownConfirm === "archive"
+              ? "В архив"
+              : "Восстановить"
+        }
+        pendingLabel="Сохраняем…"
+        cancelLabel={shownDiscarding ? "Продолжить редактирование" : undefined}
+        destructive={shownDiscarding}
+        tone={shownConfirm === "archive" ? "warning" : undefined}
+        icon={
+          shownDiscarding ? Undo2 : shownConfirm === "archive" ? Archive : ArchiveRestore
+        }
+        busy={saving}
+        confirmDisabled={!discarding && !reason.trim()}
+        error={confirmError}
+        onConfirm={() =>
+          discarding
+            ? confirm === "close-settings"
+              ? (setSettingsOpen(false), setConfirm(null))
+              : close()
+            : void archive()
+        }
       >
-        <DialogContent hideClose aria-describedby={undefined}>
-          <DialogHeader>
-            <DialogTitle>
-              {discarding
-                ? "Не сохранять изменения?"
-                : confirm === "archive"
-                  ? "Переместить гостя в архив?"
-                  : "Восстановить гостя?"}
-            </DialogTitle>
-          </DialogHeader>
-          {!discarding && (
-            <Field label="Основание">
-              <Textarea
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                maxLength={1000}
-              />
-            </Field>
-          )}
-          <DialogFooter>
-            <Button
-              variant="outline"
-              disabled={saving}
-              onClick={() => setConfirm(null)}
-            >
-              Вернуться
-            </Button>
-            <Button
-              disabled={saving || (!discarding && !reason.trim())}
-              onClick={() =>
-                discarding
-                  ? confirm === "close-settings"
-                    ? (setSettingsOpen(false), setConfirm(null))
-                    : close()
-                  : void archive()
-              }
-            >
-              {discarding
-                ? "Не сохранять"
-                : confirm === "archive"
-                  ? "В архив"
-                  : "Восстановить"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        {!shownDiscarding && (
+          <Field label="Основание">
+            <Textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              maxLength={1000}
+            />
+          </Field>
+        )}
+      </ConfirmDialog>
       <EditDrawer
         open={settingsOpen}
         onOpenChange={settingsOpenChange}

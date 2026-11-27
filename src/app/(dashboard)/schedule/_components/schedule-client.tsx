@@ -61,6 +61,7 @@ import tabStyle from "@/components/shared/workspace-tabs.module.css";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { useExitValue } from "@/hooks/use-exit-value";
 import { ConfirmDialog, type DialogConsequence } from "@/components/shared/confirm-dialog";
+import { errorText } from "@/lib/actions/error-text";
 import type { DialogTone } from "@/components/ui/dialog-tone";
 import { paletteBg, paletteDot, paletteText } from "@/lib/palette";
 import { casualPayModel as pickCasualPayModel } from "@/lib/schedule/casual-pay-model";
@@ -507,6 +508,7 @@ export function ScheduleClient({
   } | null>(null);
   // Пока окно уходит (160 мс), значок и список не должны смениться на пустые.
   const shownConfirmation = useExitValue(confirmation);
+  const [confirmationError, setConfirmationError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<ScheduleEvent[] | null>(null);
   const [historyHasMore, setHistoryHasMore] = useState(false);
@@ -2734,7 +2736,10 @@ export function ScheduleClient({
       <ConfirmDialog
         open={!!confirmation}
         onOpenChange={(o) => {
-          if (!o) setConfirmation(null);
+          if (!o) {
+            setConfirmation(null);
+            setConfirmationError(null);
+          }
         }}
         title={shownConfirmation?.title ?? ""}
         description={shownConfirmation?.description}
@@ -2744,11 +2749,18 @@ export function ScheduleClient({
         icon={shownConfirmation?.icon}
         consequences={shownConfirmation?.consequences}
         busy={busy}
+        error={confirmationError}
         onConfirm={async () => {
           setBusy(true);
+          setConfirmationError(null);
           try {
             await confirmation?.action();
             setConfirmation(null);
+          } catch (e) {
+            // Сбой сети или сервера — текст остаётся в окне, а не теряется.
+            setConfirmationError(
+              errorText(e, "Не удалось выполнить действие. Проверьте соединение и попробуйте ещё раз."),
+            );
           } finally {
             setBusy(false);
           }

@@ -41,6 +41,7 @@ export function KbDeletedPageBanner({
 }: KbDeletedPageBannerProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const meta: string[] = [];
@@ -71,12 +72,15 @@ export function KbDeletedPageBanner({
   };
 
   const onHardDelete = () => {
+    setDeleteError(null);
     startTransition(async () => {
       const { error } = await hardDeleteKbPage(pageId);
       if (error) {
-        toast.error(`Не удалось удалить: ${error}`);
+        // Ошибка остаётся в окне подтверждения.
+        setDeleteError(`Не удалось удалить: ${error}`);
         return;
       }
+      setConfirmDelete(false);
       toast.success("Страница удалена навсегда");
       router.replace("/knowledge/trash");
       router.refresh();
@@ -133,7 +137,10 @@ export function KbDeletedPageBanner({
 
       <ConfirmDialog
         open={confirmDelete}
-        onOpenChange={setConfirmDelete}
+        onOpenChange={(next) => {
+          setConfirmDelete(next);
+          if (!next) setDeleteError(null);
+        }}
         title={`Удалить «${title || "Без названия"}» навсегда?`}
         confirmLabel="Удалить навсегда"
         destructive
@@ -149,10 +156,10 @@ export function KbDeletedPageBanner({
             : []),
           { kind: "irreversible", text: "Удаление нельзя отменить" },
         ]}
-        onConfirm={() => {
-          setConfirmDelete(false);
-          onHardDelete();
-        }}
+        pendingLabel="Удаляем…"
+        busy={pending}
+        error={deleteError}
+        onConfirm={onHardDelete}
       />
     </div>
   );

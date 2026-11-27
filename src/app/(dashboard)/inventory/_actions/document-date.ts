@@ -131,7 +131,20 @@ export async function updateInventoryDocumentDate(input: {
     }
     const qrInvoiceDate = dateText(qrDocument.invoiceDate) ?? document.invoice_date;
     const oldDay = invoiceDayInZone(qrInvoiceDate, timeZone);
-    if (oldDay === input.date) return { error: null };
+    if (oldDay === input.date) {
+      // День уже тот: дату могли поменять в Quick Resto после синхронизации —
+      // подтягиваем её к себе, чтобы карточка не показывала старую.
+      if (qrInvoiceDate && qrInvoiceDate !== document.invoice_date &&
+          Date.parse(qrInvoiceDate) !== Date.parse(document.invoice_date ?? "")) {
+        await admin
+          .from("documents")
+          .update({ invoice_date: qrInvoiceDate })
+          .eq("id", document.id)
+          .eq("account_id", ctx.accountId);
+        revalidateDocument(document.id);
+      }
+      return { error: null };
+    }
 
     const invoiceDate = moveInvoiceDateToDay({ original: qrInvoiceDate, day: input.date, timeZone });
     if (invoiceDate === null) return { error: "Выберите дату акта" };
@@ -187,6 +200,26 @@ export async function updateInventoryDocumentDate(input: {
       return { error: "Quick Resto не принял новую дату акта. Попробуйте ещё раз." };
     }
 
+    // С этого места Quick Resto запись принял: что бы ни случилось дальше,
+    // событие пишем в журнал, а нашу строку сверяем с тем, что сохранилось там.
+    const accountId = ctx.accountId;
+    const userId = ctx.user.id;
+    const audit = (newDay: string | null, details: Record<string, unknown> = {}) =>
+      writeAuditEvent({
+        accountId,
+        venueId: document.venue_id ?? ctx.venueId,
+        userId,
+        actionCode: "inventory.document_date_updated",
+        entityType: "inventory_document",
+        entityId: document.id,
+        details: {
+          number: document.document_number,
+          date: newDay ?? input.date,
+          ...details,
+          changes: [{ field: "invoice_date", old: oldDay, new: newDay ?? input.date }],
+        },
+      });
+
     // Проверяем, что дата правда сменилась и именно на этот момент: ответ
     // записи этого не гарантирует, а при неверном поясе Quick Resto сдвигает
     // время акта на часы.
@@ -195,47 +228,47 @@ export async function updateInventoryDocumentDate(input: {
       saved = await readQr();
     } catch (error) {
       console.error("[updateInventoryDocumentDate] verify read failed", error);
+      await audit(null, { unverified: true });
       return {
         error:
           "Дата отправлена в Quick Resto, но перечитать акт не удалось. Нажмите «Синхронизировать», чтобы увидеть текущую дату.",
       };
     }
     const savedInvoiceDate = dateText(saved.invoiceDate);
+    const savedDay = invoiceDayInZone(savedInvoiceDate, timeZone);
+
+    let notice: string | undefined;
+    if (savedInvoiceDate) {
+      const { data: updated, error: updateError } = await admin
+        .from<Array<{ id: string }>>("documents")
+        .update({ invoice_date: savedInvoiceDate })
+        .eq("id", document.id)
+        .eq("account_id", ctx.accountId)
+        .select("id");
+      // Quick Resto дату уже принял — ближайшая синхронизация её подтянет.
+      if (updateError || (updated ?? []).length === 0) {
+        console.error("[updateInventoryDocumentDate] local update failed", updateError);
+        notice = "Дата изменена в Quick Resto, но здесь ещё не обновилась. Нажмите «Синхронизировать».";
+      }
+    }
+
     if (!savedInvoiceDate || Date.parse(savedInvoiceDate) !== invoiceDate) {
       console.error("[updateInventoryDocumentDate] date not applied", {
         documentId: document.id,
         expected: new Date(invoiceDate).toISOString(),
         actual: savedInvoiceDate,
       });
-      return { error: "Quick Resto не сохранил новую дату акта. Попробуйте ещё раз или измените её в Quick Resto." };
+      if (savedDay && savedDay !== oldDay) await audit(savedDay, { mismatch: true });
+      revalidateDocument(document.id);
+      return {
+        error:
+          savedDay === input.date
+            ? "Quick Resto сохранил дату акта с другим временем — проверьте акт в Quick Resto."
+            : "Quick Resto не сохранил новую дату акта. Попробуйте ещё раз или измените её в Quick Resto.",
+      };
     }
 
-    const { data: updated, error: updateError } = await admin
-      .from<Array<{ id: string }>>("documents")
-      .update({ invoice_date: savedInvoiceDate })
-      .eq("id", document.id)
-      .eq("account_id", ctx.accountId)
-      .select("id");
-    // Quick Resto дату уже принял — ближайшая синхронизация её подтянет.
-    let notice: string | undefined;
-    if (updateError || (updated ?? []).length === 0) {
-      console.error("[updateInventoryDocumentDate] local update failed", updateError);
-      notice = "Дата изменена в Quick Resto, но здесь ещё не обновилась. Нажмите «Синхронизировать».";
-    }
-
-    await writeAuditEvent({
-      accountId: ctx.accountId,
-      venueId: document.venue_id ?? ctx.venueId,
-      userId: ctx.user.id,
-      actionCode: "inventory.document_date_updated",
-      entityType: "inventory_document",
-      entityId: document.id,
-      details: {
-        number: document.document_number,
-        date: input.date,
-        changes: [{ field: "invoice_date", old: oldDay, new: input.date }],
-      },
-    });
+    await audit(input.date);
 
     // Расчётные остатки теперь на новую дату — перечитываем позиции. Дата уже
     // сменилась, поэтому сбой здесь — не ошибка действия, а повод обновить акт.
@@ -260,13 +293,17 @@ export async function updateInventoryDocumentDate(input: {
       notice ??= "Дата изменена, но расчётные остатки обновить не удалось. Нажмите «Синхронизировать».";
     }
 
-    revalidatePath("/documents/inventory");
-    revalidatePath(`/documents/inventory/${document.id}`, "layout");
+    revalidateDocument(document.id);
     return { error: null, ...(notice ? { notice } : {}) };
   } catch (error) {
     console.error("[updateInventoryDocumentDate] unhandled error", error);
     return { error: actionErrorMessage(error, "Не удалось изменить дату акта") };
   }
+}
+
+function revalidateDocument(documentId: string) {
+  revalidatePath("/documents/inventory");
+  revalidatePath(`/documents/inventory/${documentId}`, "layout");
 }
 
 /** Проведён ли акт по ответу бэк-офиса: `processed` или иной `processingState`. */

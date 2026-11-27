@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { formatDateCell } from "../../../../../lib/format/date.ts";
 import {
+  actTimeZones,
   combineSort,
   formatDate,
   getDocHref,
+  groupsByDate,
+  netResultsTotal,
   sortToDirection,
   sortToField,
   toIsoDate,
@@ -89,4 +93,51 @@ test("sortingToSortModes пропускает чужие столбцы и по�
     ]),
     ["date_asc"],
   );
+});
+
+test("groupsByDate: по умолчанию и при сортировке по дате — да, по номеру или статусу — нет", () => {
+  assert.equal(groupsByDate([]), true);
+  assert.equal(groupsByDate(["date_desc"]), true);
+  assert.equal(groupsByDate(["date_asc", "number_asc"]), true);
+  assert.equal(groupsByDate(["number_asc", "date_desc"]), false);
+  assert.equal(groupsByDate(["status_desc"]), false);
+});
+
+test("netResultsTotal: только сданные акты с расчётом, сбой итога — без суммы", () => {
+  const row = (patch: Record<string, unknown>) => ({
+    results_has_line_amounts: true,
+    status: "processed",
+    totals_unavailable: false,
+    surplus_sum: 0,
+    shortfall_sum: 0,
+    ...patch,
+  });
+  assert.deepEqual(
+    netResultsTotal([
+      row({ surplus_sum: 100, shortfall_sum: 300 }),
+      row({ surplus_sum: 50 }),
+      // Не сдан: «разница» Quick Resto — минус остаток, в итог не идёт.
+      row({ status: "assigned", shortfall_sum: 99999 }),
+      row({ results_has_line_amounts: false, shortfall_sum: 10 }),
+    ]),
+    { net: -150, counted: 2, unavailable: false },
+  );
+  assert.equal(netResultsTotal([row({ totals_unavailable: true })]).unavailable, true);
+});
+
+test("actTimeZones: день акта — в поясе заведения, без пояса — Москва", () => {
+  const zoneOf = actTimeZones([
+    { id: "msk", name: "Бар", timezone: "Europe/Moscow" },
+    { id: "nsk", name: "Кухня", timezone: "Asia/Novosibirsk" },
+    { id: "none", name: "Склад", timezone: null },
+    { id: "broken", name: "Цех", timezone: "Mars/Olympus" },
+  ]);
+  // 01:30 МСК 24.11 — на сервере в UTC это ещё 23.11.
+  const night = "2026-11-23T22:30:00Z";
+  assert.equal(formatDateCell(night, zoneOf("msk")), "24.11.2026");
+  assert.equal(formatDateCell(night, zoneOf("nsk")), "24.11.2026");
+  assert.equal(zoneOf("none"), "Europe/Moscow");
+  assert.equal(zoneOf(null), "Europe/Moscow");
+  assert.equal(zoneOf("broken"), "Europe/Moscow");
+  assert.equal(zoneOf("unknown"), "Europe/Moscow");
 });

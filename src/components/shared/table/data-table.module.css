@@ -59,6 +59,24 @@
 .table thead th {
   white-space: nowrap;
 }
+/* Подзаголовок группы строк (DataTable `groups`): во всю ширину, ниже и
+   тише обычной строки, без наведения. */
+.table tbody tr.groupRow {
+  height: 40px;
+  background: hsl(var(--muted) / 0.4);
+}
+.table tbody tr.groupRow:hover {
+  background: hsl(var(--muted) / 0.4);
+}
+.table tbody tr.groupRow th {
+  height: 40px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+  text-align: left;
+  border-bottom: 1px solid hsl(var(--border));
+}
 .table tbody td > span:not([data-state]) {
   max-width: 100%;
 }
@@ -73,6 +91,15 @@
     display: grid;
     gap: 12px;
     min-width: 0;
+  }
+  /* Заголовок группы над карточками: первая группа — без лишнего отступа. */
+  .mobileGroupHeader {
+    padding: 8px 4px 0;
+    font-size: 13px;
+    line-height: 20px;
+  }
+  .mobileGroupHeader:first-child {
+    padding-top: 0;
   }
   .mobileCard {
     min-width: 0;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useId, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarDays } from "lucide-react";
 import { toast } from "sonner";
@@ -76,12 +76,14 @@ export function ActDateEditor({
     });
   };
 
-  // Последствия — списком под полями (DS «Modal»): что именно пересчитается.
+  // Как Quick Resto считает остаток — пояснение к полям, а не последствие:
+  // подсказкой под ними (DS «Подсказка под полем»). В рамке списка
+  // последствий прямо под полями оно читалось как ещё одно поле ввода.
+  const hintId = useId();
+  const withHint = (describedBy?: string) => [describedBy, hintId].filter(Boolean).join(" ");
+
+  // Последствия — списком (DS «Modal»), только когда что-то правда пересчитается.
   const consequences: DialogConsequence[] = [
-    {
-      kind: "info",
-      text: "Расчётный остаток Quick Resto считает на этот момент: что пришло и списано позже, в него не попадёт.",
-    },
     ...(hasResults
       ? [{ kind: "info" as const, text: "Расчётные остатки, разница и суммы недостач и излишков пересчитаются." }]
       : hasEnteredAmounts
@@ -118,6 +120,7 @@ export function ActDateEditor({
               {(control) => (
                 <DatePicker
                   {...control}
+                  aria-describedby={withHint(control["aria-describedby"])}
                   value={day}
                   onChange={(value) => {
                     setDay(value);
@@ -133,6 +136,7 @@ export function ActDateEditor({
               {(control) => (
                 <TimeInput
                   {...control}
+                  aria-describedby={withHint(control["aria-describedby"])}
                   value={time}
                   onChange={(value) => {
                     setTime(value);
@@ -143,7 +147,10 @@ export function ActDateEditor({
               )}
             </Field>
           </div>
-          {restriction ? null : <ConsequenceList items={consequences} />}
+          <p id={hintId} className="-mt-2 text-xs text-muted-foreground">
+            Расчётный остаток считается на этот момент: что пришло и списано позже, в него не попадёт.
+          </p>
+          {restriction || consequences.length === 0 ? null : <ConsequenceList items={consequences} />}
         </div>
       </ConfirmDialog>
     </>

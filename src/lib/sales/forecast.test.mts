@@ -45,14 +45,23 @@ test("forecast: без истории года — только М и У с ве
   assert.equal(f.value, round10k(0.6 * mom + 0.4 * level));
 });
 
-test("forecast: неполный месяц не база", () => {
+test("forecast: неполный месяц не база — берём последний полный", () => {
   const f = forecastTurnover({
     target: "2026-12-01", turnover: autumn, complete: complete(["2026-09-01", "2026-10-01"]),
     prices: [], season: FLAT, weekdayWeights: UNIFORM,
   });
-  assert.deepEqual(f.estimates.map((e) => e.key), ["level"]);
   const z = (m: string) => autumn.get(m)! / days(m);
-  assert.equal(f.value, round10k(((z("2026-09-01") + z("2026-10-01")) / 2) * 31));
+  // Ноябрь идёт: «месяц к месяцу» — от октября, «уровень» — по октябрю и сентябрю.
+  assert.deepEqual(f.estimates.map((e) => e.key), ["mom", "level"]);
+  assert.match(f.estimates[0].basis, /октябрь 2026/);
+  assert.equal(f.value, round10k(0.6 * z("2026-10-01") * 31 + 0.4 * ((z("2026-09-01") + z("2026-10-01")) / 2) * 31));
+});
+
+test("forecast: год к году при идущем прошлом месяце — темп по последним полным", () => {
+  const t = twoYears();
+  const done = complete([...t.keys()].filter((m) => m !== "2026-11-01"));
+  const f = forecastTurnover({ target: "2026-12-01", turnover: t, complete: done, prices: [], season: FLAT, weekdayWeights: UNIFORM });
+  assert.deepEqual(f.estimates.map((e) => e.key), ["yoy", "mom", "level"]);
 });
 
 test("forecast: истории нет совсем — прогноза нет", () => {

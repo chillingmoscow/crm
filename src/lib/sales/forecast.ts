@@ -87,33 +87,32 @@ export function forecastTurnover(input: {
   const S = (m: MonthKey) => season(input.season, m);
   const estimates: Omit<ForecastEstimate, "weight">[] = [];
 
+  // Базы — последние полные месяцы до целевого: план на следующий месяц
+  // задают, пока текущий ещё идёт, и он в базы не попадает.
+  const bases = [1, 2, 3, 4, 5, 6].map((k) => shiftMonth(target, -k)).filter((m) => z(m) !== null).slice(0, 3);
+
   const lastYear = z(shiftMonth(target, -12));
-  const recent = [1, 2, 3].map((k) => z(shiftMonth(target, -k)));
-  const recentLastYear = [1, 2, 3].map((k) => z(shiftMonth(target, -12 - k)));
-  if (lastYear !== null && recent.every((v) => v !== null) && recentLastYear.every((v) => v !== null)) {
-    const trend = recent.reduce((s, v) => s + v!, 0) / recentLastYear.reduce((s, v) => s + v!, 0);
+  const recentLastYear = bases.map((m) => z(shiftMonth(m, -12)));
+  if (lastYear !== null && bases.length === 3 && recentLastYear.every((v) => v !== null)) {
+    const trend = bases.reduce((s, m) => s + z(m)!, 0) / recentLastYear.reduce((s, v) => s + v!, 0);
     estimates.push({
       key: "yoy",
       value: lastYear * trend * targetWeight,
-      basis: `${label(shiftMonth(target, -12))}: ${mln(turnover.get(shiftMonth(target, -12))!)} · темп последних трёх месяцев к прошлому году ${ratio(trend)}`,
+      basis: `${label(shiftMonth(target, -12))}: ${mln(turnover.get(shiftMonth(target, -12))!)} · темп последних трёх полных месяцев к прошлому году ${ratio(trend)}`,
     });
   }
 
-  const prev = recent[0];
-  if (prev !== null) {
-    const step = S(target) / S(shiftMonth(target, -1));
+  if (bases.length) {
+    const base = bases[0];
+    const step = S(target) / S(base);
     estimates.push({
       key: "mom",
-      value: prev * step * targetWeight,
-      basis: `${label(shiftMonth(target, -1))}: ${mln(turnover.get(shiftMonth(target, -1))!)} · сезонный переход ${ratio(step)}`,
+      value: z(base)! * step * targetWeight,
+      basis: `${label(base)}: ${mln(turnover.get(base)!)} · сезонный переход ${ratio(step)}`,
     });
   }
 
-  const levels = [1, 2, 3].flatMap((k) => {
-    const m = shiftMonth(target, -k);
-    const v = z(m);
-    return v === null ? [] : [v / S(m)];
-  });
+  const levels = bases.map((m) => z(m)! / S(m));
   if (levels.length >= 2) {
     const level = levels.reduce((s, v) => s + v, 0) / levels.length;
     estimates.push({
@@ -133,26 +132,27 @@ export function forecastShare(input: { target: MonthKey; share: Map<MonthKey, nu
     return v == null || !complete.has(m) ? null : v;
   };
   const estimates: Omit<ForecastEstimate, "weight">[] = [];
+  const bases = [1, 2, 3, 4, 5, 6].map((k) => shiftMonth(target, -k)).filter((m) => a(m) !== null).slice(0, 3);
   const lastYear = a(shiftMonth(target, -12));
-  const recent = [1, 2, 3].map((k) => a(shiftMonth(target, -k)));
-  const recentLastYear = [1, 2, 3].map((k) => a(shiftMonth(target, -12 - k)));
-  if (lastYear !== null && recent.every((v) => v !== null) && recentLastYear.every((v) => v !== null)) {
-    const shift = recent.reduce((s, v) => s + v!, 0) / 3 - recentLastYear.reduce((s, v) => s + v!, 0) / 3;
+  const recentLastYear = bases.map((m) => a(shiftMonth(m, -12)));
+  if (lastYear !== null && bases.length === 3 && recentLastYear.every((v) => v !== null)) {
+    const shift = bases.reduce((s, m) => s + a(m)!, 0) / 3 - recentLastYear.reduce((s, v) => s + v!, 0) / 3;
     estimates.push({
       key: "yoy",
       value: lastYear + shift,
-      basis: `${label(shiftMonth(target, -12))}: ${lastYear.toLocaleString("ru-RU")}% · за три месяца доля ${shift >= 0 ? "выше" : "ниже"} прошлого года на ${Math.abs(Math.round(shift * 10) / 10).toLocaleString("ru-RU")} п. п.`,
+      basis: `${label(shiftMonth(target, -12))}: ${lastYear.toLocaleString("ru-RU")}% · за три полных месяца доля ${shift >= 0 ? "выше" : "ниже"} прошлого года на ${Math.abs(Math.round(shift * 10) / 10).toLocaleString("ru-RU")} п. п.`,
     });
   }
-  const prev = recent[0];
-  if (prev !== null) {
+  if (bases.length) {
+    const base = bases[0];
     const ly = a(shiftMonth(target, -12));
-    const lyPrev = a(shiftMonth(target, -13));
-    const step = ly !== null && lyPrev !== null && lyPrev > 0 ? ly / lyPrev : 1;
+    const lyBase = a(shiftMonth(base, -12));
+    const step = ly !== null && lyBase !== null && lyBase > 0 ? ly / lyBase : 1;
+    const prev = a(base)!;
     estimates.push({
       key: "mom",
       value: prev * step,
-      basis: `${label(shiftMonth(target, -1))}: ${prev.toLocaleString("ru-RU")}%${step !== 1 ? ` · переход год назад ${ratio(step)}` : " · без сезонной поправки"}`,
+      basis: `${label(base)}: ${prev.toLocaleString("ru-RU")}%${step !== 1 ? ` · переход год назад ${ratio(step)}` : " · без сезонной поправки"}`,
     });
   }
   return combine(estimates, FORECAST_WEIGHTS.share, (n) => Math.round(n * 10) / 10);
